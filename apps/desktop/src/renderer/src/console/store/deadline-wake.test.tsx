@@ -9,6 +9,7 @@
 // indistinguishable from `pendingCount` alone.
 
 import { act, render } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "../core/index.js";
@@ -61,15 +62,46 @@ function WakingSurface(props: {
   return <output>{String(nowMilliseconds)}</output>;
 }
 
-function renderWake(
-  clock: ConsoleClock,
-  deadlines: readonly number[],
-): { readonly instant: () => number; readonly setDeadlines: (next: readonly number[]) => void } {
+/**
+ * The shape this hook shipped: one reading, taken at mount and never re-taken.
+ *
+ * Not a stand-in for the hook — it is the cell `useDeadlineWake` held, kept so the
+ * claims about a replacement clock are shown to discriminate. It renders what the
+ * hook would arm for, which is the whole of what the held instant decides.
+ */
+function MountLifetimeInstantSurface(props: {
+  readonly clock: ConsoleClock;
+  readonly deadlines: readonly number[];
+}): React.JSX.Element {
+  const [wokeAtMilliseconds] = useState(() => props.clock.now());
+  const dueAtMilliseconds = earliestFutureDeadline(props.deadlines, wokeAtMilliseconds);
+  return <output>{String(dueAtMilliseconds ?? NOTHING_OUTSTANDING)}</output>;
+}
+
+/** What a surface with no deadline still ahead of its instant has to arm for. */
+const NOTHING_OUTSTANDING = "nothing outstanding";
+
+interface MountedWake {
+  readonly instant: () => number;
+  readonly setDeadlines: (next: readonly number[]) => void;
+  readonly setClock: (next: ConsoleClock) => void;
+}
+
+function renderWake(clock: ConsoleClock, deadlines: readonly number[]): MountedWake {
   const { container, rerender } = render(<WakingSurface clock={clock} deadlines={deadlines} />);
+  const showing = { clock, deadlines };
+  const show = (): void => {
+    rerender(<WakingSurface clock={showing.clock} deadlines={showing.deadlines} />);
+  };
   return {
     instant: () => Number(container.textContent),
     setDeadlines: (next) => {
-      rerender(<WakingSurface clock={clock} deadlines={next} />);
+      showing.deadlines = next;
+      show();
+    },
+    setClock: (next) => {
+      showing.clock = next;
+      show();
     },
   };
 }
@@ -274,5 +306,94 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
     // Nothing outstanding, so the chain stops — the same claim the near-deadline
     // case makes, held across a walk of several steps.
     expect(clock.pendingCount).toBe(0);
+  });
+});
+
+describe("useDeadlineWake — the instant belongs to the clock it was read from", () => {
+  /** A deadline the later clock is already past and the earlier one has not reached. */
+  const DEADLINE_BETWEEN_THE_TWO_CLOCKS = MOUNTED_AT + 5_000;
+  const LATER_START = MOUNTED_AT + 10_000;
+
+  it("re-reads the instant from a replacement clock and arms for it", () => {
+    // A mounted consumer handed another clock — a fixture scenario switching to one
+    // that starts earlier is the ordinary way. The reading taken from the clock it no
+    // longer has measures nothing on this one, so holding it put every deadline
+    // behind the surface at once: nothing armed, every row expired, until unmount.
+    const laterClock = new CountingManualClock(LATER_START);
+    const earlierClock = new CountingManualClock(MOUNTED_AT);
+    const wake = renderWake(laterClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
+    expect(wake.instant()).toBe(LATER_START);
+    expect(laterClock.armCount).toBe(0);
+
+    act(() => {
+      wake.setClock(earlierClock);
+    });
+
+    expect(wake.instant()).toBe(MOUNTED_AT);
+    expect(earlierClock.armCount).toBe(1);
+    expect(earlierClock.pendingCount).toBe(1);
+    act(() => {
+      earlierClock.advance(5_000);
+    });
+    expect(wake.instant()).toBe(DEADLINE_BETWEEN_THE_TWO_CLOCKS);
+  });
+
+  it("negative control: the cell this replaced goes on measuring against the old clock", () => {
+    // The identical script against the shape that shipped: its instant is the later
+    // clock's, so the deadline the hook above arms for reads as already crossed and
+    // nothing is left to wake up for.
+    const laterClock = new CountingManualClock(LATER_START);
+    const earlierClock = new CountingManualClock(MOUNTED_AT);
+    const view = render(
+      <MountLifetimeInstantSurface
+        clock={laterClock}
+        deadlines={[DEADLINE_BETWEEN_THE_TWO_CLOCKS]}
+      />,
+    );
+
+    view.rerender(
+      <MountLifetimeInstantSurface
+        clock={earlierClock}
+        deadlines={[DEADLINE_BETWEEN_THE_TWO_CLOCKS]}
+      />,
+    );
+
+    expect(view.container.textContent).toBe(NOTHING_OUTSTANDING);
+  });
+
+  it("negative control: a re-render on the SAME clock does not re-read it", () => {
+    // Without this, "re-read from the replacement" would also be satisfied by a hook
+    // that read the clock on every pass — a render whose output depends on when it
+    // ran, which is the impurity the frozen clock exists to remove.
+    const clock = new CountingManualClock(MOUNTED_AT);
+    const wake = renderWake(clock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
+    act(() => {
+      clock.advance(2_000);
+    });
+
+    act(() => {
+      wake.setDeadlines([DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
+    });
+
+    expect(wake.instant()).toBe(MOUNTED_AT);
+  });
+
+  it("negative control: a replacement clock already past the deadline arms nothing", () => {
+    // The other direction, so the claim is about reading the replacement rather than
+    // about arming on every clock change — and the timer on the clock the consumer
+    // left is cancelled rather than carried.
+    const earlierClock = new CountingManualClock(MOUNTED_AT);
+    const laterClock = new CountingManualClock(LATER_START);
+    const wake = renderWake(earlierClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
+    expect(earlierClock.armCount).toBe(1);
+
+    act(() => {
+      wake.setClock(laterClock);
+    });
+
+    expect(wake.instant()).toBe(LATER_START);
+    expect(laterClock.armCount).toBe(0);
+    expect(laterClock.pendingCount).toBe(0);
+    expect(earlierClock.pendingCount).toBe(0);
   });
 });
