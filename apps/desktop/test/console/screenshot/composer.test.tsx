@@ -46,7 +46,7 @@ import {
   mountComposerProviderBoundWaiting,
   mountRunsPane,
   type MountedFamilySurface,
-} from "../composer-surfaces.js";
+} from "../surfaces/composer.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
