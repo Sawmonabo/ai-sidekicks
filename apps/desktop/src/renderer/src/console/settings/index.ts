@@ -66,11 +66,18 @@ import { SettingsSurface } from "./SettingsSurface.js";
 /**
  * Register every shipped settings page against a registry.
  *
- * Takes the registry rather than reaching for the module-scope singleton, for
- * `registerConsoleFamilies`' reason: a test composes the same pages into a registry
- * it owns, and a second window composes a subset without a second code path.
+ * Takes the registry rather than reaching for a module-scope singleton, for
+ * `registerConsoleFamilies`' reason: the registrar below composes the pages its
+ * surface renders and closes over them, so a second window composes its own set
+ * without a second code path and neither window inherits the other's.
+ *
+ * NOT EXPORTED. A door line exists for a production reader, and the only caller that
+ * could want this page set is one composing a settings surface — which is
+ * {@link registerSettingsSurface}. A test wanting what a window renders drives that
+ * registrar and reads back the render it claimed, rather than composing a second copy
+ * of this list that agrees with it until someone adds a page to one of them.
  */
-export function registerSettingsPages(registry: SettingsPageRegistry): void {
+function registerSettingsPages(registry: SettingsPageRegistry): void {
   // T-023p-1C-4 L4.6 nodes, notifications, application
   registerRuntimeNodesPage(registry);
   registerNotificationsPage(registry);
