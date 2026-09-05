@@ -1,9 +1,10 @@
 // The screenshot tier: the composer family's surfaces, per scheme.
 //
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes, why the references are pinned to `darwin`, and which
-// machine may mint one. `baseline-platform.ts` holds the values that reasoning
-// produces, so nothing about it is restated here.
+// snapshot-update modes, why the pin is a RUNNER rather than a platform, and which
+// machine may mint a reference. `baseline-platform.ts` holds the values that
+// reasoning produces and the skip both suites take, so nothing about it is restated
+// here.
 //
 // WHAT IS PINNED, AND WHY. The composer is one component whose whole design claim is
 // about ADDRESSING. `Spec-023 §Signature Feature Composition Sketches`' Session
@@ -32,10 +33,11 @@
 // per scheme, off the table below. A number in this header is a claim no gate reads,
 // and it went stale the moment a surface joined the table. Every reference is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
-// A local run on any other host skips; a local run on a developer Mac is advisory in
-// the small, measured way `frame.test.tsx` records.
+// A run anywhere else skips unless it asks — a developer Mac included, whose local
+// comparison is advisory in the small, measured way `frame.test.tsx` records.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { server } from "vitest/browser";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
@@ -47,7 +49,11 @@ import {
   mountRunsPane,
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
-import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
+import {
+  announceOffBaselineHost,
+  readBaselineHost,
+  skipOffBaselineHost,
+} from "./baseline-platform.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -59,6 +65,15 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
  * is mounted, and a copy of the same six lines per surface is one more place for the
  * scheme emulation or the skip guard to be forgotten.
  */
+/**
+ * What this host declared about itself.
+ *
+ * Off `server.config.env` rather than `process.env`, which does not exist in the
+ * page: this tier runs its tests inside a real browser, and the environment reaches
+ * it as Vite's resolved env.
+ */
+const baselineHost = readBaselineHost(server.config.env);
+
 const PINNED_SURFACES: readonly {
   readonly referenceName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
@@ -101,7 +116,7 @@ const PINNED_REFERENCES: readonly {
 );
 
 describe("screenshot — the composer, runs, and approvals surfaces", () => {
-  warnOnceIfOffPinnedPlatform();
+  announceOffBaselineHost(baselineHost);
 
   // This one runs everywhere, including off the pinned platform: it reads the table
   // rather than the renderer. A duplicate reference name is silent on the machine
@@ -116,7 +131,7 @@ describe("screenshot — the composer, runs, and approvals surfaces", () => {
 
   for (const reference of PINNED_REFERENCES) {
     it(`renders ${reference.referenceName}`, async (context) => {
-      skipOffPinnedPlatform(context);
+      skipOffBaselineHost(context, baselineHost);
       // Through the system preference rather than a stamped attribute: the token
       // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
       // what a default install actually resolves.

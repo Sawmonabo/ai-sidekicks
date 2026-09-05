@@ -64,11 +64,14 @@
 // 26 016.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { TestContext } from "vitest";
 import { server } from "vitest/browser";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
-import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
+import {
+  announceOffBaselineHost,
+  readBaselineHost,
+  skipOffBaselineHost,
+} from "./baseline-platform.js";
 
 import {
   ConsoleRoot,
@@ -97,26 +100,6 @@ const updateMode = server.config.snapshotOptions.updateSnapshot;
  * reaches it as Vite's resolved env.
  */
 const baselineHost = readBaselineHost(server.config.env);
-
-/** Whether this host is one whose comparisons mean anything. */
-const comparesHere = comparesBaselines(baselineHost);
-
-/** Why they did not run here. One sentence, carried on both channels. */
-const SKIP_REASON = baselineSkipReason(baselineHost);
-
-/**
- * Skip a baseline comparison on a host that cannot reproduce the references.
- *
- * A skip with a NOTE rather than `describe.skipIf`, because the reason is the
- * whole point: a reader of a green run has to be able to see that the comparisons
- * did not run and why, and a suite that is simply absent from the report reads
- * exactly like one that passed. The note reaches structured reporters; the
- * terminal one prints a bare "skipped" count, which is why the suite below also
- * says it once on the console channel that reporter forwards.
- */
-function skipOffBaselineHost(context: TestContext): void {
-  context.skip(!comparesHere, SKIP_REASON);
-}
 
 /**
  * The mounted frame, or a throw.
@@ -179,16 +162,11 @@ describe("screenshot — the tier gates rather than mints", () => {
 });
 
 describe("screenshot — the frame under the first-run scenario", () => {
-  // Said once at collection, on the one channel the terminal reporter forwards.
-  // Without it a skipped run reports "3 skipped" and nothing else, which a reader
-  // cannot tell from a tier that was quietly switched off.
-  if (!comparesHere) {
-    console.warn(SKIP_REASON);
-  }
+  announceOffBaselineHost(baselineHost);
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme`, async (context) => {
-      skipOffBaselineHost(context);
+      skipOffBaselineHost(context, baselineHost);
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
@@ -200,7 +178,7 @@ describe("screenshot — the frame under the first-run scenario", () => {
     // The palette is the one surface that exists on a first run, so it is the one
     // composition worth pinning before the families ship theirs: the scoped
     // context row, the grouped command list, and the chord hints in the footer.
-    skipOffBaselineHost(context);
+    skipOffBaselineHost(context, baselineHost);
     await emulateSystemScheme("light");
     const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
     await pressKeys("{Control>}k{/Control}");

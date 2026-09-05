@@ -40,6 +40,8 @@
 // argument is also what lets the cases below drive the real predicate over all three
 // states instead of the one the machine running them happens to be in.
 
+import type { TestContext } from "vitest";
+
 /**
  * The prefix both variables below share, and the reason they share it.
  *
@@ -109,4 +111,34 @@ export function baselineSkipReason(host: BaselineHost): string {
     `Mac renders the console's fallback face rather than the runner's, so read a small ` +
     `keycap-glyph diff as the host and anything larger as yours.`
   );
+}
+
+/**
+ * Skip a baseline comparison on a host that cannot reproduce the references.
+ *
+ * A skip with a NOTE rather than `describe.skipIf`, because the reason is the whole
+ * point: a reader of a green run has to be able to see that the comparisons did not
+ * run and why, and a suite that is simply absent from the report reads exactly like
+ * one that passed.
+ *
+ * Here rather than in a suite, because two suites in this tier ask for it — the
+ * frame's and the composer family's — and a per-file copy is two chances for a skip
+ * to be spelled without its reason.
+ */
+export function skipOffBaselineHost(context: TestContext, host: BaselineHost): void {
+  context.skip(!comparesBaselines(host), baselineSkipReason(host));
+}
+
+/**
+ * Say the reason once per suite, on the channel the terminal reporter forwards.
+ *
+ * The note above reaches structured reporters; the terminal one prints a bare
+ * "skipped" count, which a reader cannot tell from a tier that was quietly switched
+ * off. Called from a suite body, so it says it once for that suite rather than once
+ * per skipped case.
+ */
+export function announceOffBaselineHost(host: BaselineHost): void {
+  if (!comparesBaselines(host)) {
+    console.warn(baselineSkipReason(host));
+  }
 }
