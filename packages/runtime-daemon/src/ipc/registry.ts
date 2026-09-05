@@ -32,8 +32,9 @@
 //
 //   * I-007-9 — method names conform to the canonical format declared in
 //     `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`. The dotted-
-//     camelCase regex `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` is
-//     canonical (lowercase-rooted; camelCase permitted in tail segments);
+//     camelCase regex `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` is
+//     canonical (every segment starts lowercase and may carry camelCase, the
+//     namespace root included since the 2026-09-05 root widening);
 //     LSP-style `$/`-prefixed names remain enforced via a sibling regex
 //     pending a follow-up decision. The regex check runs at `register()`
 //     time per I-007-9.
