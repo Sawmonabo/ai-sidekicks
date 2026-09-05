@@ -309,3 +309,126 @@ describe("partial-read — a coverage gap is counted, and is its own fact", () =
     expect(coverage).not.toContain("behind what the daemon has sent");
   });
 });
+
+describe("readingNoticeFor — no arm agrees with the subject's number", () => {
+  // The subject is a noun phrase the caller writes and this module never learns
+  // whether it is singular or plural — `partial-read.ts` offers "the queue" and
+  // "these quotas" as equally valid in the same breath. So an arm that put the
+  // subject in front of a verb read correctly for one and ungrammatically for the
+  // other, which is what `cut` did: "read before these quotas was cut".
+  //
+  // Fixing it at the call site would mean a second parameter carrying the verb form,
+  // which is the caller writing grammar again — the drift this module exists to
+  // remove. So the rule is structural: the subject never governs a verb, and these
+  // two tables are how that is checked rather than read.
+
+  const SINGULAR_SUBJECT = "the queue";
+  const PLURAL_SUBJECT = "these quotas";
+
+  /** Verbs that would agree with a singular subject, and so refuse a plural one. */
+  const SINGULAR_VERBS: readonly string[] = ["was", "is", "has", "does"];
+
+  /** And the reciprocal, which would refuse a singular subject. */
+  const PLURAL_VERBS: readonly string[] = ["were", "are", "have", "do"];
+
+  /**
+   * The words that make a following verb somebody else's to agree with.
+   *
+   * `of` and `for` POSTMODIFY the noun in front of them, so in "the read of these
+   * quotas was refused" and "the answer for these quotas was cut short" the verb
+   * agrees with "read" and with "answer" — nouns this module supplies — and the
+   * caller's phrase governs nothing. That is precisely the technique the arms use to
+   * stay number-blind, and a check without the distinction would report both correct
+   * arms as defects and be switched off inside a week.
+   *
+   * `before`, `after` and `while` are deliberately absent, and the difference is the
+   * whole finding: they take a CLAUSE, so "before these quotas was cut" makes the
+   * caller's phrase the clause subject and the verb really does agree with it — which
+   * is what the `cut` arm used to write, and what was ungrammatical for two of the
+   * three subjects this module's own doc offers.
+   */
+  const BINDINGS_TO_AN_EARLIER_NOUN: readonly string[] = ["of ", "for "];
+
+  /** Where `subject` governs the verb after it rather than modifying an earlier noun. */
+  function governedPairsIn(
+    copy: string,
+    subject: string,
+    verbs: readonly string[],
+  ): readonly string[] {
+    return verbs.filter((verb) => {
+      const at = copy.indexOf(`${subject} ${verb}`);
+      if (at < 0) {
+        return false;
+      }
+      const before = copy.slice(0, at);
+      return !BINDINGS_TO_AN_EARLIER_NOUN.some((binding) => before.endsWith(binding));
+    });
+  }
+
+  /** Every word a notice puts on screen for one state, whatever shape it took. */
+  function wordsOf(state: ReadingState, subject: string): string {
+    const notice = readingNoticeFor(state, subject);
+    switch (notice.shape) {
+      case "none":
+        return "";
+      case "reading":
+        return notice.title;
+      case "sentence":
+      case "counted-sentence":
+        return notice.copy;
+    }
+  }
+
+  it("never puts a singular verb straight after a plural subject", () => {
+    const offenders = READING_STATE_KINDS.flatMap((kind) =>
+      governedPairsIn(
+        wordsOf(STATE_BY_KIND[kind], PLURAL_SUBJECT),
+        PLURAL_SUBJECT,
+        SINGULAR_VERBS,
+      ).map((verb) => `${kind}: "${PLURAL_SUBJECT} ${verb}"`),
+    );
+    expect(offenders).toStrictEqual([]);
+  });
+
+  it("never puts a plural verb straight after a singular subject", () => {
+    // The other direction, and it is not decoration: the obvious repair for the first
+    // claim is to write the plural verb everywhere, which trades one ungrammatical
+    // pair for the other and would pass a one-sided check.
+    const offenders = READING_STATE_KINDS.flatMap((kind) =>
+      governedPairsIn(
+        wordsOf(STATE_BY_KIND[kind], SINGULAR_SUBJECT),
+        SINGULAR_SUBJECT,
+        PLURAL_VERBS,
+      ).map((verb) => `${kind}: "${SINGULAR_SUBJECT} ${verb}"`),
+    );
+    expect(offenders).toStrictEqual([]);
+  });
+
+  it("negative control: the check finds the pairing it is looking for", () => {
+    // Both claims above are empty lists, and so is a check whose needle never matches
+    // anything. This drives the same reading over the sentence the `cut` arm used to
+    // produce, so the two claims cannot pass by looking for nothing.
+    const superseded = `read before ${PLURAL_SUBJECT} was cut, so what is not shown here may still exist.`;
+    expect(governedPairsIn(superseded, PLURAL_SUBJECT, SINGULAR_VERBS)).toStrictEqual(["was"]);
+  });
+
+  it("negative control: a postmodified subject governs nothing, and is admitted", () => {
+    // The other half of the reading, and the reason this is not a bare search for two
+    // adjacent words. `refused` writes "the read of these quotas was refused", which
+    // is correct for every subject because the verb agrees with "read" — the exact
+    // pair the first claim looks for, in a sentence that has nothing wrong with it.
+    const postmodified = `The read of ${PLURAL_SUBJECT} was refused, so none of it is shown here.`;
+    expect(postmodified).toContain(`${PLURAL_SUBJECT} was`);
+    expect(governedPairsIn(postmodified, PLURAL_SUBJECT, SINGULAR_VERBS)).toStrictEqual([]);
+  });
+
+  it("negative control: every arm still names the subject at all", () => {
+    // A repair that dropped the subject from a sentence would satisfy both claims
+    // above while making the notice say nothing about what was read.
+    const silent = READING_STATE_KINDS.filter(
+      (kind) =>
+        kind !== "served" && !wordsOf(STATE_BY_KIND[kind], PLURAL_SUBJECT).includes(PLURAL_SUBJECT),
+    );
+    expect(silent).toStrictEqual([]);
+  });
+});
