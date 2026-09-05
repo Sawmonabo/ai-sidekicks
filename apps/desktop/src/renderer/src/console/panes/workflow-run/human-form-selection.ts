@@ -20,10 +20,18 @@
 // resumed, or whose park has gone, falls back to the first wait still standing rather
 // than leaving the pane pointing at nothing. That is why no effect resets this state and
 // why a stale id can never open a form composed against a phase the run has moved past.
+//
+// RESOLVED IS NOT SCOPED, AND THE SELECTION NEEDED BOTH. Resolution makes a stale id
+// SAFE — it can only ever pick out a wait the current snapshot still has — and says
+// nothing about which RUN the person was answering about. Phase ids are the
+// definition's, so a pane retargeted from run A to run B without unmounting resolved
+// A's `sign-off` against B's phases, found the same id there, and opened run B's
+// `sign-off` form for somebody who had asked to see run A's. The id is therefore held
+// against the port and the run the pane is addressed at — the same pair the run read
+// itself is held against — so the render that re-addresses already reads no selection.
 
-import { useState } from "react";
-
-import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../../bridge/index.js";
+import type { GrowthPort, WorkflowPhaseState, WorkflowRunSnapshot } from "../../bridge/index.js";
+import { useSubjectScopedState } from "../../store/index.js";
 import type { HumanFormMount } from "./slots/HumanFormSlot.js";
 
 /**
@@ -98,14 +106,28 @@ export interface HumanFormSelection {
  * port refused — because all three carry the same fact for this hook: there is no run
  * to resolve a wait against. A caller that passed phases without a run could reach
  * that state with a list in hand, which is exactly the pairing the mount forbids.
+ *
+ * THE ADDRESS AND THE ANSWER ARE BOTH PASSED, and they are not the same input. The
+ * port and the run id are what the selection is HELD against — the pair
+ * `useWorkflowRunSnapshot` is addressed at, so the two cannot come apart — and the
+ * snapshot is what it is RESOLVED against, which exists only on the served arm. The
+ * port is in the pair for that hook's own reason: the fixture's scenario switch
+ * replaces the bridge and keeps the run id, so a run-only holder would carry a
+ * selection made against the previous scenario's phases into the next one.
  */
-export function useHumanFormSelection(run: WorkflowRunSnapshot | undefined): HumanFormSelection {
-  const [requestedPhaseId, setRequestedPhaseId] = useState<string | undefined>(undefined);
+export function useHumanFormSelection(
+  growth: GrowthPort,
+  workflowRunId: string | undefined,
+  run: WorkflowRunSnapshot | undefined,
+): HumanFormSelection {
+  const { value: requestedPhaseId, publish: requestPhaseId } = useSubjectScopedState<
+    string | undefined
+  >(growth, workflowRunId, () => undefined);
   const mounts = run === undefined ? [] : humanFormMountsOf(run);
   const openForm = mounts.find((mount) => mount.phaseId === requestedPhaseId) ?? mounts[0];
   return {
     openForm,
     isOpen: (phaseId) => openForm?.phaseId === phaseId,
-    openFormFor: setRequestedPhaseId,
+    openFormFor: requestPhaseId,
   };
 }
