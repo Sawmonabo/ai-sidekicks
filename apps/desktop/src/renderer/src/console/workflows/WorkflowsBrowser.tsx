@@ -1,6 +1,6 @@
 // The definitions browser with a wire behind it.
 //
-// `WorkflowsSurface` is the chrome and takes rows; this is the component that goes
+// `WorkflowsSurface` is the surface's chrome and takes rows; this is the component that goes
 // and gets them. ONE caller mounts it — `WorkflowsDestination.tsx`, the rail's
 // workflows destination — and it always supplies a session. The builder pane's
 // no-subject arm used to be the second, which is what made `sessionId` optional and
@@ -15,10 +15,10 @@
 // the registered request carries a required session id, and the destination resolves
 // one before it mounts this browser at all.
 //
-// WHY THE MAPPING FROM READ STATE TO CHROME STATE LIVES HERE. The chrome is told
+// WHY THE MAPPING FROM READ STATE TO STRIP STATE LIVES HERE. The surface is told
 // about rows and which of the absence grammars to reach for; the port answers with ONE
 // outcome for the whole enumeration. Turning one answer into what the surface shows is
-// a decision, and it is made once here rather than inside the chrome, which would then
+// a decision, and it is made once here rather than inside the surface, which would then
 // have two ways to be told the same thing.
 //
 // WHAT EACH SCOPE GROUP MAY CLAIM IS NOT DECIDED HERE. It is projected by
@@ -32,7 +32,7 @@
 // — but a REFUSAL does not distribute the same way: attaching it to each group left
 // every group rendering the refusal AND `No <scope> definitions` underneath it,
 // which turns one failed read into three asserted empty results about a daemon that
-// answered none of them. The refusal is the whole surface's, so it reaches the chrome
+// answered none of them. The refusal is the whole surface's, so it reaches the surface
 // as the `refused` state and the groups are not rendered at all.
 //
 // AND THERE IS NO PER-SCOPE REFUSAL BESIDE IT, because no registered reply carries
@@ -52,23 +52,23 @@ import type { ReadingState } from "../primitives/index.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { useReadSettlementAnnouncement } from "./read-announcement.js";
-import { refusedWorkflowChrome, type WorkflowChromeState } from "./chrome-state.js";
+import { refusedWorkflowStrip, type WorkflowStripState } from "./strip-state.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectoryState,
 } from "./definitions/definition-directory.js";
 
 /**
- * Which chrome the surface wears, given one read state.
+ * Which state the surface's strip is in, given one read state.
  *
  * `ready` for every arm that has something to show or something to wait on, and the
  * refusal grammar for the one that does not: a refused enumeration produced no list
  * to group, so the groups do not render and the daemon's own code and message stand
  * in their place.
  */
-function chromeStateFor(directory: WorkflowDefinitionDirectoryState): WorkflowChromeState {
+function stripStateFor(directory: WorkflowDefinitionDirectoryState): WorkflowStripState {
   return directory.status === "unavailable"
-    ? refusedWorkflowChrome(directory.refusal)
+    ? refusedWorkflowStrip(directory.refusal)
     : { kind: "ready" };
 }
 
@@ -106,7 +106,7 @@ function continuationActionFor(
  * it is shown, over a list a person is looking at.
  *
  * Every other arm has nothing to report, including a directory that itself refused:
- * that refusal is the surface's own state and the chrome renders it, and a second
+ * that refusal is the surface's own state and the strip renders it, and a second
  * sentence under groups that are not there would be the same refusal said twice.
  * Nothing to report leaves as an absent reading rather than a second spelling of
  * `served` — the browser owns that constant, and one home is what keeps the two from
@@ -192,7 +192,7 @@ export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Elemen
   useReadSettlementAnnouncement(state, directorySentence(state));
   return (
     <WorkflowsSurface
-      state={chromeStateFor(state)}
+      state={stripStateFor(state)}
       // The same session the enumeration above was read under, threaded rather than
       // dropped: the surface mounts the conversational start, and a start binds to a
       // session. A browser that read one session's definitions and handed the mount

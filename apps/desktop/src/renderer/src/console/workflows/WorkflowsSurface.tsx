@@ -18,11 +18,20 @@
 // was threaded through two components to a button no caller in this repository could
 // reach, which reads as coverage and is inert. It is gone until a producer exists.
 //
-// WHERE THE GROUPS THEMSELVES LIVE. This file is the destination's chrome — heading,
-// one primary action, and which of the absence grammars the state calls for. The
-// scope groups and their rows are `definitions/DefinitionsBrowser.tsx`, because those are the
-// browser and this is the frame around it, and a surface that also owned the rows
-// would be the place a second grouping quietly appeared beside the first.
+// WHERE THE GROUPS THEMSELVES LIVE. This file is the destination's chrome — the
+// heading it is named by, and the state strip that says which of the absence
+// grammars the read calls for. The scope groups and their rows are
+// `definitions/DefinitionsBrowser.tsx`, because those are the browser and this is the
+// frame around it, and a surface that also owned the rows would be the place a second
+// grouping quietly appeared beside the first.
+//
+// AND WHY THE HEADING IS DRAWN HERE RATHER THAN IN THE STRIP BENEATH IT. The strip is
+// shared with this family's two PANE bodies, and a pane is already named — by the
+// crumb trail `seats/ConsolePaneChrome` draws above it — so a heading inside the strip
+// would name every pane twice. This surface is not a pane: the rail mounts it at a
+// destination with no chrome above it at all, so if it did not name itself nothing
+// would. The glyph and the `<h2>` are therefore this file's, and the strip is handed
+// the one line that is the same wherever it stands.
 //
 // WHAT IS RESERVED HERE. Starting a run by talking to it is Plan-017's body, mounted
 // through `ChatStartSlot` — the family's own typed wrapper, and the same one the run
@@ -34,16 +43,23 @@
 // click away in the detail pane by design (rule 7's density budget), so none of them
 // appears in this list.
 
-import type { ReadingState } from "../primitives/index.js";
+import { useId } from "react";
+
+import { Glyph, type ReadingState } from "../primitives/index.js";
 import type { WorkflowDefinitionScope } from "../bridge/index.js";
+import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
-import { WorkflowChrome } from "./WorkflowChrome.js";
-import type { WorkflowChromeState } from "./chrome-state.js";
+import { WorkflowStateStrip } from "./WorkflowStateStrip.js";
+import type { WorkflowStripState } from "./strip-state.js";
 import { DefinitionsBrowser } from "./definitions/DefinitionsBrowser.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
+/** What the rail's workflows destination is called, and what it is for. */
+const HEADING = "Workflows";
+const SUMMARY = "Definitions visible from here, in the order a run resolves them.";
+
 export interface WorkflowsSurfaceProps {
-  readonly state: WorkflowChromeState;
+  readonly state: WorkflowStripState;
   /**
    * The session a run started from here would bind to, or nothing where none is in
    * scope.
@@ -68,25 +84,42 @@ export interface WorkflowsSurfaceProps {
   readonly continuationReading?: ReadingState | undefined;
 }
 
-/** The definitions browser's chrome, grouped by scope in resolution order. */
+/**
+ * The definitions browser's chrome, grouped by scope in resolution order.
+ *
+ * THE NAME IS THE HEADING'S TEXT AND THE ID IS THE INSTANCE'S. Derived from the text,
+ * the id would be a fact about the copy rather than about this mount, and two
+ * destinations rendered into one tree — which the tiers do — would carry the same id
+ * twice: invalid markup, and both `aria-labelledby` references then resolve to
+ * whichever heading came first. `useId` is minted per component instance, which is
+ * exactly the scope the reference needs.
+ */
 export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Element {
+  const headingId = useId();
   const showsGroups = props.state.kind === "empty" || props.state.kind === "ready";
   return (
-    <WorkflowChrome
-      glyph="workflow"
-      heading="Workflows"
-      summary="Definitions visible from here, in the order a run resolves them."
-      state={showsGroups ? { kind: "ready" } : props.state}
-    >
-      <DefinitionsBrowser
-        definitions={props.definitions ?? []}
-        pendingScopes={props.pendingScopes}
-        hasUnreadPages={props.hasUnreadPages}
-        onOpenDefinition={props.onOpenDefinition}
-        onContinueReading={props.onContinueReading}
-        continuationReading={props.continuationReading}
-      />
-      <ChatStartSlot sessionId={props.sessionId} />
-    </WorkflowChrome>
+    <section className="meridian-workflow" aria-labelledby={headingId}>
+      {/* The glyph sits beside the name rather than inside it: a mark inside the
+      heading would be read out as part of the surface's accessible name, and this
+      one is `aria-hidden` by `Glyph`'s own contract precisely because it says
+      nothing a reader needs said. */}
+      <header className="meridian-workflow__header">
+        <Glyph name="workflow" size={GLYPH_SIZE_CHROME} />
+        <h2 className="meridian-workflow__heading" id={headingId}>
+          {HEADING}
+        </h2>
+      </header>
+      <WorkflowStateStrip summary={SUMMARY} state={showsGroups ? { kind: "ready" } : props.state}>
+        <DefinitionsBrowser
+          definitions={props.definitions ?? []}
+          pendingScopes={props.pendingScopes}
+          hasUnreadPages={props.hasUnreadPages}
+          onOpenDefinition={props.onOpenDefinition}
+          onContinueReading={props.onContinueReading}
+          continuationReading={props.continuationReading}
+        />
+        <ChatStartSlot sessionId={props.sessionId} />
+      </WorkflowStateStrip>
+    </section>
   );
 }

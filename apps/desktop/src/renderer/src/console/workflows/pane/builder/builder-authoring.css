@@ -1,5 +1,5 @@
 /*
- * The builder's authoring act, in the header's primary-action box.
+ * The builder's authoring act, in the pane chrome's control strip.
  *
  * Owned by `WorkflowBuilderPane.tsx`, beside it, and reached through the family's one
  * stylesheet edge in `workflows/workflows.css`.
@@ -7,14 +7,31 @@
 
 /*
  * The builder's one primary act, in the state a build with no wire leaves it in.
- * It sits in the header's primary-action box, so this rule gives it a column and
- * nothing else: the refusal's own grammar is the primitives' and is not restyled.
+ *
+ * A ROW WITH A CEILING, because of where it now stands. It sat in this family's own
+ * header, which was a block of its own and could take a column two lines tall; it sits
+ * in `seats/pane-chrome.css`'s `.meridian-pane__controls` now, which is one line beside
+ * the breadcrumb and does not shrink. Left unbounded, the refusal's sentence would take
+ * its full measure there and squeeze the pane's own address trail out of the head. The
+ * ceiling is what makes the sentence wrap inside this box instead — `flex-wrap` on the
+ * inline refusal is the primitives' own, and nothing about the refusal's grammar is
+ * restyled here.
  */
 .meridian-workflow__authoring {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  align-items: flex-end;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+  align-items: center;
+  max-inline-size: 22rem;
+}
+
+/*
+ * The refusal's block-start margin is a `--inline` default for a refusal that follows
+ * prose. Here it follows the act's own name on the same line, so it is zeroed — the
+ * shape `primitives/partial-read.css` already takes for the same reason.
+ */
+.meridian-workflow__authoring .meridian-refusal--inline {
+  margin-block-start: 0;
 }
 
 /* The act's name where the control itself is refused and so is not drawn. */

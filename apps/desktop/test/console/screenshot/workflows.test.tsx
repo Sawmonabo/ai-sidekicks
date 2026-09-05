@@ -7,7 +7,7 @@
 // restated here.
 //
 // WHAT IS PINNED, AND WHY THESE THREE. The family ships one destination surface and
-// two pane chromes, and each one captured here is a different composition rather than
+// two panes, and each one captured here is a different composition rather than
 // a state of one:
 //
 //   • the workflows destination, whose whole design claim is that it names the
@@ -23,8 +23,8 @@
 //     bodies another plan owns will replace.
 //   • the builder pane on a definition, which is its one arm that renders a body. What
 //     an image holds and a DOM assertion does not is the COMPOSITION rule 7 leaves it
-//     in: a header whose primary action is an inline refusal standing exactly where a
-//     working control would, the not-checked absence beneath it, and the two reserved
+//     in: the pane head's own action slot holding an inline refusal where a working
+//     control would stand, the not-checked absence beneath it, and the two reserved
 //     slot shells under that — three claims about one frame, and whether the refusal
 //     reads as the action's own is a question answered by looking.
 //

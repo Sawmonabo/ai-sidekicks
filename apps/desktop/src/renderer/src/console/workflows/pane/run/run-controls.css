@@ -14,8 +14,8 @@
  * Equal because they are separately grantable and neither is subordinate: an
  * operator may hold cancel and not resume, and a layout that made one primary
  * would be the console guessing which. Rule 7's single-primary-action budget is
- * spent in the chrome header above; this is the run's control cluster, and it sits
- * in the body where the run's own facts are.
+ * spent on neither: this is the run's control cluster, and it sits in the body where
+ * the run's own facts are rather than in the pane head above it.
  */
 .meridian-run-controls {
   display: flex;

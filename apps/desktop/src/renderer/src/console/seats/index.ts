@@ -182,17 +182,12 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
-// named by all six pane-body tasks; `PaneControls` and its context are named by the one
+// The pane chrome and the seam its two host controls travel on. All three chrome
+// symbols are imported now — the workflows family binds both of its pane bodies
+// through them — so the door lines carry no tag: knip fails an exemption that
+// outlived its consumer. `PaneControls` and its context are named by the one task
 // that builds the deck, which is the only host that provides them.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  ConsolePaneChrome,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  paneBodyForKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  type PaneContextOf,
-} from "./ConsolePaneChrome.js";
+export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */

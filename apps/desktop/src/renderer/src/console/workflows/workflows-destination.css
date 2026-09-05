@@ -42,10 +42,10 @@
 }
 
 /*
- * The chrome sizes itself to 100% of its parent and scrolls internally, which is
+ * The surface sizes itself to 100% of its parent and scrolls internally, which is
  * right when it IS the surface and wrong when something stands under it. Scoped to
- * this composition rather than changed in the family sheet: the chrome mounted alone
- * still owns its own scroll, and that is every other caller of it.
+ * this composition rather than changed in the family sheet: mounted alone — which is
+ * what its own suite does — the surface still owns its scroll.
  */
 .meridian-workflows-destination > .meridian-workflow {
   block-size: auto;

@@ -44,14 +44,18 @@
 // without, which is the pair a park banner most easily conflates and therefore the
 // frame worth pinning.
 //
-// WHY EACH SURFACE IS FOUND A DIFFERENT WAY. The run pane IS one region, and this
-// family's chrome names it with `aria-labelledby` pointing at the visible heading —
-// deliberately, so the announced name and the read name cannot disagree — which is
-// why it is looked up by that name rather than by the browser-terminal helper's
-// `[aria-label=…]`. The destination is not a region at all: it is a composition of
-// the scope line, the named browser region, and whatever sections stand beside it, so
-// an accessible-name lookup would return one of its parts and a tier would capture a
-// fragment of the surface. It is addressed by its own root instead.
+// WHY EACH SURFACE IS FOUND A DIFFERENT WAY. Each pane IS one region, and
+// `seats/ConsolePaneChrome` names it with `aria-labelledby` pointing at the crumb
+// TRAIL rather than at a heading — so a pane's accessible name is its whole address
+// ("session-1 run-01 Workflow run") and two panes of one kind in one deck are told
+// apart by what they are scoped to. That is why the lookup below reads the trail's
+// current crumb rather than comparing the whole name: an exact match against
+// "Workflow run" was correct while this family drew its own heading and is wrong the
+// moment a pane is named by where it is. The destination is not a region at all: it
+// is a composition of the scope line, the named browser region, and whatever sections
+// stand beside it, so an accessible-name lookup would return one of its parts and a
+// tier would capture a fragment of the surface. It is addressed by its own root
+// instead.
 
 import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
@@ -152,22 +156,29 @@ export interface MountedFamilySurface {
 }
 
 /**
- * Find the one region a workflows surface renders itself as, by its heading.
+ * Find the one region a workflows pane renders itself as, by the crumb it is on.
  *
- * Scoped by the accessible name rather than by a class, because that is what a
- * person using assistive technology navigates by — a surface that lost its name
- * would still match a class selector and would still be captured as if nothing had
- * changed.
+ * Through the accessible name rather than a class, because that is what a person
+ * using assistive technology navigates by — a pane that lost its name would still
+ * match a class selector and would still be captured as if nothing had changed. The
+ * reference is resolved the way an IDREF resolves, from the tree it lives in, so a
+ * pair of panes sharing one id would be caught here rather than silently returning
+ * the first pane twice.
+ *
+ * The CURRENT crumb and not the whole name: the chrome names a pane by its entire
+ * address trail, so the name carries the session and the run beside the pane's own
+ * title and an equality check against the title alone would never match.
  */
-function requireRegionNamed(container: HTMLElement, headingText: string): HTMLElement {
+function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElement {
   for (const region of container.querySelectorAll("section[aria-labelledby]")) {
     const labelId = region.getAttribute("aria-labelledby");
     const label = labelId === null ? null : container.querySelector(`#${CSS.escape(labelId)}`);
-    if (region instanceof HTMLElement && label?.textContent === headingText) {
+    const currentCrumb = label?.querySelector(".meridian-pane__heading");
+    if (region instanceof HTMLElement && currentCrumb?.textContent === paneTitle) {
       return region;
     }
   }
-  throw new Error(`no region in the mounted tree is named \`${headingText}\``);
+  throw new Error(`no pane in the mounted tree is on the \`${paneTitle}\` crumb`);
 }
 
 /**
@@ -290,7 +301,7 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
       )}
     />,
   );
-  const region = requireRegionNamed(container, "Workflow run");
+  const region = requirePaneNamed(container, "Workflow run");
   await waitFor(() => {
     if (region.querySelector(".meridian-park") === null) {
       throw new Error("the run read has not landed yet");
@@ -324,9 +335,9 @@ function scenarioDefinitionId(): string {
  *
  * ADDRESSED RATHER THAN EMPTY, and that is what makes the mount worth auditing: the
  * unaddressed arm draws a single absence block the frame tier already covers, while
- * this one composes the three things only this pane has — a header carrying a primary
- * action whose control is an INLINE refusal, the not-checked absence beneath it, and
- * the two reserved slot shells the bodies another plan owns will replace.
+ * this one composes the three things only this pane has — the pane head's action slot
+ * carrying an INLINE refusal, the not-checked absence beneath it, and the two reserved
+ * slot shells the bodies another plan owns will replace.
  *
  * No wait, deliberately: this pane puts no read on any arm — every authoring
  * operation is off the growth port — so there is nothing in flight to settle and a
@@ -347,5 +358,5 @@ export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> 
       )}
     />,
   );
-  return { element: requireRegionNamed(container, "Workflow builder"), bridge };
+  return { element: requirePaneNamed(container, "Workflow builder"), bridge };
 }

@@ -80,8 +80,8 @@
    * `auto` is the automatic minimum size — the content's own minimum, which is the
    * canvas's floor plus the caption when one is shown. Naming the token here
    * instead would be short by exactly the caption's height, and the overflow would
-   * come back the moment a topology could not be drawn. The surface scrolls
-   * (`.meridian-workflow` is `overflow-y: auto`), so growing past the viewport is
+   * come back the moment a topology could not be drawn. The pane's body scrolls
+   * (`.meridian-pane__body` is `overflow: auto`), so growing past the viewport is
    * the intended outcome and covering a sibling never was.
    *
    * There is deliberately no `block-size` here either: `flex: 1` already states
