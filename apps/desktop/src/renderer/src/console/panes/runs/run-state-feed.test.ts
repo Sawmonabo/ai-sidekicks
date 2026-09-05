@@ -288,3 +288,40 @@ describe("the feed belongs to the session it was read for", () => {
     expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
   });
 });
+
+describe("an addressing move out and back inside one mount still publishes", () => {
+  it("publishes a delivery taken after the pane returns to the session it left", async () => {
+    // A -> B -> A without an unmount. The publisher the subscribe effect writes
+    // through is bound to the ADDRESSING, which is strictly finer than the
+    // `(bridge, sessionId)` pair the effect used to depend on; a subscription left
+    // holding a publisher from an addressing the holder no longer honours folds
+    // every delivery and renders the empty feed for the life of the mount, with
+    // `openRefusal` undefined, so nothing on screen says the reading is stale.
+    const { bridge, handlers } = multiSubscriptionBridge();
+    const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: SESSION_ID }));
+    mounted.forgetRenders();
+    await act(async () => {
+      handlers.at(-1)?.(STATE_CHANGE_DELIVERY);
+      await Promise.resolve();
+    });
+    expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
+    expect(mounted.renderedFeeds.at(-1)?.openRefusal).toBeUndefined();
+  });
+
+  it("negative control: the subscription opened on the first visit publishes nothing", async () => {
+    // Without this, a feed that published every delivery whatever subscription it
+    // arrived on would pass the case above while re-admitting the visit that is over.
+    const { bridge, handlers } = multiSubscriptionBridge();
+    const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: SESSION_ID }));
+    mounted.forgetRenders();
+    await act(async () => {
+      handlers[0]?.(STATE_CHANGE_DELIVERY);
+      await Promise.resolve();
+    });
+    expect(mounted.renderedFeeds.every((feed) => feed.runs.length === 0)).toBe(true);
+  });
+});

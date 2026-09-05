@@ -197,7 +197,17 @@ export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): R
       isMounted = false;
       unsubscribe();
     };
-  }, [bridge, sessionId]);
+    // `setFeed` AND NOT JUST THE PAIR. The publisher's identity changes exactly when
+    // the ADDRESSING does, which is strictly finer than `(bridge, sessionId)` and is
+    // the correct fact here: a pane rendered at one session, rendered at a second in a
+    // pass React discarded, and re-rendered at the first commits a publisher from a
+    // later addressing than the one this effect captured. The pair is unchanged across
+    // those two commits, so an effect keyed on it alone keeps a publisher the holder
+    // now refuses — the subscription stays open, every delivery folds, and the pane
+    // renders the empty feed for the life of the mount with nothing saying why. It is
+    // stable across every render that did not re-address, so this costs no extra
+    // subscribe and re-opens the stream exactly when the addressing moves.
+  }, [bridge, sessionId, setFeed]);
 
   return useMemo(() => ({ ...feed, hasRead: hasReadSnapshot }), [feed, hasReadSnapshot]);
 }
