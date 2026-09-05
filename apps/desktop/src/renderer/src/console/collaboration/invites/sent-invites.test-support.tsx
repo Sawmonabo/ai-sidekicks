@@ -15,7 +15,7 @@ import {
   growthRefusing,
   growthServing,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge, ServedInvite } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario.js";
 import { settle as settlePasses } from "../../core/settle.test-support.js";

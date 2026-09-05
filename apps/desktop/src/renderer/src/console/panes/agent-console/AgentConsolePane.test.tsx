@@ -20,7 +20,7 @@ import {
   growthRefusing,
   growthServing,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../bridge/fixture-bridge.test-support.js";
 import { AgentConsoleModels } from "../../agents/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";

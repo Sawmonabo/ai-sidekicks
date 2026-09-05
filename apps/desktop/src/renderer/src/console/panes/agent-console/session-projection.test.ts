@@ -13,7 +13,7 @@ import {
   growthRefusing,
   growthServing,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore, type ConsoleEntity, type SessionSnapshot } from "../../store/index.js";
 import { SessionProjectionReRead, peerInvocationEnabledIn } from "./session-projection.js";

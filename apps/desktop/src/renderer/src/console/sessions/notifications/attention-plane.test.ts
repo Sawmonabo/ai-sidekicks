@@ -18,7 +18,7 @@ import {
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../bridge/fixture-bridge.test-support.js";
 import { AttentionPlane } from "./attention-plane.js";
 import {
   READS_NO_ATTENTION_PROJECTION,
@@ -238,7 +238,7 @@ describe("the reader that ships today", () => {
  * A growth port that answers the attention read per session, over the real fixture.
  *
  * The shipped bridge with one operation replaced rather than a cast literal, for
- * the reason `bridge/fixture-bridge-overrides.test-support.ts` states: a cast port
+ * the reason `bridge/fixture-bridge.test-support.ts` states: a cast port
  * is shape-identical to nothing, so a reader that started asking a second operation
  * would find `undefined` at runtime instead of failing to compile. The refusal is
  * the shipped `growthUnavailable`, so these cases assert against the sentence a

@@ -48,13 +48,9 @@ import {
   type CostReceiptOutcome,
 } from "./cost-receipt-model.js";
 import { DefinitionGrid } from "../../shared/DefinitionGrid.js";
-import {
-  ACCOUNT_COLUMNS,
-  CAUSED_BY_COLUMNS,
-  MoneyFigure,
-  PartitionSection,
-  RUN_COLUMNS,
-} from "./CostReceiptPartitions.js";
+import { ACCOUNT_COLUMNS, CAUSED_BY_COLUMNS, RUN_COLUMNS } from "./cost-receipt-columns.js";
+import { MoneyFigure } from "./MoneyFigure.js";
+import { PartitionSection } from "./PartitionSection.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */

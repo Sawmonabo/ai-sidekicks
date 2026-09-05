@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { RuntimeNodesPage, registerRuntimeNodesPage } from "./RuntimeNodesPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { unscriptedScenario } from "../../../bridge/fixture-bridge-overrides.test-support.js";
+import { unscriptedScenario } from "../../../bridge/fixture-bridge.test-support.js";
 import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
 
 /**

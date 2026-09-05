@@ -24,7 +24,7 @@ import {
   growthAnswering,
   growthRefusing,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
 import { SessionStore } from "../../store/index.js";

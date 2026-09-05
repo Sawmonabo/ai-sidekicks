@@ -12,7 +12,7 @@ import { type ConsoleBridge, type GrowthPort } from "../../../bridge/index.js";
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../../bridge/fixture-bridge.test-support.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { NotificationsPage } from "./NotificationsPage.js";
 import type {

@@ -12,7 +12,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge-overrides.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { SentInvites } from "./SentInvites.js";
 import {

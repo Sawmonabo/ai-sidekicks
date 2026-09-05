@@ -7,7 +7,7 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../../bridge/fixture-bridge.test-support.js";
 import { CrashReportingPage } from "./CrashReportingPage.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 

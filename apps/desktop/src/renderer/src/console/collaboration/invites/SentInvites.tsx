@@ -83,7 +83,7 @@ import {
   daemonMutation,
   useWireMutation,
 } from "../mutation-coordinator.js";
-import { LedgerBody } from "./SentInvitesLedger.js";
+import { SentInvitesLedger } from "./SentInvitesLedger.js";
 
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
@@ -166,7 +166,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
 
       <InviteCreationAbsence />
 
-      <LedgerBody
+      <SentInvitesLedger
         sessionId={sessionId}
         outcome={outcome}
         ledger={ledger}

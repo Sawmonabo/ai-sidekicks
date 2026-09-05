@@ -22,7 +22,7 @@ import { SETTLED_INVITE_VISIBLE_CAP } from "../../core/index.js";
 import type { InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
 import { type InviteLedger } from "./invite-ledger.js";
 
-export function LedgerBody(props: {
+export function SentInvitesLedger(props: {
   readonly sessionId: string | undefined;
   readonly outcome: InvitesListOutcome | undefined;
   readonly ledger: InviteLedger | undefined;

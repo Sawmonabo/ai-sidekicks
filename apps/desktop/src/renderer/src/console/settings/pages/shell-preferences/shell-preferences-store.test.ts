@@ -12,7 +12,7 @@ import {
   growthRefusing,
   growthServing,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../../bridge/fixture-bridge.test-support.js";
 import { ShellPreferenceStore } from "./shell-preferences-store.js";
 import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preference-snapshot.js";
 import type { GrowthPort } from "../../../bridge/index.js";
