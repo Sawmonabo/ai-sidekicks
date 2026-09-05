@@ -96,7 +96,7 @@ import type { ConsoleRefusal } from "../../../console/core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 import { composerDraftKey } from "./draft-key.js";
 import { useComposerDraftText } from "../use-composer-draft-text.js";
-import { useSettlementRegister } from "./use-settlement-register.js";
+import { useSettlementIdentities } from "./use-settlement-identities.js";
 import { composerRefusal } from "./send-refusals.js";
 import { composeDirectivePlaceholder, directivePathLabel } from "./directive-line.js";
 import { useDirectiveRecall } from "./use-directive-recall.js";
@@ -160,7 +160,11 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // Which stay at this address the composer is on, and which attempt of each act is
   // the newest. Its own module because it is a different job with a different
   // lifetime: nothing there reaches a wire or renders anything.
-  const { visit, issue: issueSettlementIdentity, isCurrent } = useSettlementRegister(draftKey);
+  const {
+    visit,
+    issue: issueSettlementIdentity,
+    isCurrent,
+  } = useSettlementIdentities(bridge, draftKey);
   // What the bar renders while an act is travelling, held under the address that act
   // was issued at. Two holders rather than one object: a send and a Stop can be in
   // flight at once, and one publisher writing a pair would let whichever settled

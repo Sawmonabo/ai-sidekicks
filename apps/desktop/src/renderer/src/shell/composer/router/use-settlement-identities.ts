@@ -6,25 +6,28 @@
 // the controller's dispatch arms ask it three ways (may this refusal be written, may
 // this draft be cleared, which attempt am I).
 //
-// THE VISIT IS THE COMPOSER'S MIRROR OF THE HOLDER'S ADDRESSING EPOCH. A draft key
-// names a TARGET, and a composer routed away from a target and back is at the same
-// key on two different visits — the case where "same address" and "same act" come
-// apart. `store/subject-scoped-state.ts` states the same fact for the value it
-// holds: "a surface routed away and back is at the same pair on two different
-// visits, and only the addressing tells them apart". So the serial advances during
-// the render that first sees a new key, which is the render the holders re-seed on,
-// and every keyed thing in this family carries it.
+// THE VISIT IS TAKEN FROM THE HOLDER AND NOT RE-DERIVED HERE. A draft key names a
+// TARGET, and a composer routed away from a target and back is at the same key on two
+// different visits — the case where "same address" and "same act" come apart.
+// `store/subject-scoped-state.ts` already owns exactly that distinction: its
+// initializer runs on the pass that first sees a new subject, which is the definition
+// of a new visit. This module started by counting its own serial off a ref, which is
+// a seventh copy of the console's one addressing epoch under a seventh name; it now
+// takes a serial from that holder's own re-seed instead, so there is one rule for
+// when a subject becomes new and this file is not it.
 //
-// A pass React DISCARDS can advance it, and that is harmless in the one direction it
-// can be wrong: an unused serial frees a latch slot that `finally` releases anyway,
-// and it can never hold one a visit cannot see.
+// A pass React DISCARDS can burn a serial, and that is harmless in the one direction
+// it can be wrong: an unused serial frees a latch slot that `finally` releases
+// anyway, and it can never hold one a visit cannot see.
 //
-// THE REGISTERS ARE REFS AND NOT STATE, for the reason the single-flight latch is:
-// both are written and read inside one handler's own tick, and a state read there
-// would see the value from the render that produced the handler.
+// THE MIRRORS ARE REFS AND NOT STATE, for the reason the single-flight latch is: both
+// are written and read inside one handler's own tick, and a state read there would
+// see the value from the render that produced the handler.
 
 import { useCallback, useRef } from "react";
 
+import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { useSubjectScopedState } from "../../../console/store/index.js";
 import {
   addressedOperationKey,
   isSettlementCurrent,
@@ -33,7 +36,7 @@ import {
 } from "./send-settlement.js";
 
 /** What the controller asks about the act on screen. */
-export interface SettlementRegister {
+export interface SettlementIdentities {
   /** Which stay at the current draft key this render is. */
   readonly visit: number;
   /** Capture the identity of one act, and make it that key's newest attempt. */
@@ -42,13 +45,19 @@ export interface SettlementRegister {
   readonly isCurrent: (identity: ComposerSettlementIdentity) => boolean;
 }
 
-/** Track the composer's visit to one address, and the newest attempt of each act. */
-export function useSettlementRegister(draftKey: string): SettlementRegister {
-  const visitRef = useRef({ draftKey, serial: 0 });
-  if (visitRef.current.draftKey !== draftKey) {
-    visitRef.current = { draftKey, serial: visitRef.current.serial + 1 };
-  }
-  const visit = visitRef.current.serial;
+/** Mint one composer act's identity, and judge whether a settled one is still it. */
+export function useSettlementIdentities(
+  bridge: ConsoleBridge,
+  draftKey: string,
+): SettlementIdentities {
+  // One serial per mount, handed out by the holder's own re-seed: the initializer
+  // runs on the pass that first sees a new `(bridge, draftKey)`, so a return trip to
+  // an address gets a number the earlier stay's outstanding calls cannot claim.
+  const nextVisitRef = useRef(0);
+  const { value: visit } = useSubjectScopedState<number>(bridge, draftKey, () => {
+    nextVisitRef.current += 1;
+    return nextVisitRef.current;
+  });
   // The address a settlement is measured against is the composer's CURRENT one, and
   // a dispatch's own closure holds the address it was ISSUED at — so the current key
   // and visit travel through refs that every render refreshes, and the two are
