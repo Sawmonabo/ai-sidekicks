@@ -35,7 +35,8 @@
 import { buildPatchText } from "./diff-fixture-patch.js";
 import { RUN_ATTRIBUTION, type DiffFixtureShape } from "./diff-fixture-shapes.js";
 import type { ConsoleDiffModel, DiffAttribution, DiffLine } from "./diff-model.js";
-import { wholeLineSegments, parseUnifiedPatch } from "./patch-parse.js";
+import { wholeLineSegments } from "./diff-model.js";
+import { parseUnifiedPatch } from "./patch-parse.js";
 
 const FIXTURE_COMPARED_STATES = { baseRef: "main", headRef: "feat/rate-limit-wiring" } as const;
 

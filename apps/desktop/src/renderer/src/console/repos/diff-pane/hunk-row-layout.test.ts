@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DiffLine, DiffLineKind } from "./diff-model.js";
-import { wholeLineSegments } from "./patch-parse.js";
+import { wholeLineSegments } from "./diff-model.js";
 import { buildHunkBodyLayout, hunkBodyRowAt, hunkBodyRowCount } from "./hunk-row-layout.js";
 
 function line(kind: DiffLineKind, text: string): DiffLine {
