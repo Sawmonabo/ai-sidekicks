@@ -160,6 +160,11 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
     <WorkflowChrome glyph="run" heading={HEADING} summary={SUMMARY} state={{ kind: "ready" }}>
       <RunReadState snapshot={snapshot} humanForms={humanForms} />
       <OperatorControls
+        // The same pair the read above is held at. The controls hold a typed reason
+        // and a chosen re-pin target, and both are answers about THIS run: a pane
+        // retargeted in place must not carry either into the next one.
+        growth={bridge.growth}
+        workflowRunId={entity.id}
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />
