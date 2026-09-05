@@ -80,6 +80,7 @@ import {
   phasePark,
   workflowInstant,
   type WorkflowParkedPhase,
+  type WorkflowPhaseStateRow,
   type WorkflowRunSnapshot,
   type WorkflowRunState,
 } from "./run-list-rows.js";
@@ -192,10 +193,26 @@ function attentionBandFor(
   return parkedPhases.length > 0 ? "parked" : RUN_STATE_ATTENTION_BANDS[run.state];
 }
 
-/** One run's row, with every derived fact read off the snapshot exactly once. */
-function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
+/**
+ * Every phase of one run that is parked, classified, in the order they arrived.
+ *
+ * THE PARK PROJECTION, AND THE ONLY ONE. Three surfaces draw a park — the run row's
+ * badges, the run pane's stack of cards, and the phase node above that stack — and each
+ * used to apply the discriminator and the schedule rule itself. Two of the three then
+ * disagreed about the phase's NAME, because one read the row's own member and the other
+ * substituted a module-level constant, so one screen named a parked phase and the
+ * surface beside it drew the same park with no name at all. That is not a bug in either
+ * one: it is the consequence of there being three.
+ *
+ * Takes the phases rather than the run because two of the three callers hold only a
+ * phase list, and a projection that demanded a whole run would have sent them back to
+ * deriving it themselves — which is the state this replaces.
+ */
+export function projectParkedPhases(
+  phaseStates: readonly WorkflowPhaseStateRow[],
+): readonly WorkflowParkedPhase[] {
   const parkedPhases: WorkflowParkedPhase[] = [];
-  for (const phase of run.phaseStates) {
+  for (const phase of phaseStates) {
     const park = phasePark(phase);
     if (park !== undefined) {
       parkedPhases.push({
@@ -206,6 +223,12 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
       });
     }
   }
+  return parkedPhases;
+}
+
+/** One run's row, with every derived fact read off the snapshot exactly once. */
+function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
+  const parkedPhases = projectParkedPhases(run.phaseStates);
   return {
     run,
     parkedPhases,

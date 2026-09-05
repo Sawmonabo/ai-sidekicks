@@ -8,14 +8,19 @@
 // and it is the component below; splitting the two apart would leave the rule that
 // decides whether a wait is addressable in one module and the only surface it governs
 // in another.
+//
+// THE PARKS THEMSELVES ARE NOT DERIVED HERE. `projectParkedPhases` in
+// `workflows/runs/run-list-projection.ts` applies the discriminator, classifies the
+// schedule, and carries the phase's name; this file used to do all three and named the
+// phase from a module constant instead of from the row, so the run list beside this
+// pane named a parked phase that these cards drew nameless.
 
 import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { ParkBadge } from "../../workflows/parks/ParkBadge.js";
 import type { WorkflowParkFormRoute } from "../../workflows/parks/ParkFormRoute.js";
-import { parkSchedule, phasePark } from "../../workflows/runs/run-list-projection.js";
+import { projectParkedPhases } from "../../workflows/runs/run-list-projection.js";
 import type { WorkflowParkedPhase } from "../../workflows/runs/run-list-projection.js";
-import { PHASE_DISPLAY_NAME } from "./phase-display-name.js";
 import {
   UNADDRESSABLE_HUMAN_WAIT_DETAIL,
   humanFormMountFor,
@@ -85,33 +90,19 @@ export function RunParks(props: {
   readonly run: WorkflowRunSnapshot;
   readonly humanForms: HumanFormSelection;
 }): React.JSX.Element {
+  // Indexed by phase rather than zipped by position: the projection returns the parked
+  // phases in the run's own order, and the cards need each entry paired with the WIRE
+  // phase it came from — the form route is decided from members the projected entry
+  // deliberately does not carry.
+  const parkedByPhaseId = new Map(
+    projectParkedPhases(props.run.phaseStates).map((entry) => [entry.phaseId, entry]),
+  );
   const parked = props.run.phaseStates.flatMap<{
     readonly entry: WorkflowParkedPhase;
     readonly phase: WorkflowPhaseState;
   }>((phase) => {
-    const park = phasePark(phase);
-    // Classified through the projection's own `parkSchedule` rather than by handing
-    // the badge four wire members: whether a park resumes itself is not
-    // `autoResumeAt`'s presence, and a second derivation of it here would be the
-    // second authority the badge stopped being.
-    //
-    // `phaseName` is the badge's slot for an AUTHORED name and is left empty,
-    // because this read carries none. The card is still identified: the badge draws
-    // `phaseId` unconditionally, as a wire figure, which is what keeps a fan-out's
-    // cards distinguishable without any surface inventing a name.
-    return park === undefined
-      ? []
-      : [
-          {
-            entry: {
-              phaseId: phase.phaseId,
-              phaseName: PHASE_DISPLAY_NAME,
-              park,
-              schedule: parkSchedule(park),
-            },
-            phase,
-          },
-        ];
+    const entry = parkedByPhaseId.get(phase.phaseId);
+    return entry === undefined ? [] : [{ entry, phase }];
   });
   if (parked.length === 0) {
     return (
