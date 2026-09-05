@@ -6,6 +6,16 @@
 // for another — both are properties of the subscription rather than of the fold.
 
 import { createElement } from "react";
+import {
+  createFixture,
+  drainMicrotasks,
+  withCapturedStream,
+} from "../../bridge/fixture-bridge.test-support.js";
+import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon-streams.js";
+import {
+  withRecordedStreamSinks,
+  withUnopenableStream,
+} from "../../bridge/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -13,12 +23,12 @@ import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { RUN_STATE_REFUSAL_ORIGIN, useRunFeed, type RunStateFeed } from "./run-state-feed.js";
 import {
-  RUN_ID,
   SESSION_ID,
   STATE_CHANGE_DELIVERY,
   mountStateFeed,
   openStateFeed,
 } from "./run-state-feed.test-support.js";
+import { RUN_ID } from "./runs-pane.test-support.js";
 
 describe("the run-state stream is opened with its registered request", () => {
   it("opens the stream for a session the registered request shape accepts", async () => {
@@ -65,68 +75,27 @@ describe("an empty read completes", () => {
   it("negative control: a delivery alone does not complete the read", async () => {
     // The old rule flipped `hasRead` on exactly this, which is what made
     // `hasRead && runs.length === 0` unreachable.
-    const { bridge, deliverToFeed } = deliveringBridge([STATE_CHANGE_DELIVERY]);
+    const { bridge, deliver } = withCapturedStream(
+      createFixture().bridge,
+      RUN_STATE_SUBSCRIBE_STREAM,
+    );
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const readFeed = await mountStateFeed(bridge, sessionStore);
     await act(async () => {
-      deliverToFeed();
-      await Promise.resolve();
+      deliver(STATE_CHANGE_DELIVERY);
+      await drainMicrotasks();
     });
     expect(readFeed().runs).toHaveLength(1);
     expect(readFeed().hasRead).toBe(false);
   });
 });
 
-/** A bridge that replays a script into the run-state subscription on demand. */
-function deliveringBridge(deliveries: readonly unknown[]): {
-  bridge: ConsoleBridge;
-  deliverToFeed: () => void;
-} {
-  let handleDelivery: (payload: unknown) => void = () => undefined;
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (_stream: string, handler: (payload: unknown) => void) => {
-          handleDelivery = handler;
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
-  return {
-    bridge,
-    deliverToFeed: () => {
-      for (const delivery of deliveries) {
-        handleDelivery(delivery);
-      }
-    },
-  };
-}
-
 /** The refusal the shipped Tier-1 preload raises when a stream is opened: a throw. */
 const TIER_ONE_STUB_REFUSAL = { code: "bridge.not_wired", message: "no daemon is attached" };
 
-/** A bridge whose `daemon.subscribe` throws in the caller's own frame, as the stub does. */
+/** The shipped fixture with its run-state subscription refusing to open. */
 function unopenableBridge(thrown: unknown): ConsoleBridge {
-  return {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (): never => {
-          throw thrown;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "live",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
+  return withUnopenableStream(createFixture().bridge, RUN_STATE_SUBSCRIBE_STREAM, thrown);
 }
 
 describe("a stream that cannot be opened is a refusal, not a crash", () => {
@@ -184,23 +153,11 @@ function multiSubscriptionBridge(): {
   readonly bridge: ConsoleBridge;
   readonly handlers: readonly ((payload: unknown) => void)[];
 } {
-  const handlers: ((payload: unknown) => void)[] = [];
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (_stream: string, handler: (payload: unknown) => void) => {
-          handlers.push(handler);
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
-  return { bridge, handlers };
+  const { bridge, sinks } = withRecordedStreamSinks(
+    createFixture().bridge,
+    RUN_STATE_SUBSCRIBE_STREAM,
+  );
+  return { bridge, handlers: sinks };
 }
 
 /**
@@ -231,7 +188,7 @@ function mountRebindableFeed(
     rebindTo: async (store) => {
       await act(async () => {
         view.rerender(createElement(StateFeedProbe, { store }));
-        await Promise.resolve();
+        await drainMicrotasks();
       });
     },
     forgetRenders: () => {
@@ -251,7 +208,7 @@ describe("the feed belongs to the session it was read for", () => {
     const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
     await act(async () => {
       handlers[0]?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
 
@@ -270,7 +227,7 @@ describe("the feed belongs to the session it was read for", () => {
     mounted.forgetRenders();
     await act(async () => {
       handlers[0]?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.every((feed) => feed.runs.length === 0)).toBe(true);
   });
@@ -283,8 +240,45 @@ describe("the feed belongs to the session it was read for", () => {
     await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
     await act(async () => {
       handlers.at(-1)?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
+  });
+});
+
+describe("an addressing move out and back inside one mount still publishes", () => {
+  it("publishes a delivery taken after the pane returns to the session it left", async () => {
+    // A -> B -> A without an unmount. The publisher the subscribe effect writes
+    // through is bound to the ADDRESSING, which is strictly finer than the
+    // `(bridge, sessionId)` pair the effect used to depend on; a subscription left
+    // holding a publisher from an addressing the holder no longer honours folds
+    // every delivery and renders the empty feed for the life of the mount, with
+    // `openRefusal` undefined, so nothing on screen says the reading is stale.
+    const { bridge, handlers } = multiSubscriptionBridge();
+    const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: SESSION_ID }));
+    mounted.forgetRenders();
+    await act(async () => {
+      handlers.at(-1)?.(STATE_CHANGE_DELIVERY);
+      await drainMicrotasks();
+    });
+    expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
+    expect(mounted.renderedFeeds.at(-1)?.openRefusal).toBeUndefined();
+  });
+
+  it("negative control: the subscription opened on the first visit publishes nothing", async () => {
+    // Without this, a feed that published every delivery whatever subscription it
+    // arrived on would pass the case above while re-admitting the visit that is over.
+    const { bridge, handlers } = multiSubscriptionBridge();
+    const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: SESSION_ID }));
+    mounted.forgetRenders();
+    await act(async () => {
+      handlers[0]?.(STATE_CHANGE_DELIVERY);
+      await drainMicrotasks();
+    });
+    expect(mounted.renderedFeeds.every((feed) => feed.runs.length === 0)).toBe(true);
   });
 });

@@ -27,6 +27,7 @@
 import { type DriverCapabilityFlag, type SessionCallbackTool } from "@ai-sidekicks/contracts";
 import { Collapsible } from "@base-ui/react/collapsible";
 
+import type { DriverCapabilityReading } from "../../../bridge/index.js";
 import { Chip, Nothing, WireFigure } from "../../../primitives/index.js";
 
 /**
@@ -38,11 +39,15 @@ import { Chip, Nothing, WireFigure } from "../../../primitives/index.js";
  */
 export const CALLBACK_TOOLS_CAPABILITY: DriverCapabilityFlag = "callback_tools";
 
-/** What this build knows about the capability. `undefined` means nobody has asked. */
-export type CallbackToolCapability = "declared" | "undeclared" | undefined;
-
 export interface CallbackToolsProps {
-  readonly capability: CallbackToolCapability;
+  /**
+   * What this build knows about the capability, in the console's one vocabulary.
+   *
+   * `unknown` and not `undefined`: the reading is the bridge family's closed set, so
+   * this section and the two run surfaces that gate on a driver flag cannot answer
+   * the same question in three different spellings.
+   */
+  readonly capability: DriverCapabilityReading;
   /**
    * Whether spawn withheld the registry.
    *
@@ -59,7 +64,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
     // Absent, not empty. Returning `null` is the rule rendered.
     return null;
   }
-  if (props.capability === undefined) {
+  if (props.capability === "unknown") {
     return (
       <Nothing
         kind="not-checked"

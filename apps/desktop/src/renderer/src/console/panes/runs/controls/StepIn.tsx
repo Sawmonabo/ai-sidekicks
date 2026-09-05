@@ -19,11 +19,24 @@
 // prop that could carry one. Where a session's lease matters, the lease glyph says
 // who holds it, and stepping in changes nothing about that — a person who has the
 // floor still has to ask for the terminal.
+//
+// AND ITS STATE BELONGS TO THE TRANSPORT AND THE RUN, not to the mount. The control
+// used to hold a mount-scoped `useState` and a hand-rolled in-flight boolean, and
+// `RunControls` keys its children by run — so a bridge replaced while a pause was
+// parked left this component mounted, and the retired transport's acknowledgment
+// settled into the live render and moved the floor to a run the current connection
+// had said nothing about. Both halves now come from the console's own primitives,
+// exactly as `compaction-dispatch.ts` takes them: the reading is held under
+// `(bridge, targetRunId)` so a replacement drops it, the publisher is the captured
+// `settle()` so a settlement measured against a retired visit is dropped rather
+// than rendered, and the single-flight rule is one `GenerationLatch` claim per
+// `(bridge, runId)` released in the settlement's own `finally`-shaped position.
 
-import { useCallback, useRef, useState } from "react";
-import { refuse } from "../../../console/core/index.js";
-import { callDaemon, readRunId, type ConsoleBridge } from "../../../console/bridge/index.js";
-import { Glyph } from "../../../console/primitives/index.js";
+import { useCallback } from "react";
+import { refuse } from "../../../core/index.js";
+import { callDaemon, readRunId, type ConsoleBridge } from "../../../bridge/index.js";
+import { Glyph } from "../../../primitives/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
 import { STEP_IN_REFUSAL_ORIGIN, type StepInState } from "./step-in-state.js";
 
@@ -48,18 +61,26 @@ export interface StepInProps {
 
 const STEP_IN_GLYPH_SIZE = 12;
 
+const IDLE: StepInState = { phase: "idle" };
+
+/** The latch key one step-in round is claimed under, within its bridge. */
+function stepInLatchKey(targetRunId: string): string {
+  return `step-in:${targetRunId}`;
+}
+
 export function StepIn(props: StepInProps): React.JSX.Element {
-  const [state, setState] = useState<StepInState>({ phase: "idle" });
-  const isInFlight = useRef(false);
   const { bridge, targetRunId, expectedRunVersion, onTakeTheFloor } = props;
+  const {
+    value: state,
+    publish: publishState,
+    settle: captureVisit,
+  } = useSubjectScopedState<StepInState>(bridge, targetRunId, () => IDLE);
+  const latch = useGenerationLatch();
 
   const stepIn = useCallback(() => {
-    if (isInFlight.current) {
-      return;
-    }
     const parsedRunId = readRunId(targetRunId);
     if (parsedRunId === undefined) {
-      setState({
+      publishState({
         phase: "refused",
         refusal: refuse(
           STEP_IN_REFUSAL_ORIGIN,
@@ -69,25 +90,47 @@ export function StepIn(props: StepInProps): React.JSX.Element {
       });
       return;
     }
-    isInFlight.current = true;
-    setState({ phase: "pausing" });
+    const claim = latch.claim(bridge, stepInLatchKey(targetRunId));
+    if (claim === undefined) {
+      // A second press while this run's pause is in flight: the no-op the
+      // single-flight rule asks for. A press after the transport was replaced is a
+      // first press on a new subject's latch and dispatches.
+      return;
+    }
+    // Captured before the call rather than after it, so the publisher names the visit
+    // that dispatched: a settlement arriving after the bridge was replaced is dropped
+    // by the holder instead of being rendered as this run's live state.
+    const publishSettlement = captureVisit();
+    publishSettlement({ phase: "pausing" });
     // The door parses both directions and never rejects, so the whole settlement is
     // one branch: a refusal — the daemon's own code, or the door's `reply-unreadable`
     // — renders verbatim, and a served acknowledgment is what the receipt is composed
-    // from. The floor moves only on the served arm.
+    // from. The floor moves only on the served arm AND only where the receipt was
+    // actually installed: the holder refuses the function form of a publish WITHOUT
+    // RUNNING it, so an update that ran is exactly the answer to "is this visit still
+    // on screen" — and a retired transport's acknowledgment therefore moves no
+    // cursor, which is the half a render-only guard would have left open.
     void callDaemon(bridge, "run.pause", {
       targetRunId: parsedRunId,
       expectedRunVersion,
     }).then((reply) => {
-      isInFlight.current = false;
-      if (reply.status === "refused") {
-        setState({ phase: "refused", refusal: reply.refusal });
-        return;
-      }
-      setState({ phase: "paused", acknowledgment: reply.value });
-      onTakeTheFloor();
+      claim.settle(() => {
+        if (reply.status === "refused") {
+          publishSettlement({ phase: "refused", refusal: reply.refusal });
+          return;
+        }
+        let wasStillAddressed = false;
+        publishSettlement(() => {
+          wasStillAddressed = true;
+          return { phase: "paused", acknowledgment: reply.value };
+        });
+        if (wasStillAddressed) {
+          onTakeTheFloor();
+        }
+      });
+      claim.release();
     });
-  }, [bridge, targetRunId, expectedRunVersion, onTakeTheFloor]);
+  }, [bridge, captureVisit, expectedRunVersion, latch, onTakeTheFloor, publishState, targetRunId]);
 
   return (
     <div className="meridian-step-in">

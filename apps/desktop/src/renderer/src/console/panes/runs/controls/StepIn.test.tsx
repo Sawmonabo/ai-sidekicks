@@ -15,9 +15,9 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge } from "../../../console/bridge/index.js";
-import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import {} from "../../../console/bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
+import { drainMicrotasks, withDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
+import type { ConsoleScenario } from "../../../bridge/scenario.js";
 import { StepIn } from "./StepIn.js";
 
 /** A real UUID, because the registered run identifier is a branded UUID. */
@@ -122,5 +122,134 @@ describe("StepIn — the floor moves on the acknowledgment, never on the dispatc
     });
     expect(trigger.getAttribute("aria-busy")).toBe("false");
     expect(onTakeTheFloor).not.toHaveBeenCalled();
+  });
+});
+
+/** One bridge whose `run.pause` never answers until this suite says so. */
+function bridgeParkingThePause(): {
+  readonly bridge: ConsoleBridge;
+  readonly answerPause: () => void;
+} {
+  let release: (() => void) | undefined;
+  const parked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { bridge } = withDaemonCall(
+    createFixtureBridge({ scenario: scenarioReplying([ACKNOWLEDGED_PAUSE]) }),
+    async (call, forward) => {
+      if (call.method !== "run.pause") {
+        return forward();
+      }
+      await parked;
+      return forward();
+    },
+  );
+  return {
+    bridge,
+    answerPause: (): void => {
+      release?.();
+    },
+  };
+}
+
+describe("StepIn — a pause a retired transport answers reaches no live render", () => {
+  it("installs nothing and moves no floor when the bridge is replaced mid-pause", async () => {
+    const onTakeTheFloor = vi.fn();
+    const { bridge: retiring, answerPause } = bridgeParkingThePause();
+    const { container, rerender } = render(
+      <StepIn
+        bridge={retiring}
+        targetRunId={TARGET_RUN_ID}
+        expectedRunVersion={EXPECTED_RUN_VERSION}
+        agentLabel={AGENT_LABEL}
+        onTakeTheFloor={onTakeTheFloor}
+      />,
+    );
+    const trigger = container.querySelector(".meridian-step-in__action");
+    if (!(trigger instanceof HTMLButtonElement)) {
+      throw new Error("step in rendered no action");
+    }
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+
+    // The reconnect: a REPLACEMENT bridge for the same run, so the component is not
+    // remounted — `RunControls` keys its children by run and the run has not moved.
+    const replacement = createFixtureBridge({ scenario: scenarioReplying([ACKNOWLEDGED_PAUSE]) });
+    rerender(
+      <StepIn
+        bridge={replacement}
+        targetRunId={TARGET_RUN_ID}
+        expectedRunVersion={EXPECTED_RUN_VERSION}
+        agentLabel={AGENT_LABEL}
+        onTakeTheFloor={onTakeTheFloor}
+      />,
+    );
+    // The render that first sees the new transport already reads that subject's own
+    // seed, so the busy state of a call the new bridge never made is gone with it.
+    expect(trigger.getAttribute("aria-busy")).toBe("false");
+
+    answerPause();
+    await drainMicrotasks();
+
+    expect(container.querySelector(".meridian-step-in__receipt")).toBeNull();
+    expect(container.querySelector(".meridian-refusal--inline")).toBeNull();
+    expect(onTakeTheFloor).not.toHaveBeenCalled();
+  });
+
+  it("negative control: the same parked pause installs when the bridge is kept", async () => {
+    // Without this the case above would pass over a control that never settles at
+    // all, which is what an absence assertion cannot tell apart on its own.
+    const onTakeTheFloor = vi.fn();
+    const { bridge, answerPause } = bridgeParkingThePause();
+    const { container } = render(
+      <StepIn
+        bridge={bridge}
+        targetRunId={TARGET_RUN_ID}
+        expectedRunVersion={EXPECTED_RUN_VERSION}
+        agentLabel={AGENT_LABEL}
+        onTakeTheFloor={onTakeTheFloor}
+      />,
+    );
+    const trigger = container.querySelector(".meridian-step-in__action");
+    if (!(trigger instanceof HTMLButtonElement)) {
+      throw new Error("step in rendered no action");
+    }
+    fireEvent.click(trigger);
+    answerPause();
+
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-step-in__receipt")).not.toBeNull();
+    });
+    expect(onTakeTheFloor).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a second press while this run's pause is in flight", async () => {
+    // The single-flight rule, which used to be a hand-rolled boolean no unmount or
+    // re-address superseded: one claim per `(bridge, run)`, so a second press inside
+    // the same round dispatches nothing.
+    const onTakeTheFloor = vi.fn();
+    const { bridge: parked, answerPause } = bridgeParkingThePause();
+    const { bridge, calls } = withDaemonCall(parked, async (_call, forward) => forward());
+    const { container } = render(
+      <StepIn
+        bridge={bridge}
+        targetRunId={TARGET_RUN_ID}
+        expectedRunVersion={EXPECTED_RUN_VERSION}
+        agentLabel={AGENT_LABEL}
+        onTakeTheFloor={onTakeTheFloor}
+      />,
+    );
+    const trigger = container.querySelector(".meridian-step-in__action");
+    if (!(trigger instanceof HTMLButtonElement)) {
+      throw new Error("step in rendered no action");
+    }
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+    expect(calls.filter((call) => call.method === "run.pause")).toHaveLength(1);
+
+    answerPause();
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-step-in__receipt")).not.toBeNull();
+    });
   });
 });

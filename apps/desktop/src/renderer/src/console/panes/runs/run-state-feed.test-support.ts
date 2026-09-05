@@ -6,13 +6,15 @@
 // about what a valid frame looks like.
 
 import { createElement, useEffect } from "react";
+import { createFixture, drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { withRecordedStreamLifecycle } from "../../bridge/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 import { useRunFeed, type RunStateFeed } from "./run-state-feed.js";
+import { RUN_ID } from "./runs-pane.test-support.js";
 
-/** Canonical UUIDs: both registered schemas brand their ids and refuse anything else. */
-export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+/** A canonical UUID: the registered session schema brands its id and refuses anything else. */
 export const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 
 /** A transition, exactly as `RunStateChangeEventSchema` registers it. */
@@ -55,27 +57,6 @@ export const ENVELOPE_SHAPED_DELIVERY: EnvelopeShapedDelivery = {
   payload: STATE_CHANGE_DELIVERY,
 };
 
-/** A bridge that records which stream name reached `daemon.subscribe`. */
-export function recordingBridge(): { bridge: ConsoleBridge; openedStreams: string[] } {
-  const openedStreams: string[] = [];
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (stream: string) => {
-          openedStreams.push(stream);
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
-  return { bridge, openedStreams };
-}
-
 /**
  * Mount the feed against one bridge and one store, and report what it answered.
  *
@@ -98,7 +79,7 @@ export async function mountStateFeed(
   }
   render(createElement(StateFeedProbe));
   await act(async () => {
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   return () => {
     if (held === undefined) {
@@ -108,7 +89,7 @@ export async function mountStateFeed(
   };
 }
 
-/** Open the feed for one session over the recording bridge. */
+/** Open the feed for one session over the shipped fixture, recording what it opened. */
 export async function openStateFeed(
   sessionId: string,
   seed?: (store: SessionStore) => void,
@@ -116,7 +97,7 @@ export async function openStateFeed(
   readonly openedStreams: readonly string[];
   readonly feed: RunStateFeed;
 }> {
-  const { bridge, openedStreams } = recordingBridge();
+  const { bridge, openedStreams } = withRecordedStreamLifecycle(createFixture().bridge);
   const sessionStore = new SessionStore({ sessionId });
   seed?.(sessionStore);
   const readFeed = await mountStateFeed(bridge, sessionStore);

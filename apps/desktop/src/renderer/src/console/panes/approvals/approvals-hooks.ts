@@ -1,130 +1,44 @@
-// The four things that make the approvals surface re-read, and nothing else.
+// What the approvals surface asks for, and the one hook that says when.
 //
 // `Spec-023 §Rules every console surface obeys`: "Reads happen on subscribe, on
 // window focus, on reconnect, and on the terminal events the owning spec names".
-// This module wires exactly those, through `ApprovalsReader`'s one scheduler.
+// All four are wired by `useReadTriggers`, which every console reading now shares —
+// this module used to write them out itself, and writing them out is how the queue
+// and quota readings came to have none of the four. What stays here is the part that
+// is this surface's: the reader, its mutation, and its disposal. WHICH events
+// trigger it is `ApprovalsReader`'s own declaration, beside the reads they refresh.
 // There is no interval, no `setTimeout`, and no second subscription.
 //
 // WHAT RECONNECT IS, HERE. The console has no wire-level connection state to read —
 // what it has is the session store's own sticky degraded flag, which is raised for a
 // stream that stopped and is cleared by nothing except a completed re-pull. So the
-// moment this surface treats as a reconnect is that flag CLEARING: the stream was
-// interrupted and a read has since re-established the session. It matters because
-// the five lifecycle events are the only thing that tells this pane an approval was
-// created or resolved, and events raised while the stream was down are events this
-// pane never saw — leaving a resolved request rendered as pending, with an approve
-// button under it, until an unrelated focus or a later event happened to arrive.
+// moment treated as a reconnect is that flag CLEARING: the stream was interrupted
+// and a read has since re-established the session. It matters because the five
+// lifecycle events are the only thing that tells this pane an approval was created
+// or resolved, and events raised while the stream was down are events this pane
+// never saw — leaving a resolved request rendered as pending, with an approve button
+// under it, until an unrelated focus or a later event happened to arrive.
 //
 // HOW A LIFECYCLE SIGNAL REACHES A PANE WITHOUT THE PANE SUBSCRIBING TO THE BRIDGE.
 // The console's rule is that exactly one thing subscribes to the wire — the apply
 // chokepoint — and components subscribe to a STORE. Every admitted event lands in
-// `SessionStoreState.timeline`, so the pane watches that: it reads an entry's
-// wire-verbatim `kind` and its `sequence` and NOTHING else, which is precisely the
-// never-decoded rule `approvals-wire.ts` states — the five events are opaque re-read
-// triggers whose payloads are never decoded. No decision is ever taken from a
-// signal; the answer always comes from the projection read.
-//
-// WHY THE SCAN IS INCREMENTAL. The timeline is append-only and ordered by sequence,
-// and it grows for the life of the session. A cursor that re-scanned it on every
-// event would cost O(n) per event, which is the shape of thing the endurance budget
-// exists to catch — so the cursor walks backwards only as far as the events it has
-// not already examined.
+// `SessionStoreState.timeline`, which is what the trigger hook watches: it reads an
+// entry's wire-verbatim `kind` and its `sequence` and NOTHING else, which is
+// precisely the never-decoded rule `approvals-wire.ts` states — the five events are
+// opaque re-read triggers whose payloads are never decoded. No decision is ever
+// taken from a signal; the answer always comes from the projection read.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import {
-  SessionRepairWatcher,
-  consoleClockFor,
-  type ConsoleBridge,
-  type GrowthOutcome,
-} from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge, type GrowthOutcome } from "../../bridge/index.js";
 import { useSessionScopedState } from "../../seats/index.js";
-import {
-  useGenerationLatch,
-  useSessionDegradedCause,
-  useSessionStore,
-  type ConsoleSessionEvent,
-  type SessionStore,
-  type SessionStoreState,
-} from "../../store/index.js";
+import { useGenerationLatch, useReadTriggers, type SessionStore } from "../../store/index.js";
 import { ApprovalsReader, type ApprovalsSnapshot } from "./approvals-reader.js";
-import { APPROVAL_LIFECYCLE_EVENT_KINDS, APPROVAL_RULE_EVENT_KINDS } from "./approvals-wire.js";
 import { clearSessionGoal, updateSessionGoal } from "./goal/session-goal.js";
 
 /** The subsystem name every goal-mutation refusal this module raises carries. */
 export const SESSION_GOAL_REFUSAL_ORIGIN = "session-goal";
-
-/**
- * The kinds that trigger a re-read, as a lookup rather than two `includes` scans.
- *
- * Both families are here because both reads refresh together: a remembered rule is
- * minted by resolving an approval, so a grant moment and a decision moment are the
- * same participant action seen from two sides.
- */
-const TRIGGERING_EVENT_KINDS: ReadonlySet<string> = new Set<string>([
-  ...APPROVAL_LIFECYCLE_EVENT_KINDS,
-  ...APPROVAL_RULE_EVENT_KINDS,
-]);
-
-/**
- * How far the signal watcher has read, what it last saw, and what it has asked for.
- *
- * A class with private fields rather than three refs, because the three numbers are
- * one invariant: `#latestSignalSequence` is only meaningful relative to how much of
- * the timeline `#examinedThroughSequence` has covered, and asking again for a signal
- * `#requestedThroughSequence` already covers is the re-read loop this cursor exists
- * to stop. A component that could move one without the others would re-read forever
- * or never — and, since all three are one session's history, they are constructed
- * and discarded with the reader they belong to rather than kept in refs that outlive
- * a rebind.
- */
-class ApprovalSignalCursor {
-  #examinedThroughSequence = -1;
-  #latestSignalSequence = -1;
-  #requestedThroughSequence = -1;
-
-  /** Examine the newly appended tail and answer whether it owes a re-read. */
-  public observe(timeline: readonly ConsoleSessionEvent[]): boolean {
-    for (let position = timeline.length - 1; position >= 0; position -= 1) {
-      const entry = timeline[position];
-      if (entry === undefined || entry.sequence <= this.#examinedThroughSequence) {
-        break;
-      }
-      if (TRIGGERING_EVENT_KINDS.has(entry.kind) && entry.sequence > this.#latestSignalSequence) {
-        this.#latestSignalSequence = entry.sequence;
-      }
-    }
-    const newest = timeline.at(-1);
-    if (newest !== undefined) {
-      this.#examinedThroughSequence = Math.max(this.#examinedThroughSequence, newest.sequence);
-    }
-    if (this.#latestSignalSequence <= this.#requestedThroughSequence) {
-      return false;
-    }
-    this.#requestedThroughSequence = this.#latestSignalSequence;
-    return true;
-  }
-}
-
-function selectTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[] {
-  return state.timeline;
-}
-
-/**
- * Everything one session's reading apparatus is: the reader and the two memories
- * that are only meaningful about the session it reads.
- *
- * They are minted together because they DIE together. A repair watcher carrying the
- * previous session's standing-degraded flag, or a cursor carrying its high-water
- * mark, would suppress the new session's first re-read — so a rebind that replaced
- * only the reader would answer the new session out of the old one's history.
- */
-interface ApprovalsReadingSession {
-  readonly reader: ApprovalsReader;
-  readonly repairWatcher: SessionRepairWatcher;
-  readonly signalCursor: ApprovalSignalCursor;
-}
 
 /**
  * The reader for one session, plus its current snapshot.
@@ -155,58 +69,22 @@ export function useApprovalsReader(
   sessionStore: SessionStore,
 ): { readonly reader: ApprovalsReader; readonly snapshot: ApprovalsSnapshot } {
   const { sessionId } = sessionStore;
-  const readingSession = useMemo<ApprovalsReadingSession>(
-    () => ({
-      reader: new ApprovalsReader({ bridge, sessionId, clock: consoleClockFor(bridge) }),
-      repairWatcher: new SessionRepairWatcher(),
-      signalCursor: new ApprovalSignalCursor(),
-    }),
+  const reader = useMemo(
+    () => new ApprovalsReader({ bridge, sessionId, clock: consoleClockFor(bridge) }),
     [bridge, sessionId],
   );
-  const { reader } = readingSession;
 
   useEffect(() => {
-    reader.requestRead("subscribe");
     return () => {
       reader.dispose();
     };
   }, [reader]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onFocus = (): void => {
-      reader.requestRead("window-focus");
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [reader]);
-
-  // The reconnect read. Subscribed to in the render body like the timeline, and
-  // examined in an effect for the same reason: advancing the watcher is a mutation,
-  // and a mutation in a render body runs twice under React's strict double-invoke.
-  const degradedCause = useSessionDegradedCause(sessionStore);
-
-  useEffect(() => {
-    if (readingSession.repairWatcher.observe(degradedCause)) {
-      readingSession.reader.requestRead("reconnect");
-    }
-  }, [readingSession, degradedCause]);
-
-  // The timeline is subscribed to in the render body and EXAMINED in an effect.
-  // Reading a store through its selector is what a render does; advancing a cursor
-  // is a mutation, and a mutation in a render body runs twice under React's strict
-  // double-invoke and once more on every discarded pass.
-  const timeline = useSessionStore(sessionStore, selectTimeline);
-
-  useEffect(() => {
-    if (readingSession.signalCursor.observe(timeline)) {
-      readingSession.reader.requestRead("terminal-event");
-    }
-  }, [readingSession, timeline]);
+  // All four reasons, from the one place the console wires them. What used to stand
+  // here was those four written out — two effects, a repair watcher, and a cursor
+  // over the timeline — and the readings beside this one each shipped with whichever
+  // subset their author remembered.
+  useReadTriggers(reader, sessionStore);
 
   const snapshot = useSyncExternalStore(
     (onStoreChange) => reader.subscribe(onStoreChange),

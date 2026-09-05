@@ -28,7 +28,9 @@
 
 import { Chip, DerivedFigure, Glyph, Nothing, WireFigure } from "../../../primitives/index.js";
 import type { GlyphName } from "../../../primitives/index.js";
-import type { EntityFacet, ProjectionDegradedCause } from "./entity-facets.js";
+import { EntityFacetValueView } from "./EntityFacetValueView.js";
+import type { SessionDegradedCause } from "../../../store/index.js";
+import type { EntityFacet } from "./entity-facets.js";
 
 /** Edge length the record's kind glyph is drawn at, matching the pane header's. */
 const RECORD_GLYPH_SIZE = 14;
@@ -45,7 +47,7 @@ export interface EntityRecordProps {
   readonly isInitialised: boolean;
   /** Whether the store holds a record for this identifier. */
   readonly hasRecord: boolean;
-  readonly degradedCause: ProjectionDegradedCause | undefined;
+  readonly degradedCause: SessionDegradedCause | undefined;
   /**
    * What an incomplete projection costs this kind, as the second half of a
    * sentence beginning "The projection is incomplete (…), so ". The kind supplies
@@ -120,25 +122,5 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         </p>
       )}
     </article>
-  );
-}
-
-/**
- * One facet's value, in the provenance its form names.
- *
- * Private to this module rather than exported beside `EntityRecord`, because a
- * caller that could render a facet on its own could render one outside a record —
- * and the record is the thing that gives a facet its label.
- */
-function EntityFacetValueView(props: { readonly facet: EntityFacet }): React.JSX.Element {
-  const { value } = props.facet;
-  if (value.form === "wire") {
-    return <WireFigure value={value.text} />;
-  }
-  if (value.form === "derived") {
-    return <DerivedFigure text={value.text} />;
-  }
-  return (
-    <Nothing kind="not-checked" placement="inline" title="Not recorded" detail={value.detail} />
   );
 }

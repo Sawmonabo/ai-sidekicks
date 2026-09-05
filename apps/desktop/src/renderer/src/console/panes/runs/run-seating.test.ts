@@ -151,3 +151,45 @@ describe("the record's own facts, at the type the durable payload declares", () 
     expect(known?.failureCategory).toBe("provider_error");
   });
 });
+
+describe("known runs are seated by the moment their stamp names", () => {
+  it("seats an offset stamp by its moment rather than by its text", () => {
+    // `2026-01-01T10:00:00+01:00` is 09:00Z and sorts AFTER `2026-01-01T09:30:00Z`
+    // as text while naming an EARLIER moment, so a lexical comparison puts the older
+    // run at the top of the list — stably, and with nothing reporting it.
+    const seating = seatRuns(
+      {
+        [RUN_A]: knownEntity(RUN_A, { touchedAt: "2026-01-01T10:00:00+01:00" }),
+        [RUN_B]: knownEntity(RUN_B, { touchedAt: "2026-01-01T09:30:00Z" }),
+      },
+      [],
+    );
+    expect(seating.rows.map((row) => row.runId)).toStrictEqual([RUN_B, RUN_A]);
+  });
+
+  it("negative control: the same two moments spelled in one offset seat the same way", () => {
+    // Without this the case above would pass over a comparator that simply reversed
+    // the text order. Same instants, both in Z, so text and moment agree — and the
+    // seating must be the same list.
+    const seating = seatRuns(
+      {
+        [RUN_A]: knownEntity(RUN_A, { touchedAt: "2026-01-01T09:00:00Z" }),
+        [RUN_B]: knownEntity(RUN_B, { touchedAt: "2026-01-01T09:30:00Z" }),
+      },
+      [],
+    );
+    expect(seating.rows.map((row) => row.runId)).toStrictEqual([RUN_B, RUN_A]);
+  });
+
+  it("seats a run with no stamp last, whichever way the readable ones fall", () => {
+    const seating = seatRuns(
+      {
+        [RUN_A]: knownEntity(RUN_A),
+        [RUN_B]: knownEntity(RUN_B, { touchedAt: "2026-01-01T09:30:00Z" }),
+        [RUN_C]: knownEntity(RUN_C, { touchedAt: "2026-01-01T10:00:00+01:00" }),
+      },
+      [],
+    );
+    expect(seating.rows.map((row) => row.runId)).toStrictEqual([RUN_B, RUN_C, RUN_A]);
+  });
+});

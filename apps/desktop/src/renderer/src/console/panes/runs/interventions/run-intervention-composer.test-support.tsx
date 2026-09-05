@@ -12,9 +12,12 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import { RunStateProjection, type RunProjection } from "../run-state-projection.js";
-import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
-
-export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+import {
+  createFixture,
+  withDaemonCall,
+  type RecordedDaemonCall,
+} from "../../../bridge/fixture-bridge.test-support.js";
+import { RUN_ID } from "../runs-pane.test-support.js";
 
 /** What the stub daemon answers one call with. Throwing is the refusal arm. */
 export type ScriptedAnswer = () => unknown;
@@ -28,21 +31,20 @@ export const APPLIED_ROLLBACK: ScriptedAnswer = () => ({
   result: { disposition: "conversation-only" },
 });
 
+/**
+ * The shipped fixture with a call arm this suite answers, recording into the array
+ * the CASE holds.
+ *
+ * `withDaemonCall` keeps a record of its own, and this one takes the caller's array
+ * beside it deliberately: the harness below receives the array as a prop and mounts
+ * the bridge inside itself, so the record a case can read has to be a value it
+ * already held before the mount.
+ */
 export function stubBridge(calls: RecordedDaemonCall[], answer: ScriptedAnswer): ConsoleBridge {
-  return {
-    sidekicks: {
-      daemon: {
-        call: async (method: string, params: unknown): Promise<unknown> => {
-          calls.push({ method, params });
-          return answer();
-        },
-        subscribe: () => () => undefined,
-      },
-    },
-    growth: {},
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
+  return withDaemonCall(createFixture().bridge, async (call) => {
+    calls.push(call);
+    return answer();
+  }).bridge;
 }
 
 export function runAt(state: RunState, runVersion = 8, runId: string = RUN_ID): RunProjection {
@@ -66,6 +68,14 @@ export function ComposerHarness(props: {
   readonly calls: RecordedDaemonCall[];
   readonly answer: ScriptedAnswer;
   readonly onDismiss: () => void;
+  /**
+   * The run to compose against, for the case that re-targets one mounted form.
+   *
+   * Deliberately WITHOUT a React key, which is the documented keyless path: the pane
+   * supplies one and this parameter is how a case reaches the composer's own second
+   * defence against a caller that does not.
+   */
+  readonly run?: RunProjection;
 }): React.JSX.Element {
   // Pinned for the harness's whole life: the surface keys its holders on the
   // bridge, so a stub rebuilt on every render would be a new transport each pass.
@@ -73,7 +83,8 @@ export function ComposerHarness(props: {
   const surface = useRunControlSurface(bridge);
   return (
     <RunInterventionComposer
-      run={runAt("paused")}
+      bridge={bridge}
+      run={props.run ?? runAt("paused")}
       control={props.control}
       surface={surface}
       onDismiss={props.onDismiss}

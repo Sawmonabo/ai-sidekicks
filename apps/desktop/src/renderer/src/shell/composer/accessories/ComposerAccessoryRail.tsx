@@ -63,6 +63,7 @@
 
 import { useMemo } from "react";
 import {
+  readingForDriver,
   useDriverCapabilities,
   useProviderQuotas,
   useQueueFeed,
@@ -82,7 +83,6 @@ import {
 } from "../../../console/store/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./CompactionSlot.js";
-import { compactionCapabilityFor } from "./compaction-capability.js";
 import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
 import { PlusMenu } from "./PlusMenu.js";
@@ -215,7 +215,11 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
               body={undefined}
               bridge={props.bridge}
               sessionId={props.sessionStore.sessionId}
-              capability={compactionCapabilityFor(driverCapabilities, addressedRun.driverName)}
+              capability={readingForDriver(
+                driverCapabilities,
+                addressedRun.driverName,
+                "context_compaction",
+              )}
               targetRunId={addressedRun.targetRunId}
               completedBoundarySequence={compactionBoundary}
             />

@@ -8,39 +8,34 @@
 
 import { act, render, screen } from "@testing-library/react";
 import { ApprovalsPane } from "./ApprovalsPane.js";
-import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import {
   createFixtureBridge,
   type ApprovalRecord,
   type ConsoleBridge,
   type ParsedRows,
 } from "../../bridge/index.js";
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
-import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
-import { FrameStore, SessionStore } from "../../store/index.js";
+import { SessionStore } from "../../store/index.js";
 import { type ConsoleScenario } from "../../bridge/scenario.js";
 import { type PaneContextOf } from "../pane-chrome.js";
+import { paneContext } from "../pane-chrome.test-support.js";
 
-export function paneContext(
+/**
+ * The approvals pane's context, over the shared builder.
+ *
+ * A one-line wrapper rather than four spellings of the same address: the pane is
+ * session-scoped, so its arm of the address union carries no `entity` member, and
+ * naming that once here keeps every approvals suite mounting the same pane.
+ */
+export function approvalsPaneContext(
   bridge: ConsoleBridge,
   sessionStore: SessionStore | undefined,
 ): PaneContextOf<"approvals"> {
-  return {
-    // No `entity` member: the approvals pane is session-scoped, and its arm of the
-    // address union carries none.
-    kind: "approvals",
-    paneId: "pane-approvals",
-    linkedSourcePaneId: undefined,
-    bridge,
-    frameStore: new FrameStore(),
-    sessionStore,
-    uiStateStore: new UiStateStore({ adapter: new MemoryPersistenceAdapter() }),
-    draftStore: new DraftStore(),
-    focusHue: undefined,
-  };
+  return paneContext({ kind: "approvals" }, { bridge, sessionStore });
 }
-
 /**
  * A store bound to a session, carrying the scenario's own roster.
  *
@@ -67,28 +62,29 @@ export function boundStore(
   return store;
 }
 
-/** Let every settled promise and effect land. */
-export async function flush(): Promise<void> {
-  for (let pass = 0; pass < 4; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-}
-
-/** Fire the reader's trailing debounce on the fixture's frozen clock, then settle. */
+/**
+ * Fire the reader's trailing debounce on the fixture's frozen clock, then settle.
+ *
+ * The settling is the bridge family's own `drainMicrotasks` and never a counted
+ * number of passes. What stood here ran four `await Promise.resolve()` rounds, which
+ * is a number tuned against the chain it happened to be written over: a reply that
+ * grew one link deeper would stop being waited for, and the case would report the
+ * absence of an answer that was merely still in flight.
+ */
 export async function settle(bridge: ConsoleBridge): Promise<void> {
   await act(async () => {
     bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
   });
-  await flush();
+  await act(async () => {
+    await drainMicrotasks();
+  });
 }
 
 export async function mountPane(
   scenario: ConsoleScenario = APPROVALS_SCENARIO,
 ): Promise<ConsoleBridge> {
   const bridge = createFixtureBridge({ scenario });
-  const context = paneContext(bridge, boundStore(scenario));
+  const context = approvalsPaneContext(bridge, boundStore(scenario));
   await act(async () => {
     render(<ApprovalsPane {...context} />);
   });
@@ -166,17 +162,15 @@ export interface ApprovalProjectionSource {
  * The growth port is spread over the refusing one, which is the console's shape for
  * standing in for a single operation: an arm this suite does not name refuses by name
  * instead of being absent, so a pane reaching for one renders a refusal rather than
- * failing on `undefined`.
+ * failing on `undefined`. The port is spread over the SHIPPED FIXTURE for the same
+ * reason one layer up — what stood here was an object cast to `ConsoleBridge`, so
+ * this file also decided what the daemon arm answered and had to carry a hand-made
+ * scenario engine to give the reader a clock. Only the two arms this suite scripts
+ * are replaced now, and the frozen clock is the fixture's own.
  */
 export function stubApprovalsBridge(reads: ApprovalProjectionSource): ConsoleBridge {
-  const clock = new ManualClock();
   return {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: () => () => undefined,
-      },
-    },
+    ...createFixtureBridge({ scenario: APPROVALS_SCENARIO }),
     growth: {
       ...createRefusingGrowthPort(),
       approvalProjectionRead: async () => ({ status: "served", value: reads.reply() }),
@@ -185,12 +179,7 @@ export function stubApprovalsBridge(reads: ApprovalProjectionSource): ConsoleBri
         value: { rows: [], unreadableCount: 0 },
       }),
     },
-    source: "fixture",
-    // Shaped so the frozen-clock helper above drives this stub unchanged: the reader
-    // resolves its clock off the scenario engine, and the tier has exactly one way
-    // to move time.
-    scenarioEngine: { clock, advance: (deltaMs: number) => clock.advance(deltaMs) },
-  } as unknown as ConsoleBridge;
+  };
 }
 
 /** A composer holding focus, which is the precondition the focus rule is gated on. */

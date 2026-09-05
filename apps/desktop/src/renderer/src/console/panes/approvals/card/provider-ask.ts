@@ -25,6 +25,7 @@
 // could not read.
 
 import { type ConsoleEntity } from "../../../store/index.js";
+import { readWireString } from "../../entity-body-reads.js";
 
 /**
  * One approval's provider-ask origin.
@@ -52,11 +53,11 @@ export interface ProviderAsk {
  * thing for a distinction nobody can act on.
  */
 export function providerAskFor(entity: ConsoleEntity | undefined): ProviderAsk | undefined {
-  const askId = nonEmptyString(entity?.body?.["askId"]);
+  const askId = readWireString(entity?.body?.["askId"]);
   if (askId === undefined) {
     return undefined;
   }
-  return { askId, expiryAt: nonEmptyString(entity?.body?.["expiryAt"]) };
+  return { askId, expiryAt: readWireString(entity?.body?.["expiryAt"]) };
 }
 
 /**
@@ -75,9 +76,4 @@ export function countAsksMissingDeadline(asks: Iterable<ProviderAsk | undefined>
     }
   }
   return missing;
-}
-
-/** A wire string, or `undefined` for anything that is not one. */
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }

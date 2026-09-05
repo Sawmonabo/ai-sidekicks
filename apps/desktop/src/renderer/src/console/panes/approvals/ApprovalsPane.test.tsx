@@ -20,10 +20,10 @@ import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
 import {
   ScriptedApprovalReads,
   WAITING_APPROVAL_IDS,
+  approvalsPaneContext,
   boundStore,
   composerHoldingFocus,
   mountPane,
-  paneContext,
   section,
   settle,
   stubApprovalsBridge,
@@ -34,7 +34,7 @@ describe("an unbound pane", () => {
   it("says it is unbound rather than reporting an empty queue", async () => {
     const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
     await act(async () => {
-      render(<ApprovalsPane {...paneContext(bridge, undefined)} />);
+      render(<ApprovalsPane {...approvalsPaneContext(bridge, undefined)} />);
     });
     expect(screen.getByText("This pane is not bound to a session.")).not.toBeNull();
     // Negative control on the whole surface: nothing was read, so no section that
@@ -163,7 +163,7 @@ describe("focus lands in the card that arrived", () => {
     const reads = new ScriptedApprovalReads();
     const bridge = stubApprovalsBridge(reads);
     await act(async () => {
-      render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
+      render(<ApprovalsPane {...approvalsPaneContext(bridge, boundStore())} />);
     });
     await settle(bridge);
     const waiting = within(section("Waiting on a decision")).getAllByRole("article");
@@ -195,7 +195,7 @@ describe("focus lands in the card that arrived", () => {
 async function mountOverReply(reply: ParsedRows<ApprovalRecord>): Promise<ConsoleBridge> {
   const bridge = stubApprovalsBridge({ reply: () => reply });
   await act(async () => {
-    render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
+    render(<ApprovalsPane {...approvalsPaneContext(bridge, boundStore())} />);
   });
   await settle(bridge);
   return bridge;

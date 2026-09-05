@@ -27,27 +27,16 @@
 // looked like the control would prove none of it.
 
 import { Nothing, WireFigure } from "../../../console/primitives/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import type { ConsoleBridge, DriverCapabilityReading } from "../../../console/bridge/index.js";
 import { useCompactionDispatch } from "./compaction-dispatch.js";
 import { CompactionSettlement } from "./CompactionSettlement.js";
-
-/**
- * What the console knows about the driver's compaction capability.
- *
- * Closed at three and declared once. `unknown` is the honest value while no read
- * answers the question — it is not a synonym for `undeclared`.
- */
-export const COMPACTION_CAPABILITY_STATES = ["declared", "undeclared", "unknown"] as const;
-
-/** One capability state. Derived from the enumeration above. */
-export type CompactionCapabilityState = (typeof COMPACTION_CAPABILITY_STATES)[number];
 
 export interface CompactionControlProps {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
   /** The run whose binding would be compacted, or `undefined` when there is none. */
   readonly targetRunId: string | undefined;
-  readonly capability: CompactionCapabilityState;
+  readonly capability: DriverCapabilityReading;
   /**
    * The newest `usage.context_compacted` position recorded for THIS run.
    *

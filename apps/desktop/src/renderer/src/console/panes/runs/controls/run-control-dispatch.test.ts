@@ -11,13 +11,16 @@
 // run and asserts the request went out anyway.
 
 import { describe, expect, it, vi } from "vitest";
-import type { ConsoleBridge } from "../../../bridge/index.js";
 import {
   RUN_CONTROLS,
   RunControlDispatcher,
   type RunControlOutcome,
 } from "./run-control-dispatch.js";
-import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
+import {
+  bridgeAnswering,
+  type RecordedDaemonCall,
+} from "../../../bridge/fixture-bridge.test-support.js";
+import { RUN_ID } from "../runs-pane.test-support.js";
 
 /**
  * A pinned mint, so a case asserts the guard rather than a random value. Named
@@ -25,38 +28,12 @@ import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-sup
  * high-entropy literal beside that noun as a credential.
  */
 const PINNED_IDEMPOTENCY = "6f1a0d3e-2c4b-4a7e-9f10-5b8c7d2e3a41";
-/** A canonical UUID: `RunIdSchema` is a branded UUID and refuses anything else. */
-const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-
-/** A bridge whose daemon records what it was asked and answers what it is told. */
-function stubBridge(answer: (call: RecordedDaemonCall) => Promise<unknown>): {
-  bridge: ConsoleBridge;
-  calls: RecordedDaemonCall[];
-} {
-  const calls: RecordedDaemonCall[] = [];
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (method: string, params: unknown): Promise<unknown> => {
-          const recorded = { method, params };
-          calls.push(recorded);
-          return answer(recorded);
-        },
-        subscribe: () => () => undefined,
-      },
-    },
-    growth: {},
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
-  return { bridge, calls };
-}
 
 function dispatcherOver(answer: (call: RecordedDaemonCall) => Promise<unknown>): {
   dispatcher: RunControlDispatcher;
-  calls: RecordedDaemonCall[];
+  calls: readonly RecordedDaemonCall[];
 } {
-  const { bridge, calls } = stubBridge(answer);
+  const { bridge, calls } = bridgeAnswering(answer);
   return {
     dispatcher: new RunControlDispatcher({ bridge, mintIdempotencyKey: () => PINNED_IDEMPOTENCY }),
     calls,

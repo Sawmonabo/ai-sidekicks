@@ -14,20 +14,10 @@
 // inside the first pane that needed it would make five later families deep-import a
 // sibling pane's directory; `apps/desktop/AGENTS.md` says to hoist on the second
 // use, and the second use arrived in the same lane as the first.
-//
-// WHY THE STYLESHEET IS IMPORTED HERE
-//
-// `panes/index.ts` is the seat board six concurrent branches each replace one line
-// in, and every edit above those lines is an edit they all make. This module is the
-// single edge into the sheet instead: every pane that renders chrome renders it
-// through this component, so a pane can no more arrive without its CSS than a
-// primitive can.
 
 import { type ConsoleEntityRef } from "../store/index.js";
 import { type ConsolePaneContext, type PaneKind } from "../seats/index.js";
 import { Glyph, InlineRefusal, type GlyphName } from "../primitives/index.js";
-
-import "./pane-chrome.css";
 
 /**
  * The glyph each pane kind wears, total over the closed set.

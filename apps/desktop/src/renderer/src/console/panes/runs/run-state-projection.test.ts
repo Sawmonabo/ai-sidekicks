@@ -11,9 +11,9 @@ import { RunStateProjection } from "./run-state-projection.js";
 import {
   ENVELOPE_SHAPED_DELIVERY,
   ROLLED_BACK_DELIVERY,
-  RUN_ID,
   STATE_CHANGE_DELIVERY,
 } from "./run-state-feed.test-support.js";
+import { RUN_ID } from "./runs-pane.test-support.js";
 
 describe("the run-state feed reads the registered payload shapes", () => {
   it("accepts a transition and folds it into the run's current reading", () => {

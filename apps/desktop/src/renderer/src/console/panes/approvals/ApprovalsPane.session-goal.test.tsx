@@ -5,17 +5,17 @@
 // and its own draft. Reading it out of the pane's own suite made two subjects share
 // one file and one setup.
 
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ApprovalsPane } from "./ApprovalsPane.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { type ConsoleScenario } from "../../bridge/scenario.js";
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import {
+  approvalsPaneContext,
   boundStore,
-  flush,
   mountPane,
-  paneContext,
   settle,
 } from "./approvals-pane.test-support.js";
 
@@ -51,13 +51,15 @@ describe("the session goal", () => {
   it("holds the unknown-role arm while the identity read is in flight", async () => {
     // Before the read settles the role is not known, and an unknown role is
     // treated exactly as read-only. Asserted on the first commit rather than after
-    // the flush, which is the interval a hook that kept a previous answer would
+    // the drain, which is the interval a hook that kept a previous answer would
     // have rendered a control in.
     const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
-    render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
+    render(<ApprovalsPane {...approvalsPaneContext(bridge, boundStore())} />);
     const goal = screen.getByRole("region", { name: "Session goal" });
     expect(within(goal).queryByRole("button")).toBeNull();
-    await flush();
+    await act(async () => {
+      await drainMicrotasks();
+    });
   });
 
   it("says why the control is missing when the identity read refuses", async () => {

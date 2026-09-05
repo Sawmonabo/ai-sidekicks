@@ -10,19 +10,27 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { DraftStore, UiStateStore } from "../../persistence/index.js";
-import { FrameStore, SessionStore } from "../../store/index.js";
+import { createFixture } from "../../bridge/fixture-bridge.test-support.js";
+import { SessionStore } from "../../store/index.js";
 import { ConsolePaneRegistry } from "../../seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.
 import { isDetachablePaneKind } from "../../seats/pane-kinds.js";
 import { type PaneContextOf } from "../pane-chrome.js";
+import { paneContext } from "../pane-chrome.test-support.js";
 import { registerInspectorPane } from "./index.js";
 import { InspectorPane } from "./InspectorPane.js";
 
 const SESSION_ID = "session-inspector";
 
-/** A bridge the pane never touches: the inspector reads the store, not the wire. */
-const UNUSED_BRIDGE = {} as unknown as ConsoleBridge;
+/**
+ * A bridge the pane never touches: the inspector reads the store, not the wire.
+ *
+ * The shipped fixture rather than an empty object cast to the type, because "never
+ * touches it" is a claim rather than a premise: a pane that grew a read would get a
+ * real answer here and change what this file renders, where a cast stand-in answers
+ * `undefined.something` and fails somewhere that names neither the read nor the pane.
+ */
+const UNUSED_BRIDGE: ConsoleBridge = createFixture().bridge;
 
 /**
  * The entity an inspector is addressed at.
@@ -33,35 +41,20 @@ const UNUSED_BRIDGE = {} as unknown as ConsoleBridge;
  */
 type InspectedRef = PaneContextOf<"inspector">["entity"];
 
-function paneContext(
-  entity: InspectedRef,
-  sessionStore: SessionStore | undefined,
-  linkedSourcePaneId: string | undefined = undefined,
-): PaneContextOf<"inspector"> {
-  return {
-    kind: "inspector",
-    entity,
-    paneId: "pane-inspector",
-    linkedSourcePaneId,
-    bridge: UNUSED_BRIDGE,
-    frameStore: new FrameStore(),
-    sessionStore,
-    // An adapter that never settles. The pane performs no UI-state read, so if it
-    // ever grew one this would hang here rather than pass against a stub.
-    uiStateStore: new UiStateStore({ adapter: new Promise(() => undefined) }),
-    draftStore: new DraftStore(),
-    focusHue: undefined,
-  };
-}
-
 function renderPane(
   entity: InspectedRef,
   sessionStore: SessionStore | undefined,
   linkedSourcePaneId?: string,
 ): HTMLElement {
-  const { container } = render(
-    <InspectorPane {...paneContext(entity, sessionStore, linkedSourcePaneId)} />,
+  const context = paneContext(
+    { kind: "inspector", entity },
+    {
+      bridge: UNUSED_BRIDGE,
+      sessionStore,
+      ...(linkedSourcePaneId === undefined ? {} : { linkedSourcePaneId }),
+    },
   );
+  const { container } = render(<InspectorPane {...context} />);
   return container;
 }
 

@@ -10,6 +10,7 @@ import {
   useDriverCapabilities,
   useDriverCapabilityRepairRead,
   useQueueFeed,
+  useQueueRepairRead,
   useRunDriverBindings,
   withRunDriverBindings,
 } from "../../bridge/index.js";
@@ -65,6 +66,7 @@ export function RunsPaneBody(props: {
   // run and takes Rewind and Steer off every row.
   const declarations = useDriverCapabilities(context.bridge);
   useDriverCapabilityRepairRead(context.bridge, sessionStore);
+  useQueueRepairRead(context.bridge, sessionStore);
   const runDriverBindings = useRunDriverBindings(sessionStore);
   const driverCapabilities = useMemo(
     () => withRunDriverBindings(declarations, runDriverBindings),
@@ -157,6 +159,7 @@ export function RunsPaneBody(props: {
             // from the inside — see its own identity effect — so a later caller
             // that drops this key does not silently reintroduce the leak.
             key={`${composerTarget.runId}:${composerTarget.control}`}
+            bridge={context.bridge}
             run={composedRun}
             control={composerTarget.control}
             surface={surface}

@@ -7,7 +7,7 @@
 
 import type { RunControlAck } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "../../../console/core/index.js";
+import type { ConsoleRefusal } from "../../../core/index.js";
 
 /** The subsystem name every refusal the step-in control raises carries. */
 export const STEP_IN_REFUSAL_ORIGIN = "composer-step-in";

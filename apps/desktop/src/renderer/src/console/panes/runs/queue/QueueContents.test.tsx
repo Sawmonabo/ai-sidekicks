@@ -6,13 +6,13 @@
 // through the registered schema, this file fails rather than the pane quietly
 // rendering an empty queue.
 
-import { useMemo } from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { QueueItemSummarySchema } from "@ai-sidekicks/contracts";
+import { createFixtureBridge, readQueueItemId, type ConsoleBridge } from "../../../bridge/index.js";
+import { settleScheduledRead } from "../../../bridge/scheduled-read.test-support.js";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge } from "../../../bridge/index.js";
 import type { QueueFeed } from "../../../bridge/index.js";
 import { RUNS_SCENARIO } from "../../../bridge/scenarios/runs.js";
 import { refuse } from "../../../core/index.js";
@@ -20,21 +20,27 @@ import { QueueContents } from "./QueueContents.js";
 import { useQueueFeed } from "../../../bridge/index.js";
 
 /** A one-component harness: the real hook, the real component, the real fixture. */
-function QueueHarness(props: { readonly sessionId: string }): React.JSX.Element {
-  // Built once. A fresh bridge per render would change the hook's dependency on
-  // every pass and re-open the subscription forever, which is a defect in the
-  // harness rather than in the feed — and one worth stating, because the symptom
-  // (a queue that never settles) looks exactly like a wire fault.
-  const bridge = useMemo(() => createFixtureBridge({ scenario: RUNS_SCENARIO }), []);
-  const feed = useQueueFeed(bridge, props.sessionId);
+function QueueHarness(props: {
+  readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
+}): React.JSX.Element {
+  const feed = useQueueFeed(props.bridge, props.sessionId);
   return <QueueContents feed={feed} />;
 }
 
 async function renderQueue(): Promise<HTMLElement> {
-  const { container } = render(<QueueHarness sessionId={RUNS_SCENARIO.sessionId} />);
-  await act(async () => {
-    await Promise.resolve();
-  });
+  // Built once and OUTSIDE the component. A fresh bridge per render would change the
+  // hook's dependency on every pass and re-open the subscription forever, which is a
+  // defect in the harness rather than in the feed — and one worth stating, because
+  // the symptom (a queue that never settles) looks exactly like a wire fault. It is
+  // built here rather than in a memo because the case has to reach the frozen clock
+  // this bridge carries: the snapshot read is scheduled against it, so a harness that
+  // kept the bridge to itself could never let that read happen.
+  const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
+  const { container } = render(
+    <QueueHarness bridge={bridge} sessionId={RUNS_SCENARIO.sessionId} />,
+  );
+  await settleScheduledRead(bridge);
   await waitFor(() => {
     expect(container.querySelector(".meridian-queue__row")).not.toBeNull();
   });
@@ -100,18 +106,22 @@ describe("a partial reading is said beside the rows, never in place of them", ()
         "delivery-unreadable",
         "A queue delivery did not match the registered row shape, so it changed no row here: state.",
       ),
-      isPartial: true,
     };
   }
 
+  const READ_ROW_ID = readQueueItemId("7c6b5a49-3827-4615-9403-2e1d0c9b8a77");
+  if (READ_ROW_ID === undefined) {
+    throw new Error("the queue-row fixture names an item identifier the wire refuses");
+  }
+
   /** One row of the registered shape, so the list has something to be behind on. */
-  const READ_ROW = QueueItemSummarySchema.parse({
-    id: "7c6b5a49-3827-4615-9403-2e1d0c9b8a77",
+  const READ_ROW: QueueItemSummary = {
+    id: READ_ROW_ID,
     state: "queued",
     priority: 0,
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt: "2026-09-02T09:00:00.000Z",
-  });
+  };
 
   it("keeps the rows and names how many deliveries could not be read", () => {
     const { container } = render(<QueueContents feed={partialFeed([READ_ROW])} />);
@@ -136,7 +146,7 @@ describe("a partial reading is said beside the rows, never in place of them", ()
     // Without this the cases above would pass over a surface that warned on every
     // reading, and the empty state would be unreachable.
     const { container } = render(
-      <QueueContents feed={{ ...partialFeed([]), unreadableDeliveryCount: 0, isPartial: false }} />,
+      <QueueContents feed={{ ...partialFeed([]), unreadableDeliveryCount: 0 }} />,
     );
     expect(container.querySelector(".meridian-partial-read")).toBeNull();
     expect(container.textContent).toContain("Nothing is waiting.");

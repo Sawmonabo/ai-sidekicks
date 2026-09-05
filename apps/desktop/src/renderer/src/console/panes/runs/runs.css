@@ -233,6 +233,7 @@
 
 .meridian-run-controls__action,
 .meridian-run-controls__overflow-toggle,
+.meridian-step-in__action,
 .meridian-queue__cancel,
 .meridian-run-composer__confirm,
 .meridian-run-composer__dismiss {
@@ -251,6 +252,7 @@
 
 .meridian-run-controls__action:hover,
 .meridian-run-controls__overflow-toggle:hover,
+.meridian-step-in__action:hover,
 .meridian-queue__cancel:hover:enabled,
 .meridian-run-composer__confirm:hover,
 .meridian-run-composer__dismiss:hover {
@@ -259,6 +261,7 @@
 
 .meridian-run-controls__action:focus-visible,
 .meridian-run-controls__overflow-toggle:focus-visible,
+.meridian-step-in__action:focus-visible,
 .meridian-queue__cancel:focus-visible,
 .meridian-run-composer__confirm:focus-visible,
 .meridian-run-composer__dismiss:focus-visible {
@@ -267,9 +270,29 @@
 }
 
 .meridian-run-controls__action[aria-busy="true"],
+.meridian-step-in__action[aria-busy="true"],
 .meridian-queue__cancel:disabled {
   color: var(--meridian-text-muted);
   cursor: progress;
+}
+
+/* --- Step in --------------------------------------------------------------- */
+
+/* The composite lives in the control row, so its action is styled by the row's own
+   declarations above and only the receipt needs a rule of its own. */
+
+.meridian-step-in {
+  display: inline-flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-step-in__receipt {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
 }
 
 /* --- The queue ------------------------------------------------------------- */

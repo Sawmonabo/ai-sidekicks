@@ -45,7 +45,7 @@ describe("the capability gate", () => {
 
 describe("unread is not empty", () => {
   it("says the registry has not been read, and why no read exists", () => {
-    render(<CallbackTools capability={undefined} isWithheld={false} tools={[]} />);
+    render(<CallbackTools capability="unknown" isWithheld={false} tools={[]} />);
     expect(screen.getByText("The daemon-hosted tool registry has not been read.")).not.toBeNull();
     expect(screen.getByText(/No registry-read method exists/u)).not.toBeNull();
   });
@@ -53,7 +53,7 @@ describe("unread is not empty", () => {
   it("negative control: an unread state lists nothing it might have assembled", () => {
     // The failure this guards is a component that synthesised the registry from
     // tool rows it had seen, which would list only tools already called.
-    render(<CallbackTools capability={undefined} isWithheld={false} tools={[TOOL]} />);
+    render(<CallbackTools capability="unknown" isWithheld={false} tools={[TOOL]} />);
     expect(screen.queryByText("approval_request")).toBeNull();
   });
 });

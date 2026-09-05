@@ -65,7 +65,6 @@ export {
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
   readChannelId,
-  // Consumed by T-023p-1C-2
   readQueueItemId,
   readRunId,
   readRunState,
@@ -125,19 +124,19 @@ export {
 // it and neither may import the other — one read per bridge serves both, and a hook
 // living in one of them would make the other's copy a second call on one wire.
 export {
-  declaredFlagsForDriver,
+  readingForDriver,
+  readingForRun,
   useDriverCapabilities,
   useDriverCapabilityRepairRead,
   withRunDriverBindings,
 } from "./driver-capability-read.js";
 export { useRunDriverBindings } from "./run-driver-binding.js";
-export { SessionRepairWatcher } from "./session-repair-watcher.js";
-export type { DriverCapabilityReadout } from "./driver-capability-read.js";
+export type { DriverCapabilityReadout, DriverCapabilityReading } from "./driver-capability-read.js";
 
 // The session's one queue reading. Here for the same reason the capability read is:
 // the runs pane and the composer's shelf ask two questions of one list, and each
 // used to ask its own down its own subscription.
-export { useQueueFeed } from "./queue-feed.js";
+export { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
 export type { QueueFeed, QueueReadPhase } from "./queue-reading.js";
 
 // The node's provider-account quotas: one read, one tail, one fold per bridge.

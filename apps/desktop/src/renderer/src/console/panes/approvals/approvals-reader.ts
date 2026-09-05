@@ -36,8 +36,10 @@ import {
   type ParsedRows,
   type RememberedRule,
 } from "../../bridge/index.js";
-import { RefreshScheduler, type RefreshReason } from "../../store/index.js";
+import { RefreshScheduler, type ReadTriggerTarget, type RefreshReason } from "../../store/index.js";
 import {
+  APPROVAL_LIFECYCLE_EVENT_KINDS,
+  APPROVAL_RULE_EVENT_KINDS,
   readApprovals,
   readRememberedRules,
   resolveApproval,
@@ -97,7 +99,20 @@ const EMPTY_SNAPSHOT: ApprovalsSnapshot = {
   revokeRefusalByRuleId: new Map(),
 };
 
-export class ApprovalsReader {
+export class ApprovalsReader implements ReadTriggerTarget {
+  /**
+   * The kinds whose arrival owes this reader a fresh read.
+   *
+   * BOTH FAMILIES, because both reads refresh together: a remembered rule is minted
+   * by resolving an approval, so a grant moment and a decision moment are the same
+   * participant action seen from two sides. A lookup rather than two `includes`
+   * scans, and declared HERE rather than at the surface that mounts the reader —
+   * which events change this answer is a property of the question.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>([
+    ...APPROVAL_LIFECYCLE_EVENT_KINDS,
+    ...APPROVAL_RULE_EVENT_KINDS,
+  ]);
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string;
   readonly #scheduler: RefreshScheduler;

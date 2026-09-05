@@ -181,7 +181,7 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
 
       <section className="meridian-approvals__section" aria-label="Daemon-hosted tools">
         <h2 className="meridian-approvals__heading">Daemon-hosted tools</h2>
-        <CallbackTools capability={undefined} isWithheld={false} tools={[]} />
+        <CallbackTools capability="unknown" isWithheld={false} tools={[]} />
       </section>
     </div>
   );

@@ -157,7 +157,6 @@
 }
 
 .meridian-compaction__action,
-.meridian-step-in__action,
 .meridian-attachment-seat__action,
 .meridian-queue-shelf__cancel,
 .meridian-plus-menu__trigger {
@@ -175,7 +174,6 @@
 }
 
 .meridian-compaction__action:focus-visible,
-.meridian-step-in__action:focus-visible,
 .meridian-attachment-seat__action:focus-visible,
 .meridian-queue-shelf__cancel:focus-visible,
 .meridian-plus-menu__trigger:focus-visible {
@@ -191,8 +189,7 @@
 }
 
 .meridian-compaction__settlement,
-.meridian-compaction__completed,
-.meridian-step-in__receipt {
+.meridian-compaction__completed {
   display: inline-flex;
   gap: var(--meridian-space-1);
   align-items: baseline;

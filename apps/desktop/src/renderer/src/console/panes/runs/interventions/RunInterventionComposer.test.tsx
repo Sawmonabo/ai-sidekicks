@@ -7,12 +7,8 @@
 // prediction.
 
 import { describe, expect, it } from "vitest";
-import {
-  RUN_ID,
-  renderComposer,
-  submit,
-  typeInto,
-} from "./run-intervention-composer.test-support.js";
+import { renderComposer, submit, typeInto } from "./run-intervention-composer.test-support.js";
+import { RUN_ID } from "../runs-pane.test-support.js";
 
 describe("preview is consent", () => {
   it("shows the scope and the guard before any confirm exists to press", () => {

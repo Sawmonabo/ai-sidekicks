@@ -86,6 +86,19 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // apply chokepoint.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
+// The wiring that feeds that chokepoint, on the door for the same reason: the four
+// moments a reading goes stale are one rule, and a family that could not reach this
+// hook would wire whichever subset its author remembered — which is exactly how the
+// queue and quota readings came to have none. `ReadTriggerTarget` travels with it
+// because every reading above this family implements it.
+export {
+  NO_TRIGGERING_EVENT_KINDS,
+  useReadTriggers,
+  useSessionReadTriggers,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+} from "./read-triggers.js";
+
 // `useSessionPartition` joins the door with its cross-family consumers: the
 // composer reads the `agent`, `run`, and `channel` partitions to resolve what a
 // send is addressed to, and the frame's agent step reads a session's agents. It is
@@ -128,6 +141,12 @@ export {
 // for the same reason: a caller mapping three arms onto what a control may offer
 // writes that mapping over the union rather than over a boolean it inferred.
 export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
+// The degradation cause itself, beside the hook that answers it. Without this line
+// a consumer could reach the closed set only by reflecting on the hook's return
+// type — which derives the set from a CONSUMER of it, so widening the hook's
+// annotation widens the consumer's exhaustiveness silently and narrowing it to a
+// wrapper collapses that exhaustiveness outright.
+export type { SessionDegradedCause } from "./session-store.js";
 
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is
 // a scheduling decision — the console's other one, `scheduling.ts`, is its neighbour
