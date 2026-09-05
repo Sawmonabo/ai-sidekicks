@@ -8,7 +8,8 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError, DuplicateRegistrationError } from "../core/index.js";
+import { ConsoleRefusalError } from "../core/index.js";
+import { DuplicateRegistrationError } from "../core/keyed-registry.js";
 import {
   INLINE_CARD_KINDS,
   InlineCardSeatRegistry,

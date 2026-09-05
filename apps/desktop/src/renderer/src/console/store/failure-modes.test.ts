@@ -22,7 +22,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import { eventAt } from "./failure-modes.test-support.js";
 import { SessionStore } from "./session-store.js";
 
