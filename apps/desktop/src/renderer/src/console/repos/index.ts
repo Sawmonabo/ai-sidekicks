@@ -14,14 +14,11 @@
 // what both pane barrels are reached through, so every sheet is present whenever any
 // of the three directories renders, and each lands in the graph once.
 //
-// WHY `registerRepos` TAKES NO REGISTRY WHERE THE OTHER SEATS DO. The seat board in
-// `console/families.ts` describes a family as `register<Family>(registry:
-// ConsoleSurfaceRegistry)`, because most families claim a SURFACE — the thing a
-// route mounts. This one claims none: `CONSOLE_SURFACE_SLOTS` is closed at five and
-// none of them is a repos destination, because the repos family reaches the screen
-// through the session sidebar and the deck rather than through a route of its own.
-// A parameter it never reads would be a claim that it might, and the eslint
-// suppression that parameter needs would outlive the reason for it.
+// WHAT IS HERE AND WHAT IS NEXT DOOR. This module imports the family's three sheets,
+// publishes the two registration entry points the console calls, and publishes the
+// two cross-family seams at the bottom. The BODIES are all in `family-bodies.ts`,
+// whose header says why a door that read the two pane barrels and the sidebar
+// registry itself was a barrel chain rather than a consumer of any of them.
 
 import "./repos.css";
 // The two pane sub-modules' own sheets, imported HERE and not from their barrels, so
@@ -33,127 +30,46 @@ import "./repos.css";
 import "../panes/diff/diff.css";
 import "../panes/artifact/artifact.css";
 
-import { createElement } from "react";
-
+import type { ConsolePaneRegistry } from "../seats/index.js";
 import {
-  ArtifactPane,
-  registerInlineArtifactCardBody,
-  registerInlineAttachmentCardBody,
-} from "../panes/artifact/index.js";
-import { DiffPane, registerInlineDiffCardBody } from "../panes/diff/index.js";
-import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { RefusalCard } from "../primitives/index.js";
-import { registerSidebarSection, type ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
-import { AttachmentCarrierSection } from "./AttachmentCarrierSection.js";
-import { RepoSection } from "./RepoSection.js";
+  REPOS_FAMILY_OWNER,
+  registerRepos,
+  renderArtifactPaneBody,
+  renderDiffPaneBody,
+} from "./family-bodies.js";
 
-/**
- * Who owns every body this family registers.
- *
- * One binding rather than three literals, and it is load-bearing rather than tidy:
- * both registries carry a `duplicatePolicy` of `"owner-scoped"`, so the owner
- * string is what decides whether a second registration REPLACES the first (a hot
- * reload re-running this module) or RAISES (a different family claiming a taken
- * key). Three literals that drifted apart would turn a hot reload into a conflict
- * on whichever body was spelled differently.
- */
-const REPOS_FAMILY_OWNER = "repos";
-
-/** The subsystem a misaddressed-pane refusal names as its author. */
-const REPOS_PANES_ORIGIN = "repos-panes";
-
-/**
- * What a pane body renders when the deck opens it at another kind's address.
- *
- * A REFUSAL RATHER THAN A THROW, on `core/refusal.ts`'s terms and for the deck's
- * sake: one misrouted pane in a restored layout takes this card and every other pane
- * in the deck still mounts, where an exception raised inside a render would take the
- * whole surface down with it.
- *
- * Reachable only through a defect above this family — the registry resolves a
- * descriptor BY kind and hands it the context it resolved on — which is exactly why
- * it is a rendered sentence rather than a comment: `ConsolePaneAddress` narrows the
- * entity with the kind, so a body cannot be typed on its own arm without the compiler
- * asking what the other arms do here, and answering "nothing" would put a blank
- * region on screen for a state a person cannot otherwise explain.
- */
-function misaddressedPaneRefusal(expected: PaneKind, received: PaneKind): ConsoleRefusal {
-  return refuse(
-    REPOS_PANES_ORIGIN,
-    "pane-kind-mismatch",
-    `this body renders the ${expected} pane and the deck opened it at a ${received} address, so it has nothing to be a view of`,
-  );
-}
-
-/**
- * Fill the sidebar's two repos-family sections.
- *
- * Reached from `console/families.ts`, at this family's own reserved line.
- *
- * TWO SECTIONS AND NOT ONE, because `seats/sidebar-sections.ts` names both as this
- * family's: "repos and artifacts are the repos family's". The second is the
- * attachment carrier — the ingest trio's one production entry point, and the only
- * surface in this console through which a participant hands the session a file.
- */
-export function registerRepos(): void {
-  registerSidebarSection({
-    id: "repos",
-    owner: REPOS_FAMILY_OWNER,
-    render: (context) => createElement(RepoSection, { context }),
-  });
-  registerSidebarSection({
-    id: "artifacts",
-    owner: REPOS_FAMILY_OWNER,
-    render: (context) => createElement(AttachmentCarrierSection, { context }),
-  });
-  // The ledger row's three card bodies. They are registered HERE rather than at
-  // each card module's own scope for the reason this whole file exists: a family
-  // registers everything it owns through one door, so a reader can see the
-  // family's entire contact surface with the rest of the console in one place,
-  // and so a hot reload re-runs one module rather than several. All three kinds
-  // `INLINE_CARD_KINDS` declares are this family's, so after this call the seat
-  // registry is full.
-  registerInlineDiffCardBody();
-  registerInlineArtifactCardBody();
-  registerInlineAttachmentCardBody();
-}
+// The sidebar and card seats, from the module that fills them. `console/families.ts`
+// calls this at the family's own reserved line; `family-bodies.ts` says why the calls
+// are made there rather than here.
+export { registerRepos };
 
 /**
  * Claim the two pane kinds this family builds bodies for.
+ *
+ * DECLARED HERE rather than re-exported, because `console/panes/index.ts` states the
+ * contract in its own words — a family claims its pane kinds "inside that function",
+ * the one it publishes from its own `index.ts` — and because that composition site is
+ * itself an `index.ts`: a door line whose only production reader is another door has
+ * no reader the census can see, and a declaration is not a door line.
  *
  * Takes the registry rather than reaching for the module-scope singleton, for the
  * seat board's reason: a test composes the same bodies into a registry it owns, and
  * an auxiliary window composes a subset without a second code path.
  *
- * NEITHER KIND DECLARES A TEAR-OFF, because a descriptor cannot: whether a pane
- * may be torn off is a property of the KIND, answered once by
- * `isDetachablePaneKind` off the window model's own route set, and never a member
- * a family fills in. `Spec-023 §The surface set` names `timeline` and
- * `agent-console` as the two panes that get their own hardened window, so both of
- * this family's kinds answer that predicate `false` — and they answer it in the
- * one place that decides it rather than in six families' registrations.
+ * NEITHER KIND DECLARES A TEAR-OFF, because a descriptor cannot: whether a pane may
+ * be torn off is a property of the KIND, answered once by `isDetachablePaneKind` off
+ * the window model's own route set, and never a member a family fills in.
+ * `Spec-023 §The surface set` names `timeline` and `agent-console` as the two panes
+ * that get their own hardened window, so both of this family's kinds answer that
+ * predicate `false` — and they answer it in the one place that decides it rather than
+ * in six families' registrations.
  */
 export function registerReposPanes(registry: ConsolePaneRegistry): void {
-  registry.register({
-    kind: "diff",
-    owner: REPOS_FAMILY_OWNER,
-    // The comparison narrows the address union to this kind's arm, which is what
-    // gives the body a required `entity` of the kinds a diff is opened over. It is a
-    // literal rather than a captured variable deliberately: a generic helper shared
-    // by both registrations would need a cast to narrow, and the cast is the thing
-    // the union was minted to remove.
-    render: (context) =>
-      context.kind === "diff"
-        ? createElement(DiffPane, { context })
-        : createElement(RefusalCard, misaddressedPaneRefusal("diff", context.kind)),
-  });
+  registry.register({ kind: "diff", owner: REPOS_FAMILY_OWNER, render: renderDiffPaneBody });
   registry.register({
     kind: "artifact",
     owner: REPOS_FAMILY_OWNER,
-    render: (context) =>
-      context.kind === "artifact"
-        ? createElement(ArtifactPane, { context })
-        : createElement(RefusalCard, misaddressedPaneRefusal("artifact", context.kind)),
+    render: renderArtifactPaneBody,
   });
 }
 
@@ -175,7 +91,13 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
 //
 // Consumed by `panes/runs/InterventionHistory.tsx`, the runs pane's intervention
 // history, in the cross-family task that composes it.
-export { FileRestoreDisclosure, type FileRestoreDisclosureProps } from "./FileRestoreDisclosure.js";
+export {
+  // Consumed by T-023p-1C-3, the runs pane's intervention history, in the
+  // cross-family task that composes it.
+  FileRestoreDisclosure,
+  // Consumed by T-023p-1C-3, with the component above.
+  type FileRestoreDisclosureProps,
+} from "./restore/FileRestoreDisclosure.js";
 
 // The ingest trio, published as the binding that owns it rather than as the client.
 //
@@ -193,6 +115,9 @@ export { FileRestoreDisclosure, type FileRestoreDisclosureProps } from "./FileRe
 // is used and a marker here would suppress nothing.
 export {
   useAttachmentCarrier,
+  // Consumed by T-023p-1C-3, the composer family's attachment affordance, in the
+  // cross-family task that composes it.
   type AttachmentCarrierBinding,
+  // Consumed by T-023p-1C-3, with the binding above.
   type AttachmentCarrierSnapshot,
-} from "./attachment-carrier.js";
+} from "./attachments/attachment-carrier.js";

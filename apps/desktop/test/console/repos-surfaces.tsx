@@ -71,11 +71,11 @@ import {
 } from "../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
 import { LiveAnnouncerProvider } from "../../src/renderer/src/console/primitives/index.js";
-import { ProposalGate } from "../../src/renderer/src/console/repos/ProposalGate.js";
+import { ProposalGate } from "../../src/renderer/src/console/repos/proposals/ProposalGate.js";
 import { registerRepos, registerReposPanes } from "../../src/renderer/src/console/repos/index.js";
-import type { BranchContextReading } from "../../src/renderer/src/console/repos/branch-context-model.js";
-import type { ProposalAction } from "../../src/renderer/src/console/repos/proposal-actions.js";
-import type { ProposalGateState } from "../../src/renderer/src/console/repos/proposal-gate-state.js";
+import type { BranchContextReading } from "../../src/renderer/src/console/repos/mounts/branch-context-model.js";
+import type { ProposalAction } from "../../src/renderer/src/console/repos/proposals/proposal-actions.js";
+import type { ProposalGateState } from "../../src/renderer/src/console/repos/proposals/proposal-gate-state.js";
 import { FrameStore, SessionStore } from "../../src/renderer/src/console/store/index.js";
 import {
   ConsolePaneRegistry,

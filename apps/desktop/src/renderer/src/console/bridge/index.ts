@@ -61,17 +61,11 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // renders a served value or a refusal, and a surface that could reach a schema
 // would be a surface that could parse a second time, differently.
 export {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
   callDaemon,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon-reply.js";
-export type {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
-  DaemonReply,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
-  DaemonReplyRefusalCode,
-} from "./daemon-reply.js";
+export type { DaemonReply, DaemonReplyRefusalCode } from "./daemon-reply.js";
 export type {
   ConsoleDaemonMethod,
   DaemonRequestOf,

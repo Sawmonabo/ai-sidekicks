@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
-import type { ArtifactManifestRow, ArtifactsPanelState } from "../../repos/artifact-model.js";
+import type { ArtifactManifestRow, ArtifactsPanelState } from "../../repos/artifacts/index.js";
 import {
   NOTHING_READ_YET,
   growthAnswerReading,

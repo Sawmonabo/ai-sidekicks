@@ -68,12 +68,12 @@ import {
   formatByteQuantity,
   useAnnounce,
 } from "../../primitives/index.js";
-import { ArtifactsPanel } from "../../repos/ArtifactsPanel.js";
 import {
+  ArtifactsPanel,
   artifactDeleteReceiptSentence,
   type ArtifactDeleteReceipt,
   type ArtifactManifestRow,
-} from "../../repos/artifact-model.js";
+} from "../../repos/artifacts/index.js";
 import { type ConsolePaneContext } from "../../seats/index.js";
 import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";

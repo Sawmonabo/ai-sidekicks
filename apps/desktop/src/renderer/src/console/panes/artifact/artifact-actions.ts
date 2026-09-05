@@ -77,7 +77,7 @@
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { CurrentGenerationClaim } from "../../store/index.js";
-import { artifactManifestRowFromSummary } from "../../repos/artifact-model.js";
+import { artifactManifestRowFromSummary } from "../../repos/artifacts/index.js";
 import { readGrowthAnswer } from "./growth-call.js";
 import {
   manifestReadInFlightRefusal,

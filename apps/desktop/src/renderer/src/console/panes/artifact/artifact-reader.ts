@@ -74,7 +74,7 @@ import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../../c
 import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
-} from "../../repos/artifact-model.js";
+} from "../../repos/artifacts/index.js";
 import {
   GenerationLatch,
   RefreshScheduler,

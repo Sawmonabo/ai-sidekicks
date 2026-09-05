@@ -35,13 +35,13 @@ import {
   WireFigure,
   formatByteQuantity,
 } from "../../primitives/index.js";
-import type { ArtifactManifestRow } from "../../repos/artifact-model.js";
 import {
   ARTIFACT_STATE_PRESENTATION,
   ARTIFACT_VISIBILITY_PRESENTATION,
   artifactProducerLabel,
   artifactReplicationPresentation,
-} from "../../repos/artifact-model.js";
+  type ArtifactManifestRow,
+} from "../../repos/artifacts/index.js";
 import { registerInlineCardBody, type ArtifactInlineCardProps } from "../../seats/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */

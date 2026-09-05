@@ -23,8 +23,9 @@ import {
   REFRESH_DEBOUNCE_MS,
 } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../../repos/artifact-model.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-policy.js";
+import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../../repos/artifacts/artifact-model.js";
+
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment-policy.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
 

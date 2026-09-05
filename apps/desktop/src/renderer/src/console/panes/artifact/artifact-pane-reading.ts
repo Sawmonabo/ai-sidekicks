@@ -19,12 +19,12 @@ import {
   refuse,
   type ConsoleRefusal,
 } from "../../core/index.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-policy.js";
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment-policy.js";
 import type {
   ArtifactDeleteReceipt,
   ArtifactManifestRow,
   ArtifactsPanelState,
-} from "../../repos/artifact-model.js";
+} from "../../repos/artifacts/index.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
 /**

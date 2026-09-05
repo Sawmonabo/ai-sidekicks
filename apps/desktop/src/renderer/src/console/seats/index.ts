@@ -61,6 +61,9 @@ export {
   DETACHABLE_PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
+  // Consumed by T-023p-1C-2. A line comment rather than the JSDoc tag beside it,
+  // because this specifier is already reached by a test and knip therefore counts the
+  // symbol referenced — a tag that suppresses nothing fails the dead-code run.
   isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
@@ -113,6 +116,8 @@ export {
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
   registerSidebarSection,
+  // Consumed by T-023p-1C-3. A line comment for the reason the pane-kind predicate
+  // above gives: a test reaches it, so knip counts it referenced.
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
@@ -145,7 +150,10 @@ export {
   INLINE_CARD_KINDS,
   /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
+  // Consumed by T-023p-1C-2, the two below with it. Line comments rather than the
+  // JSDoc tag, because this family's card suites already reach both.
   inlineCardBody,
+  // Consumed by T-023p-1C-2, with the reader above.
   inlineCardSeatRegistry,
   registerInlineCardBody,
   type ArtifactInlineCardProps,
