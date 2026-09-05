@@ -216,6 +216,45 @@ describe("useSendController — a settlement is keyed to the address it was sent
     expect(driven.latest().refusal).toBeUndefined();
     expect(driven.latest().text).toBe("ship it");
   });
+
+  it("frees Send on a return visit whose earlier call has not settled", async () => {
+    // The only ordering in which the latch and the status disagree, and the one the
+    // suite stopped one step short of: A → B → A with A's first call STILL PARKED.
+    // The holder re-seeds on the return, so the bar renders `idle` and the line is
+    // writable; a latch keyed on the draft key alone still held A's slot, so the
+    // second press claimed nothing, returned, and did nothing at all — no send, no
+    // refusal, no status change, no chip.
+    const driven = driveAddressableComposer();
+    const firstSend = driven.beginSend("ship it");
+    expect(driven.calls.parkedCount).toBe(1);
+
+    driven.reAddressTo(CHANNEL_B);
+    driven.reAddressTo(CHANNEL_A);
+    expect(driven.latest().status).toBe("idle");
+
+    const secondSend = driven.beginSend("actually, hold on");
+    expect(driven.calls.parkedCount).toBe(2);
+
+    // And the first visit's settlement does not reach across into the second's line.
+    // The draft store is keyed by ADDRESS, so the captured key names a draft with
+    // the same name and different text; an unconditional clear erased the words the
+    // person had just typed, with nothing rendered to say why.
+    await act(async () => {
+      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      await firstSend;
+    });
+
+    expect(driven.latest().text).toBe("actually, hold on");
+    expect(driven.latest().refusal).toBeUndefined();
+
+    await act(async () => {
+      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      await secondSend;
+    });
+
+    // The second visit's own settlement IS current and does render.
+    expect(driven.latest().refusal?.code).toBe(QUEUE_FULL_CODE);
+  });
 });
 
 describe("useSendController — one operation's settlement never erases another's", () => {

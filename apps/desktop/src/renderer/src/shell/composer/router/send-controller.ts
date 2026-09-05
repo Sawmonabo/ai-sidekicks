@@ -17,15 +17,23 @@
 // in one frame both read `idle` and both dispatch. Both were also hook-wide, so a
 // send or a Stop still travelling for one target held the composer as the person
 // re-addressed it: the new target's line stayed read-only and its own control
-// unavailable until the previous call settled, forever where it never did. Both
-// halves are keyed through the holders `console/bridge/` publishes rather than
-// through anything local. The console's one `GenerationLatch` holds the slot under
-// `(bridge, addressedOperationKey(draftKey, operation))`, claimed before the await
-// and released in `finally`, which makes a second press at the SAME address a no-op
-// in the same tick and leaves another address free; `useSubjectScopedState` holds
-// `status` and `isStopping` under `(bridge, draftKey)` and resets them during the
-// render that first sees a new address, so the new target reads idle on its first
-// frame rather than one frame later. Their dispositions for a late settlement
+// unavailable until the previous call settled. Both halves are keyed through the
+// holders `console/bridge/` publishes rather than through anything local: the
+// console's one `GenerationLatch` holds the slot under `(bridge,
+// addressedOperationKey(draftKey, visit, operation))`, claimed before the await and
+// released in `finally`, and `useSubjectScopedState` holds `status` and `isStopping`
+// under `(bridge, draftKey)`, reset during the render that first sees a new
+// address.
+//
+// THE VISIT IS WHAT KEEPS THE LATCH AND THE STATUS SAYING THE SAME THING. The holder
+// re-seeds on every re-address, including a return to a target the composer has been
+// on before; a latch keyed on the draft key alone did not, so on the return trip the
+// bar rendered `idle` over a slot still held by the earlier visit's parked call and
+// Send did nothing at all. `use-settlement-register.ts` owns that serial and says
+// why it is the composer's mirror of the holder's own addressing epoch; every keyed
+// thing here carries it — the latch slot, the newest-attempt register, and the
+// settlement identity — so the three agree by construction rather than by three
+// authors remembering the same rule. Their dispositions for a late settlement
 // differ, deliberately: it releases the exact slot it claimed even after the
 // composer has moved on, while the READING it would have published is dropped —
 // that reading describes an act at an address this composer is no longer on.
@@ -45,10 +53,8 @@
 // retired the active turn the duplicate refuses with no live run — a misleading
 // refusal standing beside an interrupt that worked. So Stop claims a slot of its
 // own, which is what carrying the OPERATION in the latch key buys: interrupting a
-// turn while a send is in flight is exactly what the control exists for, and one
-// slot per address would put Stop behind the state it escapes. A second press while
-// the first is held is silent, as `dispatch`'s own is — the person pressed the
-// control for the interrupt already going.
+// turn while a send is in flight is exactly what the control exists for. A second
+// press while the first is held is silent, as `dispatch`'s own is.
 //
 // THE HISTORY WALK IS PER ADDRESS FOR THE SAME REASON. One history for the life of
 // the mounted bar carried an address's sent messages, and any walk in progress, into
@@ -56,25 +62,17 @@
 // on the same draft key, so the composer walks the history of the target it is
 // addressed to and no other.
 //
-// THE RESEND OFFER CARRIES ITS ADDRESSING. The tripwire card offers the last sent
-// body so a neutralized turn can be retried without retyping, and that body used to
-// be a bare string that outlived the address it was written for: sending to one
-// agent and then focusing another whose run had tripped offered the first agent's
-// words, and pressing the offer sent them to the second. So the offer is held WITH
-// the draft key it was sent under and is exposed only while that key is still the
-// current one. The draft key is already this composer's address identity, so the
-// guard is the same notion of "same target" the draft store keys on rather than a
-// second one beside it.
-//
-// EVERY SETTLEMENT IS KEYED TO THE ACT THAT PRODUCED IT. The refusal used to be one
-// hook-wide slot, and a hook-wide slot cannot say which target a refusal is about or
-// which act it answers: a send to one agent that the daemon refused while the person
-// re-addressed the composer wrote its refusal under the new target, and a concurrent
-// success or a Stop cleared the slot the other operation's refusal was standing in.
-// `send-settlement.ts` holds the identity — the address, the operation, the attempt —
-// and this hook captures one at each dispatch and admits a settlement only while that
-// identity is still current. A completion whose address has moved on is discarded
-// where it lands rather than parked for a later render to find.
+// THE RESEND OFFER AND THE REFUSAL ARE HELD WHERE THE STATUS IS. The tripwire card
+// offers the last sent body so a neutralized turn can be retried without retyping,
+// and the refusal answers the act that produced it — and both used to be hook-wide
+// `useState` guarded by a read-time comparison against the current draft key. A
+// guard only HIDES: the row was still there, so the return trip offered one agent's
+// words under another's run and rendered a refusal minutes old, and a bridge
+// replacement — which retires every call made through the old transport — left both
+// standing. They are now held under `(bridge, draftKey)` like `status` and
+// `isStopping`, so a re-address drops them and a replaced bridge takes them with it.
+// `send-settlement.ts` still owns which act a settlement belongs to, and
+// `use-settlement-register.ts` owns whether that act is still the one on screen.
 //
 // THE COMPARAND LEDGER OUTLIVES THE ROUTER, and it has to. The router is memoized on
 // the command zone's predicates, and those change identity whenever the addressed
@@ -92,11 +90,12 @@
 // restart disclosure reachable: it is armed at construction and cleared the first
 // time a composer is focused, which is a sentence somebody has to render.
 
-import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 import { composerDraftKey } from "./draft-key.js";
+import { useSettlementRegister } from "./use-settlement-register.js";
 import { composerRefusal } from "./send-refusals.js";
 import { composeDirectivePlaceholder, directivePathLabel } from "./directive-line.js";
 import { useDirectiveRecall } from "./use-directive-recall.js";
@@ -104,10 +103,9 @@ import { useRestartDisclosure } from "./use-restart-disclosure.js";
 import {
   NO_COMPOSER_REFUSALS,
   addressedOperationKey,
-  isSettlementCurrent,
   renderableRefusal,
   withSettledRefusal,
-  type ComposerSendOperation,
+  type ComposerRefusalSlots,
   type ComposerSettlementIdentity,
 } from "./send-settlement.js";
 import { ComposerSendRouter } from "./send-router.js";
@@ -118,7 +116,6 @@ import type {
   SendControllerStatus,
 } from "./send-controller-contract.js";
 
-/** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 /**
  * What a recognised command with nowhere to run says.
  *
@@ -128,12 +125,6 @@ import type {
  */
 const NO_EXECUTOR_DETAIL =
   "That command was recognised but nothing here can run it, so nothing happened. Your message is still in the line.";
-
-/** The last sent body, held under the composer address it was sent to. */
-interface AddressedResendOffer {
-  readonly draftKey: string;
-  readonly body: string;
-}
 
 /** Build the controller for one addressed composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
@@ -163,10 +154,12 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // intercepted, refused, or a rejection the router turned into a refusal — releases
   // the round on exactly one path rather than on the arms an author remembered.
   const operationLatch = useGenerationLatch();
-  const [refusalSlots, setRefusalSlots] = useState(NO_COMPOSER_REFUSALS);
-  const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
 
   const draftKey = composerDraftKey(target);
+  // Which stay at this address the composer is on, and which attempt of each act is
+  // the newest. Its own module because it is a different job with a different
+  // lifetime: nothing there reaches a wire or renders anything.
+  const { visit, issue: issueSettlementIdentity, isCurrent } = useSettlementRegister(draftKey);
   // What the bar renders while an act is travelling, held under the address that act
   // was issued at. Two holders rather than one object: a send and a Stop can be in
   // flight at once, and one publisher writing a pair would let whichever settled
@@ -181,39 +174,42 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     draftKey,
     () => false,
   );
-  // The address a settlement is measured against is the composer's CURRENT one, and a
-  // dispatch's own closure holds the address it was ISSUED at — so the current key
-  // travels through a ref that every render refreshes, and the two are compared where
-  // the call lands rather than assumed to be the same.
-  const currentDraftKeyRef = useRef(draftKey);
-  currentDraftKeyRef.current = draftKey;
-  // The attempt counter and the newest attempt of each operation. Refs rather than
-  // state for the reason the single-flight latches are: both are written and read
-  // inside one handler's own tick, and a state read there would see the value from
-  // the render that produced the handler.
-  const nextAttemptIdRef = useRef(0);
-  const newestAttemptIdRef = useRef<Record<ComposerSendOperation, number>>({ send: 0, stop: 0 });
-
-  /** Capture the identity of one act, and make it that operation's newest attempt. */
-  const issueSettlementIdentity = useCallback(
-    (operation: ComposerSendOperation): ComposerSettlementIdentity => {
-      nextAttemptIdRef.current += 1;
-      const attemptId = nextAttemptIdRef.current;
-      newestAttemptIdRef.current[operation] = attemptId;
-      return { draftKey: currentDraftKeyRef.current, operation, attemptId };
+  // Held under the SAME subject and key the status is, and for the same two reasons.
+  // A bridge replacement retires every call made through the old transport, so a
+  // refusal it raised and an offer to resend its body are both about a transport
+  // that no longer exists — as `useState` they survived it, and pressing Resend sent
+  // the old body through the new bridge. And a re-address re-seeds them, so a
+  // refusal is DROPPED rather than hidden behind a read-time guard that let the
+  // return trip render it again.
+  const { value: refusalSlots, publish: publishRefusalSlots } =
+    useSubjectScopedState<ComposerRefusalSlots>(bridge, draftKey, () => NO_COMPOSER_REFUSALS);
+  const { value: resendOffer, publish: publishResendOffer } = useSubjectScopedState<
+    string | undefined
+  >(bridge, draftKey, () => undefined);
+  /**
+   * Clear the line the act was issued on, but only while that act is still current.
+   *
+   * The predicate is the settlement's own, so "which draft does this clear" and
+   * "whose refusal may this write" are one question answered once.
+   */
+  const clearSentDraft = useCallback(
+    (identity: ComposerSettlementIdentity, sentDraftKey: string): void => {
+      if (isCurrent(identity)) {
+        draftStore.clear(sentDraftKey);
+      }
     },
-    [],
+    [draftStore, isCurrent],
   );
 
   /** Write one act's settlement, or discard it because its identity has moved on. */
   const settle = useCallback(
     (identity: ComposerSettlementIdentity, settledRefusal: ConsoleRefusal | undefined): void => {
-      if (!isSettlementCurrent(identity, currentDraftKeyRef.current, newestAttemptIdRef.current)) {
+      if (!isCurrent(identity)) {
         return;
       }
-      setRefusalSlots((slots) => withSettledRefusal(slots, identity, settledRefusal));
+      publishRefusalSlots((slots) => withSettledRefusal(slots, identity, settledRefusal));
     },
-    [],
+    [isCurrent, publishRefusalSlots],
   );
 
   const subscribeToDraft = useCallback(
@@ -244,9 +240,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       // sent. Clearing the whole record rather than the send slot alone is deliberate —
       // the person is composing again, and both acts they could have been waiting on
       // are behind them.
-      setRefusalSlots(NO_COMPOSER_REFUSALS);
+      publishRefusalSlots(NO_COMPOSER_REFUSALS);
     },
-    [draftStore, draftKey],
+    [draftStore, draftKey, publishRefusalSlots],
   );
 
   const dispatch = useCallback(
@@ -256,7 +252,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       // than refused: the person pressed Send for the message that is already going,
       // and a refusal card would report a failure where the only thing that happened
       // is that they were early.
-      const latchKey = addressedOperationKey(draftKey, "send");
+      const latchKey = addressedOperationKey(draftKey, visit, "send");
       const claim = operationLatch.claim(bridge, latchKey);
       if (claim === undefined) {
         return;
@@ -270,12 +266,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         switch (outcome.status) {
           case "sent":
             history.recordSent(body);
-            setResendOffer({ draftKey, body });
-            // Keyed to the captured address on every arm below, and deliberately so:
-            // the draft that was sent is the one that clears, even when the composer
-            // has since been re-addressed. Only the SETTLEMENT is discarded when the
-            // address moves; the act itself happened at the address it was issued at.
-            draftStore.clear(draftKey);
+            publishResendOffer(body);
+            // THE DRAFT CLEARS ONLY WHERE THE SETTLEMENT IS STILL THE ONE ON SCREEN.
+            // The draft store is keyed by ADDRESS and not by visit, so on a return
+            // trip the captured key names a different draft with the same name: an
+            // unconditional clear erased text the person typed on the second visit
+            // to answer a send made on the first. The offer is published through
+            // this visit's own holder, which drops it on the same terms.
+            clearSentDraft(identity, draftKey);
             settle(identity, undefined);
             return;
           case "intercepted": {
@@ -294,8 +292,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
               return;
             }
             // A registered command never composes into a message: the line is
-            // cleared because the act happened, and nothing was sent.
-            draftStore.clear(draftKey);
+            // cleared because the act happened, and nothing was sent — and on the
+            // same terms as the sent arm, so a command settling after the composer
+            // has left and returned does not erase what was typed since.
+            clearSentDraft(identity, draftKey);
             settle(identity, undefined);
             return;
           }
@@ -318,12 +318,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       bridge,
       router,
       target,
-      draftStore,
       draftKey,
+      visit,
+      clearSentDraft,
       commandExecutor,
       history,
       issueSettlementIdentity,
       operationLatch,
+      publishResendOffer,
       publishStatus,
       settle,
     ],
@@ -341,7 +343,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   );
 
   const stop = useCallback(async () => {
-    const latchKey = addressedOperationKey(draftKey, "stop");
+    const latchKey = addressedOperationKey(draftKey, visit, "stop");
     const claim = operationLatch.claim(bridge, latchKey);
     if (claim === undefined) {
       return;
@@ -364,6 +366,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     router,
     target,
     draftKey,
+    visit,
     issueSettlementIdentity,
     operationLatch,
     publishStopping,
@@ -382,8 +385,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     pathLabel: directivePathLabel(resolution),
     status,
     isStopping,
-    refusal: renderableRefusal(refusalSlots, draftKey),
-    resendableText: resendOffer?.draftKey === draftKey ? resendOffer.body : undefined,
+    refusal: renderableRefusal(refusalSlots),
+    resendableText: resendOffer,
     restartNotice: restartDisclosure.notice,
     changeText,
     send,

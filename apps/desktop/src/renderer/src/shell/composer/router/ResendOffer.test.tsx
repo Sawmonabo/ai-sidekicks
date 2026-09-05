@@ -40,20 +40,28 @@ describe("ComposerSendBar — a resend offer belongs to the target it was writte
     expect(bar.resend()).toBeNull();
   });
 
-  it("restores the offer on returning to the address that holds it", async () => {
-    // The negative control for the case above: the guard withholds by ADDRESS rather
-    // than by "any re-address clears it", so a body is not lost by looking away.
+  it("does not restore the offer on returning to the address it was written at", async () => {
+    // The contract this surface states — "`undefined` once the composer is
+    // re-addressed" — and the half a read-time comparison could not keep. Held in a
+    // hook-wide `useState` and merely HIDDEN by an address guard, the body was still
+    // there and the return trip offered it again: a resend card standing minutes
+    // later, attached to nothing the person just did, next to a run whose state has
+    // moved on. The offer is now held under `(bridge, draftKey)`, which re-seeds on
+    // the render that first sees a subject — so leaving drops it rather than hiding
+    // it, and the whole record goes with a bridge replacement too.
     const bar = mountAddressable(stubBridge(answerSteer));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {
       fireEvent.keyDown(bar.line(), { key: "Enter" });
     });
+    expect(bar.resend()).not.toBeNull();
+
     bar.address(SECOND_AGENT_ID);
     expect(bar.resend()).toBeNull();
 
     bar.address(FIRST_AGENT_ID);
-    expect(bar.resend()).not.toBeNull();
+    expect(bar.resend()).toBeNull();
   });
 
   it("resends that body to its own target, once", async () => {
