@@ -20,13 +20,29 @@
 // is precisely the failure mode it is here to prevent. The config is loaded
 // from disk by `ESLint` itself.
 //
-// Two directions, per the `router-no-sql.test.ts` precedent
-// (`packages/control-plane/src/sessions/__tests__/`):
-//   • POSITIVE CONTROL — synthetic violating sources MUST report an error.
-//     Without it, a green suite is ambiguous between "the rule has teeth" and
-//     "the rule silently matched nothing".
-//   • LIVE SOURCE — the real renderer tree MUST be clean, including the
-//     transitive-helper shape the per-component scans cannot see.
+// What this suite asserts is the rule's TEETH, on synthetic sources, per the
+// `router-no-sql.test.ts` precedent (`packages/control-plane/src/sessions/__tests__/`):
+// without a positive control a green suite is ambiguous between "the rule has
+// teeth" and "the rule silently matched nothing".
+//
+// WHAT IT DELIBERATELY DOES NOT ASSERT, AND WHO DOES. Whether the LIVE renderer
+// tree is clean is owned by this package's own `lint` script — `eslint build
+// scripts src test`, which runs this same flat config at `error` over `src/`, a
+// superset of the renderer sub-tree, in the required `test-node22` job's
+// "Lint per-package" step. That step runs BEFORE the step that runs this file, so
+// a violation turns it red first and a case here could never be the run that
+// caught one: it was a strict re-run of a gate that had already fired.
+//
+// The re-run was not free. Under the advisory `coverage (informational)` job —
+// where `@vitest/coverage-v8` instruments the TypeScript parser and every rule
+// visitor while turbo runs five packages' suites on a 2-vCPU runner — linting the
+// 302-file renderer tree took 34 294 ms against this file's 30 000 ms budget and
+// rendered that job red on every pull request (GitHub Actions runs 33703788077,
+// 33707808528, 33914273796). The same file costs 1 654 ms in the ordinary
+// uninstrumented test step, and it contributes nothing to the measurement it was
+// costing: it executes no renderer module, it reads them through ESLint. Measured
+// locally, the instrumentation alone is 2.5x — 1 287 ms uninstrumented against
+// 3 255 ms instrumented, best of three alternating passes.
 //
 // This suite runs in the `renderer` project (happy-dom) but is a pure Node
 // program: it lints files rather than rendering components, so it imports no
@@ -64,7 +80,6 @@ function packageRelativePath(relativeToThisFile: string): string {
 
 // __tests__/ → runtime-node-attach/ → src/ → renderer/ → src/ → desktop/
 const DESKTOP_PACKAGE_ROOT = packageRelativePath("../../../../../");
-const RENDERER_SOURCE_GLOB = packageRelativePath("../../**/*.{ts,tsx}");
 
 // A renderer file path that the config's `files` selector matches. The lint
 // result depends on the path (that is the point — the ban is path-scoped), so
@@ -86,7 +101,7 @@ function restrictedImportMessages(results: readonly ESLint.LintResult[]): string
 }
 
 /**
- * The per-case budget this file installs for all eleven of its cases.
+ * The per-case budget this file installs for all ten of its cases.
  *
  * Sized to the MACHINE, not to the work. Every case here drives the REAL ESLint
  * engine over the REAL flat config, and whichever case runs FIRST additionally
@@ -97,17 +112,15 @@ function restrictedImportMessages(results: readonly ESLint.LintResult[]): string
  * vitest: importing that config graph costs 385ms; a fresh `ESLint` instance's
  * first `lintText` costs 376ms and its second costs 9ms.
  *
- * That lopsided first case is what actually flaked — under a full-workspace
- * `pnpm test` this file took 9771ms against 939ms alone, and its first case died
- * with a bare "Test timed out in 5000ms" while the other ten passed. But that is
- * NOT why the budget is file-scoped instead of aimed at the one case that fell
- * over. `the live renderer tree is clean` lints the entire renderer sub-tree —
- * genuine per-case work that grows with every renderer file added — and measured
- * 4068ms under the same contention that timed the first case out. At the 5s
- * default it is ALREADY inside the window, so hoisting the warm-up into a shared
- * hook would have fixed the case that failed and left the case that fails next.
- * A hoist also moves the exposure onto `hookTimeout`, whose default is 10s — a
- * TIGHTER budget than this one — in exchange for no pass/fail difference at all.
+ * That lopsided first case is the whole exposure, and it is the only one left:
+ * under a full-workspace `pnpm test` this file's first case died with a bare
+ * "Test timed out in 5000ms" while the other ten passed, and on the coverage
+ * runner it still costs 3911ms while every sibling costs 15-75ms. The budget is
+ * file-scoped rather than aimed at that one case because which case runs first
+ * is an ordering detail, not a property worth encoding: whichever it is pays the
+ * graph. Hoisting the warm-up into a shared hook would move the same exposure
+ * onto `hookTimeout`, whose default is 10s — a TIGHTER budget than this one — in
+ * exchange for no pass/fail difference at all.
  *
  * Reproduced deliberately with CPU burners on an 8-core host: the first case ran
  * 414ms alone and 7304ms at 2x oversubscription over a cold module graph
@@ -117,13 +130,14 @@ function restrictedImportMessages(results: readonly ESLint.LintResult[]): string
  * shape of a full `pnpm test`: every package's vitest pool forking at once, over
  * a module graph nothing has read yet.
  *
- * 30s is therefore ~4x the worst per-case figure measured (7304ms) and ~3x the
- * worst whole-FILE wall time observed (9771ms), so the budget holds even if this
- * file's entire real-world cost landed inside a single case. Deliberately not
- * the 15000ms that `packages/control-plane` and `packages/client-sdk` set
- * package-wide: that is barely 2x the worst figure measured here, and those two
- * are buying a floor for every suite they own rather than a ceiling for one.
- * The headroom above it costs nothing. Unlike
+ * 30s is therefore ~4x the worst per-case figure measured (7304ms), so the
+ * budget holds even if this file's entire real-world cost landed inside a single
+ * case. It is unchanged by the removal of the whole-tree case above: that case
+ * never sized this number — the cold-plus-contended warm-up did, and it is still
+ * here. Deliberately not the 15000ms that `packages/control-plane` and
+ * `packages/client-sdk` set package-wide: that is barely 2x the worst figure
+ * measured here, and those two are buying a floor for every suite they own
+ * rather than a ceiling for one. The headroom above it costs nothing. Unlike
  * `packages/runtime-daemon/src/git/__tests__/turn-snapshot-service.test.ts`,
  * whose budget is sized above a 30s INNER subprocess deadline so a hung spawn
  * fails naming its own leg, nothing inside `lintText` has a deadline for this
@@ -286,12 +300,5 @@ describe("renderer import boundary", () => {
     // about merge-vs-replace.
     expect(messages).toContain("SENTINEL");
     expect(messages).not.toContain("CP-003-3");
-  });
-
-  it("the live renderer tree is clean", async () => {
-    const results = await createLinter().lintFiles([RENDERER_SOURCE_GLOB]);
-    // Guards against a glob that silently matches nothing — a vacuous pass.
-    expect(results.length).toBeGreaterThan(0);
-    expect(restrictedImportMessages(results)).toHaveLength(0);
   });
 });
