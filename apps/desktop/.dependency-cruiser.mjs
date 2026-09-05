@@ -60,6 +60,18 @@ const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
  */
 const CONSOLE_BARRELS = [`${CONSOLE}/index\\.ts$`, `${CONSOLE}/.+/index\\.ts$`];
 
+/**
+ * The doors a renderer subtree OUTSIDE the console may reach, and no others.
+ *
+ * Narrower than {@link CONSOLE_BARRELS} by one alternative, and the difference is the
+ * claim: a sub-module door (`bridge/growth-values/index.ts`) publishes its directory
+ * to the family around it, and a consumer outside the console has no standing to know
+ * that directory exists. What it may name is the family door — the same door an
+ * intra-console family crosses to — so the set is `console/index.ts` and
+ * `console/<family>/index.ts`, both spellings, and nothing deeper.
+ */
+const CONSOLE_FAMILY_DOORS = [`${CONSOLE}/index\\.ts$`, `${CONSOLE}/[^/]+/index\\.ts$`];
+
 /** Every layer family, low to high — the closed set the DAG orders. */
 const LAYER_FAMILIES = [CORE, TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
 
@@ -190,6 +202,22 @@ export default {
           "^src/renderer/src/(timeline|usage-meters|run-controls|provider-accounts|" +
           "sidekick-definitions|mcp-governance)/",
       },
+    },
+    {
+      name: "renderer-reaches-console-through-doors",
+      comment:
+        "A renderer subtree OUTSIDE the console deep-imported a console module. Every layering " +
+        "rule here is `from`-scoped to `console/`, so an importer that lives beside the console " +
+        "rather than inside it matches none of them — which is how a Tier-1 subtree came to hold " +
+        "`console/store/subject-scoped-state.js` while three gates reported clean and the door " +
+        "the symbol is published from could have been deleted without one of them noticing. " +
+        "Import the family door instead (`console/store/index.js` publishes the subject-scoped " +
+        "holder for exactly this reason). A symbol no door publishes is a symbol the console has " +
+        "not offered, and reaching around the door inverts that decision rather than respecting " +
+        "it.",
+      severity: "error",
+      from: { path: "^src/renderer/src/(?!console/)" },
+      to: { path: `${CONSOLE}/`, pathNot: CONSOLE_FAMILY_DOORS },
     },
     upwardEdge("core", CORE, ABOVE_CORE),
     upwardEdge("tokens", TOKENS, ABOVE_TOKENS),
