@@ -10,7 +10,7 @@
 // "another would not say" are two facts, and a fold that kept only the first would
 // let a served empty answer beside a refused one render as a definitive nothing.
 
-import { parseInstant } from "../../core/index.js";
+import { parseInstant, type ConsoleRefusal } from "../../core/index.js";
 import type { ReadingState } from "../../primitives/index.js";
 import type { InvitesListOutcome, InvitesListRefusal, ServedInvite } from "../../bridge/index.js";
 
@@ -98,6 +98,34 @@ export function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading
           ],
     askedCount: outcomes.length,
     servedCount,
+  };
+}
+
+/**
+ * The reading a fan-out that produced no outcomes at all is read as.
+ *
+ * The reader's contract is that it RESOLVES with one outcome per session, so a
+ * rejection has no member in that vocabulary — and a `.then` with no rejection arm
+ * left the shelf holding nothing, which it renders as "Reading your invitations" for
+ * the life of the window. A read that failed reported as a read still in flight is
+ * the conflation the completeness vocabulary exists to prevent, so the rejection
+ * takes the state it actually is: refused, and refused as the WHOLE answer, because
+ * no session answered.
+ *
+ * `askedCount` is ONE rather than zero, and the difference is the shelf's own
+ * sentence: zero is what a console holding no sessions reads as, and it renders as
+ * "the invites read is scoped to a session and this console is holding none — so it
+ * has not asked", which is exactly false of a question that WAS put and failed. The
+ * count is the questions this reading can account for, and a rejection accounts for
+ * the one the shelf put. It stays above `servedCount`, so the read is incomplete and
+ * the hide set prunes against nothing.
+ */
+export function shelfReadingFromRejection(refusal: ConsoleRefusal): ShelfReading {
+  return {
+    pending: [],
+    states: [{ kind: "refused", scope: "whole-answer", refusal }],
+    askedCount: 1,
+    servedCount: 0,
   };
 }
 

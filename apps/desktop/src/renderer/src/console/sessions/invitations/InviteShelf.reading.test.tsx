@@ -187,3 +187,54 @@ describe("an invitation that lapses while the console holds it", () => {
     expect(container.textContent ?? "").toContain("unreadable-expiry");
   });
 });
+
+describe("a fan-out that produced no outcome at all", () => {
+  /** Render the shelf over a reader that rejects, and let the rejection land. */
+  async function renderRejectingShelf(message: string): Promise<HTMLElement> {
+    const view = render(
+      <InviteShelf
+        read={async () => {
+          await Promise.resolve();
+          throw new Error(message);
+        }}
+        uiStateStore={openStore()}
+        clock={frozenClock()}
+      />,
+    );
+    await settle();
+    return view.container;
+  }
+
+  it("renders the rejection as a refusal rather than as a read still in flight", async () => {
+    // The reader's contract is that it RESOLVES with one outcome per session, so a
+    // rejection has no member in that vocabulary. Left unhandled it published
+    // nothing and the shelf went on saying "Reading your invitations" for the life
+    // of the window over a fan-out that had already failed.
+    const container = await renderRejectingShelf("the invites fan-out never reached a session");
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("the invites fan-out never reached a session");
+    expect(text).not.toContain("Reading your invitations.");
+  });
+
+  it("does not read the failure as a console holding no sessions", async () => {
+    // The count a rejection is recorded with decides which sentence the body picks:
+    // zero renders "the invites read is scoped to a session and this console is
+    // holding none — so it has not asked", which is exactly false of a question
+    // that was put and failed.
+    const container = await renderRejectingShelf("the growth port is gone");
+
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("No invitations have been read.");
+    expect(text).not.toContain("Nothing is waiting for you to join.");
+  });
+
+  it("negative control: a served read still reaches the rows and shows no refusal", async () => {
+    // Without this, both cases above would hold for a shelf that rendered a refusal
+    // whatever the fan-out answered.
+    const { container } = await renderShelf([served([invite()])]);
+
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+    expect(container.textContent ?? "").toContain("invite-1");
+  });
+});

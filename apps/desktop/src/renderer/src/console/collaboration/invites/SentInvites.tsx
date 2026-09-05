@@ -74,9 +74,10 @@
 
 import { useEffect, useMemo } from "react";
 
-import { heldIdAsWireId, type ConsoleBridge, type InvitesListOutcome } from "../../bridge/index.js";
+import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
+import { consoleRefusalFrom } from "../../seats/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
-import { partitionInvites, withSettledInvite } from "./invite-ledger.js";
+import { partitionInvites, withSettledInvite, type LedgerReading } from "./invite-ledger.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
@@ -87,6 +88,9 @@ import { InviteCreationAbsence } from "./InviteCreationAbsence.js";
 
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
+
+/** Names this read in a refusal the call itself did not name. */
+const SENT_INVITES_ORIGIN = "sent-invites";
 
 export interface SentInvitesProps {
   readonly bridge: ConsoleBridge;
@@ -108,8 +112,8 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   // round-trip and the holder's addressing is not, so the hand-written version rested
   // on a per-effect-run flag whose correctness was not the holder's — a second copy of
   // the primitive this family had just rebound onto.
-  const { value: outcome, publish: publishOutcome } = useSubjectScopedState<
-    InvitesListOutcome | undefined
+  const { value: reading, publish: publishReading } = useSubjectScopedState<
+    LedgerReading | undefined
   >(bridge, sessionId, () => undefined);
 
   const revokeCoordinator = useMemo(
@@ -146,12 +150,29 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
     // asked. A settlement arriving after a re-address publishes nowhere — including
     // on the round-trip back to a subject this surface has already been on, which is
     // the case an `isAttached` flag and a pair comparison both read as current.
-    void bridge.growth.invitesList({ sessionId }).then(publishOutcome);
-  }, [bridge, sessionId, publishOutcome]);
+    void bridge.growth.invitesList({ sessionId }).then(
+      (outcome) => {
+        publishReading({ kind: "answered", outcome });
+      },
+      // The port's contract is that it RESOLVES with an outcome, so a rejection has
+      // no arm in that vocabulary. Left unhandled it published nothing and the
+      // ledger went on saying "Reading this session's invitations" for the life of
+      // the window over a call that had already failed.
+      (rejection: unknown) => {
+        publishReading({
+          kind: "unreadable",
+          refusal: consoleRefusalFrom(rejection, SENT_INVITES_ORIGIN),
+        });
+      },
+    );
+  }, [bridge, sessionId, publishReading]);
 
   const ledger = useMemo(
-    () => (outcome?.status === "served" ? partitionInvites(outcome.value) : undefined),
-    [outcome],
+    () =>
+      reading?.kind === "answered" && reading.outcome.status === "served"
+        ? partitionInvites(reading.outcome.value)
+        : undefined,
+    [reading],
   );
 
   return (
@@ -168,7 +189,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
 
       <SentInvitesLedger
         sessionId={sessionId}
-        outcome={outcome}
+        reading={reading}
         ledger={ledger}
         pendingRevokeKey={revoke.pendingKey}
         refusalByInviteId={revoke.refusalByKey}
@@ -193,7 +214,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
               // that used to be written out here is the holder's: a settlement
               // arriving after a re-address is dropped rather than folded into
               // whichever ledger is on screen now.
-              publishOutcome((held) => {
+              publishReading((held) => {
                 const settled = withSettledInvite(held, settlement);
                 // `undefined` here would mean the ledger held no answer at all, and
                 // this one does; identity means the settlement named no row it
