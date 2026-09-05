@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createFixtureBridge,
+  growthUnavailable,
   type ConsoleBridge,
   type GrowthAgentSummary,
   type GrowthOutcome,
@@ -18,6 +19,10 @@ import {
   withDaemonCall,
 } from "../../../console/bridge/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import {
+  AGENT_IMPLEMENTER,
+  AGENT_REVIEWER,
+} from "../../../console/bridge/scenarios/composer.identifiers.js";
 import { useAgentBindingReading } from "./agent-binding-read.js";
 
 const AGENT_ID = "agent-implementer";
@@ -119,15 +124,41 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
   });
 
   it("carries the growth port's own refusal through untouched", async () => {
-    // The live bridge answers exactly this: the operation refuses by name and the
+    // The LIVE bridge answers exactly this: the operation refuses by name and the
     // refusal says which document owes the wire. Re-minting one here would lose the
-    // operation, the slate row, and that document.
-    const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+    // operation, the slate row, and that document — so the refusal is the port's own
+    // builder rather than a literal, and the bridge under it is the fixture, which
+    // now serves this operation and would otherwise answer the roster.
+    const bridge = bridgeServingRoster(growthUnavailable("agentList"));
     const { result } = await readBinding(bridge, AGENT_ID);
 
     expect(result.current.phase).toBe("refused");
     expect(result.current.refusal?.origin).toBe("growth-port");
+    expect(result.current.refusal?.code).toBe("wire-unregistered");
     expect(result.current.payingAccountLabel).toBeUndefined();
+  });
+
+  it("reads the shipped scenario's own roster through the fixture bridge", async () => {
+    // The reachability this restores, and the reason the case above had to stop using
+    // the bare fixture: the port refused `agentList`, so every provider-bound composer
+    // took the refused arm and the label join, the pending switch, and the
+    // provider-default arm were reachable through no scenario at all. Nothing is
+    // stubbed here — the scenario's `agent.list` reply and its `providerAccount.list`
+    // reply are joined by the code under test.
+    const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+    const { result } = await readBinding(bridge, AGENT_IMPLEMENTER);
+
+    expect(result.current.phase).toBe("read");
+    expect(result.current.refusal).toBeUndefined();
+    expect(result.current.payingAccountLabel).toBe(SCENARIO_ACCOUNT_LABEL);
+    expect(result.current.isProviderDefaultAccount).toBe(false);
+
+    // The other arm of the same cast, from the same read: the reviewer's row names no
+    // account, which IS the provider's registered default paying. A scenario whose
+    // whole cast took one arm would leave the other drawn by nothing.
+    const reviewer = await readBinding(bridge, AGENT_REVIEWER);
+    expect(reviewer.result.current.isProviderDefaultAccount).toBe(true);
+    expect(reviewer.result.current.payingAccountLabel).toBeUndefined();
   });
 
   it("renders no label for an account the registry does not carry, and no refusal", async () => {

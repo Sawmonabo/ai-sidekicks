@@ -141,7 +141,7 @@ export type { DriverCapabilityReading } from "./driver-capability-readings.js";
 // because two copies of the pair had drifted into two answers about when a refusal
 // stops being true.
 export { readRefusalOf } from "./reading-lifecycle.js";
-export type { WireReadPhase, WireReadState } from "./reading-lifecycle.js";
+export type { WireReadState } from "./reading-lifecycle.js";
 
 // The session's one queue reading. Here for the same reason the capability read is:
 // the runs pane and the composer's shelf ask two questions of one list, and each
