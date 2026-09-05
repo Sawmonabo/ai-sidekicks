@@ -99,6 +99,16 @@ function consoleCensusModules(): readonly CensusModule[] {
 
 describe("barrel census — every console re-export has a reader or a claimant", () => {
   const modules = consoleCensusModules();
+  // EVERY ENTRY POINT BELOW PARSES THE WHOLE CONSOLE, so asking for one inside a case
+  // charges that walk of ~340 modules to vitest's 5 000 ms default — and the widest
+  // case asked twice. It passed alone and timed out under aggregate tier load, which
+  // is the failure `console-layering-rules.test.ts` records for its cruises and
+  // answers the same way: pay for the reading once, where the module set is already
+  // being read, and leave each case with a comparison.
+  const specifiers = barrelSpecifiers(modules);
+  const doorsForwardingNothing = doorsThatForwardNothing(modules);
+  const unenumerableForwarders = starReexportingBarrels(modules);
+  const failures = findingLines(censusFindings(modules));
 
   it("finds the console and the tiers that read it", () => {
     // Without a floor a wrong root would scan nothing, and every claim below would
@@ -111,7 +121,7 @@ describe("barrel census — every console re-export has a reader or a claimant",
   });
 
   it("reads a specifier count no hand-maintained list could hold", () => {
-    expect(barrelSpecifiers(modules).length).toBeGreaterThan(200);
+    expect(specifiers.length).toBeGreaterThan(200);
   });
 
   it("censuses every door that forwards, so a clause leaving is not a shortfall", () => {
@@ -127,29 +137,28 @@ describe("barrel census — every console re-export has a reader or a claimant",
     // family landing appended its own path to that list in its own branch — four
     // branches editing three lines, which is a conflict by construction and never a
     // claim about the tree.
-    const censused = new Set(barrelSpecifiers(modules).map((entry) => entry.barrelPath));
+    const censused = new Set(specifiers.map((entry) => entry.barrelPath));
     const silent = modules
       .map((module) => module.path)
       .filter((path) => isConsoleBarrel(path) && !censused.has(path));
 
-    expect([...silent].sort()).toStrictEqual(doorsThatForwardNothing(modules));
+    expect([...silent].sort()).toStrictEqual(doorsForwardingNothing);
   });
 
   it("finds doors on both sides of the forwarding reading, so neither list is empty", () => {
     // Both claims above compare two sets, and two empty sets are equal. The console
     // has doors of each kind by construction — a family door that composes, a leaf
     // door that republishes — so an empty side is a reading that stopped working.
-    const forwardingNothing = doorsThatForwardNothing(modules);
     const doors = modules.map((module) => module.path).filter((path) => isConsoleBarrel(path));
-    expect(forwardingNothing.length).toBeGreaterThan(0);
-    expect(doors.length).toBeGreaterThan(forwardingNothing.length);
+    expect(doorsForwardingNothing.length).toBeGreaterThan(0);
+    expect(doors.length).toBeGreaterThan(doorsForwardingNothing.length);
   });
 
   it("no barrel forwards a name this census cannot enumerate", () => {
-    expect(starReexportingBarrels(modules)).toStrictEqual([]);
+    expect(unenumerableForwarders).toStrictEqual([]);
   });
 
   it("every barrel specifier is production-consumed or claimed by its task", () => {
-    expect(findingLines(censusFindings(modules))).toStrictEqual([]);
+    expect(failures).toStrictEqual([]);
   });
 });
