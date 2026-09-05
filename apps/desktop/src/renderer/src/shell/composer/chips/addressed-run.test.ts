@@ -6,12 +6,33 @@
 // new-turn path unreachable for the rest of the session.
 
 import { describe, expect, it } from "vitest";
-import { RunStateSchema, type RunState } from "@ai-sidekicks/contracts";
+import type { RunState } from "@ai-sidekicks/contracts";
 
 import type { ConsoleEntity } from "../../../console/store/index.js";
 import { RUN_STATE_ADMITS_STEER, resolveAddressedRun, stateAdmitsSteer } from "./addressed-run.js";
 
 const AGENT_ID = "agent-implementer";
+
+/**
+ * Every state the wire carries, as a typed literal.
+ *
+ * `satisfies readonly RunState[]` is what makes this a claim about the registered
+ * union rather than a hand-written set beside it: a member the wire does not carry
+ * fails `typecheck` here, and the totality of the record below is the annotation's
+ * own. So the pair proves both directions — no key missing, no key invented — with
+ * neither half reading a parser into a surface's suite.
+ */
+const WIRE_RUN_STATES = [
+  "queued",
+  "starting",
+  "running",
+  "waiting_for_approval",
+  "waiting_for_input",
+  "paused",
+  "completed",
+  "interrupted",
+  "failed",
+] as const satisfies readonly RunState[];
 
 function run(id: string, state: RunState, touchedAt: string): ConsoleEntity {
   return { kind: "run", id, state, touchedAt, body: { agentId: AGENT_ID, runVersion: 4 } };
@@ -22,14 +43,14 @@ function partition(...entities: readonly ConsoleEntity[]): Record<string, Consol
 }
 
 describe("RUN_STATE_ADMITS_STEER — total over the contract's own union", () => {
-  it("keys only states the registered schema accepts", () => {
+  it("keys exactly the states the wire carries", () => {
     // The `Record<RunState, boolean>` annotation makes a MISSING key a compile
     // error, so the half worth asserting at runtime is the other one: that no key
-    // here is a state the wire does not carry, which a hand-written literal set
-    // would let through until somebody read the daemon's reply beside it.
-    for (const state of Object.keys(RUN_STATE_ADMITS_STEER)) {
-      expect(RunStateSchema.safeParse(state).success).toBe(true);
-    }
+    // here is a state the wire does not carry. The comparand is a typed literal
+    // whose every member the compiler has already checked against `RunState`, so a
+    // key invented on either side fails — the record's by this assertion, the
+    // literal's by `typecheck`.
+    expect(Object.keys(RUN_STATE_ADMITS_STEER).sort()).toStrictEqual([...WIRE_RUN_STATES].sort());
   });
 
   it("admits exactly the six non-terminal states", () => {

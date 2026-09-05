@@ -16,23 +16,18 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 import { QueueShelf } from "./QueueShelf.js";
+import { fixtureQueueItemId, queueRow } from "./queue-rows.test-support.js";
 
-const FIRST_ITEM = "1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9";
-const SECOND_ITEM = "2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0";
+const FIRST_ITEM = fixtureQueueItemId("1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9");
+const SECOND_ITEM = fixtureQueueItemId("2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0");
 
-/** One waiting row, through the registered parse every caller of the shelf performs. */
-function queuedRow(id: string): QueueItemSummary {
-  return QueueItemSummarySchema.parse({
-    id,
-    state: "queued",
-    priority: 0,
-    createdAt: "2026-09-02T09:00:00.000Z",
-    updatedAt: "2026-09-02T09:00:00.000Z",
-  });
+/** One waiting row, through the zone's own builder over the registered shape. */
+function queuedRow(id: QueueItemSummary["id"]): QueueItemSummary {
+  return queueRow(id, "queued");
 }
 
 function shelfWith(options: {
