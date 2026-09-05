@@ -14,9 +14,17 @@
 // stated once: `typescript` is already the toolchain's own compiler and the
 // answer it gives is the answer the compiler gives.
 //
-// `setParentNodes` is deliberately off. Both walks descend from a node they were
-// handed, and neither asks what encloses one — turning it on would allocate a
-// parent pointer per node for a link nothing follows.
+// `setParentNodes` is deliberately off. Every walk descends from a node it was
+// handed, and none asks what encloses one — turning it on would allocate a parent
+// pointer per node for a link nothing follows. A caller that needs a node's own
+// text passes the parsed file to `node.getText(parsed)`, which reads the source
+// text it already has rather than climbing to it.
+//
+// THE SCRIPT KIND IS A PARAMETER, and the one legitimate divergence. A `.tsx`
+// module's rows are JSX elements, and parsed as `TS` a JSX opening tag reads as a
+// comparison — so the windowed-row census asks for `TSX` while every other caller
+// takes the default. Expressing that here is what keeps it from being answered by
+// a second `createSourceFile` somewhere with its own idea of the other options.
 
 import ts from "typescript";
 
@@ -25,10 +33,15 @@ import ts from "typescript";
  *
  * `fileName` is a label rather than a path: nothing is read from disk here, and
  * a caller that has already read a file passes its name so a diagnostic can say
- * which text this was.
+ * which text this was. `scriptKind` defaults to `TS`; a caller reading JSX passes
+ * `TSX`, which is the only option any caller varies.
  */
-export function parseSourceText(fileName: string, sourceText: string): ts.SourceFile {
-  return ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+export function parseSourceText(
+  fileName: string,
+  sourceText: string,
+  scriptKind: ts.ScriptKind = ts.ScriptKind.TS,
+): ts.SourceFile {
+  return ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, false, scriptKind);
 }
 
 /**

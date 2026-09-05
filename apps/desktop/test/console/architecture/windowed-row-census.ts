@@ -15,6 +15,7 @@
 import ts from "typescript";
 
 import { readConsoleSourceModule, type ConsoleSourceModule } from "../console-source-modules.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /**
  * How a module shows it windows a list.
@@ -50,16 +51,19 @@ const HAND_ROLLED_ROW_TAGS: readonly string[] = ["li", "div", "tr"];
 /** How a windowed row array is obtained, which is what a `.map(` has to be over. */
 const WINDOW_READ = "getVirtualItems";
 
-/** Every JSX opening tag name inside `node`, in source order. */
-function jsxTagNamesIn(node: ts.Node): readonly string[] {
+/**
+ * Every JSX opening tag name inside `node`, in source order.
+ *
+ * `getText(parsed)` takes the file it was parsed from rather than climbing to it, which
+ * is what lets the shared parse home leave `setParentNodes` off.
+ */
+function jsxTagNamesIn(node: ts.Node, parsed: ts.SourceFile): readonly string[] {
   const tags: string[] = [];
-  const visit = (child: ts.Node): void => {
+  forEachDescendant(node, (child) => {
     if (ts.isJsxOpeningElement(child) || ts.isJsxSelfClosingElement(child)) {
-      tags.push(child.tagName.getText());
+      tags.push(child.tagName.getText(parsed));
     }
-    ts.forEachChild(child, visit);
-  };
-  visit(node);
+  });
   return tags;
 }
 
@@ -73,18 +77,16 @@ function jsxTagNamesIn(node: ts.Node): readonly string[] {
  */
 function windowedRowBindings(parsed: ts.SourceFile): readonly string[] {
   const bindings: string[] = [];
-  const visit = (node: ts.Node): void => {
+  forEachDescendant(parsed, (node) => {
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
       node.initializer !== undefined &&
-      node.initializer.getText().includes(WINDOW_READ)
+      node.initializer.getText(parsed).includes(WINDOW_READ)
     ) {
       bindings.push(node.name.text);
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(parsed);
+  });
   return bindings;
 }
 
@@ -107,37 +109,34 @@ export function handRolledWindowedRows(
   source: string,
   fileName: string,
 ): readonly { readonly tag: string; readonly rowComponents: readonly string[] }[] {
-  const parsed = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
+  // `TSX`, and it is the one option any caller of the shared parse home varies: parsed
+  // as `TS`, a JSX opening tag reads as a comparison and every row here disappears.
+  const parsed = parseSourceText(fileName, source, ts.ScriptKind.TSX);
   const bindings = windowedRowBindings(parsed);
   const found: { tag: string; rowComponents: readonly string[] }[] = [];
-  const visit = (node: ts.Node): void => {
+  forEachDescendant(parsed, (node) => {
     if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "map"
+      !ts.isCallExpression(node) ||
+      !ts.isPropertyAccessExpression(node.expression) ||
+      node.expression.name.text !== "map"
     ) {
-      const receiver = node.expression.expression.getText();
-      const overTheWindow =
-        receiver.includes(WINDOW_READ) || bindings.some((binding) => receiver === binding);
-      if (overTheWindow) {
-        const tags = jsxTagNamesIn(node);
-        if (!tags.includes(WINDOWED_ROW_PRIMITIVE)) {
-          const rowComponents = tags.filter((tag) => /^[A-Z]/u.test(tag));
-          for (const tag of tags.filter((tag) => HAND_ROLLED_ROW_TAGS.includes(tag))) {
-            found.push({ tag, rowComponents });
-          }
-        }
-      }
+      return;
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(parsed);
+    const receiver = node.expression.expression.getText(parsed);
+    const overTheWindow =
+      receiver.includes(WINDOW_READ) || bindings.some((binding) => receiver === binding);
+    if (!overTheWindow) {
+      return;
+    }
+    const tags = jsxTagNamesIn(node, parsed);
+    if (tags.includes(WINDOWED_ROW_PRIMITIVE)) {
+      return;
+    }
+    const rowComponents = tags.filter((tag) => /^[A-Z]/u.test(tag));
+    for (const tag of tags.filter((tag) => HAND_ROLLED_ROW_TAGS.includes(tag))) {
+      found.push({ tag, rowComponents });
+    }
+  });
   return found;
 }
 
