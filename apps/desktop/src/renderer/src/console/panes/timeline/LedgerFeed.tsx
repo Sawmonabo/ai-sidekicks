@@ -97,11 +97,8 @@ import {
   useReplayDockConcealOnFocusLeaving,
 } from "./ledger-feed-find-jump.js";
 import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
-import {
-  useLedgerReplay,
-  useReplayAnchorRowId,
-  useReplayRevealedRows,
-} from "./ledger-replay-window.js";
+import { useReplayAnchorRowId, useReplayRevealedRows } from "./ledger-replay-reveal.js";
+import { useLedgerReplay } from "./ledger-replay-window.js";
 import { useRailGeometry, useVisibleLedgerWindow } from "./ledger-visible-window.js";
 import { useLedgerProjection } from "./ledger-window.js";
 

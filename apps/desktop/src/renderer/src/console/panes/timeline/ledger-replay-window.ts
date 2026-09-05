@@ -12,18 +12,40 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { useConsoleClock } from "../../bridge/index.js";
-import { type LedgerViewportRow } from "../../ledger/frame/index.js";
-// The frame's door carries the four symbols a stranger holds; this range is the
-// binding's own shape, reached by module path the way this family's other subtrees
-// reach the frame's internals.
-import { type LedgerVisibleRowRange } from "../../ledger/frame/viewport-binding.js";
 import {
   ReplayEngine,
   type ReplayPosition,
   type ReplaySpeed,
   type ReplayState,
 } from "../../ledger/structure/index.js";
+import { useSubjectScopedResource } from "../../store/index.js";
+import { isReplayEngaged } from "./ledger-replay-reveal.js";
 import { type LedgerWindowModel } from "./ledger-window.js";
+
+/**
+ * Which engines this mount has already disposed.
+ *
+ * WHY THE READING IS HELD HERE AND NOT ASKED OF THE ENGINE. `ReplayEngine.dispose()`
+ * is terminal — a disposed engine can never arm again — and the resource holder needs
+ * to know that to answer React's double-mount, where the committed cleanup disposes a
+ * value and the effect then re-runs against the corpse it just closed. The engine
+ * publishes no disposal reading of its own and belongs to another lane's directory,
+ * so the smallest honest answer is to remember here what this mount closed. A
+ * `WeakSet` rather than a `Set`: an engine nothing else holds is collectable, and a
+ * table that pinned every engine a long session ever opened would be the leak this
+ * whole hook exists to close.
+ */
+class DisposedReplayEngines {
+  readonly #disposed = new WeakSet<ReplayEngine>();
+
+  /** Dispose one and record it, which are one act and never two. */
+  public readonly dispose = (engine: ReplayEngine): void => {
+    this.#disposed.add(engine);
+    engine.dispose();
+  };
+
+  public readonly isDisposed = (engine: ReplayEngine): boolean => this.#disposed.has(engine);
+}
 
 /** The replay dock's engine, its reveal, and the position it renders. */
 export interface LedgerReplayState {
@@ -79,6 +101,15 @@ export interface LedgerReplayState {
  * opening a chapter cannot be counted as an arrival.
  */
 interface LedgerReplayWalk {
+  /**
+   * Which walk this is, counted from the mount's first.
+   *
+   * The engine's key, and a COUNTER rather than the wrapper's own identity because a
+   * subject-scoped key is a name inside one key space and never an object. It moves
+   * on exactly the acts that end a walk and start another, which is what makes an
+   * engine's lifetime the walk's.
+   */
+  readonly generation: number;
   readonly rows: readonly TimelineRow[];
   readonly loadedRows: readonly TimelineRow[];
   /**
@@ -141,6 +172,7 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
   // the window and in no engine.
   const [position, setPosition] = useState<ReplayPosition | undefined>(undefined);
   const [walk, setWalk] = useState<LedgerReplayWalk>(() => ({
+    generation: 0,
     rows: ledgerWindow.rows,
     loadedRows: loadedWindow.rows,
     resumeFrom: undefined,
@@ -149,10 +181,16 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
   const hasLogMoved = walk.loadedRows !== loadedWindow.rows;
   if (!isEngaged) {
     if (walk.rows !== ledgerWindow.rows || hasLogMoved) {
-      setWalk({ rows: ledgerWindow.rows, loadedRows: loadedWindow.rows, resumeFrom: undefined });
+      setWalk((previous) => ({
+        generation: previous.generation + 1,
+        rows: ledgerWindow.rows,
+        loadedRows: loadedWindow.rows,
+        resumeFrom: undefined,
+      }));
     }
   } else if (!hasLogMoved && walk.rows !== ledgerWindow.rows) {
-    setWalk({
+    setWalk((previous) => ({
+      generation: previous.generation + 1,
       rows: ledgerWindow.rows,
       loadedRows: loadedWindow.rows,
       // The position AND what the walk was doing at it, because the two states a
@@ -161,10 +199,28 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
       // still offers to replay from the beginning rather than to resume a walk with
       // nothing left to play.
       resumeFrom: { elapsedMs: position.elapsedMs, state: position.state },
-    });
+    }));
   }
 
-  const engine = useMemo(() => {
+  // THE ENGINE IS A RESOURCE, AND `useMemo` COULD NOT HOLD ONE. Minting it arms a
+  // timeout on the console clock — `play()` reaches the engine's own scheduler — and a
+  // memo factory runs DURING the render. A pass React discards therefore really
+  // constructed an engine and really armed it, and nothing committed that pass, so no
+  // effect ever closed over it: the orphan went on firing `onPositionChange` forever
+  // while a later pass minted the engine the dock is actually reading, and the
+  // scrubber jumped between the two on alternating frames. Every discarded pass added
+  // another. `useSubjectScopedResource` closes exactly that hole: a resource opened by
+  // a pass no commit saw is disposed inside the render that drops it, and the
+  // committed one is disposed by the effect that holds it.
+  //
+  // THE SUBJECT IS THE CLOCK AND THE KEY IS THE WALK'S GENERATION. The clock is what
+  // a replay runs on, so a window handed a different one is holding an engine armed
+  // somewhere else; and the walk is keyed by a COUNTER rather than by its rows,
+  // because ending a walk over an unchanged window has to re-mint one and two arrays
+  // compared by identity could not say "same rows, new walk".
+  const [disposedEngines] = useState(() => new DisposedReplayEngines());
+  const walkKey = String(walk.generation);
+  const openEngine = useCallback((): ReplayEngine => {
     const mintedEngine = new ReplayEngine({
       clock,
       rows: walk.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
@@ -189,12 +245,16 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
     }
     return mintedEngine;
   }, [clock, walk]);
+  const engine = useSubjectScopedResource(
+    clock,
+    walkKey,
+    openEngine,
+    disposedEngines.dispose,
+    disposedEngines.isDisposed,
+  ).value;
 
   useEffect(() => {
     setPosition(engine.position());
-    return () => {
-      engine.dispose();
-    };
   }, [engine]);
 
   // COUNTED AGAINST THE FROZEN LOG AND NOT AGAINST THE WALKED ROWS, which is what
@@ -253,114 +313,17 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
       engine.jumpToNextSeam(ledgerWindow.seams);
     }, [engine, ledgerWindow]),
     end: useCallback(() => {
-      // A fresh wrapper every time, so a walk ends over an unchanged window too —
-      // the memo above re-mints, and its own cleanup disposes the walk being left.
+      // A fresh GENERATION every time, so a walk ends over an unchanged window too —
+      // the resource above re-mints on the new key, and disposes the walk being left.
       // At the head, because ending a walk is a return to the live log rather than a
       // re-mint of the one being left.
-      setWalk({ rows: ledgerWindow.rows, loadedRows: loadedWindow.rows, resumeFrom: undefined });
+      setWalk((previous) => ({
+        generation: previous.generation + 1,
+        rows: ledgerWindow.rows,
+        loadedRows: loadedWindow.rows,
+        resumeFrom: undefined,
+      }));
     }, [ledgerWindow, loadedWindow]),
     replayFromRow: useCallback((rowId: string) => engine.replayFrom(rowId), [engine]),
   };
-}
-
-/**
- * The row a "replay from here" starts at — the one at the top of the box.
- *
- * WHY THE VIEWPORT AND NOT A ROW CONTROL. "Here" is a row, and the row a person
- * means is the one they are looking at. A per-row button would say it more
- * directly, and this console cannot draw one: a row's body is the timeline row
- * seat's, whose props are the row and three list decisions with no callback among
- * them, and the seat belongs to another plan. So the anchor is read from the
- * surface this family does own — the range the virtualizer reports the box
- * intersects, off the same reading `useRailGeometry` sizes the rail's thumb from.
- *
- * FIRST VISIBLE, not the middle or the last: the first row is the one under the
- * reader's eye at the top edge, and it is the row a scroll position names.
- *
- * `undefined` for a box nothing has measured or a window with no rows — which the
- * act refuses on rather than substituting the window's head, because replaying from
- * the beginning is a different act with its own control on the dock.
- */
-export function useReplayAnchorRowId(
-  visibleRange: LedgerVisibleRowRange | undefined,
-  viewportRows: readonly LedgerViewportRow[],
-): string | undefined {
-  const firstIndex = visibleRange?.startIndex;
-  return useMemo(
-    () => (firstIndex === undefined ? undefined : viewportRows[firstIndex]?.key),
-    [firstIndex, viewportRows],
-  );
-}
-
-/**
- * Whether replay is holding the window back.
- *
- * Derived from the state union rather than restated as a second enumeration, and
- * `idle` is the only arm that is not engaged: an idle replay sits at elapsed zero,
- * where the revealed set is the rows that share the window's first instant, so
- * treating it as engaged would hide the whole session behind a control nobody had
- * touched.
- */
-export function isReplayEngaged(state: ReplayState): boolean {
-  return state !== "idle";
-}
-
-/**
- * The rows a replay has reached, in the log's own order.
- *
- * A FILTER over the window's own identity list, never a re-ordering of it. The
- * engine orders by `occurredAt` because that is what replay plays in, and the ledger
- * renders in wire order; sorting the viewport by the engine's order would make a
- * replay silently rearrange a log wherever the daemon admitted rows out of
- * wall-clock order.
- *
- * TWO KINDS OF ROW, AND ONLY ONE OF THEM IS ON THE REPLAY CLOCK. The engine is
- * built from projected rows, so `revealedRowIds` holds event-row ids and nothing
- * else — while a chapter header's viewport key is its RUN id, which is in that set
- * at no position at all. Tested against it, every synthetic header was stripped at
- * every position including `at-tail`, and a folded chapter's receipt came through
- * without it: the disclosure that names the run and reopens it was gone, and the
- * receipt hung under a parent the window no longer held, which the cap reads as a
- * top-level row rather than as the chapter's child.
- *
- * SO A HEADER IS ADMITTED WHEN ITS CHAPTER HAS REACHED THE POSITION, and reached is
- * defined from the model rather than from the clock: at least one of the chapter's
- * rows THIS WINDOW HOLDS is revealed. Two properties follow, and both are why this
- * definition and not one over the chapter's first row or its run's start instant:
- *
- *   • `at-tail` renders exactly what an unreplayed ledger renders. Every held row
- *     is revealed there, every chapter holds at least one — a folded one keeps its
- *     receipt, an open one keeps its rows — so every header is admitted.
- *   • A header and its chapter appear and disappear together. There is no position
- *     at which a header stands over nothing, and none at which a member row hangs
- *     off a header the window has dropped. For a folded chapter that means header
- *     and receipt arrive in the same instant the run ended, which is also the only
- *     honest moment for a header that renders the terminal's own name.
- *
- * While replay is idle the window's own array is returned by identity, so the
- * viewport does not reconcile and a ledger nobody is replaying pays nothing.
- */
-export function useReplayRevealedRows(
-  ledgerWindow: LedgerWindowModel,
-  position: ReplayPosition,
-): readonly LedgerViewportRow[] {
-  return useMemo(() => {
-    if (!isReplayEngaged(position.state)) {
-      return ledgerWindow.viewportRows;
-    }
-    const revealedRowIds = new Set(position.revealedRowIds);
-    const reachedChapterRunIds = new Set<string>();
-    for (const row of ledgerWindow.viewportRows) {
-      if (row.parentKey !== undefined && revealedRowIds.has(row.key)) {
-        reachedChapterRunIds.add(row.parentKey);
-      }
-    }
-    return ledgerWindow.viewportRows.filter((row) =>
-      // The same lookup the feed's row renderer dispatches on, so "is this a header"
-      // is one classification rather than a second guess at what a key means.
-      ledgerWindow.chapterByHeaderKey.has(row.key)
-        ? reachedChapterRunIds.has(row.key)
-        : revealedRowIds.has(row.key),
-    );
-  }, [ledgerWindow, position]);
 }
