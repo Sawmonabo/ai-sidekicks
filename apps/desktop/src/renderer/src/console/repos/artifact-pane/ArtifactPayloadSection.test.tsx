@@ -20,21 +20,23 @@ import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ArtifactPane } from "./ArtifactPane.js";
 import {
-  ARTIFACT_ENTITY,
   LISTED_ONE_ROW,
-  OTHER_ARTIFACT_ENTITY,
   SESSION_ID,
   artifactBridgeAnswering,
-  confirmDelete,
-  contextFor,
   inlineReadAnswering,
   readAnswering,
   readThrough,
-  renderPane,
   settleAct,
   type GrowthAnswer,
-  type ArtifactPaneContext,
 } from "./artifact-pane.test-support.js";
+import {
+  ARTIFACT_ENTITY,
+  OTHER_ARTIFACT_ENTITY,
+  confirmDelete,
+  contextFor,
+  renderPane,
+  type ArtifactPaneContext,
+} from "./artifact-pane-mount.test-support.js";
 
 beforeEach(() => {
   vi.useFakeTimers();
