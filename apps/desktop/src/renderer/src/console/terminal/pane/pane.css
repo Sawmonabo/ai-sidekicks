@@ -1,0 +1,33 @@
+/*
+ * The terminal pane's box — the three-band shell the lease line and the host sit in.
+ *
+ * Hand-authored, like `primitives.css`, and on the same terms: no literal colour,
+ * every value read back out of a custom property.
+ *
+ * One of the terminal family's four sheets, flat beside the modules it dresses:
+ * one sheet per sub-module directory, named for that directory, and one at the
+ * family root for the shapes more than one directory reaches for. Every one is
+ * imported from `console/terminal/index.ts` and from nowhere else, so the bundler
+ * sees exactly one edge into each — which is what keeps this family out of the
+ * document the operator waits for, per `Spec-023 §Console Design (Meridian)`
+ * §Budgets.
+ */
+
+/*
+ * `box-sizing` is stated here for the reason `primitives.css` states it on every
+ * primitive that pairs a fixed size with a boundary: the generated base sheet sets no
+ * global `border-box` reset, so `block-size: 100%` sized the CONTENT box and the
+ * padding was added outside it. In a fixed-height deck slot the pane was therefore
+ * taller than its slot by twice `--meridian-space-3`, which pushes the emulator's
+ * bottom rows out of view or introduces a scrollbar nothing asked for.
+ */
+.meridian-terminal-pane {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  block-size: 100%;
+  min-block-size: 0;
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface);
+}

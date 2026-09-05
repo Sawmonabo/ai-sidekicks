@@ -10,9 +10,10 @@
  *
  * Every sheet here is imported from `console/browser/index.ts` and from nowhere
  * else, so the bundler sees exactly one edge into each however many surfaces this
- * family grows. `styles/` is a module directory rather than a flat pile beside the
- * components: the sheets are siblings of one concern, and the door that admits them
- * is the family barrel.
+ * family grows. It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a
+ * `styles/` directory of its own: one sheet per sub-module directory, named for
+ * that directory, so the shapes and the rules that draw them are read together and
+ * a sixth sheet has one plausible home instead of two.
  *
  * The pane in three bands: a chrome bar that cannot grow, a viewport that takes
  * whatever is left, and the resource ceiling of 12.10 folded away behind a

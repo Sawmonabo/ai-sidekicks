@@ -46,19 +46,29 @@
 // single-sourcing makes the console's one home for a cap — a family module holding
 // its own put the console's cap inventory in three places.
 
-// THE FAMILY'S STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, which is
-// `apps/desktop/AGENTS.md`'s rule. It is the family's own sheet — the pane box, the
-// lease line, the host's boundary — and it is small, hand-authored, and needed by
-// every terminal surface the moment one renders, including the surface that stands
-// in while the emulator is still arriving.
+// THE FAMILY'S STYLESHEETS ARE IMPORTED HERE AND NOWHERE ELSE, which is
+// `apps/desktop/AGENTS.md`'s rule. They are hand-authored and small, and every
+// terminal surface needs them the moment one renders — including the surface that
+// stands in while the emulator is still arriving.
 //
-// The LIBRARY's sheet is deliberately not beside it. `@xterm/xterm/css/xterm.css`
-// is imported by `xterm-adapter.ts`, which is reached only across the `import()` in
-// `emulator-loader.ts`, so the grid's geometry rides the same lazy chunk as the code
-// that draws the grid. An import here would have put those bytes in the document the
-// operator waits for, which is what `Spec-023 §Console Design (Meridian)` §Budgets
-// excludes when it names the terminal a lazy chunk.
-import "./terminal.css";
+// FOUR SHEETS AND NOT ONE, along the seams above: one per sub-module directory,
+// named for that directory, sitting flat beside the modules it dresses. The fourth
+// is at the family root because the focus ring is spent by the lease line's two
+// controls AND by the emulator's surface, so it belongs to two directories at once —
+// and written in either it would have been copied into the other, which on a focus
+// ring means one surface quietly stops meeting the visible-focus floor.
+//
+// The LIBRARY's sheet is deliberately not beside them. `@xterm/xterm/css/xterm.css`
+// is imported by `emulator/xterm-adapter.ts`, which is reached only across the
+// `import()` in `emulator/emulator-loader.ts`, so the grid's geometry rides the same
+// lazy chunk as the code that draws the grid. An import here would have put those
+// bytes in the document the operator waits for, which is what
+// `Spec-023 §Console Design (Meridian)` §Budgets excludes when it names the terminal
+// a lazy chunk.
+import "./pane/pane.css";
+import "./lease/lease-line.css";
+import "./emulator/host.css";
+import "./focus-ring.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { TERMINAL_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";

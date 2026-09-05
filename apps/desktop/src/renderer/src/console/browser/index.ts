@@ -51,11 +51,17 @@
 // partition table to find it. They are imported one by one rather than through a
 // `@import` chain so every edge into this family's CSS is visible at the door, which
 // is what makes "imported here and nowhere else" checkable rather than promised.
-import "./styles/browser-settings.css";
-import "./styles/browser-controls.css";
-import "./styles/browser-cards.css";
-import "./styles/browser-pane.css";
-import "./styles/browser-bounds.css";
+//
+// EACH ONE SITS BESIDE THE MODULES IT DRESSES — one sheet per sub-module directory,
+// named for that directory — rather than in a `styles/` pile of its own, which is
+// `primitives/`'s placement and now this package's stated rule. `controls.css` is at
+// the family root and that is the rule's other half: its two shapes belong to three
+// directories at once, so it belongs to none of them.
+import "./settings/settings.css";
+import "./controls.css";
+import "./cards/cards.css";
+import "./pane/pane.css";
+import "./bounds/bounds.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { BROWSER_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";

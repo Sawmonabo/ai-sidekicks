@@ -10,9 +10,10 @@
  *
  * Every sheet here is imported from `console/browser/index.ts` and from nowhere
  * else, so the bundler sees exactly one edge into each however many surfaces this
- * family grows. `styles/` is a module directory rather than a flat pile beside the
- * components: the sheets are siblings of one concern, and the door that admits them
- * is the family barrel.
+ * family grows. It sits at the FAMILY ROOT rather than inside a sub-module
+ * directory, and that placement is the claim the sheet already makes below: the
+ * shapes here belong to three directories at once, so putting them in any one of
+ * them would make the other two read a sheet that is not about them.
  *
  * A button and a disclosure, and they have a sheet of their own because THREE
  * surfaces use them: the settings page folds its partitions and offers a clear
