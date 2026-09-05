@@ -151,7 +151,29 @@ export interface LaunchConsoleOptions {
    * that same row (`tierTimeoutFor`, `vitest.config.ts`).
    */
   readonly bodyAllowanceMs?: number;
+  /**
+   * Whether this launch needs `performance.memory` to be a MEASUREMENT.
+   *
+   * At Blink's default precision `usedJSHeapSize` is quantized into buckets and
+   * served from a long-interval cache rather than read at the moment it is asked
+   * for, which is fine for a coarse sanity check and useless for a tier whose
+   * gated figures are differences of two readings taken seconds apart. A named
+   * option rather than a caller-spelled argument list, so the flag string lives in
+   * one place and a tier states what it NEEDS instead of how Chromium spells it.
+   *
+   * Off by default: the flag makes every read walk the heap, which is a cost no
+   * tier that does not measure one should pay.
+   */
+  readonly isPreciseHeapReadingRequired?: boolean;
 }
+
+/**
+ * What Chromium calls the precise-heap switch.
+ *
+ * One home, and named beside the option that asks for it: a second spelling in a
+ * tier would be a launch that silently kept the bucketized instrument.
+ */
+const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
 
 /**
  * Launch the built console and wait for its first window.
@@ -182,7 +204,11 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
   let application: ElectronApplication;
   try {
     application = await electron.launch({
-      args: [`--user-data-dir=${profile.directory}`, MAIN_ENTRY_PATH],
+      args: [
+        `--user-data-dir=${profile.directory}`,
+        ...(options.isPreciseHeapReadingRequired === true ? [PRECISE_MEMORY_INFO_FLAG] : []),
+        MAIN_ENTRY_PATH,
+      ],
       env: {
         ...process.env,
         ...options.env,

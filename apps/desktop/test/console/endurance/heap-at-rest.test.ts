@@ -52,6 +52,7 @@ import {
   deliverWholeScenario,
   ENDURANCE_LAUNCH_OPTIONS,
   expectFlagshipSessionCarriesContent,
+  expectPreciseHeapInstrument,
   openFlagshipSessionRoute,
   readSettledHeapBytes,
 } from "./console-workload.js";
@@ -108,6 +109,11 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
       ).not.toBeNull();
       expect(Number(deliveredBeatCount)).toBe(FLAGSHIP_SCENARIO.beats.length);
       await expectFlagshipSessionCarriesContent(consoleApplication);
+
+      // The instrument before the reading it serves: a launch that lost the precise
+      // flag reports a quantized, cached figure, which for a CEILING would silently
+      // pass or fail on a bucket boundary rather than on this renderer's heap.
+      await expectPreciseHeapInstrument(consoleApplication);
 
       const atRestHeapBytes = await readSettledHeapBytes(consoleApplication);
       const verdict = evaluateBudget(budget, atRestHeapBytes);
