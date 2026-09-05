@@ -229,7 +229,7 @@ describe("useWorkflowDefinitionDirectory — one read, four answers", () => {
 
     const observed = observeDirectory(growth, PROBE_SESSION_ID);
     // The state after the mount and before the answer. Every render of it, first
-    // included, because the read is stamped with the session it is about.
+    // included, because the read is held against the session it is about.
     expect(lastState(observed).status).toBe("reading");
 
     await settle();

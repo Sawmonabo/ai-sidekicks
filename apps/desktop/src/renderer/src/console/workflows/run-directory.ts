@@ -45,7 +45,7 @@ import { useEffect } from "react";
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
 import type { GrowthPort, WorkflowRunListEntry } from "../bridge/index.js";
-import { useSubjectStampedRead, type SubjectStampedRead } from "../store/subject-stamped-state.js";
+import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../store/index.js";
 import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What this read looks like once it has an answer, either kind. */
@@ -57,12 +57,12 @@ type SettledRunDirectory =
  * What a runs surface knows about the runs this session holds, at one moment.
  *
  * Four states and no others, and the two unsettled ones are the shared shape rather
- * than a third spelling of it: `store/subject-stamped-state.ts` owns what a
- * subject-keyed read starts as, so this hook and the two beside it cannot drift about
- * which frame is allowed to claim nobody asked, or about which frame is allowed to
- * hold the previous bridge's answer.
+ * than a third spelling of it: `store/subject-read-start.ts` owns what a subject-keyed
+ * read starts as, so this hook and the two beside it cannot drift about which frame is
+ * allowed to claim nobody asked, or about which frame is allowed to hold the previous
+ * bridge's answer.
  */
-export type WorkflowRunDirectoryState = SubjectStampedRead<SettledRunDirectory>;
+export type WorkflowRunDirectoryState = SubjectRead<SettledRunDirectory>;
 
 /**
  * Read every run one session holds, once, for as long as the caller is mounted.
@@ -72,51 +72,48 @@ export type WorkflowRunDirectoryState = SubjectStampedRead<SettledRunDirectory>;
  * while a bridge swapped underneath — the fixture's scenario switch — and a move to
  * a different session both do.
  *
- * THE STATE IS STAMPED WITH THE PORT AND THE SESSION IT IS ABOUT, so either change is
+ * THE STATE IS HELD AGAINST THE PORT AND THE SESSION IT IS ABOUT, so either change is
  * settled during the render that brings it rather than in the effect after the commit.
  * Before that, a mounted list committed one frame of `unasked` under a session it had
  * already asked about — which the runs surface draws as an assertion that this context
  * holds no runs — and, across a move from one session to another, kept the previous
- * session's rows renderable under the new session's name. The port is half of the stamp
+ * session's rows renderable under the new session's name. The port is the subject
  * because the fixture's scenario switch replaces the bridge and keeps the session id,
- * so a subject-only stamp committed the previous scenario's runs under the new one.
+ * so a session-only holder committed the previous scenario's runs under the new one.
  */
 export function useWorkflowRunDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowRunDirectoryState {
-  const [state, setState] = useSubjectStampedRead<SettledRunDirectory>(growth, sessionId);
+  const { value: state, publish } = useSubjectScopedState<WorkflowRunDirectoryState>(
+    growth,
+    sessionId,
+    () => subjectReadStart(sessionId),
+  );
   useEffect(() => {
     if (sessionId === undefined) {
-      // Nothing to reset: the stamp already put this read at `unasked` during the
+      // Nothing to reset: the holder already put this read at `unasked` during the
       // render that dropped the session, and there is no question to put — a spinner
       // over an address that names no session promises an answer never coming.
       return;
     }
-    // No reset here. The stamp above covers a port swapped under an unchanged session
+    // No reset here. The holder above covers a port swapped under an unchanged session
     // as well as a session change, and it covers it during the render rather than one
     // commit later — a reset stated again in this effect would be the same rule in two
     // places, agreeing until one of them moved.
-    let isMounted = true;
     void settleGrowthRead(growth.workflowRunList({ sessionId })).then((outcome) => {
-      if (!isMounted) {
-        // The unmount already happened. Dropping the answer is the point: a
-        // `setState` on an unmounted caller is the leak the endurance tier exists
-        // to catch, and a directory read outliving its surface by one navigation
-        // is the ordinary case rather than the rare one.
-        return;
-      }
-      setState(
+      // No mount flag beside it. `publish` carries the addressing it was captured
+      // under, so an answer arriving after the session moved — or after the surface
+      // went away — writes nowhere, which is the same disposition the flag stated by
+      // hand and one the holder cannot disagree with.
+      publish(
         outcome.status === "served"
           ? { status: "served", runs: outcome.value.runs }
           : { status: "unavailable", refusal: outcome },
       );
     });
-    return () => {
-      isMounted = false;
-    };
-    // `setState` is the stamped read's own setter and is stable for the life of the
-    // hook; it is named so the dependency list is the whole of what this effect uses.
-  }, [growth, sessionId, setState]);
+    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
+    // guard on this read's answer and the whole of what tells this effect to run again.
+  }, [growth, sessionId, publish]);
   return state;
 }

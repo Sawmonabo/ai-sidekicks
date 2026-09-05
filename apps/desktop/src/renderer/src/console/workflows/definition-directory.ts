@@ -60,10 +60,10 @@
 // pages survive all four. Collapsing the refused one into the whole directory's
 // `unavailable` arm would withdraw a list the daemon never withdrew.
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
-import { useSubjectStampedRead, type SubjectStampedRead } from "../store/subject-stamped-state.js";
+import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../store/index.js";
 import {
   WORKFLOW_DEFINITION_SCOPES,
   type WorkflowDefinitionRow,
@@ -108,12 +108,12 @@ type SettledDefinitionDirectory =
  * What the browser knows about the definitions visible from here, at one moment.
  *
  * Four states and no others, and the two unsettled ones come from the shared shape in
- * `store/subject-stamped-state.ts` — the rule this hook established and the runs
+ * `store/subject-read-start.ts` — the rule this hook established and the runs
  * directory and the run snapshot now hold to as well, written once so the three
  * cannot drift about which frame is allowed to claim nobody asked, or about which
  * frame is allowed to hold the previous bridge's answer.
  */
-export type WorkflowDefinitionDirectoryState = SubjectStampedRead<SettledDefinitionDirectory>;
+export type WorkflowDefinitionDirectoryState = SubjectRead<SettledDefinitionDirectory>;
 
 /**
  * What the pages read so far let each scope group say about itself.
@@ -166,53 +166,46 @@ export function useWorkflowDefinitionDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory {
-  // The state is stamped with the PORT AND THE SESSION it is about, and the
+  // The state is held against the PORT AND THE SESSION it is about, and the
   // disagreement is settled DURING the render that brings a new pair rather than in the
   // effect below — which runs after the commit, so a hook that only reset there had one
   // committed render per subject in which `unasked` was true of a session the caller had
   // already asked about. The browser paints `unasked` as three served-looking empty
   // groups, so every scoped load flashed "No session definitions" and exposed that claim
-  // to assistive technology before the request had answered. The port is half of the
-  // stamp for the mirror-image reason: the fixture's scenario switch replaces the bridge
-  // and keeps the session id, so a subject-only stamp committed the previous scenario's
+  // to assistive technology before the request had answered. The port is the subject for
+  // the mirror-image reason: the fixture's scenario switch replaces the bridge and keeps
+  // the session id, so a session-only holder committed the previous scenario's
   // definitions under the new one before the effect could reset them.
-  const [state, setState] = useSubjectStampedRead<SettledDefinitionDirectory>(growth, sessionId);
-  // Which read the state on screen belongs to. A page that comes back after the
-  // subject changed — or after the surface went away — belongs to a list nobody is
-  // looking at, and splicing it into the current one would show a session's
-  // definitions under another session's name. A counter rather than a boolean
-  // because the SAME hook serves the first read and every continuation after it.
-  const readGeneration = useRef(0);
+  //
+  // AND THE PUBLISHER IS THE READ'S OWN GUARD, so this hook counts nothing. A page that
+  // comes back after the session changed — or after the surface went away — belongs to a
+  // list nobody is looking at, and splicing it into the current one would show a
+  // session's definitions under another session's name. `publish` is captured at render
+  // and carries the addressing it was captured under, so exactly those answers write
+  // nowhere; the read counter that used to state the same rule is gone with the copy.
+  const { value: state, publish } = useSubjectScopedState<WorkflowDefinitionDirectoryState>(
+    growth,
+    sessionId,
+    () => subjectReadStart(sessionId),
+  );
 
   useEffect(() => {
-    readGeneration.current += 1;
-    const generation = readGeneration.current;
     if (sessionId === undefined) {
-      // Nothing to reset: the stamp already put this read at `unasked` during the
+      // Nothing to reset: the holder already put this read at `unasked` during the
       // render that dropped the session, and there is no question to put — a spinner
       // over an address that names no session promises an answer never coming.
       return;
     }
-    // No reset here. The stamp above covers a port swapped under an unchanged session
+    // No reset here. The holder above covers a port swapped under an unchanged session
     // as well as a session change, and it covers it during the render rather than one
     // commit later — a reset stated again in this effect would be the same rule in two
     // places, agreeing until one of them moved.
     void settleGrowthRead(growth.workflowDefinitionList({ sessionId })).then((outcome) => {
-      if (readGeneration.current !== generation) {
-        // The unmount or the subject change already happened. Dropping the answer is
-        // the point: a `setState` on an unmounted caller is exactly the leak the
-        // endurance tier exists to catch, and a directory read outliving its surface
-        // by one navigation is the ordinary case rather than the rare one.
-        return;
-      }
-      setState(firstPageState(outcome));
+      publish(firstPageState(outcome));
     });
-    return () => {
-      readGeneration.current += 1;
-    };
-    // `setState` is the stamped read's own setter and is stable for the life of the
-    // hook; it is named so the dependency list is the whole of what this effect uses.
-  }, [growth, sessionId, setState]);
+    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
+    // guard on this read's answer and the whole of what tells this effect to run again.
+  }, [growth, sessionId, publish]);
 
   const continueReading = useCallback(() => {
     if (sessionId === undefined || state.status !== "served") {
@@ -222,17 +215,13 @@ export function useWorkflowDefinitionDirectory(
     if (cursor === undefined) {
       return;
     }
-    const generation = readGeneration.current;
-    setState({ ...state, continuation: { status: "reading", cursor } });
+    publish({ ...state, continuation: { status: "reading", cursor } });
     void settleGrowthRead(growth.workflowDefinitionList({ sessionId, cursor })).then((outcome) => {
-      if (readGeneration.current !== generation) {
-        return;
-      }
       // Folded over whatever is current rather than over the state this call closed
       // on, so a page cannot resurrect a list that has since been replaced.
-      setState((current) => appendedPageState(current, cursor, outcome));
+      publish((current) => appendedPageState(current, cursor, outcome));
     });
-  }, [growth, sessionId, setState, state]);
+  }, [growth, sessionId, publish, state]);
 
   // Memoized on the read state alone: the projection is a pure function of it, and the
   // pending tuple is the module constant rather than a fresh array, so the groups are

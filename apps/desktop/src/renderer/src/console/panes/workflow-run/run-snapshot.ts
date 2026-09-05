@@ -27,10 +27,7 @@
 import { useEffect } from "react";
 
 import type { GrowthPort, WorkflowRunSnapshot } from "../../bridge/index.js";
-import {
-  useSubjectStampedRead,
-  type SubjectStampedRead,
-} from "../../store/subject-stamped-state.js";
+import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../store/index.js";
 import { settleGrowthRead, type SettledReadRefusal } from "../../workflows/read-settlement.js";
 
 /** What this read looks like once it has an answer, either kind. */
@@ -42,12 +39,12 @@ type SettledRunSnapshot =
  * What the run pane knows about its run at one moment.
  *
  * Four states and no others, and the two unsettled ones come from the shared shape in
- * `store/subject-stamped-state.ts` rather than being spelled a third time here — so
- * this hook, the runs directory and the definitions directory cannot drift about
- * which frame is allowed to claim nobody asked, or about which frame is allowed to
- * hold the previous bridge's answer.
+ * `store/subject-read-start.ts` rather than being spelled a third time here — so this
+ * hook, the runs directory and the definitions directory cannot drift about which
+ * frame is allowed to claim nobody asked, or about which frame is allowed to hold the
+ * previous bridge's answer.
  */
-export type WorkflowRunSnapshotState = SubjectStampedRead<SettledRunSnapshot>;
+export type WorkflowRunSnapshotState = SubjectRead<SettledRunSnapshot>;
 
 /**
  * Read one run once, for as long as the caller is mounted.
@@ -57,48 +54,45 @@ export type WorkflowRunSnapshotState = SubjectStampedRead<SettledRunSnapshot>;
  * bridge swapped underneath — the fixture's scenario switch — and a pane retargeted
  * at a different run both do.
  *
- * THE STATE IS STAMPED WITH THE PORT AND THE RUN IT IS ABOUT, so either change is
+ * THE STATE IS HELD AGAINST THE PORT AND THE RUN IT IS ABOUT, so either change is
  * settled during the render that brings it rather than in the effect after the commit.
  * Before that, an addressed pane committed one frame reading "This run has not been read
  * in this window" over a read it had already issued, and a pane moved from run A to run
- * B kept A's phases and A's park cards renderable under B's address. The port is half of
- * the stamp because the fixture's scenario switch replaces the bridge and keeps the run
- * id, so a subject-only stamp committed the previous scenario's phases under the new one.
+ * B kept A's phases and A's park cards renderable under B's address. The port is the
+ * subject because the fixture's scenario switch replaces the bridge and keeps the run
+ * id, so a run-only holder committed the previous scenario's phases under the new one.
  */
 export function useWorkflowRunSnapshot(
   growth: GrowthPort,
   workflowRunId: string | undefined,
 ): WorkflowRunSnapshotState {
-  const [state, setState] = useSubjectStampedRead<SettledRunSnapshot>(growth, workflowRunId);
+  const { value: state, publish } = useSubjectScopedState<WorkflowRunSnapshotState>(
+    growth,
+    workflowRunId,
+    () => subjectReadStart(workflowRunId),
+  );
   useEffect(() => {
     if (workflowRunId === undefined) {
-      // Nothing to reset: the stamp already put this read at `unasked` during the
+      // Nothing to reset: the holder already put this read at `unasked` during the
       // render that dropped the run, which is the honest state for a pane naming none.
       return;
     }
-    // No reset here. The stamp above covers a port swapped under an unchanged run as
+    // No reset here. The holder above covers a port swapped under an unchanged run as
     // well as a retarget, and it covers it during the render rather than one commit
     // later — a reset stated again in this effect would be the same rule in two places,
     // agreeing until one of them moved.
-    let isMounted = true;
     void settleGrowthRead(growth.workflowRunRead({ workflowRunId })).then((outcome) => {
-      if (!isMounted) {
-        // The unmount already happened; dropping the answer is the point. A
-        // `setState` on an unmounted caller is the leak the endurance tier exists to
-        // catch, and a read outliving its pane by one navigation is ordinary.
-        return;
-      }
-      setState(
+      // No mount flag beside it. `publish` carries the addressing it was captured
+      // under, so an answer arriving after the pane was retargeted — or unmounted —
+      // writes nowhere, which is the same disposition the flag stated by hand.
+      publish(
         outcome.status === "served"
           ? { status: "served", snapshot: outcome.value }
           : { status: "unavailable", refusal: outcome },
       );
     });
-    return () => {
-      isMounted = false;
-    };
-    // `setState` is the stamped read's own setter and is stable for the life of the
-    // hook; it is named so the dependency list is the whole of what this effect uses.
-  }, [growth, workflowRunId, setState]);
+    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
+    // guard on this read's answer and the whole of what tells this effect to run again.
+  }, [growth, workflowRunId, publish]);
   return state;
 }

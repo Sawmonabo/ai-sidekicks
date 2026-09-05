@@ -8,7 +8,7 @@
 //
 // The cases read what each COMMIT carried rather than what each render call saw, which
 // is the only vantage that can tell the two hooks apart —
-// `store/subject-stamped-state.test-support.tsx` owns that probe and states why.
+// `store/subject-read-commits.test-support.tsx` owns that probe and states why.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,9 +17,9 @@ import type { GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import {
   latestCommitted,
-  observeStampedRead,
-  type ObservedStampedRead,
-} from "../store/subject-stamped-state.test-support.js";
+  observeSubjectRead,
+  type ObservedSubjectRead,
+} from "../store/subject-read-commits.test-support.js";
 import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
 import {
   useWorkflowDefinitionDirectory,
@@ -55,8 +55,8 @@ function portServing(definitionId: string): GrowthPort {
 
 function observeDirectory(
   growth: GrowthPort,
-): ObservedStampedRead<GrowthPort, WorkflowDefinitionDirectory> {
-  return observeStampedRead(useWorkflowDefinitionDirectory, {
+): ObservedSubjectRead<GrowthPort, WorkflowDefinitionDirectory> {
+  return observeSubjectRead(useWorkflowDefinitionDirectory, {
     source: growth,
     subject: PROBE_SESSION_ID,
   });

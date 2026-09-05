@@ -17,8 +17,8 @@ import {
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
 import {
   latestCommitted,
-  observeStampedRead,
-} from "../../store/subject-stamped-state.test-support.js";
+  observeSubjectRead,
+} from "../../store/subject-read-commits.test-support.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 
 const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
@@ -188,7 +188,7 @@ describe("useWorkflowRunSnapshot — one read, four answers", () => {
 
     const observed = observeSnapshot(growth, WORKFLOWS_PARKED_RUN.workflowRunId);
     // The state after the mount and before the answer. Every render of it, first
-    // included, because the read is stamped with the run it is about.
+    // included, because the read is held against the run it is about.
     expect(lastState(observed).status).toBe("reading");
 
     await settle();
@@ -272,7 +272,7 @@ describe("useWorkflowRunSnapshot — the port is half of what the read is about"
     // committed the previous scenario's phases and park cards under the new one and only
     // the passive effect afterwards took them down. The cases here read what each COMMIT
     // carried, which is the only vantage that can tell the two hooks apart.
-    const probe = observeStampedRead(useWorkflowRunSnapshot, {
+    const probe = observeSubjectRead(useWorkflowRunSnapshot, {
       source: phaseTruncatingGrowthPort(2),
       subject: WORKFLOWS_PARKED_RUN.workflowRunId,
     });
@@ -299,7 +299,7 @@ describe("useWorkflowRunSnapshot — the port is half of what the read is about"
     // Without this, the case above passes for a hook that reset on every render, which
     // would re-read the run forever and never show a snapshot at all.
     const growth = phaseTruncatingGrowthPort(2);
-    const probe = observeStampedRead(useWorkflowRunSnapshot, {
+    const probe = observeSubjectRead(useWorkflowRunSnapshot, {
       source: growth,
       subject: WORKFLOWS_PARKED_RUN.workflowRunId,
     });

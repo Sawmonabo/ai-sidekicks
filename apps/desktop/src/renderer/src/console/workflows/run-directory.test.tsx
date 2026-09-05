@@ -15,10 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type GrowthPort, type WorkflowRunListEntry } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { WORKFLOWS_SCENARIO_RUNS } from "../bridge/scenarios/workflow-fixture-runs.js";
-import {
-  latestCommitted,
-  observeStampedRead,
-} from "../store/subject-stamped-state.test-support.js";
+import { latestCommitted, observeSubjectRead } from "../store/subject-read-commits.test-support.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
 
 const FIRST_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
@@ -188,7 +185,7 @@ describe("useWorkflowRunDirectory — the port is half of what the read is about
     // this render committed the previous scenario's runs under the new one and only the
     // passive effect afterwards took them down. The cases here read what each COMMIT
     // carried, which is the only vantage that can tell the two hooks apart.
-    const probe = observeStampedRead(useWorkflowRunDirectory, {
+    const probe = observeSubjectRead(useWorkflowRunDirectory, {
       source: labelledGrowthPort("first scenario"),
       subject: FIRST_SESSION_ID,
     });
@@ -212,7 +209,7 @@ describe("useWorkflowRunDirectory — the port is half of what the read is about
     // Without this, the case above passes for a hook that reset on every render, which
     // would re-read the enumeration forever and never show an answer at all.
     const growth = labelledGrowthPort("first scenario");
-    const probe = observeStampedRead(useWorkflowRunDirectory, {
+    const probe = observeSubjectRead(useWorkflowRunDirectory, {
       source: growth,
       subject: FIRST_SESSION_ID,
     });
