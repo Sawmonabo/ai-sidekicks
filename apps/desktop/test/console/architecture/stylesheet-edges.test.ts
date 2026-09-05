@@ -19,6 +19,13 @@
 // resolution is `test/console/assets/generated-tokens.test.ts`'s and the computed
 // geometry is the browser tier's; this file owns the import graph alone.
 //
+// THE INSTRUMENT IS THE PARSER. A stylesheet edge is an `import` declaration with no
+// clause, which is a declaration boundary — and `apps/desktop/AGENTS.md` says to ask
+// the compiler about one rather than a pattern. The regular expression this replaced
+// could not tell an edge from a sentence about one, so a header explaining WHY a
+// component does not import a sheet would have been counted as the import it was
+// explaining the absence of.
+//
 // A LIBRARY'S OWN SHEET IS NOT A FAMILY'S SHEET, so only RELATIVE specifiers are
 // read. `terminal/xterm-adapter.ts` imports `@xterm/xterm/css/xterm.css` from the
 // lazy chunk's entry deliberately, and that placement is the point: the emulator's
@@ -29,14 +36,16 @@
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
+  consoleRelativePaths,
   consoleSourceModules,
-  readConsoleSourceModule,
-  moduleNamed,
+  readModuleNamed,
   CONSOLE_DIRECTORY,
 } from "../console-source-modules.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -89,8 +98,30 @@ const STYLESHEET_PATHS: readonly string[] = Object.keys(
 /** The one file in a family that may carry a stylesheet import. */
 const FAMILY_DOOR = "index.ts";
 
-/** An `import "./somewhere.css";` statement, however it is quoted. Relative only. */
-const STYLESHEET_IMPORT_PATTERN = /import\s+["'](\.[^"']*\.css)["']/gu;
+/** The extension that makes an import a stylesheet edge. */
+const STYLESHEET_EXTENSION = ".css";
+
+/**
+ * Every stylesheet specifier `source` imports, as written. Relative only.
+ *
+ * A pure function over text so the controls below can drive it with strings whose
+ * verdict is known. `import.meta.glob` is not an import declaration and is correctly
+ * invisible here: the glob above is how this file finds the sheets to count edges
+ * INTO, and counting it as an edge would report the counter as a consumer.
+ */
+function stylesheetSpecifiersIn(fileName: string, source: string): readonly string[] {
+  const specifiers: string[] = [];
+  forEachDescendant(parseSourceText(fileName, source), (node) => {
+    if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) {
+      return;
+    }
+    const specifier = node.moduleSpecifier.text;
+    if (specifier.startsWith(".") && specifier.endsWith(STYLESHEET_EXTENSION)) {
+      specifiers.push(specifier);
+    }
+  });
+  return specifiers;
+}
 
 /** A path under the console, spelled the way every message here names one. */
 function consoleRelative(absolutePath: string): string {
@@ -104,18 +135,16 @@ function familyOf(consoleRelativePath: string): string {
 
 /** Every stylesheet a module imports, as console-relative paths. */
 function stylesheetImportsOf(consoleRelativePath: string): readonly string[] {
-  const source = readConsoleSourceModule(
-    moduleNamed(CONSOLE_MODULES, `console/${consoleRelativePath}`),
-  );
+  const source = readModuleNamed(CONSOLE_MODULES, `console/${consoleRelativePath}`);
   const importedFrom = dirname(consoleRelativePath);
-  return [...source.matchAll(STYLESHEET_IMPORT_PATTERN)].map((match) =>
-    consoleRelative(resolve(CONSOLE_DIRECTORY, importedFrom, match[1] ?? "")),
+  return stylesheetSpecifiersIn(consoleRelativePath, source).map((specifier) =>
+    consoleRelative(resolve(CONSOLE_DIRECTORY, importedFrom, specifier)),
   );
 }
 
 describe("stylesheet edges — a family's CSS enters at that family's door", () => {
   const stylesheets = STYLESHEET_PATHS;
-  const modules = CONSOLE_MODULES.map((module) => module.displayPath.slice("console/".length));
+  const modules = consoleRelativePaths(CONSOLE_MODULES);
 
   it("finds the console's stylesheets and modules at all", () => {
     // Without this, a wrong root would scan nothing and every assertion below would
@@ -168,5 +197,29 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     expect(doorEdges.length).toBeGreaterThan(1);
     expect(doorEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
     expect(stylesheetImportsOf("browser/BudgetMeter.tsx")).toStrictEqual([]);
+  });
+
+  it("negative control: a sentence about an import is not an edge", () => {
+    // What the regular expression could not tell apart. A component explaining why it
+    // does NOT carry its family's sheet names the import it is not writing, and a
+    // reader that counted that would report the explanation as the defect.
+    expect(
+      stylesheetSpecifiersIn(
+        "Pane.tsx",
+        '// Deliberately no `import "./browser.css";` here -- the door carries it.\nexport const x = 1;',
+      ),
+    ).toStrictEqual([]);
+    expect(
+      stylesheetSpecifiersIn("index.ts", 'import "./browser.css";\nexport const x = 1;'),
+    ).toStrictEqual(["./browser.css"]);
+  });
+
+  it("negative control: a library's own sheet is not a family's", () => {
+    // The relative-only rule, as a case. The emulator's `@xterm/xterm/css/xterm.css`
+    // rides the lazy chunk's entry on purpose, and reporting it would push a
+    // deliberate placement into the family door and into the initial bundle.
+    expect(
+      stylesheetSpecifiersIn("xterm-adapter.ts", 'import "@xterm/xterm/css/xterm.css";'),
+    ).toStrictEqual([]);
   });
 });

@@ -29,6 +29,17 @@
 // already in the set and needed no widening; a `_THRESHOLD` numeric export under a
 // view family is what this run newly reports.
 //
+// THE INSTRUMENT IS THE PARSER, and the three regular expressions it replaces show
+// why. Each was a guess at one shape a declaration takes — `const NAME`, a key
+// indented two spaces, a quoted name followed by a comma — so the set they covered
+// was the intersection of three formatting habits: a `const` whose name wrapped to the
+// next line, a key at three levels of nesting, an array element on its own line
+// without a trailing comma, and a declaration inside a namespace were all invisible.
+// And none could tell a declaration from a sentence about one, which is why the
+// quoted-name pattern had a carve-out for backticks: this tree names its constants in
+// prose, and the pattern was reading the prose. A declaration is a declaration
+// boundary, which `apps/desktop/AGENTS.md` says to answer with the compiler.
+//
 // WHY THE SCOPE IS THE VIEW FAMILIES. `console/core/constants.ts` is the home, and
 // the layer families between it and the views — `primitives/`, `persistence/`,
 // `palette/`, `tokens/` — carry bounds of their own whose disposition is a separate
@@ -42,14 +53,16 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import extractDepcruiseConfig from "dependency-cruiser/config-utl/extract-depcruise-config";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
+  consoleRelativePaths,
   consoleSourceModules,
-  readConsoleSourceModule,
+  readModuleNamed,
   CONSOLE_DIRECTORY,
-  moduleNamed,
 } from "../console-source-modules.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
@@ -91,20 +104,34 @@ const CAP_NAME_SEGMENTS: readonly string[] = [
   "THRESHOLD",
 ];
 
-/** A `const` declaration, and an object-literal key — the two ways a bound is written. */
-const DECLARED_NAME_PATTERN = /(?:^|\s)(?:export\s+)?const\s+([A-Z][A-Z0-9_]*)\b/gmu;
-const OBJECT_KEY_PATTERN = /^\s{2,}([A-Z][A-Z0-9_]*)\s*:/gmu;
-/**
- * The closed-set tuple form, where the names are string literals rather than keys.
- *
- * Quote characters only, and a trailing comma or bracket: a BACKTICKED name is prose
- * — every module in this tree names its constants that way in a doc comment — and
- * matching one reported `lease-model.ts` for a bound it imports.
- */
-const QUOTED_NAME_PATTERN = /["']([A-Z][A-Z0-9_]{2,})["']\s*[,\]]/gmu;
+/** A SCREAMING_SNAKE name, which is how this package spells a constant. */
+const CONSTANT_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/u;
 
 function isCapName(identifier: string): boolean {
-  return identifier.split("_").some((segment) => CAP_NAME_SEGMENTS.includes(segment));
+  return (
+    CONSTANT_NAME_PATTERN.test(identifier) &&
+    identifier.split("_").some((segment) => CAP_NAME_SEGMENTS.includes(segment))
+  );
+}
+
+/**
+ * The name a declaring node binds, if it binds a plain one.
+ *
+ * A destructuring pattern binds several and none of them is a declared bound in this
+ * tree, so it contributes nothing rather than being unpacked — which would report a
+ * module for a cap it IMPORTS, which is the opposite of the claim.
+ */
+function declaredName(node: ts.Node): string | undefined {
+  if (ts.isVariableDeclaration(node) || ts.isEnumMember(node)) {
+    return ts.isIdentifier(node.name) ? node.name.text : undefined;
+  }
+  if (ts.isPropertyAssignment(node) || ts.isPropertySignature(node)) {
+    return ts.isIdentifier(node.name) || ts.isStringLiteral(node.name) ? node.name.text : undefined;
+  }
+  if (ts.isShorthandPropertyAssignment(node)) {
+    return node.name.text;
+  }
+  return undefined;
 }
 
 /**
@@ -112,18 +139,31 @@ function isCapName(identifier: string): boolean {
  *
  * A pure function over text rather than a loop inside a test, so the controls below
  * can drive it with strings whose verdict is known and the checker is proved to bite
- * without perturbing a real module.
+ * without perturbing a real module. Four declaring shapes, each a node kind rather
+ * than a formatting habit: a variable, an object-literal key, an interface member, and
+ * an enum member — plus the closed-set tuple form, where the name is a string LITERAL
+ * inside an array rather than a binding. The array element is why the shape is checked
+ * and not just the text: a quoted name anywhere else in a module is prose or an
+ * argument, and the pattern that read them by punctuation had to carve out backticks
+ * to stop reporting this tree's own doc comments.
  */
-function capNamesDeclaredIn(source: string): readonly string[] {
+function capNamesDeclaredIn(fileName: string, source: string): readonly string[] {
   const found = new Set<string>();
-  for (const pattern of [DECLARED_NAME_PATTERN, OBJECT_KEY_PATTERN, QUOTED_NAME_PATTERN]) {
-    for (const match of source.matchAll(pattern)) {
-      const identifier = match[1];
-      if (identifier !== undefined && isCapName(identifier)) {
-        found.add(identifier);
+  forEachDescendant(parseSourceText(fileName, source), (node) => {
+    const bound = declaredName(node);
+    if (bound !== undefined && isCapName(bound)) {
+      found.add(bound);
+      return;
+    }
+    if (!ts.isArrayLiteralExpression(node)) {
+      return;
+    }
+    for (const element of node.elements) {
+      if (ts.isStringLiteral(element) && isCapName(element.text)) {
+        found.add(element.text);
       }
     }
-  }
+  });
   return [...found].sort();
 }
 
@@ -154,13 +194,13 @@ async function nonViewFamilyPatterns(): Promise<readonly RegExp[]> {
  */
 const CONSOLE_MODULES = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
 
-/** The console-relative paths of every scanned module. */
-function consoleModulePaths(): readonly string[] {
-  return CONSOLE_MODULES.map((module) => module.displayPath.slice("console/".length));
+/** What the checker is asked, for one console-relative module. */
+function capNamesIn(module: string): readonly string[] {
+  return capNamesDeclaredIn(module, readModuleNamed(CONSOLE_MODULES, `console/${module}`));
 }
 
 describe("cap-constant-home — a bound is declared in one module", () => {
-  const modules = consoleModulePaths();
+  const modules = consoleRelativePaths(CONSOLE_MODULES);
 
   it("finds a console tree to scan, and the home inside it", () => {
     // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
@@ -183,7 +223,7 @@ describe("cap-constant-home — a bound is declared in one module", () => {
 
   it("no view family declares one of its own", async () => {
     const offenders = (await viewFamilyModulesAmong(modules))
-      .map((module) => ({ module, caps: capNamesDeclaredIn(readConsoleSource(module)) }))
+      .map((module) => ({ module, caps: capNamesIn(module) }))
       .filter((entry) => entry.caps.length > 0)
       .map((entry) => `${entry.module}: ${entry.caps.join(", ")}`);
     expect(offenders).toStrictEqual([]);
@@ -192,16 +232,21 @@ describe("cap-constant-home — a bound is declared in one module", () => {
   it("negative control: the checker bites on both shapes that were moved", () => {
     // The real declarations, verbatim, from the two modules the finding named. The
     // clean result above means nothing unless the predicate recognises them.
-    expect(capNamesDeclaredIn("export const TERMINAL_WEBGL_POOL_CAP = 12;")).toStrictEqual([
-      "TERMINAL_WEBGL_POOL_CAP",
-    ]);
     expect(
-      capNamesDeclaredIn('  PAGES_PER_RUN_MAX: scalarBound(\n    8,\n    "pages",\n  ),'),
+      capNamesDeclaredIn("terminal.ts", "export const TERMINAL_WEBGL_POOL_CAP = 12;"),
+    ).toStrictEqual(["TERMINAL_WEBGL_POOL_CAP"]);
+    expect(
+      capNamesDeclaredIn(
+        "meter.ts",
+        'const bounds = {\n  PAGES_PER_RUN_MAX: scalarBound(\n    8,\n    "pages",\n  ),\n};',
+      ),
     ).toStrictEqual(["PAGES_PER_RUN_MAX"]);
-    expect(capNamesDeclaredIn('  "SNAPSHOT_TEXT_MAX",')).toStrictEqual(["SNAPSHOT_TEXT_MAX"]);
+    expect(capNamesDeclaredIn("names.ts", 'const names = ["SNAPSHOT_TEXT_MAX"];')).toStrictEqual([
+      "SNAPSHOT_TEXT_MAX",
+    ]);
     // The third shape, and the one the widened segment set exists for: the browser
     // settings page's fold threshold, verbatim as it stood in that view family.
-    expect(capNamesDeclaredIn("const PARTITION_FOLD_THRESHOLD = 10;")).toStrictEqual([
+    expect(capNamesDeclaredIn("page.tsx", "const PARTITION_FOLD_THRESHOLD = 10;")).toStrictEqual([
       "PARTITION_FOLD_THRESHOLD",
     ]);
   });
@@ -210,17 +255,62 @@ describe("cap-constant-home — a bound is declared in one module", () => {
     // The other side of the line the header draws. A predicate that flagged every
     // SCREAMING_SNAKE number would empty the view families of legitimate sizes and
     // would be turned off rather than obeyed.
-    expect(capNamesDeclaredIn("const ALERT_GLYPH_SIZE = 12;")).toStrictEqual([]);
-    expect(capNamesDeclaredIn("const GEOMETRY_ROUNDING_FACTOR = 100;")).toStrictEqual([]);
-    expect(capNamesDeclaredIn("const MINIMUM_VISIBLE_EDGE_PX = 1;")).toStrictEqual([]);
-    expect(capNamesDeclaredIn("const SCROLL_ANCHOR_OFFSET_PX = 24;")).toStrictEqual([]);
+    expect(capNamesDeclaredIn("sizes.ts", "const ALERT_GLYPH_SIZE = 12;")).toStrictEqual([]);
+    expect(capNamesDeclaredIn("sizes.ts", "const GEOMETRY_ROUNDING_FACTOR = 100;")).toStrictEqual(
+      [],
+    );
+    expect(capNamesDeclaredIn("sizes.ts", "const MINIMUM_VISIBLE_EDGE_PX = 1;")).toStrictEqual([]);
+    expect(capNamesDeclaredIn("sizes.ts", "const SCROLL_ANCHOR_OFFSET_PX = 24;")).toStrictEqual([]);
+  });
+
+  it("negative control: prose naming a bound is not a declaration", () => {
+    // What the three patterns could not tell apart, and the reason one of them had a
+    // backtick carve-out: every module in this tree names its constants in a doc
+    // comment, and a reader that counted those would report the explanation.
+    expect(
+      capNamesDeclaredIn(
+        "reader.ts",
+        "// Checked against `SNAPSHOT_TEXT_MAX`, which lives in the home.\nconst x = 1;",
+      ),
+    ).toStrictEqual([]);
+    expect(
+      capNamesDeclaredIn("reader.ts", "/** Reads PAGES_PER_RUN_MAX. */\nconst x = 1;"),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: an import of a bound is not a declaration of one", () => {
+    // The failure direction that matters most here: every view family READS the caps
+    // it is checked against, so a predicate that counted a reference would report the
+    // whole console and be turned off rather than obeyed.
+    expect(
+      capNamesDeclaredIn(
+        "consumer.ts",
+        'import { SNAPSHOT_TEXT_MAX } from "../core/constants.js";\nconst ok = n < SNAPSHOT_TEXT_MAX;',
+      ),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the parse finds declarations the patterns could not", () => {
+    // The other direction, and the reason this is a rewrite rather than a tidy. Each
+    // of these is a real declaration the three patterns missed: a name that wrapped
+    // past its `const`, a key nested more than one level deep, and an array element
+    // with no trailing comma.
+    expect(
+      capNamesDeclaredIn("wrapped.ts", "export const\n  TERMINAL_SCROLLBACK_CAP = 5000;"),
+    ).toStrictEqual(["TERMINAL_SCROLLBACK_CAP"]);
+    expect(
+      capNamesDeclaredIn("nested.ts", "const table = { outer: { inner: { PAGE_LIMIT: 4 } } };"),
+    ).toStrictEqual(["PAGE_LIMIT"]);
+    expect(capNamesDeclaredIn("tuple.ts", 'const names = [\n  "VIEWS_MAX"\n];')).toStrictEqual([
+      "VIEWS_MAX",
+    ]);
   });
 
   it("negative control: the home itself is full of them", async () => {
     // The scope is what excuses `core/constants.ts`, not the predicate — so the home
     // must trip the checker, or the clean result above would be a checker that
     // recognises nothing.
-    expect(capNamesDeclaredIn(readConsoleSource(CAP_HOME_MODULE)).length).toBeGreaterThan(10);
+    expect(capNamesIn(CAP_HOME_MODULE).length).toBeGreaterThan(10);
     expect(await viewFamilyModulesAmong([CAP_HOME_MODULE])).toStrictEqual([]);
   });
 });
@@ -231,8 +321,4 @@ async function viewFamilyModulesAmong(modules: readonly string[]): Promise<reado
     const anchoredPath = `${CONSOLE_ROOT}/${module}`;
     return !patterns.some((pattern) => pattern.test(anchoredPath));
   });
-}
-
-function readConsoleSource(module: string): string {
-  return readConsoleSourceModule(moduleNamed(CONSOLE_MODULES, `console/${module}`));
 }

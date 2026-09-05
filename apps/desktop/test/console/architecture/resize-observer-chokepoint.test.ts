@@ -19,17 +19,27 @@
 // observable act is taking the constructor, and the chokepoint is the only module
 // allowed to take it.
 //
+// THE INSTRUMENT IS THE PARSER, and that distinction is why. `source.includes(...)`
+// cannot tell a construction from a sentence about one, so this file's own header —
+// which names both forms in order to explain them — would trip its own rule if it
+// were a module under scan, and the paragraph above saying a comment does not count
+// was a claim the checker did not implement. A `new` expression and a property access
+// are both declaration boundaries, which `apps/desktop/AGENTS.md` says to answer with
+// the compiler rather than with a pattern.
+//
 // Test files are excluded: a fake has to construct the shape it stands in for, and
 // forbidding that would forbid testing the chokepoint's own degrade.
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
+  consoleRelativePaths,
   consoleSourceModules,
-  readConsoleSourceModule,
+  readModuleNamed,
   CONSOLE_DIRECTORY,
-  moduleNamed,
 } from "../console-source-modules.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /**
  * The one module allowed to construct a size observer.
@@ -39,24 +49,52 @@ import {
  */
 const CHOKEPOINT_MODULE = "primitives/element-resize.ts";
 
+/** The platform name this chokepoint owns. */
+const OBSERVER_TYPE_NAME = "ResizeObserver";
+
 /**
- * The ways this tree can take the constructor.
+ * The ways this tree can take the constructor, as the labels a failure reports.
  *
  * `new ResizeObserver(` is the direct form; the chokepoint itself reads the global
  * into a local first, so the indirect form is listed beside it rather than left as a
- * hole a second site could be written through.
+ * hole a second site could be written through. Both are now recognised as tree shapes
+ * — a `new` expression and a `globalThis.` property access — and these strings name
+ * what was found rather than being the needle that found it.
  */
-const CONSTRUCTION_FORMS: readonly string[] = ["new ResizeObserver(", "globalThis.ResizeObserver"];
+const CONSTRUCTION_FORMS = {
+  direct: `new ${OBSERVER_TYPE_NAME}(`,
+  offGlobalThis: `globalThis.${OBSERVER_TYPE_NAME}`,
+} as const;
 
 /**
  * Every way `source` shows it took the size-observer constructor, or `[]`.
  *
  * A pure function over text rather than a loop inside a test, so the negative
  * controls below can drive it with strings whose verdict is known and the checker is
- * proved to bite without perturbing a real module.
+ * proved to bite without perturbing a real module. Sorted, so a module that writes
+ * both forms reports them in one order.
  */
-function resizeObserverConstructionSignatures(source: string): readonly string[] {
-  return CONSTRUCTION_FORMS.filter((form) => source.includes(form));
+function resizeObserverConstructionSignatures(fileName: string, source: string): readonly string[] {
+  const found = new Set<string>();
+  forEachDescendant(parseSourceText(fileName, source), (node) => {
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === OBSERVER_TYPE_NAME
+    ) {
+      found.add(CONSTRUCTION_FORMS.direct);
+      return;
+    }
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "globalThis" &&
+      node.name.text === OBSERVER_TYPE_NAME
+    ) {
+      found.add(CONSTRUCTION_FORMS.offGlobalThis);
+    }
+  });
+  return [...found].sort();
 }
 
 /**
@@ -72,17 +110,17 @@ function resizeObserverConstructionSignatures(source: string): readonly string[]
  */
 const CONSOLE_MODULES = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
 
-/** The console-relative paths of every scanned module. */
-function consoleModulePaths(): readonly string[] {
-  return CONSOLE_MODULES.map((module) => module.displayPath.slice("console/".length));
+function readConsoleSource(module: string): string {
+  return readModuleNamed(CONSOLE_MODULES, `console/${module}`);
 }
 
-function readConsoleSource(module: string): string {
-  return readConsoleSourceModule(moduleNamed(CONSOLE_MODULES, `console/${module}`));
+/** What the checker is asked, for one console-relative module. */
+function constructionSignaturesOf(module: string): readonly string[] {
+  return resizeObserverConstructionSignatures(module, readConsoleSource(module));
 }
 
 describe("element-resize — the size observer is constructed in exactly one module", () => {
-  const modules = consoleModulePaths();
+  const modules = consoleRelativePaths(CONSOLE_MODULES);
 
   it("finds a console tree to scan at all", () => {
     // Without this, a walk that reached nothing would leave the assertion below
@@ -94,22 +132,17 @@ describe("element-resize — the size observer is constructed in exactly one mod
   it("no other module takes the constructor", () => {
     const offenders = modules
       .filter((module) => module !== CHOKEPOINT_MODULE)
-      .map((module) => ({
-        module,
-        signatures: resizeObserverConstructionSignatures(readConsoleSource(module)),
-      }))
+      .map((module) => ({ module, signatures: constructionSignaturesOf(module) }))
       .filter((entry) => entry.signatures.length > 0)
       .map((entry) => `${entry.module}: ${entry.signatures.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
   it("negative control: the chokepoint itself trips the checker", () => {
-    // The checker reads real files and the needles match real code. Without this, a
-    // typo in a needle would make the clean result above meaningless — which is
+    // The checker reads real files and the shapes match real code. Without this, a
+    // wrong node predicate would make the clean result above meaningless — which is
     // exactly the state the emulator's own observer was found in.
-    expect(resizeObserverConstructionSignatures(readConsoleSource(CHOKEPOINT_MODULE))).toContain(
-      "globalThis.ResizeObserver",
-    );
+    expect(constructionSignaturesOf(CHOKEPOINT_MODULE)).toContain(CONSTRUCTION_FORMS.offGlobalThis);
   });
 
   it("negative control: the emulator's old construction site is what this catches", () => {
@@ -118,11 +151,48 @@ describe("element-resize — the size observer is constructed in exactly one mod
     // removed from being renamed.
     expect(
       resizeObserverConstructionSignatures(
+        "adapter.ts",
         "const resizeObserver = new ResizeObserver(() => {\n  this.fitToHost();\n});",
       ),
-    ).toStrictEqual(["new ResizeObserver("]);
+    ).toStrictEqual([CONSTRUCTION_FORMS.direct]);
     expect(
-      resizeObserverConstructionSignatures("#resizeObserver: ResizeObserver | undefined;"),
+      resizeObserverConstructionSignatures(
+        "adapter.ts",
+        "#resizeObserver: ResizeObserver | undefined;",
+      ),
     ).toStrictEqual([]);
+  });
+
+  it("negative control: a sentence about the constructor is not a construction", () => {
+    // The claim the header made and the substring checker did not implement. Both
+    // comment forms, and a string literal, because this file's own header names both
+    // construction forms in prose in order to explain them.
+    expect(
+      resizeObserverConstructionSignatures(
+        "explainer.ts",
+        "// A second `new ResizeObserver(` would be the defect.\nconst x = 1;",
+      ),
+    ).toStrictEqual([]);
+    expect(
+      resizeObserverConstructionSignatures(
+        "explainer.ts",
+        "/* Reads globalThis.ResizeObserver once. */\nconst x = 1;",
+      ),
+    ).toStrictEqual([]);
+    expect(
+      resizeObserverConstructionSignatures("explainer.ts", 'const form = "new ResizeObserver(";'),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the parse still finds a construction the substring form missed", () => {
+    // The other direction. A construction whose argument list starts on the next line
+    // carries no `new ResizeObserver(` anywhere, so the substring checker read it as
+    // clean; the tree does not care where the parenthesis is.
+    expect(
+      resizeObserverConstructionSignatures(
+        "wrapped.ts",
+        "const observer = new ResizeObserver\n  (onResize);",
+      ),
+    ).toStrictEqual([CONSTRUCTION_FORMS.direct]);
   });
 });
