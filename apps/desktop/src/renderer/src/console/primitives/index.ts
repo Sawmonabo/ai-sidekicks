@@ -130,15 +130,12 @@ export {
   WindowAbsences,
 } from "./WindowAbsences.js";
 
-// `InlineRefusal` carries no marker: the runs, approvals, and pane-chrome surfaces
-// render their refusals through it, so a surviving tag would be the half of the
-// marker an importing change owed and did not pay.
+// None of the three carries a marker: the runs, approvals, inspector, and
+// pane-chrome surfaces render their refusals through them, so a surviving tag would
+// be the half of the marker an importing change owed and did not pay.
 export { InlineRefusal } from "./InlineRefusal.js";
 export { RefusalBanner } from "./RefusalBanner.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  RefusalCard,
-} from "./RefusalCard.js";
+export { RefusalCard } from "./RefusalCard.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
