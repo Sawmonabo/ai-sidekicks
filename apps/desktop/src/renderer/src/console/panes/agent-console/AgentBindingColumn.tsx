@@ -153,23 +153,38 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     }
   }, [attachAttempt, attachForm, catalogState, models, sessionId, publishAttachSubmitted]);
 
-  // The settlement published is the SETTLED reply's, never whichever landed last:
-  // one request per intended action means there is no second reply to race.
+  // BOTH BINDING MOVES GO THROUGH ONE ADMISSION, and that is a correctness property
+  // rather than tidiness. Each was written out separately, and one of them left
+  // `publishBindingAgentId` off its dependency list — so after a re-address it held
+  // the previous visit's publisher, whose writes the holder drops by design. A detach
+  // was then admitted and mutated the agent while the column showed no busy state and
+  // rendered no refusal, because the value that decides both is published here and
+  // that press published nothing. Written once, the publisher is named once and
+  // neither caller can omit it.
+  //
+  // The settlement published is the SETTLED reply's, never whichever landed last: one
+  // request per intended action means there is no second reply to race.
+  const submitBindingMove = useCallback(
+    (targetAgentId: string, move: () => Promise<AgentSwitchSettlement | undefined>): void => {
+      if (bindingAttempt.submit(move)) {
+        publishBindingAgentId(targetAgentId);
+      }
+    },
+    [bindingAttempt, publishBindingAgentId],
+  );
+
   const applySwitch = useCallback(
     (
       targetAgentId: string,
       axes: Partial<Record<ProviderAxis, string>>,
       interruptAndSwitch: boolean,
     ): void => {
-      const admitted = bindingAttempt.submit(async () => {
+      submitBindingMove(targetAgentId, async () => {
         const reply = await models.updateConfig(targetAgentId, axes, interruptAndSwitch);
         return reply.switch;
       });
-      if (admitted) {
-        publishBindingAgentId(targetAgentId);
-      }
     },
-    [bindingAttempt, models, publishBindingAgentId],
+    [models, submitBindingMove],
   );
 
   // Detach shares the switch's latch and settles with nothing to show: a detach
@@ -177,15 +192,12 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // switch does, because both are this agent's binding refusing to move.
   const detachAgent = useCallback(
     (targetAgentId: string): void => {
-      const admitted = bindingAttempt.submit(async () => {
+      submitBindingMove(targetAgentId, async () => {
         await models.detach(targetAgentId);
         return undefined;
       });
-      if (admitted) {
-        publishBindingAgentId(targetAgentId);
-      }
     },
-    [bindingAttempt, models],
+    [models, submitBindingMove],
   );
 
   const agents = rosterState.kind === "loaded" ? rosterState.value.agents : [];
