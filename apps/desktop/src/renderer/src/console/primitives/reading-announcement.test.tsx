@@ -11,7 +11,7 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock, refuse } from "../core/index.js
 import { LiveAnnouncer } from "./live-announcer.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
 import { useReadingAnnouncement } from "./reading-announcement.js";
-import { type ReadingState } from "./partial-read.js";
+import { uncheckedCoverageReading, type ReadingState } from "./partial-read.js";
 
 const SUBJECT = "the queue";
 
@@ -102,6 +102,25 @@ describe("useReadingAnnouncement — the incomplete reading, said out loud", () 
     announced.settle();
     announced.rerender([{ kind: "cut", servedCount: 40 }]);
     expect(announced.polite()).toContain("40");
+  });
+
+  it("speaks a coverage gap with its figure, so a listener hears how much", () => {
+    // The arm this vocabulary was extended for. A person who cannot see the panel
+    // hears the count, because "some of it went unanswered" and "four of it did" are
+    // different facts and only the second is actionable.
+    const announced = renderAnnouncing([
+      uncheckedCoverageReading(4, PARSE_REFUSAL),
+      { kind: "served" },
+    ]);
+    expect(announced.polite()).toContain("4 parts of");
+    expect(announced.polite()).toContain("covers less than was asked for");
+    expect(announced.assertive()).toBe("");
+  });
+
+  it("negative control: full coverage says nothing, so the figure is the reading", () => {
+    // Without this the case above would also be satisfied by a hook that spoke for
+    // every fan-out, including one that heard back from every source it asked.
+    expect(renderAnnouncing([uncheckedCoverageReading(0, PARSE_REFUSAL)]).polite()).toBe("");
   });
 
   it("leaves the in-flight read to the absence that already announces it", () => {

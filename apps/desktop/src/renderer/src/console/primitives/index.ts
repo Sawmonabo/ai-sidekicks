@@ -59,7 +59,7 @@ export { Nothing } from "./Nothing.js";
 // The incomplete-reading vocabulary and its one notice. Through the door for the
 // reason every family lane needs them: six families each wrote their own notice for
 // this case and the sentences disagreed, so a family that reached past the barrel for
-// a local copy would be the seventh.
+// a local copy would be one more of them.
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   PartialReadNotice,
@@ -81,6 +81,8 @@ export {
   partialReadNotices,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   readingNoticeFor,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  uncheckedCoverageReading,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   unreadableDeliveryReading,
 } from "./partial-read.js";
