@@ -48,11 +48,21 @@ export { ChordHint } from "./ChordHint.js";
 // site is the only other way either could have one.
 export { observeElementResize } from "./element-resize.js";
 
-export type { ChordPlatform } from "./chord-format.js";
+// The chord vocabulary, and not only the printer. A surface that decides something
+// ABOUT a chord — the browser family's page handback, which may claim a keystroke
+// only when it holds a modifier — needs the same closed token set, the same
+// resolution of `$mod`, and the same splitter the printer uses, because tinykeys'
+// grammar makes `$mod++` a real chord that `chord.split("+")` reads wrongly. Every
+// one of those was a second copy here before it was a door line.
+export type { ChordModifierToken, ChordPlatform } from "./chord-format.js";
 export {
+  CHORD_MODIFIER_TOKENS,
   HOST_CHORD_PLATFORM,
+  PLATFORM_MODIFIER_CHORD_TOKEN,
+  PLATFORM_MODIFIER_TOKEN,
   decodeChordKeyToken,
   formatChordForPlatform,
+  splitChordTokens,
 } from "./chord-format.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
