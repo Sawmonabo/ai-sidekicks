@@ -13,7 +13,7 @@
 //   • `EventEnvelopeSchema` — the version-tolerant carrier. It fixes the canonical
 //     membership for EVERY kind, registered payload variant or not, and it is the
 //     schema the console's own decode boundary parses each delivery with
-//     (`frame/session-event-payload.ts`). This is the leg that says the fixture can
+//     (`bridge/session-event-payload.ts`). This is the leg that says the fixture can
 //     deliver this beat at all: a beat that fails here is one the console would
 //     count as an unreadable delivery and drop, which in a fixture reads as a
 //     scenario that plays a beat nothing renders.

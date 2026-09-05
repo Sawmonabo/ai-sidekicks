@@ -25,7 +25,14 @@
 // not a cache — nothing here survives the subject it was held for. And it is not a
 // scheduler; a burst collapsing into one read is `store/scheduling.ts`.
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import {
   SubjectScopedHolder,
@@ -42,23 +49,24 @@ export interface SubjectScopedState<TValue> {
    *
    * Captured at render, so a closure a caller carried into a `.then` still names the
    * subject that dispatched the call: if the subject has moved since, the publish is
-   * dropped. Its identity changes exactly when the ADDRESSING does — which is a
-   * strictly finer fact than the pair, and the correct one: a surface routed away
-   * and back is at the same pair on two different visits, and only the addressing
-   * tells them apart. So it is still a correct dependency for an effect that must
-   * re-run on a re-address, and it is stable across every render that did not
-   * re-address.
+   * dropped. Its identity changes exactly when the ADDRESSING THIS RENDER READS does —
+   * which is a strictly finer fact than the pair, and the correct one: a surface
+   * routed away and back is at the same pair on two different visits, and only the
+   * addressing tells them apart. So it is still a correct dependency for an effect
+   * that must re-run on a re-address, and it is stable across every render that did
+   * not re-address.
    */
   readonly publish: SubjectScopedPublish<TValue>;
   /**
-   * Capture the subject as it stands NOW and hand back a publisher bound to it.
+   * Capture the visit ON SCREEN now and hand back a publisher bound to it.
    *
    * For the caller that has no fresh {@link publish} to close over: a handler stored
    * in a ref, a class built once by `useState(() => …)`, an effect with an empty
    * dependency list. Stable for the life of the mount, so handing it to such a holder
    * costs no re-subscription — and because the capture happens when it is CALLED
    * rather than when it was handed over, the settlement it publishes is still
-   * measured against the subject that dispatched it.
+   * measured against the subject that dispatched it. It names the COMMITTED visit,
+   * which is the only one anything outside a render is reading through.
    */
   readonly settle: () => SubjectScopedPublish<TValue>;
 }
@@ -79,7 +87,10 @@ export function useSubjectScopedState<TValue>(
   // During the render, before the value is read: the pass that first sees a new
   // subject already reads that subject's own seed, so no frame carries the previous
   // one's. React's own state-adjustment pattern spends a discarded render pass to
-  // reach the same place; addressing an external holder reaches it in the first.
+  // reach the same place; addressing an external holder reaches it in the first. The
+  // addressing is PROVISIONAL until this pass commits, which is what the layout
+  // effect below settles — so a pass React throws away leaves the tree on screen
+  // reading and settling through the visit it committed to.
   holder.address(subject, key, initial);
   return useHeldSubjectValue(holder, subject, key);
 }
@@ -105,6 +116,24 @@ export function useHeldSubjectValue<TValue>(
   const subscribe = useCallback((onChange: () => void) => holder.subscribe(onChange), [holder]);
   const read = useCallback(() => holder.value, [holder]);
   const value = useSyncExternalStore(subscribe, read, read);
+
+  // THE COMMIT, AND IT HAS TO BE A LAYOUT EFFECT. This is the earliest moment the
+  // answer the holder cannot work out for itself is known — did the pass that
+  // addressed become a frame — and it is still before anything is painted, so the
+  // window between a pass reading its own seed and that seed becoming the visit on
+  // screen never contains a frame. A passive effect would open one.
+  //
+  // Keyed on the PAIR rather than on the addressing: a pass that addressed the pair
+  // the last commit already holds proposed nothing, and one that proposed an
+  // addressing carrying this pair is exactly what there is to confirm.
+  useLayoutEffect(() => {
+    holder.commit(subject, key);
+  }, [holder, subject, key]);
+  // And the end of the mount, which is the one moment no later pass is coming: a
+  // proposal left behind by a render that suspended and was then unmounted is
+  // reachable through nothing else, and for a caller whose value owns a connection
+  // that is the difference between a close and a leak.
+  useEffect(() => () => holder.discardProvisional(), [holder]);
 
   // Re-captured exactly when the ADDRESSING moves, and by nothing else. The pair is
   // read here too, because it is what `publisherFor` is asked about; the addressing

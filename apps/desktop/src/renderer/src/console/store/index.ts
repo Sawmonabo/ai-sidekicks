@@ -19,7 +19,11 @@
 // EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
 // which is how repo and invite went missing from the inspector's scope.
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
-export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+// `ConsoleEntity` leaves the family because the two validating body reads live in
+// `bridge/entity-body-reads.ts`: a read that narrows a wire member has to sit where
+// the registered shapes may be imported, and it still takes and returns this
+// family's own entity.
+export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
 // and this family deliberately knows none, so the type travels out and the

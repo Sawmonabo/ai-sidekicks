@@ -37,7 +37,7 @@
 // prose paraphrasing a wire figure, which the same rule forbids. A subject with no
 // name renders by its identifier, which is what this row does.
 
-import { WireFigure } from "./Figure.js";
+import { WireFigure } from "./WireFigure.js";
 
 export interface WireChoiceListProps {
   /** The identifiers to offer, in the order they should read. */

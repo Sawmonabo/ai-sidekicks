@@ -127,12 +127,12 @@ export {
   WindowAbsences,
 } from "./WindowAbsences.js";
 
+export { InlineRefusal } from "./InlineRefusal.js";
+export { RefusalBanner } from "./RefusalBanner.js";
 export {
-  InlineRefusal,
-  RefusalBanner,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   RefusalCard,
-} from "./Refusal.js";
+} from "./RefusalCard.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -158,6 +158,8 @@ export {
 export type {
   /** @consumedBy T-023p-1C-5 */
   WindowedListRowProps,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRowTargetProps,
 } from "./WindowedListRow.js";
 export {
   /** @consumedBy T-023p-1C-5 */
@@ -174,6 +176,10 @@ export type {
 export {
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_INDEX_ATTRIBUTE,
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_TARGET_ATTRIBUTE,
+} from "./windowed-row-markers.js";
+export {
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_MOVE_BY_KEY,
   /** @consumedBy T-023p-1C-5 */
@@ -196,20 +202,22 @@ export {
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   DerivedFigureProps,
+} from "./DerivedFigure.js";
+export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
-} from "./Figure.js";
+} from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
+export { DerivedFigure } from "./DerivedFigure.js";
 export {
-  DerivedFigure,
   // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and the
   // `WireChoiceList` beside it both render identifiers through it — so the tag that
   // stood here was the half of the marker its importing change owed and did not
   // pay. `--treat-tag-hints-as-errors` is what reported the debt.
   WireFigure,
-} from "./Figure.js";
+} from "./WireFigure.js";
 
 // The one row every surface that offers wire identifiers to choose between renders.
 // A primitive rather than a frame component because its input is a list of wire

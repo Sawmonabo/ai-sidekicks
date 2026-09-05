@@ -27,16 +27,26 @@
 // NUMBER, and a number is what the effect depends on here, so an array with the same
 // contents re-arms nothing and the steady path allocates nothing.
 //
-// THE INSTANT ONLY EVER MOVES FORWARD. It starts at the clock's reading when the
-// consumer mounts and advances to each deadline as that deadline is crossed — never
-// to the clock's own reading at the moment the timer fired, which would put an
-// instant on screen that no threshold in the caller's list corresponds to. A caller
-// with a read stamp of its own takes the later of the two, so a fresh read always
-// wins and the ages beside the countdown stay the read's own.
+// THE INSTANT ONLY EVER MOVES FORWARD, WITHIN ONE CLOCK. It starts at that clock's
+// reading when the consumer mounts and advances to each deadline as that deadline is
+// crossed — never to the clock's own reading at the moment the timer fired, which
+// would put an instant on screen that no threshold in the caller's list corresponds
+// to. A caller with a read stamp of its own takes the later of the two, so a fresh
+// read always wins and the ages beside the countdown stay the read's own.
+//
+// AND THE CLOCK IS THE SUBJECT, because an instant read from one says nothing about
+// another. A mounted consumer handed a replacement — a fixture scenario switching to
+// one that starts earlier is the ordinary way it happens — kept the reading it took
+// from the clock it no longer has, so every deadline on the new clock was already
+// behind it: nothing armed, and every row rendered past its deadline for as long as
+// the surface stayed mounted. Monotonicity is a property of one time base, so the
+// instant is held per clock through `subject-scoped-state.ts` and re-seeded during
+// the render that first sees a replacement rather than one frame later.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import type { ConsoleClock, ScheduledHandle } from "../core/index.js";
+import { useSubjectScopedState } from "./subject-scoped-state.js";
 
 /**
  * The largest delay a platform timer holds, and therefore the largest step this
@@ -94,15 +104,26 @@ export function earliestFutureDeadline(
  * reaches past it. Under the fixture the clock passed in is the scenario's, so a
  * screenshot's countdowns are byte-stable.
  *
+ * A REPLACEMENT CLOCK IS A NEW TIME BASE, and the instant is re-read from it during
+ * the render that first sees it: the previous clock's reading measures nothing on
+ * this one, and holding it would put every deadline behind the surface at once.
+ *
  * At most one timeout is armed for the whole consumer, and none at all when nothing
  * is outstanding — which is what makes `ManualClock.pendingCount === 0` a checkable
  * statement about an idle console rather than an assertion about one.
  */
 export function useDeadlineWake(clock: ConsoleClock, deadlines: readonly number[]): number {
-  // Read once, at mount. A render body that read the clock on every pass would be a
-  // render whose output depends on when it ran, which is the impurity the frozen
-  // clock exists to remove.
-  const [wokeAtMilliseconds, setWokeAtMilliseconds] = useState(() => clock.now());
+  // Read once per CLOCK, during the render that first sees one. A render body that
+  // read the clock on every pass would be a render whose output depends on when it
+  // ran, which is the impurity the frozen clock exists to remove; a cell that read it
+  // only at mount would hold one clock's reading against another's deadlines. The
+  // subject holder is exactly that distinction, and the plain form of it — an instant
+  // is a value a drop releases, so there is nothing here to dispose.
+  const { value: wokeAtMilliseconds, publish: publishInstant } = useSubjectScopedState<number>(
+    clock,
+    undefined,
+    () => clock.now(),
+  );
   const dueAtMilliseconds = earliestFutureDeadline(deadlines, wokeAtMilliseconds);
 
   useEffect(() => {
@@ -123,7 +144,7 @@ export function useDeadlineWake(clock: ConsoleClock, deadlines: readonly number[
         // would cross thresholds nobody in the list is measured against. `Math.max`
         // rather than a bare assignment because two consumers of one clock can
         // settle out of order and the instant is monotone by construction.
-        setWokeAtMilliseconds((heldMilliseconds) => Math.max(heldMilliseconds, dueAtMilliseconds));
+        publishInstant((heldMilliseconds) => Math.max(heldMilliseconds, dueAtMilliseconds));
         return;
       }
       armedHandle = clock.scheduleTimeout(
@@ -140,7 +161,10 @@ export function useDeadlineWake(clock: ConsoleClock, deadlines: readonly number[
         clock.cancel(armedHandle);
       }
     };
-  }, [clock, dueAtMilliseconds]);
+    // `publishInstant` is captured per addressing rather than per render, so it moves
+    // exactly when the clock does — the same fact the first dependency names, and a
+    // publisher from a clock the consumer has left writes nowhere by construction.
+  }, [clock, dueAtMilliseconds, publishInstant]);
 
   return wokeAtMilliseconds;
 }
