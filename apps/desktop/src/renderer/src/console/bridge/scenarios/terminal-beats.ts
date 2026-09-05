@@ -25,13 +25,24 @@
 import type { ScenarioBeat } from "../scenario.js";
 import { TERMINAL_SCENARIO_SESSION_ID } from "./terminal-cast.js";
 
-/** Wall-clock instant the frozen clock reports as "now" at tick zero. */
+/**
+ * Wall-clock instant the frozen clock reports as "now" at tick zero.
+ *
+ * Stated twice — once as the text the wire carries and once as the number the tick
+ * arithmetic below adds to — because the alternative is to parse the first into the
+ * second, and a stamp read that way is read in the HOST's zone the moment its
+ * spelling loses its `Z`. `Date.UTC` names the fields instead, so a fixture instant
+ * is declared rather than interpreted, and `terminal-beats.test.ts` asserts the two
+ * spellings agree so a change to either without the other fails rather than shifts
+ * every beat.
+ */
 export const TERMINAL_SCENARIO_STARTED_AT_ISO = "2026-01-01T16:40:00.000Z";
+
+/** The same instant as epoch milliseconds. */
+export const TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS: number = Date.UTC(2026, 0, 1, 16, 40, 0, 0);
 
 /** The scenario's own event-id prefix, shared by every beat's opaque row id. */
 const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
-
-const TERMINAL_SCENARIO_STARTED_AT_MS = Date.parse(TERMINAL_SCENARIO_STARTED_AT_ISO);
 
 /** The event kind every lease transition arrives on. `Spec-006`'s registered type. */
 const LEASE_TRANSITION_KIND = "pty.control_changed";
@@ -55,7 +66,7 @@ export const TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS = 3_780;
 
 /** The instant a tick lands on, in the frozen clock's own wall time. */
 export function terminalScenarioInstantAt(atMs: number): string {
-  return new Date(TERMINAL_SCENARIO_STARTED_AT_MS + atMs).toISOString();
+  return new Date(TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS + atMs).toISOString();
 }
 
 /**

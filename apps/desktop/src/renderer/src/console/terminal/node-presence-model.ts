@@ -31,8 +31,9 @@
 // answer, so a replayed prefix reads the same as a live stream and a reconnect heals
 // by re-running it. No class, because there is no state to hold between calls.
 
-import { NodeStateSchema, type SessionEventType } from "@ai-sidekicks/contracts";
+import type { SessionEventType } from "@ai-sidekicks/contracts";
 
+import { readNodeState } from "../bridge/node-state-read.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import type { TerminalHoldingNodeReading } from "./lease-model.js";
 
@@ -166,8 +167,10 @@ export function resolveSoleHoldingNode(
  * What one reported node state means for reachability.
  *
  * Read through the contract's own guard rather than against a second copy of the
- * vocabulary, so the set is declared once; the switch below is exhaustive over it,
- * so a sixth state is a compile error rather than a silent `unknown`.
+ * vocabulary, so the set is declared once; the read itself lives in
+ * `bridge/node-state-read.ts`, which is where a registered wire shape may be
+ * imported at all. The switch below is exhaustive over the vocabulary, so a sixth
+ * state is a compile error rather than a silent `unknown`.
  *
  * The mapping follows the read-side rule the degraded state exists for: the roster
  * suppresses the holder while the producing node's presence reads OFFLINE, so a
@@ -179,11 +182,11 @@ export function resolveSoleHoldingNode(
  * has not been established yet, so neither answer has been read.
  */
 function readReachability(candidate: unknown): TerminalNodeReachability {
-  const nodeState = NodeStateSchema.safeParse(candidate);
-  if (!nodeState.success) {
+  const nodeState = readNodeState(candidate);
+  if (nodeState === undefined) {
     return "unknown";
   }
-  switch (nodeState.data) {
+  switch (nodeState) {
     case "online":
     case "degraded":
       return "reachable";
