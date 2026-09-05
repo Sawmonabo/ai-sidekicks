@@ -11,14 +11,14 @@
  *
  * WHAT IS CROSS-DIRECTORY HERE, and why each one is:
  *
- *   • The deck's shell and the loaded ledger. `.meridian-ledger*` is `panes/timeline/`'s
+ *   • The deck's shell and the loaded ledger. `.meridian-ledger*` is `ledger/pane/`'s
  *     markup, not this family's: the deck composes the frame and the rail into one
  *     surface, so the rules that place them belong to neither.
- *   • The pane chrome. `.meridian-pane*` is `workspace/deck/`'s and `panes/timeline/`'s.
+ *   • The pane chrome. `.meridian-pane*` is `workspace/deck/`'s and `ledger/pane/`'s.
  *   • `.meridian-ledger-retry`, worn by the frame's failed-row control and by the ANSI
  *     card's.
  *   • The focus ring the facet bar (`structure/`) shares with the jump action
- *     (`panes/timeline/`).
+ *     (`ledger/pane/`).
  *
  * Every colour is a Meridian custom property and every space a step on the scale, so
  * the family follows the scheme attribute with no conditional in JSX and its rhythm

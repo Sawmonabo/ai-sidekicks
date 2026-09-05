@@ -53,7 +53,10 @@ import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledg
 import {
   TimelinePane,
   type TimelinePaneContext,
-} from "../../../src/renderer/src/console/panes/timeline/TimelinePane.js";
+} from "../../../src/renderer/src/console/ledger/pane/TimelinePane.js";
+// The pane's chrome is `workspace/`'s one implementation of it and reaches the body as
+// a composition argument, so this tier composes it the way the pane board does.
+import { PaneHeader } from "../../../src/renderer/src/console/workspace/index.js";
 import { FrameStore, SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/timeline-row-slot.js";
@@ -124,7 +127,10 @@ async function mountLedger(scenario: ConsoleScenario): Promise<HTMLElement> {
   const { container } = await renderSettled(
     <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario })}>
       <div className="meridian-ledger-surface">
-        <TimelinePane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
+        <TimelinePane
+          context={ledgerPaneContext(scenario.sessionId, sessionStore)}
+          paneHeader={PaneHeader}
+        />
       </div>
     </SidekicksBridgeProvider>,
   );

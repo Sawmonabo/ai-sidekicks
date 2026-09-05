@@ -14,10 +14,24 @@
 //
 // WHAT A FAMILY DOES
 //
-// A family exports `register<Family>Panes(registry: ConsolePaneRegistry): void`
-// from its own `index.ts`, claims its pane kinds inside that function, and replaces
+// A family exports `register<Family>Panes(registry: ConsolePaneRegistry, …): void`
+// from its own family door — `<family>/index.ts`, the same door `console/families.ts`
+// calls for its surfaces — claims its pane kinds inside that function, and replaces
 // its own placeholder line below with the import and the call. Its line names the
 // kinds it claims, so a reviewer can read the whole deck off this file.
+//
+// THE BODIES DO NOT LIVE UNDER THIS DIRECTORY. This file and its suite are the whole
+// of `panes/`, and that is a rule rather than an accident of what has landed: the
+// layering gate subtracts this path from both endpoints of `console-view-family-isolation`
+// and from the view-family set itself, so it can name every family without being read as
+// one. A pane body parked behind that subtraction is view code no view rule can see —
+// which is what happened, and what the ledger's `pane/` subtree undid. A family's pane
+// body belongs in that family, beside the rest of it.
+//
+// A FAMILY MAY BE HANDED A COMPOSITION ARGUMENT HERE, on `console/families.ts`' terms
+// and for its reason: this is one of the two files allowed to name more than one view
+// family, so a body one family needs from another is named here rather than imported
+// there.
 //
 // WHAT A FAMILY DOES NOT DO
 //
@@ -39,8 +53,9 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
-import { registerLedgerPanes } from "./timeline/index.js";
+import { registerLedgerPanes } from "../ledger/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
+import { PaneHeader } from "../workspace/index.js";
 
 /**
  * Register every shipped pane body against a registry.
@@ -51,7 +66,7 @@ import type { ConsolePaneRegistry } from "../seats/index.js";
  * second code path.
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
-  registerLedgerPanes(registry);
+  registerLedgerPanes(registry, { paneHeader: PaneHeader });
   // T-023p-1C-3 runs approvals inspector
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact

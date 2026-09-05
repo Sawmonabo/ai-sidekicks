@@ -1,15 +1,19 @@
 // The ledger family's door, and the two surfaces it mounts.
 //
 // WHAT THIS FAMILY IS. The ledger is the console's signature surface: the work log a
-// session reads as. It is authored in two directories — `ledger/` (the frame, the
-// structure, the cards) and `panes/timeline/` (the pane body the deck mounts), the
-// second of which sits on the pane seat board and so may name more than one family.
-// The deck that HOLDS it is `workspace/`, and that is a sibling view family rather
-// than a third directory of this one: the seat contracts both of them speak now live
-// in `seats/`, below the frame, and the one thing this family still needs from the
-// workspace — the component the session's own surface mounts — arrives as a
-// composition argument from `families.ts` rather than as an import. A view family
-// importing another is the edge `structure:layering` forbids outright.
+// session reads as. It is authored in one directory — this one — across four
+// subtrees: the frame, the structure, the cards, and `pane/`, the body the deck
+// mounts. The pane lived under `console/panes/` until that read as a directory for
+// pane bodies rather than as what it is, the pane board's COMPOSITION file; the
+// layering gate subtracts that path from both endpoints of its view-family rules, so
+// view code behind it was view code no rule could see.
+// The deck that HOLDS the pane is `workspace/`, and that is a sibling view family
+// rather than a subtree of this one: the seat contracts both of them speak live in
+// `seats/`, below the frame, and the two things this family still needs from the
+// workspace — the component the session's own surface mounts, and the shared pane
+// chrome the pane body wears — arrive as composition arguments from `families.ts` and
+// from `panes/index.ts` rather than as imports. A view family importing another is the
+// edge `structure:layering` forbids outright.
 //
 // WHY THE REGISTRATION LIVES IN THE BARREL RATHER THAN BESIDE IT. What follows is a
 // TABLE — which slot, which owner, and what mounts there — not a view, which is
@@ -38,6 +42,7 @@
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
+import { refuse } from "../core/index.js";
 import { consoleCommandSurface } from "../frame/command-surface.js";
 import { SurfaceAbsence } from "../frame/SurfaceAbsence.js";
 import {
@@ -45,10 +50,15 @@ import {
   type ConsoleSurfaceDescriptor,
   type ConsoleSurfaceRegistry,
 } from "../frame/surface-registry.js";
-import { Nothing } from "../primitives/index.js";
+import { InlineRefusal, Nothing } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
-import { consolePaneRegistry, type ConsolePaneContext } from "../seats/index.js";
+import {
+  consolePaneRegistry,
+  type ConsolePaneContext,
+  type ConsolePaneRegistry,
+} from "../seats/index.js";
 import { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
+import { TimelinePane, type LedgerPaneHeaderProps } from "./pane/index.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
 // The family's five sheets, in the order the cascade reads them. `ledger.css` first
@@ -178,6 +188,80 @@ export function registerLedger(
 }
 
 /**
+ * What the pane board supplies this family, because this file may not import it.
+ *
+ * The shared pane chrome lives in `workspace/`, a SIBLING view family, and one view
+ * family may not import another. `panes/index.ts` is one of the two files the layering
+ * gate lets name more than one family, so it names the component and this door takes
+ * it — the same shape `LedgerComposition` above takes for the workspace body, one seat
+ * board over.
+ *
+ * The COMPONENT rather than a built element, for `LedgerComposition`'s reason: the
+ * pane context exists only when a pane renders, which is long after the board composed
+ * its bodies.
+ */
+export interface LedgerPaneComposition {
+  readonly paneHeader: ComponentType<LedgerPaneHeaderProps>;
+}
+
+/**
+ * Claim the deck's `timeline` kind.
+ *
+ * WHY THE CLAIM IS HERE AND NOT BESIDE THE BODY. It was in the pane's own directory
+ * while that directory sat under `console/panes/`, on the reasoning that the pane
+ * board asks each family to register "from its own `index.ts`" and that was the ledger's
+ * own door for its pane. It is the same door now: the body moved into this family, so
+ * the family's one door carries both of its registrations — the surfaces and the pane —
+ * and there is one place to read what this family claims. The direction stays a strict
+ * descent: this file reaches down into `pane/`, and nothing under `pane/` reaches back
+ * up to this door.
+ *
+ * The descriptor says WHO owns the kind and WHAT mounts for it, and nothing else.
+ * Whether a full-screen timeline may be torn off into an auxiliary window is a
+ * property of the KIND — `seats/pane-kinds.ts` derives it from the window model's own
+ * closed set through `isDetachablePaneKind` — so a family answering it per descriptor
+ * would be six families answering a question the window model settles.
+ *
+ * The body is mounted with no close and no open-in-window handler: both are the
+ * deck's acts, and a control whose act nobody can perform is left out rather than
+ * drawn disabled.
+ */
+export function registerLedgerPanes(
+  registry: ConsolePaneRegistry,
+  composition: LedgerPaneComposition,
+): void {
+  registry.register({
+    kind: "timeline",
+    owner: LEDGER_SURFACE_OWNER,
+    render: (context) => mountTimelinePane(context, composition.paneHeader),
+  });
+}
+
+/**
+ * Mount the pane, or say the address it was handed is not one this body serves.
+ *
+ * The registry resolves a body BY kind, so the mismatched arm is unreachable through
+ * the deck — and it is rendered rather than thrown anyway, because the guard is what
+ * narrows the union for the body below it, and `core/refusal.ts`' rule is that a
+ * boundary refuses by name and leaves the rest of the surface standing. A throw here
+ * would take down whatever deck the pane was mounted in.
+ */
+function mountTimelinePane(
+  context: ConsolePaneContext,
+  paneHeader: ComponentType<LedgerPaneHeaderProps>,
+): ReactNode {
+  if (context.kind !== "timeline") {
+    const refusal = refuse(
+      LEDGER_SURFACE_OWNER,
+      "pane-address-kind-mismatch",
+      `the timeline body was mounted at a "${context.kind}" address, which is a view of something else`,
+    );
+    return createElement(InlineRefusal, refusal);
+  }
+  return createElement(TimelinePane, { context, paneHeader });
+}
+
+/**
  * Mount the session workspace: the cast bar, the deck, and the composer's seat.
  *
  * The wrapper keeps the surface's full-height grid, which is what lets the deck
@@ -215,12 +299,12 @@ function mountWorkspace(
 /**
  * Mount the ledger's pane alone, through the deck's own door.
  *
- * The pane body is resolved from the pane registry rather than imported, which is
+ * The pane body is resolved from the pane registry rather than built here, which is
  * `Spec-023 §The surface set`'s "one entity opens one pane, structurally (a single
- * mount door and a tripwire that fails on a second)" applied at the only place a pane is
- * mounted today. Importing
- * `panes/timeline/` here would also close a cycle the moment that body reaches back
- * into this family for the frame, which it will.
+ * mount door and a tripwire that fails on a second)" applied at the only place a pane
+ * is mounted today. It is also what keeps the chrome single-sourced: the descriptor
+ * `registerLedgerPanes` filed above already closes over the header the pane board named,
+ * so this slot mounts the composed body rather than composing a second one of its own.
  *
  * Resolution happens during render, on `RouteSurface`'s reasoning: the pane seat
  * board is composed at module scope before any window renders, so a descriptor is

@@ -42,6 +42,27 @@ const seatBoardSources = import.meta.glob("./index.ts", {
   eager: true,
 });
 
+/**
+ * Every module this directory holds, so the board can be checked to hold only itself.
+ *
+ * The same raw glob rather than a directory read, for the reason above it: `node:fs` is
+ * banned in renderer programs, and this suite runs as one.
+ */
+const boardDirectoryModules = import.meta.glob("./**/*.{ts,tsx}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+/**
+ * What the pane board directory is allowed to contain besides this suite.
+ *
+ * Vite resolves a glob against every module but the one doing the importing, so this
+ * file is absent from the reading by construction rather than by an exclusion somebody
+ * has to remember.
+ */
+const BOARD_DIRECTORY_MODULES: readonly string[] = ["./index.ts"];
+
 /** The seat board's own text. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
@@ -53,7 +74,14 @@ interface PaneSeat {
 
 /** The seats, in the order the branches cut against. */
 const PANE_SEATS: readonly PaneSeat[] = [
-  { reservedLine: "// T-023p-1C-2 timeline", registrationCall: "registerLedgerPanes(registry);" },
+  {
+    reservedLine: "// T-023p-1C-2 timeline",
+    // The ledger's seat carries a composition argument: the shared pane chrome is
+    // `workspace/`'s and a view family may not import a sibling, so the board — one of
+    // the two files that may name more than one family — names the component here. A
+    // seat is still ONE line, which is what keeps six branches from colliding.
+    registrationCall: "registerLedgerPanes(registry, { paneHeader: PaneHeader });",
+  },
   {
     reservedLine: "// T-023p-1C-3 runs approvals inspector",
     registrationCall: "registerConversationPanes(registry);",
@@ -95,6 +123,18 @@ describe("pane seat board — reserved lines only", () => {
     expect(seatBoardSource).toContain("export function registerConsolePanes");
   });
 
+  it("holds the board and this suite, and no pane body", () => {
+    // WHY THIS IS THE BOARD'S OWN CLAIM AND NOT A FAMILY'S. The layering gate names
+    // this directory a composition site and subtracts it from BOTH endpoints of the
+    // view-family rules — that is what lets one file name every family without being
+    // read as one. The subtraction is a path prefix, so anything parked under here is
+    // invisible to the rule that keeps six concurrently-built families from importing
+    // each other. A pane body is view code and belongs in its own family, beside the
+    // rest of it; while this directory holds only the board and this suite, every body
+    // in the console is inside a family and therefore inside that rule's reach.
+    expect(Object.keys(boardDirectoryModules).sort()).toStrictEqual(BOARD_DIRECTORY_MODULES);
+  });
+
   it("carries one line per seat, in task order, each reserved or filled", () => {
     const body = seatBoardFunctionBody(seatBoardSource);
     const lines = body.split("\n").map((line) => line.trim());
@@ -111,7 +151,7 @@ describe("pane seat board — reserved lines only", () => {
     // a shared local, which is exactly the shape that turns six one-line diffs back
     // into six edits to one region.
     const withSharedLocal = seatBoardSource.replace(
-      "  registerLedgerPanes(registry);\n",
+      "  registerLedgerPanes(registry, { paneHeader: PaneHeader });\n",
       "  const shared = registry;\n",
     );
     expect(withSharedLocal).not.toBe(seatBoardSource);

@@ -10,7 +10,7 @@
  * per bundle and cascade after the primitives' and the frame's.
  *
  * The focus ring the facet bar wears is `ledger.css`'s, because the jump action
- * `panes/timeline/` renders shares that one rule.
+ * `ledger/pane/` renders shares that one rule.
  */
 
 /* --- The provenance rail -------------------------------------------------- */

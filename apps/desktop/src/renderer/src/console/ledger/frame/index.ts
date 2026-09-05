@@ -32,7 +32,7 @@
 // re-exporting seventy-six, every one of which the gate reported the moment
 // anything reached this directory at all.
 //
-// The rest are not hidden, they are INTERNAL: `panes/timeline/` and this family's
+// The rest are not hidden, they are INTERNAL: `ledger/pane/` and this family's
 // other subtrees reach them by their own module paths, which is what an
 // intra-family import is for. A door is the list of things a stranger may hold, and
 // widening it to every symbol a directory happens to define makes it a table of

@@ -17,7 +17,7 @@
 // and until this file was named it forwarded seventeen modules with `export *`, so the
 // census could not enumerate what it published and a reader could not tell the
 // family's interface from what happened to be exported beside it. The list below is
-// exactly what `panes/timeline/` and `ledger/cards/` import — the painter, the seam
+// exactly what `ledger/pane/` and `ledger/cards/` import — the painter, the seam
 // classifier's internals, the rail's own geometry and the command table's fixtures
 // stop here, reached deeply by their siblings inside this directory.
 //
@@ -54,7 +54,7 @@ export {
 } from "./filters.js";
 export {
   /**
-   * The walk's closed direction set, published for `panes/timeline/`'s find acts.
+   * The walk's closed direction set, published for `ledger/pane/`'s find acts.
    *
    * @consumedBy T-023p-1C-5
    */
