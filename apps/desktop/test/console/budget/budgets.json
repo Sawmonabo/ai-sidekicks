@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "source": "docs/specs/023-desktop-shell-and-renderer.md — §Console Design (Meridian) §Budgets",
   "plan": "docs/plans/023-desktop-shell-and-renderer.md — Phase 1C (T-023p-1C-1..8), invariant I-023-14",
   "description": "The single source of truth for every numeric budget the console is gated on. Rows carry a `scope`. A `product` row is one of `Spec-023 §Console Design (Meridian)` §Budgets' own figures: every budget that table names appears here exactly once, whether or not this revision can measure it, because a budget silently omitted is a budget nobody notices is ungated. A `harness` row is a bound the test scaffolding itself applies — no spec figure stands behind it, so its `specTarget` states the bound in its own terms while `harnessBudgetDerivation` states, once for the whole set, why those figures and not others. Both kinds live here for the same reason: one value, one home. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `producedBy`, the Plan-023 task that makes it measurable and, in `notMeasurableReason`, what is missing. Every harness that reads this file prints one line per \"n/a\" entry beside the budgets it did measure.",
@@ -32,6 +32,7 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-1",
       "measuredBy": "apps/desktop/scripts/budget/measure-bundle.mts",
+      "subjectSymbol": "RendererBundleMeasurer",
       "notes": "Gated on gzip because the spec's figure is a gzip figure. Brotli is measured and reported for every asset beside it — it is what the renderer protocol handler can actually serve — but it is reported, never gated, so the gate and the spec agree byte for byte. CI enforcement of this gate is T-023p-1C-8's leg; the measurement and its budget row land here.",
       "scope": "product"
     },
@@ -50,6 +51,7 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-2",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "There is no four-lane streaming scenario to measure. The flagship scenario, the ledger frame, the reveal engine, and the cast bar are T-023p-1C-2's; until they land there is no render path whose frames could be sampled, and a synthetic stand-in would measure the harness rather than the console.",
       "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`.",
       "scope": "product"
@@ -69,6 +71,7 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
       "measuredBy": "apps/desktop/test/console/endurance/heap-at-rest.test.ts",
+      "subjectSymbol": "readSettledHeapBytes",
       "notes": "Deliberately NOT measured in a Node process. Until 2026-09-02 this row was `enforced` against `process.memoryUsage().heapUsed` in the budget CLI with a stand-in entity map retained — no Chromium, no renderer isolate, no React, no DOM, no console store — so the gate could report green over a renderer well past 120 MB, which is the one failure a budget exists to catch. It was then recorded `n/a` rather than re-pointed, because the subject was out of reach: nothing delivered events into a session store, so the only reading available was a renderer with an EMPTY session open. The fixture bridge now serves the growth port's session read and the scenario engine drives beats through the apply chokepoint into it, so the subject exists and the row is gated again — on the endurance tier, which launches the built console, opens the flagship scenario's own session, walks the frozen clock over the whole script, asserts the store admitted events through a live subscription, and reads `performance.memory.usedJSHeapSize` as the minimum over settling samples. That figure counts allocated-and-not-yet-collected bytes, so it sits at or above the retained heap this row bounds, which is the safe direction for a ceiling. The reading is a renderer isolate figure taken in the Electron shell in unobtrusive-window mode; the substrate floor recorded on 2026-09-02 with no session content was 6,564,912 B.",
       "scope": "product"
     },
@@ -90,6 +93,7 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "The endurance tier does not exist: no thirty-minute flagship replay, no CDP heap-snapshot helper, and no dated endurance ledger to record refutations in. The scenario it replays is additionally T-023p-1C-2's.",
       "notes": "`Spec-023 §Console Test Tiers` places this on the endurance tier — heap snapshots captured by an own CDP helper, analyzed with memlab, results in a dated ledger.",
       "scope": "product"
@@ -112,6 +116,7 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "There is no session surface to open and no scheduler whose timers could be enumerated; the measurement runs the built bundle in the Electron shell against the flagship scenario (T-023p-1C-2) and is taken by the endurance reference run (T-023p-1C-8).",
       "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. The timer-enumeration half is a tripwire on the architecture tier, not a number.",
       "scope": "product"
@@ -132,6 +137,7 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "There is no reveal engine and no streaming lane. Both are T-023p-1C-2's; the measurement itself is the endurance reference run's at T-023p-1C-8.",
       "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`.",
       "scope": "product"
@@ -151,6 +157,7 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-7",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "The `terminal` pane kind does not exist, and neither does the renderer pool whose per-instance cost this budget bounds. T-023p-1C-7 builds both over fixtures.",
       "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget).",
       "scope": "product"
@@ -170,6 +177,7 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-2",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "There is no ledger row to paint. The ledger frame, its row primitives, and the flagship scenario the launch path replays are all T-023p-1C-2's.",
       "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets.",
       "scope": "product"
@@ -190,7 +198,8 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
       "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
-      "notes": "The whole cold-start ladder — first window, `load`, the frame selector — charged once between its phases rather than once each, which is what the four independent 30 000 ms allowances this replaced got wrong. Generous on purpose: a cold CI runner with no warm Electron cache is the case it must not flake on. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
+      "subjectSymbol": "LaunchDeadline",
+      "notes": "The whole cold-start ladder — first window, `load`, the frame selector — charged once between its phases rather than once each, which is what the four independent 30 000 ms allowances this replaced got wrong. Generous on purpose: a cold CI runner with no warm Electron cache is the case it must not flake on. The derivation these three bounds share is stated once in `harnessBudgetDerivation`. Measured by `architecture/launch-deadline.test.ts`, which drives the real `LaunchDeadline` this ladder draws from and holds the aggregate against every launching tier's resolved patience."
     },
     {
       "id": "console-launch-frame-witness",
@@ -207,8 +216,9 @@
       "scope": "harness",
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
-      "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
-      "notes": "Armed only once readiness has landed, so a slow boot is charged to the readiness row rather than reported as a frame that never came — the flake this split was introduced to remove. What it answers is whether the window painted at all, and late is not the same as never: it fails only on never. First-frame LATENCY is bounded by nothing at this revision — `frame-time-p95-four-lanes` is the row that would catch a frame-schedule regression and it is `n/a` until T-023p-1C-2 — so a green witness is a claim about paint and never about how long the paint took. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
+      "measuredBy": "apps/desktop/test/console/architecture/frame-witness.test.ts",
+      "subjectSymbol": "FrameWitness",
+      "notes": "Armed only once readiness has landed, so a slow boot is charged to the readiness row rather than reported as a frame that never came — the flake this split was introduced to remove. What it answers is whether the window painted at all, and late is not the same as never: it fails only on never. First-frame LATENCY is bounded by nothing at this revision — `frame-time-p95-four-lanes` is the row that would catch a frame-schedule regression and it is `n/a` until T-023p-1C-2 — so a green witness is a claim about paint and never about how long the paint took. The derivation these three bounds share is stated once in `harnessBudgetDerivation`. Measured by the suite that drives the race rather than by the one that reads the figure: `architecture/frame-witness.test.ts` constructs the real `FrameWitness` over a source that delivers late and one that never delivers, which is the boundary this bound decides. It named `architecture/launch-deadline.test.ts` until 2026-09-05, a file that holds this figure against its constant and drives no witness at all."
     },
     {
       "id": "console-launch-cleanup",
@@ -225,8 +235,9 @@
       "scope": "harness",
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
-      "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
-      "notes": "A ceiling rather than a target: what it guards against is an Electron wedged rather than slow, so what matters is that some finite number is enforced. It is the WHOLE applied bound and the same one on both closing paths — a close reached from a failed launch is held to it exactly as one reached minutes later on the success path is, so the figure a budget audit reads is the figure the harness enforces. It was a floor until 2026-09-04, raised by whatever the launch deadline had left, which handed an early readiness failure nearly the whole 55 000 ms deadline. Because `terminated` records and passes, this figure decides when the process tree is SIGKILLed rather than whether the tier goes red; `unterminable` and `closed-after-rejection` fail, and those are the two settlements that harm the launches after them. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
+      "measuredBy": "apps/desktop/test/console/architecture/bounded-cleanup.test.ts",
+      "subjectSymbol": "BoundedCleanup",
+      "notes": "A ceiling rather than a target: what it guards against is an Electron wedged rather than slow, so what matters is that some finite number is enforced. It is the WHOLE applied bound and the same one on both closing paths — a close reached from a failed launch is held to it exactly as one reached minutes later on the success path is, so the figure a budget audit reads is the figure the harness enforces. It was a floor until 2026-09-04, raised by whatever the launch deadline had left, which handed an early readiness failure nearly the whole 55 000 ms deadline. Because `terminated` records and passes, this figure decides when the process tree is SIGKILLed rather than whether the tier goes red; `unterminable` and `closed-after-rejection` fail, and those are the two settlements that harm the launches after them. The derivation these three bounds share is stated once in `harnessBudgetDerivation`. Measured by `architecture/bounded-cleanup.test.ts`, which races a real `BoundedCleanup` against a close that never settles and one that rejects; it named `architecture/launch-deadline.test.ts` until 2026-09-05, which applies this bound to nothing."
     }
   ]
 }
