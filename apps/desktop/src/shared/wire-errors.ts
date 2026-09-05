@@ -59,23 +59,57 @@ export function readGuardedProperty(value: unknown, key: string): unknown {
 }
 
 /**
- * Whether `value` is a wire error envelope.
+ * Whether `value` is an `Error`, and cannot throw.
+ *
+ * `instanceof` is not a safe question to ask a value nobody validated: it performs
+ * `[[GetPrototypeOf]]`, which throws on a REVOKED Proxy and on any `getPrototypeOf`
+ * trap that throws. Both reach the failure paths below on the ordinary route — a
+ * rejection is whatever a producer threw, and a value that crossed a realm or a
+ * structured clone is exactly the shape a producer hands over — and a throw there
+ * happens inside the expression that exists to report a failure.
+ *
+ * The unreadable prototype and the absent one collapse to the same `false` for the
+ * same reason {@link readGuardedProperty} collapses its two: a value whose prototype
+ * chain cannot be walked is not one any caller here can treat as an `Error`.
+ */
+export function isErrorInstance(value: unknown): value is Error {
+  try {
+    return value instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read `value` as a wire error envelope, or answer `undefined`.
+ *
+ * THE READER, and {@link isWireErrorEnvelope} is the predicate spelled on top of it.
+ * That direction is the point: a predicate promises a caller that `.code` is a
+ * string, and the caller's own read is then a SECOND property access on the same
+ * unvalidated value — which a getter that throws on its second read defeats, in the
+ * one line the narrowing was supposed to make safe. A reader hands back the strings
+ * it already read, on a fresh object, so there is no second access to defeat.
  *
  * Shape-generic — any string `code` plus any string `message` — deliberately not
  * bound to specific code literals: a caller that needs to branch on a particular
  * code uses {@link isWireErrorEnvelopeWithCode}, and one that only needs to
  * render `code: message` must not have to enumerate every code that exists.
+ */
+export function readWireErrorEnvelope(value: unknown): WireErrorEnvelope | undefined {
+  const code = readGuardedProperty(value, "code");
+  const message = readGuardedProperty(value, "message");
+  return typeof code === "string" && typeof message === "string" ? { code, message } : undefined;
+}
+
+/**
+ * Whether `value` is a wire error envelope.
  *
- * Reads through {@link readGuardedProperty} rather than directly, so the guard is
- * as total as the stringifier beside it. A predicate that can throw is not a guard:
- * every caller here is on a failure path already, and a throw there replaces a
- * rendered refusal with an unmounted subtree.
+ * Kept as a predicate for the arms that only need to BRANCH; an arm that goes on to
+ * read the members takes {@link readWireErrorEnvelope} instead, for the reason that
+ * function's own note gives.
  */
 export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope {
-  return (
-    typeof readGuardedProperty(value, "code") === "string" &&
-    typeof readGuardedProperty(value, "message") === "string"
-  );
+  return readWireErrorEnvelope(value) !== undefined;
 }
 
 /**
@@ -86,12 +120,15 @@ export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope 
  * every wire code is a plain single-sourced string-literal type and not a
  * nominal brand; passing the contracts-exported const rather than a free string
  * is what keeps the comparison compile-time-bound to the contract.
+ *
+ * The comparison is against the code the READER returned, not against a second read
+ * of the candidate's own property — one access per member, whatever the answer.
  */
 export function isWireErrorEnvelopeWithCode<TCode extends string>(
   value: unknown,
   code: TCode,
 ): value is { readonly code: TCode; readonly message: string } {
-  return isWireErrorEnvelope(value) && value.code === code;
+  return readWireErrorEnvelope(value)?.code === code;
 }
 
 /**
@@ -156,13 +193,26 @@ export function wireRejectionToError(
   rejection: unknown,
   options: WireRejectionToErrorOptions = {},
 ): Error {
-  if (isWireErrorEnvelope(rejection)) {
-    const envelopeError = new Error(rejection.message);
-    envelopeError.name = rejection.code;
+  const envelope = readWireErrorEnvelope(rejection);
+  if (envelope !== undefined) {
+    const envelopeError = new Error(envelope.message);
+    envelopeError.name = envelope.code;
     return envelopeError;
   }
-  if (rejection instanceof Error) {
+  if (isErrorInstance(rejection)) {
     return rejection;
   }
-  return new Error(options.total === true ? lossyStringify(rejection) : String(rejection));
+  if (options.total === true) {
+    return new Error(lossyStringify(rejection));
+  }
+  try {
+    return new Error(String(rejection));
+  } catch {
+    // The BACKSTOP, not the mechanism. `total: false` states that a rejection off a
+    // bridge CATCH binding is not realistically a ToPrimitive-failing shape, and that
+    // stays the claim the option makes — it chooses which stringifier is attempted,
+    // and nothing here changes that. What the option may not do is make the one
+    // function that exists to render a failure the place a failure becomes a throw.
+    return new Error(lossyStringify(rejection));
+  }
 }
