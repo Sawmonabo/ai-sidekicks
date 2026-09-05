@@ -1,62 +1,14 @@
-// The changed-file list, its filter, and the window it is drawn through.
-//
-// A FILE LIST WITH A FILTER, and `DiffPane.tsx`'s density opens the pane on it. So
-// the list is the pane's first surface rather than a sidebar bolted beside it,
-// and selecting a file narrows the rows to that file — which is what makes a
-// forty-file change set navigable without a second scroller to lose your place
-// in.
-//
-// AND IT IS WINDOWED, THROUGH THE SAME PRIMITIVE THE ROWS ARE. Past its threshold
-// this list used to add a scrolling class and mount every matching file anyway, so a
-// generated or repository-wide patch cost thousands of buttons before the already
-// virtualized body could help, and every keystroke in the filter rebuilt all of them.
-// `row-window.ts` is the one place `@tanstack/react-virtual` is configured for this
-// family, so the two scrollers share their overscan band, their pre-measurement
-// viewport, and their refusal to flush synchronously.
-//
-// THE ROWS STAY AN `<li>` OF A REAL `<ul>`, which is why they are PLACED rather than
-// spaced: the rows renderer puts its window behind a leading spacer because its rows
-// are generic boxes carrying table roles, and this list's semantics are the element's
-// own. An absolutely placed `<li>` is still a list item in the accessibility tree; a
-// `<div>` between a `<ul>` and its items is not.
-//
-// WHICH MEANS THE KEYBOARD IS A WINDOWED LIST'S PROBLEM, AND IT IS SOLVED ONCE. A
-// window mounts the rows a scroll position needs, so tabbing can only ever reach
-// those — and a file list a keyboard cannot leave the top of is a file list half the
-// operators cannot use. The list is therefore one tab stop with arrow keys inside it,
-// which is the composite-widget pattern; `useWindowedRovingIndex` is where that
-// pattern lives, so this file says which sequence a move belongs to and nothing else.
-//
-// THE COUNTS ARE DERIVED FIGURES, NOT WIRE FIGURES. `+12 −3` is the console's own
-// arithmetic over the model, so it renders through `DerivedFigure` and never
-// through `WireFigure` — the provenance signature rule (`Spec-023` rule 4) is
-// about where a number came from, and these came from here.
-//
-// AND THE COUNTS ARE NOT THE WHOLE CHANGE. A rename, a copy, a mode change, and a
-// binary change all live in a git patch's extended headers, so a file whose change is
-// only one of those has no hunks and counts `+0 −0` — which, alone, reads as nothing
-// having happened to it. The note beside the counts is what the patch actually said,
-// composed once by `diff-model.ts` so this list and the row renderer cannot disagree
-// about it. The counts stay: they are true, and suppressing them would make an
-// extended-header file the one row a reader cannot compare with its neighbours.
-
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-
-import {
-  DerivedFigure,
-  Glyph,
-  WindowedListRow,
-  useWindowedRovingIndex,
-} from "../../primitives/index.js";
+import { Glyph, WindowedListRow, useWindowedRovingIndex } from "../../primitives/index.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD, DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
 import {
   HIDDEN_SELECTION_COPY,
   diffFileListReading,
   selectedEntryRow,
-  type DiffFileListEntry,
 } from "./diff-file-entries.js";
 import type { ConsoleDiffModel } from "./diff-model.js";
 import { useRowWindow } from "./row-window.js";
+import { DiffFileEntryButton } from "./DiffFileEntryButton.js";
 
 export interface DiffFileListProps {
   readonly diff: ConsoleDiffModel;
@@ -196,54 +148,5 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
         <p className="meridian-diff-files__hidden-selection">{HIDDEN_SELECTION_COPY}</p>
       ) : null}
     </div>
-  );
-}
-
-/** One row's control: the reset at row zero, or one changed file. */
-function DiffFileEntryButton(props: {
-  readonly entry: DiffFileListEntry;
-  readonly isSelected: boolean;
-  readonly isTabbable: boolean;
-  readonly onSelectFilePath: (path: string | undefined) => void;
-}): React.JSX.Element {
-  const { entry } = props;
-  const selectedPath = entry.kind === "all-files" ? undefined : entry.path;
-  return (
-    <button
-      type="button"
-      className="meridian-diff-files__entry"
-      aria-current={props.isSelected}
-      // ONE TAB STOP FOR THE WHOLE LIST, which is what makes the arrows necessary and
-      // what stops a windowed list from putting a moving number of stops in the page's
-      // tab order.
-      tabIndex={props.isTabbable ? 0 : -1}
-      onClick={() => {
-        props.onSelectFilePath(selectedPath);
-      }}
-    >
-      {entry.kind === "all-files" ? (
-        <>
-          <span className="meridian-diff-files__path">All files</span>
-          <DerivedFigure text={String(entry.fileCount)} />
-        </>
-      ) : (
-        <>
-          {/* Wire-verbatim path, truncated at the measure with the full string
-              recoverable through the title — the pane subject's own rule. */}
-          <span className="meridian-diff-files__path" title={entry.path}>
-            {entry.path}
-          </span>
-          {entry.changeNotes.length === 0 ? null : (
-            <span className="meridian-diff-files__change" title={entry.changeNotes.join(", ")}>
-              {entry.changeNotes.join(", ")}
-            </span>
-          )}
-          <span className="meridian-diff-files__counts">
-            <DerivedFigure text={`+${String(entry.counts.insertions)}`} />
-            <DerivedFigure text={`−${String(entry.counts.deletions)}`} />
-          </span>
-        </>
-      )}
-    </button>
   );
 }

@@ -1,62 +1,9 @@
-// The file half of a rewound run: what a rollback did to the working tree, said out
-// loud on every disposition that touched it.
-//
-// THIS SURFACE'S JOB, stated here because `Spec-023 §Console Design (Meridian)` puts a
-// surface's composition in the console's code: make a rollback that touched the
-// working tree legible on the artifact and run record, so no surface hides a restore
-// that mutated files. Four things here are decisions rather than implementation:
-//
-// 1. THIS RENDERS A REGISTERED WIRE TYPE, NOT A FIXTURE. `RollbackInterventionResult`
-//    is in `packages/contracts/src/runControl.ts` — an earlier console design pass had
-//    the restore disclosure down as a fixture, and the contract has since landed, so
-//    this file consumes the
-//    real discriminated union and the compiler holds it to the nine dispositions. A
-//    tenth disposition fails to compile here rather than rendering as a blank card.
-//
-// 2. THE TWO ENUMERATIONS ARE NEVER SILENT, AND THE TYPE IS WHY. `Spec-010
-//    §Turn-Boundary Snapshots` makes `overwrittenIgnoredPaths` and `divergentGitlinks`
-//    REQUIRED and empty-when-none on every disposition that carries them, so absence is
-//    a parse failure rather than a reading. `restoreEnumerations` below narrows on the
-//    union rather than probing for the fields, which is that guarantee spent rather
-//    than re-derived: the three dispositions that carry them are the three the type
-//    says carry them.
-//
-// 3. BOTH LISTS EMPTY IS NOT AN ALL-CLEAR, AND THE COPY SAYS SO. The contract gives the
-//    empty pair two readings — a failure before any mutation, and a whole-worktree
-//    rewrite that had nothing to enumerate — and `failedStep` is what names how far the
-//    sequence got. So the empty case renders a sentence, never a checkmark and never
-//    nothing.
-//
-// 4. NOTHING IS OFFERED. This is a read surface over a result the rollback intervention
-//    already returned; there is no control on it. Each enumerated path may open into
-//    the diff pane where a diff exists, and that is a navigation the MOUNTING surface
-//    supplies — the disclosure never reaches for a pane itself.
-//
-// THREE NEVERS, each a property of THIS file:
-//   • `files-partially-restored` is never collapsed into `files-unrestored`. They are
-//     separate arms of the presentation table below with separate sentences, because
-//     the sequence mutates incrementally and a late failure leaves earlier effects on
-//     disk. Hiding that would mask file loss.
-//   • No snapshot ref is presented as a branch. Nothing in this file renders a ref at
-//     all — the enumerations are filesystem paths and are labelled as paths.
-//   • The nine dispositions, their state mapping, and the `resendDisposition` axis
-//     belong to the run-control surface, a SIBLING view family. This file fixes only
-//     where the FILE half is disclosed, which is why it takes a result rather than an
-//     intervention.
-
-import { useId, useState } from "react";
-
-import {
-  Chip,
-  DerivedFigure,
-  Glyph,
-  Nothing,
-  WireFigure,
-  formatCount,
-} from "../../primitives/index.js";
+import { useId } from "react";
+import { Chip, DerivedFigure, Glyph, WireFigure, formatCount } from "../../primitives/index.js";
 import type { ChipTone } from "../../primitives/index.js";
-import { RestorePathList } from "./RestorePathList.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
+import { RestoreEnumerationLists } from "./RestoreEnumerationLists.js";
+import { restoreEnumerations } from "./restore-enumerations.js";
 
 /** The glyph size every head in this surface draws at, matching the family's cards. */
 const RESTORE_GLYPH_SIZE = 14;
@@ -121,35 +68,6 @@ const DISPOSITION_PRESENTATION: Readonly<Record<RollbackDisposition, Disposition
       "The rewind succeeded and the replacement message was not sent. The restore DID mutate the working tree, so its enumerations stand.",
   },
 };
-
-/** The two never-silent enumerations, carried together because they are read together. */
-interface RestoreEnumerations {
-  readonly overwrittenIgnoredPaths: readonly string[];
-  readonly divergentGitlinks: readonly string[];
-}
-
-/**
- * The enumerations, where the disposition carries them.
- *
- * Narrowed on the discriminant rather than probed for the fields: the contract types
- * both as required on exactly these three arms, so this switch spends that guarantee
- * instead of re-deriving it. `resend-unapplied` is here for the reason the contract
- * records — it DISPLACES a completed file leg, so dropping its enumerations would
- * silence an overwritten path in precisely the case where the tree was mutated.
- */
-function restoreEnumerations(result: RollbackInterventionResult): RestoreEnumerations | undefined {
-  switch (result.disposition) {
-    case "files-restored":
-    case "files-partially-restored":
-    case "resend-unapplied":
-      return {
-        overwrittenIgnoredPaths: result.overwrittenIgnoredPaths,
-        divergentGitlinks: result.divergentGitlinks,
-      };
-    default:
-      return undefined;
-  }
-}
 
 /**
  * What an empty pair means, and why it is not an all-clear.
@@ -236,94 +154,5 @@ export function FileRestoreDisclosure(props: FileRestoreDisclosureProps): React.
         />
       )}
     </section>
-  );
-}
-
-/**
- * Both enumerations, always, in this surface's own density: counts on the face, lists
- * one click away, on `Spec-023 §Meridian, the design language` rule 7.
- *
- * They render even at zero — that is what "never silent" means on this surface — and
- * the empty pair carries the sentence that stops it reading as an all-clear.
- */
-function RestoreEnumerationLists(props: {
-  readonly enumerations: RestoreEnumerations;
-  readonly emptyCopy: string;
-  readonly onOpenPath: ((path: string) => void) | undefined;
-}): React.JSX.Element {
-  const { enumerations } = props;
-  const isEmptyPair =
-    enumerations.overwrittenIgnoredPaths.length === 0 &&
-    enumerations.divergentGitlinks.length === 0;
-  return (
-    <div className="meridian-restore-disclosure__enumerations">
-      <PathEnumeration
-        label="Overwritten ignored paths"
-        paths={enumerations.overwrittenIgnoredPaths}
-        onOpenPath={props.onOpenPath}
-      />
-      <PathEnumeration
-        label="Divergent gitlinks"
-        paths={enumerations.divergentGitlinks}
-        onOpenPath={props.onOpenPath}
-      />
-      {isEmptyPair ? (
-        <p className="meridian-restore-disclosure__not-all-clear">{props.emptyCopy}</p>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * One enumeration: its count, then its paths.
- *
- * The count is always visible and the list is a `<details>` — this surface's density.
- *
- * THE CLOSED LIST HOLDS NO ROW, AND THAT IS STATE RATHER THAN MARKUP. A `<details>`
- * hides its children; it does not stop React from putting them in the document, so
- * the density note's whole point — a long enumeration costing one row until somebody
- * opens it — was being claimed by a comment and paid for by nobody. The open state is
- * therefore tracked and the list is rendered only while it is open.
- *
- * THE OPEN LIST WINDOWS PAST A THRESHOLD. `@tanstack/react-virtual` is a dependency of
- * this package and `RestorePathList.tsx` beside this file calls it directly. There is
- * no wrapper to reuse from the family's diff pane — that pane's virtualization is a
- * row index over a nested structure with a wrap-scoped measurement effect and its own
- * two-box layout, none of which a flat path list shares — so the adopted library is
- * the shared implementation and a generic wrapper over it would be a second
- * abstraction with two callers and no common behaviour.
- *
- * The residual is the sheet's inter-row gap, which the windowed mode drops because the
- * window arithmetic does not account for it. Nothing else differs between the two
- * modes, and below the threshold the list is drawn exactly as it always was.
- */
-function PathEnumeration(props: {
-  readonly label: string;
-  readonly paths: readonly string[];
-  readonly onOpenPath: ((path: string) => void) | undefined;
-}): React.JSX.Element {
-  const [isOpen, setIsOpen] = useState(false);
-  if (props.paths.length === 0) {
-    return (
-      <p className="meridian-restore-disclosure__count">
-        {props.label} <DerivedFigure text={formatCount(0)} />{" "}
-        <Nothing kind="empty" placement="inline" title="None enumerated." />
-      </p>
-    );
-  }
-  return (
-    <details
-      className="meridian-restore-disclosure__detail"
-      onToggle={(event) => {
-        setIsOpen(event.currentTarget.open);
-      }}
-    >
-      <summary className="meridian-restore-disclosure__detail-summary">
-        {props.label} <DerivedFigure text={formatCount(props.paths.length)} />
-      </summary>
-      {isOpen ? (
-        <RestorePathList label={props.label} paths={props.paths} onOpenPath={props.onOpenPath} />
-      ) : null}
-    </details>
   );
 }

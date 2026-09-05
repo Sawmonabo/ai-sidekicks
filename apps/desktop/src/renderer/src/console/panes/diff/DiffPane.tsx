@@ -1,55 +1,12 @@
-// The diff pane: what changed between two named states, and who is accountable
-// for each line.
-//
-// THE PANE'S JOB IS THIS FAMILY'S TO STATE — `Spec-023 §Console Design (Meridian)`
-// puts each surface's composition in the console's code — and this
-// file is the chrome around it — the header that names the compared states and
-// the attribution, the toolbar of renderer-local view controls, the changed-file
-// list, and the region the rows are read inside. The rows themselves are
-// `DiffRenderer`'s, because the inline timeline card renders exactly the same
-// ones and a second implementation would let a one-character edit read as one
-// character in one surface and something else in the other.
-//
-// THE DIFF ARRIVES AS A PROP AND THERE IS NO CALLER THAT FILLS IT YET. Creating a
-// diff is `gitflow.diffArtifactCreate`, a `Plan-023 §Console growth slate` row
-// (`gitflow-actions`, owned by Spec-011): the contracts package exports no
-// `gitflow` module and the growth port registers no operation for it, so there is
-// nothing to call and nothing to refuse with. That is why the absent case renders
-// `not-checked` rather than a refusal — a refusal names a call that was made, and
-// no call was made.
-//
-// WHY THE ABSENCE IS `not-checked` AND NOT `empty`. `empty` asserts the read came
-// back with nothing, which for a diff means asserting a workspace has no changes.
-// Nothing has been read. Rendering `empty` here would have the console state, in
-// its own voice, a fact it never established. (`DiffRenderer` DOES render `empty`
-// — for a diff that WAS read and holds no changed line. Those are different facts
-// and the two surfaces spend the two kinds correctly.)
-//
-// WHY THE VIEW CONTROLS ARE LOCAL STATE AND NOT PERSISTED HERE. Everything the
-// toolbar toggles is a reading preference over one pane's content. The console's
-// durable UI state goes through `persistence/` and its closed value-class
-// enumeration; a preference this pane invents has no class, and minting one for a
-// toggle before a person has asked for it to be remembered is a durable write
-// nobody requested.
-//
-// WHY THE FOCUS HUE IS NOT READ. `ConsolePaneContext.focusHue` colours the ring
-// drawn AROUND a focused pane, and the deck draws it: the deck knows which of its
-// panes has focus and this body does not. A body that painted its own ring would
-// be a second answer to a question the deck already owns.
-
 import { useId } from "react";
-
-import { Chip, Glyph, Nothing } from "../../primitives/index.js";
+import { Glyph, Nothing } from "../../primitives/index.js";
 import { type ConsolePaneContext } from "../../seats/index.js";
 import { DiffFileList } from "./DiffFileList.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { DiffToolbar, useDiffViewControls } from "./DiffToolbar.js";
-import {
-  diffAttributionSubjectId,
-  type ConsoleDiffModel,
-  type DiffAttributionMode,
-} from "./diff-model.js";
+import { type ConsoleDiffModel } from "./diff-model.js";
 import { useDiffModelViewState } from "./diff-view-state.js";
+import { DiffSubjectBar } from "./DiffSubjectBar.js";
 
 /**
  * This body's own address arm, narrowed off the union the deck hands every pane.
@@ -128,14 +85,6 @@ export interface DiffPaneProps {
   readonly diff?: ConsoleDiffModel;
 }
 
-/** What the attribution badge says on each arm, and how the subject is labelled. */
-const ATTRIBUTION_COPY: Readonly<
-  Record<DiffAttributionMode, { readonly label: string; readonly subject: string }>
-> = {
-  run_attributed: { label: "Run-attributed", subject: "Run" },
-  workspace_fallback: { label: "Workspace fallback", subject: "Workspace" },
-};
-
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
   const headingId = useId();
@@ -213,34 +162,5 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
         </>
       )}
     </section>
-  );
-}
-
-/**
- * The attribution badge and the compared states.
- *
- * The badge is `neutral` on BOTH arms, and that is the two-hue rule rather than
- * an oversight: a workspace-fallback diff is a lower attribution quality, not a
- * failure and not something a person has to act on, so it earns neither red nor
- * amber. It is distinguished by its words and by which subject it names — and a
- * `workspace_fallback` diff renders its workspace and never a run, which the
- * union makes true by construction rather than by this component remembering to.
- */
-function DiffSubjectBar(props: { readonly diff: ConsoleDiffModel }): React.JSX.Element {
-  const copy = ATTRIBUTION_COPY[props.diff.attribution.mode];
-  const subjectId = diffAttributionSubjectId(props.diff.attribution);
-  return (
-    <div className="meridian-diff-pane__subject-bar">
-      <Chip label={copy.label} glyph="agent" />
-      <span className="meridian-diff-pane__attribution-subject" title={subjectId}>
-        {`${copy.subject}: `}
-        <Chip label={subjectId} mono />
-      </span>
-      <span className="meridian-diff-pane__refs">
-        <Chip label={props.diff.baseRef} mono />
-        <Glyph name="diff" />
-        <Chip label={props.diff.headRef} mono />
-      </span>
-    </div>
   );
 }

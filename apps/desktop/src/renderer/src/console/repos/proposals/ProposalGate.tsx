@@ -1,84 +1,10 @@
-// The change proposal gate: exactly what would be sent to the git host, held where a
-// participant can approve it first.
-//
-// THE GATE'S COMPOSITION IS THIS FAMILY'S, stated across the modules that obey it,
-// because `Spec-023 §Console Design (Meridian)` puts a surface's composition — what it
-// renders, offers, refuses, and folds — in the console's code. Four things about this
-// file are decisions rather than implementation, and each is load-bearing:
-//
-// 1. IT RENDERS, AND IT DOES NOT READ — AND `proposal-gate-reader.ts` IS THE ONE
-//    CALLER. The state arrives as a prop and the acts leave as callbacks, exactly as
-//    `ArtifactsPanel` takes its four arms; the reader beside this file is what holds
-//    a worktree's gate state, routes all three growth operations — the branch-context
-//    read, the preparation call, and the git action — and publishes the arm below.
-//    All three are `gitflow-actions` slate rows and every one of them is refused by
-//    the live bridge, which is why the reader's ordinary arm is `not-checked`: the
-//    split is what keeps that refusal a rendered sentence rather than an effect
-//    inside a component that also draws it.
-//
-//    WHAT THE READER CANNOT PUBLISH, AND WHY THAT IS STATED HERE. Two arms need
-//    members no registered reply carries — `hosting-unavailable` needs a bundle path
-//    and a preparation state naming it, and neither exists on a reply whose state
-//    vocabulary is `draft | ready`. So the reader never publishes that arm, the gate
-//    still draws it for a caller that can state it, and nothing here invents the
-//    difference. `proposal-gate-state.ts` carries the same note beside the arm itself.
-//
-// 2. NOTHING HERE DECIDES WHO MAY ACT. `docs/architecture/contracts/error-contracts.md`
-//    registers no `gitflow` namespace, so a failed action arrives as an ordinary
-//    unsuccessful result and renders as a first-class failure carrying the daemon's own
-//    message text. Controls are offered; the refusal renders beside the one pressed.
-//    Greying a control out would mean holding a second copy of the daemon's rule.
-//
-//    WHICH ACTS EXIST IS A DIFFERENT QUESTION, and this file does not answer that one
-//    either: `offeredProposalActions` in `proposal-actions.ts` does, and the act row
-//    group this file composes — `proposal-gate-acts/`, which owns the pending
-//    confirmation and is the only part of the gate holding any state — is handed that
-//    list rather than the vocabulary. So the one condition that withholds an act here —
-//    the preparation gate — is a rule stated once, beside the acts it governs, and
-//    tested without rendering anything.
-//
-// 3. BASE AND HEAD COME FROM THE CONTEXT, ALWAYS. Not from the selected pane, not from
-//    a tab, not from the focused view. There is no prop on this component through which
-//    a selection could reach it, which is that prohibition made structural rather than
-//    remembered.
-//
-// 4. THE DEGRADED ARM IS A FEATURE AND READS LIKE ONE. Hosting being unavailable still
-//    produces a proposal-ready summary and a diff bundle, so that arm renders the whole
-//    summary plus the bundle's path — it is not an error page and carries no refusal
-//    styling.
-//
-// THE PREPARATION GATE IS THE ORDER OF THIS FILE AND THE CONTENT OF ITS ACT ROW.
-// `prepare-proposal` is offered before `push`, the prepared proposal is rendered above
-// the acts, and the remote-mutating act sits under the thing it would send — and where
-// there is no prepared proposal it is not offered at all, so the send cannot be
-// confirmed against a payload that has never been on screen. A layout that put the
-// button above the payload would invite approval of something not yet drawn; a row that
-// offered it with no payload at all would invite approval of something not yet built.
-
 import { useId } from "react";
-
-import {
-  Chip,
-  DerivedFigure,
-  Glyph,
-  Nothing,
-  WireFigure,
-  formatCount,
-} from "../../primitives/index.js";
+import { Glyph, Nothing, WireFigure } from "../../primitives/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { BranchContextSummary } from "../mounts/BranchContextSummary.js";
 import { ProposalActionGroup, proposalConfirmationScope } from "./proposal-gate-acts/index.js";
 import { ProposalSummary } from "./ProposalSummary.js";
 import type { CheckoutConflict } from "./checkout-conflict.js";
-import {
-  CHANGE_REQUEST_STATE_PRESENTATION,
-  CHECK_STATUS_PRESENTATION,
-  MERGEABILITY_PRESENTATION,
-  NO_REVIEW_DECISION_COPY,
-  REVIEW_DECISION_PRESENTATION,
-  checkRollup,
-  type ProposalStatusReading,
-} from "../mounts/hosting-status.js";
 import { ONE_CUMULATIVE_PROPOSAL_COPY } from "./prepared-proposal.js";
 import {
   offeredProposalActions,
@@ -90,6 +16,9 @@ import {
   HOSTING_UNAVAILABLE_COPY,
   type ProposalGateState,
 } from "./proposal-gate-state.js";
+import { StatusRollup } from "./StatusRollup.js";
+import { CheckoutConflictChoice } from "./CheckoutConflictChoice.js";
+import { GATE_GLYPH_SIZE } from "./proposal-gate-chrome.js";
 
 export interface ProposalGateProps {
   readonly state: ProposalGateState;
@@ -118,8 +47,6 @@ export interface ProposalGateProps {
   /** Open a changed path in the diff pane. Absent where no diff exists for it. */
   readonly onOpenChangedPath?: ((path: string) => void) | undefined;
 }
-
-const GATE_GLYPH_SIZE = 14;
 
 export function ProposalGate(props: ProposalGateProps): React.JSX.Element {
   const headingId = useId();
@@ -222,104 +149,6 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
         inFlightAction={props.inFlightAction}
         isBlocked={props.checkoutConflict !== undefined}
       />
-    </div>
-  );
-}
-
-/**
- * The three trichotomies, always visible, because they are the decision.
- *
- * The check rollup opens as counts rather than as a list: this gate's density puts
- * the rollup on the face and the full list one click away, on `Spec-023 §Meridian, the
- * design language` rule 7 ("secondary controls live one click away").
- */
-function StatusRollup(props: { readonly status: ProposalStatusReading }): React.JSX.Element {
-  const { status } = props;
-  const statePresentation = CHANGE_REQUEST_STATE_PRESENTATION[status.state];
-  const mergeabilityPresentation = MERGEABILITY_PRESENTATION[status.mergeable];
-  const rollup = checkRollup(status.checks);
-  const reviewPresentation =
-    status.reviewDecision === undefined
-      ? undefined
-      : REVIEW_DECISION_PRESENTATION[status.reviewDecision];
-
-  return (
-    <div className="meridian-proposal-gate__status">
-      <div className="meridian-proposal-gate__chips">
-        <Chip tone={statePresentation.tone} label={status.state} mono />
-        <Chip tone={mergeabilityPresentation.tone} label={status.mergeable} mono />
-        <Chip
-          tone={rollup.tone}
-          label={`${formatCount(rollup.countByStatus.success)}/${formatCount(rollup.total)} checks`}
-          glyph="check"
-        />
-        {reviewPresentation === undefined ? (
-          // Absence of a review decision is "no decision yet" and never a fourth
-          // value, so it renders as an absence rather than as a chip.
-          <Nothing kind="empty" placement="inline" title={NO_REVIEW_DECISION_COPY} />
-        ) : (
-          <Chip tone={reviewPresentation.tone} label={status.reviewDecision ?? ""} mono />
-        )}
-      </div>
-      <p className="meridian-proposal-gate__meaning">{mergeabilityPresentation.meaning}</p>
-      {status.checks.length === 0 ? null : (
-        <details className="meridian-proposal-gate__detail">
-          <summary className="meridian-proposal-gate__detail-summary">
-            Checks <DerivedFigure text={formatCount(status.checks.length)} />
-          </summary>
-          <ul className="meridian-proposal-gate__checks">
-            {status.checks.map((check) => (
-              <li key={check.name}>
-                <Chip
-                  tone={CHECK_STATUS_PRESENTATION[check.status].tone}
-                  label={check.status}
-                  mono
-                />
-                <WireFigure value={check.name} />
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </div>
-  );
-}
-
-/**
- * The blocking choice.
- *
- * The daemon's reason renders verbatim and its options are the only ways forward
- * offered — the console resolves nothing automatically and adds no option of its own,
- * which is why the buttons are built from the list rather than from a union here.
- */
-function CheckoutConflictChoice(props: {
-  readonly conflict: CheckoutConflict;
-  readonly onResolve: ((optionId: string) => void) | undefined;
-}): React.JSX.Element {
-  const legendId = useId();
-  return (
-    <div
-      className="meridian-proposal-gate__conflict"
-      role="group"
-      aria-labelledby={legendId}
-      aria-live="polite"
-    >
-      <p className="meridian-proposal-gate__conflict-reason" id={legendId}>
-        <Glyph name="alert" size={GATE_GLYPH_SIZE} />
-        {props.conflict.reason}
-      </p>
-      <div className="meridian-proposal-gate__conflict-options">
-        {props.conflict.options.map((option) => (
-          <button
-            key={option.optionId}
-            type="button"
-            className="meridian-proposal-gate__act"
-            onClick={() => props.onResolve?.(option.optionId)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
