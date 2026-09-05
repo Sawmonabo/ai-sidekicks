@@ -16,6 +16,14 @@
 // hop, and a door that published a name it never declared would make a symbol's
 // home a matter of following two files instead of reading one line.
 
+// THE STYLESHEET IS IMPORTED HERE, and here only. `SidebarSection.tsx` and
+// `SidebarResizeHandle.tsx` carry `.meridian-sidebar__*` classes and are importable
+// without `Sidebar.tsx`, so a surface mounting one of them alone — an auxiliary
+// window, a section host — rendered unstyled while the sheet's only edge hung off a
+// component. The bundler now sees one edge per family rather than one per component,
+// which is what every other family's door already does.
+import "./sidebar/sidebar.css";
+
 // The dead-code exemption names the task that will import the symbol, on the terms
 // `apps/desktop/AGENTS.md` sets: the deck that mounts the sidebar has not landed.
 // The tag is deleted by that task, in the PR that does the importing.

@@ -39,6 +39,13 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+// THE PANE CHROME'S STYLESHEET IS IMPORTED HERE, and here only — a family's CSS is
+// imported from that family's door and from nowhere else. It sat on `pane-chrome.tsx`
+// to keep this file's reserved lines free of merge traffic, but a sheet import above
+// the seat board is one line no branch touches, and hanging it off a component left
+// the family's frame styled by whichever component happened to be reached first.
+import "./pane-chrome.css";
+
 import { registerApprovalsPane } from "./approvals/index.js";
 import { registerInspectorPane } from "./inspector/index.js";
 import { registerRunsPane } from "./runs/index.js";

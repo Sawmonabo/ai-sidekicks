@@ -47,8 +47,6 @@ import { SidebarResizeHandle } from "./SidebarResizeHandle.js";
 import { SidebarSection } from "./SidebarSection.js";
 import { useSidebarKeyboard, useSidebarModel, useSidebarSnapshot } from "./sidebar-hooks.js";
 
-import "./sidebar.css";
-
 /** Carries the model's width into the column, so CSS owns layout and JS owns the number. */
 interface SidebarWidthStyle extends React.CSSProperties {
   readonly "--meridian-sidebar-width": string;
