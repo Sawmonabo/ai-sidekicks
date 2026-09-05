@@ -59,9 +59,22 @@ export interface LedgerRevealBinding {
 
 export interface UseLedgerRevealOptions {
   /**
-   * The clock every frame in this engine is armed through. Fixed for the mount: an
-   * engine that swapped clocks mid-life would have work armed on one and cancelled
-   * on another.
+   * The clock every frame in this engine is armed through — the window's, from
+   * `useConsoleClock`.
+   *
+   * NOT FIXED FOR THE MOUNT, AND NOT FIXED TO A BRIDGE. The rule is that the clock
+   * OBJECT is stable for the window and forwards every arm and cancel to whichever
+   * bridge is current, so a holder may capture it and stay live across a reconnect
+   * or a scenario switch. A reader who took the older reading — that the clock could
+   * not move under a mount — would conclude that capturing one at construction is
+   * always safe, which is the conclusion that writes a stale-clock defect into the
+   * next holder that is NOT handed the forwarder.
+   *
+   * The effect below re-mints on a replacement anyway, and deliberately: it costs
+   * one identity comparison, it is the honest reading of a value the type says may
+   * differ between renders, and a re-mint drops the lane text published so far,
+   * which is a loss this engine takes rather than carrying work armed on one
+   * scheduler and cancelled on another.
    */
   readonly clock: ConsoleClock;
 }

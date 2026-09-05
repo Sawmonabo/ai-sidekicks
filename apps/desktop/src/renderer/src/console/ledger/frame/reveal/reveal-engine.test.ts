@@ -387,3 +387,90 @@ describe("the reveal engine — a lane whose advance throws an unrenderable valu
     expect(diagnostics.map((diagnostic) => diagnostic.kind)).toContain("transition-failed");
   });
 });
+
+describe("the reveal engine — what a quarantined lane costs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A lane the engine has given up on, over a source three frames long. */
+  function engineWithAQuarantinedLane(clock: ManualClock): RevealEngine {
+    const engine = engineOn(clock);
+    vi.spyOn(RopeSmoother.prototype, "advance").mockImplementationOnce(() => {
+      throw new Error("the rope refused a backtrack");
+    });
+    engine.ingest({
+      laneId: "lane-1",
+      mode: "direct",
+      text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 3),
+    });
+    clock.runFrame();
+    return engine;
+  }
+
+  it("releases the tail it will never reveal, rather than holding it for the run", () => {
+    const clock = new ManualClock();
+    const engine = engineWithAQuarantinedLane(clock);
+
+    // Three frames' worth of source arrived and none of it will ever be walked, so
+    // holding it is holding memory against a promise the engine has stopped keeping.
+    expect(engine.laneState("lane-1")?.pendingCharacterCount).toBe(0);
+    expect(engine.laneState("lane-1")?.isSettled).toBe(true);
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("takes no further speculative delta, so a producer that keeps streaming costs nothing", () => {
+    const clock = new ManualClock();
+    const engine = engineWithAQuarantinedLane(clock);
+
+    // The producer knows nothing about the quarantine: a long tool output or a
+    // multi-megabyte turn goes on arriving, every delta appended to a rope no frame
+    // would ever walk, with memory growing monotonically for the life of the run.
+    for (let burst = 0; burst < 20; burst += 1) {
+      engine.ingest({
+        laneId: "lane-1",
+        mode: "direct",
+        text: prose(REVEAL_FRAME_CHARACTER_BUDGET),
+      });
+    }
+
+    expect(engine.laneState("lane-1")?.pendingCharacterCount).toBe(0);
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("negative control: an UNquarantined lane accumulates every one of those deltas", () => {
+    // Without this the two cases above would pass over an engine that had stopped
+    // accepting deltas at all, which is the whole mechanism rather than the quarantine.
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    for (let burst = 0; burst < 20; burst += 1) {
+      engine.ingest({
+        laneId: "lane-1",
+        mode: "direct",
+        text: prose(REVEAL_FRAME_CHARACTER_BUDGET),
+      });
+    }
+    expect(engine.laneState("lane-1")?.pendingCharacterCount).toBe(
+      REVEAL_FRAME_CHARACTER_BUDGET * 20,
+    );
+    expect(clock.pendingCount).toBe(1);
+  });
+
+  it("an authoritative commit lifts the quarantine, and the lane streams again", () => {
+    // The one way out. Without it, releasing the tail would have turned a
+    // recoverable lane into a dead one — which is a worse answer than the leak.
+    const clock = new ManualClock();
+    const engine = engineWithAQuarantinedLane(clock);
+
+    engine.ingest({
+      laneId: "lane-1",
+      mode: "authoritative",
+      text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 2),
+    });
+
+    expect(clock.pendingCount).toBe(1);
+    clock.runFrame();
+    expect(engine.publishedText("lane-1").length).toBeGreaterThan(0);
+    expect(engine.state).toBe("streaming");
+  });
+});

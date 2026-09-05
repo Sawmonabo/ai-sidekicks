@@ -14,6 +14,7 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ManualClock } from "../../../core/index.js";
 import { projectFixtureShellRows } from "../../cards/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "../../frame/frame-bounds.js";
 import { ProvenanceRail, ProvenanceRailModel } from "../../structure/index.js";
@@ -124,6 +125,7 @@ describe("the ledger feed — the rail wears the session's own hues", () => {
         viewportExtent={1}
         isFollowing={false}
         onJumpToRow={() => undefined}
+        clock={new ManualClock()}
       />,
     );
     expect(inkPerMark.length).toBeGreaterThan(1);

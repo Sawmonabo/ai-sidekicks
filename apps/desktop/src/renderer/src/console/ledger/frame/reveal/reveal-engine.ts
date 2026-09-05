@@ -24,7 +24,10 @@
 //   • **Transition failures aggregate.** A lane whose advance throws is quarantined
 //     and counted; the other lanes finish their frame. Letting the first throw
 //     escape would make delivery depend on lane order, which is the failure mode
-//     `core/emitter.ts` reasons about for sinks and this one has for lanes.
+//     `core/emitter.ts` reasons about for sinks and this one has for lanes. A
+//     quarantine also STOPS COSTING: the lane releases the text it will never
+//     reveal and refuses every speculative delta after it, so a producer that keeps
+//     streaming into a lane the engine has given up on grows nothing.
 //
 // WHAT THIS ENGINE IS NOT. It publishes TEXT and says how much of it is safe to
 // show. Turning that text into blocks — the incremental lex, the memoized block
@@ -257,7 +260,10 @@ export class RevealEngine {
         REVEAL_LITERAL_BACKTRACK_CAP,
       );
     } catch (transitionFailure: unknown) {
-      lane.isQuarantined = true;
+      // The lane RELEASES what it will not reveal rather than only being flagged —
+      // see `RevealLane.quarantine`. Flagged alone, it stayed in the map with a rope
+      // the producer went on growing and no frame would ever walk.
+      lane.quarantine();
       // The TOTAL stringifier, because this expression runs after the `catch` has
       // been entered and a `String(...)` that threw here would leave the handler by
       // exception: the throw escapes the frame loop past `#armFrame()`, so one
