@@ -344,3 +344,33 @@ describe("normalizeWireRejection — nothing of the rejection survives onto the 
     expect(refusal.origin).toBe("persistence");
   });
 });
+
+describe("normalizeWireRejection — each member is read once", () => {
+  /** A flat envelope whose `code` answers one thing on the first read and another after. */
+  function envelopeAnsweringOnce(): { readonly code: string; readonly message: string } {
+    let reads = 0;
+    return {
+      get code(): string {
+        reads += 1;
+        return reads === 1 ? "session.not_found" : "session.forbidden";
+      },
+      message: "No such session.",
+    };
+  }
+
+  it("classifies a flat envelope on its first reading of the code", () => {
+    // The first arm reads `code` to ask whether the value IS a refusal; the flat
+    // envelope arm used to read it again. A code that changes between the two
+    // readings was classified on the second and rendered as a refusal the wire never
+    // sent.
+    const refusal = normalizeWireRejection("ledger", envelopeAnsweringOnce());
+    expect(refusal.code).toBe("session.not_found");
+    expect(refusal.detail).toBe("No such session.");
+  });
+
+  it("negative control: the fixture really answers differently on a second read", () => {
+    const envelope = envelopeAnsweringOnce();
+    expect(envelope.code).toBe("session.not_found");
+    expect(envelope.code).toBe("session.forbidden");
+  });
+});

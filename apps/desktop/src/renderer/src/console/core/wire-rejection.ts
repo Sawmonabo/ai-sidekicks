@@ -17,9 +17,16 @@
 // renderer-only shape declared in `core/refusal.ts`, and `src/shared/` may import
 // the contracts package and nothing else (`.dependency-cruiser.mjs`,
 // `shared-imports-nothing`) precisely because main and preload compile it too. What
-// genuinely IS cross-process — the envelope guard, the total property reader, the
-// total stringifier — already lives there, and this module consumes all three
-// rather than restating any of them.
+// genuinely IS cross-process — the total property reader and the total stringifier
+// — already lives there, and this module consumes both rather than restating either.
+//
+// EACH MEMBER IS READ ONCE, and the arms classify the snapshot. The first arm and
+// the flat-envelope arm both want `code`; the JSON-RPC arm and the flat-envelope arm
+// both want `message`. Read at each arm, a member whose getter answers once — or
+// answers differently the second time — is classified across two readings and falls
+// to the backstop with an invented code, which is the one outcome every arm exists
+// to prevent. So the members are read up front, into plain locals, and no arm
+// touches the candidate again.
 //
 // WHAT IT ADDS OVER EVERY COPY IT REPLACES: the JSON-RPC arm. `JsonRpcRemoteError`
 // (`packages/client-sdk/src/transport/jsonRpcClient.ts`) carries `code` as the
@@ -35,7 +42,6 @@ import {
   isErrorInstance,
   lossyStringify,
   readGuardedProperty,
-  readWireErrorEnvelope,
 } from "../../../../shared/wire-errors.js";
 
 import { parseInstant } from "./instant.js";
@@ -130,26 +136,42 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
   );
 }
 
+/** The members a refusal-shaped candidate is classified on, each read exactly once. */
+interface RefusalMembers {
+  readonly code: unknown;
+  readonly detail: unknown;
+  readonly origin: unknown;
+  readonly retry: WireRetryHint | undefined;
+}
+
+/** One read per member. The only place a candidate's refusal members are touched. */
+function readRefusalMembers(candidate: unknown): RefusalMembers {
+  return {
+    code: readGuardedProperty(candidate, "code"),
+    detail: readGuardedProperty(candidate, "detail"),
+    origin: readGuardedProperty(candidate, "origin"),
+    retry: carriedRetryHint(candidate),
+  };
+}
+
 /**
- * Rebuild a refusal a candidate carries, from the members the guard actually read.
+ * Rebuild a refusal from the members already read off a candidate.
  *
  * REBUILT, never handed back by reference, and that is the whole of it. Recognizing a
- * refusal structurally means the guard read three properties once and they were
- * strings; it does NOT mean the next reader gets the same answer. A getter that
- * throws on its second read, a Proxy trap that throws after the first call — either
- * one turns a returned candidate into a rejection deferred into the renderer, where
+ * refusal structurally means three properties were read once and they were strings;
+ * it does NOT mean the next reader gets the same answer. A getter that throws on its
+ * second read, a Proxy trap that throws after the first call — either one turns a
+ * returned candidate into a rejection deferred into the renderer, where
  * `refusal.code` throws while painting the sentence that says something failed. A
  * normalizer whose job is to produce a renderable shape must produce one, so what
  * comes back is a plain object carrying bounded strings and nothing of the candidate.
  */
-function rebuiltRefusal(candidate: unknown): WireRefusal | undefined {
-  const code = readGuardedProperty(candidate, "code");
-  const detail = readGuardedProperty(candidate, "detail");
-  const origin = readGuardedProperty(candidate, "origin");
+function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
+  const { code, detail, origin } = members;
   if (typeof code !== "string" || typeof detail !== "string" || typeof origin !== "string") {
     return undefined;
   }
-  return withRetryHint(refuse(origin, code, detail), carriedRetryHint(candidate));
+  return withRetryHint(refuse(origin, code, detail), members.retry);
 }
 
 /**
@@ -193,11 +215,12 @@ function classifyRejection(
   rejection: unknown,
   fallback: RejectionFallback | undefined,
 ): WireRefusal | undefined {
-  const own = rebuiltRefusal(rejection);
+  const members = readRefusalMembers(rejection);
+  const own = rebuiltRefusal(members);
   if (own !== undefined) {
     return own;
   }
-  const carried = rebuiltRefusal(readGuardedProperty(rejection, "refusal"));
+  const carried = rebuiltRefusal(readRefusalMembers(readGuardedProperty(rejection, "refusal")));
   if (carried !== undefined) {
     return carried;
   }
@@ -210,9 +233,10 @@ function classifyRejection(
       retryHintFrom(readGuardedProperty(data, "fields")),
     );
   }
-  const envelope = readWireErrorEnvelope(rejection);
-  if (envelope !== undefined) {
-    return withRetryHint(refuse(origin, envelope.code, envelope.message), retryHintFrom(rejection));
+  // The flat envelope — `{ code, message }` — from the same two readings the arms
+  // above already took, never a second pass over the candidate.
+  if (typeof members.code === "string" && typeof message === "string") {
+    return withRetryHint(refuse(origin, members.code, message), retryHintFrom(rejection));
   }
   if (fallback !== undefined) {
     return refuse(origin, fallback.code, fallback.detail);
@@ -225,14 +249,14 @@ function classifyRejection(
  *
  * TOTAL. It answers a refusal for every input and throws for none.
  *
- * Every step of `classifyRejection` is itself total today — the reads go through
- * `readGuardedProperty`, `readWireErrorEnvelope` reads through it too, and the ONE
+ * Every step of `classifyRejection` is itself total today — every read goes through
+ * `readGuardedProperty`, and the ONE
  * prototype question this module asks goes through `isErrorInstance`, because
  * `instanceof` throws on a revoked Proxy and the terminal arm below sits outside the
  * backstop. The hostile-value cases in this module's test prove that by passing with
  * the `try` removed. The `try` is kept as a BACKSTOP rather than as the mechanism,
  * and the distinction is the reason: without it, totality here would be a property of
- * three other modules staying total, and the edit that broke one of them would show
+ * two other functions staying total, and the edit that broke one of them would show
  * up as a throw on the failure path — in a `catch` that has already been left, in the
  * one function a surface calls to say that something failed. It costs nothing on a
  * path that only runs when a call already failed, and it is the one arm nobody has to
