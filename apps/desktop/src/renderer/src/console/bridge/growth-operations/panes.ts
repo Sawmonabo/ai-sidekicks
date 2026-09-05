@@ -7,7 +7,6 @@
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
 import { op } from "./operation-entry.js";
 
-/** The pane rows, in the order the single table carried them. */
 /**
  * The ids this plane carries, DERIVED from the id union rather than listed again.
  *
@@ -21,6 +20,7 @@ type PaneOperationId = Extract<
   `browser${string}` | `terminal${string}` | `window${string}` | "devServerProbe"
 >;
 
+/** The pane rows, in the order the single table carried them. */
 export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOperationEntry>> = {
   browserNavigate: op(
     "browserNavigate",

@@ -22,6 +22,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "../core/index.js";
 import type { FrameBanner } from "../store/index.js";
+import { liveRegionOf, liveRegionText } from "../primitives/live-region.test-support.js";
 import { AppFrame } from "./AppFrame.js";
 import {
   CalmSurface,
@@ -49,14 +50,6 @@ function scenarioEngineOf(bridge: ConsoleBridge): NonNullable<ConsoleBridge["sce
   return engine;
 }
 
-function liveRegion(container: HTMLElement, politeness: "polite" | "assertive"): HTMLElement {
-  const region = container.querySelector<HTMLElement>(`[data-live-region="${politeness}"]`);
-  if (region === null) {
-    throw new Error(`the frame mounted no ${politeness} live region`);
-  }
-  return region;
-}
-
 describe("AppFrame — the window has one live announcer, and the banner reaches it", () => {
   it("mounts exactly one region pair, empty, before anything is announced", () => {
     const { container } = render(
@@ -69,8 +62,8 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
     // One PAIR, not one per surface: the count is the claim, because a second
     // announcer anywhere in the window is a second speaker.
     expect(container.querySelectorAll("[data-live-region]")).toHaveLength(2);
-    expect(liveRegion(container, "polite").textContent).toBe("");
-    expect(liveRegion(container, "assertive").textContent).toBe("");
+    expect(liveRegionText(container, "polite")).toBe("");
+    expect(liveRegionText(container, "assertive")).toBe("");
   });
 
   it("keeps the regions outside the wrapper a modal overlay makes inert", () => {
@@ -85,7 +78,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
     // from inside a dialog would be announced to nobody.
     const background = backgroundOf(container);
     expect(background.hasAttribute("inert")).toBe(true);
-    expect(background.contains(liveRegion(container, "assertive"))).toBe(false);
+    expect(background.contains(liveRegionOf(container, "assertive"))).toBe(false);
   });
 
   it("announces a raised banner in the assertive region, and only when it is raised", () => {
@@ -95,7 +88,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
-    expect(liveRegion(container, "assertive").textContent).toBe("");
+    expect(liveRegionText(container, "assertive")).toBe("");
 
     rerender(
       <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
@@ -103,7 +96,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       </AppFrame>,
     );
 
-    expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+    expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
     // The banner keeps rendering exactly as it did; the announcer is beside it and
     // not a replacement for it.
     expect(container.querySelector(".meridian-refusal--banner")?.textContent).toContain(
@@ -111,7 +104,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
     );
     // Polite stays silent: a banner is a refusal, which is what the assertive lane
     // is reserved for.
-    expect(liveRegion(container, "polite").textContent).toBe("");
+    expect(liveRegionText(container, "polite")).toBe("");
   });
 
   it("negative control: a banner that is merely still standing is not announced again", () => {
@@ -131,12 +124,12 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
         </AppFrame>,
         { wrapper: liveBridgeWrapper() },
       );
-      expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+      expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
 
       act(() => {
         vi.advanceTimersByTime(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
       });
-      expect(liveRegion(container, "assertive").textContent).toBe("");
+      expect(liveRegionText(container, "assertive")).toBe("");
 
       rerender(
         <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])} modalOverlayOpen>
@@ -144,7 +137,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
         </AppFrame>,
       );
 
-      expect(liveRegion(container, "assertive").textContent).toBe("");
+      expect(liveRegionText(container, "assertive")).toBe("");
     } finally {
       vi.useRealTimers();
     }
@@ -173,20 +166,20 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
         </AppFrame>,
         { wrapper: bridgeWrapper(bridge) },
       );
-      expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+      expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
 
       // Wall time well past the hold window, twice over. Nothing clears, because
       // nothing in this window is reading it.
       act(() => {
         vi.advanceTimersByTime(LIVE_ANNOUNCEMENT_HOLD_MS * 2);
       });
-      expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+      expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
 
       // The scenario's own clock is what the hold was measured against.
       act(() => {
         scenarioEngineOf(bridge).advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
       });
-      expect(liveRegion(container, "assertive").textContent).toBe("");
+      expect(liveRegionText(container, "assertive")).toBe("");
     } finally {
       vi.useRealTimers();
     }
@@ -205,12 +198,12 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
         </AppFrame>,
         { wrapper: liveBridgeWrapper() },
       );
-      expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+      expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
 
       act(() => {
         vi.advanceTimersByTime(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
       });
-      expect(liveRegion(container, "assertive").textContent).toBe("");
+      expect(liveRegionText(container, "assertive")).toBe("");
     } finally {
       vi.useRealTimers();
     }

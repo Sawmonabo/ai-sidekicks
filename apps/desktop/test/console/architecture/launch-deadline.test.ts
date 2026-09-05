@@ -39,6 +39,7 @@ import {
   READINESS_BUDGET_MS,
 } from "../launch-budgets.js";
 import {
+  DeadlineExpiredError,
   LAUNCH_BUDGET_MS,
   LaunchDeadline,
   MINIMUM_SETTLEMENT_RESIDUAL_MS,
@@ -235,6 +236,45 @@ describe("launch deadline — one clock, drawn from", () => {
     // The original is kept rather than replaced — which phase ran out is still
     // the first thing a reader wants.
     expect((worded as Error).cause).toBe(phaseTimeout);
+  });
+
+  it("words its own expiry as the readiness budget even when the clock disagrees", async () => {
+    // THE SIBLING OF `launch-body.test.ts`'s CLOCK-SKEW CASE, and the same defect: this
+    // re-wording used to be decided by reading the clock a second time, and a
+    // `setTimeout` and `Date.now()` are separate readings of one instant. Measured at a
+    // 5 ms budget on the authoring machine, the timer fired with `Date.now()` still one
+    // millisecond short in 55 of 4 000 firings — so about one launch overrun in seventy
+    // reported in the raw phase's words instead of the readiness budget's.
+    //
+    // A STOPPED clock is that skew made deterministic. The deadline's OWN expiry is
+    // recognised by identity here, so it can never be vetoed by a reading that says
+    // there is time left.
+    const frozen = stoppedClock(1_000);
+    const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS, frozen.now);
+    const ownExpiry = await deadline
+      .settleWithin(new Promise<never>(() => undefined), "a phase", LAUNCH_BUDGET_MS - 5)
+      .catch((error: unknown) => error);
+    expect(ownExpiry).toBeInstanceOf(DeadlineExpiredError);
+    expect(deadline.expired(POST_READINESS_RESERVE_MS), "the frozen clock says time is left").toBe(
+      false,
+    );
+
+    const worded = readinessFailure(deadline, ownExpiry);
+    expect(worded).not.toBe(ownExpiry);
+    expect((worded as Error).message).toContain(String(READINESS_BUDGET_MS));
+    expect((worded as Error).cause).toBe(ownExpiry);
+  });
+
+  it("negative control: another deadline's expiry is not reworded as this one's", () => {
+    // Identity rather than `instanceof`, and this is what it buys. A deadline nested
+    // inside the work is a different subject with a more specific phase, and blaming
+    // the outer budget for it would replace the sentence a reader actually needs.
+    const outer = new LaunchDeadline(LAUNCH_BUDGET_MS, stoppedClock(1_000).now);
+    const inner = new LaunchDeadline(LAUNCH_BUDGET_MS, stoppedClock(1_000).now);
+    const innerExpiry = new DeadlineExpiredError(inner, "an inner phase", 5);
+    expect(outer.raisedExpiry(innerExpiry)).toBe(false);
+    expect(inner.raisedExpiry(innerExpiry)).toBe(true);
+    expect(readinessFailure(outer, innerExpiry)).toBe(innerExpiry);
   });
 
   it("lets an operation that settles in time through untouched", () => {

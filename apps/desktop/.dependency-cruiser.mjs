@@ -66,18 +66,16 @@ const FRAME = `${CONSOLE}/frame/`;
 // by extension already. Co-located tests are absent for the stronger reason that
 // `options.exclude` removes them from the graph before any rule runs.
 const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|collaboration-family|sidekicks-settings-page)\\.ts$`;
-// `panes/` is FLAT, and the pattern says so: the board, the chrome the deck draws
-// around a pane, and their tests — one segment, no subdirectory. It used to read
-// `${CONSOLE}/panes/`, which subtracted a whole subtree from the view-family set, so a
-// pane BODY parked at `panes/<kind>/` was neither a view family nor a valid source for
-// the isolation rule and could import every family in the console. Narrowed, a module
-// under `panes/<kind>/` is an ordinary view family again — and the rule below refuses
-// the subdirectory outright, so the escape hatch is closed at the shape rather than
-// per edge.
+// The pane board is the FILES directly under `panes/`, not the directory. After the
+// pane-body rule below, `panes/` holds composition and nothing else, so a
+// `panes/<something>/` subtree is not a composition site and must not inherit the
+// exemption one gets: with the directory spelled here, a pane body parked under
+// `panes/runs/` would have been subtracted from the view-family set on both endpoints
+// and could import any view family it liked.
 const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
 
-/** Anything one level deeper than the flat board — the shape the rule below forbids. */
-const PANES_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
+/** Any module under a subdirectory of the pane board — the shape that is forbidden. */
+const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
  * Every barrel under `console/` — a family door and a sub-module door alike.
@@ -292,21 +290,6 @@ export default {
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
     },
     {
-      name: "console-panes-board-is-flat",
-      comment:
-        "A module landed in a `console/panes/<kind>/` subdirectory. `panes/` is the deck's seat " +
-        "board and the chrome around a pane, and nothing else: a pane BODY renders one family's " +
-        "vocabulary, so it lives in that family (`agents/agent-console/` for the agent console) " +
-        "and reaches this directory as a registrar through that family's door. A body parked " +
-        "here makes `panes/` a seventh view family with a seat board inside it, and turns every " +
-        "reach from the body into its own family into a cross-family import. Stated on the " +
-        "SOURCE side so the error names the module that should not exist; the other direction " +
-        "needs no rule, because a body that imports nothing renders nothing.",
-      severity: "error",
-      from: { path: PANES_SUBDIRECTORY },
-      to: {},
-    },
-    {
       name: "console-root-is-composition-only",
       comment:
         "A module at the console ROOT that is not one of the enumerated composition sites " +
@@ -326,6 +309,31 @@ export default {
       // disposition rather than waiting for one that does.
       from: { path: `${CONSOLE}/[^/]+$`, pathNot: [COMPOSITION_ROOT_FILES, "\\.d\\.ts$"] },
       to: { path: `${CONSOLE}/` },
+    },
+    {
+      name: "console-panes-hold-no-body",
+      comment:
+        "A module was authored under `console/panes/<something>/`. A pane BODY lives in the " +
+        "family that owns it — `<family>/pane/` — and `panes/` holds composition only: one " +
+        "reserved line per family, replaced by that family, so six branches produce six " +
+        "one-line diffs and none of them conflicts. A body parked under the board is a body " +
+        "no family owns, and it is invisible to the sibling-isolation rule the six families " +
+        "are held to. Move it into its family and register it from the board.",
+      severity: "error",
+      from: { path: PANE_BOARD_SUBDIRECTORY },
+      to: {},
+    },
+    {
+      name: "console-panes-hold-no-imported-body",
+      comment:
+        "Something imported a module under `console/panes/<something>/`. Same rule as " +
+        "`console-panes-hold-no-body`, stated from the other endpoint, because these rules " +
+        "match EDGES rather than directories: a body that imports nothing at all — a table, a " +
+        "closed set — would be reported by neither its own outgoing edges nor the orphan rule, " +
+        "since the board imports it and so it has a dependent.",
+      severity: "error",
+      from: {},
+      to: { path: PANE_BOARD_SUBDIRECTORY },
     },
     {
       name: "console-no-barrel-chain",

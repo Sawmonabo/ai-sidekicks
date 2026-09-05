@@ -36,7 +36,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CONSOLE_DIRECTORY,
@@ -56,6 +56,27 @@ import {
   walkOffenders,
   type TestTierModuleText,
 } from "./source-walk-census.js";
+
+/**
+ * The budget this file states rather than inherits.
+ *
+ * Its claims are parse passes over the whole test tier, and the vacuity claim is three
+ * of them in one case: which modules reach renderer source, which walk a directory,
+ * and which read a file. Measured alone on the authoring machine that case is 145 ms
+ * and the file is 681 ms end to end — but under the aggregate gate's five-project
+ * concurrency the same case was measured at 6.5 s and timed out against vitest's 5 s
+ * default with no change to the code it reads. The load, not the tree, is what a
+ * budget here has to survive, which is the finding that put explicit budgets on
+ * `barrel-census.test.ts` and is restated here rather than cross-referenced, because a
+ * number a reader has to leave the file to check is a number nobody checks.
+ *
+ * Set well above the loaded measurement on purpose: what a budget guards is a pass
+ * that never settles, not a slow one, and a budget tightened to the last measurement
+ * fails on the next machine rather than on the next defect.
+ */
+const TIER_PARSE_ALLOWANCE_MS = 30_000;
+
+vi.setConfig({ testTimeout: TIER_PARSE_ALLOWANCE_MS });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEST_TIER_DIRECTORY = resolve(HERE, "..");

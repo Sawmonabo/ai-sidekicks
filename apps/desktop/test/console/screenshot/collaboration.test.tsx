@@ -25,18 +25,20 @@
 // compares against images the `macos-15` runner renders and this lane cannot mint
 // one; they are produced by dispatching
 // `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate` on
-// this branch. Until that runs, this file is red on `darwin` and skipped everywhere
-// else, which is the honest state — a lane that wrote its own references would have
-// committed images no CI run reproduces.
+// this branch. Until that runs, this file compares only where the references can be
+// reproduced — the `macos-15` runner, or a host that asked for the comparison
+// deliberately — and skips with a stated reason everywhere else, which is the honest
+// state: a lane that wrote its own references would have committed images no CI run
+// reproduces. `baseline-comparison.ts` holds that verdict for the whole tier.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
 import {
-  announceOffPinnedPlatform,
+  announceSkippedBaselines,
   requireCapturedElement,
-  skipOffPinnedPlatform,
-} from "./baseline-platform.js";
+  skipOffBaselineHost,
+} from "./baseline-comparison.js";
 
 import "../../../src/renderer/src/console/collaboration/index.js";
 // The settings family's door, for its stylesheet: the nodes page below is mounted as
@@ -85,11 +87,11 @@ beforeEach(() => {
 });
 
 describe("screenshot — the destinations this family owns", () => {
-  announceOffPinnedPlatform();
+  announceSkippedBaselines();
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the sessions destination in the ${scheme} scheme`, async (context) => {
-      skipOffPinnedPlatform(context);
+      skipOffBaselineHost(context);
       await emulateSystemScheme(scheme);
       document.location.hash = "#/sessions";
       const { container } = await renderSettled(
@@ -102,7 +104,7 @@ describe("screenshot — the destinations this family owns", () => {
     });
 
     it(`renders the settings frame in the ${scheme} scheme`, async (context) => {
-      skipOffPinnedPlatform(context);
+      skipOffBaselineHost(context);
       await emulateSystemScheme(scheme);
       document.location.hash = "#/settings";
       const { container } = await renderSettled(
@@ -119,7 +121,7 @@ describe("screenshot — the destinations this family owns", () => {
     // The search is the settings surface's one interaction, and it changes the rail
     // into a result list — a different composition, not a different value, which is
     // why it earns a capture of its own rather than a unit assertion on a count.
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     document.location.hash = "#/settings";
     const { container } = await renderSettled(
@@ -137,7 +139,7 @@ describe("screenshot — the destinations this family owns", () => {
 
 describe("screenshot — the surfaces this family fills a seat with", () => {
   it("renders the channel list, main first and archived collapsed", async (context) => {
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { container } = await renderSettled(
       <ChannelList
@@ -163,7 +165,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
   });
 
   it("renders the roster with presence, each row in its own hue", async (context) => {
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const allocator = new ParticipantHueAllocator();
     const participants = [
@@ -201,7 +203,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     // performs its own read: handing it a hand-written state would capture a ledger
     // nobody's build produces, and the fixture serves `invitesList` from exactly the
     // scenario the two destinations above are captured under.
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { container } = await renderSettled(
       <SentInvites
@@ -222,7 +224,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     // composition where an absence, a count, and a per-session refusal stack in one
     // panel, and the whole point of the arm is that it does NOT read as an all-clear
     // — which is a picture rather than an assertion.
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { container } = await renderSettled(
       <NotificationCenter
@@ -252,7 +254,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     // address would pin the "belongs to a session" absence and never the roster.
     // Mounted with a session, over the real fixture bridge, it renders what a person
     // opening it on a session sees — both health axes, side by side, disagreeing.
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
     bridge.scenarioEngine?.advance(ROSTER_AXES_DISAGREE_MS);

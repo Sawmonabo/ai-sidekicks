@@ -79,6 +79,22 @@ const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
  * finite instant is skipped rather than armed for, because a timer scheduled against
  * `NaN` fires immediately and forever.
  */
+export function earliestFutureDeadline(
+  deadlines: readonly number[],
+  nowMilliseconds: number,
+): number | undefined {
+  let earliestMilliseconds: number | undefined;
+  for (const deadline of deadlines) {
+    if (!Number.isFinite(deadline) || deadline <= nowMilliseconds) {
+      continue;
+    }
+    if (earliestMilliseconds === undefined || deadline < earliestMilliseconds) {
+      earliestMilliseconds = deadline;
+    }
+  }
+  return earliestMilliseconds;
+}
+
 /**
  * The LATEST deadline at or behind `nowMilliseconds`, or `undefined`.
  *
@@ -110,22 +126,6 @@ export function latestPassedDeadline(
     }
   }
   return latestMilliseconds;
-}
-
-export function earliestFutureDeadline(
-  deadlines: readonly number[],
-  nowMilliseconds: number,
-): number | undefined {
-  let earliestMilliseconds: number | undefined;
-  for (const deadline of deadlines) {
-    if (!Number.isFinite(deadline) || deadline <= nowMilliseconds) {
-      continue;
-    }
-    if (earliestMilliseconds === undefined || deadline < earliestMilliseconds) {
-      earliestMilliseconds = deadline;
-    }
-  }
-  return earliestMilliseconds;
 }
 
 /**
