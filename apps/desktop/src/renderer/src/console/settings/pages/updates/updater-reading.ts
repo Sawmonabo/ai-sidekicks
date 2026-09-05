@@ -75,13 +75,6 @@ const NOTHING_READ: UpdaterReadingSnapshot = {
 };
 
 /**
- * One window's reading of the updater, sequenced across its two sources.
- *
- * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`:
- * it owns a subscription, an opening generation, and the rule that decides which
- * answer installs. The React binding lives in `UpdatesPage.tsx` and holds nothing.
- */
-/**
  * The one key this holder claims, because it has exactly one act to be on a round of.
  *
  * Named rather than spelled at the two sites that use it: the latch is keyed by
@@ -90,6 +83,13 @@ const NOTHING_READ: UpdaterReadingSnapshot = {
  */
 const OPENING_KEY = "open";
 
+/**
+ * One window's reading of the updater, sequenced across its two sources.
+ *
+ * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`:
+ * it owns a subscription, an opening generation, and the rule that decides which
+ * answer installs. The React binding lives in `UpdatesPage.tsx` and holds nothing.
+ */
 export class UpdaterReadingHolder {
   readonly #updater: SidekicksBridge["update"];
   readonly #changes = new Emitter<void>("updater reading change");
