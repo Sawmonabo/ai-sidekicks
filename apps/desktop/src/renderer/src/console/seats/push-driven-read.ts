@@ -73,6 +73,18 @@ export const PUSH_DRIVEN_READ_FAILURE_CODES = ["read-failed", "subscribe-failed"
 /** One such code. Derived, so the set is stated exactly once. */
 export type PushDrivenReadFailureCode = (typeof PUSH_DRIVEN_READ_FAILURE_CODES)[number];
 
+/**
+ * This module's own two, typed against that set rather than spelled at the call.
+ *
+ * `consoleRefusalFrom` takes any code, because its callers include mutations whose
+ * failure is neither of these — so without these two bindings the set above would be
+ * declared and consumed by nothing, which is a closed set that has stopped closing
+ * anything. A typo in either one is a compile error here instead of a code no
+ * reader recognises on screen.
+ */
+const READ_FAILED: PushDrivenReadFailureCode = "read-failed";
+const SUBSCRIBE_FAILED: PushDrivenReadFailureCode = "subscribe-failed";
+
 /** What a push-driven read has to show. Total; every arm renders something. */
 export type PushDrivenReadState<TValue> =
   | { readonly kind: "not-loaded" }
@@ -167,7 +179,7 @@ export class PushDrivenRead<TValue> {
       this.#releaseSubscription();
       this.#settle({
         kind: "failed",
-        refusal: consoleRefusalFrom(subscriptionFailure, this.#options.origin, "subscribe-failed"),
+        refusal: consoleRefusalFrom(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
       });
       return;
     }
@@ -256,7 +268,7 @@ export class PushDrivenRead<TValue> {
 export function consoleRefusalFrom(
   error: unknown,
   origin: string,
-  fallbackCode: string = "read-failed",
+  fallbackCode: string = READ_FAILED,
 ): ConsoleRefusal {
   if (error instanceof ConsoleRefusalError) {
     return error.refusal;
