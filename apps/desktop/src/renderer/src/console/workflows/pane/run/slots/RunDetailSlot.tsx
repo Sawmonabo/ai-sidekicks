@@ -75,7 +75,7 @@ export function RunDetailSlot(props: RunDetailSlotProps): React.JSX.Element {
   const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      seat={WORKFLOW_RUN_DETAIL_SLOT}
+      contract={WORKFLOW_RUN_DETAIL_SLOT}
       body={body}
       mount={mount}
       title="The run detail is not built yet."

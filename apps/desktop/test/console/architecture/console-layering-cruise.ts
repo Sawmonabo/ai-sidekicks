@@ -61,12 +61,13 @@ const OWNED_RULES: readonly string[] = [
  * that some finite figure is enforced and that a case which overruns it says which
  * cruise it was rather than taking vitest's undiagnosable kill.
  *
- * Measured rather than chosen. On an idle eight-core Apple-silicon host each of the
- * three cruises settles in 65-110 ms and the whole file in 262 ms of test time. Ten
- * seconds is two orders of magnitude over that, which is the margin the tier needs:
- * the failure this replaces was not a slow cruise but a cruise queued behind
- * twenty-eight other architecture files under the pool's default parallelism, where
- * what a case waits out is contention rather than work.
+ * Measured rather than chosen, and re-measured whenever the planted set moves. On an
+ * idle eight-core Apple-silicon host one cruise settles in 30-210 ms and the whole
+ * file in 342-987 ms of test time over three runs. Ten seconds is roughly two orders
+ * of magnitude over the slowest cruise, which is the margin the tier needs: the
+ * failure this replaces was not a slow cruise but a cruise queued behind twenty-eight
+ * other architecture files under the pool's default parallelism, where what a case
+ * waits out is contention rather than work.
  *
  * It is a constant here rather than a `budgets.json` row for the reason that registry
  * states about `MINIMUM_SETTLEMENT_RESIDUAL_MS`: the rows there are the slices of the
@@ -107,8 +108,8 @@ export class PlantedTreeCache {
   // The rule set, loaded ONCE for the file rather than once per cruise. Extracting it
   // resolves and imports `.dependency-cruiser.mjs` through the same loader the CLI
   // uses, which is a real module load and has nothing to do with the tree being
-  // cruised — so a file that cruises seven trees paid for seven identical loads, and
-  // each landed inside the per-case budget of whichever case reached a tree first.
+  // cruised — so a file paid for one identical load per tree it cruised, and each
+  // landed inside the per-case budget of whichever case reached a tree first.
   // Held as the PROMISE rather than the value so two cases racing for it still load
   // once, exactly as the cruise results above are.
   #configuration: Promise<LayeringConfiguration> | undefined = undefined;

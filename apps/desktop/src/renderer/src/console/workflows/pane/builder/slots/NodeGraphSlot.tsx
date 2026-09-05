@@ -81,7 +81,7 @@ export function NodeGraphSlot(props: NodeGraphSlotProps): React.JSX.Element {
   const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      seat={WORKFLOW_GRAPH_SLOT}
+      contract={WORKFLOW_GRAPH_SLOT}
       body={body}
       mount={mount}
       title="The node graph is not built yet."

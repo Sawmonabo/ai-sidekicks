@@ -13,31 +13,20 @@
 // the process-wide singleton instead would prove the host reads a global rather than
 // the composition it was handed — which is exactly the defect the last describe holds.
 
-import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge } from "../bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
-import { ManualClock } from "../core/index.js";
-import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { FrameStore, SessionStoreRegistry } from "../store/index.js";
-import type { ConsolePaneContext } from "../seats/index.js";
-import { ConsolePaneRegistry, consolePaneRegistry } from "../seats/index.js";
-// Deep, for `index.ts`'s reason: the frame's barrel also exports `ConsoleRoot`, which
-// composes the families, so a family reaching it through that door closes a cycle the
-// layering gate rejects.
-import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
-import { registerWorkflowPanes } from "./index.js";
-import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
-
-/** What a case varies about the window the slot is mounted in. */
-interface SurfaceContextOptions {
-  /** The session this window last opened, if it has opened one. */
-  readonly retainedSessionId?: string;
-  /** The sessions open in this window, whose stores the registry can hand out. */
-  readonly openSessionIds?: readonly string[];
-}
+import { consolePaneRegistry } from "../seats/index.js";
+import {
+  composeWindow,
+  mountWorkflowsSlot,
+  pressFirst,
+  probeBuilderPane,
+  chooseSessionInPicker,
+  settle,
+  type ComposedWindow,
+  type SurfaceContextOptions,
+} from "./WorkflowsPaneHost.test-support.js";
 
 /** The window the cases about mounting assume: in the fixture's session, nothing open. */
 const DEFAULT_WINDOW: SurfaceContextOptions = { retainedSessionId: WORKFLOWS_SESSION_ID };
@@ -50,123 +39,14 @@ const DEFAULT_WINDOW: SurfaceContextOptions = { retainedSessionId: WORKFLOWS_SES
  */
 const FOREIGN_SESSION_ID = "019b7a10-0280-75e5-8510-ada11a5a9999";
 
-/**
- * One window's composition: the context the slot is handed, and the board inside it.
- *
- * The board is handed back beside the context so a case can register a probe into the
- * very registry the render will resolve from. Built per case rather than shared,
- * because a pane registry is owner-scoped state and two cases holding one instance
- * would make the second depend on whether the first had run.
- */
-interface ComposedWindow {
-  readonly context: ConsoleSurfaceContext;
-  readonly paneRegistry: ConsolePaneRegistry;
-}
-
-/**
- * The surface context the slot is handed, and this composition's own pane board.
- *
- * The bridge, the frame store, and both registries are real, because the host composes
- * a pane context out of them; the two persistence stores are cast away for
- * `RouteSurface.test.tsx`'s reason — constructing them opens a database to hand a
- * branch that never touches it.
- *
- * The bodies reach the board through `registerWorkflowPanes`, the family's own
- * registration call, rather than a hand-built table: the host's claim is that it mounts
- * what the DECK would mount, and a table assembled here would prove only that it mounts
- * what this file wrote.
- */
-function composeWindow(options: SurfaceContextOptions = {}): ComposedWindow {
-  const frameStore = new FrameStore(
-    options.retainedSessionId === undefined
-      ? {}
-      : { initialRoute: { kind: "workspace", sessionId: options.retainedSessionId } },
-  );
-  frameStore.navigate({ kind: "workflows" });
-  // A manual clock so no refresh scheduler an opened session starts outlives the
-  // case that opened it.
-  const sessionStoreRegistry = new SessionStoreRegistry({
-    read: () => Promise.resolve(undefined),
-    clock: new ManualClock(),
-  });
-  for (const openSessionId of options.openSessionIds ?? []) {
-    sessionStoreRegistry.open(openSessionId);
-  }
-  const paneRegistry = new ConsolePaneRegistry();
-  registerWorkflowPanes(paneRegistry);
-  return {
-    paneRegistry,
-    context: {
-      route: { kind: "workflows" },
-      bridge: createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }),
-      frameStore,
-      sessionStore: undefined,
-      sessionStoreRegistry,
-      paneRegistry,
-    } as unknown as ConsoleSurfaceContext,
-  };
-}
-
+/** Mount one already-composed window and hand back the tree it rendered into. */
 function renderComposed(composed: ComposedWindow): HTMLElement {
-  const { container } = render(
-    <LiveAnnouncerProvider>
-      <WorkflowsPaneHost context={composed.context} />
-    </LiveAnnouncerProvider>,
-  );
-  return container;
+  return mountWorkflowsSlot(composed).container;
 }
 
+/** Compose a window from `options` and mount the slot into it. */
 function renderHost(options: SurfaceContextOptions = DEFAULT_WINDOW): HTMLElement {
   return renderComposed(composeWindow(options));
-}
-
-/**
- * Replace the builder body on one composition's board with a recording one.
- *
- * A probe rather than an assertion against a real body, because no registered body
- * renders the session it was given: the store is handed on to slots whose own tests
- * check what they receive. The probe observes the seam this host owns — which store it
- * composed — and observes nothing else. It replaces the body on THAT composition's
- * board, so nothing outside the case sees it and no teardown is owed.
- */
-function probeBuilderPane(paneRegistry: ConsolePaneRegistry): readonly ConsolePaneContext[] {
-  const mountedContexts: ConsolePaneContext[] = [];
-  paneRegistry.unregister("workflow-builder");
-  paneRegistry.register({
-    kind: "workflow-builder",
-    owner: "workflows-pane-host-test",
-    render: (context) => {
-      mountedContexts.push(context);
-      return <p>probe</p>;
-    },
-  });
-  return mountedContexts;
-}
-
-/** Move the destination off its retained session and onto the one a person picks. */
-async function chooseSessionInPicker(container: HTMLElement): Promise<void> {
-  const rescope = container.querySelector(".meridian-workflows-destination__rescope");
-  if (rescope instanceof HTMLElement) {
-    fireEvent.click(rescope);
-    await settle();
-  }
-  pressFirst(container, ".meridian-choice-list__choice");
-  await settle();
-}
-
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
-
-function pressFirst(container: HTMLElement, selector: string): void {
-  const control = container.querySelector(selector);
-  if (!(control instanceof HTMLElement)) {
-    throw new Error(`nothing matched ${selector}`);
-  }
-  fireEvent.click(control);
 }
 
 describe("what the workflows slot mounts", () => {

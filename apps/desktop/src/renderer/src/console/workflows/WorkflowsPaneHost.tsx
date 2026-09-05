@@ -38,12 +38,24 @@
 // it is one piece of state, held at the surface both halves hang off and pushed DOWN
 // — the destination is controlled rather than reporting its settlement back up, which
 // would be a second copy of a value `destination-scope.ts` already computes.
+//
+// AND BOTH ARE HELD AGAINST THE PORT, BECAUSE BOTH ARE ANSWERS ABOUT ONE DAEMON. The
+// chosen session and the open pane address are choices a person made from lists the
+// bridge below served, and the fixture's scenario switch replaces that bridge without
+// unmounting this host. Held for the MOUNT, a session picked under the previous port
+// scoped both of the destination's reads under the next one and the open address named
+// a run the next one has never heard of — so the browser asserted "no definitions in
+// this session" and the pane asserted a run's absence, two claims about a daemon
+// nothing had asked. The reads below were already addressed by the port; these two are
+// the choices MADE from them, and a choice outliving the answer it was made from is
+// the same conflation one level up. Both therefore re-mint during the render that
+// brings the new port, exactly as `bridge/session-directory.ts` re-reads in it.
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import type { ConsolePaneAddress } from "../seats/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
-import { useFrameStore } from "../store/index.js";
+import { useFrameStore, useSubjectScopedState } from "../store/index.js";
 import { OpenPaneBody } from "./OpenPaneBody.js";
 import {
   FOLLOWING_WINDOW_RETENTION,
@@ -66,20 +78,31 @@ export interface WorkflowsPaneHostProps {
 /** The workflows slot: its destination, or the pane that destination opened. */
 export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Element {
   const { context } = props;
-  const [openAddress, setOpenAddress] = useState<ConsolePaneAddress | undefined>(undefined);
-  // Stable across renders so the destination's memoized children are not handed a
-  // fresh action every pass; the setter React gives back is itself stable.
-  const openPane = useCallback((address: ConsolePaneAddress) => {
-    setOpenAddress(address);
-  }, []);
+  // Addressed by the port and by nothing else, which is the whole of what either choice
+  // is about — there is no second key, because a person choosing a session and opening
+  // a pane from it is answering one daemon.
+  const { value: openAddress, publish: setOpenAddress } = useSubjectScopedState<
+    ConsolePaneAddress | undefined
+  >(context.bridge.growth, undefined, () => undefined);
+  // Stable across every render that did not re-address, so the destination's memoized
+  // children are not handed a fresh action each pass; the publisher the holder gives
+  // back moves exactly when the port does, which is when they should be.
+  const openPane = useCallback(
+    (address: ConsolePaneAddress) => {
+      setOpenAddress(address);
+    },
+    [setOpenAddress],
+  );
   const closePane = useCallback(() => {
     setOpenAddress(undefined);
-  }, []);
-  // Held for the mount and pushed down, never persisted — `WorkflowsDestination.tsx`'s
-  // header says why the choice itself is not written anywhere durable. The setter React
-  // gives back is stable, so the controlled destination is not handed a fresh callback
-  // on every pass.
-  const [scope, setScope] = useState<WorkflowsScopeState>(FOLLOWING_WINDOW_RETENTION);
+  }, [setOpenAddress]);
+  // Pushed down and never persisted — `WorkflowsDestination.tsx`'s header says why the
+  // choice itself is not written anywhere durable.
+  const { value: scope, publish: setScope } = useSubjectScopedState<WorkflowsScopeState>(
+    context.bridge.growth,
+    undefined,
+    () => FOLLOWING_WINDOW_RETENTION,
+  );
   // Read through the store's own selector seam rather than off the surface context,
   // so a session opened while this surface is mounted is reflected here as it is in
   // the destination beside it.

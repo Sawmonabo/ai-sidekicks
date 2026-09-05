@@ -60,7 +60,7 @@ export function ChatStartSlot(props: ChatStartSlotProps): React.JSX.Element {
   const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      seat={WORKFLOW_CHAT_START_SLOT}
+      contract={WORKFLOW_CHAT_START_SLOT}
       body={body}
       mount={mount}
       title="Starting a run by talking to it is not built yet."

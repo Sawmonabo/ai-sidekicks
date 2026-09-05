@@ -23,8 +23,11 @@
 // the frame's reserved-slot absence, which was a true sentence about a browser this
 // family had in fact already built.
 //
-// THE STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, so the bundler sees one edge
-// into it and a surface can never render a chrome that arrived without its rules.
+// THE FAMILY'S SHARED SHEET IS IMPORTED HERE AND NOWHERE ELSE, so the bundler sees
+// one edge into it and a surface can never render a chrome that arrived without its
+// rules. It is not the family's only stylesheet edge: each pane's sub-module door
+// owns its own sheet and the graph chunk's door owns two, which is what keeps a
+// surface's rules off the initial document for every session that never opens it.
 //
 // WHY THIS BARREL BUILDS ELEMENTS RATHER THAN BEING A `.tsx`. It owns a TABLE —
 // kind, owner, body, and the tear-off answer — not a view, which is the same reason
@@ -35,13 +38,20 @@ import "./workflows.css";
 
 import { createElement } from "react";
 
-// Deep, and this is the one import in the family that must be. The frame's barrel
-// also exports `ConsoleRoot`, which composes the families — so a family reaching the
-// surface seat THROUGH that barrel closes a cycle the layering gate rejects
-// (`families.ts → workflows/index.ts → frame/index.ts → ConsoleRoot.tsx →
-// families.ts`). `families.ts` deep-imports this same module for the same reason.
-// The seat is a registry type and nothing else; the family reaches no other part of
-// the frame.
+// Deep, and it has to be. The frame's barrel also exports `ConsoleRoot`, which
+// composes the families — so a family reaching the surface seat THROUGH that barrel
+// closes a cycle the layering gate rejects (`families.ts → workflows/index.ts →
+// frame/index.ts → ConsoleRoot.tsx → families.ts`). `families.ts` deep-imports this
+// same module for the same reason. The seat is a registry type and nothing else; the
+// family reaches no other part of the frame.
+//
+// THREE PRODUCTION MODULES HERE CARRY THIS IMPORT, and they are named because the
+// claim is a census of a deliberately-exempted edge class rather than a note about
+// this line: this module, `WorkflowsPaneHost.tsx` and `OpenPaneBody.tsx`. All three
+// are green because `.dependency-cruiser.mjs` subtracts the surface registry at the
+// `to` end, so nothing reports the count either way — and that config says the
+// exemption goes away "at which point this rule covers the whole console", which
+// makes this the list whoever performs that deletion comes here to find.
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import {
   paneBodyForKind,

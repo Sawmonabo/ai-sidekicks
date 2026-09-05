@@ -28,7 +28,7 @@ describe("a plan-owned slot's mount", () => {
   it("renders the reserved absence while no body has been supplied", () => {
     const { container } = render(
       <WorkflowSlotMount
-        seat={WORKFLOW_CHAT_START_SLOT}
+        contract={WORKFLOW_CHAT_START_SLOT}
         body={undefined}
         mount={PROBE_MOUNT}
         {...RESERVED_COPY}
@@ -45,7 +45,7 @@ describe("a plan-owned slot's mount", () => {
     const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
     const { container } = render(
       <WorkflowSlotMount
-        seat={WORKFLOW_CHAT_START_SLOT}
+        contract={WORKFLOW_CHAT_START_SLOT}
         body={body}
         mount={PROBE_MOUNT}
         {...RESERVED_COPY}
@@ -63,7 +63,7 @@ describe("a plan-owned slot's mount", () => {
     const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
     const { container } = render(
       <WorkflowSlotMount
-        seat={WORKFLOW_CHAT_START_SLOT}
+        contract={WORKFLOW_CHAT_START_SLOT}
         body={body}
         mount={undefined}
         {...RESERVED_COPY}
@@ -85,7 +85,7 @@ describe("a plan-owned slot's mount", () => {
     }
     const { container, rerender } = render(
       <WorkflowSlotMount
-        seat={WORKFLOW_CHAT_START_SLOT}
+        contract={WORKFLOW_CHAT_START_SLOT}
         body={StatefulBody}
         mount={undefined}
         {...RESERVED_COPY}
@@ -94,7 +94,7 @@ describe("a plan-owned slot's mount", () => {
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     rerender(
       <WorkflowSlotMount
-        seat={WORKFLOW_CHAT_START_SLOT}
+        contract={WORKFLOW_CHAT_START_SLOT}
         body={StatefulBody}
         mount={PROBE_MOUNT}
         {...RESERVED_COPY}
@@ -106,7 +106,7 @@ describe("a plan-owned slot's mount", () => {
   it("renders none of the seat's governance prose, on either arm", () => {
     const seatless = render(
       <WorkflowSlotMount
-        seat={WORKFLOW_CHAT_START_SLOT}
+        contract={WORKFLOW_CHAT_START_SLOT}
         body={undefined}
         mount={PROBE_MOUNT}
         {...RESERVED_COPY}
@@ -114,7 +114,7 @@ describe("a plan-owned slot's mount", () => {
     );
     const filled = render(
       <WorkflowSlotMount
-        seat={WORKFLOW_CHAT_START_SLOT}
+        contract={WORKFLOW_CHAT_START_SLOT}
         body={() => <p>probe body</p>}
         mount={PROBE_MOUNT}
         {...RESERVED_COPY}

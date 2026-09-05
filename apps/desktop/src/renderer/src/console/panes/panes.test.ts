@@ -56,17 +56,39 @@ const RESERVED_LINES: readonly string[] = [
 ];
 
 /**
- * A filled seat: exactly one registration call and nothing else on the line.
+ * A filled seat: one registration call, then the kinds that family claims.
  *
  * Anchored at both ends on purpose. An unanchored pattern would accept a line that
  * carried a condition or a second statement beside the call, which is the shape this
- * whole file exists to keep out of the seat board.
+ * whole file exists to keep out of the seat board — and the tail it does admit is a
+ * line COMMENT, which is neither.
+ *
+ * The kinds are part of the shape rather than decoration, because the board's own
+ * contract is that "its line names the kinds it claims, so a reviewer can read the
+ * whole deck off this file". A filled line that dropped them would take the deck's
+ * census out of the file the moment a seat stopped being reserved, which is exactly
+ * when a reviewer needs it.
  */
-const FILLED_SEAT = /^register[A-Za-z]+Panes\(registry\);$/u;
+const FILLED_SEAT =
+  /^register[A-Za-z]+Panes\(registry\); \/\/ (?<kinds>[a-z][a-z-]*(?: [a-z][a-z-]*)*)$/u;
+
+/**
+ * The kinds a seat claims, read off its reserved line.
+ *
+ * Derived rather than listed a second time: the reserved lines already carry the kinds
+ * beside the task that will claim them, so a filled seat is checked against what its
+ * own reservation promised instead of against a table that could drift from it.
+ */
+function claimedKinds(reserved: string): string {
+  return reserved.replace(/^\/\/ T-023p-1C-\d+ /u, "");
+}
 
 /** Whether a body line satisfies the seat at its position. */
 function satisfiesSeat(line: string, reserved: string): boolean {
-  return line === reserved || FILLED_SEAT.test(line);
+  if (line === reserved) {
+    return true;
+  }
+  return FILLED_SEAT.exec(line)?.groups?.["kinds"] === claimedKinds(reserved);
 }
 
 /** The body of `registerConsolePanes`, from its brace to the matching close. */
@@ -96,6 +118,16 @@ describe("pane seat board — reserved lines only", () => {
     expect(
       lines.map((line, seatIndex) => satisfiesSeat(line, RESERVED_LINES[seatIndex] ?? "")),
     ).toStrictEqual(RESERVED_LINES.map(() => true));
+  });
+
+  it("negative control: a filled seat that names the wrong kinds is rejected", () => {
+    // Without this, the case above would pass over a `satisfiesSeat` that ignored the
+    // comment it reads — which is the whole of what makes a filled line still a census
+    // entry rather than a call a reviewer has to leave the file to understand.
+    expect(
+      satisfiesSeat("registerWorkflowPanes(registry); // timeline", RESERVED_LINES[4] ?? ""),
+    ).toBe(false);
+    expect(satisfiesSeat("registerWorkflowPanes(registry);", RESERVED_LINES[4] ?? "")).toBe(false);
   });
 
   it("negative control: a seventh line, or a line that is neither state, is rejected", () => {

@@ -27,9 +27,20 @@
 // route to the announcer and it dedups on the SENTENCE SET, which is right for the
 // incomplete-reading notices it speaks and wrong for every settlement here: two
 // sessions holding the same number of rows say the same words, and a sentence-keyed
-// latch would announce the first and go silent on the second. Until the primitive takes
-// a caller-supplied dedup key, this family keeps ONE adapter beside its door rather
-// than three latches, and the substrate request naming that signature travels with it.
+// latch would announce the first and go silent on the second. So this family keeps ONE
+// adapter beside its door rather than three latches.
+//
+// AND THE PRIMITIVE HAS NO READER IN THIS FAMILY, which is the fact rather than a plan.
+// Its two rendering sites are `WorkflowsScopePicker.tsx`, whose header records why
+// nothing there is announced at all and whose only notice is a `reading` one the
+// primitive is deliberately silent about, and `definitions/DefinitionsBrowser.tsx`,
+// whose continuation refusal is already announced through the hook below by
+// `WorkflowsBrowser.tsx`'s own sentence — so binding it would say that refusal twice.
+// The disposition this leaves is the primitive's door line, which names this family
+// among the consumers of `useReadingAnnouncement`: either the primitive grows a
+// caller-supplied dedup key and this adapter is deleted in that same change, or the
+// door line stops naming this family. Both edits are `primitives/`', which is why
+// neither is here; what is here is the reason a reader can check.
 //
 // POLITE, ALWAYS. `frame/banner-announcements.ts` reserves the assertive lane for a
 // refusal that changed what the whole room can do; a list that could not be read is its
