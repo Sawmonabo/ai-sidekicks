@@ -72,7 +72,7 @@ describe("what one settled attention read says", () => {
       describeAttentionSettlement(answered({ refusedSessions: [refusedSession("s-1")] })),
     ).toBe("Nothing was found in what this read covered. One session could not be checked.");
     expect(describeAttentionSettlement(answered({ droppedCount: 1 }))).toBe(
-      "Nothing was found in what this read covered. One item in that read did not match the shape this console recognises, and was not shown.",
+      "Nothing was found in what this read covered. 1 delivery could not be read, so what needs you may be behind what the daemon has sent.",
     );
   });
 
@@ -97,7 +97,7 @@ describe("what one settled attention read says", () => {
         }),
       ),
     ).toBe(
-      "2 items need you. One session could not be checked. 2 items in that read did not match the shape this console recognises, and were not shown.",
+      "2 items need you. One session could not be checked. 2 deliveries could not be read, so what needs you may be behind what the daemon has sent.",
     );
   });
 

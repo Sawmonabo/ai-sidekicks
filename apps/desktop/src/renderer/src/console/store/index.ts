@@ -97,7 +97,6 @@ export {
 export {
   /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   earliestFutureDeadline,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   useDeadlineWake,
 } from "./deadline-wake.js";
 

@@ -103,9 +103,16 @@ describe("what the destination puts beside the list", () => {
 });
 
 describe("the invitations the destination reads for", () => {
-  /** One invitation as the port serves it. Pending, so the shelf lists it. */
+  /**
+   * One invitation as the port serves it. Pending AND unlapsed, so the shelf lists it.
+   *
+   * The expiry is far out rather than merely plausible, and that is what keeps these
+   * cases about the fan-out. The shelf stops offering an invitation whose expiry has
+   * passed, and this surface runs on the wall clock, so a nearby stamp would make
+   * every case below start failing on a date rather than on a change.
+   */
   function pendingInvite(inviteId: string): unknown {
-    return { inviteId, state: "pending", expiresAt: "2026-02-01T10:00:00.000Z" };
+    return { inviteId, state: "pending", expiresAt: "2999-01-01T00:00:00.000Z" };
   }
 
   it("asks once per session it can name, and names each of them", async () => {

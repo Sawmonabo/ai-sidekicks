@@ -35,6 +35,7 @@
 // asserting a fact the daemon never sent.
 
 import type { ConsoleRefusal } from "../../core/index.js";
+import { unreadableDeliveryReading, type ReadingState } from "../../primitives/index.js";
 import {
   ATTENTION_SEVERITIES,
   ATTENTION_TRIGGERS,
@@ -389,3 +390,31 @@ export type AttentionReading =
       /** Sessions that never answered. Non-empty means the coverage is incomplete. */
       readonly refusedSessions: readonly RefusedAttentionSession[];
     };
+
+/** The arm that answered. Named once, so the readings below take it directly. */
+export type AnsweredAttentionReading = Extract<AttentionReading, { readonly phase: "read" }>;
+
+/** What every surface and every announcement calls what this read was of. */
+export const ATTENTION_SUBJECT = "what needs you";
+
+/**
+ * How complete a read that ANSWERED was, in the console's own vocabulary.
+ *
+ * One fact today and deliberately a set rather than one member: `droppedCount` is
+ * members the boundary could not read, which is exactly `partial` — a producer that
+ * counted what it could not read. The sentence for it comes from
+ * `primitives/partial-read.ts` and from nowhere else, so the panel and the spoken
+ * settlement cannot drift into saying different things about one number.
+ *
+ * `refusedSessions` is deliberately NOT folded in here. The nearest kind is a
+ * refusal `beside-an-answer`, whose sentence carries no figure — and how many of the
+ * sessions asked never answered is the whole of what that fact tells a person, so
+ * mapping it there would trade a count for a grammar. It stays the family's own
+ * sentence until the vocabulary carries a counted coverage reading.
+ *
+ * The other three phases map to nothing: they are rule 8's absences, which the panel
+ * renders through `Nothing` and `RefusalCard` as the whole of what it has.
+ */
+export function answeredReadingStates(reading: AnsweredAttentionReading): readonly ReadingState[] {
+  return [unreadableDeliveryReading(reading.droppedCount, undefined)];
+}

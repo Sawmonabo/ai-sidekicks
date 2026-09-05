@@ -151,14 +151,14 @@ describe("members the boundary refused", () => {
       />,
     );
     const text = container.textContent ?? "";
-    expect(text).toContain("2 items in that read");
+    expect(text).toContain("2 deliveries could not be read");
     // Groups above and the dropped line below: a partial read shows both halves.
     expect(container.querySelectorAll(".meridian-attention__group")).toHaveLength(1);
   });
 
   it("negative control: a clean read says nothing about dropped members", () => {
     const { container } = render(<NotificationCenter reading={readingOf([item()])} />);
-    expect(container.textContent ?? "").not.toContain("in that read");
+    expect(container.textContent ?? "").not.toContain("could not be read");
   });
 
   it("never reports an all-clear for a read it could recognise none of", () => {
@@ -176,7 +176,7 @@ describe("members the boundary refused", () => {
     );
     const text = container.textContent ?? "";
     expect(text).not.toContain("Nothing needs you.");
-    expect(text).toContain("2 items in that read");
+    expect(text).toContain("2 deliveries could not be read");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
@@ -254,7 +254,7 @@ describe("a read that did not cover every session", () => {
     );
     const text = container.textContent ?? "";
     expect(text).toContain("One session could not be checked.");
-    expect(text).toContain("One item in that read");
+    expect(text).toContain("1 delivery could not be read");
   });
 });
 

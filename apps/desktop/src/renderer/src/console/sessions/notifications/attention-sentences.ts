@@ -20,8 +20,13 @@
 // have to be kept honest; joining up to three clauses means each fact is worded once
 // and appears exactly when it is true.
 
-import { formatCount } from "../../primitives/index.js";
-import type { AttentionReading } from "./attention-plane.js";
+import { formatCount, partialReadNotices } from "../../primitives/index.js";
+import {
+  answeredReadingStates,
+  ATTENTION_SUBJECT,
+  type AnsweredAttentionReading,
+  type AttentionReading,
+} from "./attention-plane.js";
 
 /**
  * A reading that has settled.
@@ -31,9 +36,6 @@ import type { AttentionReading } from "./attention-plane.js";
  * sentence about a settlement that has not happened.
  */
 export type SettledAttentionReading = Exclude<AttentionReading, { readonly phase: "reading" }>;
-
-/** The arm that answered, named once so the clause helpers can take it directly. */
-type AnsweredAttentionReading = Extract<AttentionReading, { readonly phase: "read" }>;
 
 /** The all-clear, so the panel and its announcement say one thing. */
 export const NOTHING_NEEDS_YOU = "Nothing needs you.";
@@ -46,19 +48,28 @@ export function uncheckedSessionsSentence(refusedCount: number): string {
 }
 
 /**
- * What the console says about members its boundary refused.
+ * What the console says aloud about a read that was not the whole of it.
  *
- * One sentence with three homes — beside the groups a partial read produced, as the
- * whole body of a read that produced none, and in the spoken settlement — so they
- * can never drift into saying different things about one number. It names the SHAPE
- * rather than one cause, because the boundary drops on several: a trigger or
- * severity outside its closed set, a missing required member, and an optional member
- * the producer sent that could not be read.
+ * The SENTENCES the panel is already showing, read off `primitives/partial-read.ts`
+ * rather than composed again here — which is the whole point of that module: this
+ * family wrote its own copy, and a second wording of one number is a disagreement
+ * nobody can see from either half. The figure travels with its sentence because "3"
+ * and "deliveries could not be read" spoken apart are two fragments.
  */
-export function unrecognisedItemsSentence(droppedCount: number): string {
-  return droppedCount === 1
-    ? "One item in that read did not match the shape this console recognises, and was not shown."
-    : `${formatCount(droppedCount)} items in that read did not match the shape this console recognises, and were not shown.`;
+function incompletenessSentences(reading: AnsweredAttentionReading): readonly string[] {
+  const sentences: string[] = [];
+  for (const notice of partialReadNotices(answeredReadingStates(reading), ATTENTION_SUBJECT)) {
+    if (notice.shape === "counted-sentence") {
+      sentences.push(`${notice.figure} ${notice.copy}`);
+      continue;
+    }
+    if (notice.shape === "sentence") {
+      sentences.push(notice.copy);
+    }
+    // The `reading` shape says nothing aloud — rule 8's `not-loaded` absence speaks
+    // its own title through `Nothing` — and `none` is a reading that was whole.
+  }
+  return sentences;
 }
 
 /**
@@ -81,9 +92,7 @@ export function describeAttentionSettlement(reading: SettledAttentionReading): s
   if (reading.refusedSessions.length > 0) {
     clauses.push(uncheckedSessionsSentence(reading.refusedSessions.length));
   }
-  if (reading.droppedCount > 0) {
-    clauses.push(unrecognisedItemsSentence(reading.droppedCount));
-  }
+  clauses.push(...incompletenessSentences(reading));
   return clauses.join(" ");
 }
 

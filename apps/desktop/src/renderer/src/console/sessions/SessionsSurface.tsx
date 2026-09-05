@@ -57,7 +57,7 @@ import type { SessionDirectoryState } from "../frame/session-directory.js";
 import { useSessionDirectory } from "../frame/session-directory.js";
 import { renderAbsorbedSessionProbe } from "../frame/legacy-surfaces.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
-import type { AttentionSeverity, GrowthPort } from "../bridge/index.js";
+import { consoleClockFor, type AttentionSeverity, type GrowthPort } from "../bridge/index.js";
 import {
   NotificationCenter,
   attentionProjectionReaderFor,
@@ -137,6 +137,13 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     [growth, attentionSessionIds],
   );
 
+  // The shelf arms one wake-up per outstanding invitation expiry, so it needs the
+  // clock this window runs on — the scenario's frozen one under the fixture, so a
+  // screenshot's expiry thresholds are byte-stable. Resolved once off the bridge
+  // rather than on every render: a fresh instance would cancel and re-arm the
+  // shelf's timer every pass.
+  const shelfClock = useMemo(() => consoleClockFor(context.bridge), [context.bridge]);
+
   const startControl = (
     <button
       type="button"
@@ -179,7 +186,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         </div>
 
         <aside className="meridian-sessions__aside" aria-label="What is waiting on you">
-          <InviteShelf read={readInvites} uiStateStore={context.uiStateStore} />
+          <InviteShelf read={readInvites} uiStateStore={context.uiStateStore} clock={shelfClock} />
           <NotificationCenter reading={attention} />
         </aside>
       </div>

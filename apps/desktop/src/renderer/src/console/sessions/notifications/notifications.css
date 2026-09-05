@@ -120,12 +120,6 @@
   margin-bottom: var(--meridian-space-2);
 }
 
-.meridian-attention__dropped {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-}
-
 /* The sessions a fan-out never got an answer for.
  *
  * A stack under whatever the sessions that DID answer produced, never beside it:

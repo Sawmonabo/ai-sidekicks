@@ -38,17 +38,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { parseInstant, type ConsoleClock } from "../core/index.js";
 import {
   Chip,
   InlineRefusal,
   Nothing,
+  PartialRead,
   WireFigure,
   formatCount,
   formatDateTime,
+  type ReadingState,
 } from "../primitives/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { UiStateStore } from "../persistence/index.js";
+import { useDeadlineWake } from "../store/index.js";
 import { useHiddenInvites } from "./hidden-invites.js";
+
+/** What the shelf's notices call what was read. Mid-sentence, so never capitalized. */
+const SHELF_SUBJECT = "your invitations";
 
 /**
  * What one `invitesList` call answers.
@@ -94,30 +101,35 @@ export interface InviteShelfProps {
   readonly read: InviteShelfReader;
   /** The durable store the hide set is written through. */
   readonly uiStateStore: UiStateStore;
-}
-
-/**
- * A refusal this read carried, and what it is the answer TO.
- *
- * The scope is decided where the outcomes are counted and never re-derived in a
- * render body: two views would eventually disagree about whether one refusal is
- * the shelf's result or a note beside one, and the disagreement would show as a
- * refusal rendered twice or not at all.
- */
-interface ShelfRefusalReading {
   /**
-   * `whole-answer` when NO session answered — the refusal is all the shelf knows.
-   * `beside-an-answer` when at least one did — the served result renders and this
-   * renders with it, because a refusal is never hidden and never overstated.
+   * The clock the expiry wake-up is armed on.
+   *
+   * A prop rather than a context read, on this component's own standing shape: it
+   * performs no bridge call and takes every dependency it has from the surface that
+   * mounts it, which is what lets a case drive it on frozen time with no provider
+   * above it. `consoleClockFor` is where a caller gets one.
    */
-  readonly scope: "whole-answer" | "beside-an-answer";
-  readonly refusal: InvitesListRefusal;
+  readonly clock: ConsoleClock;
 }
 
 /** The invitations worth showing, and what the sessions that were asked answered. */
 interface ShelfReading {
   readonly pending: readonly ReceivedInvite[];
-  readonly refusal: ShelfRefusalReading | undefined;
+  /**
+   * What the fan-out could not answer, in the console's own completeness vocabulary.
+   *
+   * `primitives/partial-read.ts` owns both the shape and the sentence, so the shelf
+   * decides the one thing that is its own — the SCOPE, which follows from how many
+   * sessions answered — and writes none of the words. The scope is settled here,
+   * where the outcomes are counted, and never re-derived in a render body: two views
+   * would eventually disagree about whether one refusal is the shelf's result or a
+   * note beside one, and the disagreement would show as a refusal rendered twice or
+   * not at all.
+   *
+   * An empty set means every session answered, which is the only state that claims
+   * the shelf is showing the whole of it.
+   */
+  readonly states: readonly ReadingState[];
   readonly askedCount: number;
   /**
    * How many of them ANSWERED, whatever they answered with.
@@ -160,10 +172,16 @@ function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading {
   }
   return {
     pending: [...byInviteId.values()],
-    refusal:
+    states:
       refusal === undefined
-        ? undefined
-        : { scope: servedCount === 0 ? "whole-answer" : "beside-an-answer", refusal },
+        ? []
+        : [
+            {
+              kind: "refused",
+              scope: servedCount === 0 ? "whole-answer" : "beside-an-answer",
+              refusal,
+            },
+          ],
     askedCount: outcomes.length,
     servedCount,
   };
@@ -179,6 +197,43 @@ function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading {
  */
 function isCompleteRead(reading: ShelfReading): boolean {
   return reading.servedCount === reading.askedCount;
+}
+
+/**
+ * When each pending invitation stops working, as instants a wake-up can be armed on.
+ *
+ * Unreadable stamps are dropped rather than defaulted: an expiry this console cannot
+ * read is not evidence that the invitation has lapsed, and a `NaN` handed to the
+ * wake-up would arm a timer that fires immediately and forever. Such a row keeps
+ * rendering as waiting and shows the wire's own spelling, which is the honest
+ * reading of a stamp nobody here could parse.
+ */
+function expiryDeadlinesOf(invites: readonly ReceivedInvite[]): readonly number[] {
+  return invites
+    .map((invite) => parseInstant(invite.expiresAt).epochMilliseconds)
+    .filter((epochMilliseconds): epochMilliseconds is number => epochMilliseconds !== undefined);
+}
+
+/**
+ * The invitations still waiting at `atMilliseconds`.
+ *
+ * The wire's `pending` is what the read SAW, and a console left open outlives it: an
+ * invitation whose expiry has passed is not waiting on anybody, and going on
+ * offering it is the shelf claiming something the daemon would contradict on its
+ * next answer. So the expiry is read against an instant that moves — see
+ * `useDeadlineWake` — rather than against the instant of the last read.
+ *
+ * An unreadable expiry keeps the row: the alternative is hiding an invitation on the
+ * strength of a stamp this console could not read.
+ */
+function stillWaitingAt(
+  invites: readonly ReceivedInvite[],
+  atMilliseconds: number,
+): readonly ReceivedInvite[] {
+  return invites.filter((invite) => {
+    const expiry = parseInstant(invite.expiresAt).epochMilliseconds;
+    return expiry === undefined || expiry > atMilliseconds;
+  });
 }
 
 export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
@@ -209,6 +264,19 @@ export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
     [outcomes],
   );
 
+  // One wake-up per outstanding expiry, on the console's one deadline mechanism.
+  // Without it the shelf renders against the instant of its last read for as long as
+  // the window stays open, which is exactly how a person leaves a session — and the
+  // rows below turn on whether that instant has passed.
+  const wokeAtMilliseconds = useDeadlineWake(
+    props.clock,
+    useMemo(() => expiryDeadlinesOf(reading?.pending ?? []), [reading]),
+  );
+  const waiting = useMemo(
+    () => stillWaitingAt(reading?.pending ?? [], wokeAtMilliseconds),
+    [reading, wokeAtMilliseconds],
+  );
+
   useEffect(() => {
     if (reading === undefined || !isCompleteRead(reading)) {
       // A read that any session did not answer is not evidence that an invitation
@@ -216,17 +284,19 @@ export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
       // inferred from the refusal field, which is a different question.
       return;
     }
-    pruneAgainst(reading.pending.map((invite) => invite.inviteId));
+    // Against what is still WAITING rather than everything the read returned: an
+    // invitation that lapsed while this console held it is gone whichever way a
+    // person had filed it, so leaving its hide entry behind would keep a dead
+    // identifier in a durable set forever.
+    pruneAgainst(waiting.map((invite) => invite.inviteId));
     // The hide set is a dependency, not just an input: it arrives from the durable
     // store on its own schedule, and a read that settled first would otherwise
     // prune an empty set and never look again. `pruneAgainst` writes nothing when
     // nothing changed, so the re-run this admits terminates on its first pass.
-  }, [reading, hidden.hiddenInviteIds, pruneAgainst]);
+  }, [reading, waiting, hidden.hiddenInviteIds, pruneAgainst]);
 
-  const visible = (reading?.pending ?? []).filter(
-    (invite) => !hidden.hiddenInviteIds.includes(invite.inviteId),
-  );
-  const setAsideCount = (reading?.pending.length ?? 0) - visible.length;
+  const visible = waiting.filter((invite) => !hidden.hiddenInviteIds.includes(invite.inviteId));
+  const setAsideCount = waiting.length - visible.length;
 
   return (
     <section className="meridian-invite-shelf" aria-label="Invitations">
@@ -239,7 +309,7 @@ export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
             {`${formatCount(setAsideCount)} set aside`}
           </summary>
           <ul className="meridian-invite-shelf__rows">
-            {(reading?.pending ?? [])
+            {waiting
               .filter((invite) => hidden.hiddenInviteIds.includes(invite.inviteId))
               .map((invite) => (
                 <li key={invite.inviteId}>
@@ -278,16 +348,19 @@ function ShelfBody(props: {
       />
     );
   }
-  if (reading.refusal?.scope === "whole-answer") {
-    return <InlineRefusal {...reading.refusal.refusal} />;
-  }
-  // Past this point any refusal is `beside-an-answer` by construction, so it
-  // renders under whatever the sessions that DID answer produced — an empty
-  // shelf included, since "one session has nothing for you and another would not
-  // say" is two facts and the shelf owes a person both of them.
+  // The notice comes FIRST and the rows follow it, which is the console's own rule
+  // for a reading that is not the whole of it: what a notice withdraws is the claim
+  // that the rows are all of it, so it can never be read as a footnote to them.
+  //
+  // A refusal that is the WHOLE answer takes the rows away with it — nothing
+  // answered, so there is nothing an empty state could honestly say. Anything else
+  // renders under whatever the sessions that DID answer produced, an empty shelf
+  // included, since "one session has nothing for you and another would not say" is
+  // two facts and the shelf owes a person both of them.
   return (
     <>
-      {props.visible.length === 0 ? (
+      <PartialRead states={reading.states} subject={SHELF_SUBJECT} />
+      {reading.servedCount === 0 ? null : props.visible.length === 0 ? (
         <Nothing
           kind="empty"
           placement="surface"
@@ -309,7 +382,6 @@ function ShelfBody(props: {
           ))}
         </ul>
       )}
-      {reading.refusal === undefined ? null : <InlineRefusal {...reading.refusal.refusal} />}
     </>
   );
 }

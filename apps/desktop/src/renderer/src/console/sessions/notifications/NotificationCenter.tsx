@@ -41,21 +41,21 @@ import {
   Chip,
   InlineRefusal,
   Nothing,
+  PartialRead,
   RefusalCard,
   WireFigure,
   formatCount,
   formatDateTime,
 } from "../../primitives/index.js";
-import type {
-  AttentionReading,
-  AttentionSessionGroup,
-  RefusedAttentionSession,
-} from "./attention-plane.js";
 import {
-  NOTHING_NEEDS_YOU,
-  uncheckedSessionsSentence,
-  unrecognisedItemsSentence,
-} from "./attention-sentences.js";
+  answeredReadingStates,
+  ATTENTION_SUBJECT,
+  type AnsweredAttentionReading,
+  type AttentionReading,
+  type AttentionSessionGroup,
+  type RefusedAttentionSession,
+} from "./attention-plane.js";
+import { NOTHING_NEEDS_YOU, uncheckedSessionsSentence } from "./attention-sentences.js";
 
 /**
  * How one trigger reads. Total over the closed six by construction, so a seventh
@@ -143,7 +143,7 @@ function ProjectionBody(props: {
             title="Some sessions could not be checked."
             detail={`${uncheckedSessionsSentence(refusedSessions.length)} Nothing was found in the ones that answered, which is not an all-clear.`}
           />
-          {droppedCount === 0 ? null : <DroppedMembersLine droppedCount={droppedCount} />}
+          <ReadCompleteness reading={props.reading} />
           <RefusedSessions sessions={refusedSessions} />
         </>
       );
@@ -156,16 +156,19 @@ function ProjectionBody(props: {
         detail="Approvals, questions, finished runs, invitations, and mentions all appear here while they are unresolved."
       />
     ) : (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="Nothing in that read could be recognised."
-        detail={unrecognisedItemsSentence(droppedCount)}
-      />
+      <>
+        <Nothing
+          kind="not-checked"
+          placement="surface"
+          title="Nothing in that read could be recognised."
+        />
+        <ReadCompleteness reading={props.reading} />
+      </>
     );
   }
   return (
     <>
+      <ReadCompleteness reading={props.reading} />
       <ul className="meridian-attention__groups">
         {plane.groups.map((group) => (
           <li key={group.sessionId}>
@@ -177,10 +180,24 @@ function ProjectionBody(props: {
           </li>
         ))}
       </ul>
-      {droppedCount === 0 ? null : <DroppedMembersLine droppedCount={droppedCount} />}
       {refusedSessions.length === 0 ? null : <RefusedSessions sessions={refusedSessions} />}
     </>
   );
+}
+
+/**
+ * What the panel says about how complete the read it is showing was.
+ *
+ * The sentence and the figure are `primitives/partial-read.ts`'s, not this file's:
+ * the count of members the boundary could not read is the same fact the spoken
+ * settlement carries, and two wordings of one number is a disagreement neither half
+ * can see. Renders nothing when the read was whole, which is the only state that
+ * claims the groups above are all of it.
+ */
+function ReadCompleteness(props: {
+  readonly reading: AnsweredAttentionReading;
+}): React.JSX.Element | null {
+  return <PartialRead states={answeredReadingStates(props.reading)} subject={ATTENTION_SUBJECT} />;
 }
 
 /**
@@ -212,24 +229,6 @@ function RefusedSessions(props: {
         ))}
       </ul>
     </section>
-  );
-}
-
-/**
- * The dropped-members line, in both of the places a read can produce one.
- *
- * A plain paragraph and NOT `role="status"`, which it carried until this line got a
- * spoken half. Two reasons, and either is enough. `primitives/LiveAnnouncerProvider`
- * states the rule — "no other component in the console ever creates an `aria-live`
- * node" — and `role="status"` is one implicitly. And the region would have been the
- * unreliable kind anyway: it mounts carrying its own text, which is exactly the shape
- * `primitives/live-announcer.ts` decision 1 exists to avoid, so it was a live region
- * a reader may or may not speak. The fact now travels in the settlement sentence,
- * which is said through the one region that was in the tree before the text arrived.
- */
-function DroppedMembersLine(props: { readonly droppedCount: number }): React.JSX.Element {
-  return (
-    <p className="meridian-attention__dropped">{unrecognisedItemsSentence(props.droppedCount)}</p>
   );
 }
 
