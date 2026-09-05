@@ -442,6 +442,26 @@ export default [
             "Interpolating a caught value into a template runs ToPrimitive on it, exactly as `String(...)` does, and throws on a null-prototype value carrying no `toString` or any hostile accessor — inside the expression that exists to report a failure. Use `lossyStringify` from `src/shared/wire-errors.ts`, or `normalizeWireRejection` from `console/core/wire-rejection.ts` where the result is a refusal.",
         },
         {
+          // Ordering two stamps by their TEXT. `compareInstants` exists because the wire's
+          // stamps are not lexically ordered: an offset form and a `Z` form naming the same
+          // moment differ, and `2026-01-01T00:00:00+01:00` sorts AFTER `2026-01-01T00:00:00Z`
+          // while naming an EARLIER one — `core/instant.ts` states that in its own header and
+          // its suite asserts it. A list sorted this way is not approximately right; it is
+          // wrong at exactly the rows whose order a reader would check.
+          //
+          // Both sides are keyed, receiver and argument, and each arm is written twice
+          // because a stamp reaches the call either as a member (`row.createdAt`) or as a
+          // bare name (`createdAt`). The call is the match, not the identifier, so an
+          // offending comparison is reported once rather than once per side.
+          //
+          // `localeCompare` on anything else is untouched: sorting a display path, a repo
+          // name, or a participant handle is what it is for.
+          selector:
+            ':matches(CallExpression[callee.property.name="localeCompare"][callee.object.property.name=/(?:At|Iso)$/], CallExpression[callee.property.name="localeCompare"][callee.object.name=/(?:At|Iso)$/], CallExpression[callee.property.name="localeCompare"][arguments.0.property.name=/(?:At|Iso)$/], CallExpression[callee.property.name="localeCompare"][arguments.0.name=/(?:At|Iso)$/])',
+          message:
+            "Two RFC 3339 stamps are not lexically ordered: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `console/core/instant.ts`, which compares the moments; `localeCompare` on a name, a path, or a handle is untouched.",
+        },
+        {
           // Any `String(...)` inside a `catch`, not only one applied to the binding:
           // `String(thrown.detail)` runs the same ToPrimitive on the same untrusted
           // value. `lossyStringify` is total, so nothing is given up by the width.
