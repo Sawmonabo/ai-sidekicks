@@ -37,9 +37,11 @@
 //         which is why the retirement is stated here too.
 //
 // The rule itself is `barrel-census.ts` beside this file, and the reading it judges
-// is `barrel-syntax.ts` beside that, so the controls below can hand either one
-// corpora written to fail. The walk stays here, where the source-walk chokepoint can
-// see that it is the shared one.
+// is `barrel-syntax.ts` beside that. THIS FILE RUNS THEM OVER THE REAL CONSOLE;
+// `barrel-census-rule.test.ts` beside it runs them over corpora written by hand to
+// fail, which is the same split the tier's other census gates take and the reason
+// the module set is a parameter at all. The walk stays here, where the source-walk
+// chokepoint can see that it is the shared one.
 
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,6 +55,7 @@ import {
 } from "../console-source-modules.js";
 import {
   barrelSpecifiers,
+  doorsThatForwardNothing,
   censusFindings,
   findingLines,
   isConsoleBarrel,
@@ -79,23 +82,6 @@ const CONSOLE_PREFIX = "src/renderer/src/console";
  */
 const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT];
 
-/**
- * The doors that publish nothing they did not declare themselves.
- *
- * All are composition sites: `scenarios/index.ts` composes the scenario list,
- * `panes/index.ts` registers the pane board, `panes/<family>/index.ts` claims that
- * family's pane kinds, and a family's own `<family>/index.ts` claims its surfaces,
- * palette rows and chords — every one of them declaring its exports in place rather
- * than forwarding a name from elsewhere. Named here so the per-door claim below is a
- * quantifier rather than a predicate that could grow to admit anything.
- */
-const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
-  `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
-  `${CONSOLE_PREFIX}/ledger/index.ts`,
-  `${CONSOLE_PREFIX}/panes/index.ts`,
-  `${CONSOLE_PREFIX}/panes/timeline/index.ts`,
-];
-
 function toKey(absolutePath: string): string {
   return relative(DESKTOP_ROOT, absolutePath).split("\\").join("/");
 }
@@ -111,13 +97,18 @@ function consoleCensusModules(): readonly CensusModule[] {
   }));
 }
 
-/** A module written by hand, for the controls. */
-function syntheticModule(path: string, source: string): CensusModule {
-  return { path, source, isTest: /\.test(-support)?\.tsx?$/.test(path) };
-}
-
 describe("barrel census — every console re-export has a reader or a claimant", () => {
   const modules = consoleCensusModules();
+  // EVERY ENTRY POINT BELOW PARSES THE WHOLE CONSOLE, so asking for one inside a case
+  // charges that walk of ~340 modules to vitest's 5 000 ms default — and the widest
+  // case asked twice. It passed alone and timed out under aggregate tier load, which
+  // is the failure `console-layering-rules.test.ts` records for its cruises and
+  // answers the same way: pay for the reading once, where the module set is already
+  // being read, and leave each case with a comparison.
+  const specifiers = barrelSpecifiers(modules);
+  const doorsForwardingNothing = doorsThatForwardNothing(modules);
+  const unenumerableForwarders = starReexportingBarrels(modules);
+  const failures = findingLines(censusFindings(modules));
 
   it("finds the console and the tiers that read it", () => {
     // Without a floor a wrong root would scan nothing, and every claim below would
@@ -130,216 +121,44 @@ describe("barrel census — every console re-export has a reader or a claimant",
   });
 
   it("reads a specifier count no hand-maintained list could hold", () => {
-    expect(barrelSpecifiers(modules).length).toBeGreaterThan(200);
+    expect(specifiers.length).toBeGreaterThan(200);
   });
 
   it("censuses every door that forwards, so a clause leaving is not a shortfall", () => {
     // The floor above bounds the TOTAL from below, so one clause dropping out of it
     // is invisible — which is exactly what a clause body read up to the first `}` did
     // to a door line whose comment carried a brace. Per door it is visible: a door
-    // that forwards nothing is what a dropped clause leaves behind, and the two that
-    // legitimately forward nothing are named rather than subtracted by a predicate.
-    const censused = new Set(barrelSpecifiers(modules).map((entry) => entry.barrelPath));
+    // the specifier census is silent about is either a door that forwards nothing or
+    // a door whose clause was dropped, and the two readings that tell those apart are
+    // held against each other here.
+    //
+    // The right-hand side was a hand-maintained list until this became a comparison.
+    // Every view family's door is a composition site that forwards nothing, so every
+    // family landing appended its own path to that list in its own branch — four
+    // branches editing three lines, which is a conflict by construction and never a
+    // claim about the tree.
+    const censused = new Set(specifiers.map((entry) => entry.barrelPath));
     const silent = modules
       .map((module) => module.path)
       .filter((path) => isConsoleBarrel(path) && !censused.has(path));
 
-    expect([...silent].sort()).toStrictEqual([...DOORS_THAT_FORWARD_NOTHING].sort());
+    expect([...silent].sort()).toStrictEqual(doorsForwardingNothing);
+  });
+
+  it("finds doors on both sides of the forwarding reading, so neither list is empty", () => {
+    // Both claims above compare two sets, and two empty sets are equal. The console
+    // has doors of each kind by construction — a family door that composes, a leaf
+    // door that republishes — so an empty side is a reading that stopped working.
+    const doors = modules.map((module) => module.path).filter((path) => isConsoleBarrel(path));
+    expect(doorsForwardingNothing.length).toBeGreaterThan(0);
+    expect(doors.length).toBeGreaterThan(doorsForwardingNothing.length);
   });
 
   it("no barrel forwards a name this census cannot enumerate", () => {
-    expect(starReexportingBarrels(modules)).toStrictEqual([]);
+    expect(unenumerableForwarders).toStrictEqual([]);
   });
 
   it("every barrel specifier is production-consumed or claimed by its task", () => {
-    expect(findingLines(censusFindings(modules))).toStrictEqual([]);
-  });
-});
-
-describe("barrel census — the rule, against corpora written to fail it", () => {
-  const declaringModule = syntheticModule(
-    `${CONSOLE_PREFIX}/tokens/palette.ts`,
-    "export const RING_WIDTH_PX = 2;\n",
-  );
-  const barrel = (claim: "none" | "tag" | "comment"): CensusModule =>
-    syntheticModule(
-      `${CONSOLE_PREFIX}/tokens/index.ts`,
-      {
-        none: 'export { RING_WIDTH_PX } from "./palette.js";\n',
-        tag: 'export {\n  /** @consumedBy T-023p-1C-2 */\n  RING_WIDTH_PX,\n} from "./palette.js";\n',
-        comment:
-          'export {\n  // Consumed by T-023p-1C-2\n  RING_WIDTH_PX,\n} from "./palette.js";\n',
-      }[claim],
-    );
-  const testImporter = syntheticModule(
-    `${CONSOLE_PREFIX}/frame/Ring.test.tsx`,
-    'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
-  );
-
-  it("fails an untagged specifier whose only importer is a test", () => {
-    const findings = censusFindings([declaringModule, barrel("none"), testImporter]);
-
-    expect(findingLines(findings)).toStrictEqual([
-      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — reached only by ${CONSOLE_PREFIX}/frame/Ring.test.tsx`,
-    ]);
-  });
-
-  it("passes the same specifier once it names the task that will import it", () => {
-    // Both forms, because the tree carries both and neither is the weaker claim: the
-    // JSDoc tag additionally buys the dead-code gate's exemption, which is the only
-    // difference between them.
-    expect(censusFindings([declaringModule, barrel("tag"), testImporter])).toStrictEqual([]);
-    expect(censusFindings([declaringModule, barrel("comment"), testImporter])).toStrictEqual([]);
-  });
-
-  it("fails a claim the task that made it has already honoured", () => {
-    const doorReader = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
-      'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
-    );
-
-    for (const claim of ["tag", "comment"] as const) {
-      expect(
-        findingLines(censusFindings([declaringModule, barrel(claim), doorReader])),
-      ).toStrictEqual([
-        `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — claimed, and already imported in production; delete the claim`,
-      ]);
-    }
-  });
-
-  it("leaves a claim standing while the only production reader goes around the door", () => {
-    // The claim names an import through THIS door. A family reaching the module that
-    // declares the symbol has not made that import, so retiring the marker there
-    // would delete a claim whose event has not happened.
-    const deepReader = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
-      'import { RING_WIDTH_PX } from "../tokens/palette.js";\n',
-    );
-
-    expect(censusFindings([declaringModule, barrel("tag"), deepReader])).toStrictEqual([]);
-  });
-
-  it("passes a specifier a production module imports through the barrel", () => {
-    const productionImporter = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
-      'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
-    );
-
-    expect(
-      censusFindings([declaringModule, barrel("none"), testImporter, productionImporter]),
-    ).toStrictEqual([]);
-  });
-
-  it("passes a specifier a production module imports through a different door", () => {
-    // The disposition that changes nothing: the symbol has a reader, reaching it by
-    // the module that declares it rather than by this barrel. A census failing this
-    // would be counting doors rather than readers.
-    const deepImporter = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
-      'import { RING_WIDTH_PX } from "../tokens/palette.js";\n',
-    );
-
-    expect(
-      censusFindings([declaringModule, barrel("none"), testImporter, deepImporter]),
-    ).toStrictEqual([]);
-  });
-
-  it("reads an alias by the name the declaring module gave it", () => {
-    const aliasingBarrel = syntheticModule(
-      `${CONSOLE_PREFIX}/tokens/index.ts`,
-      'export { RING_WIDTH_PX as ringWidth } from "./palette.js";\n',
-    );
-    const deepImporter = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
-      'import { RING_WIDTH_PX } from "../tokens/palette.js";\n',
-    );
-
-    expect(censusFindings([declaringModule, aliasingBarrel, deepImporter])).toStrictEqual([]);
-    expect(findingLines(censusFindings([declaringModule, aliasingBarrel]))).toStrictEqual([
-      `${CONSOLE_PREFIX}/tokens/index.ts :: ringWidth — reached only by no importer at all`,
-    ]);
-  });
-
-  it("does not let one barrel's re-export of another stand in for a reader", () => {
-    // A door forwarding to a door moves a name; it does not read one. Both specifiers
-    // are findings rather than one carrying the other — which is also why the console
-    // forbids the chain outright, in `console-no-barrel-chain`.
-    const forwardingBarrel = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/index.ts`,
-      'export { RING_WIDTH_PX } from "../tokens/index.js";\n',
-    );
-
-    expect(
-      findingLines(censusFindings([declaringModule, barrel("none"), forwardingBarrel])),
-    ).toEqual(
-      expect.arrayContaining([
-        `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — reached only by no importer at all`,
-        `${CONSOLE_PREFIX}/frame/index.ts :: RING_WIDTH_PX — reached only by no importer at all`,
-      ]),
-    );
-  });
-
-  it("reads a multi-task claim as one entry, commas and all", () => {
-    const multiTagged = syntheticModule(
-      `${CONSOLE_PREFIX}/tokens/index.ts`,
-      'export {\n  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */\n  RING_WIDTH_PX,\n  RING_GAP_PX,\n} from "./palette.js";\n',
-    );
-
-    // The tag covers the entry it precedes and no more: the second name is untagged
-    // and unread, so it is still a finding.
-    expect(findingLines(censusFindings([declaringModule, multiTagged]))).toStrictEqual([
-      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
-    ]);
-  });
-
-  it("reports both halves of a stale claim and the neighbour it used to exempt", () => {
-    // Where a misattributed claim lands in the RULE, and the smallest corpus a
-    // comma-flushing reader passed WHOLE: the claim moved one name down, so
-    // `RING_WIDTH_PX` read as unclaimed with a production reader and `RING_GAP_PX`
-    // read as claimed with none. Two findings in one clause, and neither reported.
-    const staleClaim = syntheticModule(
-      `${CONSOLE_PREFIX}/tokens/index.ts`,
-      'export {\n  RING_WIDTH_PX, // Consumed by T-023p-1C-2\n  RING_GAP_PX,\n} from "./palette.js";\n',
-    );
-    const doorReader = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
-      'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
-    );
-
-    expect(findingLines(censusFindings([declaringModule, staleClaim, doorReader]))).toStrictEqual([
-      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — claimed, and already imported in production; delete the claim`,
-      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
-    ]);
-  });
-
-  it("censuses a door line that names no module of its own", () => {
-    // A barrel republishing a name it imported writes no `from`, and a pattern that
-    // required one saw no line there. It publishes a name, so it needs a reader or a
-    // claim like any other — and the name's declaring identity is the door itself.
-    const republishingBarrel = syntheticModule(
-      `${CONSOLE_PREFIX}/tokens/index.ts`,
-      'import { RING_WIDTH_PX } from "./palette.js";\n\nexport { RING_WIDTH_PX };\n',
-    );
-    const doorReader = syntheticModule(
-      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
-      'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
-    );
-
-    expect(findingLines(censusFindings([declaringModule, republishingBarrel]))).toStrictEqual([
-      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — reached only by no importer at all`,
-    ]);
-    expect(censusFindings([declaringModule, republishingBarrel, doorReader])).toStrictEqual([]);
-  });
-
-  it("names a star re-export rather than censusing fewer specifiers", () => {
-    const starBarrel = syntheticModule(
-      `${CONSOLE_PREFIX}/tokens/index.ts`,
-      'export * from "./palette.js";\n',
-    );
-
-    expect(starReexportingBarrels([declaringModule, starBarrel])).toStrictEqual([
-      `${CONSOLE_PREFIX}/tokens/index.ts`,
-    ]);
-    expect(starReexportingBarrels([declaringModule, barrel("none")])).toStrictEqual([]);
+    expect(failures).toStrictEqual([]);
   });
 });

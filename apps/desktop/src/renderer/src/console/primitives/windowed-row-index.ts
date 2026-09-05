@@ -44,6 +44,21 @@
 // caller renders against is therefore always a position in the CURRENT set, and the
 // remembered move is what is discarded, never the list's reachability.
 //
+// AND A CLAMP IS NOT ENOUGH, BECAUSE AN INDEX ONLY MEANS SOMETHING INSIDE THE
+// SEQUENCE IT WAS MADE IN. The clamp keeps the list reachable and says nothing about
+// WHICH row the remembered move now names: a filter narrows five hundred rows to
+// three, a move at row 499 clamps to row 2 — a row the reader never moved to — and
+// clearing the filter hands the move back to 499 in a drawing that begins at the top,
+// so the keyboard is on a row the window has to be scrolled to produce. So a caller
+// whose row set is filtered, sorted, or re-fetched states its `rowSetIdentity`, and a
+// move made under a different one is DROPPED rather than reinterpreted: the tab stop
+// falls back to the anchor, which is a position in the sequence that is actually
+// drawn. It is a SEPARATE option from `windowRevision` and cannot be folded into it —
+// that value is the MOUNTED window, it changes on every scroll, and a virtualizer
+// hands back a fresh one every render, so a move keyed on it would be dropped on the
+// render its own key press causes. Absent means the caller's set never changes
+// identity, which is every list whose rows are not filtered.
+//
 // FOCUS IS ONLY EVER TAKEN, NEVER GIVEN BACK, AND THE CLAIM EXPIRES. The effect
 // moves focus for a key this handler itself consumed, so nothing sets the pending
 // claim but the handler and the handler runs only on a key delivered to the list.
@@ -57,7 +72,10 @@
 // is dropped when the set narrowed under it and the index now points at a DIFFERENT
 // row (focusing there would answer a key press about row 39 by moving to row 4), and
 // it is dropped once the budget is spent — one retry, which is what an asynchronous
-// `revealIndex` needs, and not a standing claim on the page's focus.
+// `revealIndex` needs, and not a standing claim on the page's focus. And it is dropped
+// when the SEQUENCE it was made in is no longer drawn, which is why the claim holds the
+// move itself rather than a copy of its number: an index alone was answered by any
+// redrawing that mounted a row there, so a press about the old list took the focus.
 //
 // AND THE ANCHOR IS ASKED FOR RATHER THAN ASSUMED MOUNTED. A list reopened on a
 // selection starts its keyboard on that row, and a window mounts the rows a SCROLL
@@ -180,6 +198,18 @@ export interface WindowedRovingIndexOptions {
   /** Ask the window to mount a row. Called on every move, before focus is attempted. */
   readonly revealIndex: (rowIndex: number) => void;
   /**
+   * The identity of the drawn SEQUENCE, so a move belongs to the set it was made in.
+   *
+   * Compared by identity and nothing else, so a caller passes the array it drew —
+   * whatever value it has that is one sequence. A move made under a different one is
+   * dropped and the keyboard falls back to `anchorIndex`; see the header on why a
+   * clamp alone is not enough and why this is not `windowRevision`.
+   *
+   * Absent means the caller's set never changes identity, which is every list whose
+   * rows are not filtered, sorted, or re-fetched.
+   */
+  readonly rowSetIdentity?: unknown;
+  /**
    * Any value that changes when the mounted window changes.
    *
    * The rendered row array a virtualizer hands back is the usual one. It is typed
@@ -223,16 +253,30 @@ export interface WindowedRovingIndex {
 const PENDING_FOCUS_RETRIES = 2;
 
 /**
+ * Where the keyboard moved to, and the drawn sequence that index addresses.
+ *
+ * The two are held together rather than the index alone, because an index without
+ * its sequence is exactly the ambiguity this pair resolves: row 499 of the list the
+ * reader was looking at and row 499 of whatever is drawn now are different rows.
+ */
+interface MovedRow {
+  readonly index: number;
+  readonly rowSetIdentity: unknown;
+}
+
+/**
  * A move waiting for its row to mount, and the two facts that bound it.
  *
- * `rowIndex` is the row the key press asked for, so a set that narrows underneath
- * is answered by dropping the move rather than by focusing whichever row the clamp
- * now points at. `retriesRemaining` is how many more runs may miss before the claim
- * is over, which is what separates "the window has not answered yet" from "the
- * window answered and this row was not in it".
+ * `movedRow` is the move itself — the very value the roving state holds, not a copy
+ * of its number — so a claim and the move it was armed for cannot disagree about
+ * which sequence they are in. A set that narrows underneath, and equally one redrawn
+ * under a new identity, is answered by dropping the move rather than by focusing
+ * whichever row now sits at that index. `retriesRemaining` is how many more runs may
+ * miss before the claim is over, which separates "the window has not answered yet"
+ * from "the window answered and this row was not in it".
  */
 interface PendingRowFocus {
-  readonly rowIndex: number;
+  readonly movedRow: MovedRow;
   readonly retriesRemaining: number;
 }
 
@@ -240,12 +284,18 @@ interface PendingRowFocus {
  * One tab stop, arrow keys inside it, and the moved-to row focused once it mounts.
  */
 export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): WindowedRovingIndex {
-  const { rowCount, anchorIndex, containerRef, revealIndex, windowRevision } = options;
-  const [movedToIndex, setMovedToIndex] = useState<number | undefined>(undefined);
+  const { rowCount, anchorIndex, containerRef, revealIndex, windowRevision, rowSetIdentity } =
+    options;
+  const [movedTo, setMovedTo] = useState<MovedRow | undefined>(undefined);
   const [mountedFallbackIndex, setMountedFallbackIndex] = useState<number | undefined>(undefined);
   const pendingFocus = useRef<PendingRowFocus | undefined>(undefined);
   const revealRequestedForIndex = useRef<number | undefined>(undefined);
 
+  // A move stands only inside the sequence it was made in. Dropping it here rather
+  // than clearing the state is what keeps the rule a derivation: there is no render
+  // on which a stale move is still readable, and no effect has to run first.
+  const movedToIndex =
+    movedTo !== undefined && movedTo.rowSetIdentity === rowSetIdentity ? movedTo.index : undefined;
   // Where the keyboard IS, and where the one tab stop can be put — the same number
   // whenever the window holds the roving row, and different exactly while it does not.
   const rovingIndex = clampedRowIndex(movedToIndex ?? anchorIndex, rowCount);
@@ -278,13 +328,15 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
     if (pending === undefined) {
       return;
     }
-    if (pending.rowIndex !== rovingIndex) {
-      // The set narrowed under the move, so the index now names a row nobody asked
-      // for. Dropped rather than followed: answering a key press about row 39 by
-      // focusing row 4 is a different act, not a smaller one. Compared against the
-      // ROVING index and never the tab stop: the tab stop may be standing in for an
-      // unmounted row, and a claim dropped against a stand-in would cancel every move
-      // out of the window.
+    const { movedRow } = pending;
+    if (movedRow.rowSetIdentity !== rowSetIdentity || movedRow.index !== rovingIndex) {
+      // The move this claim was armed for is not the move on screen: the SEQUENCE was
+      // redrawn, so a drawing that mounts a row at that index must not answer a press
+      // about the old list; or the set narrowed and the index names a different row,
+      // and answering a press about row 39 by focusing row 4 is a different act rather
+      // than a smaller one. Dropped either way, and compared against the ROVING index
+      // and never the tab stop — that may be standing in for an unmounted row, and a
+      // claim dropped against a stand-in would cancel every move out of the window.
       pendingFocus.current = undefined;
       return;
     }
@@ -296,7 +348,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       // renders next.
       pendingFocus.current =
         pending.retriesRemaining > 0
-          ? { rowIndex: pending.rowIndex, retriesRemaining: pending.retriesRemaining - 1 }
+          ? { movedRow, retriesRemaining: pending.retriesRemaining - 1 }
           : undefined;
       return;
     }
@@ -309,7 +361,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       return;
     }
     target.focus();
-  }, [rovingIndex, containerRef, windowRevision]);
+  }, [rovingIndex, containerRef, windowRevision, rowSetIdentity]);
 
   const onKeyDown = useCallback(
     (keyEvent: React.KeyboardEvent): void => {
@@ -322,14 +374,17 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       // stand-in row starts from the row the reader can see, not from the one the
       // window has yet to produce.
       const moved = movedRowIndex(move, activeIndex, rowCount);
+      // The sequence is captured WITH the move, so the move carries the only thing
+      // that makes its index mean a row — and the claim is armed with that same value.
+      const movedRow: MovedRow = { index: moved, rowSetIdentity };
       if (moved !== activeIndex) {
         // See the header: a boundary key pressed at that boundary lands on the row
         // the keyboard is already on, and a claim armed for it has no render to
         // spend it on. The reveal and the state write below still run — the key was
         // consumed, and the reader asked to see that end of the list.
-        pendingFocus.current = { rowIndex: moved, retriesRemaining: PENDING_FOCUS_RETRIES };
+        pendingFocus.current = { movedRow, retriesRemaining: PENDING_FOCUS_RETRIES };
       }
-      setMovedToIndex(moved);
+      setMovedTo(movedRow);
       // The stand-in is retired by the same act that supersedes the row it stood in
       // for; the effect above reinstates one if the window still has not produced the
       // moved-to row.
@@ -337,7 +392,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       revealRequestedForIndex.current = moved;
       revealIndex(moved);
     },
-    [activeIndex, revealIndex, rowCount],
+    [activeIndex, revealIndex, rowCount, rowSetIdentity],
   );
 
   return { activeIndex, onKeyDown };

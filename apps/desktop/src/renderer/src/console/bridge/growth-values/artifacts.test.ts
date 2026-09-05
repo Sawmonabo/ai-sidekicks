@@ -35,7 +35,7 @@
 
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { GrowthOperationSignatures } from "../growth-signatures.js";
+import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import type {
   GrowthArtifactDeleteReceipt,
   GrowthArtifactPayloadDisposition,

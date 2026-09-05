@@ -83,6 +83,31 @@ describe("WindowedListRow — a slice says where it sits in the whole", () => {
     expect(row.style.transform).toBe("translateY(40px)");
   });
 
+  it("carries the pair on a feed's article, the third role the set admits", () => {
+    // A chronological stream of long entries is a `feed`, whose articles take the
+    // same two members a grid row and a listbox option do — which is the whole test
+    // for membership in this set. Asserted through the component rather than by
+    // reading its type, so what is checked is that the pair is still written.
+    const row = renderRow(
+      <WindowedListRow as="div" role="article" rowIndex={11} totalRowCount={2400} />,
+    );
+
+    expect(row.getAttribute("role")).toBe("article");
+    expect(row.getAttribute("aria-setsize")).toBe("2400");
+    expect(row.getAttribute("aria-posinset")).toBe("12");
+  });
+
+  it("negative control: a role the pair is not defined on stays rejected", () => {
+    // Without this, "widen the set" would be satisfied by opening it to any string,
+    // and a role that drops `aria-posinset` would render a claim nothing reads. The
+    // directive is the assertion: deleting it surfaces the union error underneath.
+    renderRow(
+      // @ts-expect-error — `banner` is not one of the three roles the pair is
+      // defined on, so it is not a role a windowed row may take.
+      <WindowedListRow as="div" role="banner" rowIndex={0} totalRowCount={1} />,
+    );
+  });
+
   it("is a list item where the caller's semantics are the element's", () => {
     expect(renderRow(<WindowedListRow as="li" rowIndex={0} totalRowCount={1} />).tagName).toBe(
       "LI",

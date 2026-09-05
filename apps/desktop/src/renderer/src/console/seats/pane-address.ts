@@ -191,7 +191,7 @@ interface PaneEntityScopeByKind {
    *
    * Session-scoped rather than over a page reference, because the identity a page
    * reference would name does not exist: every registered browser operation in
-   * `bridge/growth-signatures.ts` — navigate, reload, stop, back, forward, and the
+   * `bridge/growth-signatures/panes.ts` — navigate, reload, stop, back, forward, and the
    * navigation subscription — takes the `paneId`, and the navigation state they
    * stream back carries a url, a title, and three flags and no page identifier at
    * all. Nothing in this build produces such an entity, so requiring one would

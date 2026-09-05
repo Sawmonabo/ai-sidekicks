@@ -25,6 +25,15 @@
 // is a fact with no figure in it. The arm carries no count rather than carrying a
 // zero or inventing one.
 //
+// AND THE COUNTLESS ONE NAMES WHOSE NUMBERING IT IS. A window scoped to PART of a
+// stream — one channel of a session's entries — has a subject that is the part and a
+// sequence that belongs to the whole, so a sentence built from the subject alone
+// attributes the gap to the wrong stream and tells somebody this channel lost rows
+// when the session's numbering is what has a hole in it. The arm takes an optional
+// producer noun for exactly that, and the sentence is the same shape with it and
+// without: naming the producer REPLACES the generic word rather than adding a clause,
+// which is why one arm serves both callers instead of two arms drifting apart.
+//
 // THE SHAPES ARE RULE 8'S ABSENCES, AND NONE OF THESE IS A READ IN FLIGHT. That
 // matters because `not-loaded` is a skeleton: it announces its title rather than
 // setting it and drops the second line entirely, which is right for a read that will
@@ -69,14 +78,35 @@ export type WindowAbsence =
    *
    * No count: a gap in a sequence says that something is missing and not how much,
    * and a figure here would be one the console made up.
+   *
+   * `producer` names WHOSE numbering the gap is in, as a lowercase SINGULAR noun —
+   * "session", "relay". A window onto part of a stream needs it, for the reason this
+   * module's header gives; it is omitted where the window has one producer and
+   * naming it would say nothing, and the sentence then reads as it always has.
    */
-  | { readonly kind: "never-received" };
+  | { readonly kind: "never-received"; readonly producer?: string };
 
 /** What an absence renders as: rule 8's shape, and the two lines this module writes. */
 export interface WindowAbsenceNotice {
   readonly kind: NothingKind;
   readonly title: string;
   readonly detail: string;
+}
+
+/** What the sentence calls a producer the caller did not name. */
+const UNNAMED_PRODUCER = "producer";
+
+/**
+ * The noun the never-received sentence opens with.
+ *
+ * A blank name is not a name: an unnamed producer and one named `"   "` are the same
+ * fact, and rendering the second would leave "The  numbered entries" on screen. So
+ * an empty name falls back to the generic noun rather than to a broken sentence —
+ * the posture `core/refusal.ts` takes for every other caller-supplied identifier.
+ */
+function producerNoun(named: string | undefined): string {
+  const trimmed = named?.trim() ?? "";
+  return trimmed.length === 0 ? UNNAMED_PRODUCER : trimmed;
 }
 
 /**
@@ -119,7 +149,7 @@ export function windowAbsenceNotice(absence: WindowAbsence, subject: string): Wi
       return {
         kind: "empty",
         title: `Some ${subject} never arrived.`,
-        detail: `The producer numbered ${subject} this window did not receive. They come back only when the whole of it is read again; no read here fetches a range.`,
+        detail: `The ${producerNoun(absence.producer)} numbered ${subject} this window did not receive. They come back only when the whole of it is read again; no read here fetches a range.`,
       };
   }
 }

@@ -57,6 +57,17 @@ export {
 // A test asserting on either reaches the module that declares it.
 export { KeyedRegistry } from "./keyed-registry.js";
 export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
+// The registered widenings of that shape. Through the door because a family rendering
+// a refusal's ledger reads the members, and a family that widened a refusal without
+// registering it here would have its members dropped by the normalizer's rebuild.
+export {
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type ConsoleRefusalExtensions,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type ExtendedConsoleRefusal,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type WireRetryHint,
+} from "./refusal-extensions.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
@@ -64,6 +75,4 @@ export {
   type RejectionFallback,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type WireRefusal,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  type WireRetryHint,
 } from "./wire-rejection.js";
