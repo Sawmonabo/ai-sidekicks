@@ -13,7 +13,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
+import { DECK_RESTORED_PANE_CAP } from "./workspace-bounds.js";
 import { UiStateStore } from "../persistence/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { DeckLayout } from "./deck/deck-layout.js";

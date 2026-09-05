@@ -48,16 +48,7 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../../core/index.js";
-
-/**
- * The smallest visible extent a native view is drawn at, in CSS pixels.
- *
- * The hide threshold this module's own rule states: a native view hides when either
- * dimension of the visible clip is below one pixel. One pixel rather than zero
- * because a sub-pixel clip is a view the compositor still composites and nobody can
- * see — the cost with none of the benefit.
- */
-export const NATIVE_VIEW_MINIMUM_VISIBLE_PX = 1;
+import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../workspace-bounds.js";
 
 /** Why a rect was re-measured. Rendered in diagnostics; never inferred. */
 export const RECT_INVALIDATION_SOURCES = [

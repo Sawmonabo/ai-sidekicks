@@ -57,7 +57,8 @@ import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../pri
 import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
 import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./deck-model.js";
-import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
+import { type DeckDensity } from "../workspace-bounds.js";
+import { minimumPaneWidthPx } from "./density.js";
 import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
 import { DeckPaneSlot } from "./DeckPaneSlot.js";
 import {

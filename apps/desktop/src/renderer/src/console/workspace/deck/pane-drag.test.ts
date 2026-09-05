@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+import { DECK_RESTORED_PANE_CAP } from "../workspace-bounds.js";
 import type { Announce, AnnouncementPoliteness } from "../../primitives/index.js";
 import { DeckLayout } from "./deck-layout.js";
 import {

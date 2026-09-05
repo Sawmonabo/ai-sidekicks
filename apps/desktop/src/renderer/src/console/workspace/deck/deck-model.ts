@@ -12,7 +12,7 @@
 
 import type { ConsoleEntityRef } from "../../store/index.js";
 import type { PaneKind } from "../../seats/index.js";
-import type { DeckDensity } from "./density.js";
+import type { DeckDensity } from "../workspace-bounds.js";
 
 /**
  * Pane widths are carried as permille of the deck, summing to this.

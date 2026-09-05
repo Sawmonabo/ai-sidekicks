@@ -9,13 +9,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
-import {
-  AirspaceRegistry,
-  NATIVE_VIEW_MINIMUM_VISIBLE_PX,
-  PaneRectTracker,
-  rectKey,
-  type TrackedRect,
-} from "./rect-discipline.js";
+import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../workspace-bounds.js";
+import { AirspaceRegistry, PaneRectTracker, rectKey, type TrackedRect } from "./rect-discipline.js";
 
 /** A rectangle in viewport coordinates, as the DOM would report one. */
 interface ViewportBox {

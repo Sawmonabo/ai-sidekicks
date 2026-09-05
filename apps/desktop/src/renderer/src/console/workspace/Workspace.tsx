@@ -44,13 +44,18 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
-import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
+import { type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { DerivedFigure, RefusalBanner, useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 import { consoleCommandSurface } from "../frame/command-surface.js";
+import {
+  DECK_RESTORED_PANE_CAP,
+  SIDEBAR_COLLAPSED_WIDTH_PX,
+  SIDEBAR_MINIMUM_WIDTH_PERCENT,
+} from "./workspace-bounds.js";
 import { CastBar } from "./CastBar.js";
 import { useAuxiliaryPanes } from "./auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
@@ -60,10 +65,6 @@ import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
 import { useDeckPersistence } from "./layout-persistence.js";
 import { SessionSidebar } from "./sidebar/SessionSidebar.js";
 import { registerSidebarCommands } from "./sidebar/sidebar-commands.js";
-import {
-  SIDEBAR_COLLAPSED_WIDTH_PX,
-  SIDEBAR_MINIMUM_WIDTH_PERCENT,
-} from "./sidebar/sidebar-model.js";
 import { useSidebarLayout } from "./sidebar/sidebar-state.js";
 import {
   composerSeatRenderer,

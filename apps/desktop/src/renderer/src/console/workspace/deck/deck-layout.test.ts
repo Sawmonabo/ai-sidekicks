@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+import { DECK_RESTORED_PANE_CAP } from "../workspace-bounds.js";
 import { DeckLayout } from "./deck-layout.js";
 import { DECK_TOTAL_PERMILLE } from "./deck-model.js";
 import { DECK_LAYOUT_SNAPSHOT_VERSION, DECK_SNAPSHOT_HEADER_KEY } from "./deck-snapshot.js";
