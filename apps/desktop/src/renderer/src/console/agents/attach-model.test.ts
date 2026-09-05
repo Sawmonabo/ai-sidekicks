@@ -16,7 +16,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { AttachSidekickForm, type AttachRequest } from "./attach-model.js";
+import { PROVIDER_AXES } from "./agent-wire.js";
+import {
+  ATTACH_FIELDS,
+  AttachSidekickForm,
+  type AttachField,
+  type AttachRequest,
+} from "./attach-model.js";
 import {
   DRIVER_CATALOG_FIXTURE,
   OVERLAPPING_DRIVER_CATALOG_FIXTURE,
@@ -56,6 +62,24 @@ function namedForm(name = "Scout"): AttachSidekickForm {
   form.setName(name);
   return form;
 }
+
+describe("attach form — the fields it may carry", () => {
+  it("is every provider axis but the one an attach cannot set", () => {
+    // `ATTACH_FIELDS` is a SUBTRACTION from the wire's own axis set rather than a
+    // list beside it. A sixth axis therefore reaches this form through the FILTER,
+    // not through this assertion — which is the point, and is what this case guards:
+    // it fails the moment the filter is replaced by a written-out literal that has
+    // stopped matching `PROVIDER_AXES`, which is the only way the two can drift.
+    expect([...ATTACH_FIELDS, "outputSpeed"].sort()).toEqual([...PROVIDER_AXES].sort());
+  });
+
+  it("negative control: the set is not simply every axis", () => {
+    // Without this, the case above would pass over an `ATTACH_FIELDS` that had
+    // quietly grown `outputSpeed` — which the registered attach request carries no
+    // member for, so the form would offer a field no arm can send.
+    expect(ATTACH_FIELDS).not.toContain("outputSpeed");
+  });
+});
 
 describe("attach form — the union refuses exactly one shape", () => {
   it("refuses an inline arm that names neither a driver nor a model", () => {
@@ -299,13 +323,21 @@ describe("attach form — notification", () => {
  */
 const OVERLAPPING_CATALOG: DriverCatalogReading = OVERLAPPING_DRIVER_CATALOG_FIXTURE;
 
-/** An inline form filled top-down, the order a person fills the dialog in. */
+/**
+ * An inline form filled parent-first, over the field set the model itself declares.
+ *
+ * Iterating {@link ATTACH_FIELDS} rather than a literal written out here is what makes
+ * an axis added to the wire reach this suite: a sixth axis joins every case's fill
+ * automatically, and a case that names one in `entries` is checked against the real
+ * union rather than against a copy of it that stopped matching. The declaration order
+ * lists a parent before its child, which is the order these cases depend on.
+ */
 function inlineFormOver(
   catalog: DriverCatalogReading,
-  entries: Partial<Record<"driverName" | "modelId" | "effort" | "providerAccountId", string>>,
+  entries: Partial<Record<AttachField, string>>,
 ): AttachSidekickForm {
   const form = namedForm();
-  for (const field of ["driverName", "modelId", "effort", "providerAccountId"] as const) {
+  for (const field of ATTACH_FIELDS) {
     const value = entries[field];
     if (value !== undefined) {
       form.setField(field, value, catalog);
