@@ -1,6 +1,9 @@
 // The refusal grammar: three shapes, one contract.
 //
-// The contract is the thing under test. `RefusalProps` is now a `Pick` of
+// The contract is the thing under test, which is why this suite sits beside the
+// module that declares it rather than beside any one shape — every case below
+// drives all three, and a case that drove one would say nothing about the
+// agreement. `RefusalProps` is a `Pick` of
 // `core/refusal.ts`'s `ConsoleRefusal`, so a refusal built by `refuse()` reaches
 // every one of the three renderers without a translation step — and the test drives
 // exactly that, because a props shape that merely HAPPENS to have the same two
@@ -11,10 +14,12 @@
 // in mono is a paragraph nobody reads. Both are rendered exactly as sent.
 
 import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
-import { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
+import { InlineRefusal } from "./InlineRefusal.js";
+import { RefusalBanner } from "./RefusalBanner.js";
+import { RefusalCard } from "./RefusalCard.js";
 
 /** A refusal built the way every producer in the console is required to build one. */
 const REFUSAL = refuse(
@@ -108,26 +113,5 @@ describe("the shapes announce themselves without talking over the message", () =
     const card = renderShape(<RefusalCard {...REFUSAL} />);
     expect(card.getAttribute("role")).toBeNull();
     expect(card.getAttribute("aria-live")).toBeNull();
-  });
-});
-
-describe("a banner is dismissable only when the caller can dismiss it", () => {
-  it("renders a labelled dismiss control that calls back", () => {
-    const onDismiss = vi.fn();
-    const banner = renderShape(<RefusalBanner {...REFUSAL} onDismiss={onDismiss} />);
-    const dismiss = banner.querySelector(".meridian-refusal__dismiss");
-
-    expect(dismiss?.getAttribute("aria-label")).toBe("Dismiss this notice");
-    if (!(dismiss instanceof HTMLButtonElement)) {
-      throw new Error("the dismissable banner rendered no dismiss button");
-    }
-    dismiss.click();
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-  });
-
-  it("renders no dismiss control when the banner clears with its condition", () => {
-    expect(
-      renderShape(<RefusalBanner {...REFUSAL} />).querySelector(".meridian-refusal__dismiss"),
-    ).toBeNull();
   });
 });

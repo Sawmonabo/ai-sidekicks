@@ -59,7 +59,7 @@ export { Nothing } from "./Nothing.js";
 // The incomplete-reading vocabulary and its one notice. Through the door for the
 // reason every family lane needs them: six families each wrote their own notice for
 // this case and the sentences disagreed, so a family that reached past the barrel for
-// a local copy would be the seventh.
+// a local copy would be one more of them.
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   PartialReadNotice,
@@ -81,6 +81,8 @@ export {
   partialReadNotices,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   readingNoticeFor,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  uncheckedCoverageReading,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   unreadableDeliveryReading,
 } from "./partial-read.js";
@@ -130,7 +132,9 @@ export {
   WindowAbsences,
 } from "./WindowAbsences.js";
 
-export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
+export { InlineRefusal } from "./InlineRefusal.js";
+export { RefusalBanner } from "./RefusalBanner.js";
+export { RefusalCard } from "./RefusalCard.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -156,6 +160,8 @@ export {
 export type {
   /** @consumedBy T-023p-1C-5 */
   WindowedListRowProps,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRowTargetProps,
 } from "./WindowedListRow.js";
 export { WindowedListRow } from "./WindowedListRow.js";
 export type {
@@ -169,6 +175,10 @@ export type {
 export {
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_INDEX_ATTRIBUTE,
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_TARGET_ATTRIBUTE,
+} from "./windowed-row-markers.js";
+export {
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_MOVE_BY_KEY,
   /** @consumedBy T-023p-1C-5 */
@@ -190,20 +200,22 @@ export {
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   DerivedFigureProps,
+} from "./DerivedFigure.js";
+export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
-} from "./Figure.js";
+} from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
+export { DerivedFigure } from "./DerivedFigure.js";
 export {
-  DerivedFigure,
   // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
   // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that
   // stood here was the half of the marker its importing change owed and did not
   // pay. `--treat-tag-hints-as-errors` is what reported the debt.
   WireFigure,
-} from "./Figure.js";
+} from "./WireFigure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

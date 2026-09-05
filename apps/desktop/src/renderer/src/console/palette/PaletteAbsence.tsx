@@ -14,9 +14,16 @@
 // overlay's job is composition — the combobox, the dialog, and the open chord.
 // The readiness value the frame supplies lives here too, since the only thing it
 // exists to do is pick one of these.
+//
+// WHAT IS HERE IS THE CHOICE, and the one shape three of the arms share is beside
+// it: `QuietAbsence.tsx` renders a headline and a line, which is what "nothing
+// registered", "nothing offered here", and "nothing matched" all look like. The
+// skeleton, the two badge arms, and the two error arms are the arms themselves —
+// each is rendered once, from one branch, and takes nothing a caller supplies.
 
 import { formatCount } from "../primitives/index.js";
 import type { CommandRegistry } from "./command-registry.js";
+import { QuietAbsence } from "./QuietAbsence.js";
 
 /**
  * Why the palette might have nothing to show that is not about the query.
@@ -35,30 +42,6 @@ export type PaletteReadiness =
   | { readonly status: "unchecked"; readonly detail: string }
   /** error — the command source itself failed. Code and message render verbatim. */
   | { readonly status: "failed"; readonly code: string; readonly message: string };
-
-function AbsenceSkeleton(): React.JSX.Element {
-  return (
-    <div className="console-palette__absence" aria-hidden="true">
-      <div className="console-palette__skeleton-row" />
-      <div className="console-palette__skeleton-row" />
-      <div className="console-palette__skeleton-row" />
-    </div>
-  );
-}
-
-interface QuietAbsenceProps {
-  readonly headline: string;
-  readonly detail: string;
-}
-
-function QuietAbsence(props: QuietAbsenceProps): React.JSX.Element {
-  return (
-    <div className="console-palette__absence">
-      <span className="console-palette__absence-headline">{props.headline}</span>
-      <span className="console-palette__absence-detail">{props.detail}</span>
-    </div>
-  );
-}
 
 export interface PaletteAbsenceProps {
   readonly readiness: PaletteReadiness;
@@ -80,7 +63,16 @@ export function PaletteAbsence(props: PaletteAbsenceProps): React.JSX.Element {
   const { readiness, registry, query, visibleCount } = props;
 
   if (readiness.status === "loading") {
-    return <AbsenceSkeleton />;
+    // Inline rather than a component of its own: three rows with nothing in them,
+    // rendered from this one branch and taking nothing a caller supplies. A
+    // component here would be a name for markup that has no second reader.
+    return (
+      <div className="console-palette__absence" aria-hidden="true">
+        <div className="console-palette__skeleton-row" />
+        <div className="console-palette__skeleton-row" />
+        <div className="console-palette__skeleton-row" />
+      </div>
+    );
   }
 
   if (readiness.status === "failed") {

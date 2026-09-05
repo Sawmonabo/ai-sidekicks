@@ -29,13 +29,14 @@
 //     a store no commit ever saw, which nothing else would ever close. Dropping a
 //     value is all a holder does; a connection has to be closed, and the pass that
 //     opened one may be a pass React throws away.
-//   • **Re-minted when the state holds a closed store.** React's StrictMode
-//     double-mount runs the cleanup and then mounts the SAME component instance
-//     again, so the second mount would otherwise be handed the corpse the first
-//     one's teardown just closed. That arm cannot be a render-phase comparison: the
-//     close happens in a cleanup and is invisible to the render before it, so the
-//     hook asks the store instead — which is what makes the arm correct without a
-//     second flag beside it.
+//   • **Re-minted when the state holds a closed store** — by the resource hook's own
+//     `isClosed` arm, not by an effect written here. React's StrictMode double-mount
+//     runs the cleanup and then mounts the SAME component instance again, so the
+//     second mount would otherwise be handed the corpse the first one's teardown just
+//     closed. That arm cannot be a render-phase comparison: the close happens in a
+//     cleanup and is invisible to the render before it, so the hook asks the store
+//     where its lifetime effect runs — which is what makes the arm correct without a
+//     second flag beside it, and the same arm `session-lifecycle.ts` passes.
 //   • **On the bridge's clock, like every other subsystem this window owns.** The
 //     store stamps each record's `updatedAt` from a clock and arms the database
 //     open's timeout on the same one, and both defaulted to the wall clock — so
@@ -44,8 +45,6 @@
 //     on those stamps ordered on how fast the host was. `consoleClockFor` is the
 //     one answer to which clock a window runs on; `session-lifecycle.ts` asks it
 //     the same question for the session registry.
-
-import { useEffect } from "react";
 
 import { consoleClockFor, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import { UiStateStore } from "../persistence/index.js";
@@ -67,18 +66,13 @@ import { useSubjectScopedResource } from "../store/index.js";
  */
 export function useUiStateStore(): UiStateStore {
   const bridge = useConsoleBridge();
-  const { value: uiStateStore, publish: publishStore } = useSubjectScopedResource<UiStateStore>(
+  const { value: uiStateStore } = useSubjectScopedResource<UiStateStore>(
     bridge,
     undefined,
     () => openUiStateStore(bridge),
     closeUiStateStore,
+    (store) => store.isClosed,
   );
-  useEffect(() => {
-    if (!uiStateStore.isClosed) {
-      return;
-    }
-    publishStore(openUiStateStore(bridge));
-  }, [uiStateStore, publishStore, bridge]);
   return uiStateStore;
 }
 

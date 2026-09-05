@@ -8,7 +8,7 @@
 // the family's own second windowed list carried neither, which is what a per-call-site
 // obligation costs.
 //
-// THREE CLAIMS. They are separate because they fail separately, and the third is the
+// FOUR CLAIMS. They are separate because they fail separately, and the third is the
 // only one that could ever have caught the defect named above.
 //
 //   1. **One writer.** The pair is written in exactly one console module,
@@ -36,9 +36,22 @@
 //      primitive is what supplies the pair, and the primitive's own writing of it is
 //      claim 1's subject. The negative control is planted from a real hand-rolled
 //      list's markup, so the claim is proved to bite before such a list lands.
+//   4. **A windowed row keeps one tab stop.** Added rather than folded into claim 3,
+//      on this gate's own principle that claims which fail separately are stated
+//      separately: claim 3 asks whether a list reached the primitive at all, and this
+//      one asks what a list that DID reach it wrote inside its rows. A windowed list
+//      has one tab stop and the roving index moves it (the APG's roving-tabindex
+//      rule), and the primitive writes that stop on the element it renders itself —
+//      the wrapper, or the one control a delegating row hands its roving props to. An
+//      interactive element a caller writes into a row as ordinary markup keeps its own
+//      native stop, which is the moving row count back in the page's tab order, the
+//      active row holding two stops, and nothing inside the primitive able to see it.
+//      So every `button`, `input`, `select`, `textarea`, or `a[href]` inside a
+//      `WindowedListRow` element declares where it sits: an explicit `tabIndex`, or
+//      the spread of the row's own target props. Anything else is an offence.
 //
 // THE REGEX IS COARSE AND SAYS SO. `WINDOWED_ROW_ROLE_TAG` is
-// `/<[A-Za-z][^>]*\brole="(?:row|option)"[^>]*>/g` — an opening tag, up to its first
+// `/<[A-Za-z][^>]*\brole="(?:row|option|article)"[^>]*>/g` — an opening tag, up to its first
 // `>`. A tag containing a `>` inside an expression (`onSelect={() => choose(row)}`)
 // is therefore cut short, and a cut-short tag whose members sat past the cut is
 // reported as an offence. That error direction is deliberate: a false alarm is a
@@ -54,6 +67,7 @@ import {
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import {
+  undeclaredRowTabStops,
   windowsAList,
   windowsWithoutTheRowPrimitive,
   WINDOWED_ROW_PRIMITIVE,
@@ -70,7 +84,7 @@ const WINDOWED_ROW_MODULE = "console/primitives/WindowedListRow.tsx";
 const POSITION_MEMBERS: readonly string[] = ["aria-setsize", "aria-posinset"];
 
 /** An opening tag that declares a row or option role. See the header on its width. */
-const WINDOWED_ROW_ROLE_TAG = /<[A-Za-z][^>]*\brole="(?:row|option)"[^>]*>/g;
+const WINDOWED_ROW_ROLE_TAG = /<[A-Za-z][^>]*\brole="(?:row|option|article)"[^>]*>/g;
 
 function writesPositionMembers(source: string): boolean {
   return POSITION_MEMBERS.some((member) => source.includes(member));
@@ -275,5 +289,82 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
       "export const badges = labels.map((label) => <div key={label}>{label}</div>);",
     ].join("\n");
     expect(windowsWithoutTheRowPrimitive(otherList, "Other.tsx", modules)).toBe(false);
+  });
+});
+
+describe("windowed rows — a row keeps one tab stop", () => {
+  const modules: readonly ConsoleSourceModule[] = consoleSourceModules();
+
+  it("no console module writes an interactive element into a row that keeps its own stop", () => {
+    const offenders = modules.flatMap((module) =>
+      undeclaredRowTabStops(readConsoleSourceModule(module), module.displayPath).map(
+        (tag) => `${module.displayPath}: ${tag}`,
+      ),
+    );
+    expect(offenders).toStrictEqual([]);
+    // Said out loud rather than left implicit, on claim 2's precedent: no production
+    // module mounts a windowed row yet, so this claim has no subject TODAY and the
+    // planted controls below are what keep the zero from meaning "the predicate is
+    // broken". It arms the moment a family lands its first windowed list. The scan
+    // itself is asserted non-empty so a walk that stopped reading fails here.
+    expect(modules.length).toBeGreaterThan(20);
+  });
+
+  it("negative control: content written as markup is an offence", () => {
+    // The exact shape the primitive shipped with, and what it cost: the roving index
+    // went on the `<li>` and the button kept its native stop, so the active row had two
+    // stops and every mounted row was in the page's tab order.
+    const asMarkup = [
+      "export const row = (",
+      '  <WindowedListRow as="li" rowIndex={index} totalRowCount={total} isTabbable>',
+      '    <button type="button">{entry.path}</button>',
+      "  </WindowedListRow>",
+      ");",
+    ].join("\n");
+    expect(undeclaredRowTabStops(asMarkup, "Offender.tsx")).toStrictEqual([
+      '<button type="button">',
+    ]);
+  });
+
+  it("negative control: the delegated control is not, and a foreign spread still is", () => {
+    // The admitted spelling is the row's OWN target props, read by the parameter name
+    // the row bound them to. A spread of anything else says nothing about the tab
+    // order, and admitting every spread would have been the false pass this claim is
+    // for.
+    const delegated = [
+      "export const row = (",
+      '  <WindowedListRow as="li" rowIndex={index} totalRowCount={total} isTabbable>',
+      '    {(targetProps) => <button type="button" {...targetProps} />}',
+      "  </WindowedListRow>",
+      ");",
+    ].join("\n");
+    expect(undeclaredRowTabStops(delegated, "Delegated.tsx")).toStrictEqual([]);
+    const foreignSpread = delegated.replace("{...targetProps}", "{...props}");
+    expect(undeclaredRowTabStops(foreignSpread, "Foreign.tsx")).toStrictEqual([
+      '<button type="button" {...props} />',
+    ]);
+  });
+
+  it("negative control: an explicit tab index is a declaration, and a row's own content is not this rule\u2019s business", () => {
+    const explicit = [
+      "export const row = (",
+      '  <WindowedListRow as="li" rowIndex={index} totalRowCount={total} isTabbable>',
+      '    <button type="button" tabIndex={-1}>{entry.path}</button>',
+      "  </WindowedListRow>",
+      ");",
+    ].join("\n");
+    expect(undeclaredRowTabStops(explicit, "Explicit.tsx")).toStrictEqual([]);
+    const inert = [
+      "export const row = (",
+      '  <WindowedListRow as="li" rowIndex={index} totalRowCount={total} isTabbable>',
+      '    <span className="meridian-diff-files__path">{entry.path}</span>',
+      "    <a>{entry.path}</a>",
+      "  </WindowedListRow>",
+      ");",
+    ].join("\n");
+    expect(undeclaredRowTabStops(inert, "Inert.tsx")).toStrictEqual([]);
+    // And a button outside any row is a button, not a windowed row\u2019s tab stop.
+    expect(undeclaredRowTabStops('export const save = <button type="button" />;', "Plain.tsx")) //
+      .toStrictEqual([]);
   });
 });

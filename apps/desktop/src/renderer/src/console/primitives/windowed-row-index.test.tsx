@@ -8,16 +8,12 @@
 // unreachable.
 //
 // A `.tsx` file because the hook half needs a tree to move focus inside. The pure
-// half is driven directly, without one.
-//
-// THE FIXTURE HANDS THE HOOK THE SHAPE A VIRTUALIZER HANDS BACK: the mounted row
-// array itself, rebuilt every render. A stable derivation of it — the joined string
-// this file drove before — makes the expiry cases pass against an implementation
-// that compares the option's identity, which is a property of the fixture and not of
-// the hook. The array is the harder value and the real one.
+// half is driven directly, without one. The fixture and the two Tab scans live in
+// `RovingList.test-support.tsx` / `windowed-row-index.test-support.ts`, which the claim-expiry and anchor suites
+// beside this one drive the same list through.
 
 import { act, render } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { WindowedListRow } from "./WindowedListRow.js";
@@ -25,9 +21,10 @@ import {
   WINDOWED_ROW_MOVE_BY_KEY,
   clampedRowIndex,
   movedRowIndex,
-  useWindowedRovingIndex,
   type WindowedRowMove,
 } from "./windowed-row-index.js";
+import { RovingList } from "./RovingList.test-support.js";
+import { listOf, sequentialTabStops, tabbableIndexes } from "./windowed-row-index.test-support.js";
 
 describe("windowed-row-index — where a move lands", () => {
   it("clamps at both ends rather than wrapping", () => {
@@ -73,52 +70,6 @@ describe("windowed-row-index — a position in the set that exists now", () => {
     expect(clampedRowIndex(Number.NaN, 5)).toBe(0);
   });
 });
-
-/** A windowed list reduced to what the hook touches: a slice, and a reveal call. */
-function RovingList(props: {
-  readonly rowCount: number;
-  readonly windowStart: number;
-  readonly windowLength: number;
-  readonly onReveal: (rowIndex: number) => void;
-  /** The drawn sequence a move belongs to, where the caller has one. */
-  readonly rowSetIdentity?: unknown;
-}): React.JSX.Element {
-  const containerRef = useRef<HTMLUListElement | null>(null);
-  const mountedIndexes = Array.from(
-    { length: Math.min(props.windowLength, Math.max(props.rowCount - props.windowStart, 0)) },
-    (unused, offset) => props.windowStart + offset,
-  );
-  const { activeIndex, onKeyDown } = useWindowedRovingIndex({
-    rowCount: props.rowCount,
-    anchorIndex: 0,
-    containerRef,
-    revealIndex: props.onReveal,
-    rowSetIdentity: props.rowSetIdentity,
-    windowRevision: mountedIndexes,
-  });
-  return (
-    <ul ref={containerRef} onKeyDown={onKeyDown} data-active-index={activeIndex}>
-      {mountedIndexes.map((rowIndex) => (
-        <WindowedListRow
-          key={rowIndex}
-          as="li"
-          rowIndex={rowIndex}
-          totalRowCount={props.rowCount}
-          isTabbable={rowIndex === activeIndex}
-        >
-          <button type="button">{`row ${String(rowIndex)}`}</button>
-        </WindowedListRow>
-      ))}
-    </ul>
-  );
-}
-
-function tabbableIndexes(container: HTMLElement): readonly string[] {
-  return [...container.querySelectorAll<HTMLElement>('li[tabindex="0"]')].map(
-    (row) => row.dataset["index"] ?? "",
-  );
-}
-
 describe("useWindowedRovingIndex — one tab stop that survives a shrinking set", () => {
   it("keeps exactly one row tabbable after the set narrows under a remembered move", async () => {
     const { container, rerender } = render(
@@ -180,8 +131,11 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
     await act(async () => {
       list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
     });
-    // Row 39 was not mounted when the key landed; focus waited for the window.
+    // Row 39 was not mounted when the key landed; focus waited for the window. The
+    // tag is asserted beside the text because the `<li>` and the button it wraps read
+    // the same textContent — which is how focus landing on the wrapper passed here.
     expect(document.activeElement?.textContent).toBe("row 39");
+    expect(document.activeElement?.tagName).toBe("BUTTON");
   });
 
   it("negative control: a key the table does not name is left to the page", async () => {
@@ -216,188 +170,68 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
     expect(onReveal).not.toHaveBeenCalled();
   });
 });
-
-describe("useWindowedRovingIndex — a pending move is spent once, never left standing", () => {
-  /** Press `End`, on a window that has not mounted the last row. */
-  async function pressEnd(list: HTMLElement): Promise<void> {
-    await act(async () => {
-      list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    });
-  }
-
-  function listOf(container: HTMLElement): HTMLElement {
-    const list = container.querySelector("ul");
-    if (list === null) {
-      throw new Error("the list did not render");
-    }
-    return list;
-  }
-
-  it("does not steal focus on a later window change once the move has expired", async () => {
-    // The defect in terms: the reader presses End, the window never mounts row 39,
-    // they tab away and start typing — and an unrelated store update re-runs the
-    // effect with the row mounted, pulling focus out of what they were typing in.
-    const { container, rerender } = render(
+describe("useWindowedRovingIndex — the roving index controls the real target", () => {
+  it("puts one tab stop in the whole list, whatever the window mounted", () => {
+    // The defect in terms: the roving index went on the `<li>` and every row's button
+    // kept its native stop, so a window of four rows put five stops in the page's tab
+    // order and the number moved with the scroll position.
+    const { container } = render(
       <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
     );
     const list = listOf(container);
-    await pressEnd(list);
-
-    // One more render that does not bring row 39 in. That is the move's one retry,
-    // and it is spent here.
-    rerender(
-      <RovingList rowCount={40} windowStart={4} windowLength={4} onReveal={() => undefined} />,
-    );
-    // A later window change that DOES mount it must move nothing.
-    rerender(
-      <RovingList rowCount={40} windowStart={36} windowLength={4} onReveal={() => undefined} />,
-    );
-    expect(document.activeElement?.textContent).not.toBe("row 39");
-    expect(document.activeElement).toBe(document.body);
-  });
-
-  it("negative control: the one retry a reveal needs still lands the focus", async () => {
-    // Without this the expiry above would also be satisfied by dropping the move on
-    // the first miss, which is every asynchronous virtualizer: the row is mounted a
-    // render later and the key press would move nothing at all. That is exactly what
-    // an expiry keyed on the option's identity does here, because `mountedIndexes` is
-    // a new array on the very render the move's own state update causes.
-    const { container, rerender } = render(
-      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
-    );
-    const list = listOf(container);
-    await pressEnd(list);
-    rerender(
-      <RovingList rowCount={40} windowStart={36} windowLength={4} onReveal={() => undefined} />,
-    );
-    expect(document.activeElement?.textContent).toBe("row 39");
-  });
-
-  it("focuses no other row when the set narrows under a pending move", async () => {
-    // The second arm of the same defect: the effect keyed on the CLAMPED index, so
-    // a list that shrank between the key press and the mount answered a press about
-    // row 39 by focusing row 4.
-    const { container, rerender } = render(
-      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
-    );
-    const list = listOf(container);
-    await pressEnd(list);
-    rerender(
-      <RovingList rowCount={5} windowStart={0} windowLength={5} onReveal={() => undefined} />,
-    );
-    // Row 4 is mounted and is the active index; it is still not what was asked for.
-    expect(list.querySelector('li[data-index="4"]')).not.toBeNull();
-    expect(document.activeElement?.textContent).not.toBe("row 4");
-    expect(document.activeElement).toBe(document.body);
-  });
-});
-
-describe("useWindowedRovingIndex — a move belongs to the sequence it was made in", () => {
-  /** One drawn sequence's identity. Compared by identity and nothing else. */
-  function drawnSequence(label: string): readonly string[] {
-    return [label];
-  }
-
-  it("drops a remembered move when the set that held it is replaced", async () => {
-    // The filtered-list defect, driven end to end: a set narrows under a remembered
-    // move and then grows back, and the window is nowhere near where the move was.
-    // Clamping alone keeps a position the participant never moved to, so every
-    // mounted row is untabbable and the whole list leaves the page's tab order.
-    const wholeSet = drawnSequence("whole");
-    const { container, rerender } = render(
-      <RovingList
-        rowCount={500}
-        windowStart={0}
-        windowLength={500}
-        onReveal={() => undefined}
-        rowSetIdentity={wholeSet}
-      />,
-    );
-    const list = container.querySelector("ul");
-    if (list === null) {
-      throw new Error("the list did not render");
-    }
-    await act(async () => {
-      list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    });
-    expect(tabbableIndexes(list)).toStrictEqual(["499"]);
-
-    rerender(
-      <RovingList
-        rowCount={3}
-        windowStart={0}
-        windowLength={3}
-        onReveal={() => undefined}
-        rowSetIdentity={drawnSequence("narrowed")}
-      />,
-    );
-    rerender(
-      <RovingList
-        rowCount={500}
-        windowStart={0}
-        windowLength={30}
-        onReveal={() => undefined}
-        rowSetIdentity={drawnSequence("whole again")}
-      />,
-    );
-
-    // Back on the anchor, which is a row the window actually mounted.
+    expect(list.querySelectorAll("li").length).toBe(4);
+    const stops = sequentialTabStops(list);
+    expect(stops.map((element) => element.tagName)).toStrictEqual(["BUTTON"]);
     expect(tabbableIndexes(list)).toStrictEqual(["0"]);
   });
 
-  it("negative control: without the identity the same sequence leaves no tab stop", async () => {
-    const { container, rerender } = render(
-      <RovingList rowCount={500} windowStart={0} windowLength={500} onReveal={() => undefined} />,
+  it("moves focus to the next row's control rather than to its wrapper", async () => {
+    const { container } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
     );
-    const list = container.querySelector("ul");
-    if (list === null) {
-      throw new Error("the list did not render");
-    }
+    const list = listOf(container);
     await act(async () => {
-      list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     });
-
-    rerender(
-      <RovingList rowCount={3} windowStart={0} windowLength={3} onReveal={() => undefined} />,
-    );
-    rerender(
-      <RovingList rowCount={500} windowStart={0} windowLength={30} onReveal={() => undefined} />,
-    );
-
-    expect(tabbableIndexes(list)).toStrictEqual([]);
+    expect(document.activeElement?.tagName).toBe("BUTTON");
+    expect(document.activeElement?.textContent).toBe("row 1");
+    // And the stop moved with it: still one, now on the row that was moved to.
+    expect(tabbableIndexes(list)).toStrictEqual(["1"]);
   });
 
-  it("negative control: a move inside one unchanged sequence still stands", async () => {
-    // Without this the case above would pass against a hook that dropped the move on
-    // every render, which puts the keyboard back at the top after every arrow key.
-    const wholeSet = drawnSequence("whole");
-    const { container, rerender } = render(
-      <RovingList
-        rowCount={40}
-        windowStart={0}
-        windowLength={40}
-        onReveal={() => undefined}
-        rowSetIdentity={wholeSet}
-      />,
+  it("keeps every inactive row's control out of the tab order", async () => {
+    const { container } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
     );
-    const list = container.querySelector("ul");
-    if (list === null) {
-      throw new Error("the list did not render");
-    }
+    const list = listOf(container);
     await act(async () => {
-      list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     });
-
-    rerender(
-      <RovingList
-        rowCount={40}
-        windowStart={0}
-        windowLength={40}
-        onReveal={() => undefined}
-        rowSetIdentity={wholeSet}
-      />,
+    const inactive = [...list.querySelectorAll<HTMLElement>("li")].filter(
+      (row) => row.dataset["index"] !== "1",
     );
+    expect(inactive.length).toBe(3);
+    for (const row of inactive) {
+      expect(row.querySelector("button")?.getAttribute("tabindex"), row.textContent ?? "").toBe(
+        "-1",
+      );
+    }
+  });
 
-    expect(tabbableIndexes(list)).toStrictEqual(["39"]);
+  it("negative control: the scan counts a stop that is not the row's declared target", () => {
+    // Without this the single-stop claims above would also be satisfied by a scan that
+    // matched nothing. A row rendered the old way — content as markup, so the wrapper
+    // takes the index and the button keeps its own — is counted as the two stops it is.
+    const { container } = render(
+      <ul>
+        <WindowedListRow as="li" rowIndex={0} totalRowCount={1} isTabbable>
+          <button type="button">row 0</button>
+        </WindowedListRow>
+      </ul>,
+    );
+    expect(sequentialTabStops(container).map((element) => element.tagName)).toStrictEqual([
+      "LI",
+      "BUTTON",
+    ]);
   });
 });

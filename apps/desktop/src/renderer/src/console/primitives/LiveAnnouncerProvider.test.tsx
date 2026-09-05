@@ -1,10 +1,11 @@
 // What the mount has to be true of, as opposed to what the announcer computes.
 //
-// `live-announcer.test.ts` owns the queue, the coalescing, and the clock. These
-// cases own the four things only the React mount can be wrong about: the regions
-// exist before anything is announced, there are exactly two of them, a surface
-// outside the provider is told rather than silently ignored, and the announcer the
-// provider BUILT is the only one it disposes.
+// `live-announcer.test.ts` owns the queue, the coalescing, and the clock, and
+// `LiveRegion.test.tsx` owns what a region does with an announcement once it has
+// one. These cases own the three things only the React mount can be wrong about:
+// the pair exists, empty, before anything is announced, a surface outside the
+// provider is told rather than silently ignored, and the announcer the provider
+// BUILT is the only one it disposes.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,14 +13,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
+import { regionsOf } from "./live-region.test-support.js";
 
 afterEach(() => {
   cleanup();
 });
-
-function regionsOf(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>("[data-live-region]")];
-}
 
 /** A surface that announces once on demand, so the hook is exercised for real. */
 function AnnouncingSurface(props: {
@@ -35,7 +33,7 @@ function SurfaceWithoutProvider(): React.JSX.Element {
   return <p>never rendered</p>;
 }
 
-describe("LiveAnnouncerProvider — the regions exist before anything is said", () => {
+describe("LiveAnnouncerProvider — it mounts the pair before anything is said", () => {
   it("renders exactly two empty regions, one per politeness, from the first paint", () => {
     const { container } = render(
       <LiveAnnouncerProvider>
@@ -57,44 +55,6 @@ describe("LiveAnnouncerProvider — the regions exist before anything is said", 
     expect(assertive?.getAttribute("role")).toBe("alert");
     expect(assertive?.getAttribute("aria-live")).toBe("assertive");
     expect(assertive?.getAttribute("aria-atomic")).toBe("true");
-    expect(assertive?.textContent).toBe("");
-  });
-
-  it("keeps both regions mounted while it speaks, rather than creating one to speak through", () => {
-    const announcer = new LiveAnnouncer({ clock: new ManualClock() });
-    const { container } = render(
-      <LiveAnnouncerProvider announcer={announcer}>
-        <p>a surface</p>
-      </LiveAnnouncerProvider>,
-    );
-    const before = regionsOf(container);
-
-    act(() => {
-      announcer.announce("that node refused the attach", "assertive");
-    });
-
-    const after = regionsOf(container);
-    expect(after).toHaveLength(2);
-    // Identity, not just count: a region replaced between announcements is a region
-    // inserted carrying its text, which most readers do not announce at all.
-    expect(after[0]).toBe(before[0]);
-    expect(after[1]).toBe(before[1]);
-  });
-
-  it("puts a message in the region its politeness names and leaves the other silent", () => {
-    const announcer = new LiveAnnouncer({ clock: new ManualClock() });
-    const { container } = render(
-      <LiveAnnouncerProvider announcer={announcer}>
-        <p>a surface</p>
-      </LiveAnnouncerProvider>,
-    );
-
-    act(() => {
-      announcer.announce("the deck was reordered");
-    });
-
-    const [polite, assertive] = regionsOf(container);
-    expect(polite?.textContent).toBe("the deck was reordered");
     expect(assertive?.textContent).toBe("");
   });
 });

@@ -91,8 +91,23 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
   return received;
 }
 
+/**
+ * Reach one bridge's call door, whichever bridge that is.
+ *
+ * The raw call, written once. {@link callThroughBridge} is the fixture-shaped caller
+ * and a suite holding a WRAPPED bridge — the answer arm below — has one too, so the
+ * cast to the `DaemonMethod` brand lives here rather than at each of them.
+ */
+export function callBridge(
+  bridge: ConsoleBridge,
+  method: string,
+  params?: unknown,
+): Promise<unknown> {
+  return bridge.sidekicks.daemon.call(method as DaemonMethod, params);
+}
+
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
-  return fixture.bridge.sidekicks.daemon.call(method as DaemonMethod, undefined);
+  return callBridge(fixture.bridge, method);
 }
 
 /** What the daemon was asked, so a case can assert it was never asked at all. */
@@ -121,19 +136,19 @@ export interface BridgeUnderTest {
  * two instead of minting a second builder to hold both.
  *
  * THE ANSWER IS HANDED THE WRAPPED BRIDGE'S OWN CALL, which is what lets a suite
- * override ONE method and leave the rest scripted by the scenario. Without it such a
- * suite has to reach `bridge.sidekicks.daemon.call` itself, and a suite that reaches
- * the door directly is exactly what the chokepoint gate beside this family forbids —
- * so the delegation lives here, once, rather than being spelled at each site that
- * needs it.
+ * decide ONE method and leave every other one scripted by the scenario. Without it a
+ * suite that only cares about `agent.list` has to answer for `presence.read` too, and
+ * the only shape available is a hand-written stub — which is exactly what this helper
+ * exists to keep out of a suite that means to reach a real bridge. Delegation lives
+ * here once rather than being spelled at each site that needs it.
  */
 export function withDaemonCall(
   bridge: ConsoleBridge,
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   const calls: RecordedDaemonCall[] = [];
-  // Taken before the spread, so the pass-through reaches the bridge this helper
-  // wrapped rather than the one it is building.
+  // Bound before the spread below, so the pass-through reaches the bridge this helper
+  // WRAPPED rather than the arm it is building — which would call itself forever.
   const wrappedCall = bridge.sidekicks.daemon.call.bind(bridge.sidekicks.daemon) as (
     method: string,
     params: unknown,
