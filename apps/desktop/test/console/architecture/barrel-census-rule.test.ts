@@ -82,6 +82,46 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
     ]);
   });
 
+  it("fails a type specifier no module imports at all, in production or in a test", () => {
+    // The orphan shape, and it is worth its own case because it is the one a reader
+    // is most likely to assume some other gate covers. It does not: knip counts a
+    // TYPE re-export as referenced from the declaring module, and the declaring
+    // module is genuinely read — `SidekickPostureMode` is used twice inside
+    // `bridge/sidekick-definition.ts` — so nothing outside this census can tell that
+    // the DOOR LINE publishing it reaches nobody. The disposition is the door line,
+    // never the symbol: retiring the type would break its own module.
+    const declaringWithLocalReaders = syntheticModule(
+      `${CONSOLE_PREFIX}/bridge/sidekick-definition.ts`,
+      [
+        'export type PostureMode = "detached" | "attached";',
+        "export interface Definition {",
+        "  readonly mode: PostureMode | null;",
+        "}",
+      ].join("\n"),
+    );
+    const doorPublishingIt = syntheticModule(
+      `${CONSOLE_PREFIX}/bridge/index.ts`,
+      'export type { PostureMode } from "./sidekick-definition.js";\n',
+    );
+
+    expect(censusFindings([declaringWithLocalReaders, doorPublishingIt])).toStrictEqual([
+      {
+        reason: "unclaimed",
+        barrelPath: `${CONSOLE_PREFIX}/bridge/index.ts`,
+        exportedName: "PostureMode",
+        testOnlyImporters: [],
+      },
+    ]);
+    // And the door stops being reported the moment a production module takes the
+    // name through it, which is what makes the finding a fact about the door.
+    const reader = syntheticModule(
+      `${CONSOLE_PREFIX}/sessions/PostureRow.ts`,
+      'import type { PostureMode } from "../bridge/index.js";\n\nexport type Row = { mode: PostureMode };\n',
+    );
+    expect(censusFindings([declaringWithLocalReaders, doorPublishingIt, reader])) //
+      .toStrictEqual([]);
+  });
+
   it("passes the same specifier once it names the task that will import it", () => {
     // Both forms, because the tree carries both and neither is the weaker claim: the
     // JSDoc tag additionally buys the dead-code gate's exemption, which is the only
