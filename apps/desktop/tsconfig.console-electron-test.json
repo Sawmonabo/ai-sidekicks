@@ -18,6 +18,14 @@
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,
+    // The budget registry's modules import each other by their real `.mts` path,
+    // because `node --experimental-strip-types` resolves the extension it is
+    // GIVEN and does no `.mjs` → `.mts` rewriting. A program that pulls them in
+    // needs this option to accept that path, and this tier does pull them in —
+    // through `launch-budgets.ts`, which reads the harness bounds off the same
+    // registry. Legal here for the reason `tsconfig.test.json` states about its
+    // own copy: this config is `noEmit`.
+    "allowImportingTsExtensions": true,
     // Same `isolatedDeclarations` pairing `tsconfig.test.json` documents: the
     // base sets it, and it needs `declaration` or `composite`, so `declaration`
     // is kept on beside `noEmit` (TS5069) while `composite: false` keeps this
