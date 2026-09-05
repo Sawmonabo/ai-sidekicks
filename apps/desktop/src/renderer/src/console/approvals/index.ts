@@ -1,5 +1,13 @@
 // The approvals pane's door: one kind claimed, one body behind it.
 //
+// THE FAMILY DOOR, and the family's one barrel. The body lives under `pane/` beside
+// this file rather than inside `panes/`: that directory is a COMPOSITION SITE, which
+// sits above every family by construction, so a body parked there is reachable from a
+// sibling family only by an upward import the layering gate cannot see — both
+// composition sites are subtracted from its endpoints so `panes/index.ts` may name
+// every family. `panes/index.ts` calls the function below; nothing else here is
+// reachable from outside this directory.
+//
 // A pane family registers through its own barrel and never edits the pane registry
 // or the pane-kind set — `panes/index.ts` says why, and the short version is that a
 // registry six branches edit at once is a merge that resolves cleanly while
@@ -11,20 +19,20 @@
 
 import { createElement } from "react";
 
-import { type ConsolePaneRegistry } from "../../seats/index.js";
-import { paneBodyForKind } from "../pane-chrome.js";
-import { ApprovalsPane } from "./ApprovalsPane.js";
+import { type ConsolePaneRegistry } from "../seats/index.js";
+import { paneBodyForKind } from "../panes/pane-chrome.js";
+import { ApprovalsPane } from "./pane/ApprovalsPane.js";
 
 // The sheet is imported here, at the pane's single door, for the reason
 // `pane-chrome.tsx` gives for its own: every body behind this door renders through
 // the registration below, so a body cannot arrive without its CSS, and the seat
 // board six branches each replace one line in is never touched.
-import "./approvals.css";
+import "./pane/approvals.css";
 // The sections this pane hosts carry their own sheet beside the pane's, split at
 // the same seam their components are: the rules that address selectors in BOTH
 // sheets — the pane-wide control metrics and the one focus ring — stay in
 // `approvals.css` as a single declaration rather than being written twice.
-import "./approvals-sections.css";
+import "./pane/approvals-sections.css";
 
 /**
  * Claim the `approvals` kind.

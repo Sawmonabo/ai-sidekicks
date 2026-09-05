@@ -6,7 +6,7 @@
 // and `RunsPaneBody.tsx` are the same shape one directory over.
 
 import { Nothing } from "../../primitives/index.js";
-import { type PaneContextOf } from "../pane-chrome.js";
+import { type PaneContextOf } from "../../panes/pane-chrome.js";
 import { InspectedEntity } from "./entity-detail/InspectedEntity.js";
 
 /**

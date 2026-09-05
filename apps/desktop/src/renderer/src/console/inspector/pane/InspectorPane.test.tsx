@@ -15,9 +15,9 @@ import { SessionStore } from "../../store/index.js";
 import { ConsolePaneRegistry } from "../../seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.
 import { isDetachablePaneKind } from "../../seats/pane-kinds.js";
-import { type PaneContextOf } from "../pane-chrome.js";
-import { paneContext } from "../pane-chrome.test-support.js";
-import { registerInspectorPane } from "./index.js";
+import { type PaneContextOf } from "../../panes/pane-chrome.js";
+import { paneContext } from "../../panes/pane-chrome.test-support.js";
+import { registerInspectorPane } from "../index.js";
 import { InspectorPane } from "./InspectorPane.js";
 
 const SESSION_ID = "session-inspector";

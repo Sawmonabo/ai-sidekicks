@@ -16,7 +16,7 @@ import {
 } from "../../bridge/index.js";
 import { DerivedFigure, formatCount, InlineRefusal } from "../../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../../store/index.js";
-import { type PaneContextOf } from "../pane-chrome.js";
+import { type PaneContextOf } from "../../panes/pane-chrome.js";
 import { KnownRunRow } from "./KnownRunRow.js";
 import { QueueContents } from "./queue/QueueContents.js";
 import {

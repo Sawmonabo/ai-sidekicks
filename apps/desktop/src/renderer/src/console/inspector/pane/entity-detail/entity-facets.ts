@@ -29,7 +29,7 @@
 
 import type { ConsoleEntity, SessionDegradedCause, SessionStore } from "../../../store/index.js";
 import { formatByteQuantity, formatClockTime, formatCount } from "../../../primitives/index.js";
-import { parseInstant } from "../../../core/index.js";
+import { parseInstant, readWireString } from "../../../core/index.js";
 
 /**
  * What every per-kind detail is handed.
@@ -102,12 +102,13 @@ export function readBodyMember(entity: ConsoleEntity | undefined, memberName: st
 
 /** A string the wire supplied — an id, a handle, a state name. Mono and verbatim. */
 export function wireFacet(label: string, value: unknown, memberName: string): EntityFacet {
+  // The empty-string-is-absent rule is `core/wire-strings.ts`', not this builder's:
+  // three view families were each spelling it for themselves, and a facet that read
+  // `""` as a value would put an empty mono cell where the absent arm belongs.
+  const text = readWireString(value);
   return {
     label,
-    value:
-      typeof value === "string" && value.length > 0
-        ? { form: "wire", text: value }
-        : unrecorded(memberName),
+    value: text === undefined ? unrecorded(memberName) : { form: "wire", text },
   };
 }
 

@@ -32,9 +32,8 @@
 // count, and never a list presented as current while a run the session knows is
 // missing from it.
 
-import { compareInstants, parseInstant } from "../../core/index.js";
+import { compareInstants, parseInstant, readWireString } from "../../core/index.js";
 import type { ConsoleEntity } from "../../store/index.js";
-import { readWireString } from "../entity-body-reads.js";
 import type { RunProjection } from "./run-state-projection.js";
 
 /**

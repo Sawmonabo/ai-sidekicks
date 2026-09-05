@@ -20,8 +20,8 @@ import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { SessionStore } from "../../store/index.js";
 import { type ConsoleScenario } from "../../bridge/scenario.js";
-import { type PaneContextOf } from "../pane-chrome.js";
-import { paneContext } from "../pane-chrome.test-support.js";
+import { type PaneContextOf } from "../../panes/pane-chrome.js";
+import { paneContext } from "../../panes/pane-chrome.test-support.js";
 
 /**
  * The approvals pane's context, over the shared builder.

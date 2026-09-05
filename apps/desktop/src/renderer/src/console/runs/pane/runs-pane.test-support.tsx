@@ -7,7 +7,7 @@
 
 import { render } from "@testing-library/react";
 import { type RunState } from "@ai-sidekicks/contracts";
-import { paneContext } from "../pane-chrome.test-support.js";
+import { paneContext } from "../../panes/pane-chrome.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { createFixture, withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 import { withReplayedStream } from "../../bridge/daemon-streams.test-support.js";

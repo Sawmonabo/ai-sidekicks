@@ -21,7 +21,7 @@
 // would be a second place eligibility is decided, which is exactly the renderer-held
 // truth `Spec-023 §Pitfalls To Avoid` names.
 
-import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../pane-chrome.js";
+import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../../panes/pane-chrome.js";
 import { InspectorPaneBody } from "./InspectorPaneBody.js";
 
 export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.Element {

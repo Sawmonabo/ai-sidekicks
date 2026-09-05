@@ -19,6 +19,16 @@
 // its own placeholder line below with the import and the call. Its line names the
 // kinds it claims, so a reviewer can read the whole deck off this file.
 //
+// THE FAMILY IS A SIBLING OF THIS FILE, NOT A SUBDIRECTORY OF IT
+//
+// A pane body lives at `console/<family>/pane/`, behind that family's own door at
+// `console/<family>/index.ts` — never under `panes/`. This file composes the deck
+// and holds no body, which is what lets it name every family without becoming the
+// place any of them lives: a body here would be reachable from a sibling family
+// only by importing UPWARD into the site that composes it, and both composition
+// sites are subtracted from the layering gate's endpoints precisely so that this
+// file may name them all.
+//
 // WHAT A FAMILY DOES NOT DO
 //
 // A family never edits `seats/pane-registry.ts` or `seats/pane-kinds.ts`. The
@@ -46,9 +56,9 @@
 // the family's frame styled by whichever component happened to be reached first.
 import "./pane-chrome.css";
 
-import { registerApprovalsPane } from "./approvals/index.js";
-import { registerInspectorPane } from "./inspector/index.js";
-import { registerRunsPane } from "./runs/index.js";
+import { registerApprovalsPane } from "../approvals/index.js";
+import { registerInspectorPane } from "../inspector/index.js";
+import { registerRunsPane } from "../runs/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
 
 /**

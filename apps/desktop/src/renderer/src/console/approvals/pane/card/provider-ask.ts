@@ -24,8 +24,8 @@
 // answered with an absent deadline, and the pane counts it beside the records it
 // could not read.
 
+import { readWireString } from "../../../core/index.js";
 import { type ConsoleEntity } from "../../../store/index.js";
-import { readWireString } from "../../entity-body-reads.js";
 
 /**
  * One approval's provider-ask origin.

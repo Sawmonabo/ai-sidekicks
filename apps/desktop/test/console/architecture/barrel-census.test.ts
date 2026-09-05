@@ -85,7 +85,9 @@ const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT
  * Every one is a composition site: `scenarios/index.ts` composes the scenario list,
  * `panes/index.ts` registers the pane board, and a pane family's own door claims its
  * kind — each declaring its one export in place rather than forwarding a name from
- * elsewhere. The approvals door joined them when its approval-flow projector moved
+ * elsewhere. The three pane families sit beside `panes/` rather than inside it: that
+ * directory holds the deck's composition and no body, so each family door is a family
+ * door like any other and is censused as one. The approvals door joined them when its approval-flow projector moved
  * into `bridge/approvals/`: the composition that registers the fold now reaches the
  * bridge door directly, which is where a validator's registrar belongs, and a
  * forwarding line here would have been an index-to-index chain. Named here so the per-door claim below is a quantifier rather than a
@@ -93,11 +95,11 @@ const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT
  * symbol would leave this list and be censused like every other door.
  */
 const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
+  `${CONSOLE_PREFIX}/approvals/index.ts`,
   `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
-  `${CONSOLE_PREFIX}/panes/approvals/index.ts`,
+  `${CONSOLE_PREFIX}/inspector/index.ts`,
   `${CONSOLE_PREFIX}/panes/index.ts`,
-  `${CONSOLE_PREFIX}/panes/inspector/index.ts`,
-  `${CONSOLE_PREFIX}/panes/runs/index.ts`,
+  `${CONSOLE_PREFIX}/runs/index.ts`,
 ];
 
 function toKey(absolutePath: string): string {

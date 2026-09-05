@@ -8,12 +8,14 @@
 //
 // WHY THIS LIVES IN `panes/` AND NOT IN A PANE'S OWN DIRECTORY
 //
-// `panes/runs/`, `panes/approvals/`, and `panes/inspector/` are the first three
-// bodies and they are all one family's. `panes/timeline/`, `panes/diff/`, and the
-// rest belong to other families, and every one of them wants this frame. Putting it
-// inside the first pane that needed it would make five later families deep-import a
-// sibling pane's directory; `apps/desktop/AGENTS.md` says to hoist on the second
-// use, and the second use arrived in the same lane as the first.
+// `runs/pane/`, `approvals/pane/`, and `inspector/pane/` are the first three bodies
+// and they are all one family's. The `timeline`, `diff`, and workflow kinds belong to
+// other families, and every one of them wants this frame. Putting it inside the first
+// pane that needed it would make five later VIEW families import a sibling view
+// family's directory — the edge `console-view-family-isolation` forbids outright —
+// and `apps/desktop/AGENTS.md` says to hoist on the second use, which arrived in the
+// same lane as the first. `panes/` is the one place above every family that each of
+// them may reach, which is why the frame sits here and no pane BODY does.
 
 import { type ConsoleEntityRef } from "../store/index.js";
 import { type ConsolePaneContext, type PaneKind } from "../seats/index.js";

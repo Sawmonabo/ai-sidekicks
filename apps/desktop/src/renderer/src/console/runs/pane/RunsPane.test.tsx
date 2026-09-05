@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { ConsolePaneRegistry } from "../../seats/index.js";
 import { isDetachablePaneKind } from "../../seats/pane-kinds.js";
-import { registerRunsPane } from "./index.js";
+import { registerRunsPane } from "../index.js";
 import {
   RUN_ID,
   SECOND_RUN_ID,

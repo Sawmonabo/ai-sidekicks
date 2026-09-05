@@ -41,7 +41,7 @@
 // its tail, and cancel changes a row only when the daemon says it changed.
 
 import { Nothing } from "../../primitives/index.js";
-import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../pane-chrome.js";
+import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../../panes/pane-chrome.js";
 import { RunsPaneBody } from "./RunsPaneBody.js";
 
 export function RunsPane(context: PaneContextOf<"runs">): React.JSX.Element {
