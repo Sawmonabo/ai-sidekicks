@@ -82,27 +82,48 @@ const CHOKEPOINT_MODULE = join("console", "bridge", "daemon-reply.ts");
 const BRIDGE_FAMILY_PREFIX = join("console", "bridge") + "/";
 
 /**
- * How a module shows it reached the daemon call door, in the two shapes that reach.
+ * How a module shows it reached the daemon call door, in the five shapes that reach.
  *
- * Both are deliberately anchored on syntax rather than on the bare name, because
+ * All five are deliberately anchored on syntax rather than on the bare name, because
  * `daemon.call` is a thing the console's own prose says constantly — the bridge
  * shape test names it as a member, the registry header names it as the generic
  * door — and a needle that flagged a comment would be turned off within a week.
  *
- *   • CALLED_OR_ALIASED matches `…daemon.call` only where a call, a type argument,
+ *   • CALLED OR ALIASED matches `…daemon.call` only where a call, a type argument,
  *     or an `as` cast follows. That is the reach: invoking it, or widening its
  *     branded signature so it can be invoked.
- *   • NAMESPACE_TAKEN matches the daemon namespace bound or spread rather than
+ *   • NAMESPACE TAKEN matches the daemon namespace bound or spread rather than
  *     stepped through, which is how a determined evasion would be spelled. The
- *     negative lookahead is what keeps `…sidekicks.daemon.subscribe` out of it.
+ *     negative lookahead is what keeps `…sidekicks.daemon.subscribe` out of it, and
+ *     the bracket beside it hands a computed key to the form that names it.
+ *   • The two COMPUTED KEY forms close the hole a dotted needle cannot see:
+ *     `bridge.sidekicks["daemon"].call(…)` and `daemon["call"](…)` reach the same
+ *     door, and neither is exotic — a member read through a variable key is how a
+ *     helper written over "whichever namespace this is" spells itself. They are the
+ *     smallest violations that passed the two dotted needles, measured.
+ *   • TAKEN AS A VALUE catches the door handed on rather than invoked —
+ *     `daemon.call.bind(bridge)` — which the first form's lookahead misses because
+ *     what follows `call` is a dot rather than a parenthesis.
+ *
+ * The computed forms admit no whitespace before the bracket, and that is exact
+ * rather than lax: every source file in this package is Prettier-formatted on the
+ * way in, and Prettier writes no space there — while prose in a comment ("the daemon
+ * [the local runtime] answers") writes one, so the spacing is what separates the two.
  *
  * Depth is honestly non-exhaustive: a value passed through two helpers defeats any
- * text scan. The structural half is the lint ban next to it — a module that cannot
- * hold a validator cannot make use of an unparsed reply it smuggled out.
+ * text scan, and so does a namespace reached through a variable that never names
+ * `sidekicks`. The lint ban beside it is a second, different claim — a module that
+ * cannot hold a validator cannot PARSE an unparsed reply it smuggled out — and it is
+ * deliberately not offered as closing this one, since casting an `unknown` to the
+ * response type needs no validator at all and is the first of the three mistakes the
+ * registry header enumerates.
  */
 const DAEMON_CALL_REACH_FORMS: readonly (readonly [string, RegExp])[] = [
   ["called or aliased", /\bdaemon\s*\.\s*call\b(?=\s*[(<]|\s+as\b)/],
-  ["namespace taken", /\.\s*sidekicks\s*\.\s*daemon\b(?!\s*\.)/],
+  ["namespace taken", /\.\s*sidekicks\s*\.\s*daemon\b(?!\s*[.[])/],
+  ["namespace taken by computed key", /\.\s*sidekicks\[/],
+  ["called by computed key", /\bdaemon\[/],
+  ["taken as a value", /\bdaemon\s*\.\s*call\s*\.\s*(?:bind|apply|call)\b/],
 ];
 
 /** Which reach forms `source` contains, by name, or `[]`. */
@@ -195,6 +216,31 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
       .toStrictEqual([]);
     expect(daemonCallReaches("this.#bridge.sidekicks.daemon.subscribe(name, onFrame);")) //
       .toStrictEqual([]);
+  });
+
+  it("sees the same door reached by a computed key or handed on as a value", () => {
+    // Planted, and each one is the SMALLEST violation that passed the two dotted
+    // needles: one bracket, and the whole scan reads the tree as compliant. A
+    // module that smuggles a reply out this way holds an `unknown` it can cast,
+    // which needs no validator, so the lint ban beside this scan does not cover it.
+    expect(
+      daemonCallReaches(`const reply = await bridge.sidekicks["daemon"].call(name, params);`),
+    ).toStrictEqual(["namespace taken by computed key"]);
+    expect(daemonCallReaches(`const door = bridge.sidekicks["daemon"];`)) //
+      .toStrictEqual(["namespace taken by computed key"]);
+    expect(daemonCallReaches(`const send = bridge.sidekicks.daemon["call"];`)) //
+      .toStrictEqual(["called by computed key"]);
+    expect(daemonCallReaches("const bound = bridge.sidekicks.daemon.call.bind(bridge);")) //
+      .toStrictEqual(["taken as a value"]);
+  });
+
+  it("negative control: a computed key in prose or on another noun is not a reach", () => {
+    // The other direction of the same claim. A needle that fired on either of these
+    // would be turned off within a week, which is how the scan stops existing.
+    expect(daemonCallReaches("// the daemon [the local runtime] answers `unknown`")) //
+      .toStrictEqual([]);
+    expect(daemonCallReaches("const first = daemonEvents[0];")).toStrictEqual([]);
+    expect(daemonCallReaches("const kinds = this.#sidekicksByName;")).toStrictEqual([]);
   });
 });
 
