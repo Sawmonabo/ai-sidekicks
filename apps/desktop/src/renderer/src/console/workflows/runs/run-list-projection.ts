@@ -145,6 +145,16 @@ export interface WorkflowRunListRow {
   readonly attentionBand: WorkflowRunAttentionBand;
 }
 
+/**
+ * What a row's open control does, when a caller supplies one.
+ *
+ * Declared beside the row it hands back rather than inside either component, on the
+ * precedent `definitions/definition-rows.ts` sets for `OpenDefinition`: the list and
+ * the row are two modules that have to agree about one signature, and declaring it in
+ * one of them makes the other import a component module for a type.
+ */
+export type OpenRun = (row: WorkflowRunListRow) => void;
+
 /** One row beside the reading of its own start, so the sort parses each run once. */
 interface SortableRunRow {
   readonly row: WorkflowRunListRow;
