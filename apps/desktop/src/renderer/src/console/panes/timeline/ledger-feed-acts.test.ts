@@ -34,6 +34,7 @@ import {
 import { type LedgerFindState } from "./ledger-find.js";
 import { type LedgerFilterState } from "./ledger-narrowing.js";
 import { type LedgerReplayState } from "./ledger-replay-window.js";
+import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow } from "./ledger-window.js";
 
 const SESSION_ID = "session-ledger-feed-acts";
@@ -347,7 +348,7 @@ function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
     sessionId: SESSION_ID,
     sequence: index,
     kind: "user.message",
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString(),
+    occurredAt: ledgerFixtureStampAt(index),
     payload: {},
   }));
 }

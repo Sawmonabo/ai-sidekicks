@@ -6,14 +6,18 @@
 // the table directly would prove the table works while saying nothing about whether
 // the window is wired to it.
 //
-// The rows are built here rather than taken from `ledger-feed-logs.test-support.ts` because two of
-// these cases need two logs that differ in ONE member of ONE event, which no shared
-// builder offers and which is the whole instrument: it separates a table that compares
-// what it holds from one that trusts a key and serves a stale row.
+// The LOGS are built here rather than taken from `ledger-feed-logs.test-support.ts`
+// because two of these cases need two logs that differ in ONE member of ONE event,
+// which no shared builder offers and which is the whole instrument: it separates a
+// table that compares what it holds from one that trusts a key and serves a stale
+// row. The row ids and instants inside them are still that module's — a log written
+// against its own clock would be a second fixture epoch, which is the thing a shared
+// stamp exists to prevent.
 
 import { describe, expect, it } from "vitest";
 
 import { type ConsoleSessionEvent } from "../../store/index.js";
+import { ledgerFixtureEventId, ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { LedgerRowRetention, deriveLedgerWindow } from "./ledger-window.js";
 
 const SESSION_ID = "session-ledger-window";
@@ -24,11 +28,11 @@ function logEntry(
   payload: Readonly<Record<string, unknown>>,
 ): ConsoleSessionEvent {
   return {
-    id: `019b793b-7b60-7ea1-8110-e5e0d115${String(sequence).padStart(4, "0")}`,
+    id: ledgerFixtureEventId(sequence),
     sessionId: SESSION_ID,
     sequence,
     kind: "user.message",
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, sequence)).toISOString(),
+    occurredAt: ledgerFixtureStampAt(sequence),
     payload,
   };
 }

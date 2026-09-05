@@ -20,6 +20,7 @@ import {
   useVisibleLedgerWindow,
   type VisibleLedgerWindow,
 } from "./ledger-visible-window.js";
+import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-visible-window";
@@ -34,7 +35,7 @@ function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
     sessionId: SESSION_ID,
     sequence: index,
     kind: EVERY_ROW_QUERY,
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString(),
+    occurredAt: ledgerFixtureStampAt(index),
     payload: {},
   }));
 }
@@ -350,7 +351,7 @@ describe("the marks and the thumb are one measurement over one ordering", () => 
       sessionId: SESSION_ID,
       sequence,
       kind: EVERY_ROW_QUERY,
-      occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, sequence)).toISOString(),
+      occurredAt: ledgerFixtureStampAt(sequence),
       payload: {},
     };
   }
@@ -361,7 +362,7 @@ describe("the marks and the thumb are one measurement over one ordering", () => 
       sessionId: SESSION_ID,
       sequence,
       kind,
-      occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, sequence)).toISOString(),
+      occurredAt: ledgerFixtureStampAt(sequence),
       payload: { sessionId: SESSION_ID, runId: RUN_ID },
     };
   }

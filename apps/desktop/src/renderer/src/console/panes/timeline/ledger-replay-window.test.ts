@@ -22,6 +22,7 @@ import {
   type LedgerReplayInputs,
   type LedgerReplayState,
 } from "./ledger-replay-window.js";
+import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-visible-window";
@@ -40,7 +41,6 @@ const ONE_ROW_MS = 1000;
  * a chapter, and the other what happens when the chapter is disclosed under a walk.
  */
 function chapteredLog(): readonly ConsoleSessionEvent[] {
-  const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
   const runPayload = { sessionId: SESSION_ID, runId: CHAPTER_RUN_ID };
   return [
     {
@@ -48,7 +48,7 @@ function chapteredLog(): readonly ConsoleSessionEvent[] {
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "user.message",
-      occurredAt: at(0),
+      occurredAt: ledgerFixtureStampAt(0),
       payload: {},
     },
     {
@@ -56,7 +56,7 @@ function chapteredLog(): readonly ConsoleSessionEvent[] {
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "run.running",
-      occurredAt: at(1),
+      occurredAt: ledgerFixtureStampAt(1),
       payload: runPayload,
     },
     {
@@ -64,7 +64,7 @@ function chapteredLog(): readonly ConsoleSessionEvent[] {
       sessionId: SESSION_ID,
       sequence: 2,
       kind: "assistant.message",
-      occurredAt: at(2),
+      occurredAt: ledgerFixtureStampAt(2),
       payload: runPayload,
     },
     {
@@ -72,7 +72,7 @@ function chapteredLog(): readonly ConsoleSessionEvent[] {
       sessionId: SESSION_ID,
       sequence: 3,
       kind: "run.completed",
-      occurredAt: at(3),
+      occurredAt: ledgerFixtureStampAt(3),
       payload: runPayload,
     },
     {
@@ -80,7 +80,7 @@ function chapteredLog(): readonly ConsoleSessionEvent[] {
       sessionId: SESSION_ID,
       sequence: 4,
       kind: "user.message",
-      occurredAt: at(4),
+      occurredAt: ledgerFixtureStampAt(4),
       payload: {},
     },
   ];
@@ -511,7 +511,7 @@ describe("a replay across a fold or a filter change", () => {
           sessionId: SESSION_ID,
           sequence: 5,
           kind: "user.message",
-          occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, 5)).toISOString(),
+          occurredAt: ledgerFixtureStampAt(5),
           payload: {},
         },
       ],

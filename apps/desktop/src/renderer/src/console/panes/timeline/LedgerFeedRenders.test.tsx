@@ -41,7 +41,11 @@ import {
   renderFeed,
   withLaidOutViewport,
 } from "./LedgerFeedFixtures.test-support.js";
-import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.test-support.js";
+import {
+  SESSION_ID,
+  ledgerFixtureEventId,
+  openSessionStoreWithGeneralLog,
+} from "./ledger-feed-logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -156,7 +160,7 @@ function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
   act(() => {
     sessionStore.applyBatch([
       {
-        id: `019b793b-7b60-7ea1-8110-e5e0d115${String(sequence).padStart(4, "0")}`,
+        id: ledgerFixtureEventId(sequence),
         sessionId: SESSION_ID,
         sequence,
         kind: "user.message",

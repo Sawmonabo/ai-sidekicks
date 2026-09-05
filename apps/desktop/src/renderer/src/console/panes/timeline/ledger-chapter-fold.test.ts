@@ -15,6 +15,7 @@ import {
   foldChapterHeaders,
   narrowChapterToAdmittedRows,
 } from "./ledger-chapter-fold.js";
+import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-chapter-cap";
@@ -29,14 +30,13 @@ const ROWS_PAST_THE_CAP = 5;
  * cap's arithmetic would stop being readable from the totals.
  */
 function oneRunLog(memberCount: number): readonly ConsoleSessionEvent[] {
-  const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
   const payload = { sessionId: SESSION_ID, runId: RUN_ID };
   return Array.from({ length: memberCount }, (_unused, index) => ({
     id: `event-${String(index)}`,
     sessionId: SESSION_ID,
     sequence: index,
     kind: index === memberCount - 1 ? "run.completed" : "assistant.message",
-    occurredAt: at(index),
+    occurredAt: ledgerFixtureStampAt(index),
     payload,
   }));
 }
