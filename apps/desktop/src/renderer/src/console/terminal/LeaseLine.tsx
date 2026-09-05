@@ -42,40 +42,22 @@ import {
   Chip,
   DerivedFigure,
   InlineRefusal,
-  LedgerRow,
   Nothing,
   WireFigure,
   formatCount,
   type ChipTone,
 } from "../primitives/index.js";
-import {
-  participantHueTokenName,
-  tokenReference,
-  type ParticipantRingTreatment,
-} from "../tokens/index.js";
+import { HolderName } from "./HolderName.js";
+import { LeaseTransitionLedger } from "./LeaseTransitionLedger.js";
+import { OfflineNodeLine } from "./OfflineNodeLine.js";
+import { ParticipantMarkDot } from "./ParticipantMarkDot.js";
 import { resolveTerminalClaimAffordance } from "./lease-acquisition.js";
 import { useTerminalLeaseClaim } from "./lease-claim.js";
 import { WithheldClaimControl } from "./WithheldClaimControl.js";
-import {
-  type TerminalLeaseHolding,
-  type TerminalLeaseState,
-  type TerminalOfflineNodeReading,
-} from "./lease-model.js";
-import { terminalLeaseTransitionSentence } from "./lease-transition.js";
+import { type TerminalLeaseHolding, type TerminalLeaseState } from "./lease-model.js";
+import type { TerminalParticipantMarkReader } from "./participant-mark.js";
 import type { CallerMembershipRoleResult } from "../store/index.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
-
-/** How a participant is drawn: the wheel step and the treatment that disambiguates it. */
-export interface TerminalParticipantMark {
-  readonly hueStep: number;
-  readonly ringTreatment: ParticipantRingTreatment;
-  /**
-   * The name a person reads, when the roster has supplied one. Absent is the
-   * ordinary state today — no projector claims `participant.joined` yet — and the
-   * surface then renders the wire id in mono rather than inventing a name.
-   */
-  readonly displayName: string | undefined;
-}
 
 export interface LeaseLineProps {
   readonly bridge: ConsoleBridge;
@@ -96,7 +78,7 @@ export interface LeaseLineProps {
    * admitted. Fail-closed by construction: an unknown participant takes the
    * neutral boundary and its wire id rather than somebody else's hue and name.
    */
-  readonly markFor: (participantId: string) => TerminalParticipantMark | undefined;
+  readonly markFor: TerminalParticipantMarkReader;
   /**
    * Which participant this window is, which is what the claim control is gated on.
    *
@@ -244,128 +226,4 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
       {isLedgerOpen ? <LeaseTransitionLedger state={state} markFor={markFor} /> : null}
     </div>
   );
-}
-
-/**
- * What an offline host means for this lease, which depends on whether there was a
- * holder for it to take off the screen.
- *
- * Total over the closed set by construction, for the reason every table in this
- * family is: the two readings are different sentences, and one line serving both said
- * "The holding node … is offline" under "Nobody holds the shell." — a holder claim
- * about a lease the line beside it says nobody holds. What is true in both cases is
- * that the host is down and the shell is read-only here, so the second sentence says
- * that and claims no holder at all.
- */
-function OfflineNodeLine(props: {
-  readonly reading: TerminalOfflineNodeReading;
-}): React.JSX.Element {
-  const nodeId = <WireFigure value={props.reading.nodeId} />;
-  switch (props.reading.effect) {
-    case "holder-collapsed":
-      return (
-        <p className="meridian-lease-line__degraded">
-          The holding node {nodeId} is offline, so the shell reads as free and stays read-only here.
-        </p>
-      );
-    case "no-holder-shown":
-      return (
-        <p className="meridian-lease-line__degraded">
-          The node {nodeId} that runs this shell is offline, so the shell stays read-only here.
-        </p>
-      );
-  }
-}
-
-/** The transition history, one ledger line per transition, newest last. */
-function LeaseTransitionLedger(props: {
-  readonly state: TerminalLeaseState;
-  readonly markFor: LeaseLineProps["markFor"];
-}): React.JSX.Element {
-  const { state, markFor } = props;
-  if (state.transitions.length === 0) {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="No transition has been read."
-        detail="The lease has changed hands zero times since this session's log was opened here. That is not the same as the shell never having moved."
-      />
-    );
-  }
-  const labelFor = (participantId: string): string =>
-    markFor(participantId)?.displayName ?? participantId;
-  return (
-    <div className="meridian-lease-line__ledger" role="feed" aria-label="Lease transitions">
-      {state.transitions.map((transition) => {
-        const actorId = transition.actorId;
-        const mark = actorId === undefined ? undefined : markFor(actorId);
-        return (
-          <LedgerRow
-            key={transition.sequence}
-            participantHueStep={mark?.hueStep ?? -1}
-            ringTreatment={mark?.ringTreatment ?? "solid"}
-            occurredAtIso={transition.occurredAtIso}
-            actorLabel={mark?.displayName ?? actorId ?? "The daemon"}
-            kindLabel={transition.reason}
-          >
-            <p className="meridian-lease-line__sentence">
-              {terminalLeaseTransitionSentence(transition, labelFor)}
-            </p>
-          </LedgerRow>
-        );
-      })}
-    </div>
-  );
-}
-
-/** The holder, by name where the wheel knows one and by wire id where it does not. */
-function HolderName(props: {
-  readonly holding: TerminalLeaseHolding;
-  readonly participantId: string | null;
-  readonly mark: TerminalParticipantMark | undefined;
-}): React.JSX.Element {
-  if (props.holding === "not-checked") {
-    return <DerivedFigure text="The lease has not been read." />;
-  }
-  // Before the null-holder arm, which would otherwise render this state as the free
-  // lease — the one sentence that is certainly wrong here. The holder is null
-  // because the fold refused to guess, not because the wire said nobody holds it.
-  if (props.holding === "unrecognized-transition") {
-    return <DerivedFigure text="The console cannot read who holds the shell." />;
-  }
-  if (props.participantId === null) {
-    return <DerivedFigure text="Nobody holds the shell." />;
-  }
-  if (props.holding === "held-by-you") {
-    return <DerivedFigure text="You may type into the shared shell." />;
-  }
-  const displayName = props.mark?.displayName;
-  return displayName === undefined ? (
-    <span className="meridian-lease-line__holder-id">
-      <DerivedFigure text="Held by" /> <WireFigure value={props.participantId} />
-    </span>
-  ) : (
-    <DerivedFigure text={`${displayName} holds the shell.`} />
-  );
-}
-
-/** Carries the holder's participant hue into the mark's fill. */
-interface LeaseMarkStyle extends React.CSSProperties {
-  readonly "--meridian-lease-hue": string;
-}
-
-/** The holder's identity, as a mark rather than an edge — this is not a row. */
-function ParticipantMarkDot(props: {
-  readonly mark: TerminalParticipantMark | undefined;
-}): React.JSX.Element {
-  const className =
-    props.mark === undefined
-      ? "meridian-lease-line__mark meridian-lease-line__mark--unattributed"
-      : `meridian-lease-line__mark meridian-lease-line__mark--${props.mark.ringTreatment}`;
-  const style: LeaseMarkStyle | undefined =
-    props.mark === undefined
-      ? undefined
-      : { "--meridian-lease-hue": tokenReference(participantHueTokenName(props.mark.hueStep)) };
-  return <span className={className} style={style} aria-hidden="true" />;
 }

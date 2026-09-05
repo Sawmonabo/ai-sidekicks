@@ -9,11 +9,8 @@ import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
-import {
-  BrowserSettingsPage,
-  type BrowserSettingsPageProps,
-  type BrowserSitePartition,
-} from "./BrowserSettingsPage.js";
+import { BrowserSettingsPage, type BrowserSettingsPageProps } from "./BrowserSettingsPage.js";
+import type { BrowserSitePartition } from "./site-partitions.js";
 import type { SiteDataAct } from "./site-data-clear.js";
 
 /** A writer that succeeds, in the shape the page's two acts are declared in. */

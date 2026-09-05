@@ -13,7 +13,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LeaseLine, type TerminalParticipantMark } from "./LeaseLine.js";
+import { LeaseLine } from "./LeaseLine.js";
+import type { TerminalParticipantMark } from "./participant-mark.js";
 import { TERMINAL_LEASE_HOLDINGS, UNREAD_TERMINAL_LEASE } from "./lease-model.js";
 import {
   CALLER_ROLE_COLLABORATOR,

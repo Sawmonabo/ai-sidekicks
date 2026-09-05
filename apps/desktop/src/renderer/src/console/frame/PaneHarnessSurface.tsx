@@ -50,25 +50,13 @@
 // state", and a reading taken inside a deck would fold the deck's chrome into a
 // per-instance figure and report a pane over its budget for the deck's own cost.
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import { Nothing } from "../primitives/index.js";
-import {
-  parseConsolePaneAddress,
-  type ConsolePaneAddress,
-  type ConsolePaneContext,
-  type ConsolePaneRegistry,
-} from "../seats/index.js";
+import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
+import { paneHarnessInstances } from "./pane-harness-instances.js";
+import { parseConsolePaneAddress, type ConsolePaneRegistry } from "../seats/index.js";
 import { type ConsoleSurfaceContext, type ConsoleSurfaceRegistry } from "./surface-registry.js";
-
-/** The surface region's accessible name — how a driver finds this surface. */
-const PANE_HARNESS_LABEL = "Pane harness";
-
-/** The control that mounts one more instance of the addressed kind. */
-const OPEN_CONTROL_LABEL = "Open a pane";
-
-/** The control that unmounts the newest one. */
-const CLOSE_CONTROL_LABEL = "Close the newest pane";
 
 /**
  * Claim the harness slot, in a fixture build and in no other.
@@ -122,14 +110,14 @@ export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.El
     // window's error boundary and reports a crash for what is a composition
     // mistake with a name.
     return (
-      <HarnessFrame instanceCount={0} paneKindLabel={undefined}>
+      <PaneHarnessFrame instanceCount={0} paneKindLabel={undefined}>
         <Nothing
           kind="error"
           placement="surface"
           title="This surface was mounted on an address it does not serve."
           detail={`The pane harness reads its pane kind off the "#/pane-harness/…" address and this window is on a "${route.kind}" route.`}
         />
-      </HarnessFrame>
+      </PaneHarnessFrame>
     );
   }
 
@@ -140,14 +128,14 @@ export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.El
   const address = parseConsolePaneAddress(route.paneKind, undefined);
   if ("code" in address) {
     return (
-      <HarnessFrame instanceCount={0} paneKindLabel={route.paneKind}>
+      <PaneHarnessFrame instanceCount={0} paneKindLabel={route.paneKind}>
         <Nothing
           kind="error"
           placement="surface"
           title="That address does not name a pane this build can open."
           detail={`${address.code}: ${address.detail}`}
         />
-      </HarnessFrame>
+      </PaneHarnessFrame>
     );
   }
 
@@ -156,23 +144,27 @@ export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.El
     // Reserved, not stubbed — `RouteSurface`'s rule one level down. The kind is a
     // pane kind; no family has registered a body for it.
     return (
-      <HarnessFrame instanceCount={0} paneKindLabel={address.kind}>
+      <PaneHarnessFrame instanceCount={0} paneKindLabel={address.kind}>
         <Nothing
           kind="empty"
           placement="surface"
           title="No family has registered a body for this pane kind."
           detail={`"${address.kind}" is one of the deck's pane kinds and nothing in this build renders it, so there is no instance for a harness to hold.`}
         />
-      </HarnessFrame>
+      </PaneHarnessFrame>
     );
   }
 
-  // The registered body, mounted as an element per instance. Named here so the
-  // element below reads as a component rather than as a call.
-  const PaneBody = descriptor.render;
+  const instances = paneHarnessInstances(
+    descriptor,
+    context,
+    address,
+    route.sessionId,
+    openInstanceCount,
+  );
 
   return (
-    <HarnessFrame
+    <PaneHarnessFrame
       instanceCount={openInstanceCount}
       paneKindLabel={address.kind}
       onOpen={() => {
@@ -186,113 +178,9 @@ export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.El
         setOpenInstanceCount((count) => Math.max(0, count - 1));
       }}
     >
-      {instanceIndices(openInstanceCount).map((instanceIndex) => (
-        <PaneBody
-          key={paneInstanceId(address, route.sessionId, instanceIndex)}
-          {...paneContextFor(context, address, route.sessionId, instanceIndex)}
-        />
+      {instances.map(({ key, PaneBody, context: paneContext }) => (
+        <PaneBody key={key} {...paneContext} />
       ))}
-    </HarnessFrame>
+    </PaneHarnessFrame>
   );
-}
-
-/**
- * The region, its controls, and its count — the parts every arm above renders.
- *
- * Shared rather than repeated because the count line is what a driver reads to know
- * how many bodies are mounted, and an arm that rendered an absence without it would
- * leave a driver waiting on a line that never appears.
- */
-function HarnessFrame(props: {
-  readonly instanceCount: number;
-  readonly paneKindLabel: string | undefined;
-  readonly onOpen?: (() => void) | undefined;
-  readonly onClose?: (() => void) | undefined;
-  readonly children?: ReactNode;
-}): React.JSX.Element {
-  const { instanceCount, paneKindLabel, onOpen, onClose, children } = props;
-  return (
-    <section aria-label={PANE_HARNESS_LABEL}>
-      <p>
-        {/* The two facts a driver waits on, in one line: which kind is addressed
-            and how many of it are mounted right now. */}
-        {`${paneKindLabel ?? "no"} panes open: ${String(instanceCount)}`}
-      </p>
-      <button
-        type="button"
-        disabled={onOpen === undefined}
-        onClick={() => {
-          onOpen?.();
-        }}
-      >
-        {OPEN_CONTROL_LABEL}
-      </button>
-      <button
-        type="button"
-        disabled={onClose === undefined || instanceCount === 0}
-        onClick={() => {
-          onClose?.();
-        }}
-      >
-        {CLOSE_CONTROL_LABEL}
-      </button>
-      {children}
-    </section>
-  );
-}
-
-/** `[0, 1, … count - 1]`. A named helper so the render body holds no arithmetic. */
-function instanceIndices(count: number): readonly number[] {
-  return Array.from({ length: count }, (_unused, index) => index);
-}
-
-/**
- * One instance's identity in this harness.
- *
- * Stable across a count change, which is what makes opening a second instance an
- * ADDITION rather than a re-key that would unmount and rebuild the first — and the
- * per-instance slope the budget's negative control compares depends on the first
- * instance surviving the second one's mount.
- *
- * The SESSION is part of it because the identity has to change when the subject
- * does. Keyed on the kind and the index alone, two addresses differing only in their
- * session produced the same key, so React reconciled the instances rather than
- * rebuilding them and a pane bound to one session went on running against another.
- */
-function paneInstanceId(
-  address: ConsolePaneAddress,
-  sessionId: string,
-  instanceIndex: number,
-): string {
-  return `pane-harness-${address.kind}-${sessionId}-${String(instanceIndex)}`;
-}
-
-/**
- * What a pane body is handed here, and why each member is the surface's own.
- *
- * Every store comes off the surface context rather than being minted here: the
- * budget's subject is a pane in a RUNNING console, so the pane reads the window's
- * own bridge, frame store, session store, durable UI state, and drafts — the same
- * five a deck would hand it. The two members a deck decides and this harness does
- * not are passed absent rather than invented: nothing opened this pane from another
- * pane, and no actor is attributed to it, which is the neutral answer
- * `ConsolePaneContext` documents for both.
- */
-function paneContextFor(
-  context: ConsoleSurfaceContext,
-  address: ConsolePaneAddress,
-  sessionId: string,
-  instanceIndex: number,
-): ConsolePaneContext {
-  return {
-    ...address,
-    paneId: paneInstanceId(address, sessionId, instanceIndex),
-    bridge: context.bridge,
-    frameStore: context.frameStore,
-    sessionStore: context.sessionStore,
-    uiStateStore: context.uiStateStore,
-    draftStore: context.draftStore,
-    linkedSourcePaneId: undefined,
-    focusHue: undefined,
-  };
 }
