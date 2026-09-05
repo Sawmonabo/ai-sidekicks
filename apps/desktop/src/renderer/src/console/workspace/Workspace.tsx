@@ -46,7 +46,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { DerivedFigure, RefusalBanner, useAnnounce } from "../primitives/index.js";
+import { useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
@@ -57,6 +57,7 @@ import {
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
 } from "./workspace-bounds.js";
 import { CastBar } from "./CastBar.js";
+import { WorkspaceBannerRow } from "./WorkspaceBannerRow.js";
 import { useAuxiliaryPanes } from "./auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
@@ -299,33 +300,6 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * One banner, and the count of the raises it stands for.
- *
- * The count sits BESIDE the banner rather than inside it: `RefusalBanner` renders the
- * code verbatim and the daemon's sentence unedited, and a repeat count is neither —
- * it is the console's own reading of how many times this room heard the same refusal,
- * so it takes the derived figure's proportional face rather than the wire's mono one.
- */
-function WorkspaceBannerRow(props: {
-  readonly banner: WorkspaceBanner;
-  readonly onDismiss: (key: string) => void;
-}): React.JSX.Element {
-  const { refusal, repeatCount } = props.banner;
-  return (
-    <div className="meridian-workspace__banner">
-      <RefusalBanner
-        code={refusal.code}
-        detail={refusal.detail}
-        onDismiss={() => {
-          props.onDismiss(workspaceBannerKey(refusal));
-        }}
-      />
-      {repeatCount > 1 ? <DerivedFigure text={`×${String(repeatCount)}`} /> : null}
     </div>
   );
 }

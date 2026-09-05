@@ -225,8 +225,8 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
 
   const close = useCallback(() => {
     // Published rather than discarded here: the holder disposes what it replaced,
-    // through the same `discard()` a bridge replacement would run, so closing by hand
-    // and closing by reconnect end a draft the same way.
+    // through the same `discard()` a reconnect would run, so closing by hand and
+    // closing by reconnect end a draft the same way.
     publishDraft(undefined);
   }, [publishDraft]);
 
