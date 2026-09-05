@@ -20,6 +20,13 @@
 //     `console/bridge/**`. A surface that cannot import a validator cannot write a
 //     second, different reading of a seam the registry already binds.
 //
+// AND ONE CENSUS, BECAUSE THE CALL SIDE IS VACUOUS UNTIL A SURFACE CALLS. Both
+// claims are true of an empty set on this branch: the door has no consumers yet, so
+// "no module outside the bridge family reaches it" reports compliance without
+// distinguishing that from "every caller goes through it", which is what this file's
+// title claims. The consumer count is therefore PINNED rather than left implicit —
+// see `CALL_DOOR_CONSUMER_COUNT`.
+//
 // The lint half is driven through the REAL ESLint engine over the REAL config,
 // never re-implemented — a test carrying its own copy of the pattern list would
 // stay green with the config deleted, which is the failure it exists to prevent.
@@ -156,6 +163,35 @@ function isBridgeFamilyModule(module: string): boolean {
   return module.startsWith(BRIDGE_FAMILY_PREFIX);
 }
 
+/**
+ * How a module shows it CONSUMES the call door: it imports the door's own name.
+ *
+ * Anchored on the import for the reason every needle in this file is anchored on
+ * syntax — the console's prose names `callDaemon` constantly, and the growth
+ * signature table names it in a sentence about which seam owes which wire. The
+ * `[^;]*` spans newlines, so a multi-line specifier list is one import.
+ */
+const CALL_DOOR_IMPORT = /\bimport\b[^;]*\bcallDaemon\b/u;
+
+/**
+ * How many modules outside the bridge family import the call door on this branch.
+ *
+ * ZERO, and PINNED rather than left as a floor, because zero is the whole reading:
+ * the two reach claims above are satisfied by an empty set here — no surface reaches
+ * the daemon call door because no surface calls the daemon at all — and a scan that
+ * reports the tree compliant for that reason is not making the claim this file's
+ * title makes.
+ *
+ * A pinned count is what makes that visible without shipping a red gate on
+ * `develop`. It fails the moment the number moves in either direction, so the family
+ * lane that binds the first surface to a registered method — the composer's send
+ * router and the runs pane's run controls are the two nearest, both T-023p-1C-3 —
+ * moves this constant in its own PR, and a reader learns from that diff that the
+ * claim has stopped being vacuous. It cannot silently stay at zero once the console
+ * has consumers, and it cannot be raised by accident either.
+ */
+const CALL_DOOR_CONSUMER_COUNT = 0;
+
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
 
@@ -194,6 +230,33 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
       .map((entry) => `${entry.module}: ${entry.reaches.join(", ")}`);
 
     expect(offenders).toStrictEqual([]);
+  });
+
+  it("counts what consumes the call door, against a pinned number", () => {
+    const consumers = modules
+      .filter((module) => !isBridgeFamilyModule(module))
+      .filter((module) => CALL_DOOR_IMPORT.test(readGovernedSource(module)));
+
+    expect(
+      consumers.length,
+      `modules importing the call door: ${consumers.join(", ") || "none"}`,
+    ).toBe(CALL_DOOR_CONSUMER_COUNT);
+  });
+
+  it("negative control: the consumer needle sees an ordinary import of the door", () => {
+    // Without this, the pinned zero above would be reporting a broken needle rather
+    // than an unrebound console, and the count would stay at zero — green, and
+    // saying nothing — on the day the first surface starts calling the daemon.
+    expect(CALL_DOOR_IMPORT.test(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
+    expect(
+      CALL_DOOR_IMPORT.test(
+        ["import {", "  callDaemon,", "  type DaemonReply,", '} from "../bridge/index.js";'].join(
+          "\n",
+        ),
+      ),
+    ).toBe(true);
+    // And not on the door merely named in prose, which is all the tree carries today.
+    expect(CALL_DOOR_IMPORT.test("// a surface reaches the wire through `callDaemon`")).toBe(false);
   });
 
   it("negative control: the chokepoint itself trips the scan", () => {
