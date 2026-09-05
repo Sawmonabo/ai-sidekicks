@@ -31,15 +31,8 @@
 // than a zero, because "nothing is using this" and "nobody measured" are different
 // facts and only one of them is true today.
 
-import {
-  BROWSER_BOUNDS,
-  BROWSER_BOUND_NAMES,
-  BROWSER_SCALAR_UNIT_BYTE_QUALIFIER,
-  type BrowserBoundMeasure,
-  type BrowserBoundName,
-  type BrowserScalarUnit,
-} from "../core/index.js";
-import { Glyph, Nothing, formatByteQuantity, formatCount } from "../primitives/index.js";
+import { BROWSER_BOUND_NAMES, type BrowserBoundName } from "../core/index.js";
+import { BoundRow } from "./BoundRow.js";
 
 /** A live reading for a scalar bound. Absent means nobody measured, not zero. */
 export type BrowserBoundReadings = Readonly<Partial<Record<BrowserBoundName, number>>>;
@@ -48,8 +41,6 @@ export interface BudgetMeterProps {
   /** What this pane can actually count right now. Usually one or two entries. */
   readonly readings?: BrowserBoundReadings;
 }
-
-const ALERT_GLYPH_SIZE = 12;
 
 /**
  * The ceiling, as a table.
@@ -79,113 +70,5 @@ export function BudgetMeter(props: BudgetMeterProps): React.JSX.Element {
         ))}
       </tbody>
     </table>
-  );
-}
-
-function BoundRow(props: {
-  readonly name: BrowserBoundName;
-  readonly reading: number | undefined;
-}): React.JSX.Element {
-  const bound = BROWSER_BOUNDS[props.name];
-  return (
-    <tr>
-      <th scope="row" className="meridian-browser-bounds__name">
-        {props.name}
-      </th>
-      <td title={scalarFigureTitle(bound.measure)}>{describeMeasure(bound.measure)}</td>
-      <td>
-        <BoundReading measure={bound.measure} reading={props.reading} />
-      </td>
-      <td className="meridian-browser-bounds__why">{bound.derivation}</td>
-    </tr>
-  );
-}
-
-function describeMeasure(measure: BrowserBoundMeasure): string {
-  if (measure.kind === "deferred") {
-    return `owned by ${measure.owner}`;
-  }
-  if (measure.kind === "extent") {
-    return `${formatCount(measure.widthPx)} by ${formatCount(measure.heightPx)} px`;
-  }
-  return describeScalarCeiling(measure.value, measure.unit);
-}
-
-/**
- * One figure in the chokepoint its unit declares — the ONE dispatch, shared by the
- * ceiling column and the reading column beside it.
- *
- * Shared rather than written twice because the two columns are read against each
- * other: a column that scaled the ceiling and not the reading would put a binary
- * figure beside a decimal byte count and invite exactly the comparison that is wrong.
- *
- * The dispatch is a lookup rather than a test here. This surface owns the layout;
- * which chokepoint a unit goes through is `core/constants.ts`'s declaration.
- */
-function scaleScalarFigure(value: number, unit: BrowserScalarUnit): string {
-  return BROWSER_SCALAR_UNIT_BYTE_QUALIFIER[unit] === undefined
-    ? formatCount(value)
-    : formatByteQuantity(value).text;
-}
-
-/**
- * A ceiling: the figure, and the unit words that survive the scaling.
- *
- * A counted ceiling carries its whole unit as a word. A byte one carries whatever the
- * unit still says once `formatByteQuantity` has supplied a binary unit label in place
- * of `bytes` — nothing for a bare byte ceiling, `per entry` for a per-entry one. The
- * reading
- * column deliberately carries no unit word at all: the row already names it once, and
- * a byte quantity brings its own binary label with it.
- */
-function describeScalarCeiling(value: number, unit: BrowserScalarUnit): string {
-  const byteQualifier = BROWSER_SCALAR_UNIT_BYTE_QUALIFIER[unit];
-  if (byteQualifier === undefined) {
-    return `${formatCount(value)} ${unit}`;
-  }
-  const quantity = scaleScalarFigure(value, unit);
-  return byteQualifier === "" ? quantity : `${quantity} ${byteQualifier}`;
-}
-
-/**
- * The exact figure, for the cell that scaled it — and nothing for one that did not.
- *
- * A scaled byte quantity is rounded to one fraction digit, so the byte a refusal
- * would name is no longer on screen; the title is where it stays readable. A counted
- * figure is already exact, and a title repeating it would be noise on nineteen rows.
- */
-function exactFigureTitle(value: number, unit: BrowserScalarUnit): string | undefined {
-  return BROWSER_SCALAR_UNIT_BYTE_QUALIFIER[unit] === undefined ? undefined : String(value);
-}
-
-/** The same, for a ceiling — absent on the two kinds that carry no single number. */
-function scalarFigureTitle(measure: BrowserBoundMeasure): string | undefined {
-  return measure.kind === "scalar" ? exactFigureTitle(measure.value, measure.unit) : undefined;
-}
-
-function BoundReading(props: {
-  readonly measure: BrowserBoundMeasure;
-  readonly reading: number | undefined;
-}): React.JSX.Element {
-  if (props.reading === undefined || props.measure.kind !== "scalar") {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="inline"
-        title="Not measured"
-        detail="Nothing in this window meters this ceiling yet, so the console does not report a figure for it. That is not the same as reporting zero."
-      />
-    );
-  }
-  const isTripped = props.reading >= props.measure.value;
-  const className = isTripped
-    ? "meridian-browser-bounds__reading meridian-browser-bounds__reading--tripped"
-    : "meridian-browser-bounds__reading";
-  return (
-    <span className={className} title={exactFigureTitle(props.reading, props.measure.unit)}>
-      {isTripped ? <Glyph name="alert" size={ALERT_GLYPH_SIZE} /> : null}
-      {scaleScalarFigure(props.reading, props.measure.unit)}
-      {isTripped ? <span>at the ceiling</span> : null}
-    </span>
   );
 }
