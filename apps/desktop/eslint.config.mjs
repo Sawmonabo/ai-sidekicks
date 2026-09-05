@@ -388,6 +388,18 @@ export default [
   // (measured against the real typecheck script, not assumed). A lint rule whose only
   // reachable target is a symbol that does not exist guards nothing.
   //
+  // THE TWO CATCH-STRINGIFICATION SELECTORS LIVED HERE AND ARE GONE, replaced by
+  // `test/console/architecture/catch-stringification-chokepoint.test.ts`. They banned
+  // `String(...)` inside a `CatchClause` and an interpolated catch binding, and they
+  // reached four of the eight spellings the same ToPrimitive is written in: the template
+  // arm was keyed on the two binding NAMES this tree happens to use, so a third name
+  // reached neither arm, and `"" + error`, `error.toString()`, and every `.catch((e) =>
+  // …)` form are not inside a `CatchClause` at all. esquery has no backreference, so a
+  // selector cannot bind a catch parameter and compare it to the identifier being
+  // stringified — which is why the honest instrument for that claim is source text over
+  // the shared console walk, the same one the timer and byte-scaling chokepoints use.
+  // A selector that catches half a class reads exactly like one that catches the class.
+  //
   // Scope is `console/**` and `shell/**`, tests included. `shell/**` matches nothing on
   // this branch and is named anyway: it is a `console-unit` resident by
   // `apps/desktop/AGENTS.md`, and a gate that arrives after the code it governs arrives
@@ -423,9 +435,22 @@ export default [
       "no-restricted-syntax": [
         "error",
         {
-          selector: 'CallExpression[callee.object.name="Date"][callee.property.name="parse"]',
+          // The REFERENCE, not only the call. `Date.parse(iso)` is the spelling this ban
+          // was written against, and three more reach the same function without ever
+          // writing those two names in that order — measured passing the call-keyed
+          // selector this replaces: a destructure (`const { parse } = Date; parse(iso)`),
+          // a computed key (`Date["parse"](iso)`), and a read through the global object
+          // (`globalThis.Date.parse(iso)`). Keying on the member READ catches the value
+          // wherever it is taken rather than only where it is invoked.
+          //
+          // The destructuring arm is written against the PATTERN because that shape has
+          // no member read at all: it names `Date` as an initialiser and takes whatever
+          // it likes off it. It therefore refuses `const { now } = Date` too, which is
+          // deliberate — `core/clock.ts` is the console's one time seam and reaches
+          // `Date.now` through the object.
+          selector: `:matches(MemberExpression[object.name="Date"][property.name="parse"], MemberExpression[object.name="Date"][property.value="parse"], MemberExpression[object.property.name="Date"][property.name="parse"], MemberExpression[object.property.name="Date"][property.value="parse"], VariableDeclarator[init.name="Date"] > ObjectPattern)`,
           message:
-            "`Date.parse` is not a validator: it reads a timezone-less stamp in the HOST's zone, reads a date-only string in UTC, and normalizes a day that does not exist (`2026-02-30T10:00:00Z` becomes March 2). Each answers a NUMBER, so the `Number.isNaN` guard passes and a surface renders an instant the wire never sent. Read the stamp with `parseInstant` from `console/core/instant.ts`, and order two of them with `compareInstants`.",
+            "`Date.parse` is not a validator: it reads a timezone-less stamp in the HOST's zone, reads a date-only string in UTC, and normalizes a day that does not exist (`2026-02-30T10:00:00Z` becomes March 2). Each answers a NUMBER, so the `Number.isNaN` guard passes and a surface renders an instant the wire never sent. Read the stamp with `parseInstant` from `console/core/instant.ts`, and order two of them with `compareInstants`. Taking the function off `Date` by a destructure, a computed key, or the global object reaches the same reading.",
         },
         {
           // A string-shaped argument only. `new Date(<milliseconds>)` is how a fixture
@@ -454,26 +479,6 @@ export default [
           selector: `:matches(NewExpression[callee.name="Date"][arguments.0.type="Identifier"][arguments.0.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/], NewExpression[callee.name="Date"][arguments.0.type="MemberExpression"][arguments.0.property.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/])`,
           message:
             "`new Date(<a named value>)` is `Date.parse` with a wrapper and carries the same leniency — it just does not look like it, because the string is behind a name. Read the stamp with `parseInstant` from `console/core/instant.ts`; build a fixture instant from `Date.UTC(...)`, or name the value for the number it holds (`…Ms`, `…Milliseconds`, `…Epoch`).",
-        },
-        {
-          // The template-literal half of the `String(catch)` ban below. Interpolating the
-          // caught value runs the SAME ToPrimitive on the same untrusted value — an
-          // implicit `String(...)` with no `String` to grep for — so a `catch` that stopped
-          // calling `String(error)` and started writing `` `... ${error}` `` would have
-          // moved the throw rather than removed it.
-          //
-          // esquery has no backreferences, so a selector cannot bind the catch parameter's
-          // own name and compare it to the interpolated identifier. The name-keyed pair
-          // below is the honest approximation: it covers the two bindings this tree writes
-          // (`error` and `e`) and is deliberately NOT `CatchClause TemplateLiteral`, which
-          // fires on every message a catch block composes out of its own local values —
-          // measured against two live modules that do exactly that. A catch that binds a
-          // third name reaches neither arm, and the `String(...)` selector below is what
-          // still catches its explicit form.
-          selector:
-            ':matches(CatchClause[param.name="error"], CatchClause[param.name="e"]) TemplateLiteral > Identifier[name=/^(?:e|error)$/]',
-          message:
-            "Interpolating a caught value into a template runs ToPrimitive on it, exactly as `String(...)` does, and throws on a null-prototype value carrying no `toString` or any hostile accessor — inside the expression that exists to report a failure. Use `lossyStringify` from `src/shared/wire-errors.ts`, or `normalizeWireRejection` from `console/core/wire-rejection.ts` where the result is a refusal.",
         },
         {
           // Ordering two stamps by their TEXT. `compareInstants` exists because the wire's
@@ -519,14 +524,6 @@ export default [
           selector: `:matches(BinaryExpression[operator=/^[<>]=?$/][left.property.name=/${WIRE_STAMP_NAME_SUFFIX}/][right.property.name=/${WIRE_STAMP_NAME_SUFFIX}/], BinaryExpression[operator=/^[<>]=?$/][left.name=/${WIRE_STAMP_NAME_SUFFIX}/][right.name=/${WIRE_STAMP_NAME_SUFFIX}/], BinaryExpression[operator=/^[<>]=?$/]:has(> :matches(LogicalExpression, CallExpression):has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))))`,
           message:
             "Ordering two RFC 3339 stamps with `<` or `>` compares their TEXT: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `console/core/instant.ts`, which compares the moments; comparing two numeric figures is untouched.",
-        },
-        {
-          // Any `String(...)` inside a `catch`, not only one applied to the binding:
-          // `String(thrown.detail)` runs the same ToPrimitive on the same untrusted
-          // value. `lossyStringify` is total, so nothing is given up by the width.
-          selector: 'CatchClause CallExpression[callee.name="String"]',
-          message:
-            "`String(...)` inside a `catch` is not total: it runs ToPrimitive, which throws on a null-prototype value carrying no `toString` and on any hostile accessor — inside the expression that exists to report a failure, and inside a `catch` that has already been left. Use `lossyStringify` from `src/shared/wire-errors.ts`, or `normalizeWireRejection` from `console/core/wire-rejection.ts` where the result is a refusal.",
         },
       ],
     },
