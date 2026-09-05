@@ -13,8 +13,12 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type GrowthPort } from "../../bridge/index.js";
-import { createRefusingGrowthPort, growthUnavailable } from "../../bridge/growth-port.js";
+import {
+  createFixtureBridge,
+  createRefusingGrowthPort,
+  growthUnavailable,
+  type GrowthPort,
+} from "../../bridge/index.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
 import { definition } from "../WorkflowsBrowser.test-support.js";

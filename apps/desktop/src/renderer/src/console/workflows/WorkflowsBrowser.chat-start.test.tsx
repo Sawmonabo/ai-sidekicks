@@ -13,8 +13,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort, type GrowthPort } from "../bridge/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
 import { PROBE_SESSION_ID, renderBrowser, settle } from "./WorkflowsBrowser.test-support.js";
 

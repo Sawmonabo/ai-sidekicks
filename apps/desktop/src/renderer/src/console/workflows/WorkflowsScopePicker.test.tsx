@@ -12,8 +12,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createFixtureBridge, createRefusingGrowthPort, type GrowthPort } from "../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
 import { SessionStoreRegistry } from "../store/index.js";

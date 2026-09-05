@@ -7,8 +7,11 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type GrowthPort } from "../../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../../bridge/growth-port.js";
+import {
+  createFixtureBridge,
+  createRefusingGrowthPort,
+  type GrowthPort,
+} from "../../../bridge/index.js";
 import type { ConsoleScenario, ScenarioReply } from "../../../bridge/scenario.js";
 import {
   WORKFLOWS_PARKED_RUN,

@@ -27,8 +27,7 @@
 
 import { act, render } from "@testing-library/react";
 
-import { type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort, type GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import type { WorkflowDefinitionRow } from "./definitions/DefinitionsBrowser.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";

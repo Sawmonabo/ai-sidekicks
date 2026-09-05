@@ -12,8 +12,11 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type GrowthPort, type WorkflowRunListEntry } from "../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
+import {
+  createRefusingGrowthPort,
+  type GrowthPort,
+  type WorkflowRunListEntry,
+} from "../../bridge/index.js";
 import { WORKFLOWS_SCENARIO_RUNS } from "../../bridge/scenarios/workflow-fixture-runs.js";
 import {
   latestCommitted,

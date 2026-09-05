@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { growthUnavailable } from "../../bridge/growth-port.js";
+import { growthUnavailable } from "../../bridge/index.js";
 import { WORKFLOW_DEFINITION_SCOPES } from "./DefinitionsBrowser.js";
 import {
   scopeResolutionOf,

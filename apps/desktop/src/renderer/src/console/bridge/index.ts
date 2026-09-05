@@ -90,7 +90,7 @@ export type {
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable } from "./growth-port.js";
+export { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
