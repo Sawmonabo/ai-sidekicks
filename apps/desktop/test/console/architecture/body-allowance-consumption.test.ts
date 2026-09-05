@@ -23,13 +23,13 @@
 // object literal or multi-line argument list. `typescript-source.ts` holds the
 // parse; the budget tier asks the same kind of question of the same parser.
 
-import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
+import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -107,17 +107,19 @@ function boundedWaitCalls(fileName: string, sourceText: string): readonly Bounde
   return calls;
 }
 
+/**
+ * The two tiers' sources, through the tier's one walk (`tests: true`, because a
+ * launching tier's specs ARE the subject here, not something to exclude).
+ */
 function launchingTierSources(): readonly { readonly path: string; readonly text: string }[] {
-  return LAUNCHING_TIER_DIRECTORIES.flatMap((tier) => {
-    const tierDirectory = join(CONSOLE_TEST_DIRECTORY, tier);
-    return readdirSync(tierDirectory, { recursive: true, encoding: "utf8" })
-      .filter((entry) => entry.endsWith(".ts"))
-      .sort()
-      .map((entry) => ({
-        path: `${tier}/${entry}`,
-        text: readFileSync(join(tierDirectory, entry), "utf8"),
-      }));
-  });
+  return LAUNCHING_TIER_DIRECTORIES.flatMap((tier) =>
+    consoleSourceModules({ roots: [join(CONSOLE_TEST_DIRECTORY, tier)], tests: true }).map(
+      (module) => ({
+        path: `${tier}/${module.relativePath.split("\\").join("/")}`,
+        text: readConsoleSourceModule(module),
+      }),
+    ),
+  );
 }
 
 describe("launched bodies charge every bounded wait to the allowance", () => {
