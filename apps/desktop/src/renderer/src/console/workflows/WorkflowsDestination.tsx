@@ -74,10 +74,8 @@
 // because they are separate questions with separate absences — a session can have
 // definitions and no runs — and one of them refusing must not silence the other.
 
-import { useEffect, useRef } from "react";
-
 import type { GrowthPort } from "../bridge/index.js";
-import { WireFigure, useAnnounce } from "../primitives/index.js";
+import { WireFigure } from "../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
 import type { ConsolePaneOpener } from "../seats/index.js";
 import {
@@ -86,6 +84,7 @@ import {
   scopeSessionIdFor,
   type WorkflowsScopeState,
 } from "./destination-scope.js";
+import { useReadSettlementAnnouncement } from "./read-announcement.js";
 import { WorkflowRuns } from "./runs/WorkflowRuns.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
@@ -127,7 +126,15 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
   // function, and a test that pins the arm the old fold could not express.
   const retainedSessionId = useFrameStore(props.frameStore, (state) => state.lastOpenedSessionId);
   const sessionId = scopeSessionIdFor(props.scope, retainedSessionId);
-  useScopeSettlementAnnouncement(sessionId);
+  // The scope is a settlement like the two reads below it, and it is announced through
+  // the same latch: keyed on the session id's own identity, so a move to a different
+  // session speaks and a re-render of the same one is silent. Polite, never assertive
+  // — `frame/banner-announcements.ts` reserves the loud lane for a refusal that changed
+  // what the whole room can do, and this is a surface describing its own subject.
+  useReadSettlementAnnouncement(
+    sessionId,
+    sessionId === undefined ? undefined : `Workflows scoped to session ${sessionId}.`,
+  );
 
   if (sessionId === undefined) {
     return (
@@ -182,31 +189,4 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
       />
     </div>
   );
-}
-
-/**
- * Say, once, which session this surface settled on.
- *
- * The announced id is held in a ref rather than a piece of state: it is a record of
- * what has been SAID, read only to decide whether to say it again, and holding it in
- * state would re-render the surface every time it spoke. The ref is compared rather
- * than a boolean flag, so a move to a different session is a second, real settlement
- * and a re-render of the same one is silent.
- *
- * Polite, never assertive. `frame/banner-announcements.ts` reserves the assertive
- * lane for a refusal that changed what the whole room can do; this is a surface
- * describing its own subject, and interrupting a reader for it would spend the one
- * loud channel on the quietest fact the console has.
- */
-function useScopeSettlementAnnouncement(sessionId: string | undefined): void {
-  const announce = useAnnounce();
-  const announcedSessionIdRef = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (sessionId === undefined || announcedSessionIdRef.current === sessionId) {
-      return;
-    }
-    announcedSessionIdRef.current = sessionId;
-    announce(`Workflows scoped to session ${sessionId}.`, "polite");
-  }, [sessionId, announce]);
 }

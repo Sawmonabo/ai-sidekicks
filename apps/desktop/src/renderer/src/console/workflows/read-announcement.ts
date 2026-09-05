@@ -17,6 +17,20 @@
 // the sentence would go quiet on a second session that happened to hold the same number
 // of rows, and one built from the count would do the same.
 //
+// AND THE KEY MAY BE A VALUE RATHER THAN AN OBJECT, because one of the three things
+// this destination announces is not a read at all: the SCOPE it settled on, whose
+// identity is the session id itself. That site had its own hand-written ref-and-effect
+// latch until it was bound here — the third copy of one rule, with the primitive that
+// exists to prevent exactly that beside them both.
+//
+// WHY THIS IS NOT `primitives/reading-announcement.ts`. That primitive is the console's
+// route to the announcer and it dedups on the SENTENCE SET, which is right for the
+// incomplete-reading notices it speaks and wrong for every settlement here: two
+// sessions holding the same number of rows say the same words, and a sentence-keyed
+// latch would announce the first and go silent on the second. Until the primitive takes
+// a caller-supplied dedup key, this family keeps ONE adapter beside its door rather
+// than three latches, and the substrate request naming that signature travels with it.
+//
 // POLITE, ALWAYS. `frame/banner-announcements.ts` reserves the assertive lane for a
 // refusal that changed what the whole room can do; a list that could not be read is its
 // own surface's subject, and its refusal is carried verbatim rather than paraphrased
@@ -27,19 +41,30 @@ import { useEffect, useRef } from "react";
 import { useAnnounce } from "../primitives/index.js";
 
 /**
+ * What "once" is counted by: a read's own state object, or the value it settled on.
+ *
+ * Compared by identity either way, which is the same comparison for both — a state
+ * object is replaced once per settlement and a session id is a different string once
+ * per scope change.
+ */
+export type AnnouncedSettlement = object | string;
+
+/**
  * Announce one read's settlement, once.
  *
- * `settlement` is the state object the read produced — whatever it is, its IDENTITY is
- * what "once" is counted by. `sentence` is what to say about it, or `undefined` while
- * there is nothing settled to say: an unsettled read is recorded as unannounced, so the
- * same object speaks the moment it has a sentence rather than being skipped forever.
+ * `settlement` is what the read produced — whatever it is, its IDENTITY is what "once"
+ * is counted by, and it is optional because a scope that has settled on no session has
+ * nothing to be identified by either. `sentence` is what to say about it, or `undefined`
+ * while there is nothing settled to say: an unsettled read is recorded as unannounced,
+ * so the same object speaks the moment it has a sentence rather than being skipped
+ * forever.
  */
 export function useReadSettlementAnnouncement(
-  settlement: object,
+  settlement: AnnouncedSettlement | undefined,
   sentence: string | undefined,
 ): void {
   const announce = useAnnounce();
-  const announcedSettlement = useRef<object | undefined>(undefined);
+  const announcedSettlement = useRef<AnnouncedSettlement | undefined>(undefined);
 
   useEffect(() => {
     if (sentence === undefined || announcedSettlement.current === settlement) {
