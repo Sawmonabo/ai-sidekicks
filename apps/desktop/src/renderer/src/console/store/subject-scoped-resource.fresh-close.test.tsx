@@ -46,8 +46,10 @@ function FreshCloseProbe(props: FreshCloseProbeProps): ReactElement {
     props.subject,
     undefined,
     () => ledger.open(props.subject.name),
-    (resource) => {
-      ledger.close({ name: `${resource.name} closed by pass ${String(pass)}` });
+    {
+      release: (resource) => {
+        ledger.close({ name: `${resource.name} closed by pass ${String(pass)}` });
+      },
     },
   );
   props.onResource(value);

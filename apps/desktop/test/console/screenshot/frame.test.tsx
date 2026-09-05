@@ -27,7 +27,9 @@
 // reference minted anywhere else is one no CI run will reproduce, and a comparison
 // run anywhere else is red for reasons belonging to the host. That module's own
 // doc block carries the reasoning, the two variables, and the measured cost of the
-// pin this replaced; the tier reads its verdict and says why on both channels.
+// pin this replaced; `baseline-host.ts` beside it reads this run's verdict once per
+// file and says why on both channels, and every suite in this tier asks it rather
+// than deciding for itself.
 //
 // They are refreshed by dispatching
 // `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate` on
@@ -64,14 +66,14 @@
 // 26 016.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { server } from "vitest/browser";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
 import {
-  announceOffBaselineHost,
-  readBaselineHost,
+  requireCapturedElement,
+  screenshotUpdateMode,
   skipOffBaselineHost,
-} from "./baseline-platform.js";
+  warnOnceOffBaselineHost,
+} from "./baseline-host.js";
 
 import {
   ConsoleRoot,
@@ -89,33 +91,8 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
  */
 const UNCOMMITTED_REFERENCE_NAME = "no-reference-is-committed-under-this-name";
 
-/** The run's resolved snapshot-update mode — the branch the mechanism above names. */
-const updateMode = server.config.snapshotOptions.updateSnapshot;
-
-/**
- * What this host declared about itself.
- *
- * Off `server.config.env` rather than `process.env`, which does not exist in the
- * page: this tier runs its tests inside a real browser, and the environment
- * reaches it as Vite's resolved env.
- */
-const baselineHost = readBaselineHost(server.config.env);
-
-/**
- * The mounted frame, or a throw.
- *
- * A throw rather than the assert-then-return-early shape, which turns "the console
- * did not mount" into a test that passes having screenshotted nothing.
- */
-function requireFrame(container: HTMLElement): Element {
-  const frame = container.querySelector(".meridian-frame");
-  if (frame === null) {
-    throw new Error(
-      "the console rendered no .meridian-frame element, so there is nothing for this tier to compare",
-    );
-  }
-  return frame;
-}
+/** What the console's outermost mounted element is, and what this file captures. */
+const FRAME_SELECTOR = ".meridian-frame";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -135,7 +112,7 @@ describe("screenshot — the tier gates rather than mints", () => {
     // Vitest's default off CI, so a bare `vitest run --project=console-screenshot`
     // resolves it — which is why this is an assertion rather than a comment.
     expect(
-      updateMode,
+      screenshotUpdateMode,
       "this tier must not run in the `new` snapshot-update mode: a missing reference would be " +
         "written into __screenshots__ unreviewed and silently become the baseline. Run it as " +
         "`pnpm --filter @ai-sidekicks/desktop test:console-screenshot`, which pins the mode to " +
@@ -148,12 +125,12 @@ describe("screenshot — the tier gates rather than mints", () => {
     // to write and pass, so asserting a rejection there would assert the opposite
     // of the mode's contract — and would commit a reference for this probe's name.
     context.skip(
-      updateMode !== "none",
-      `the fail-closed probe is only meaningful while references are frozen; this run resolved "${updateMode}"`,
+      screenshotUpdateMode !== "none",
+      `the fail-closed probe is only meaningful while references are frozen; this run resolved "${screenshotUpdateMode}"`,
     );
 
     const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
-    const frame = requireFrame(container);
+    const frame = requireCapturedElement(container, FRAME_SELECTOR);
 
     await expect(expect(frame).toMatchScreenshot(UNCOMMITTED_REFERENCE_NAME)).rejects.toThrowError(
       /No existing reference screenshot found/,
@@ -162,15 +139,20 @@ describe("screenshot — the tier gates rather than mints", () => {
 });
 
 describe("screenshot — the frame under the first-run scenario", () => {
-  announceOffBaselineHost(baselineHost);
+  // Said once at collection, on the one channel the terminal reporter forwards.
+  // Without it a skipped run reports "3 skipped" and nothing else, which a reader
+  // cannot tell from a tier that was quietly switched off.
+  warnOnceOffBaselineHost();
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme`, async (context) => {
-      skipOffBaselineHost(context, baselineHost);
+      skipOffBaselineHost(context);
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
-      await expect(requireFrame(container)).toMatchScreenshot(`frame-first-run-${scheme}`);
+      await expect(requireCapturedElement(container, FRAME_SELECTOR)).toMatchScreenshot(
+        `frame-first-run-${scheme}`,
+      );
     });
   }
 
@@ -178,13 +160,13 @@ describe("screenshot — the frame under the first-run scenario", () => {
     // The palette is the one surface that exists on a first run, so it is the one
     // composition worth pinning before the families ship theirs: the scoped
     // context row, the grouped command list, and the chord hints in the footer.
-    skipOffBaselineHost(context, baselineHost);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
     await pressKeys("{Control>}k{/Control}");
     await pressKeys("{Meta>}k{/Meta}");
 
-    requireFrame(container);
+    requireCapturedElement(container, FRAME_SELECTOR);
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
     // The whole body, not the frame: the palette portals out of the frame's
     // subtree into the overlay root, so a frame-scoped shot would miss it.

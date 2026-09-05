@@ -34,11 +34,19 @@
 // unrelated variable of the same name elsewhere is a false positive the next reader
 // deletes the gate over.
 //
-// TWO SHAPES BIND A CAUGHT VALUE, and the promise tail is the one no selector reached:
-// `.catch((error) => …)` holds exactly the same unestablished value, and the console's
-// own store and bridge families write their rejection tails that way. Both are found
-// here, and both are searched over the body the binding is in scope across — a closure
-// the clause creates included, since the value escapes into it unchanged.
+// THREE SHAPES BIND A CAUGHT VALUE, and two of them are promise tails no `CatchClause`
+// selector reaches. `.catch((error) => …)` holds exactly the same unestablished value,
+// and so does the SECOND argument of `.then(onFulfilled, onRejected)` — the same
+// handler written on the settled call rather than after it. Reading only the `.catch`
+// spelling left that arm open, and the console had a live instance of it: a rejection
+// handler passed to `then` stringified a load failure while this gate reported clean.
+// All three are found here, and each is searched over the body its binding is in scope
+// across — a closure the handler creates included, since the value escapes into it
+// unchanged.
+//
+// A `.finally` TAIL NEEDS NO ARM OF ITS OWN. Its callback takes no parameter, so it
+// binds nothing; a `promise.then(a, b).finally(c)` chain is covered because the `then`
+// call is its own node in the tree and is visited whatever is chained after it.
 //
 // WHAT IT STILL DOES NOT READ, stated rather than left to be discovered: a destructured
 // binding (`catch ({ message })`) declares no identifier to compare against, so a clause
@@ -63,11 +71,26 @@ interface CaughtBinding {
   /** The clause's block, or the promise tail's callback body. */
   readonly scope: ts.Node;
   /** How the value was caught, for a failure message that says which shape. */
-  readonly shape: "catch clause" | "promise tail";
+  readonly shape: "catch clause" | "promise tail" | "then rejection handler";
 }
 
-/** The property name a promise tail is spelled with. */
-const PROMISE_TAIL_METHOD = "catch";
+/**
+ * The two promise tails that bind a rejection, and which argument each binds it in.
+ *
+ * A TABLE RATHER THAN A SECOND BRANCH, because the difference between the two spellings
+ * is one index and nothing else: `.catch(onRejected)` and `.then(onFulfilled,
+ * onRejected)` hand the identical unestablished value to the identical kind of
+ * callback. Written as two branches the second was simply never written, which is how
+ * the `then` form stayed unread by a gate whose whole subject it is.
+ */
+const REJECTION_TAILS: readonly {
+  readonly method: string;
+  readonly argumentIndex: number;
+  readonly shape: CaughtBinding["shape"];
+}[] = [
+  { method: "catch", argumentIndex: 0, shape: "promise tail" },
+  { method: "then", argumentIndex: 1, shape: "then rejection handler" },
+];
 
 /** The global whose call runs ToPrimitive. Compared exactly, so `lossyStringify` is not it. */
 const STRINGIFY_GLOBAL = "String";
@@ -97,18 +120,21 @@ function caughtBindingAt(node: ts.Node): CaughtBinding | undefined {
     }
     return { name: declared.text, scope: node.block, shape: "catch clause" };
   }
-  if (
-    !ts.isCallExpression(node) ||
-    !ts.isPropertyAccessExpression(node.expression) ||
-    node.expression.name.text !== PROMISE_TAIL_METHOD
-  ) {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) {
     return undefined;
   }
-  const [callee] = node.arguments;
+  const called = node.expression.name.text;
+  const tail = REJECTION_TAILS.find((candidate) => candidate.method === called);
+  if (tail === undefined) {
+    return undefined;
+  }
+  // A `then` with one argument has no rejection handler at all, which the index read
+  // answers with `undefined` rather than with a branch of its own.
+  const callee = node.arguments[tail.argumentIndex];
   const bound = callee === undefined ? undefined : callbackBinding(callee);
   return bound === undefined
     ? undefined
-    : { name: bound.name, scope: bound.body, shape: "promise tail" };
+    : { name: bound.name, scope: bound.body, shape: tail.shape };
 }
 
 /** Every caught value `parsed` binds, in source order. */
@@ -265,6 +291,13 @@ describe("catch stringification — no caught value reaches ToPrimitive", () => 
       'try { read() } catch (error) { return "read failed: " + error; }',
       "try { read() } catch (error) { return error.toString(); }",
       "void read().catch((error) => report(String(error)));",
+      // The `then` rejection handler — the same value, one argument over, and the arm
+      // this gate could not read until the tails became a table. The console had a live
+      // instance of exactly this shape while the suite reported clean.
+      "void read().then(onLoaded, (loadError) => report(String(loadError)));",
+      // Chained, because a `finally` after it needs no arm of its own: the `then` call
+      // is its own node whatever follows it.
+      "void read().then(onLoaded, (loadError) => report(`${loadError}`)).finally(done);",
       // The name census read five names and this is none of them.
       "try { read() } catch (whateverWentWrong) { return String(whateverWentWrong); }",
       // The value escapes into a closure the clause creates, unchanged.
@@ -294,6 +327,12 @@ describe("catch stringification — no caught value reaches ToPrimitive", () => 
       "function read() { try { open() } catch (error) { refuse(error) } }\nfunction label(error: string) { return String(error); }",
       // A member read off the value is a different hazard and a different rule.
       "try { read() } catch (error) { return String(error.message); }",
+      // A `then` with ONE argument binds no rejection at all, so its parameter is a
+      // settled value and stringifying it is not this gate's subject. Without this the
+      // widening would report every `.then((value) => `${value}`)` in the console.
+      "void read().then((value) => report(String(value)));",
+      // And the fulfilled handler of a two-argument `then` is still that settled value.
+      "void read().then((value) => report(String(value)), refuse);",
     ]) {
       expect(
         caughtValueStringifications("planted.ts", clean),

@@ -16,99 +16,39 @@
 // `foo.ts` sources.
 //
 // Paths are relative to `apps/desktop`; run it through `pnpm structure:layering`.
+//
+// The family vocabulary this reasons over — the homes, the ladders, and the named
+// exemptions — is `.dependency-cruiser.families.mjs` beside this file.
 
-/** Console family homes, low to high. A family may import any home below it and none above. */
-const CONSOLE = "^src/renderer/src/console";
-
-// `core/` is the DAG floor: `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`,
-// `emitter.ts`, `clock.ts`. Nothing below it, so its rule below is the only one that forbids
-// every other family at once.
-const CORE = `${CONSOLE}/core/`;
-const TOKENS = `${CONSOLE}/tokens/`;
-const ROUTING = `${CONSOLE}/routing/`;
-const PRIMITIVES = `${CONSOLE}/primitives/`;
-const STATE = `${CONSOLE}/(store|persistence)/`;
-const BRIDGE = `${CONSOLE}/bridge/`;
-// `seats/` holds the contracts through which view families hand each other bodies — the
-// pane registry and its kinds and addresses, the composer seat, sidebar sections, the
-// timeline row slot, the inline-card seats. It sits HERE, directly above `bridge/`,
-// because that is the highest family a seat imports; and below `palette/` and `frame/`
-// because the frame composes the pane-registry singleton and a seat reaches for neither.
-// It lived at `workspace/seats/` until this position was named, which made the frame
-// import a VIEW family — the edge the `console-layering-view-families` rule below now
-// forbids outright.
-const SEATS = `${CONSOLE}/seats/`;
-const PALETTE = `${CONSOLE}/palette/`;
-const FRAME = `${CONSOLE}/frame/`;
-
-// The composition sites. `families.ts` and `panes/index.ts` are the two files whose whole
-// job is to name every view family, so they are the one place a downward-only ladder
-// cannot apply: they sit above every family by construction. They are named here so the
-// view-family rule below can subtract them rather than report the console's own entry
-// wiring as a violation.
-const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
-// The pane board is the FILES directly under `panes/`, not the directory. After the
-// pane-body rule below, `panes/` holds composition and nothing else, so a
-// `panes/<something>/` subtree is not a composition site and must not inherit the
-// exemption one gets: with the directory spelled here, a pane body parked under
-// `panes/runs/` would have been subtracted from the view-family set on both endpoints
-// and could import any view family it liked.
-const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
-
-/** Any module under a subdirectory of the pane board — the shape that is forbidden. */
-const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
-
-/**
- * Every barrel under `console/` — a family door and a sub-module door alike.
- *
- * Two alternatives rather than one `(?:[^/]+/)*` because dependency-cruiser refuses a rule
- * whose regular expression has a star height above one: a quantified group containing its own
- * quantifier is the catastrophic-backtracking shape, and the cruise bails on it outright
- * rather than running slowly. Measured — the nested form fails with "has an unsafe regular
- * expression. Bailing out."
- */
-const CONSOLE_BARRELS = [`${CONSOLE}/index\\.ts$`, `${CONSOLE}/.+/index\\.ts$`];
-
-/** Every layer family, low to high — the closed set the DAG orders. */
-const LAYER_FAMILIES = [CORE, TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-
-/**
- * A VIEW family is any console home that is not a layer family and not a composition site.
- *
- * Stated as the COMPLEMENT rather than as a list of directory names, because a list is the
- * exact thing that failed here: the ladders below stopped at `frame/`, so no rule named the
- * view families and `frame/` → `workspace/` passed a gate whose own standard forbids it. A
- * list would have to be extended by each of the seven family branches, and the one that
- * forgot would reopen the same hole silently. The complement needs no line at all when a
- * family lands, and it cannot be forgotten.
- */
-const VIEW_FAMILIES = {
-  path: `${CONSOLE}/`,
-  pathNot: [...LAYER_FAMILIES, COMPOSITION_PANE_BOARD, COMPOSITION_ROOT_FILES],
-};
-
-/** Everything strictly above each family, as one alternation. */
-const ABOVE_CORE = [TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_TOKENS = [ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_ROUTING = [PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_PRIMITIVES = [STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_STATE = [BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_BRIDGE = [SEATS, PALETTE, FRAME];
-const ABOVE_SEATS = [PALETTE, FRAME];
-const ABOVE_PALETTE = [FRAME];
-
-/** One forbidden rule per family: an edge from that family to anything above it. */
-function upwardEdge(family, fromPath, toPaths) {
-  return {
-    name: `console-layering-${family}`,
-    comment:
-      `\`console/${family}\` sits below the families it imported. Hoist the symbol down to the ` +
-      `lowest family that needs it; never deep-import around the edge.`,
-    severity: "error",
-    from: { path: fromPath },
-    to: { path: toPaths },
-  };
-}
+import {
+  ABOVE_BRIDGE,
+  ABOVE_CORE,
+  ABOVE_PALETTE,
+  ABOVE_PRIMITIVES,
+  ABOVE_ROUTING,
+  ABOVE_SEATS,
+  ABOVE_STATE,
+  ABOVE_TOKENS,
+  BRIDGE,
+  COMPOSITION_PANE_BOARD,
+  COMPOSITION_ROOT_FILES,
+  CONSOLE,
+  CONSOLE_BARRELS,
+  CONSOLE_FAMILY_DOORS,
+  CORE,
+  FRAME_SURFACE_REGISTRY,
+  LAYER_FAMILIES,
+  PALETTE,
+  PANE_BOARD_SUBDIRECTORY,
+  PRIMITIVES,
+  ROUTING,
+  SEATS,
+  STATE,
+  TEST_SUPPORT_MODULES,
+  TOKENS,
+  VIEW_FAMILIES,
+  upwardEdge,
+} from "./.dependency-cruiser.families.mjs";
 
 export default {
   forbidden: [
@@ -218,6 +158,22 @@ export default {
       from: { path: `${CONSOLE}/`, pathNot: COMPOSITION_ROOT_FILES },
       to: { path: "^src/renderer/src/shell/" },
     },
+    {
+      name: "renderer-reaches-console-through-doors",
+      comment:
+        "A renderer subtree OUTSIDE the console deep-imported a console module. Every layering " +
+        "rule here is `from`-scoped to `console/`, so an importer that lives beside the console " +
+        "rather than inside it matches none of them — which is how a Tier-1 subtree came to hold " +
+        "`console/store/subject-scoped-state.js` while three gates reported clean and the door " +
+        "the symbol is published from could have been deleted without one of them noticing. " +
+        "Import the family door instead (`console/store/index.js` publishes the subject-scoped " +
+        "holder for exactly this reason). A symbol no door publishes is a symbol the console has " +
+        "not offered, and reaching around the door inverts that decision rather than respecting " +
+        "it.",
+      severity: "error",
+      from: { path: "^src/renderer/src/(?!console/)" },
+      to: { path: `${CONSOLE}/`, pathNot: CONSOLE_FAMILY_DOORS },
+    },
     upwardEdge("core", CORE, ABOVE_CORE),
     upwardEdge("tokens", TOKENS, ABOVE_TOKENS),
     upwardEdge("routing", ROUTING, ABOVE_ROUTING),
@@ -259,6 +215,60 @@ export default {
       // the ones `$1` removes.
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
+      name: "console-root-is-composition-only",
+      comment:
+        "A module at the console ROOT that is not one of the enumerated composition sites " +
+        "imported a console module. The root is where a composition lives because a composition " +
+        "is the one thing that may name more than one view family — so a file that lands there " +
+        "and is not on the list is a family importing a sibling with the isolation rule stepped " +
+        "around, which is one `git mv` of work. `console-view-family-isolation` cannot see it: " +
+        "its `from` captures the owning DIRECTORY (`console/<family>/`) so it can subtract that " +
+        "family from its own target set, and a root file has no directory to capture. This rule " +
+        "is that complement, so the console root is closed from the SOURCE side and the " +
+        "enumeration closes it from the target side. A family whose registrar belongs at the " +
+        "root adds one alternative to `COMPOSITION_ROOT_FILES` and names itself doing it.",
+      severity: "error",
+      // Declaration files are subtracted for the reason `no-orphans` subtracts them: they
+      // declare ambient types rather than participate in the graph. `console-env.d.ts`
+      // imports nothing today, so it is an edge source in no cruise — the entry states the
+      // disposition rather than waiting for one that does.
+      from: { path: `${CONSOLE}/[^/]+$`, pathNot: [COMPOSITION_ROOT_FILES, "\\.d\\.ts$"] },
+      to: { path: `${CONSOLE}/` },
+    },
+    {
+      name: "console-cross-family-deep-import",
+      comment:
+        "A console family reached into another family's module instead of its door. " +
+        "`apps/desktop/AGENTS.md` §Module shape: cross-family imports go through the " +
+        "family door, intra-family imports are deep. The two rules above order the " +
+        "families and keep view families apart; neither says anything about HOW a " +
+        "permitted edge is written, so a downward edge past a barrel — the shape a " +
+        "caller reaches for when importing the door would close a cycle — stayed green. " +
+        "The fix is never the deep specifier: hoist the symbol to the lowest family " +
+        "that owns its inputs, and import it from that family's door. A sub-module " +
+        "door (`bridge/growth-values/`, `bridge/scenarios/`) is deliberately NOT a " +
+        "legal target here — it publishes to its own family only, which is why the " +
+        "exemption below matches a family door's single path segment and not a nested " +
+        "one. The pane board is subtracted at the TO end only. It is a legal target " +
+        "because it sits above every family by construction; it is not a legal SOURCE, " +
+        "because standing above the families says nothing about how a file there writes " +
+        "an edge, and subtracting it here made the rule silent about the one directory " +
+        "whose whole job is to name every family — eleven deep specifiers into a family's " +
+        "projection, park badge and refusal helpers read as composition and were reported " +
+        "as nothing.",
+      severity: "error",
+      from: { path: `${CONSOLE}/([^/]+)/`, pathNot: [TEST_SUPPORT_MODULES] },
+      to: {
+        path: `${CONSOLE}/[^/]+/`,
+        pathNot: [
+          `${CONSOLE}/$1/`,
+          CONSOLE_FAMILY_DOORS,
+          COMPOSITION_PANE_BOARD,
+          FRAME_SURFACE_REGISTRY,
+        ],
+      },
     },
     {
       name: "console-panes-hold-no-body",
