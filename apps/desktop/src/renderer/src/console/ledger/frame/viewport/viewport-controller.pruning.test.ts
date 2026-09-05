@@ -139,6 +139,56 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     );
   });
 
+  it("takes the rest after a pass that APPLIED and stopped at the reader's row", () => {
+    // The commonest shape of the same failure, and the one an `applied` reading
+    // hides. The reader is on row 10, so the pass takes ten rows and stops — applied,
+    // no deferral named, and 4 390 rows still resident against a cap of 400. Read
+    // through the deferral alone the re-ask saw nothing owed and never fired, and on
+    // a session that had gone quiet those rows stayed for the life of the mount.
+    const surface = countingSurface({
+      initialScrollTop: READER_SCROLL_TOP_PX,
+      clientHeight: VIEWPORT_HEIGHT_PX,
+      scrollHeight: CONTENT_HEIGHT_PX,
+    });
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.anchor.capture({ rowKey: "row-10", offsetWithinViewportPx: -12 });
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    const partial = controller.snapshot().lastPrune;
+    expect(partial?.applied).toBe(true);
+    expect(partial?.deferredBecause).toBeUndefined();
+    expect(partial?.owedBecause).toBe("reading-floor");
+    expect(controller.snapshot().rowKeys).toHaveLength(LOADED_ROW_COUNT - 10);
+
+    surface.moveTo(TAIL_OFFSET_PX);
+    expect(controller.anchor.state.mode).toBe("following");
+    controller.retryDeferredPrune();
+
+    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().lastPrune?.owedBecause).toBeUndefined();
+  });
+
+  it("negative control: the same partial pass is not re-asked while the reader stays", () => {
+    // Without this the residual could be a re-ask that ignores the reading floor,
+    // which is the promise the floor exists to keep — and, because every pass
+    // publishes a new outcome, one that re-armed itself on its own result.
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(
+      countingSurface({
+        initialScrollTop: READER_SCROLL_TOP_PX,
+        clientHeight: VIEWPORT_HEIGHT_PX,
+        scrollHeight: CONTENT_HEIGHT_PX,
+      }),
+    );
+    controller.anchor.capture({ rowKey: "row-10", offsetWithinViewportPx: -12 });
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    const afterFirstPass = controller.snapshot();
+
+    controller.retryDeferredPrune();
+
+    expect(controller.snapshot()).toBe(afterFirstPass);
+  });
+
   it("takes them when a pin lifts, likewise without one", () => {
     const controller = new LedgerViewportController({ clock: new ManualClock() });
     controller.attach(countingSurface({ clientHeight: VIEWPORT_HEIGHT_PX, scrollHeight: 4000 }));

@@ -63,6 +63,7 @@ export const PRUNE_DEFERRAL_REASONS = [
   "reveal-drain",
   "pinned-history",
   "reading-floor",
+  "held-rows",
 ] as const;
 
 /** One deferral reason. Derived from the enumeration, never restated. */
@@ -94,8 +95,23 @@ export interface PruneConditions {
 
 export interface PruneOutcome {
   readonly applied: boolean;
-  /** `undefined` exactly when `applied` is true. */
+  /** Why this pass took nothing. `undefined` exactly when `applied` is true. */
   readonly deferredBecause: PruneDeferralReason | undefined;
+  /**
+   * What still holds the window over its cap now the pass has ended, or
+   * `undefined` when the window is within its cap.
+   *
+   * NOT A RESTATEMENT OF `deferredBecause`, and the case where they differ is the
+   * one this reading exists for: a walk that stopped at the reading floor AFTER
+   * taking rows applied, so `deferredBecause` is `undefined` and correct — and the
+   * window is still thousands of rows over its cap. Reported as an applied prune
+   * with nothing owed, that residual was re-asked by nobody, and on a session that
+   * had gone quiet the rows stayed resident for the life of the mount. The two
+   * readings answer two different questions, so the caller that re-asks reads THIS
+   * one; `under-cap` deliberately owes nothing, because a window inside its cap is
+   * not a window waiting on a condition.
+   */
+  readonly owedBecause: PruneDeferralReason | undefined;
   /** Every key dropped, ancestors and their subtrees together. */
   readonly prunedKeys: readonly string[];
   readonly topLevelRetained: number;
@@ -205,9 +221,14 @@ export class LedgerWindow {
    *
    * The refusals `#deferralFor` answers are ordered by what they cost: `under-cap`
    * is free, and the rest clear on their own within a frame or two, so a caller
-   * that re-asks next frame gets its prune without waiting on any of them. The one
-   * refusal that cannot be decided up front is `reading-floor`, which is knowable
-   * only once the walk has found it can take nothing.
+   * that re-asks next frame gets its prune without waiting on any of them. The two
+   * refusals that cannot be decided up front are `reading-floor` and `held-rows`,
+   * which are knowable only once the walk has found what it can take.
+   *
+   * EVERY RETURN CARRIES `owedBecause`, and a partial pass is why. The walk can
+   * apply and still leave the window over its cap — it stops at the reader's row,
+   * or it skips every candidate as held — and an outcome that said only `applied`
+   * left that residual unnameable. See the member's own doc.
    */
   public prune(conditions: PruneConditions): PruneOutcome {
     const deferral = this.#deferralFor(conditions);
@@ -215,6 +236,7 @@ export class LedgerWindow {
       return {
         applied: false,
         deferredBecause: deferral,
+        owedBecause: deferral === "under-cap" ? undefined : deferral,
         prunedKeys: [],
         topLevelRetained: this.topLevelRowKeys().length,
       };
@@ -250,14 +272,20 @@ export class LedgerWindow {
       }
       remainingToDrop -= 1;
     }
-    if (stoppedAtReadingFloor && prunedKeys.length === 0) {
-      // Over cap and unable to take one row, because everything above the cap is at
-      // or below the reader. Named rather than returned as an applied prune with an
-      // empty key list, which this module's second property calls indistinguishable
-      // from a window already under cap.
+    // What the walk could not get past, read off the walk rather than re-derived.
+    // `remainingToDrop` above zero means the window is still over its cap, and the
+    // two ways that happens are the two the loop can leave early or skip past: the
+    // reader's floor stopped it, or every remaining candidate was held.
+    const blockedBy: PruneDeferralReason | undefined =
+      remainingToDrop <= 0 ? undefined : stoppedAtReadingFloor ? "reading-floor" : "held-rows";
+    if (blockedBy !== undefined && prunedKeys.length === 0) {
+      // Over cap and unable to take one row. Named rather than returned as an
+      // applied prune with an empty key list, which this module's second property
+      // calls indistinguishable from a window already under cap.
       return {
         applied: false,
-        deferredBecause: "reading-floor",
+        deferredBecause: blockedBy,
+        owedBecause: blockedBy,
         prunedKeys: [],
         topLevelRetained: topLevelKeys.length,
       };
@@ -270,6 +298,7 @@ export class LedgerWindow {
     return {
       applied: true,
       deferredBecause: undefined,
+      owedBecause: blockedBy,
       prunedKeys,
       topLevelRetained: this.topLevelRowKeys().length,
     };

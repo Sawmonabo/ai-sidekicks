@@ -37,8 +37,8 @@
 // hardened `BrowserWindow`", loading "the same renderer bundle at a window route" — so
 // it mounts the pane alone: no deck around it, because an auxiliary window holds one
 // pane, and no composer, because the composer is the session workspace's chrome and this
-// window is not that workspace. The rail,
-// replay, and find arrive with the lanes that author them.
+// window is not that workspace. The rail, the replay control and the find bar are the
+// pane's own chrome and travel with it into that window.
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 

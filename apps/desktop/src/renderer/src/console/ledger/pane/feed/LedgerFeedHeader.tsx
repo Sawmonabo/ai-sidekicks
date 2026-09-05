@@ -5,8 +5,9 @@
 // what that narrowing left out — while the feed beside it is about arrangement. Read
 // inside the composition it came from, these six elements were sixty lines of JSX
 // between a viewport and a rail, and the four suites that ask about them
-// (`LedgerFeedFilters`, `LedgerFeedJump`, `LedgerFeedAbsences`, `LedgerFeedRenders`)
-// had to mount the whole ledger to reach a facet chip.
+// (`LedgerFeed.filters.test.tsx`, `LedgerFeed.jump.test.tsx`,
+// `LedgerFeed.absences.test.tsx`, `LedgerFeed.renders.test.tsx`) had to mount the
+// whole ledger to reach a facet chip.
 //
 // IT DERIVES NOTHING. Every value below is a reading the feed already holds: this
 // module decides only which of them reach a screen and in what order. A count

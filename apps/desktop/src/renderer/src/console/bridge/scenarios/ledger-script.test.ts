@@ -13,10 +13,19 @@
 
 import { describe, expect, it } from "vitest";
 
-// The cast the builder under test is driven with, imported rather than restated: an
-// id declared twice is two ids the day one of them moves, and every value below is
-// already exported by the module this scenario's beats are built from.
-import { EVENT_ID_STEM, RUN_IMPLEMENTER, SESSION_ID } from "./ledger-cast.js";
+// The cast AND the base instant the builder under test is driven with, imported rather
+// than restated: a value declared twice is two values the day one of them moves. The
+// instant is the one that would have moved silently — this file restated its own
+// `Date.UTC` and its own ISO derivation, so an epoch change in `ledger-cast.ts` would
+// have left the scenario's beats stamped from one instant and this file's expectations
+// derived from another, with every sequence assertion below still green.
+import {
+  EVENT_ID_STEM,
+  RUN_IMPLEMENTER,
+  SESSION_ID,
+  STARTED_AT_ISO,
+  startedAtMs,
+} from "./ledger-cast.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,
@@ -24,20 +33,6 @@ import {
   toolActivityEntry,
   type LedgerScriptEntry,
 } from "./ledger-script.js";
-
-/**
- * The base instant, minted from its fields rather than read back out of a string.
- *
- * `Date.parse` is not a validator — it reads a timezone-less stamp in the host's
- * zone and normalizes a day that does not exist — so a fixture that derived its
- * milliseconds by parsing its own literal was asking a reader to trust the one
- * function the console bans. `Date.UTC` states the instant, and the ISO spelling
- * every reply carries is derived from it, so the two can never disagree. The name
- * ends `Ms` because that is what it holds — a number, not a stamp behind a name.
- */
-const startedAtMs = Date.UTC(2026, 0, 1, 11, 5);
-
-const STARTED_AT_ISO = new Date(startedAtMs).toISOString();
 
 /** A three-entry script whose `atMs` values are distinct and increasing. */
 const ORDERED_SCRIPT: readonly LedgerScriptEntry[] = [

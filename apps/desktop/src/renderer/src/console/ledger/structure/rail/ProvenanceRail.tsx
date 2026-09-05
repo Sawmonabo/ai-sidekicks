@@ -48,7 +48,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { RealClock, type ConsoleClock } from "../../../core/index.js";
+import { type ConsoleClock } from "../../../core/index.js";
 import { Glyph } from "../../../primitives/index.js";
 import { RAIL_HIT_STRIP_WIDTH_PX } from "../structure-bounds.js";
 import { clampRailViewportBand } from "./rail-bands.js";
@@ -88,8 +88,17 @@ export interface ProvenanceRailProps {
    * cannot mint one.
    */
   readonly hueForActor?: RailActorHueLookup;
-  /** The clock the preview grace is measured on. The fixture's frozen clock in a story. */
-  readonly clock?: ConsoleClock;
+  /**
+   * The clock the preview grace is measured on — the window's, from
+   * `useConsoleClock`, and the fixture's frozen clock in a story.
+   *
+   * REQUIRED, with no fallback. A rail that minted its own `RealClock` when none
+   * arrived ran a second time base inside a window whose every other surface was on
+   * the scenario's frozen one, and armed a grace no fixture advance could reach —
+   * silently, because a card that never opens looks like a pointer that never
+   * settled. There is one clock per window and this is how the rail is handed it.
+   */
+  readonly clock: ConsoleClock;
 }
 
 export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
@@ -100,11 +109,7 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
   const [preview, setPreview] = useState<RailPreview | undefined>(undefined);
   const [focusedSequence, setFocusedSequence] = useState<number | undefined>(undefined);
 
-  // One clock for the life of the component. `useState`'s lazy initialiser rather
-  // than a render-body `new`: a fresh clock every pass would leak an armed grace
-  // timeout on each one.
-  const [fallbackClock] = useState(() => new RealClock());
-  const clock = props.clock ?? fallbackClock;
+  const clock = props.clock;
 
   const painter = useMemo(() => new RailPainter(), []);
   // The canvas's backing store follows its RENDERED box, and the box changes with
@@ -112,6 +117,14 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
   // carries those two events into the paint effect below; the measurement itself is
   // the painter's, off the canvas it was handed, so there is only ever one.
   const surfaceRevision = useRailSurfaceRevision(canvasRef);
+  // ONE GRACE FOR THE LIFE OF THE MOUNT, and the clock it captures is a forwarder
+  // rather than a bridge. `useConsoleClock` answers with one stable object per
+  // window that forwards every arm and cancel to whichever bridge is current, so a
+  // reference taken at construction stays live across a reconnect or a scenario
+  // switch. Never assume the console clock is fixed to a bridge: the rule is that
+  // the OBJECT is stable and the bridge behind it is not, which is what makes
+  // capturing it once correct and a local forwarding wrapper a second answer to a
+  // question already settled one layer down.
   const graceRef = useRef<PreviewGrace | undefined>(undefined);
   graceRef.current ??= new PreviewGrace(clock);
   const grace = graceRef.current;

@@ -13,7 +13,7 @@ import { DraftStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStore } from "../store/index.js";
 import { registerActorFollowHandler, unregisterActorFollowHandler } from "../seats/index.js";
-import { ACTOR_FOLLOW_ANNOUNCEMENTS } from "./actor-follow.js";
+import { ACTOR_FOLLOW_ANNOUNCEMENTS } from "./cast-bar/actor-follow.js";
 import { Workspace } from "./Workspace.js";
 import {
   SCENARIO,

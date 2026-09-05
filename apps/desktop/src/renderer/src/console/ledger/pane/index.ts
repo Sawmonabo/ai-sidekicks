@@ -5,11 +5,14 @@
 // `panes/` while `panes/` was read as "where pane bodies go", and that directory is a
 // COMPOSITION SITE — the layering gate subtracts it from both endpoints of the
 // view-family rules so the one file whose job is to name every family can name them.
-// Fifty-two modules of view code behind that subtraction meant the DAG rule the whole
-// concurrent build rests on quantified over everything except the family's largest
-// directory. `panes/` now holds its composition file and nothing else, and this body
-// is where the rest of the family is, reached by the same intra-family specifiers its
-// siblings use.
+// The whole of this body sat behind that subtraction — every module the four
+// sub-modules below hold, which is the largest directory in the family — so the DAG
+// rule the whole concurrent build rests on quantified over everything except it.
+// Stated without a figure deliberately: a count here would be a claim about a tree
+// that grows every time a lane lands, and its going stale would be invisible.
+// `panes/` now holds its composition file and nothing else, and this body is where
+// the rest of the family is, reached by the same intra-family specifiers its siblings
+// use.
 //
 // FOUR SUB-MODULES AND THE PANE ITSELF. `window/` derives which rows this pane holds,
 // `find/` decides which of them a person is asking for, `replay/` decides which of them

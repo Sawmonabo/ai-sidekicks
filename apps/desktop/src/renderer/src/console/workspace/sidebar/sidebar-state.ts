@@ -21,12 +21,13 @@ import { type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { type SidebarSectionId } from "../../seats/index.js";
 import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
-import { RestoreProgress, refuseWorkspace } from "../layout-persistence.js";
+import { RestoreProgress, refuseWorkspace } from "../layout/layout-persistence.js";
 import {
   CoalescingLayoutWriter,
   flushAndCloseWriter,
+  isWriterRetired,
   type PersistedLayoutRecord,
-} from "../layout-writer.js";
+} from "../layout/layout-writer.js";
 import {
   INITIAL_SIDEBAR_LAYOUT_STATE,
   SIDEBAR_LAYOUT_RECORD_KEY,
@@ -168,6 +169,12 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
         },
       }),
     flushAndCloseWriter,
+    // `flushAndClose` is ONE-WAY: a retired writer drops every later request
+    // silently, so a holder that re-committed one after a double-mount would
+    // leave the person rearranging all session with nothing kept and no refusal
+    // raised. This reading is how the holder tells a retired writer from a live
+    // one and mints a fresh one instead.
+    isWriterRetired,
   );
 
   // Once per `(sidebar, session)`, for the reason `layout-persistence.ts` states: the
@@ -206,15 +213,25 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
       return;
     }
     return layout.subscribe(() => {
-      const current = layout.snapshot();
       // Nothing is written before the restore has landed, which is the ordering the
       // deck's own persistence states: a save from the opening defaults would file
       // them over the record this effect is still reading.
-      if (current.hasSettled) {
-        writer.request(sessionId, encodeSidebarLayout(current.state));
+      //
+      // THE SESSION-SCOPED GATE, NEVER THE LAYOUT'S OWN. `SidebarLayout.hasSettled`
+      // is set once by `adopt` on an object held for the mount, so it stays true
+      // across a navigation between two open sessions — and in the window where the
+      // NEW session's read is still in flight, a divider drag filed the previous
+      // session's width and open section under the arriving session's partition,
+      // clobbering the record being read. `restore` re-arms per session, so this
+      // closes when the session changes and opens again when that session's own
+      // record has landed. The layout's `hasSettled` stays what it is for: the
+      // announcement its surface makes.
+      if (!restore.hasSettled) {
+        return;
       }
+      writer.request(sessionId, encodeSidebarLayout(layout.snapshot().state));
     });
-  }, [layout, sessionId, writer]);
+  }, [layout, restore, sessionId, writer]);
 
   const snapshot = useSyncExternalStore(
     (listener) => layout.subscribe(listener),

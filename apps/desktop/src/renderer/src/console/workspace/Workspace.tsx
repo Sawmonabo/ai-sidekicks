@@ -38,7 +38,7 @@
 //     suppresses the BODY, not the pane: closing the pane would delete its width and
 //     its position, and the window closing or crashing would then have nowhere to put
 //     it back. The hand-off's own lifecycle — its detached set, its crash records, and
-//     the four acts a slot offers — is `workspace/auxiliary-panes.ts`'; this surface
+//     the four acts a slot offers — is `workspace/auxiliary/auxiliary-panes.ts`'; this surface
 //     passes what that publishes down to the deck and raises what it refuses.
 
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -56,14 +56,14 @@ import {
   SIDEBAR_COLLAPSED_WIDTH_PX,
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
 } from "./workspace-bounds.js";
-import { CastBar } from "./CastBar.js";
-import { WorkspaceBannerRow } from "./WorkspaceBannerRow.js";
-import { useAuxiliaryPanes } from "./auxiliary-panes.js";
+import { CastBar } from "./cast-bar/CastBar.js";
+import { WorkspaceBannerRow } from "./banners/WorkspaceBannerRow.js";
+import { useAuxiliaryPanes } from "./auxiliary/auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
 import type { DeckPane } from "./deck/deck-model.js";
 import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
-import { useDeckPersistence } from "./layout-persistence.js";
+import { useDeckPersistence } from "./layout/layout-persistence.js";
 import { SessionSidebar } from "./sidebar/SessionSidebar.js";
 import { registerSidebarCommands } from "./sidebar/sidebar-commands.js";
 import { useSidebarLayout } from "./sidebar/sidebar-state.js";
@@ -76,13 +76,13 @@ import {
   type ConsolePaneOpener,
   type ConsolePaneRegistry,
 } from "../seats/index.js";
-import { useActorFollow } from "./actor-follow.js";
+import { useActorFollow } from "./cast-bar/actor-follow.js";
 import {
   dismissWorkspaceBanner,
   raiseWorkspaceBanner,
   workspaceBannerKey,
   type WorkspaceBanner,
-} from "./workspace-banners.js";
+} from "./banners/workspace-banners.js";
 
 /**
  * The sidebar's two palette rows, contributed the moment this module is evaluated.

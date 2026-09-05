@@ -1,9 +1,10 @@
 /* The session shell: the workspace element itself, its banners, its composer slot,
  * the new-session draft, and the split that holds the deck beside the sidebar.
  *
- * The family's other three sheets — `cast-bar.css`, `deck.css`, `sidebar.css` — are
- * imported from `workspace/index.ts` beside this one, so the whole family's rules
- * land once per bundle and cascade after the primitives' and the frame's.
+ * The family's other three sheets — `cast-bar.css`, `deck/deck.css` and
+ * `sidebar/sidebar.css`, each beside the modules it styles — are imported from
+ * `workspace/index.ts` beside this one, so the whole family's rules land once per
+ * bundle and cascade after the primitives' and the frame's.
  *
  * Every colour is a Meridian custom property and every space a step on the scale,
  * so the family follows the scheme attribute with no conditional in JSX and its

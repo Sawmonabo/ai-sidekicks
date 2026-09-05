@@ -149,7 +149,12 @@ function actInputs(
   };
 }
 
-/** A narrowing whose members record. What it holds is `ledger-narrowing.test.ts`'. */
+/**
+ * A narrowing whose members record.
+ *
+ * What it HOLDS is `ledger/structure/narrowing/filters.test.ts`'; what this file is
+ * about is which of these members the feed's acts call.
+ */
 function recordingFilterState(isFiltered: boolean, trace: ActTrace): LedgerFilterState {
   return {
     filter: UNFILTERED_LEDGER,

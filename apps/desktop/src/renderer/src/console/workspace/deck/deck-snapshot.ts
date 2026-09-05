@@ -122,7 +122,14 @@ export interface DecodedDeckSnapshot {
   readonly refusals: readonly DeckRestoreRefusal[];
 }
 
-function refuseRestore(code: DeckRestoreRefusalCode, detail: string): DeckRestoreRefusal {
+/**
+ * This module's refusals, named for the restore they are about.
+ *
+ * NAMED `Deck` for the reason `sidebar/sidebar-model.ts`'s twin is named `Sidebar`:
+ * the two are sibling restore paths in one family and a shared bare name made them
+ * look interchangeable when their refusal types are not.
+ */
+function refuseDeckRestore(code: DeckRestoreRefusalCode, detail: string): DeckRestoreRefusal {
   return { ...refuse(DECK_LAYOUT_REFUSAL_ORIGIN, code, detail), code };
 }
 
@@ -170,7 +177,7 @@ export function decodeDeckSnapshot(
 ): DecodedDeckSnapshot {
   if (!isPlainRecord(snapshot)) {
     return emptyDecode(
-      refuseRestore(
+      refuseDeckRestore(
         "snapshot-shape-invalid",
         "The saved layout is not a layout record, so none of it was restored. The deck opens empty.",
       ),
@@ -183,7 +190,7 @@ export function decodeDeckSnapshot(
     // members it cannot interpret, and a partly-adopted deck hides which part
     // went missing.
     return emptyDecode(
-      refuseRestore(
+      refuseDeckRestore(
         "snapshot-version-unknown",
         "The saved layout was written by a different version of the console, so none of it was restored. The deck opens empty and saves again as you arrange it.",
       ),
@@ -198,7 +205,7 @@ export function decodeDeckSnapshot(
     }
     if (!isPlainRecord(entry)) {
       refusals.push(
-        refuseRestore(
+        refuseDeckRestore(
           "pane-shape-invalid",
           "One saved pane was not a pane record and was ignored.",
         ),
@@ -217,7 +224,7 @@ export function decodeDeckSnapshot(
   for (const candidate of candidates) {
     if (panes.length >= restoredPaneCap) {
       refusals.push(
-        refuseRestore(
+        refuseDeckRestore(
           "restore-cap-exceeded",
           `The saved layout held more than ${String(restoredPaneCap)} panes. The first ${String(restoredPaneCap)} were restored and the rest were left closed.`,
         ),
@@ -233,7 +240,7 @@ export function decodeDeckSnapshot(
       // Dropped BEFORE the push, so it consumes no cap slot: a record padded with
       // repeats of one address must not push real panes out of the restore.
       refusals.push(
-        refuseRestore(
+        refuseDeckRestore(
           "pane-address-duplicate",
           "Two saved panes showed the same thing, so the second was left closed.",
         ),
@@ -275,7 +282,7 @@ function decodePane(
   const kind = entry["kind"];
   if (!isPaneKind(kind)) {
     refusals.push(
-      refuseRestore(
+      refuseDeckRestore(
         "pane-kind-unknown",
         "One saved pane is a kind this version of the console does not have, so it was left closed.",
       ),
@@ -287,7 +294,7 @@ function decodePane(
     // was written by something else. Refused for the same reason it is never
     // written: a restart must not reopen a page nobody asked for.
     refusals.push(
-      refuseRestore(
+      refuseDeckRestore(
         "pane-kind-unknown",
         "One saved pane is a kind the console never saves, so it was left closed.",
       ),
@@ -298,7 +305,7 @@ function decodePane(
   const entity = readEntity(entry);
   if (entity === "invalid") {
     refusals.push(
-      refuseRestore(
+      refuseDeckRestore(
         "pane-entity-invalid",
         "One saved pane named something the console could not resolve, so it was left closed.",
       ),

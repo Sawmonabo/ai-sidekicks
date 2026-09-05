@@ -11,10 +11,11 @@
 //
 // WHAT IT DOES NOT DECIDE. Not which rows exist — the window holds those, and the
 // controller reads them back after a pass. Not where the reader is — the anchor
-// decides that, and this object only ASKS it, twice: once for the floor the drop
-// may not walk past, and once to see whether a pin it was refused for is gone. And
-// not what the tree is told: a pass changes the window and this object notifies
-// nobody, which is what keeps the controller's single publication point single.
+// decides that, and this object only ASKS it: for the floor the drop may not walk
+// past, for the rows the reader is engaged with, and for whether a pin or a hold it
+// was refused for is gone. And not what the tree is told: a pass changes the window
+// and this object notifies nobody, which is what keeps the controller's single
+// publication point single.
 //
 // THE COMPENSATION IS HERE BECAUSE THE CYCLE IS WHAT INCURRED IT. Dropping rows
 // above the fold moves every offset below them, and the number of pixels owed is
@@ -46,6 +47,22 @@ export interface LedgerPruneCycleResult {
   readonly readingFloorRowKey: string | undefined;
 }
 
+/**
+ * Whether two held-row readings name the same rows, order ignored.
+ *
+ * Order is ignored because the anchor's held set is a `Map`'s key order and a
+ * re-hold moves a key without changing which rows are engaged; the walk reads the
+ * set through a `Set`, so a reordering is invisible to it and must be invisible
+ * here too or the re-ask would fire on a fact the prune cannot use.
+ */
+function sameRowKeySet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const rightKeys = new Set(right);
+  return left.every((rowKey) => rightKeys.has(rowKey));
+}
+
 export class LedgerPruneCycle {
   readonly #window: LedgerWindow;
   readonly #measurements: RowMeasurementLedger;
@@ -62,6 +79,16 @@ export class LedgerPruneCycle {
    * this frame made up would apply the cap to a window nobody is showing.
    */
   #lastConditions: LedgerViewportConditions | undefined;
+  /**
+   * The held set the last pass was run against, so `held-rows` can be answered by
+   * comparing it with the anchor's current one.
+   *
+   * The held set is not on `LedgerViewportConditions` — the pass reads it off the
+   * anchor — so without this field the one question that refusal turns on, "is the
+   * reader still engaged with the rows that blocked the drop", has nothing to be
+   * asked against.
+   */
+  #lastHeldRowKeys: readonly string[] = [];
 
   public constructor(options: LedgerPruneCycleOptions) {
     this.#window = options.window;
@@ -96,13 +123,15 @@ export class LedgerPruneCycle {
   public run(conditions: LedgerViewportConditions): LedgerPruneCycleResult {
     this.#lastConditions = conditions;
     const readingFloorRowKey = this.readingFloorRowKey();
+    const heldRowKeys = this.#anchor.heldRowKeys();
+    this.#lastHeldRowKeys = heldRowKeys;
     this.#window.ingest(conditions.rows);
     const outcome = this.#window.prune({
       hasActiveTurn: conditions.hasActiveTurn,
       scrollControllerVetoes: this.#scroll.vetoesPrune(),
       revealDrainInFlight: conditions.isRevealDraining,
       pinnedRootCursor: this.#anchor.state.pinnedRootCursor,
-      heldRowKeys: this.#anchor.heldRowKeys(),
+      heldRowKeys,
       readingFloorRowKey,
     });
     this.#lastOutcome = outcome;
@@ -141,24 +170,33 @@ export class LedgerPruneCycle {
    *
    * WHY A SECOND ENTRY POINT AND NOT A WIDER RECONCILE. A pass is driven by the
    * three conditions the surrounding surface reports — the row set, the turn
-   * activity, the reveal drain — and three of the six refusals below are conditions
-   * NONE of those three carry: a reader above the tail, a pin, and a programmatic
-   * write in flight are facts about this frame. A window left over its cap by one of
-   * them therefore stayed over cap until the log happened to change, which on an
-   * idle session is never — the reader came back to the tail and the rows the cap
-   * had already refused to take stayed in memory indefinitely.
+   * activity, the reveal drain — and four of the seven refusals below are conditions
+   * NONE of those three carry: a reader above the tail, a pin, a programmatic write
+   * in flight, and a held row are facts about this frame. A window left over its cap
+   * by one of them therefore stayed over cap until the log happened to change, which
+   * on an idle session is never — the reader came back to the tail and the rows the
+   * cap had already refused to take stayed in memory indefinitely.
    *
-   * Answers `undefined` cheaply when nothing is owed: a window whose last pass
-   * applied, or was refused for a reason still true, reports nothing — which is what
-   * lets the binding ask on a reading transition without checking anything first.
+   * IT READS `owedBecause` AND NOT `deferredBecause`, which is the difference
+   * between closing that failure and closing half of it. A pass that stops at the
+   * reader's floor having already taken rows is APPLIED and still over its cap, so
+   * it names no deferral at all — and read through `deferredBecause` it reported
+   * nothing owed and was re-asked by nobody, which is the same indefinite residency
+   * in the case the floor makes most likely.
+   *
+   * Answers `undefined` cheaply when nothing is owed: a window inside its cap, or
+   * one still held by the condition that refused it, reports nothing — which is what
+   * lets the binding ask on a reading transition without checking anything first,
+   * and is also what keeps the re-ask from spinning, since a residual whose blocker
+   * has not lifted answers `undefined` however many times it is asked.
    */
   public owedConditions(): LedgerViewportConditions | undefined {
     const conditions = this.#lastConditions;
-    const deferredBecause = this.#lastOutcome?.deferredBecause;
-    if (conditions === undefined || deferredBecause === undefined) {
+    const owedBecause = this.#lastOutcome?.owedBecause;
+    if (conditions === undefined || owedBecause === undefined) {
       return undefined;
     }
-    return this.#deferralHasCleared(deferredBecause) ? conditions : undefined;
+    return this.#deferralHasCleared(owedBecause) ? conditions : undefined;
   }
 
   /**
@@ -170,6 +208,7 @@ export class LedgerPruneCycle {
    */
   public forgetConditions(): void {
     this.#lastConditions = undefined;
+    this.#lastHeldRowKeys = [];
   }
 
   /**
@@ -186,15 +225,24 @@ export class LedgerPruneCycle {
    * straight off `LedgerViewportConditions`, so the surface that reports them
    * re-runs the pass the moment either changes; retrying them here would be a
    * second reader of one fact, racing the first.
+   *
+   * `held-rows` is answered by COMPARING the held set rather than by asking whether
+   * it is empty: what has to have changed for a blocked walk to get further is the
+   * engagement that blocked it, and a reader who released one row and held another
+   * has changed nothing the walk can use. Comparing also makes the re-ask
+   * single-shot — the pass that follows records the set it ran against, so the same
+   * residual over the same holds answers `false` from then on.
    */
-  #deferralHasCleared(deferredBecause: PruneDeferralReason): boolean {
-    switch (deferredBecause) {
+  #deferralHasCleared(owedBecause: PruneDeferralReason): boolean {
+    switch (owedBecause) {
       case "scroll-write":
         return !this.#scroll.vetoesPrune();
       case "pinned-history":
         return this.#anchor.state.pinnedRootCursor === undefined;
       case "reading-floor":
         return this.readingFloorRowKey() === undefined;
+      case "held-rows":
+        return !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys);
       case "under-cap":
       case "active-turn":
       case "reveal-drain":

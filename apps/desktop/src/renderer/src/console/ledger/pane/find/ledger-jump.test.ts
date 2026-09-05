@@ -2,7 +2,7 @@
 //
 // TWO CLAIMS, AND NEITHER IS ABOUT CLASSIFICATION. Which narrowing is hiding a row
 // is `ledger/structure/narrowing/filters.test.ts`', and which arm the composed feed reaches
-// over a real ledger is `LedgerFeedJump.test.tsx`'. What is only true here is that
+// over a real ledger is `LedgerFeed.jump.test.tsx`'. What is only true here is that
 // every absence the pipeline names has a DECIDED act — the table is driven from the
 // exported tuple, so a fifth narrowing added to the pipeline and not to the table is
 // a red test rather than a row silently offered the chapter fold's button — and that
