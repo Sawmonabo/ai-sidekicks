@@ -5,7 +5,7 @@
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
 // by row, and the ledger that records the keying is two tables next door:
-// `GROWTH_OPERATIONS` (`growth-operations.ts`) for the callables and
+// `GROWTH_OPERATIONS` (`growth-operations/`) for the callables and
 // `GROWTH_PREREQUISITES` (`growth-prerequisites.ts`) for the non-callable rest.
 //
 // I-023-13's test maps in both directions: no slate row is unmapped, no entry names
@@ -31,7 +31,7 @@
 
 import { refuse } from "../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import {
   GROWTH_PORT_REFUSAL_ORIGIN,
   type GrowthOutcome,

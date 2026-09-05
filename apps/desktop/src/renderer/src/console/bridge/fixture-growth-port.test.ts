@@ -24,7 +24,7 @@ import { createFixtureBridge } from "./fixture-bridge.js";
 import { callOperation, fixturePort } from "./fixture-growth-port.test-support.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
 import type { GrowthOperationId } from "./growth-entry.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";

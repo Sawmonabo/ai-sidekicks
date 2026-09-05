@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "../core/tripwires.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
 import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-slate.js";

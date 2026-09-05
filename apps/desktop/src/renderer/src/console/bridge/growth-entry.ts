@@ -1,6 +1,6 @@
 // What a growth-slate ledger entry IS, independent of which entries exist.
 //
-// The ledger is two tables — `GROWTH_OPERATIONS` in `growth-operations.ts` and
+// The ledger is two tables — `GROWTH_OPERATIONS` in `growth-operations/` and
 // `GROWTH_PREREQUISITES` in `growth-prerequisites.ts` — and each is long enough to
 // be its own module. What they genuinely share is this: a fixed row shape and a
 // closed id set to key it by.
@@ -105,7 +105,7 @@ export type GrowthOperationId =
   | "attentionPreferenceUpdate"
   // workflow — in the registered method registry's own order, so a reader comparing
   // the two reads them top to bottom. Each id is its wire method's tail with the
-  // root folded in, which `growth-operations.test.ts` holds every entry to.
+  // root folded in, which `growth-operations/index.test.ts` holds every entry to.
   | "workflowDefinitionList"
   | "workflowRunStart"
   | "workflowRunRead"
@@ -122,7 +122,7 @@ export type GrowthOperationId =
   | "callerParticipantRead"
   | "callbackToolRegistryRead"
   // sidekick — the registry's own order; each id is its wire method's tail with the
-  // root folded in, which `growth-operations.test.ts` holds every entry to.
+  // root folded in, which `growth-operations/index.test.ts` holds every entry to.
   | "sidekickDefinitionList"
   | "sidekickDefinitionCreate"
   | "sidekickDefinitionUpdate"
