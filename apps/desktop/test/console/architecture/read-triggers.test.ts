@@ -167,31 +167,36 @@ function readingsIn(census: readonly ReadingClassCensus[]): readonly ReadingClas
   return census.filter((entry) => entry.publishesReading && entry.holdsBridge);
 }
 
-function consoleReadings(): readonly ReadingClassCensus[] {
-  return consoleSourceModules({}).flatMap((module) =>
-    readingsIn(censusClasses(module.displayPath, readConsoleSourceModule(module))),
-  );
-}
+/**
+ * The walk and the parse, done ONCE for all three claims.
+ *
+ * At module scope on the sibling gates' own discipline, and it is not a
+ * micro-optimisation: each of the three claims below reads the same census, so
+ * calling this per case parsed the whole console tree three times and took the file
+ * past vitest's 5s per-case timeout whenever the tier ran beside the others — green
+ * standalone and red in the suite, which is the worst way for a gate to be wrong.
+ */
+const CONSOLE_READINGS: readonly ReadingClassCensus[] = consoleSourceModules({}).flatMap((module) =>
+  readingsIn(censusClasses(module.displayPath, readConsoleSourceModule(module))),
+);
 
 describe("every published wire reading is refreshable", () => {
   it("finds exactly the readings this console has", () => {
-    const found = consoleReadings()
-      .map((reading) => reading.className)
-      .sort();
+    const found = CONSOLE_READINGS.map((reading) => reading.className).sort();
     expect(found).toStrictEqual([...EXPECTED_READINGS].sort());
   });
 
   it("routes every one of them through a scheduler", () => {
-    const unscheduled = consoleReadings()
-      .filter((reading) => !reading.holdsScheduler)
-      .map((reading) => `${reading.displayPath}: ${reading.className}`);
+    const unscheduled = CONSOLE_READINGS.filter((reading) => !reading.holdsScheduler).map(
+      (reading) => `${reading.displayPath}: ${reading.className}`,
+    );
     expect(unscheduled).toStrictEqual([]);
   });
 
   it("gives every one of them the trigger contract a trigger set needs", () => {
-    const unwireable = consoleReadings()
-      .filter((reading) => !reading.declaresTriggerContract)
-      .map((reading) => `${reading.displayPath}: ${reading.className}`);
+    const unwireable = CONSOLE_READINGS.filter((reading) => !reading.declaresTriggerContract).map(
+      (reading) => `${reading.displayPath}: ${reading.className}`,
+    );
     expect(unwireable).toStrictEqual([]);
   });
 });
