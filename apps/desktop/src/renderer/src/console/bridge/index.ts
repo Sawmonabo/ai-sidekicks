@@ -131,3 +131,10 @@ export { readConsoleSessionEvent } from "./session-event-payload.js";
 // fails — its suite reads the declaring module, which is the disposition that census
 // names for exactly this state.
 export { membershipRoleOf } from "./entity-body-reads.js";
+
+// The reported node state a payload member carries. Through the door for the reason
+// the line above is: the narrowing runs against the contract's own schema, which this
+// family admits and no view family may import, so the read belongs here and travels
+// out — and the terminal's host-presence fold is the production reader that makes the
+// line a door line rather than a claim.
+export { readNodeState } from "./node-state-read.js";
