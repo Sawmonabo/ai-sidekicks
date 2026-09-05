@@ -34,18 +34,28 @@
 // rather than inside the deck's subtree. A second writer beside it would be the one
 // thing this file exists to be.
 //
-// AND THERE IS NOTHING TO DISPOSE, WHICH IS THE POINT. This class arms no timer,
-// holds no subscription, and reaches no DOM node, so it owns no resource a pane's
-// unmount has to reclaim. A `dispose()` here would either be a no-op that reads as
-// a lifecycle, or a cancel that throws away the last arrangement the person made
-// before they closed the pane — which is exactly the one they expect to find when
-// they open it again. The surface stops calling `request`; that is the whole
-// teardown.
+// AND THE WRITER IS ADDRESSED BY THE STORE IT WRITES THROUGH. The record goes into a
+// `UiStateStore`, and that store is replaced under a live surface: a reconnect
+// re-mints it and the composition root hands the new one down without remounting
+// anything beneath. A writer built in a `useState` initializer closes over the store
+// of its FIRST render and keeps writing there, so every later arrangement is filed in
+// a store nothing will ever read again — and the restore, which does move, then reads
+// the newer store's older record. Both writers are therefore held per store through
+// `store/subject-scoped-resource.ts`, which retires the one bound to the store that
+// was replaced.
+//
+// RETIREMENT DRAINS; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
+// before it stops accepting requests, because the last arrangement a person made is
+// exactly the one they expect to find, and a terminal that threw it away would be
+// worse than the no-terminal this class shipped with. A request arriving after
+// retirement is dropped rather than filed: the surface on screen holds the writer
+// bound to the live store, and that is where its arrangement belongs.
 
 import { useEffect, useRef, useState } from "react";
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { type UiStateStore } from "../persistence/index.js";
+import { useSubjectScopedResource } from "../store/index.js";
 import { type DeckLayout } from "./deck/deck-layout.js";
 
 /**
@@ -81,6 +91,7 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   #pending: PendingLayoutWrite<TRecord> | undefined;
   #inFlight = false;
   #writeCount = 0;
+  #isRetired = false;
 
   public constructor(options: CoalescingLayoutWriterOptions<TRecord>) {
     this.#write = options.write;
@@ -108,8 +119,27 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
    * own idea of the current session may have moved on.
    */
   public request(partition: string, snapshot: TRecord): void {
+    if (this.#isRetired) {
+      // Dropped rather than filed: this writer's store has been replaced, and the
+      // surface on screen is already holding the writer bound to the live one.
+      return;
+    }
     this.#pending = { partition, snapshot };
     this.#pump();
+  }
+
+  /**
+   * Send what is waiting, then stop accepting requests. The terminal, and total.
+   *
+   * Called when the store this writer was built over is replaced. It DRAINS: the
+   * pending slot holds the newest arrangement, and a teardown that dropped it would
+   * throw away the one act the person performed last. Where a write is already in
+   * flight there is nothing to start — the pump's own `finally` sends the pending one
+   * — so this needs no `await` and answers in both states.
+   */
+  public flushAndClose(): void {
+    this.#pump();
+    this.#isRetired = true;
   }
 
   #pump(): void {
@@ -159,6 +189,17 @@ export function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): Wor
   return { ...refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail), code };
 }
 
+/**
+ * How a retired writer ends, declared once and shared by both records.
+ *
+ * A module-level function rather than an arrow at each call site: the holder keeps
+ * the disposal on a dependency of its own, and a fresh closure per render would
+ * restart that lifetime effect on every pass for no change in what is open.
+ */
+export function flushAndCloseWriter(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): void {
+  writer.flushAndClose();
+}
+
 export interface DeckPersistenceOptions {
   readonly layout: DeckLayout;
   readonly uiStateStore: UiStateStore;
@@ -183,9 +224,17 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
   // session stores and never closes them. Reading a mutable current-session holder at
   // write time filed the older session's arrangement under the newer one's partition
   // and overwrote a deck the person had not touched.
-  const [writer] = useState(
+  //
+  // AND THE WRITER ITSELF IS HELD PER STORE. The partition axis above is the session;
+  // this is the other one. The store handed down is replaced on a reconnect without
+  // remounting this surface, and a writer that closed over the first one goes on
+  // writing into it — so the holder retires that writer, draining what it had queued,
+  // and the render that first sees the new store builds the writer bound to it.
+  const { value: writer } = useSubjectScopedResource<CoalescingLayoutWriter<PersistedLayoutRecord>>(
+    uiStateStore,
+    undefined,
     () =>
-      new CoalescingLayoutWriter({
+      new CoalescingLayoutWriter<PersistedLayoutRecord>({
         write: async (partition, snapshot) => {
           const result = await uiStateStore.write(
             partition,
@@ -208,6 +257,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
           );
         },
       }),
+    flushAndCloseWriter,
   );
 
   // Closed until the read has landed, and closed AGAIN whenever the surface points at

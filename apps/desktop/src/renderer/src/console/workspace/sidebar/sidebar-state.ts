@@ -20,8 +20,10 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { type SidebarSectionId } from "../../seats/index.js";
+import { useSubjectScopedResource } from "../../store/index.js";
 import {
   CoalescingLayoutWriter,
+  flushAndCloseWriter,
   refuseWorkspace,
   type PersistedLayoutRecord,
 } from "../layout-persistence.js";
@@ -136,7 +138,13 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
 } {
   const { uiStateStore, sessionId, onSaveRefused } = options;
   const [layout] = useState(() => new SidebarLayout());
-  const [writer] = useState(
+  // Held per store, for the reason `layout-persistence.ts` states about the deck's:
+  // the `UiStateStore` handed down is replaced on a reconnect without remounting this
+  // surface, and a writer that closed over the first one would go on filing the
+  // sidebar's width into a store nothing reads again.
+  const { value: writer } = useSubjectScopedResource<CoalescingLayoutWriter<PersistedLayoutRecord>>(
+    uiStateStore,
+    undefined,
     () =>
       new CoalescingLayoutWriter<PersistedLayoutRecord>({
         write: async (partition, snapshot) => {
@@ -159,6 +167,7 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
           );
         },
       }),
+    flushAndCloseWriter,
   );
 
   useEffect(() => {

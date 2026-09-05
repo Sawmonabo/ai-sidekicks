@@ -8,14 +8,19 @@
 // in this module asserts.
 
 import { render } from "@testing-library/react";
+import { expect } from "vitest";
 
+import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
+import type { StoredRecord } from "../persistence/adapter.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { FrameStore, SessionStore } from "../store/index.js";
 import { ConsolePaneRegistry } from "../seats/index.js";
+import { DeckLayout } from "./deck/deck-layout.js";
+import { DECK_LAYOUT_RECORD_KEY } from "./layout-persistence.js";
 import { Workspace } from "./Workspace.js";
 import { usePaneControls } from "./deck/pane-controls.js";
 
@@ -141,4 +146,100 @@ export function workspaceFor(
       />
     </LiveAnnouncerProvider>
   );
+}
+
+// The three scaffolding pieces below are shared rather than declared per suite: the
+// store-swap suite drives the same gated adapter the navigation suite does, and a
+// second copy of a write ledger is two ledgers that can disagree about what was asked.
+
+/**
+ * The memory adapter, plus a gate a test closes and a ledger of what was asked.
+ *
+ * Two things the plain adapter cannot give. The GATE holds a write open, which is
+ * what puts a second arrangement in the writer's pending slot — the state a coalescing
+ * writer spends a whole resize drag in, and the only state in which the partition it
+ * files under can disagree with the one that asked. The LEDGER records the partition
+ * every write NAMED, so the assertion is about where an arrangement was filed rather
+ * than about which record happened to be written last.
+ */
+export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
+  readonly asked: { readonly partition: string; readonly value: unknown }[] = [];
+  #writeGate = new SettlementGate();
+  #readGate = new SettlementGate();
+
+  public holdWrites(): void {
+    this.#writeGate.close();
+  }
+
+  public releaseWrites(): void {
+    this.#writeGate.open();
+  }
+
+  /** Holds the arriving session's restore open, so the ordering is decided here. */
+  public holdReads(): void {
+    this.#readGate.close();
+  }
+
+  public releaseReads(): void {
+    this.#readGate.open();
+  }
+
+  public override async read(partition: string, key: string): Promise<StoredRecord | undefined> {
+    await this.#readGate.passed();
+    return super.read(partition, key);
+  }
+
+  public override async write(record: StoredRecord): Promise<void> {
+    this.asked.push({ partition: record.partition, value: record.value });
+    await this.#writeGate.passed();
+    await super.write(record);
+  }
+}
+
+/** One gate a test opens and closes. Open by default, so nothing waits by accident. */
+class SettlementGate {
+  #held: Promise<void> | undefined;
+  #open: (() => void) | undefined;
+
+  public close(): void {
+    this.#held = new Promise<void>((resolve) => {
+      this.#open = resolve;
+    });
+  }
+
+  public open(): void {
+    this.#open?.();
+    this.#open = undefined;
+    this.#held = undefined;
+  }
+
+  public async passed(): Promise<void> {
+    await this.#held;
+  }
+}
+
+/** Let the write pump's `finally` chain run, without advancing any timer. */
+export async function drainMicrotasks(): Promise<void> {
+  for (let turn = 0; turn < 8; turn += 1) {
+    await Promise.resolve();
+  }
+}
+
+/** A saved arrangement for one session, written by the grammar that reads it back. */
+export async function saveLayout(
+  store: UiStateStore,
+  partition: string,
+  kinds: readonly ("timeline" | "runs")[],
+): Promise<void> {
+  const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+  for (const kind of kinds) {
+    layout.open({ kind, entity: undefined });
+  }
+  const result = await store.write(
+    partition,
+    DECK_LAYOUT_RECORD_KEY,
+    "layout",
+    layout.toSnapshot(),
+  );
+  expect(result.outcome).toBe("written");
 }
