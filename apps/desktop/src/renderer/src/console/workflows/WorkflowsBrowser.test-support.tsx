@@ -52,10 +52,7 @@ export function portAnswering(page: SettledDefinitionPage): GrowthPort {
 }
 
 /** The browser under the announcer its one caller mounts it inside. */
-export function browserUnderAnnouncer(
-  growth: GrowthPort,
-  sessionId: string | undefined,
-): React.JSX.Element {
+export function browserUnderAnnouncer(growth: GrowthPort, sessionId: string): React.JSX.Element {
   return (
     <LiveAnnouncerProvider>
       <WorkflowsBrowser growth={growth} sessionId={sessionId} />

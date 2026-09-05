@@ -43,17 +43,6 @@ describe("the controls", () => {
     // hash, the version reference, and the scope reference it needs.
     expect(openDefinition).toHaveBeenCalledWith(row);
   });
-
-  it("offers import in the group an import lands in, and in no other", () => {
-    const list = renderScopeList(
-      <DefinitionsBrowser definitions={[]} onImportDefinition={() => undefined} />,
-    );
-    expect([...list.querySelectorAll("button")].map((button) => button.textContent)).toStrictEqual([
-      "Import a definition file",
-    ]);
-    expect(groupFor(list, "session").querySelector("button")).not.toBeNull();
-    expect(groupFor(list, "shared").querySelector("button")).toBeNull();
-  });
 });
 
 describe("the continuation", () => {

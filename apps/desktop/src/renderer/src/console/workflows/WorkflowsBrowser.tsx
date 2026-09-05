@@ -1,17 +1,19 @@
 // The definitions browser with a wire behind it.
 //
 // `WorkflowsSurface` is the chrome and takes rows; this is the component that goes
-// and gets them. Two callers mount it — the rail's workflows destination, and the
-// builder pane's no-subject arm — and they differ in exactly one input, which is
-// why it is one component rather than two: whether a session is in scope.
+// and gets them. ONE caller mounts it — `WorkflowsDestination.tsx`, the rail's
+// workflows destination — and it always supplies a session. The builder pane's
+// no-subject arm used to be the second, which is what made `sessionId` optional and
+// the enumeration's `unasked` arm reachable; that arm now renders
+// `unaddressedBuilderPane()` and mounts nothing, so the option went with it. A prop
+// that can only ever be supplied is required, and a header naming a caller that no
+// longer exists is the state in which the next reader restores the unreachable arm
+// rather than deleting it.
 //
 // THE ENUMERATION IS SESSION-SCOPED, AND THAT IS THE WIRE'S SHAPE RATHER THAN A
 // CHOICE. Resolution walks `session` then `project` then `shared` FROM a session, so
-// the registered request carries a required session id. A bare rail address names no
-// session and therefore has no question to put: the browser renders its three named
-// groups with the read unasked, which is also the empty state the design calls for,
-// because the scope model has to be legible before anything exists. The same browser
-// mounted inside a session does put the question and shows what came back.
+// the registered request carries a required session id, and the destination resolves
+// one before it mounts this browser at all.
 //
 // WHY THE MAPPING FROM READ STATE TO CHROME STATE LIVES HERE. The chrome is told
 // about rows and which of the absence grammars to reach for; the port answers with ONE
@@ -166,19 +168,19 @@ function directorySentence(directory: WorkflowDefinitionDirectoryState): string 
 
 export interface WorkflowsBrowserProps {
   readonly growth: GrowthPort;
-  /** The session the enumeration is scoped to, or nothing where none is in scope. */
-  readonly sessionId: string | undefined;
+  /** The session the enumeration is scoped to. The one mount always resolves one. */
+  readonly sessionId: string;
   /**
    * Opens one definition in the builder. Absent while nothing can address one.
    *
-   * Optional on the browser and required on the destination that mounts it, which is
-   * the "absent, not disabled" rule applied to two callers rather than relaxed for
-   * one: the rail destination can address a pane and supplies this, and the builder
-   * pane's own no-subject arm mounts the same browser with nowhere to send a row.
+   * Still optional, and it is the only one that is: the browser's suites mount it
+   * without a pane board to open into, which is a real caller that legitimately has
+   * nowhere to send a row. `onNewDefinition` had no such caller — nothing in this
+   * console can author a definition, the growth port declares no authoring operation
+   * at all, and the vanished builder mount was the only thing that ever threaded it
+   * — so it is gone rather than reserved.
    */
   readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
-  /** Opens the builder with no definition. Absent where nothing can author one. */
-  readonly onNewDefinition?: (() => void) | undefined;
 }
 
 /** The definitions browser, reading the definitions it shows. */
@@ -202,7 +204,6 @@ export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Elemen
       onContinueReading={continuationActionFor(state, continueReading)}
       continuationReading={continuationReadingFor(state)}
       onOpenDefinition={props.onOpenDefinition}
-      {...(props.onNewDefinition === undefined ? {} : { onNewDefinition: props.onNewDefinition })}
     />
   );
 }
