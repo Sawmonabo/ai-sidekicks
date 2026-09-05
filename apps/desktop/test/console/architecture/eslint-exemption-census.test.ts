@@ -66,6 +66,60 @@ const WOULD_NOT_EARN_AN_EXEMPTION: readonly string[] = [
   "console/core/wire-rejection.ts",
 ];
 
+/**
+ * The rules an inline directive may not switch off anywhere under the governed roots.
+ *
+ * `no-restricted-imports` rides beside the audited rule because the two carry one
+ * boundary between them: the syntax bans keep a lenient date reading out of the console,
+ * and the import ban keeps a second validator out of it. A directive is a fourth
+ * exemption channel — beside `ignores`, a later block's `off`, and a mis-scoped `files` —
+ * and it is the one that needs no config edit anybody reviews.
+ */
+const RULES_NO_DIRECTIVE_MAY_SUPPRESS: readonly string[] = [AUDITED_RULE, "no-restricted-imports"];
+
+/**
+ * Every inline ESLint directive in `source`, as `[form, rule list]`.
+ *
+ * Source text, and it has to be: the config layer cannot see a directive at all —
+ * `calculateConfigForFile` reports the rule configured and on for a file that has
+ * switched it off in its own first line, so such a file is not in the exempt set and
+ * this census never looks at it. Measured, not assumed.
+ */
+function inlineDirectives(source: string): readonly (readonly [string, string])[] {
+  const directive = /\/[/*]\s*(eslint-disable(?:-next-line|-line)?)([^*\n]*)/gu;
+  return [...source.matchAll(directive)].map((match) => {
+    const named = (match[2] ?? "").split("--")[0] ?? "";
+    return [match[1] ?? "", named.replace(/\*\//gu, "").trim()] as const;
+  });
+}
+
+/**
+ * Which of the guarded rules `source` switches off inline, or `[]`.
+ *
+ * A directive naming NO rule disables every rule on the line or in the file, so an empty
+ * rule list is an offence against all of them rather than against none.
+ */
+export function suppressedGuardedRules(source: string): readonly string[] {
+  return inlineDirectives(source).flatMap(([form, named]) => {
+    if (named.length === 0) {
+      return [`${form} (every rule)`];
+    }
+    const rules = named.split(",").map((rule) => rule.trim());
+    return RULES_NO_DIRECTIVE_MAY_SUPPRESS.filter((rule) => rules.includes(rule)).map(
+      (rule) => `${form} ${rule}`,
+    );
+  });
+}
+
+/**
+ * The module that proves the needle reads a real directive rather than nothing.
+ *
+ * It suppresses a DIFFERENT rule, which is what makes it the honest control: the
+ * directive form is already in this tree, so the clean result above is a finding about
+ * which rules are suppressed rather than about whether any directive exists to find.
+ */
+const MODULE_CARRYING_A_DIRECTIVE = "console/panes/index.ts";
+
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
   const resolved = await linter.calculateConfigForFile(absolutePath);
@@ -160,6 +214,42 @@ describe("eslint exemption census — every excused file trips something", () =>
     },
     ESLINT_CASE_BUDGET_MS,
   );
+
+  it("no module switches the syntax or import bans off inline", () => {
+    // The channel the config-resolution claim above cannot see. A file carrying
+    // `eslint-disable no-restricted-syntax` in its first line lints clean at a fully
+    // covered console path AND still resolves the rule as configured and on, so it is
+    // not in the exempt set and every claim above passes over it.
+    const offenders = modules
+      .map((module) => ({
+        module: module.displayPath,
+        suppressed: suppressedGuardedRules(readConsoleSourceModule(module)),
+      }))
+      .filter((entry) => entry.suppressed.length > 0)
+      .map((entry) => `${entry.module}: ${entry.suppressed.join(", ")}`);
+    expect(offenders).toStrictEqual([]);
+  });
+
+  it("negative control: the needle reads the directive this tree already carries", () => {
+    // Both halves. The real one proves a directive is findable at all; the planted rows
+    // prove the rule list is read rather than the word `eslint-disable` alone.
+    const carrier = readConsoleSourceModule(
+      moduleNamed(modules, MODULE_CARRYING_A_DIRECTIVE, "the module carrying a directive"),
+    );
+    expect(inlineDirectives(carrier).length).toBeGreaterThan(0);
+    expect(suppressedGuardedRules(carrier)).toStrictEqual([]);
+    for (const planted of [
+      "/* eslint-disable no-restricted-syntax */\nexport const at = Date.parse(iso);\n",
+      "// eslint-disable-next-line no-restricted-syntax -- a reason\nexport const at = Date.parse(iso);\n",
+      "/* eslint-disable */\nexport const at = Date.parse(iso);\n",
+      '// eslint-disable-next-line no-restricted-imports\nimport { z } from "zod";\n',
+    ]) {
+      expect(suppressedGuardedRules(planted), planted).not.toStrictEqual([]);
+    }
+    expect(
+      suppressedGuardedRules("// eslint-disable-next-line @typescript-eslint/no-unused-vars\n"),
+    ).toStrictEqual([]);
+  });
 });
 
 /** The console modules ESLint would apply no syntax ban to. */
