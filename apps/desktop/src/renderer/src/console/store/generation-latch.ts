@@ -1,6 +1,6 @@
 // Whether an act may be dispatched at all, and what its reply is allowed to do.
 //
-// THE MUTABLE HALF OF `subject-scoped-state.ts`'s RULE. That holder answers what a
+// THE MUTABLE HALF OF `subject-scoped-holder.ts`'s RULE. That holder answers what a
 // surface RENDERS for the subject it is bound to. This one answers a question a
 // handler has to settle inside its own tick, before any render: a rendered flag read
 // there is the one from the render that produced the handler, so two presses in one

@@ -37,12 +37,8 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  SubjectScopedHolder,
-  useHeldSubjectValue,
-  type SubjectKey,
-  type SubjectScopedState,
-} from "./subject-scoped-state.js";
+import { SubjectScopedHolder, type SubjectKey } from "./subject-scoped-holder.js";
+import { useHeldSubjectValue, type SubjectScopedState } from "./subject-scoped-state.js";
 
 /**
  * Which resource the last commit saw, for the hook that has to close the rest.

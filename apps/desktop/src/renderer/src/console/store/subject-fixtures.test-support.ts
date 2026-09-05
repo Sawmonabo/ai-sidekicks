@@ -1,7 +1,7 @@
 // The two subjects every subject-keyed suite in this family is addressed at.
 //
 // A subject is compared by IDENTITY — that is the whole of what `object` means in
-// `subject-scoped-state.ts` and in `generation-latch.ts` — so a fixture subject is
+// `subject-scoped-holder.ts` and in `generation-latch.ts` — so a fixture subject is
 // one allocation with a name on it, and three suites declaring their own pair was
 // three copies of the same two lines. One home instead: the identities are shared,
 // which is exactly what makes "the holder is at subject one, not subject two" the

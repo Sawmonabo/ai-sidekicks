@@ -1,10 +1,10 @@
 // What the hook promises about FRAMES, and what the shape it replaced actually did.
 //
-// The hook half of `subject-scoped-state.ts`. The class half — the addressing rule,
-// the epoch, and what a late settlement does — is drivable with no renderer at all
-// and lives in `subject-scoped-state.holder.test.ts`; what needs a tree is the claim
-// this file is about: which frames a re-address paints, and which render a publisher
-// captured at is the one it writes into.
+// The React half of the family. The rule itself — the addressing, the epoch, and what
+// a late settlement does — is drivable with no renderer at all and lives beside
+// `subject-scoped-holder.ts` in `subject-scoped-holder.test.ts`; what needs a tree is
+// the claim this file is about: which frames a re-address paints, and which render a
+// publisher captured at is the one it writes into.
 //
 // The publisher's own claim — that it names the visit on screen even after a render
 // React dropped moved the addressing underneath it — is a third subject and lives in

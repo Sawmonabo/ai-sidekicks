@@ -91,7 +91,8 @@ export {
 // families each wrote their own holder and their own generation counter, and the
 // place copies of a guard drift is the predicate.
 //
-// `subject-scoped-state.ts` answers what a surface RENDERS for the subject it is
+// `subject-scoped-holder.ts` holds the rule and `subject-scoped-state.ts` is its
+// React half, which together answer what a surface RENDERS for the subject it is
 // bound to; `generation-latch.ts` answers whether an act may be dispatched at all,
 // which a handler settles inside its own tick. `test/console/architecture/
 // subject-state-chokepoint.test.ts` fails the build on a second implementation of
@@ -103,8 +104,8 @@ export {
 export {
   /** @consumedBy T-023p-1C-8 */
   SubjectScopedHolder,
-  useSubjectScopedState,
-} from "./subject-scoped-state.js";
+} from "./subject-scoped-holder.js";
+export { useSubjectScopedState } from "./subject-scoped-state.js";
 // The disposal half, from the module that DECLARES it. A value a drop releases takes
 // the holder above; a value that owns a subscription or a connection takes this,
 // because the render that seeded it may be one React throws away.
@@ -114,8 +115,8 @@ export type {
   SubjectKey,
   /** @consumedBy T-023p-1C-8 */
   SubjectScopedPublish,
-  SubjectScopedState,
-} from "./subject-scoped-state.js";
+} from "./subject-scoped-holder.js";
+export type { SubjectScopedState } from "./subject-scoped-state.js";
 export {
   /** @consumedBy T-023p-1C-8 */
   GenerationLatch,

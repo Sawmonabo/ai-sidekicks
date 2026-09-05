@@ -1,10 +1,9 @@
 // The holder's rule, with no renderer involved.
 //
-// The class half of `subject-scoped-state.ts`, split from the hook half beside it:
-// every rule this object carries — when a value is discarded, which publisher may
+// Every rule this object carries — when a value is discarded, which publisher may
 // write, what a late settlement does — is a property of the SUBJECT moving and not
 // of a render happening, which is what makes it drivable with no React at all. The
-// hook half lives in `subject-scoped-state.test.tsx`, needs a tree, and asserts a
+// React half lives in `subject-scoped-state.test.tsx`, needs a tree, and asserts a
 // different thing: which frames a re-address paints.
 //
 // Every clean assertion here is paired with a NEGATIVE CONTROL, because "the late
@@ -14,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SUBJECT_ONE, SUBJECT_TWO } from "./subject-fixtures.test-support.js";
-import { SubjectScopedHolder } from "./subject-scoped-state.js";
+import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
 describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
   it("seeds on the first address and keeps the value while the subject stands", () => {

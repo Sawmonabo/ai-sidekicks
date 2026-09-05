@@ -1,6 +1,6 @@
 // What a session-scoped holder is FOR, said in the vocabulary of a session.
 //
-// A DOOR, NOT A SECOND IMPLEMENTATION. `store/subject-scoped-state.ts` holds the
+// A DOOR, NOT A SECOND IMPLEMENTATION. `store/subject-scoped-holder.ts` holds the
 // rule — a value belongs to the subject it was produced under, the comparison happens
 // during render, and a late settlement is dropped rather than installed. That family
 // sits below `bridge/` in the console's DAG and may not name a `ConsoleBridge` or a

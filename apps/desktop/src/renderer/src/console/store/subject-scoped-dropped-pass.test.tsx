@@ -48,7 +48,8 @@ import {
   type NamedSubject,
   type OpenResource,
 } from "./subject-scoped-resource.test-support.js";
-import { SubjectScopedHolder, useSubjectScopedState } from "./subject-scoped-state.js";
+import { SubjectScopedHolder } from "./subject-scoped-holder.js";
+import { useSubjectScopedState } from "./subject-scoped-state.js";
 
 /** The key BOTH visits are addressed at, so only the addressing tells them apart. */
 const DETOUR_KEY = "s1";
