@@ -35,8 +35,6 @@
 // nobody is waiting on — and the refusal's `origin` is what still says which of the
 // two authors raised it.
 
-import { useEffect } from "react";
-
 // The ENTRY the port answers with, which is the bridge's declaration rather than the
 // list projection's. A hook that retyped the answer would be asserting a shape the
 // wire never promised, and the projection accepts what the bridge sends because it is
@@ -45,12 +43,12 @@ import { useEffect } from "react";
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
 import {
-  settleGrowthRead,
+  useSettledGrowthRead,
   type GrowthPort,
   type SettledReadRefusal,
   type WorkflowRunListEntry,
 } from "../../bridge/index.js";
-import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../store/index.js";
+import { subjectReadStart, type SubjectRead } from "../../store/index.js";
 
 /** What this read looks like once it has an answer, either kind. */
 type SettledRunDirectory =
@@ -89,35 +87,29 @@ export function useWorkflowRunDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowRunDirectoryState {
-  const { value: state, publish } = useSubjectScopedState<WorkflowRunDirectoryState>(
-    growth,
-    sessionId,
-    () => subjectReadStart(sessionId),
-  );
-  useEffect(() => {
-    if (sessionId === undefined) {
-      // Nothing to reset: the holder already put this read at `unasked` during the
-      // render that dropped the session, and there is no question to put — a spinner
-      // over an address that names no session promises an answer never coming.
-      return;
-    }
-    // No reset here. The holder above covers a port swapped under an unchanged session
-    // as well as a session change, and it covers it during the render rather than one
-    // commit later — a reset stated again in this effect would be the same rule in two
-    // places, agreeing until one of them moved.
-    void settleGrowthRead(growth.workflowRunList({ sessionId })).then((outcome) => {
-      // No mount flag beside it. `publish` carries the addressing it was captured
-      // under, so an answer arriving after the session moved — or after the surface
-      // went away — writes nowhere, which is the same disposition the flag stated by
-      // hand and one the holder cannot disagree with.
-      publish(
-        outcome.status === "served"
-          ? { status: "served", runs: outcome.value.runs }
-          : { status: "unavailable", refusal: outcome },
-      );
-    });
-    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
-    // guard on this read's answer and the whole of what tells this effect to run again.
-  }, [growth, sessionId, publish]);
-  return state;
+  return useSettledGrowthRead<
+    Awaited<ReturnType<GrowthPort["workflowRunList"]>>,
+    WorkflowRunDirectoryState
+  >(growth, sessionId, (subject) => readRuns(growth, subject), {
+    unsettled: subjectReadStart,
+    settled: (settlement) =>
+      settlement.status === "served"
+        ? { status: "served", runs: settlement.value.runs }
+        : { status: "unavailable", refusal: settlement },
+  }).value;
+}
+
+/**
+ * The enumeration, or no question at all.
+ *
+ * The request carries a required session id, so a caller with no session in scope has
+ * nothing to ask rather than a narrower thing — which is what `unasked` is, and why
+ * the absence is answered here where the request is built rather than inferred from
+ * the key one family down.
+ */
+function readRuns(
+  growth: GrowthPort,
+  sessionId: string | undefined,
+): ReturnType<GrowthPort["workflowRunList"]> | undefined {
+  return sessionId === undefined ? undefined : growth.workflowRunList({ sessionId });
 }

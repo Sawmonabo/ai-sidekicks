@@ -121,12 +121,10 @@ export type { SubjectRead } from "./subject-read-start.js";
 // the holder above; a value that owns a subscription or a connection takes this,
 // because the render that seeded it may be one React throws away.
 export { useSubjectScopedResource } from "./subject-scoped-resource.js";
-export type {
-  /** @consumedBy T-023p-1C-8 */
-  SubjectKey,
-  /** @consumedBy T-023p-1C-8 */
-  SubjectScopedPublish,
-} from "./subject-scoped-holder.js";
+// The subject key and the publisher a settled read hands its answer through. Both
+// claims retired: `bridge/read-settlement.ts`'s `useSettledGrowthRead` — the one read
+// hook the four growth reads on this seam now share — names both in its signature.
+export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
 export {
   /** @consumedBy T-023p-1C-8 */

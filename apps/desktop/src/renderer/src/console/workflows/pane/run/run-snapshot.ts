@@ -25,15 +25,13 @@
 // inventing a refresh cadence for a stream it will later subscribe to, and holding
 // two answers to one question in the meantime.
 
-import { useEffect } from "react";
-
 import {
-  settleGrowthRead,
+  useSettledGrowthRead,
   type GrowthPort,
   type SettledReadRefusal,
   type WorkflowRunSnapshot,
 } from "../../../bridge/index.js";
-import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../../store/index.js";
+import { subjectReadStart, type SubjectRead } from "../../../store/index.js";
 
 /** What this read looks like once it has an answer, either kind. */
 type SettledRunSnapshot =
@@ -71,33 +69,27 @@ export function useWorkflowRunSnapshot(
   growth: GrowthPort,
   workflowRunId: string | undefined,
 ): WorkflowRunSnapshotState {
-  const { value: state, publish } = useSubjectScopedState<WorkflowRunSnapshotState>(
-    growth,
-    workflowRunId,
-    () => subjectReadStart(workflowRunId),
-  );
-  useEffect(() => {
-    if (workflowRunId === undefined) {
-      // Nothing to reset: the holder already put this read at `unasked` during the
-      // render that dropped the run, which is the honest state for a pane naming none.
-      return;
-    }
-    // No reset here. The holder above covers a port swapped under an unchanged run as
-    // well as a retarget, and it covers it during the render rather than one commit
-    // later — a reset stated again in this effect would be the same rule in two places,
-    // agreeing until one of them moved.
-    void settleGrowthRead(growth.workflowRunRead({ workflowRunId })).then((outcome) => {
-      // No mount flag beside it. `publish` carries the addressing it was captured
-      // under, so an answer arriving after the pane was retargeted — or unmounted —
-      // writes nowhere, which is the same disposition the flag stated by hand.
-      publish(
-        outcome.status === "served"
-          ? { status: "served", snapshot: outcome.value }
-          : { status: "unavailable", refusal: outcome },
-      );
-    });
-    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
-    // guard on this read's answer and the whole of what tells this effect to run again.
-  }, [growth, workflowRunId, publish]);
-  return state;
+  return useSettledGrowthRead<
+    Awaited<ReturnType<GrowthPort["workflowRunRead"]>>,
+    WorkflowRunSnapshotState
+  >(growth, workflowRunId, (subject) => readRun(growth, subject), {
+    unsettled: subjectReadStart,
+    settled: (settlement) =>
+      settlement.status === "served"
+        ? { status: "served", snapshot: settlement.value }
+        : { status: "unavailable", refusal: settlement },
+  }).value;
+}
+
+/**
+ * The run read, or no question at all.
+ *
+ * The request carries a required run id, so a pane naming none has nothing to ask —
+ * the `unasked` state — and the absence is answered here, where the request is built.
+ */
+function readRun(
+  growth: GrowthPort,
+  workflowRunId: string | undefined,
+): ReturnType<GrowthPort["workflowRunRead"]> | undefined {
+  return workflowRunId === undefined ? undefined : growth.workflowRunRead({ workflowRunId });
 }

@@ -60,10 +60,15 @@
 // pages survive all four. Collapsing the refused one into the whole directory's
 // `unavailable` arm would withdraw a list the daemon never withdrew.
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
-import { settleGrowthRead, type GrowthPort, type SettledReadRefusal } from "../../bridge/index.js";
-import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../store/index.js";
+import {
+  settleGrowthRead,
+  useSettledGrowthRead,
+  type GrowthPort,
+  type SettledReadRefusal,
+} from "../../bridge/index.js";
+import { subjectReadStart, type SubjectRead } from "../../store/index.js";
 import {
   WORKFLOW_DEFINITION_SCOPES,
   type WorkflowDefinitionRow,
@@ -166,45 +171,28 @@ export function useWorkflowDefinitionDirectory(
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory {
   // The state is held against the PORT AND THE SESSION it is about, and the
-  // disagreement is settled DURING the render that brings a new pair rather than in the
-  // effect below — which runs after the commit, so a hook that only reset there had one
-  // committed render per subject in which `unasked` was true of a session the caller had
-  // already asked about. The browser paints `unasked` as three served-looking empty
-  // groups, so every scoped load flashed "No session definitions" and exposed that claim
-  // to assistive technology before the request had answered. The port is the subject for
-  // the mirror-image reason: the fixture's scenario switch replaces the bridge and keeps
+  // disagreement is settled DURING the render that brings a new pair rather than in an
+  // effect after the commit — which is one of the four things `useSettledGrowthRead`
+  // now owns for every read on this seam. Before that holder, every scoped load
+  // committed one render of `unasked` under a session the caller had already asked
+  // about, which the browser paints as three served-looking empty groups and exposes to
+  // assistive technology as `No session definitions`. The port is the subject for the
+  // mirror-image reason: the fixture's scenario switch replaces the bridge and keeps
   // the session id, so a session-only holder committed the previous scenario's
-  // definitions under the new one before the effect could reset them.
+  // definitions under the new one.
   //
-  // AND THE PUBLISHER IS THE READ'S OWN GUARD, so this hook counts nothing. A page that
-  // comes back after the session changed — or after the surface went away — belongs to a
-  // list nobody is looking at, and splicing it into the current one would show a
-  // session's definitions under another session's name. `publish` is captured at render
-  // and carries the addressing it was captured under, so exactly those answers write
-  // nowhere; the read counter that used to state the same rule is gone with the copy.
-  const { value: state, publish } = useSubjectScopedState<WorkflowDefinitionDirectoryState>(
-    growth,
-    sessionId,
-    () => subjectReadStart(sessionId),
-  );
-
-  useEffect(() => {
-    if (sessionId === undefined) {
-      // Nothing to reset: the holder already put this read at `unasked` during the
-      // render that dropped the session, and there is no question to put — a spinner
-      // over an address that names no session promises an answer never coming.
-      return;
-    }
-    // No reset here. The holder above covers a port swapped under an unchanged session
-    // as well as a session change, and it covers it during the render rather than one
-    // commit later — a reset stated again in this effect would be the same rule in two
-    // places, agreeing until one of them moved.
-    void settleGrowthRead(growth.workflowDefinitionList({ sessionId })).then((outcome) => {
-      publish(firstPageState(outcome));
-    });
-    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
-    // guard on this read's answer and the whole of what tells this effect to run again.
-  }, [growth, sessionId, publish]);
+  // THE PUBLISHER IS THE READ'S OWN GUARD, which is why this hook counts nothing and
+  // why the continuation below can publish through the same handle: a page that comes
+  // back after the session changed belongs to a list nobody is looking at, and
+  // `publish` carries the addressing it was captured under, so exactly those answers
+  // write nowhere.
+  const { value: state, publish } = useSettledGrowthRead<
+    Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>,
+    WorkflowDefinitionDirectoryState
+  >(growth, sessionId, (subject) => readFirstPage(growth, subject), {
+    unsettled: subjectReadStart,
+    settled: firstPageState,
+  });
 
   const continueReading = useCallback(() => {
     if (sessionId === undefined || state.status !== "served") {
@@ -289,6 +277,21 @@ function continuationFor(nextCursor: string | undefined): WorkflowDefinitionCont
   return nextCursor === undefined
     ? { status: "exhausted" }
     : { status: "available", cursor: nextCursor };
+}
+
+/**
+ * The enumeration's first page, or no question at all.
+ *
+ * The request carries a required session id — resolution walks `session` then
+ * `project` then `shared` FROM somewhere, and the somewhere is a session — so a caller
+ * with no session has nothing to ask rather than a narrower thing to ask, which is
+ * what `unasked` is.
+ */
+function readFirstPage(
+  growth: GrowthPort,
+  sessionId: string | undefined,
+): ReturnType<GrowthPort["workflowDefinitionList"]> | undefined {
+  return sessionId === undefined ? undefined : growth.workflowDefinitionList({ sessionId });
 }
 
 /** The directory, given the first page's settlement. */
