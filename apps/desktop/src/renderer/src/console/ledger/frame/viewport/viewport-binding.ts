@@ -191,16 +191,22 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     controller.reconcile({ rows, hasActiveTurn, isRevealDraining });
   }, [controller, rows, hasActiveTurn, isRevealDraining]);
 
-  // THE PRUNE THE RECONCILE ABOVE COULD NOT PERFORM, RE-ASKED WHEN ITS REFUSAL
+  // THE PRUNE THE RECONCILE ABOVE COULD NOT FINISH, RE-ASKED WHEN ITS REFUSAL
   // LIFTS.
   //
   // The effect above depends on the row set and the two activity flags and on
   // nothing else, which is right for what it does and is exactly why it is not
   // enough on its own: the window also refuses a prune while the reader is above
-  // the tail, while history is pinned, and while a programmatic scroll is mid-write,
-  // and none of those three moves any of its three dependencies. A reader who
-  // scrolled up on a busy session and then came back to the tail therefore left the
-  // window over its cap for as long as the log stayed quiet.
+  // the tail, while history is pinned, while a programmatic scroll is mid-write, and
+  // while the rows the cap wants are held — and none of those four moves any of its
+  // three dependencies. A reader who scrolled up on a busy session and then came
+  // back to the tail therefore left the window over its cap for as long as the log
+  // stayed quiet.
+  //
+  // COULD NOT FINISH, NOT COULD NOT PERFORM. The commonest case by far is a pass
+  // that APPLIED — it took the rows above the reader and stopped at their row with
+  // thousands still over the cap. That outcome names no deferral, so it is the
+  // outcome's `owedBecause` and not its `deferredBecause` that the cycle re-asks on.
   //
   // THE DEPENDENCIES ARE THE TRANSITIONS AND NOT THE SCROLL. The reading fields
   // carry the first two refusals and move only when the reading state itself does —
@@ -209,8 +215,9 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
   // dropped inside a single synchronous write, so by the time a render observes the
   // refusal it recorded, the write that caused it is already over. Keying on the
   // outcome's identity is therefore what makes that refusal reachable at all, and it
-  // cannot spin — a retry that prunes publishes an applied outcome, and
-  // `retryDeferredPrune` does nothing for one of those.
+  // cannot spin — every pass that lands takes rows the next one no longer has to,
+  // and a residual whose blocker is still standing answers `undefined` however often
+  // it is asked.
   const { mode: readingMode, pinnedRootCursor } = snapshot.reading;
   const lastPrune = snapshot.lastPrune;
   useEffect(() => {

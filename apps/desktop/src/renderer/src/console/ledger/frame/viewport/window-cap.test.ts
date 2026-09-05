@@ -127,6 +127,7 @@ describe("the ledger window — when prune may not land", () => {
       "reveal-drain",
       "pinned-history",
       "reading-floor",
+      "held-rows",
     ]);
   });
 
@@ -141,6 +142,7 @@ describe("the ledger window — when prune may not land", () => {
       const window = loadedWindow();
       const outcome = window.prune(conditions);
       expect(outcome.deferredBecause).toBe(reason);
+      expect(outcome.owedBecause).toBe(reason);
       expect(outcome.applied).toBe(false);
       expect(outcome.prunedKeys).toStrictEqual([]);
       expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
@@ -150,7 +152,11 @@ describe("the ledger window — when prune may not land", () => {
   it("says `under-cap` rather than reporting a prune that dropped nothing", () => {
     const window = new LedgerWindow();
     window.ingest(syntheticLog(4));
-    expect(window.prune(PRUNABLE).deferredBecause).toBe("under-cap");
+    const outcome = window.prune(PRUNABLE);
+    expect(outcome.deferredBecause).toBe("under-cap");
+    // And owes nothing: a window inside its cap is not one waiting on a condition,
+    // so the caller that re-asks has nothing to re-ask about.
+    expect(outcome.owedBecause).toBeUndefined();
   });
 
   it("never prunes a held row, however old, nor the chapter above a held child", () => {
@@ -165,6 +171,50 @@ describe("the ledger window — when prune may not land", () => {
     expect(retainedKeys.has("chapter-1-child-2")).toBe(true);
     expect(outcome.prunedKeys).not.toContain("chapter-0");
   });
+
+  it("names `held-rows` when every candidate the cap wanted is held", () => {
+    // The second way a pass can end over its cap: no floor stopped the walk, it
+    // simply had nothing it was allowed to take. Reported as an applied prune with
+    // an empty key list this reads exactly like a window already under cap.
+    const window = new LedgerWindow({ topLevelCap: 2 });
+    window.ingest(syntheticLog(5));
+    const outcome = window.prune({
+      ...PRUNABLE,
+      heldRowKeys: ["chapter-0", "chapter-1", "chapter-2", "chapter-3", "chapter-4"],
+    });
+    expect(outcome.applied).toBe(false);
+    expect(outcome.deferredBecause).toBe("held-rows");
+    expect(outcome.owedBecause).toBe("held-rows");
+    expect(window.topLevelRowKeys()).toHaveLength(5);
+  });
+
+  it("owes `held-rows` for a pass that took what it could and stayed over cap", () => {
+    // One of the three rows the cap wanted is free, so the pass APPLIES — and the
+    // window is still two rows over its ceiling with nobody re-asking unless the
+    // residual is named beside the applied outcome.
+    const window = new LedgerWindow({ topLevelCap: 2 });
+    window.ingest(syntheticLog(5));
+    const outcome = window.prune({
+      ...PRUNABLE,
+      heldRowKeys: ["chapter-0", "chapter-2", "chapter-3", "chapter-4"],
+    });
+    expect(outcome.applied).toBe(true);
+    expect(outcome.deferredBecause).toBeUndefined();
+    expect(outcome.prunedKeys).toContain("chapter-1");
+    expect(outcome.owedBecause).toBe("held-rows");
+    expect(window.topLevelRowKeys()).toHaveLength(4);
+  });
+
+  it("negative control: the same rows unheld leave nothing owed", () => {
+    // Without this the two cases above would pass over a window that had started
+    // reporting `held-rows` for every prune it performed.
+    const window = new LedgerWindow({ topLevelCap: 2 });
+    window.ingest(syntheticLog(5));
+    const outcome = window.prune(PRUNABLE);
+    expect(outcome.applied).toBe(true);
+    expect(outcome.owedBecause).toBeUndefined();
+    expect(window.topLevelRowKeys()).toHaveLength(2);
+  });
 });
 
 describe("the ledger window — the reading floor", () => {
@@ -175,6 +225,12 @@ describe("the ledger window — the reading floor", () => {
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: READER_ROW });
     expect(outcome.applied).toBe(true);
+    // AND SAYS SO IS NOT THE WHOLE STORY. Ten rows went and 9 590 stayed, so the
+    // window is still far over its cap — an outcome that reported only `applied`
+    // told the re-ask there was nothing owed, and on a session that then went quiet
+    // those rows stayed resident for the life of the mount.
+    expect(outcome.owedBecause).toBe("reading-floor");
+    expect(outcome.topLevelRetained).toBeGreaterThan(LEDGER_WINDOW_ROW_CAP);
     // Everything above the reader that the cap wanted, and not one row more: the
     // dropped set is the ten chapters before them, with their children.
     expect(outcome.prunedKeys).toStrictEqual(
@@ -219,6 +275,17 @@ describe("the ledger window — the reading floor", () => {
     expect(outcome.deferredBecause).toBe("reading-floor");
     expect(outcome.prunedKeys).toStrictEqual([]);
     expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
+  });
+
+  it("negative control: a floor the drop never reaches owes nothing", () => {
+    // Without this, `owedBecause` could be a member the reading floor sets on every
+    // pass it is given rather than only on the passes it actually stopped.
+    const nearTheTailRow = `chapter-${String(TOP_LEVEL_ROW_COUNT - 5)}`;
+    const window = loadedWindow();
+    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: nearTheTailRow });
+    expect(outcome.applied).toBe(true);
+    expect(outcome.owedBecause).toBeUndefined();
+    expect(outcome.topLevelRetained).toBe(LEDGER_WINDOW_ROW_CAP);
   });
 
   it("negative control: a floor at the tail prunes byte-identically to no floor at all", () => {

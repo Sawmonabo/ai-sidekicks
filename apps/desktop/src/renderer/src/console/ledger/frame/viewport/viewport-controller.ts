@@ -234,12 +234,17 @@ export class LedgerViewportController {
    * Re-ask for a prune the window refused, now that the refusal's condition is
    * gone.
    *
-   * A second entry point rather than a wider reconcile, because three of the six
+   * A second entry point rather than a wider reconcile, because four of the seven
    * refusals are facts about this controller that none of the reconcile's own three
    * conditions carry — `viewport-prune-cycle.ts` states which and why, and answers
    * whether the refusal has lifted. This method is the disposal check and the
    * re-drive, and deliberately nothing else: a re-ask is one ordinary reconcile over
    * the conditions the refused pass was given.
+   *
+   * "Refused" covers a pass that APPLIED and is still over its cap — the walk that
+   * stopped at the reader's row having already taken some. What is owed is read off
+   * the outcome's `owedBecause` rather than its `deferredBecause` for exactly that
+   * case; the cycle's own doc says why.
    */
   public retryDeferredPrune(): void {
     if (this.#disposed) {
