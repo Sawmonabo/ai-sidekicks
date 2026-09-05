@@ -203,7 +203,7 @@ describe("Meridian palette — every participant hue is findable on every ground
 });
 
 /**
- * The `brightness()` amount `primitives.css` still spends on hover.
+ * The `brightness()` amount `accent-fill.css` still spends on hover.
  *
  * Transcribed from that rule rather than imported: a filter amount is a paint
  * instruction with no token, and the two cases that read it are the only things in

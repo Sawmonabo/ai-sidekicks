@@ -21,7 +21,7 @@
 //     four treatments are expressed as four fill patterns down the edge: continuous,
 //     long dashes, paired ticks, and dots. The spec fixes the width and names the
 //     treatments; how they compose is under-determined, and this is the reading that
-//     keeps the width honest. (See `primitives.css`.)
+//     keeps the width honest. (See `ledger-row.css`.)
 //   • **The footer is revealed, never added.** Rule 7: "secondary controls live one
 //     click away — a row's hover footer or its context menu — never as a second
 //     visible button." Revealing on `:hover` alone would hide the row's affordances
