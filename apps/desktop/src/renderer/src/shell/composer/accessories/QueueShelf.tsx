@@ -92,8 +92,14 @@ export interface QueueShelfProps {
 }
 
 export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
-  const unreadableDeliveryCount = props.unreadableDeliveryCount ?? 0;
-  const isPartial = unreadableDeliveryCount > 0;
+  // The SAME reading the notice is composed from, asked once and used twice: whether
+  // the shelf renders at all and what it then says about completeness are one
+  // question. A local `count > 0` beside it was a second rule, and the two disagreed
+  // wherever the count is not a whole number above zero — the shared reading calls
+  // that complete, so the shelf drew itself with no rows and no notice under it,
+  // which is a section that says nothing about a queue nobody could see.
+  const deliveries = deliveryReading(props);
+  const isPartial = deliveries.kind !== "served";
   const isSnapshotRefused = props.phase === "refused";
   if (props.items.length === 0 && !isPartial && !isSnapshotRefused) {
     return null;
@@ -103,7 +109,7 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
   return (
     <section className="meridian-queue-shelf" aria-label="Queued messages">
       <PartialRead
-        states={[snapshotReading(props.phase, props.readRefusal), deliveryReading(props)]}
+        states={[snapshotReading(props.phase, props.readRefusal), deliveries]}
         subject="the queue"
       />
       <ul className="meridian-queue-shelf__rows">

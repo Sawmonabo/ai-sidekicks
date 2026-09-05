@@ -148,6 +148,18 @@ describe("the queue shelf says when part of its stream could not be read", () =>
     const withNothing = renderShelf({ items: [], unreadableDeliveryCount: 0 });
     expect(withNothing.querySelector(".meridian-queue-shelf")).toBeNull();
   });
+
+  it("hides itself for a count the shared reading calls complete, saying nothing twice", () => {
+    // Whether the shelf DRAWS and what it then SAYS about completeness were two
+    // rules: a local `count > 0` here and `unreadableDeliveryReading` in the notice.
+    // They agree on every whole number above zero and disagree everywhere else — a
+    // count of 1.5 is not a number of deliveries, so the shared reading calls it
+    // complete while `> 0` called it partial. The shelf drew itself with no rows and
+    // no notice beneath: a section about a queue with nothing in it to read.
+    const container = renderShelf({ items: [], unreadableDeliveryCount: 1.5 });
+
+    expect(container.querySelector(".meridian-queue-shelf")).toBeNull();
+  });
 });
 
 describe("the queue shelf says when the snapshot itself could not be read", () => {

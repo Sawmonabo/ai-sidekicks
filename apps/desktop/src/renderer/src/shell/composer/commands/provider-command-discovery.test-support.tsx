@@ -20,6 +20,7 @@ import {
 } from "../../../console/bridge/index.js";
 import {
   bridgeAnswering,
+  drainMicrotasks,
   type RecordedDaemonCall,
 } from "../../../console/bridge/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
@@ -235,7 +236,7 @@ export async function mountComposer(options: {
         focusedPane={options.focusedPane}
       />,
     );
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   if (rendered === undefined) {
     throw new Error("the composer did not mount");
@@ -262,7 +263,7 @@ export async function mountComposer(options: {
             focusedPane={pane}
           />,
         );
-        await Promise.resolve();
+        await drainMicrotasks();
       });
     },
   };
@@ -271,8 +272,7 @@ export async function mountComposer(options: {
 export async function typeIntoLine(line: HTMLTextAreaElement, text: string): Promise<void> {
   await act(async () => {
     fireEvent.input(line, { target: { value: text } });
-    await Promise.resolve();
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 
@@ -291,7 +291,7 @@ export function optionNames(container: HTMLElement): readonly string[] {
 export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElement> {
   await act(async () => {
     fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   const list = mounted.container.querySelector('[role="listbox"]');
   if (!(list instanceof HTMLElement)) {
@@ -304,7 +304,7 @@ export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElemen
 export async function pressOnList(list: HTMLElement, key: string): Promise<void> {
   await act(async () => {
     fireEvent.keyDown(list, { key });
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 

@@ -18,7 +18,10 @@ import {
   recordingBridge,
   targetForAgent,
 } from "./provider-command-holder.test-support.js";
-import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import {
+  drainMicrotasks,
+  type RecordedDaemonCall,
+} from "../../../console/bridge/fixture-bridge.test-support.js";
 
 describe("useProviderCommandEnumeration", () => {
   it("asks nothing until the discovery surface is open", async () => {
@@ -34,7 +37,7 @@ describe("useProviderCommandEnumeration", () => {
       }),
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(result.current.phase).toBe("not-checked");
@@ -54,8 +57,7 @@ describe("useProviderCommandEnumeration", () => {
       }),
     );
     await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(result.current.phase).toBe("served");
@@ -80,8 +82,7 @@ describe("useProviderCommandEnumeration", () => {
       { initialProps: FIRST_AGENT },
     );
     await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(result.current.phase).toBe("served");
 
@@ -91,8 +92,7 @@ describe("useProviderCommandEnumeration", () => {
     // gone before the new read has answered.
     expect(result.current.phase).toBe("not-loaded");
     await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(
       enumerationCalls(recorded).map((entry) => (entry.params as { agentId: string }).agentId),
@@ -114,13 +114,12 @@ describe("useProviderCommandEnumeration", () => {
       { initialProps: FIRST_AGENT },
     );
     await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     rerender(FIRST_AGENT);
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(enumerationCalls(recorded)).toHaveLength(1);
@@ -145,7 +144,7 @@ describe("useProviderCommandEnumeration", () => {
       }),
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(result.current.phase).toBe("not-checked");
