@@ -242,6 +242,13 @@ describe("eslint exemption census — every excused file trips something", () =>
     // count: the needle and the crudest possible search agree on WHICH modules carry a
     // directive, so an under-reporting needle fails on the module it missed and an
     // over-reporting one fails on the module it invented.
+    // The floor is asserted HERE rather than in the case above it, because it is what
+    // keeps this one from being tautologically green: two empty lists are equal, so a
+    // root that resolved to nothing would agree with itself. The read is asserted too
+    // — a walk that found paths it cannot open would hand both filters empty text.
+    expect(modules.length).toBeGreaterThan(20);
+    expect(readConsoleSourceModule(modules[0] as ConsoleSourceModule).length).toBeGreaterThan(0);
+
     const needled = modules
       .filter((module) => inlineDirectives(readConsoleSourceModule(module)).length > 0)
       .map((module) => module.displayPath);
