@@ -38,15 +38,12 @@
 // two-hue rule, never by motion." A lane taking catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
-import { memo } from "react";
-
-import { DerivedFigure, Nothing, formatCount } from "../../primitives/index.js";
-import { LedgerErrorSlot, LedgerRowGroup, type LedgerErrorEntry } from "./ErrorSlot.js";
+import { Nothing } from "../../primitives/index.js";
+import { LedgerErrorSlot, type LedgerErrorEntry } from "./ErrorSlot.js";
+import { LedgerRowMount, type LedgerRowRenderer } from "./LedgerRowMount.js";
+import { LedgerTailAffordance } from "./LedgerTailAffordance.js";
+import { LedgerWindowNotices } from "./LedgerWindowNotices.js";
 import { type LedgerViewportBinding } from "./viewport-binding.js";
-import type { LedgerViewportRow, LedgerViewportSnapshot } from "./viewport-snapshot.js";
-
-/** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
-export type LedgerRowRenderer = (row: LedgerViewportRow) => React.ReactNode;
 
 /**
  * What a ledger is a log OF — the one thing an empty window's sentence turns on.
@@ -64,7 +61,7 @@ export type LedgerScope = "session" | "channel";
  * "Nothing has happened in this session yet" over a CHANNEL pane is false about the
  * session and says so with the session's own name: the pane is a log of one channel
  * and the session it belongs to may be busy. Total over the scope by `satisfies`,
- * the `LedgerFeedNotices.tsx` shape, so a third scope is a compile error here rather
+ * the `LedgerWindowAbsences.tsx` shape, so a third scope is a compile error here rather
  * than a pane that borrows one of these two sentences.
  */
 const EMPTY_LEDGER_WORDS = {
@@ -166,127 +163,6 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
         <LedgerWindowNotices binding={binding} />
       </div>
       <LedgerTailAffordance snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
-    </div>
-  );
-}
-
-interface LedgerRowMountProps {
-  /** The virtualizer reads this back off the element to identify the row. */
-  readonly rowIndex: number;
-  /** How long the whole log is — not how many rows are mounted. See `aria-setsize`. */
-  readonly rowCount: number;
-  readonly row: LedgerViewportRow;
-  readonly renderRow: LedgerRowRenderer;
-  readonly attachRow: (element: HTMLElement | null) => void;
-}
-
-/**
- * One row's box: its own error boundary, and the element the window measures.
- *
- * Memoized, because a streaming lane re-renders the viewport on every frame and the
- * rows above the one that is streaming have not changed. The memo only holds if the
- * caller's `renderRow` is stable, which is why the prop says so.
- *
- * `data-index` is not decoration: it is how the virtualizer resolves an observed
- * element back to a row, so a row without it is measured as row zero. The row's own
- * offset is NOT written here — under `directDomUpdates` the virtualizer owns the
- * transform, and a second writer would produce two answers for one row's position.
- */
-const LedgerRowMount = memo(function LedgerRowMount(props: LedgerRowMountProps): React.JSX.Element {
-  return (
-    <div
-      className="meridian-ledger-viewport__row"
-      data-index={props.rowIndex}
-      ref={props.attachRow}
-      role="article"
-      // Only the rows near the fold exist in the document, so without these two a
-      // reader is told they are on entry 3 of 9 in a log of nine thousand. They are
-      // one-based because ARIA counts from one and the virtualizer counts from zero.
-      aria-posinset={props.rowIndex + 1}
-      aria-setsize={props.rowCount}
-    >
-      <LedgerRowGroup groupLabel="This entry">{props.renderRow(props.row)}</LedgerRowGroup>
-    </div>
-  );
-});
-
-interface LedgerTailAffordanceProps {
-  readonly snapshot: LedgerViewportSnapshot;
-  readonly onJumpToTail: () => void;
-}
-
-/**
- * The "N new" pill, and the pin's own notice.
- *
- * `reading-anchor.ts`'s promise gives the reader two facts and one
- * act: rows arrived while they were reading, history is pinned, and the way back to
- * the tail. The pill appears only in `reading-with-new-rows`, because a pill
- * offering to jump to rows already on screen is noise; the pin notice appears
- * whenever history is pinned, because it explains why the log has stopped trimming.
- */
-function LedgerTailAffordance(props: LedgerTailAffordanceProps): React.JSX.Element | null {
-  const { reading } = props.snapshot;
-  if (reading.mode !== "reading-with-new-rows" && reading.pinnedRootCursor === undefined) {
-    return null;
-  }
-  return (
-    <div className="meridian-ledger-viewport__tail">
-      {reading.pinnedRootCursor === undefined ? null : (
-        <span className="meridian-ledger-viewport__pin" role="status">
-          History is pinned. Nothing is being trimmed while you read.
-        </span>
-      )}
-      {reading.mode === "reading-with-new-rows" ? (
-        <button
-          type="button"
-          className="meridian-ledger-viewport__pill"
-          onClick={props.onJumpToTail}
-        >
-          <DerivedFigure text={formatCount(reading.newRowCount)} />
-          <span>new</span>
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-interface LedgerWindowNoticesProps {
-  readonly binding: LedgerViewportBinding;
-}
-
-/**
- * The two ways the window degrades, said out loud.
- *
- * Both are residuals of what `Spec-023 §Console Libraries`' timeline-virtualization row
- * requires of an own-built window — "stable keys", and a ceiling under the 33,554,431 px
- * Chromium caps an element's height at — and both are the
- * kind of defect that is invisible until somebody scrolls to exactly the wrong
- * place. Rendering them costs two lines and turns a mystery into a report.
- */
-function LedgerWindowNotices(props: LedgerWindowNoticesProps): React.JSX.Element | null {
-  const { duplicateKeyCount } = props.binding.snapshot.keyProjection;
-  const isPastElementCeiling = props.binding.isPastElementCeiling;
-  if (duplicateKeyCount === 0 && !isPastElementCeiling) {
-    return null;
-  }
-  return (
-    <div className="meridian-ledger-viewport__notices">
-      {duplicateKeyCount === 0 ? null : (
-        <Nothing
-          kind="error"
-          placement="inline"
-          title="Some entries share an identifier."
-          detail="Each is drawn and measured on its own until the projection sends distinct keys."
-        />
-      )}
-      {isPastElementCeiling ? (
-        <Nothing
-          kind="error"
-          placement="inline"
-          title="The log is taller than this window can draw."
-          detail="Older entries below the drawable ceiling are reachable through find and the rail."
-        />
-      ) : null}
     </div>
   );
 }

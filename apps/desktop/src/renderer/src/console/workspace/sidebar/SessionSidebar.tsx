@@ -27,7 +27,8 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { type ConsoleRefusal } from "../../core/index.js";
-import { InlineRefusal, Nothing, useAnnounce } from "../../primitives/index.js";
+import { InlineRefusal, useAnnounce } from "../../primitives/index.js";
+import { SidebarSection } from "./SidebarSection.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { useSessionProjectionRevision, type SessionStore } from "../../store/index.js";
 import {
@@ -38,6 +39,7 @@ import {
   type SidebarSectionRegistry,
 } from "../../seats/index.js";
 import {
+  SECTION_HEADER_ATTRIBUTE,
   SIDEBAR_SECTION_LABELS,
   resolveOpenSectionId,
   type SidebarAttentionBySectionId,
@@ -62,9 +64,6 @@ export interface SessionSidebarProps {
   /** Which seat the palette's acts reach this sidebar through. Defaults to the window's. */
   readonly commandSeat?: MountedSidebarSeat;
 }
-
-/** The DOM attribute a section header carries, so the focus act needs no class name. */
-const SECTION_HEADER_ATTRIBUTE = "data-sidebar-section";
 
 export function SessionSidebar(props: SessionSidebarProps): React.JSX.Element {
   const registry = props.registry ?? sidebarSectionRegistry;
@@ -244,73 +243,4 @@ function settlementSentence(
     return undefined;
   }
   return `The session sidebar opened with ${SIDEBAR_SECTION_LABELS[openSectionId]}, ${String(SIDEBAR_SECTION_IDS.length - 1)} of its ${String(SIDEBAR_SECTION_IDS.length)} sections collapsed.`;
-}
-
-interface SidebarSectionProps {
-  readonly sectionId: SidebarSectionId;
-  readonly isOpen: boolean;
-  readonly attention: SidebarSectionAttention | undefined;
-  readonly registry: SidebarSectionRegistry;
-  readonly sessionStore: SessionStore;
-  readonly bridge: ConsoleBridge;
-  readonly openPane: ConsolePaneOpener;
-  readonly onPress: (sectionId: SidebarSectionId) => void;
-}
-
-/**
- * One section: a real button in tab order, and its body only while it is open.
- *
- * `aria-expanded` is on the button and `aria-controls` names the region it opens, so
- * the disclosure a sighted person sees and the one a screen reader hears are the same
- * disclosure. The body is mounted inside the region rather than hidden with CSS,
- * because hiding it would leave the section's read running behind the fold.
- */
-function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
-  const { sectionId } = props;
-  const headerId = `meridian-sidebar-header-${sectionId}`;
-  const regionId = `meridian-sidebar-region-${sectionId}`;
-  const render = props.registry.descriptorFor(sectionId)?.render;
-
-  return (
-    <li className="meridian-sidebar__section">
-      <button
-        type="button"
-        id={headerId}
-        className="meridian-sidebar__header"
-        aria-expanded={props.isOpen}
-        aria-controls={regionId}
-        {...{ [SECTION_HEADER_ATTRIBUTE]: sectionId }}
-        {...(props.attention === undefined ? {} : { "data-attention": props.attention })}
-        onClick={() => {
-          props.onPress(sectionId);
-        }}
-      >
-        {SIDEBAR_SECTION_LABELS[sectionId]}
-      </button>
-      {!props.isOpen ? null : (
-        <div
-          id={regionId}
-          role="region"
-          aria-labelledby={headerId}
-          className="meridian-sidebar__body"
-        >
-          {render === undefined ? (
-            <Nothing
-              kind="not-checked"
-              placement="surface"
-              title="Nothing has filled this section yet."
-              detail="No part of this console has registered a body for it in this window, so nothing has been asked."
-            />
-          ) : (
-            render({
-              sessionStore: props.sessionStore,
-              bridge: props.bridge,
-              openPane: props.openPane,
-              isOpen: true,
-            })
-          )}
-        </div>
-      )}
-    </li>
-  );
 }

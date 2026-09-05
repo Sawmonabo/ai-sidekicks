@@ -34,11 +34,12 @@
 // two deck controls do, so a header rendered outside a deck is simply not draggable
 // — the absent-not-disabled rule again, applied to a gesture.
 
-import { Glyph, WireFigure } from "../../primitives/index.js";
+import { Glyph } from "../../primitives/index.js";
 import { type ConsoleEntityRef } from "../../store/index.js";
 import { type GlyphName } from "../../tokens/index.js";
 import { type PaneKind } from "../../seats/index.js";
-import { usePaneControls } from "./pane-controls.js";
+import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
+import { PANE_CONTROL_GLYPH_SIZE, usePaneControls } from "./pane-controls.js";
 
 /**
  * The glyph each pane kind wears, as a total record over the closed set.
@@ -64,7 +65,6 @@ export const PANE_KIND_GLYPHS: Readonly<Record<PaneKind, GlyphName>> = {
   "agent-console": "agent",
 };
 
-const PANE_CONTROL_GLYPH_SIZE = 14;
 const PANE_KIND_GLYPH_SIZE = 16;
 
 export interface PaneHeaderProps {
@@ -129,51 +129,5 @@ export function PaneHeader(props: PaneHeaderProps): React.JSX.Element {
         )}
       </span>
     </header>
-  );
-}
-
-interface PaneBreadcrumbProps {
-  readonly sessionId: string | undefined;
-  readonly channelId: string | undefined;
-  readonly runId: string | undefined;
-  readonly entity: ConsoleEntityRef | undefined;
-}
-
-/**
- * Session › channel › run › entity, as far as the pane's address reaches.
- *
- * Every crumb is a wire string and wears the provenance signature that says so
- * (rule 4), through the one module allowed to format one. A crumb the address does
- * not carry is left out rather than rendered as a placeholder — the breadcrumb
- * describes where this pane is, and an em dash standing in for a channel would say
- * the pane is scoped to a channel it has not got.
- */
-function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
-  const crumbs: readonly string[] = [
-    props.sessionId,
-    props.channelId,
-    props.runId,
-    props.entity?.id,
-  ].filter((crumb): crumb is string => crumb !== undefined);
-
-  if (crumbs.length === 0) {
-    // Reachable: the auxiliary timeline window opens on a bare route and the frame
-    // resolves its subject through the context picker. Saying so beats an empty
-    // strip that reads as a breadcrumb that failed to render.
-    return (
-      <nav className="meridian-pane__breadcrumb" aria-label="Pane context">
-        <span className="meridian-pane__crumb-absent">No session</span>
-      </nav>
-    );
-  }
-  return (
-    <nav className="meridian-pane__breadcrumb" aria-label="Pane context">
-      {crumbs.map((crumb, position) => (
-        <span className="meridian-pane__crumb" key={crumb}>
-          {position === 0 ? null : <Glyph name="chevron-right" size={PANE_CONTROL_GLYPH_SIZE} />}
-          <WireFigure value={crumb} />
-        </span>
-      ))}
-    </nav>
   );
 }

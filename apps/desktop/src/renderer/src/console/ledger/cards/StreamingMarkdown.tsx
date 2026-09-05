@@ -54,7 +54,7 @@
 // was lost the moment one of these derivations depended on an array rebuilt per render.
 
 import type { RootContent } from "mdast";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import {
   FootnotePopoverHost,
@@ -68,6 +68,7 @@ import {
   type FootnoteRegistry,
   type MarkdownRenderContext,
 } from "./markdown/index.js";
+import { SettledBlock } from "./SettledBlock.js";
 
 /**
  * The empty node list, once.
@@ -350,18 +351,3 @@ function collectDefinedIdentifiers(
   }
   return identifiers;
 }
-
-/**
- * One settled block, memoised.
- *
- * `memo` earns its place here and would not on the volatile tail: a settled block's nodes
- * and context are referentially stable across every later frame, so the comparison skips
- * the whole subtree — including a code block that would otherwise re-consult the
- * highlight cache on every token that arrives after it.
- */
-const SettledBlock = memo(function SettledBlock(props: {
-  readonly nodes: readonly RootContent[];
-  readonly context: MarkdownRenderContext;
-}): React.JSX.Element {
-  return <MarkdownNodes nodes={props.nodes} context={props.context} />;
-});

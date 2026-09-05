@@ -145,12 +145,20 @@ export interface LedgerFeedRowProps extends TimelineRowSlotProps {
  * Adds no markup of its own: the box, the error boundary and the ARIA position are the
  * viewport's, and a wrapper element here would put a second box between the feed and
  * the article the row role is declared on.
+ *
+ * An ARROW WITH A DECLARED RETURN TYPE rather than a named function expression, so
+ * this module resolves as the one component it declares: the source walk
+ * `one-component-per-module.test.ts` runs reads declarations, and a function
+ * EXPRESSION inside `memo(...)` is neither a declaration nor an arrow, so the module
+ * scored as declaring none — clean against a rule that was never applied to it.
  */
-const LedgerFeedRow = memo(function LedgerFeedRow(props: LedgerFeedRowProps): React.ReactNode {
-  return props.renderTimelineRow({
-    row: props.row,
-    participantHue: props.participantHue,
-    isSuperseded: props.isSuperseded,
-    density: props.density,
-  });
-});
+const LedgerFeedRow = memo(
+  (props: LedgerFeedRowProps): React.ReactNode =>
+    props.renderTimelineRow({
+      row: props.row,
+      participantHue: props.participantHue,
+      isSuperseded: props.isSuperseded,
+      density: props.density,
+    }),
+);
+LedgerFeedRow.displayName = "LedgerFeedRow";

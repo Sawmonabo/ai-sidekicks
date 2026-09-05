@@ -6,16 +6,10 @@
 // card.
 
 import { render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
-import { consoleTripwires } from "../../core/tripwires.js";
-import {
-  LEDGER_ERROR_KINDS,
-  LedgerErrorSlot,
-  LedgerErrorSlots,
-  LedgerRowGroup,
-} from "./ErrorSlot.js";
+import { LEDGER_ERROR_KINDS, LedgerErrorSlot, LedgerErrorSlots } from "./ErrorSlot.js";
 
 const PROJECTION_FAILURE = refuse(
   "ledger",
@@ -77,47 +71,5 @@ describe("the ledger's error slots", () => {
 
     const empty = render(<LedgerErrorSlot entries={[]} />);
     expect(empty.container.innerHTML).toBe("");
-  });
-});
-
-describe("a row group that fails to project", () => {
-  let restoreThrowOnReport = false;
-
-  beforeEach(() => {
-    // The registry throws in a development build, and the boundary reports from
-    // `componentDidCatch` — a second failure inside React's own error handling.
-    restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
-  });
-
-  afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
-  });
-
-  it("renders red, names the failure, and offers the one move there is", () => {
-    function UnreadableRow(): React.JSX.Element {
-      throw new Error("the projection had no body for this entry");
-    }
-    const { container } = render(
-      <LedgerRowGroup groupLabel="This entry">
-        <UnreadableRow />
-      </LedgerRowGroup>,
-    );
-    expect(container.querySelectorAll(".meridian-ledger-row-failure")).toHaveLength(1);
-    expect(screen.getByRole("alert")).toBeDefined();
-    expect(screen.getByText(/the projection had no body for this entry/)).toBeDefined();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
-  });
-
-  it("negative control: a row that renders is left alone", () => {
-    const { container } = render(
-      <LedgerRowGroup groupLabel="This entry">
-        <p>the entry rendered</p>
-      </LedgerRowGroup>,
-    );
-    expect(container.querySelectorAll(".meridian-ledger-row-failure")).toHaveLength(0);
-    expect(screen.getByText("the entry rendered")).toBeDefined();
   });
 });

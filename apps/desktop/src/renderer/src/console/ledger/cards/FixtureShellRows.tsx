@@ -41,7 +41,6 @@
 import { useCallback, useState } from "react";
 
 import { useLedgerRowLease, useLedgerRowReveal } from "../frame/index.js";
-import { LedgerRow, Nothing } from "../../primitives/index.js";
 import {
   registerTimelineRowRenderer,
   type TimelineRowDensity,
@@ -50,6 +49,7 @@ import {
 import { classifyCardFamily } from "./card-family.js";
 import { FootnoteRegistry } from "./markdown/index.js";
 import { EDIT_AFFORDANCE_SLOT, MessageCard } from "./MessageCard.js";
+import { ReceiptRow } from "./ReceiptRow.js";
 import { ToolCard } from "./ToolCard.js";
 
 /** The owner this shell claims the seat under. */
@@ -117,34 +117,6 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
     case "receipt":
       return <ReceiptRow {...props} />;
   }
-}
-
-/**
- * A row that carries no body: one line, stating what happened.
- *
- * The overwhelming majority of the event taxonomy lands here, which is why the line is
- * the row's own wire summary and nothing else. A summary that is empty says so by name
- * rather than rendering as a blank line a reader would scroll past.
- */
-function ReceiptRow(props: TimelineRowSlotProps): React.JSX.Element {
-  return (
-    <LedgerRow
-      participantHueStep={props.participantHue?.step ?? -1}
-      {...(props.participantHue === undefined
-        ? {}
-        : { ringTreatment: props.participantHue.ringTreatment })}
-      occurredAtIso={props.row.timestamp}
-      actorLabel={props.row.actor ?? "Session"}
-      kindLabel={props.row.type}
-      isSuperseded={props.isSuperseded}
-    >
-      {props.row.summary === "" ? (
-        <Nothing kind="empty" placement="inline" title="This event carries no summary." />
-      ) : (
-        <p className="meridian-receipt-row">{props.row.summary}</p>
-      )}
-    </LedgerRow>
-  );
 }
 
 /**

@@ -10,10 +10,12 @@
 // and their escape hatch") and rule 8 is why they are two and not one ("a renderer that
 // collapses two of these into one is wrong").
 //
-// THE TWO MARKER NAMES ARE WIRE VALUES, so they render as wire figures: mono, verbatim,
-// exactly the string `DeclaredLossKind` carries. They are bound to that union below
-// rather than typed as strings, so a vocabulary rename fails to compile here instead of
-// leaving the console displaying a token the daemon stopped using.
+// THE DISPOSITIONS ARE TWO MODULES AND THE CHOICE BETWEEN THEM IS THIS ONE.
+// `UnavailableBody.tsx` and `TruncationNotice.tsx` each own one, with the marker name
+// it names bound to `DeclaredLossKind` rather than typed as a string, so a vocabulary
+// rename fails to compile there instead of leaving the console displaying a token the
+// daemon stopped using. What stays here is the three-state read — not asked, asked and
+// unavailable, asked and available — which is the decision neither notice can make.
 //
 // WHY THIS IS ONE COMPONENT AND NOT A BRANCH IN EACH CARD. `MessageCard` and `ToolCard`
 // both render machine-authored bodies, and the rule above is about the BODY rather than
@@ -21,27 +23,14 @@
 // `HydratedContentUnavailableReason` — which is a closed union precisely so a consumer
 // can be made total over it, as `REASON_SENTENCES` below is.
 
-import type {
-  DeclaredLossKind,
-  HydratedContentUnavailableReason,
-  HydratedSessionEventContent,
-} from "@ai-sidekicks/contracts";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
-import { Nothing, WireFigure, formatByteQuantity } from "../../primitives/index.js";
+import { Nothing } from "../../primitives/index.js";
 import { AnsiOutput } from "./AnsiOutput.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
-import { measureUtf8ByteLength, type FootnoteRegistry } from "./markdown/index.js";
-
-/**
- * The loss this console names when a stored body is a prefix.
- *
- * Typed as `DeclaredLossKind` rather than inferred as its own literal: that is what
- * makes the binding load-bearing. A member renamed in the contract fails here.
- */
-const TRUNCATED_LOSS_KIND: DeclaredLossKind = "turn_content_truncated";
-
-/** The loss this console names when a stored body could not be read. */
-const UNAVAILABLE_LOSS_KIND: DeclaredLossKind = "turn_content_unavailable";
+import { TruncationNotice } from "./TruncationNotice.js";
+import { UnavailableBody } from "./UnavailableBody.js";
+import { type FootnoteRegistry } from "./markdown/index.js";
 
 /**
  * How a body is drawn once its bytes are in hand.
@@ -129,94 +118,6 @@ function renderBodyText(
       sourceId={props.sourceId}
       footnotes={props.footnotes}
       isComplete={isComplete}
-    />
-  );
-}
-
-/**
- * A sentence per unavailability reason. Total over the union by construction, so a
- * reason added to the contract fails to compile here rather than reaching a card that
- * renders it as blank space.
- *
- * The sentences say what happened and never what the reader should do about it: three
- * of these six are node-operator conditions and one is a tamper finding, and a card that
- * offered a remedy for any of them would be guessing at a cause it cannot see.
- */
-const REASON_SENTENCES: Readonly<Record<HydratedContentUnavailableReason, string>> = {
-  absent: "This turn was recorded without a body.",
-  compacted: "This turn's body was destroyed when the session was compacted.",
-  master_key_unavailable: "This turn's body is sealed and the key could not be obtained.",
-  wrapped_key_missing: "This turn's body is sealed and this session holds no key for it.",
-  digest_unbound: "This turn's stored body does not match what its signature covers.",
-  decrypt_failed: "This turn's body is sealed and did not open.",
-};
-
-/**
- * Which reasons are a failure rather than a loss.
- *
- * `digest_unbound` alone: it means the stored bytes disagree with what the row's
- * signature commits to, which is the two-hue rule's red — an integrity finding a reader
- * must not mistake for retention doing its job.
- */
-const INTEGRITY_FAILURE_REASONS: ReadonlySet<HydratedContentUnavailableReason> =
-  new Set<HydratedContentUnavailableReason>(["digest_unbound"]);
-
-function UnavailableBody(props: {
-  readonly reason: HydratedContentUnavailableReason;
-}): React.JSX.Element {
-  return (
-    <div className="meridian-machine-body meridian-machine-body--unavailable">
-      {/* The empty body, at its position. Present as an element rather than omitted so
-          the row keeps the height and the structure a turn has, which is what "renders
-          the turn at its position" means in a list. */}
-      <p className="meridian-machine-body__empty" aria-hidden="true" />
-      {/* The BLOCK placement, deliberately: the badge form renders `detail` as a
-          `title` attribute and nothing else, so both the reason and the disposition
-          would be a tooltip — unreachable by touch, by keyboard, and by a reader who
-          never hovers. The requirement is that the console SAYS what happened,
-          and an absence occupying the body's own region is a surface rather than a
-          value-adjacent badge. */}
-      <Nothing
-        kind={INTEGRITY_FAILURE_REASONS.has(props.reason) ? "error" : "empty"}
-        placement="surface"
-        title={REASON_SENTENCES[props.reason]}
-        detail="The turn is shown at its position with an empty body."
-        action={<WireFigure value={UNAVAILABLE_LOSS_KIND} title="Declared loss" />}
-      />
-    </div>
-  );
-}
-
-/**
- * "Truncated at N of M bytes."
- *
- * N is measured from the stored prefix and M is the contract's pre-truncation
- * `contentLength`, echoed from the signed payload. When the payload carries no length —
- * legal, since the descriptive members are optional — the notice says what it knows and
- * does not invent the total, because a total computed from the prefix would be the
- * prefix's own size stated twice.
- */
-function TruncationNotice(props: {
-  readonly storedBody: string;
-  readonly preTruncationLength: number | undefined;
-}): React.JSX.Element {
-  const storedBytes = formatByteQuantity(measureUtf8ByteLength(props.storedBody));
-  // ONE SENTENCE CARRYING BOTH FIGURES, rather than a headline and a `detail`. The
-  // badge form renders `detail` as a `title` attribute, so the byte counts — which are
-  // the substance of the truncation notice, not an elaboration of it — would reach a reader
-  // only on hover. The badge is still the right shape here, because unlike an
-  // unavailable body this one IS present and the notice qualifies it.
-  const title =
-    props.preTruncationLength === undefined
-      ? `Truncated when recorded. Shown: ${storedBytes.text}; the original size was not recorded.`
-      : `Truncated when recorded: ${storedBytes.text} of ${formatByteQuantity(props.preTruncationLength).text}.`;
-
-  return (
-    <Nothing
-      kind="empty"
-      placement="inline"
-      title={title}
-      action={<WireFigure value={TRUNCATED_LOSS_KIND} title="Declared loss" />}
     />
   );
 }

@@ -19,6 +19,13 @@
 // the seat to carry it would make every future row owner responsible for a
 // vocabulary that is the ledger's own.
 //
+// THE FIVE PARTS ARE RENDER HELPERS AND NOT FIVE COMPONENTS. Each is a stateless,
+// hook-free fragment of ONE line, rendered from one place, and naming five components
+// for five spans of a sentence would put five fibers and five files where the ledger
+// has one row. `apps/desktop/AGENTS.md` puts one component in a `.tsx` module and this
+// module has one; what sits beside it is the shape `MachineBody.tsx`'s `renderBodyText`
+// already uses — a plain function returning markup, called rather than mounted.
+//
 // NOTHING HERE COMPOSES A SENTENCE. Each part is rendered as itself: the label from
 // the binding table, the wire type in mono, the boundary position as a figure, the
 // continuity and every declared loss verbatim. A producer that wrote prose here
@@ -60,12 +67,12 @@ export function SeamRow(props: SeamRowProps): React.JSX.Element {
       >
         <Glyph name={binding.glyph} title={binding.label} />
         <span className="meridian-seam-row__label">{binding.label}</span>
-        <SeamBoundaryPosition seam={seam} />
-        <SeamContinuity seam={seam} />
-        <SeamReason seam={seam} />
-        <SeamBlockedOn seam={seam} />
+        {seamBoundaryPosition(seam)}
+        {seamContinuity(seam)}
+        {seamReason(seam)}
+        {seamBlockedOn(seam)}
       </p>
-      <SeamWireAbsence seam={seam} />
+      {seamWireAbsence(seam)}
     </LedgerRow>
   );
 }
@@ -77,8 +84,7 @@ export function SeamRow(props: SeamRowProps): React.JSX.Element {
  * to turn zero and a rewind whose floor nobody recorded are different facts, and a
  * `0` on screen is indistinguishable between them.
  */
-function SeamBoundaryPosition(props: { readonly seam: LedgerSeam }): React.JSX.Element | null {
-  const { seam } = props;
+function seamBoundaryPosition(seam: LedgerSeam): React.JSX.Element | null {
   if (seam.kind !== "rollback" && seam.kind !== "compaction") {
     return null;
   }
@@ -104,8 +110,7 @@ function SeamBoundaryPosition(props: { readonly seam: LedgerSeam }): React.JSX.E
  * widened by amendment, so a mapping onto a fallback phrase here would go quiet on
  * exactly the newest kind of loss.
  */
-function SeamContinuity(props: { readonly seam: LedgerSeam }): React.JSX.Element | null {
-  const { seam } = props;
+function seamContinuity(seam: LedgerSeam): React.JSX.Element | null {
   if (seam.continuity === undefined) {
     return null;
   }
@@ -130,8 +135,7 @@ function SeamContinuity(props: { readonly seam: LedgerSeam }): React.JSX.Element
 }
 
 /** The failed switch's reason, verbatim. */
-function SeamReason(props: { readonly seam: LedgerSeam }): React.JSX.Element | null {
-  const { seam } = props;
+function seamReason(seam: LedgerSeam): React.JSX.Element | null {
   if (seam.kind !== "provider-switch-failed" || seam.reason === undefined) {
     return null;
   }
@@ -139,8 +143,7 @@ function SeamReason(props: { readonly seam: LedgerSeam }): React.JSX.Element | n
 }
 
 /** Which state a blocked run is waiting on, verbatim. */
-function SeamBlockedOn(props: { readonly seam: LedgerSeam }): React.JSX.Element | null {
-  const { seam } = props;
+function seamBlockedOn(seam: LedgerSeam): React.JSX.Element | null {
   if (seam.blockedOn === undefined) {
     return null;
   }
@@ -160,8 +163,8 @@ function SeamBlockedOn(props: { readonly seam: LedgerSeam }): React.JSX.Element 
  * contract — and when one does the console draws it and says, on the same line, that
  * its type is not one the contract package registers.
  */
-function SeamWireAbsence(props: { readonly seam: LedgerSeam }): React.JSX.Element | null {
-  if (props.seam.wireRegistration === "registered") {
+function seamWireAbsence(seam: LedgerSeam): React.JSX.Element | null {
+  if (seam.wireRegistration === "registered") {
     return null;
   }
   return (
@@ -169,7 +172,7 @@ function SeamWireAbsence(props: { readonly seam: LedgerSeam }): React.JSX.Elemen
       kind="not-checked"
       placement="inline"
       title="This build does not register that event type."
-      detail={`${props.seam.wireType} arrived, and the contract package carries no registration for it, so nothing here was read from a shape this build knows.`}
+      detail={`${seam.wireType} arrived, and the contract package carries no registration for it, so nothing here was read from a shape this build knows.`}
     />
   );
 }

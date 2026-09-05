@@ -59,6 +59,14 @@ export type SidebarAttentionBySectionId = Readonly<
 >;
 
 /**
+ * The DOM attribute a section header carries, so the focus act needs no class name.
+ *
+ * Here rather than in either component: the header writes it and the sidebar's focus
+ * act queries for it, and a second spelling is a focus act that finds nothing.
+ */
+export const SECTION_HEADER_ATTRIBUTE = "data-sidebar-section";
+
+/**
  * The sidebar's own record key, beside the deck's in the same partition.
  *
  * Two records rather than one for the reason two surfaces have two lifetimes: a

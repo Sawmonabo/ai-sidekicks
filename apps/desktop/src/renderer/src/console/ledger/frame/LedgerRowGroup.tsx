@@ -1,0 +1,73 @@
+// One row group's error boundary.
+//
+// Its own module for the one-component rule, and the split separates two different
+// jobs that shared a file: the strip beside it reports refusals the PANE collected,
+// and this catches a row that threw while being drawn. A pane-level strip and a
+// per-group boundary answer to different failures and neither can stand in for the
+// other.
+//
+// WHY THE DEEP IMPORT OF `frame/ErrorBoundary.js`. `frame/index.ts` exports
+// `ConsoleRoot`, which imports `console/families.ts`, which imports this family's
+// door — so an edge from here to that barrel closes a cycle. `ErrorBoundary.tsx`
+// imports nothing above `core/`, so the deep import reaches the boundary and nothing
+// else.
+
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { SurfaceErrorBoundary } from "../../frame/ErrorBoundary.js";
+import { RefusalCard } from "../../primitives/index.js";
+
+export interface LedgerRowGroupProps {
+  /** What failed, in the person's words: "a run chapter", "the streaming message". */
+  readonly groupLabel: string;
+  readonly children: React.ReactNode;
+}
+
+/**
+ * A render failure, as a refusal.
+ *
+ * Built through `refuse` rather than an object literal so this failure carries the
+ * same three fields as every daemon refusal and reaches the same three renderers.
+ * The code is renderer-local and says so in its own name: nothing here came off a
+ * wire, and dressing it as a wire code would make a console defect look like the
+ * daemon's answer.
+ */
+function rowProjectionRefusal(groupLabel: string, error: Error): ConsoleRefusal {
+  return refuse(
+    "ledger",
+    "renderer.row_projection_failed",
+    `${groupLabel} could not be drawn: ${error.message}`,
+  );
+}
+
+/**
+ * One row group's boundary.
+ *
+ * A group rather than the whole feed: a single row that throws must not blank the
+ * log around it, which is the same reasoning `frame/ErrorBoundary.tsx` gives for
+ * one boundary per surface rather than one per window, applied one level down.
+ *
+ * The failure is rendered RED and NAMED (rule 8) through the console's one refusal
+ * grammar — the row's own place in the log, holding the reason it could not be
+ * drawn, rather than a gap a reader would read as the session having nothing there.
+ */
+export function LedgerRowGroup(props: LedgerRowGroupProps): React.JSX.Element {
+  return (
+    <SurfaceErrorBoundary
+      surfaceName={props.groupLabel}
+      fallback={(error, retry) => (
+        <div className="meridian-ledger-row-failure" role="alert">
+          <RefusalCard
+            {...rowProjectionRefusal(props.groupLabel, error)}
+            action={
+              <button type="button" className="meridian-ledger-retry" onClick={retry}>
+                Try again
+              </button>
+            }
+          />
+        </div>
+      )}
+    >
+      {props.children}
+    </SurfaceErrorBoundary>
+  );
+}

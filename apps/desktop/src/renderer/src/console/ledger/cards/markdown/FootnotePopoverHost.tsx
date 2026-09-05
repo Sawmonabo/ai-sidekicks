@@ -17,14 +17,14 @@
 // while a message streams, a definition ahead of its reference is the ordinary case and
 // calling it uncited would be wrong as well as expensive.
 
-import type { RootContent } from "mdast";
 import { useId, useMemo, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
 
-import { Nothing } from "../../../primitives/index.js";
+import { DefinitionBody } from "./DefinitionBody.js";
 import type { FootnoteRegistry } from "./footnote-registry.js";
 import { FootnoteHostProvider, type FootnoteHostBinding } from "./footnote-popover-context.js";
-import { MarkdownNodes, type MarkdownRenderContext } from "./MarkdownNodes.js";
+import { type MarkdownRenderContext } from "./MarkdownNodes.js";
+import { UncitedDefinitions } from "./UncitedDefinitions.js";
 
 /** How far the popup sits off the marker it belongs to. */
 const FOOTNOTE_POPUP_SIDE_OFFSET = 6;
@@ -92,58 +92,5 @@ export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.
         )}
       </Popover.Root>
     </FootnoteHostProvider>
-  );
-}
-
-/**
- * One definition's body, or the reason there is none to show.
- *
- * The registry answers `undefined` for a reference whose definition has not arrived, and
- * a marker is only a button once the message has declared one — so reaching this arm
- * means the definition left the registry between the press and the render, which is what
- * the bound eviction can do to the oldest entries. Saying so beats an empty popup.
- *
- * A marker inside this body opens the SAME popup, because the host provider is above it
- * and the payload is the identifier alone: pressing `[^b]` inside `[^a]` swaps the popup
- * to `b`, and pressing `[^a]` inside `[^a]` re-opens `a` — a note that cites itself
- * shows itself, which is the honest answer and needs no special case.
- */
-function DefinitionBody(props: {
-  readonly bodyNodes: readonly RootContent[] | undefined;
-  readonly context: MarkdownRenderContext;
-}): React.JSX.Element {
-  if (props.bodyNodes === undefined) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="inline"
-        title="This footnote's definition is no longer held."
-      />
-    );
-  }
-  return <MarkdownNodes nodes={props.bodyNodes} context={props.context} />;
-}
-
-/**
- * The definitions this body declared and never referred to.
- *
- * `not-checked` would be wrong and `error` would be an accusation: the message defined a
- * note, the console read it, and nothing in the message points at it. That is an EMPTY
- * result for a question that was asked — rule 8's `empty` — and the identifiers are the
- * author's own strings, so they are listed rather than counted.
- */
-function UncitedDefinitions(props: {
-  readonly identifiers: readonly string[];
-}): React.JSX.Element | null {
-  if (props.identifiers.length === 0) {
-    return null;
-  }
-  return (
-    <Nothing
-      kind="empty"
-      placement="inline"
-      title={`Defined and never referred to: ${props.identifiers.join(", ")}.`}
-      detail="The note is in the message; nothing in it points here."
-    />
   );
 }

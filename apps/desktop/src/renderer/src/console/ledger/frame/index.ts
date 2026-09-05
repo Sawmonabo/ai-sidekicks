@@ -38,11 +38,12 @@
 // widening it to every symbol a directory happens to define makes it a table of
 // contents rather than a contract.
 
-export { LedgerRowGroup } from "./ErrorSlot.js";
+export { LedgerRowGroup } from "./LedgerRowGroup.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
 export { LedgerRowRevealProvider, useLedgerRowReveal } from "./RowRevealProvider.js";
 export { useLedgerReveal } from "./reveal-binding.js";
-export { LedgerViewport, type LedgerRowRenderer, type LedgerScope } from "./LedgerViewport.js";
+export { LedgerViewport, type LedgerScope } from "./LedgerViewport.js";
+export { type LedgerRowRenderer } from "./LedgerRowMount.js";
 export { useLedgerViewport } from "./viewport-binding.js";
 export { type LedgerViewportRow } from "./viewport-snapshot.js";
 export { type LedgerRowLease } from "./window-cap.js";

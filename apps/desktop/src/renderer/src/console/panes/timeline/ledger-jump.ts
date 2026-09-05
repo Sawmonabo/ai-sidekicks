@@ -170,7 +170,7 @@ type LedgerJumpAct = (
 /**
  * The act each absence deserves over THIS ledger, or `undefined` where none exists.
  *
- * A TABLE KEYED BY ABSENCE, `LedgerFeedNotices.tsx`' `JUMP_ABSENCE_WORDS` shape and
+ * A TABLE KEYED BY ABSENCE, `LedgerEventIdJump.tsx`' `JUMP_ABSENCE_WORDS` shape and
  * for its reason: the two are the same set said twice — what the absence IS, and
  * what reaches it — and both are total over `LEDGER_JUMP_ABSENCES` by `satisfies`.
  * This used to be an `if`-chain whose last arm was the chapter fold, so a fifth

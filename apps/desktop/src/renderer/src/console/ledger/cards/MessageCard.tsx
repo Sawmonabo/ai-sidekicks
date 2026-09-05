@@ -27,10 +27,8 @@
 // re-authors a body another plan owns. `OwnerSlotProps` is the declaration of that
 // arrangement, and this card mounts it in the row's hover footer.
 
-import { Chip, Glyph, LedgerRow, Nothing, formatByteQuantity } from "../../primitives/index.js";
+import { Glyph, LedgerRow } from "../../primitives/index.js";
 import {
-  inlineCardBody,
-  inlineCardSeatRegistry,
   type InlineCardSeatProps,
   type OwnerSlotContract,
   type OwnerSlotProps,
@@ -38,8 +36,10 @@ import {
 import { LedgerRowGroup } from "../frame/index.js";
 import { classifyCardFamily } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
+import { InlineCards } from "./InlineCards.js";
 import { MachineBody } from "./MachineBody.js";
-import { StreamingMarkdown } from "./StreamingMarkdown.js";
+import { MessageReceipt } from "./MessageReceipt.js";
+import { ParticipantBody } from "./ParticipantBody.js";
 import { projectedPayload, readWireCount, readWireString } from "./wire-payload.js";
 
 /**
@@ -126,39 +126,6 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
 }
 
 /**
- * A participant's row body.
- *
- * The summary is rendered through the same markdown pipeline an assistant body takes,
- * for one reason: a participant types markdown, and rendering their backticks as
- * backticks in one row and as code in the next would make the log inconsistent about
- * what a message IS. It is passed complete, because a projected summary is not a
- * stream — there is no tail to hold volatile.
- */
-function ParticipantBody(props: {
-  readonly row: LedgerCardProps["row"];
-  readonly footnotes: LedgerCardProps["footnotes"];
-}): React.JSX.Element {
-  if (props.row.summary === "") {
-    return (
-      <Nothing
-        kind="empty"
-        placement="inline"
-        title="This message has no summary."
-        detail="The participant's own words are not carried on a timeline row."
-      />
-    );
-  }
-  return (
-    <StreamingMarkdown
-      publishedText={props.row.summary}
-      sourceId={props.row.id}
-      footnotes={props.footnotes}
-      isComplete
-    />
-  );
-}
-
-/**
  * The row's hover-revealed footer, or nothing at all.
  *
  * RESERVED, NOT STUBBED — and the empty answer here is silence rather than a named
@@ -169,89 +136,4 @@ function ParticipantBody(props: {
  */
 function renderEditAffordance(slot: OwnerSlotProps<React.ReactNode>): React.ReactNode {
   return slot.body;
-}
-
-/**
- * The message's inline cards: a chip per card, and the body the repos family registered.
- *
- * The chip renders whether or not a body exists, because the chip is the message's own
- * statement that it carries a diff or an attachment — a fact about the message rather
- * than about which family has landed. The BODY is the part that can be missing, and an
- * unfilled kind says so by name instead of rendering as an empty region a reader would
- * read as an empty diff.
- */
-function InlineCards(props: {
-  readonly cards: readonly InlineCardSeatProps[];
-}): React.JSX.Element | null {
-  if (props.cards.length === 0) {
-    return null;
-  }
-  return (
-    <div className="meridian-message-card__cards">
-      {props.cards.map((card) => (
-        <div className="meridian-message-card__card" key={inlineCardKey(card)}>
-          <Chip label={card.kind} mono />
-          {inlineCardBody(card.kind) === undefined ? (
-            <Nothing
-              kind="not-checked"
-              placement="inline"
-              title={`No ${card.kind} card is registered in this window.`}
-            />
-          ) : (
-            inlineCardSeatRegistry.render(card)
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * One card's identity within its message.
- *
- * Narrows on the discriminant rather than reaching for a shared `id` member, because
- * there is not one: each arm carries the identity its own body fetches with, which is
- * `inline-card-seats.ts`' whole reason for being a union rather than a record.
- */
-function inlineCardKey(card: InlineCardSeatProps): string {
-  switch (card.kind) {
-    case "diff":
-      return `diff:${card.runId}:${card.diffArtifactId}`;
-    case "attachment":
-      return `attachment:${card.attachment.attachmentId}`;
-    case "artifact":
-      return `artifact:${card.artifact.kind}:${card.artifact.id}`;
-  }
-}
-
-/**
- * The past-tense receipt a settled machine turn leaves.
- *
- * `Spec-023 §Console Design (Meridian)`'s receipt rule is that an action lands as a
- * record of what happened, so this line reports only what the row itself carries — the
- * body's recorded size and the media type its producer set. It reports no cost and no
- * token count: those are separate metered rows with their own carriers, and a card that
- * summed or restated them would be the second source of truth the cost chokepoint
- * exists to prevent.
- *
- * A turn that carries neither renders no receipt at all, rather than a line saying
- * nothing was recorded — an absence of descriptive members is the ordinary case for a
- * body-less row and not a fact worth a line in the log.
- */
-function MessageReceipt(props: {
-  readonly contentType: string | undefined;
-  readonly contentLength: number | undefined;
-}): React.JSX.Element | null {
-  if (props.contentType === undefined && props.contentLength === undefined) {
-    return null;
-  }
-  return (
-    <p className="meridian-message-card__receipt">
-      Recorded
-      {props.contentLength === undefined
-        ? null
-        : ` · ${formatByteQuantity(props.contentLength).text}`}
-      {props.contentType === undefined ? null : ` · ${props.contentType}`}
-    </p>
-  );
 }

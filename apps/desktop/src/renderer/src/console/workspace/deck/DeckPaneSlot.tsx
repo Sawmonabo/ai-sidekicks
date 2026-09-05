@@ -13,15 +13,16 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import {
   isDetachablePaneKind,
   type ConsolePaneContext,
-  type ConsolePaneDescriptor,
   type ConsolePaneRegistry,
-  type PaneKind,
 } from "../../seats/index.js";
+import { DetachedPaneBody } from "./DetachedPaneBody.js";
+import { LostWindowNotice } from "./LostWindowNotice.js";
+import { MissingPaneBody } from "./MissingPaneBody.js";
+import { PaneBody } from "./PaneBody.js";
 import { PERMILLE_PER_PERCENT, type DeckPane } from "./deck-model.js";
 import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
 import {
@@ -189,151 +190,3 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
     );
   },
 );
-
-/** Whether what the deck resolved for a pane is an address or a refusal. */
-function isPaneContext(
-  resolved: ConsolePaneContext | ConsoleRefusal,
-): resolved is ConsolePaneContext {
-  return !("code" in resolved);
-}
-
-/**
- * The registered body, or the refusal that says why this pane has no address.
- *
- * Split out of the slot's own JSX so the narrowing is a named predicate rather than a
- * condition inside a ternary chain that already has three arms.
- */
-function PaneBody(props: {
-  readonly descriptor: ConsolePaneDescriptor;
-  readonly context: ConsolePaneContext | ConsoleRefusal;
-}): React.ReactNode {
-  return isPaneContext(props.context) ? (
-    props.descriptor.render(props.context)
-  ) : (
-    <InlineRefusal code={props.context.code} detail={props.context.detail} />
-  );
-}
-
-/**
- * The pane's error slot: what happened to the window this pane was in.
- *
- * INLINE rather than a banner, on the refusal grammar's own question — what did this
- * change, and for whom? One pane's window died and one pane's body came back; the
- * rest of the room is untouched, so the note belongs beside the pane and not across
- * the workspace.
- *
- * Dismissable, and the dismissal is the caller's act rather than local state: the
- * record lives on the hand-off, so a note cleared in a component that then
- * re-rendered from the hand-off's own publish would come straight back.
- */
-function LostWindowNotice(props: {
-  readonly paneId: string;
-  readonly notice: ConsoleRefusal;
-  readonly onDismiss?: (paneId: string) => void;
-}): React.JSX.Element {
-  const { onDismiss, paneId } = props;
-  return (
-    <div className="meridian-deck__pane-error">
-      <InlineRefusal
-        code={props.notice.code}
-        detail={props.notice.detail}
-        {...(onDismiss === undefined
-          ? {}
-          : {
-              action: (
-                <button
-                  type="button"
-                  className="meridian-deck__detached-control"
-                  onClick={() => {
-                    onDismiss(paneId);
-                  }}
-                >
-                  Dismiss
-                </button>
-              ),
-            })}
-      />
-    </div>
-  );
-}
-
-/**
- * The pane whose body is somewhere else.
- *
- * A named absence rather than an empty rectangle, and two controls rather than none:
- * `Spec-023 §The surface set` keeps the SLOT while the auxiliary window shows the
- * projection — "the main window shows the moved pane's slot as a placeholder with a
- * focus control" — so the widths and the order survive the window's whole life and the
- * pane goes back exactly where it was. Closing the pane instead — which is what this
- * replaced — deleted the position the window's own close would have needed to restore.
- *
- * The signal refusal renders HERE, in the slot it is about. A build that cannot
- * subscribe to the crashed-window signal cannot notice a window that died, and a
- * placeholder that showed nothing would be claiming that none has.
- */
-function DetachedPaneBody(props: {
-  readonly paneId: string;
-  readonly onFocusWindow?: (paneId: string) => void;
-  readonly onReturnToDeck?: (paneId: string) => void;
-  readonly signalRefusal?: ConsoleRefusal;
-}): React.JSX.Element {
-  const { onFocusWindow, onReturnToDeck, paneId } = props;
-  return (
-    <div className="meridian-deck__detached">
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="This pane is open in a window of its own."
-        detail="Its contents are shown there, and never in two places at once."
-        action={
-          <>
-            {onFocusWindow === undefined ? null : (
-              <button
-                type="button"
-                className="meridian-deck__detached-control"
-                onClick={() => {
-                  onFocusWindow(paneId);
-                }}
-              >
-                Bring its window forward
-              </button>
-            )}
-            {onReturnToDeck === undefined ? null : (
-              <button
-                type="button"
-                className="meridian-deck__detached-control"
-                onClick={() => {
-                  onReturnToDeck(paneId);
-                }}
-              >
-                Return it to the deck
-              </button>
-            )}
-          </>
-        }
-      />
-      {props.signalRefusal === undefined ? null : (
-        <InlineRefusal code={props.signalRefusal.code} detail={props.signalRefusal.detail} />
-      )}
-    </div>
-  );
-}
-
-/**
- * A pane kind the deck holds and no family has a body for.
- *
- * Reserved, not stubbed: the kind set is closed by the spec and two of its members
- * are gated on their own amendments, so a deck restored from a snapshot can legally
- * name a kind this build has not mounted. Naming the kind beats an empty rectangle
- * that reads as a body which failed to render.
- */
-function MissingPaneBody(props: { readonly kind: PaneKind }): React.JSX.Element {
-  return (
-    <Nothing
-      kind="empty"
-      placement="surface"
-      title="This kind of pane has not been built yet."
-      detail={`Nothing renders a ${props.kind} pane in this build. The pane is reserved for it.`}
-    />
-  );
-}

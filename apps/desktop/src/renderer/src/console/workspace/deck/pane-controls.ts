@@ -29,6 +29,15 @@
 import { createContext, useContext } from "react";
 
 /** The acts a host can perform on the pane a header heads. */
+/**
+ * How large a glyph in a pane's own chrome is drawn.
+ *
+ * Here rather than in either component that draws one: the header's controls and the
+ * breadcrumb's separators are one chrome and one size, and a second copy is a second
+ * answer waiting to drift.
+ */
+export const PANE_CONTROL_GLYPH_SIZE = 14;
+
 export interface PaneControls {
   /** Close this pane. Absent where the host cannot close panes. */
   readonly onClose?: () => void;

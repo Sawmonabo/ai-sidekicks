@@ -80,11 +80,9 @@ import {
   ProvenanceRail,
   ReplayControls,
 } from "../../ledger/structure/index.js";
-import {
-  LedgerEventIdJump,
-  LedgerRowsAdmittedDuringReplayNotice,
-  LedgerWindowAbsences,
-} from "./LedgerFeedNotices.js";
+import { LedgerEventIdJump } from "./LedgerEventIdJump.js";
+import { LedgerRowsAdmittedDuringReplayNotice } from "./LedgerRowsAdmittedDuringReplayNotice.js";
+import { LedgerWindowAbsences } from "./LedgerWindowAbsences.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
 import { matchWalkReading } from "./ledger-find-readings.js";
 import { PartialRead } from "../../primitives/index.js";
