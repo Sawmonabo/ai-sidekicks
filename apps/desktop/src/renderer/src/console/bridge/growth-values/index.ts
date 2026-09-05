@@ -53,20 +53,32 @@ export type { GrowthNavigationState, GrowthPaneError, GrowthTerminalChunk } from
 export type { GrowthCallbackTool, GrowthToolCall } from "./tools.js";
 
 export {
+  // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_REPLICATION_STATUSES,
+  // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_STATES,
+  // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_TYPES,
+  // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_VISIBILITIES,
   type GrowthArtifactDeleteReceipt,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadDisposition,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadEncoding,
   type GrowthArtifactRead,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactReadDeferred,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactReadInline,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactReplicationStatus,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactState,
   type GrowthArtifactSummary,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactType,
+  // Consumed by T-023p-1C-5
   type GrowthArtifactVisibility,
   type GrowthAttachmentIngestCompletion,
 } from "./artifacts.js";
@@ -81,6 +93,7 @@ export type {
 export type { GrowthAttentionPreference } from "./attention.js";
 
 export {
+  // Consumed by T-023p-1C-5
   GROWTH_PR_PREPARATION_STATES,
   type GrowthBranchContext,
   type GrowthPrPreparationState,
@@ -89,10 +102,16 @@ export {
 export type {
   GrowthBudgetState,
   GrowthCostReceipt,
+  // Consumed by T-023p-1C-4
   GrowthCostReceiptAccountRow,
+  // Consumed by T-023p-1C-4
   GrowthCostReceiptCausedByRow,
+  // Consumed by T-023p-1C-4
   GrowthCostReceiptRunRow,
+  // Consumed by T-023p-1C-4
   GrowthCostStatus,
+  // Consumed by T-023p-1C-4
   GrowthEffectivePrincipal,
+  // Consumed by T-023p-1C-4
   GrowthUnpricedFamilyCap,
 } from "./cost-receipts.js";

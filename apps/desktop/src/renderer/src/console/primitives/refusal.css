@@ -1,0 +1,128 @@
+/*
+ * The three refusal shapes: inline, card, and banner.
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 9 (the code
+ * in mono, the message verbatim) and rule 3's red.
+ */
+
+.meridian-refusal__message {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+/* The code is the one red thing in a refusal: it is what the operator quotes. */
+.meridian-refusal .meridian-figure--wire {
+  color: var(--meridian-red-text);
+}
+
+.meridian-refusal .meridian-glyph {
+  flex: none;
+  color: var(--meridian-red-mark);
+}
+
+/* inline: nothing changed. It sits beside the control, and the control stays. */
+.meridian-refusal--inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-start: var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-refusal--inline .meridian-refusal__message {
+  color: var(--meridian-text-muted);
+}
+
+/* card: the session's history now contains this refusal. */
+.meridian-refusal--card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-refusal__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * banner: what the whole room can do has changed, so it spans the frame.
+ *
+ * The span comes from being a block-level flex container, deliberately NOT from
+ * `inline-size: 100%` — with no global `border-box` reset that width plus the
+ * padding below overflows every container the banner is ever placed in.
+ */
+.meridian-refusal--banner {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-refusal__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-refusal__action {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-refusal__dismiss {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  margin-inline-start: auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-refusal__dismiss:hover {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+/* The dismiss glyph is chrome, not the refusal's own red mark. */
+.meridian-refusal__dismiss .meridian-glyph {
+  color: currentcolor;
+}

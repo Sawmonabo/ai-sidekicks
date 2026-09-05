@@ -22,9 +22,13 @@
 
 import { useCallback, useRef, useState } from "react";
 import { RunControlAckSchema, type RunControlAck } from "@ai-sidekicks/contracts";
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
-import { RUN_PAUSE_METHOD, callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  RUN_PAUSE_METHOD,
+  callUnregisteredDaemonMethod,
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 import { Glyph, InlineRefusal, WireFigure } from "../../../console/primitives/index.js";
 
 /** The subsystem name every refusal this control raises carries. */
@@ -68,7 +72,7 @@ export function StepIn(props: StepInProps): React.JSX.Element {
     }
     isInFlight.current = true;
     setState({ phase: "pausing" });
-    void callDaemon(bridge, RUN_PAUSE_METHOD, { targetRunId, expectedRunVersion })
+    void callUnregisteredDaemonMethod(bridge, RUN_PAUSE_METHOD, { targetRunId, expectedRunVersion })
       .then((reply) => {
         isInFlight.current = false;
         const parsed = RunControlAckSchema.safeParse(reply);
@@ -88,7 +92,7 @@ export function StepIn(props: StepInProps): React.JSX.Element {
       })
       .catch((rejection: unknown) => {
         isInFlight.current = false;
-        const wireError = normalizeWireRejection(rejection, { total: true });
+        const wireError = wireRejectionToError(rejection, { total: true });
         setState({
           phase: "refused",
           refusal: refuse(STEP_IN_REFUSAL_ORIGIN, wireError.name, wireError.message),

@@ -18,7 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { consoleTripwires } from "../../core/index.js";
+import { consoleTripwires } from "../../core/tripwires.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
 import { SIDEBAR_SECTION_IDS, type SidebarSectionId } from "../../seats/index.js";
 import {

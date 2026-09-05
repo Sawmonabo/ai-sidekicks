@@ -18,7 +18,11 @@
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 
-export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
+export type {
+  ConsoleBridge,
+  // Consumed by T-023p-1C-4
+  ConsoleBridgeSource,
+} from "./console-bridge.js";
 
 // The one answer to "which clock does this window run on". Exported because the
 // two composition roots that build a clocked subsystem — the session registry and
@@ -60,11 +64,24 @@ export {
   RUN_PAUSE_METHOD,
   RUN_RESUME_METHOD,
   RUN_STATE_SUBSCRIBE_STREAM,
-  callDaemon,
+  callUnregisteredDaemonMethod,
   subscribeDaemon,
   subscribeNodeDaemon,
 } from "./daemon-calls.js";
 export type { DaemonStreamOpen } from "./daemon-calls.js";
+
+// The goal payload readings and the two bounds a goal is refused against. Through
+// this door because the approvals surface is a view family and may hold no
+// validator: what it consumes is the ANSWER — a text, an origin pair, or a boolean
+// — and never the schema that produced one.
+export {
+  SESSION_GOAL_MAX_LENGTH,
+  SESSION_GOAL_MIN_LENGTH,
+  isSendableGoalText,
+  readGoalOriginKeys,
+  readGoalPayloadText,
+} from "./session-goal-payloads.js";
+export type { GoalOriginKeys } from "./session-goal-payloads.js";
 
 // The declared-capability read, and the two shapes its consumers resolve against.
 // Here rather than beside either consumer because two view families gate controls on
@@ -130,6 +147,29 @@ export {
 } from "./BridgeProvider.js";
 
 export { createFixtureBridge } from "./fixture-bridge.js";
+
+// The one door a daemon reply enters the console through. Exported as the CALL
+// plus the answer it gives and the method set it admits — and deliberately not the
+// registry, the bindings, or the schemas behind them: a surface names a method and
+// renders a served value or a refusal, and a surface that could reach a schema
+// would be a surface that could parse a second time, differently.
+export {
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  callDaemon,
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  DAEMON_REPLY_REFUSAL_ORIGIN,
+} from "./daemon-reply.js";
+export type {
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  DaemonReply,
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  DaemonReplyRefusalCode,
+} from "./daemon-reply.js";
+export type {
+  ConsoleDaemonMethod,
+  DaemonRequestOf,
+  DaemonResponseOf,
+} from "./daemon-reply-registry.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the

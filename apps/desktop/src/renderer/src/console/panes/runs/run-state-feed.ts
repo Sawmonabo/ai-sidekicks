@@ -46,7 +46,7 @@ import {
   type RunStateChangeEvent,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
@@ -54,7 +54,9 @@ import {
   type ConsoleBridge,
 } from "../../bridge/index.js";
 import {
+  compareInstants,
   isConsoleRefusal,
+  parseInstant,
   refuse,
   type ConsoleRefusal,
   type Unsubscribe,
@@ -288,10 +290,12 @@ function appendBounded(rows: readonly RunStatusRow[], row: RunStatusRow): readon
 
 /** Newest activity first, with the run id breaking an exact tie deterministically. */
 function byMostRecentlyTouched(left: RunProjection, right: RunProjection): number {
-  if (left.updatedAtIso === right.updatedAtIso) {
-    return left.runId.localeCompare(right.runId);
-  }
-  return left.updatedAtIso < right.updatedAtIso ? 1 : -1;
+  const ranked = compareInstants(
+    parseInstant(left.updatedAtIso),
+    parseInstant(right.updatedAtIso),
+    "newest-first",
+  );
+  return ranked === 0 ? left.runId.localeCompare(right.runId) : ranked;
 }
 
 /**
@@ -304,12 +308,13 @@ function byMostRecentlyTouched(left: RunProjection, right: RunProjection): numbe
  * a zero there would claim it started and finished in the same moment.
  */
 export function runElapsedMilliseconds(run: RunProjection): number | undefined {
-  const from = Date.parse(run.firstSeenAtIso);
-  const to = Date.parse(run.updatedAtIso);
-  if (Number.isNaN(from) || Number.isNaN(to) || to < from) {
+  const from = parseInstant(run.firstSeenAtIso);
+  const to = parseInstant(run.updatedAtIso);
+  if (from.kind === "malformed" || to.kind === "malformed") {
     return undefined;
   }
-  return to - from;
+  const elapsed = to.epochMilliseconds - from.epochMilliseconds;
+  return elapsed < 0 ? undefined : elapsed;
 }
 
 /**
@@ -421,7 +426,7 @@ function streamOpenRefusal(thrown: unknown): ConsoleRefusal {
   if (isConsoleRefusal(carried)) {
     return carried;
   }
-  const wireError = normalizeWireRejection(thrown, { total: true });
+  const wireError = wireRejectionToError(thrown, { total: true });
   return refuse(RUN_STATE_REFUSAL_ORIGIN, wireError.name, wireError.message);
 }
 

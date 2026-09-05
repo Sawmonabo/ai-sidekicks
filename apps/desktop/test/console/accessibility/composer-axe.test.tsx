@@ -35,7 +35,7 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
+import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /** The surfaces this family ships, each named as a reader would name it. */
 const AUDITED_SURFACES: readonly {

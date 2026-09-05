@@ -12,14 +12,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "./approvals-bounds.js";
+import { SESSION_GOAL_MIN_LENGTH } from "../../bridge/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   SESSION_GOAL_CLEAR_METHOD,
   SESSION_GOAL_EVENT_KINDS,
   SESSION_GOAL_UPDATE_METHOD,
   foldSessionGoal,
-  sessionGoalTextSchema,
 } from "./session-goal.js";
 
 /**
@@ -94,7 +93,7 @@ describe("two operations, never one", () => {
   it("names a distinct method for setting and for clearing", () => {
     expect(SESSION_GOAL_UPDATE_METHOD).toBe("session.goalUpdate");
     expect(SESSION_GOAL_CLEAR_METHOD).toBe("session.goalClear");
-    // The whole reason the schema's floor is one character rather than zero: an
+    // The whole reason the sendable floor is one character rather than zero: an
     // update with no goal is malformed, and clearing has its own verb.
     expect(SESSION_GOAL_MIN_LENGTH).toBe(1);
     expect(SESSION_GOAL_UPDATE_METHOD).not.toBe(SESSION_GOAL_CLEAR_METHOD);
@@ -105,31 +104,6 @@ describe("two operations, never one", () => {
       "session.goal_updated",
       "session.goal_cleared",
     ]);
-  });
-});
-
-describe("what a sendable goal is", () => {
-  it("accepts ordinary text and text at the ceiling", () => {
-    expect(sessionGoalTextSchema.safeParse("Ship the approvals pane").success).toBe(true);
-    expect(sessionGoalTextSchema.safeParse("g".repeat(SESSION_GOAL_MAX_LENGTH)).success).toBe(true);
-  });
-
-  it("refuses empty, blank, over-long, and NUL-bearing text", () => {
-    expect(sessionGoalTextSchema.safeParse("").success).toBe(false);
-    expect(sessionGoalTextSchema.safeParse("   ").success).toBe(false);
-    expect(sessionGoalTextSchema.safeParse("g".repeat(SESSION_GOAL_MAX_LENGTH + 1)).success).toBe(
-      false,
-    );
-    // Written as an escape so no file in this tree carries the code point.
-    expect(sessionGoalTextSchema.safeParse("ship\u0000it").success).toBe(false);
-  });
-
-  it("does not rewrite what the participant typed", () => {
-    // A `trim().min(1)` would accept this and send text nobody wrote. The value
-    // that parses has to be the value that was typed, surrounding space included.
-    const parsed = sessionGoalTextSchema.safeParse("  ship it  ");
-    expect(parsed.success).toBe(true);
-    expect(parsed.success ? parsed.data : undefined).toBe("  ship it  ");
   });
 });
 

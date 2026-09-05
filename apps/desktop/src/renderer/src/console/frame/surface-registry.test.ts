@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DuplicateRegistrationError } from "../core/index.js";
+import { DuplicateRegistrationError } from "../core/keyed-registry.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import {
   CONSOLE_SURFACE_SLOTS,

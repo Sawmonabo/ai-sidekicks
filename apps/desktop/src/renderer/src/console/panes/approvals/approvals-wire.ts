@@ -18,7 +18,7 @@
 //
 // The two brand widenings are `console/bridge/daemon-calls.ts`'s, not a third copy.
 
-import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
+import { callUnregisteredDaemonMethod, type ConsoleBridge } from "../../bridge/index.js";
 import {
   readApprovalProjection,
   readRememberedRuleList,
@@ -102,7 +102,7 @@ export async function readApprovals(
   sessionId: string,
 ): Promise<ParsedRows<ApprovalRecord>> {
   return readApprovalProjection(
-    await callDaemon(bridge, APPROVAL_PROJECTION_READ_METHOD, { sessionId }),
+    await callUnregisteredDaemonMethod(bridge, APPROVAL_PROJECTION_READ_METHOD, { sessionId }),
   );
 }
 
@@ -111,7 +111,7 @@ export async function resolveApproval(
   bridge: ConsoleBridge,
   request: ApprovalResolveRequest,
 ): Promise<void> {
-  await callDaemon(bridge, APPROVAL_RESOLVE_METHOD, request);
+  await callUnregisteredDaemonMethod(bridge, APPROVAL_RESOLVE_METHOD, request);
 }
 
 /** List standing permissions, revoked ones included, because this list IS the audit. */
@@ -120,11 +120,14 @@ export async function readRememberedRules(
   sessionId: string,
 ): Promise<ParsedRows<RememberedRule>> {
   return readRememberedRuleList(
-    await callDaemon(bridge, APPROVAL_RULE_LIST_METHOD, { sessionId, includeRevoked: true }),
+    await callUnregisteredDaemonMethod(bridge, APPROVAL_RULE_LIST_METHOD, {
+      sessionId,
+      includeRevoked: true,
+    }),
   );
 }
 
 /** Revoke one standing permission. */
 export async function revokeRememberedRule(bridge: ConsoleBridge, ruleId: string): Promise<void> {
-  await callDaemon(bridge, APPROVAL_RULE_REVOKE_METHOD, { ruleId });
+  await callUnregisteredDaemonMethod(bridge, APPROVAL_RULE_REVOKE_METHOD, { ruleId });
 }

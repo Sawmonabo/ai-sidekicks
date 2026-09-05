@@ -25,9 +25,14 @@
 // generated sheet and setting the scheme attribute — lives in
 // `frame/token-installation.ts`, where mounting already happens.
 
+// WHAT THE DOOR DOES NOT PUBLISH. A token nothing above this family renders with
+// is not a door symbol, whatever its module: `CONSOLE_SCHEMES` is the closed pair
+// the generated sheet is built from and every scheme-sweeping tier iterates, and
+// the two enumeration measurements below are read by the sheet generator alone.
+// Their readers are inside this family or in a tier, and both reach the module that
+// declares them.
 export type { ConsoleScheme, SchemePreference } from "./tokens.js";
 export {
-  CONSOLE_SCHEMES,
   PARTICIPANT_HUES,
   SCHEME_COLOR_TOKENS,
   SCHEME_PREFERENCES,
@@ -41,8 +46,6 @@ export {
 export {
   ATTRIBUTION_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
-  BOUNDED_ENUMERATION_MAX_ROWS,
-  ENUMERATION_ROW_HEIGHT_REM,
   MOTION_DURATIONS_MS,
   PARTICIPANT_HUE_STEPS,
 } from "./palette.js";
@@ -52,6 +55,6 @@ export { formatOklch } from "./color.js";
 export type { GlyphName } from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";
-export { ParticipantHueAllocator, RING_TREATMENTS } from "./participant-hue.js";
+export { ParticipantHueAllocator } from "./participant-hue.js";
 
 export { SCHEME_ATTRIBUTE, generateMeridianCss } from "./generate-css.js";

@@ -53,13 +53,13 @@ import {
   type RunControlAck,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
   RUN_INTERVENE_METHOD,
   RUN_PAUSE_METHOD,
   RUN_RESUME_METHOD,
-  callDaemon,
+  callUnregisteredDaemonMethod,
   type ConsoleBridge,
 } from "../../bridge/index.js";
 
@@ -227,7 +227,7 @@ export class RunControlDispatcher {
       return this.#unparseableRun(control);
     }
     try {
-      const reply = await callDaemon(this.#bridge, method, {
+      const reply = await callUnregisteredDaemonMethod(this.#bridge, method, {
         targetRunId: runId.data,
         expectedRunVersion: target.expectedRunVersion,
       });
@@ -277,7 +277,11 @@ export class RunControlDispatcher {
       };
     }
     try {
-      const reply = await callDaemon(this.#bridge, RUN_INTERVENE_METHOD, request.data);
+      const reply = await callUnregisteredDaemonMethod(
+        this.#bridge,
+        RUN_INTERVENE_METHOD,
+        request.data,
+      );
       const parsed = InterventionRequestResponseSchema.safeParse(reply);
       if (!parsed.success) {
         return this.#unreadableReply(control, "intervention response");
@@ -335,7 +339,7 @@ export function carriedRunControlRefusal(
   control: RunControl,
   rejection: unknown,
 ): RunControlOutcome {
-  const wireError = normalizeWireRejection(rejection, { total: true });
+  const wireError = wireRejectionToError(rejection, { total: true });
   return {
     kind: "refused",
     control,

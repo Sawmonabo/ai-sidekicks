@@ -50,7 +50,7 @@ import {
 import { ApprovalsReader, type ApprovalsSnapshot } from "./approvals-reader.js";
 import { APPROVAL_LIFECYCLE_EVENT_KINDS, APPROVAL_RULE_EVENT_KINDS } from "./approvals-wire.js";
 import { clearSessionGoal, updateSessionGoal } from "./session-goal.js";
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 
 /** The subsystem name every goal-mutation refusal this module raises carries. */
 export const SESSION_GOAL_REFUSAL_ORIGIN = "session-goal";
@@ -285,7 +285,7 @@ export function useSessionGoalMutation(
           if (!isMountedRef.current) {
             return;
           }
-          const wireError = normalizeWireRejection(rejection, { total: true });
+          const wireError = wireRejectionToError(rejection, { total: true });
           publishRefusal(refuse(SESSION_GOAL_REFUSAL_ORIGIN, wireError.name, wireError.message));
         })
         .finally(() => {

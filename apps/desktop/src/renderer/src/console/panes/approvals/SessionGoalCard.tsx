@@ -51,8 +51,8 @@ import {
 } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { useSessionScopedState, type ConsoleBridge } from "../../bridge/index.js";
-import { SESSION_GOAL_MAX_LENGTH } from "./approvals-bounds.js";
-import { sessionGoalTextSchema, type SessionGoalProjection } from "./session-goal.js";
+import { SESSION_GOAL_MAX_LENGTH, isSendableGoalText } from "../../bridge/index.js";
+import { type SessionGoalProjection } from "./session-goal.js";
 
 /**
  * The editor, which is either closed or open over one draft.
@@ -135,15 +135,14 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
   }, [goalRevision, publishEditor]);
 
   const submit = useCallback(() => {
-    const parsed = sessionGoalTextSchema.safeParse(draftText);
-    if (!parsed.success) {
+    if (!isSendableGoalText(draftText)) {
       return;
     }
-    props.onUpdate(parsed.data);
+    props.onUpdate(draftText);
   }, [draftText, props]);
 
-  const validation = sessionGoalTextSchema.safeParse(draftText);
-  const canSubmit = validation.success && !props.isMutating;
+  const isSendable = isSendableGoalText(draftText);
+  const canSubmit = isSendable && !props.isMutating;
 
   return (
     <section className="meridian-goal" aria-label="Session goal">
@@ -184,9 +183,11 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
             under the previous prompt, and where this session spans nodes a remote leg may run a
             turn under the previous goal until the change reaches it.
           </p>
-          {validation.success || draftText === "" ? null : (
+          {isSendable || draftText === "" ? null : (
+            // The console's own sentence and never the validator's, which quotes the
+            // value it rejected — and the value here is what a participant typed.
             <p className="meridian-goal__invalid" role="status">
-              {validation.error.issues[0]?.message ?? "This goal cannot be sent as written."}
+              This goal cannot be sent as written.
             </p>
           )}
           <div className="meridian-goal__actions">

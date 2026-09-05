@@ -1,0 +1,130 @@
+// A resource held per subject, and closed however the render that opened it ended.
+//
+// `subject-scoped-state.ts` holds one VALUE per subject and states what it
+// deliberately does not do: A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED.
+// Two window subsystems now seed one through that holder — a session-store registry
+// with its event binder, and an open IndexedDB connection — and the pairing they rely
+// on is correct only for the renders React keeps.
+//
+// THE HOLE IS THE RENDER REACT THROWS AWAY. Seeding runs DURING the render, because a
+// hook cannot be called conditionally and a resource that arrived one commit late
+// would mean a first render with nothing to read through. React may then discard that
+// pass — an interrupted concurrent render, a transition, a render-phase state
+// adjustment — and re-render at the previous subject. The holder is an external
+// mutable object, so the discarded pass really opened its resource and really
+// installed it; nothing committed it, so no effect ever closed over it, so nothing
+// would ever close it. The `useState` initializer this replaced had no such window,
+// because React owned the cell.
+//
+// SO THERE ARE TWO DISPOSAL MOMENTS, AND THEY ARE TWO DIFFERENT FACTS.
+//
+//   • A RESOURCE NO COMMIT SAW is closed the instant the holder drops it, inside the
+//     render that drops it. Nothing else ever will.
+//   • THE COMMITTED RESOURCE is closed by the effect that holds it, when the value
+//     that effect closed over is replaced or the mount ends. Closing it during a
+//     render would tear down what the frame on screen is still reading through — and
+//     that render may itself be the one React discards.
+//
+// WHICH OF THE TWO A DROPPED RESOURCE IS cannot be the holder's question. It knows a
+// value was replaced; only React knows whether the pass that replaced it went on to
+// commit. So the holder reports the drop, this module decides, and the decision is
+// written once rather than at each call site.
+//
+// WHAT THIS IS NOT. It is not a second holder — there is one, next door, and this
+// hook addresses it. It is not a pool or a cache: nothing here survives the subject it
+// was opened for, and a resource is opened again when a subject the surface left is
+// returned to.
+
+import { useEffect, useState } from "react";
+
+import { SubjectScopedHolder, type SubjectKey } from "./subject-scoped-holder.js";
+import { useHeldSubjectValue, type SubjectScopedState } from "./subject-scoped-state.js";
+
+/**
+ * Which resource the last commit saw, for the hook that has to close the rest.
+ *
+ * ONE PER MOUNT, held in state beside the holder. Nothing here is a rule about
+ * subjects — it is a rule about renders — which is why it lives outside the holder
+ * that has no idea one is happening.
+ */
+class SubjectScopedResourceLifetime<TResource> {
+  #close: (resource: TResource) => void;
+  #committed: { readonly resource: TResource } | undefined;
+
+  public constructor(close: (resource: TResource) => void) {
+    this.#close = close;
+  }
+
+  /**
+   * Close a resource the holder dropped that no commit ever saw.
+   *
+   * A bound property rather than a method, so the holder can be handed it on every
+   * render without a closure being minted for a call that almost never happens.
+   *
+   * The committed resource is deliberately NOT closed here: a live effect is holding
+   * it, and the render doing the dropping may itself be discarded, in which case that
+   * effect goes on holding it and this render never happened.
+   */
+  public readonly closeIfUncommitted = (dropped: TResource): void => {
+    if (this.#committed?.resource === dropped) {
+      return;
+    }
+    this.#close(dropped);
+  };
+
+  /**
+   * Record what this commit is holding, and answer the cleanup that closes it.
+   *
+   * The caller's disposal is re-read here rather than pinned at construction, so a
+   * caller whose `close` is minted per render disposes through its most recently
+   * committed one rather than through the first render's.
+   */
+  public commit(resource: TResource, close: (resource: TResource) => void): () => void {
+    this.#close = close;
+    this.#committed = { resource };
+    return () => {
+      this.#committed = undefined;
+      close(resource);
+    };
+  }
+}
+
+/**
+ * Hold one resource per `(subject, key)`, and close it however its render ended.
+ *
+ * {@link useSubjectScopedState}'s rule about the value, plus the half that hook
+ * deliberately leaves to its caller. `open` runs during the render that first sees a
+ * new subject, exactly as `initial` does; `close` is called at most once for each
+ * resource this hook produced, whether the render that produced it committed or was
+ * thrown away.
+ *
+ * WHY A HOOK RATHER THAN A FOURTH ARGUMENT AT EACH CALL SITE. The holder takes the
+ * discard callback either way — the question is who supplies it. Supplied per call
+ * site it is a closure minted on every render, and the steady path, where the subject
+ * has not moved and `address` returns after one comparison, is every render but the
+ * rare one; worse, the committed-versus-discarded decision would then be re-derived at
+ * each site, which is the drift this whole substrate exists to remove. Supplied here
+ * it is a bound property of one per-mount object, so the steady path allocates nothing
+ * beyond the `open` thunk the holder already required, and both call sites pass a
+ * declared `close` rather than an arrow.
+ *
+ * A resource a caller PUBLISHES is disposed on the same terms, by the effect, when the
+ * value it replaced retires — which is the one shape either caller uses: publishing is
+ * how a window replaces a resource that has already closed itself.
+ */
+export function useSubjectScopedResource<TResource>(
+  subject: object,
+  key: SubjectKey,
+  open: () => TResource,
+  close: (resource: TResource) => void,
+): SubjectScopedState<TResource> {
+  const [holder] = useState(() => new SubjectScopedHolder<TResource>());
+  const [lifetime] = useState(() => new SubjectScopedResourceLifetime<TResource>(close));
+  // During the render and before the value is read, for the reason the holder states:
+  // the pass that first sees a new subject already reads that subject's own resource.
+  holder.address(subject, key, open, lifetime.closeIfUncommitted);
+  const held = useHeldSubjectValue(holder, subject, key);
+  const { value } = held;
+  useEffect(() => lifetime.commit(value, close), [lifetime, value, close]);
+  return held;
+}

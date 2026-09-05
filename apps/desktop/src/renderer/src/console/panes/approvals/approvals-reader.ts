@@ -34,7 +34,7 @@ import {
 } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { RefreshScheduler, type RefreshReason } from "../../store/index.js";
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import { type ApprovalRecord, type RememberedRule } from "./approval-records.js";
 import {
   readApprovals,
@@ -284,7 +284,7 @@ function asRefusal(rejection: unknown): ConsoleRefusal {
   if (rejection instanceof ConsoleRefusalError) {
     return rejection.refusal;
   }
-  const wireError = normalizeWireRejection(rejection, { total: true });
+  const wireError = wireRejectionToError(rejection, { total: true });
   return refuse(APPROVALS_REFUSAL_ORIGIN, wireError.name, wireError.message);
 }
 

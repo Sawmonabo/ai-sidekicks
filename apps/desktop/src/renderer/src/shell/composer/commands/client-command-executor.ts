@@ -19,7 +19,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
 import type {
@@ -94,7 +94,7 @@ async function settleInvocation(
         // The command's own failure, carried rather than paraphrased. A command that
         // renders its own refusal has already done so; this is what keeps the LINE
         // from being cleared as though the act had succeeded.
-        const failure = normalizeWireRejection(cause, { total: true });
+        const failure = wireRejectionToError(cause, { total: true });
         return {
           status: "refused",
           refusal: clientCommandRefusal(

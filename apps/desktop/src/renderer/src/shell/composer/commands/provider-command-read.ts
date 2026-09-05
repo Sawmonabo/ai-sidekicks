@@ -16,11 +16,11 @@ import {
   type ProviderCommandBindingGroup,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 import {
   LIST_PROVIDER_COMMANDS_METHOD,
-  callDaemon,
+  callUnregisteredDaemonMethod,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
 
@@ -60,7 +60,7 @@ export async function settleEnumeration(
   agentId: string,
 ): Promise<ProviderCommandReadState> {
   try {
-    const reply = await callDaemon(bridge, LIST_PROVIDER_COMMANDS_METHOD, {
+    const reply = await callUnregisteredDaemonMethod(bridge, LIST_PROVIDER_COMMANDS_METHOD, {
       sessionId,
       agentId,
     });
@@ -81,7 +81,7 @@ export async function settleEnumeration(
     // The daemon's own refusal, under the daemon's own code. `driver.unavailable` is
     // the ordinary one here — an agent holding no live binding has nothing to
     // enumerate — and it reads as itself rather than as a console-invented sentence.
-    const wireError = normalizeWireRejection(rejection, { total: true });
+    const wireError = wireRejectionToError(rejection, { total: true });
     return {
       phase: "refused",
       refusal: refuse(PROVIDER_COMMAND_READ_ORIGIN, wireError.name, wireError.message),

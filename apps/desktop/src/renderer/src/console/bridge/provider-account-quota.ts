@@ -37,7 +37,7 @@ import {
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import {
   isConsoleRefusal,
   refuse,
@@ -47,7 +47,7 @@ import {
 import {
   PROVIDER_ACCOUNT_LIST_METHOD,
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
-  callDaemon,
+  callUnregisteredDaemonMethod,
   subscribeNodeDaemon,
 } from "./daemon-calls.js";
 import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
@@ -197,7 +197,7 @@ export class NodeProviderQuotaReading {
     const readOrdinal = this.#seedReadOrdinal;
     this.#notificationHold.begin();
 
-    void callDaemon(this.#bridge, PROVIDER_ACCOUNT_LIST_METHOD, {})
+    void callUnregisteredDaemonMethod(this.#bridge, PROVIDER_ACCOUNT_LIST_METHOD, {})
       .then((reply) => {
         if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
           return;
@@ -233,7 +233,7 @@ export class NodeProviderQuotaReading {
           return;
         }
         this.#replayHeldNotifications();
-        const wireError = normalizeWireRejection(rejection, { total: true });
+        const wireError = wireRejectionToError(rejection, { total: true });
         this.#settleRefused(
           refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message),
         );
@@ -408,6 +408,6 @@ function streamRefusalFor(rejection: unknown): ConsoleRefusal {
       return carried;
     }
   }
-  const wireError = normalizeWireRejection(rejection, { total: true });
+  const wireError = wireRejectionToError(rejection, { total: true });
   return refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message);
 }

@@ -1,8 +1,8 @@
 // The one number the posture chip spends, with its rationale.
 //
-// Kept beside `approvals-bounds.ts` rather than folded into it because the two
-// answer different questions: that module bounds what a participant may TYPE, and
-// this one is a reading threshold over what the daemon SENT.
+// Its own module rather than a line in some shared bounds file, because it answers a
+// different question from the goal bounds the bridge family holds: those bound what a
+// participant may TYPE, and this is a reading threshold over what the daemon SENT.
 
 /**
  * Allowed domains past which the list is called broad.

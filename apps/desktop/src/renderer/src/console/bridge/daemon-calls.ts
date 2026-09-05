@@ -26,7 +26,7 @@
 // WHY THE CALL SEAM IS TOTAL. The widening already claims the reply is `unknown`
 // and that the call may fail; a seam that could ALSO fail before returning a
 // promise would be two failure shapes for one call, and every caller would have to
-// handle both. So `callDaemon` is `async` — an `async` function's synchronous throw
+// handle both. So `callUnregisteredDaemonMethod` is `async` — an `async` function's synchronous throw
 // is already a rejection — and a bridge that throws in the caller's own frame
 // reaches the caller's `.catch` rather than escaping from a mount effect.
 
@@ -131,7 +131,7 @@ export const PROVIDER_ACCOUNT_SUBSCRIBE_STREAM = "providerAccount.subscribe";
  * so a non-`async` wrapper would invoke it in the caller's frame and every `.catch`
  * in the console would be unreachable against the one bridge that ships.
  */
-export async function callDaemon(
+export async function callUnregisteredDaemonMethod(
   bridge: ConsoleBridge,
   method: string,
   params: unknown,
@@ -181,7 +181,7 @@ export function subscribeNodeDaemon(
 }
 
 /**
- * The daemon subscription, widened the same way `callDaemon` is and taking the
+ * The daemon subscription, widened the same way `callUnregisteredDaemonMethod` is and taking the
  * registered request the wire's own registry pairs with the stream.
  *
  * WHAT HAPPENS TO THE REQUEST TODAY, EXACTLY. It is VALIDATED and HELD, and it is

@@ -32,7 +32,7 @@ import {
 import { ConsoleRefusalError } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
-  callDaemon,
+  callUnregisteredDaemonMethod,
   DAEMON_STREAM_REFUSAL_ORIGIN,
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   QUEUE_LIST_METHOD,
@@ -191,9 +191,9 @@ function synchronouslyThrowingBridge(): ConsoleBridge {
 describe("the call seam settles every failure as a rejection", () => {
   it("turns a bridge's synchronous throw into a rejected promise carrying that value", async () => {
     const bridge = synchronouslyThrowingBridge();
-    await expect(callDaemon(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID })).rejects.toBe(
-      TIER_ONE_STUB_REFUSAL,
-    );
+    await expect(
+      callUnregisteredDaemonMethod(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID }),
+    ).rejects.toBe(TIER_ONE_STUB_REFUSAL);
   });
 
   it("runs the caller's own catch rather than throwing out of the call", async () => {
@@ -201,7 +201,7 @@ describe("the call seam settles every failure as a rejection", () => {
     // and this is that path against the bridge that ships.
     const bridge = synchronouslyThrowingBridge();
     let caught: unknown;
-    await callDaemon(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID }).catch(
+    await callUnregisteredDaemonMethod(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID }).catch(
       (rejection: unknown) => {
         caught = rejection;
       },
@@ -232,9 +232,9 @@ describe("the call seam settles every failure as a rejection", () => {
       source: "live",
       scenarioEngine: undefined,
     } as unknown as ConsoleBridge;
-    await expect(callDaemon(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID })).rejects.toBe(
-      TIER_ONE_STUB_REFUSAL,
-    );
+    await expect(
+      callUnregisteredDaemonMethod(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID }),
+    ).rejects.toBe(TIER_ONE_STUB_REFUSAL);
   });
 
   it("passes a resolving bridge's reply through unchanged", async () => {
@@ -251,8 +251,8 @@ describe("the call seam settles every failure as a rejection", () => {
       source: "fixture",
       scenarioEngine: undefined,
     } as unknown as ConsoleBridge;
-    await expect(callDaemon(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID })).resolves.toBe(
-      reply,
-    );
+    await expect(
+      callUnregisteredDaemonMethod(bridge, QUEUE_LIST_METHOD, { sessionId: SESSION_ID }),
+    ).resolves.toBe(reply);
   });
 });

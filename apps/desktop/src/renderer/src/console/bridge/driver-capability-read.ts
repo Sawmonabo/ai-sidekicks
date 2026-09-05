@@ -63,7 +63,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { ListCapabilitiesResultSchema, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import {
   RefreshScheduler,
@@ -71,7 +71,7 @@ import {
   type RefreshReason,
   type SessionStore,
 } from "../store/index.js";
-import { DRIVER_LIST_CAPABILITIES_METHOD, callDaemon } from "./daemon-calls.js";
+import { DRIVER_LIST_CAPABILITIES_METHOD, callUnregisteredDaemonMethod } from "./daemon-calls.js";
 import { SessionRepairWatcher } from "./session-repair-watcher.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
@@ -181,7 +181,7 @@ class BridgeCapabilityRead {
   async #read(): Promise<void> {
     try {
       const parsed = ListCapabilitiesResultSchema.safeParse(
-        await callDaemon(this.#bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}),
+        await callUnregisteredDaemonMethod(this.#bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}),
       );
       if (!parsed.success) {
         // A reply the registered schema will not accept resolves no binding. The
@@ -209,7 +209,7 @@ class BridgeCapabilityRead {
         readRefusal: undefined,
       });
     } catch (rejection: unknown) {
-      const wireError = normalizeWireRejection(rejection, { total: true });
+      const wireError = wireRejectionToError(rejection, { total: true });
       this.#settle(
         refusedReadout(refuse(DRIVER_CAPABILITY_REFUSAL_ORIGIN, wireError.name, wireError.message)),
       );

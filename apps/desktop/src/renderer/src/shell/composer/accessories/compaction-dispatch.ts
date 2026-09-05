@@ -51,11 +51,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DriverCompactionResultSchema, type DriverCompactionResult } from "@ai-sidekicks/contracts";
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 import {
   COMPACT_CONTEXT_METHOD,
-  callDaemon,
+  callUnregisteredDaemonMethod,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
 
@@ -298,7 +298,7 @@ export async function settleCompaction(
   targetRunId: string,
 ): Promise<CompactionDispatchState> {
   try {
-    const reply = await callDaemon(bridge, COMPACT_CONTEXT_METHOD, {
+    const reply = await callUnregisteredDaemonMethod(bridge, COMPACT_CONTEXT_METHOD, {
       sessionId,
       runId: targetRunId,
     });
@@ -311,11 +311,11 @@ export async function settleCompaction(
     }
     return { phase: "settled", result: parsed.data };
   } catch (rejection) {
-    const wireError = normalizeWireRejection(rejection, { total: true });
+    const wireError = wireRejectionToError(rejection, { total: true });
     return {
       phase: "rejected",
       // `Error.name` carries the wire code when the rejection was a typed envelope
-      // — that is what `normalizeWireRejection` puts there — so the refusal renders
+      // — that is what `wireRejectionToError` puts there — so the refusal renders
       // `driver.capability_unsupported: …` rather than a class name nobody can
       // search for. The message is the daemon's own and is never reworded.
       refusal: refuse(COMPACTION_REFUSAL_ORIGIN, wireError.name, wireError.message),

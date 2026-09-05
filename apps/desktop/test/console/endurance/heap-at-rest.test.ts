@@ -46,9 +46,11 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { fixtureBundleExists, launchConsole } from "../electron-harness.js";
+import { withLaunchedConsole } from "../electron-harness.js";
+import { fixtureBundleExists } from "../fixture-bundle.js";
 import {
   deliverWholeScenario,
+  ENDURANCE_LAUNCH_OPTIONS,
   expectFlagshipSessionCarriesContent,
   openFlagshipSessionRoute,
   readSettledHeapBytes,
@@ -97,8 +99,7 @@ describe("the renderer heap-at-rest budget row", () => {
 
 describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one session open", () => {
   it("holds the renderer heap under the budget's ceiling", async () => {
-    const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
-    try {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       await openFlagshipSessionRoute(consoleApplication);
       const deliveredBeatCount = await deliverWholeScenario(consoleApplication);
       expect(
@@ -131,8 +132,6 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
       expect(
         evaluateBudget(budgetWithCeilingBelow(atRestHeapBytes), atRestHeapBytes).withinBudget,
       ).toBe(false);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 });

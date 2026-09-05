@@ -79,7 +79,7 @@ import {
   type QueueItemSummary,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import {
   isConsoleRefusal,
   refuse,
@@ -90,7 +90,7 @@ import {
   QUEUE_CANCEL_METHOD,
   QUEUE_LIST_METHOD,
   QUEUE_SUBSCRIBE_STREAM,
-  callDaemon,
+  callUnregisteredDaemonMethod,
   subscribeDaemon,
 } from "./daemon-calls.js";
 import { QueueOrder } from "./queue-order.js";
@@ -154,7 +154,7 @@ function streamRefusalFor(rejection: unknown): ConsoleRefusal {
       return carried;
     }
   }
-  const wireError = normalizeWireRejection(rejection, { total: true });
+  const wireError = wireRejectionToError(rejection, { total: true });
   return refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message);
 }
 
@@ -266,7 +266,9 @@ export class SessionQueueReading {
       return;
     }
 
-    void callDaemon(this.#bridge, QUEUE_LIST_METHOD, { sessionId: this.#sessionId })
+    void callUnregisteredDaemonMethod(this.#bridge, QUEUE_LIST_METHOD, {
+      sessionId: this.#sessionId,
+    })
       .then((reply) => {
         if (!this.#isOpen) {
           return;
@@ -295,7 +297,7 @@ export class SessionQueueReading {
         if (!this.#isOpen) {
           return;
         }
-        const wireError = normalizeWireRejection(rejection, { total: true });
+        const wireError = wireRejectionToError(rejection, { total: true });
         this.#settleRefused(refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));
       });
   }
@@ -317,7 +319,7 @@ export class SessionQueueReading {
     }
     this.#pendingCancelIds = withId(this.#pendingCancelIds, queueItemId);
     this.#publish();
-    void callDaemon(this.#bridge, QUEUE_CANCEL_METHOD, { queueItemId })
+    void callUnregisteredDaemonMethod(this.#bridge, QUEUE_CANCEL_METHOD, { queueItemId })
       .then(() => {
         // Deliberately nothing to the list. The reply confirms the request; the
         // row's state changes when the tail says the daemon changed it.
@@ -325,7 +327,7 @@ export class SessionQueueReading {
         this.#publish();
       })
       .catch((rejection: unknown) => {
-        const wireError = normalizeWireRejection(rejection, { total: true });
+        const wireError = wireRejectionToError(rejection, { total: true });
         this.#pendingCancelIds = withoutId(this.#pendingCancelIds, queueItemId);
         const next = new Map(this.#cancelRefusalByItemId);
         next.set(queueItemId, refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));

@@ -1,0 +1,55 @@
+/*
+ * The partial-read notice: a reading that arrived and is not the whole of it.
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 (this box
+ * wears neither hue) and rule 8 (an absence is not a short answer).
+ *
+ * DELIBERATELY NEITHER HUE. Rule 3 gives amber to "a person is needed" and red to
+ * "something failed", and this box is neither: the rows beneath it are the best
+ * reading there is, and what the notice withdraws is only the claim that they are
+ * all of it. Where a refusal named the cause it is nested inside and carries the red
+ * itself, which is the one place a hue belongs here. A dotted boundary is not used
+ * either — that treatment is `not-checked`'s, and borrowing it would collapse
+ * "nobody asked" into "the answer is short", which is the conflation rule 8 exists
+ * to prevent.
+ *
+ * Above the rows and inside their measure, so it reads as a qualification of the
+ * list rather than as a banner about the room.
+ */
+.meridian-partial-read {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-block-end: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-partial-read__copy {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.45;
+}
+
+/*
+ * The nested refusal sits flush under the sentence: `InlineRefusal` carries its own
+ * leading margin for the control it usually sits beside, and inside this box the
+ * sentence above is the spacing.
+ */
+.meridian-partial-read .meridian-refusal--inline {
+  margin-block-start: 0;
+}

@@ -18,12 +18,14 @@
 // the prior goal until the event lands. A degraded driver result is not an
 // acknowledgement and takes the refusal path.
 
-import { z } from "zod";
-import { EVENT_ENVELOPE_SEQUENCE_MAX } from "@ai-sidekicks/contracts";
-
-import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
+import { compareInstants, parseInstant } from "../../core/index.js";
+import {
+  callUnregisteredDaemonMethod,
+  readGoalOriginKeys,
+  readGoalPayloadText,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
-import { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "./approvals-bounds.js";
 
 /** Set the goal. Carries the goal; an absent one is malformed, not a clear. */
 export const SESSION_GOAL_UPDATE_METHOD = "session.goalUpdate";
@@ -39,27 +41,6 @@ const GOAL_EVENT_KINDS: ReadonlySet<string> = new Set<string>(SESSION_GOAL_EVENT
 
 /** The clearing arm, derived rather than restated, so the two kinds are declared once. */
 const [, SESSION_GOAL_CLEARED_EVENT_KIND] = SESSION_GOAL_EVENT_KINDS;
-
-/** The code point the bound rejects, written as an escape so no file carries one. */
-const NUL_CODE_POINT = "\u0000";
-
-/**
- * What a valid goal is, refused client-side on the daemon's own rule.
- *
- * A `refine` rather than `trim().min(1)` because the value SENT is what the
- * participant typed: trimming before validating would silently send text they did
- * not write, and the console never rewrites a bounded field to make it fit. The NUL
- * rejection is explicit for the same reason — a control character that survived to
- * the daemon would come back as a refusal a person cannot act on.
- */
-export const sessionGoalTextSchema: z.ZodType<string> = z
-  .string()
-  .min(SESSION_GOAL_MIN_LENGTH)
-  .max(SESSION_GOAL_MAX_LENGTH)
-  .refine((text) => text.trim().length > 0, { message: "A goal cannot be blank." })
-  .refine((text) => !text.includes(NUL_CODE_POINT), {
-    message: "A goal cannot contain a NUL character.",
-  });
 
 /**
  * Which log entry a goal projection was read from.
@@ -96,31 +77,6 @@ export type SessionGoalProjection =
   | { readonly status: "set"; readonly text: string; readonly revision: string }
   /** A goal event landed and its payload did not carry a readable goal. */
   | { readonly status: "unreadable"; readonly revision: string };
-
-const goalPayloadSchema = z.object({ goal: z.object({ text: z.string() }) });
-
-/**
- * The origin keys the accepting daemon stamps on every goal payload.
- *
- * `originNodeId` is the daemon that accepted the mutation and `originSeq` is that
- * daemon's own per-session append position for the event — the durable pair the
- * event taxonomy puts on both goal payloads. They are read through a schema rather
- * than off the record by hand because the projected payload is `unknown` at this
- * boundary: a hand-shaped read would take a string sequence, a fractional one, or
- * an empty node id as an order and rank on it.
- *
- * `originSeq` takes the envelope sequence's own injectivity ceiling, imported from
- * the contract rather than restated, so a value this fold could not tell apart from
- * its neighbour is not read as an order at all.
- *
- * A payload that does not carry the pair parses `false` here. That is not an error
- * — an event appended before the keys existed carries neither — and such an event
- * folds through the single envelope-ordered slot below.
- */
-const goalOriginKeysSchema = z.object({
-  originNodeId: z.string().min(1),
-  originSeq: z.number().int().nonnegative().max(EVENT_ENVELOPE_SEQUENCE_MAX),
-});
 
 /** One origin's latest goal event, with the position that made it latest. */
 interface OriginGoalCandidate {
@@ -167,10 +123,10 @@ export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): Sessi
   if (winner === undefined || winner.kind === SESSION_GOAL_CLEARED_EVENT_KIND) {
     return { status: "none", revision };
   }
-  const parsed = goalPayloadSchema.safeParse(winner.payload);
-  return parsed.success
-    ? { status: "set", text: parsed.data.goal.text, revision }
-    : { status: "unreadable", revision };
+  const text = readGoalPayloadText(winner.payload);
+  return text === undefined
+    ? { status: "unreadable", revision }
+    : { status: "set", text, revision };
 }
 
 /**
@@ -184,10 +140,10 @@ function goalRevisionOf(winner: ConsoleSessionEvent | undefined): string {
   if (winner === undefined) {
     return UNSET_GOAL_REVISION;
   }
-  const originKeys = goalOriginKeysSchema.safeParse(winner.payload);
-  return originKeys.success
-    ? `${ORIGIN_KEYED_REVISION_PREFIX}${String(originKeys.data.originSeq)}:${originKeys.data.originNodeId}`
-    : `${ENVELOPE_KEYED_REVISION_PREFIX}${winner.id}`;
+  const originKeys = readGoalOriginKeys(winner.payload);
+  return originKeys === undefined
+    ? `${ENVELOPE_KEYED_REVISION_PREFIX}${winner.id}`
+    : `${ORIGIN_KEYED_REVISION_PREFIX}${String(originKeys.originSeq)}:${originKeys.originNodeId}`;
 }
 
 /** Stage one per origin, then stage two across the origins' winners. */
@@ -200,14 +156,14 @@ function selectLatestGoalEvent(
     if (!GOAL_EVENT_KINDS.has(entry.kind)) {
       continue;
     }
-    const originKeys = goalOriginKeysSchema.safeParse(entry.payload);
-    if (!originKeys.success) {
+    const originKeys = readGoalOriginKeys(entry.payload);
+    if (originKeys === undefined) {
       if (unkeyedCandidate === undefined || compareByEnvelope(entry, unkeyedCandidate) > 0) {
         unkeyedCandidate = entry;
       }
       continue;
     }
-    const { originNodeId, originSeq } = originKeys.data;
+    const { originNodeId, originSeq } = originKeys;
     const held = latestPerOrigin.get(originNodeId);
     if (held === undefined || outranksWithinOrigin(entry, originSeq, held)) {
       latestPerOrigin.set(originNodeId, { event: entry, originSeq });
@@ -249,15 +205,20 @@ function outranksWithinOrigin(
  * rather than to arrival.
  */
 function compareByEnvelope(left: ConsoleSessionEvent, right: ConsoleSessionEvent): number {
-  const leftInstant = Date.parse(left.occurredAt);
-  const rightInstant = Date.parse(right.occurredAt);
-  const leftIsReadable = !Number.isNaN(leftInstant);
-  const rightIsReadable = !Number.isNaN(rightInstant);
+  const leftInstant = parseInstant(left.occurredAt);
+  const rightInstant = parseInstant(right.occurredAt);
+  const leftIsReadable = leftInstant.kind !== "malformed";
+  const rightIsReadable = rightInstant.kind !== "malformed";
+  // The one place this comparator disagrees with the shared order, and it disagrees
+  // on purpose: `compareInstants` ranks a malformed stamp LAST in either direction,
+  // which is right for a list a person reads and wrong for a fold that must not let
+  // an unreadable stamp overwrite a reading the console knows is real.
   if (leftIsReadable !== rightIsReadable) {
     return leftIsReadable ? 1 : -1;
   }
-  if (leftIsReadable && rightIsReadable && leftInstant !== rightInstant) {
-    return leftInstant > rightInstant ? 1 : -1;
+  const ranked = compareInstants(leftInstant, rightInstant, "oldest-first");
+  if (ranked !== 0) {
+    return ranked;
   }
   if (left.id === right.id) {
     return 0;
@@ -271,10 +232,13 @@ export async function updateSessionGoal(
   sessionId: string,
   text: string,
 ): Promise<void> {
-  await callDaemon(bridge, SESSION_GOAL_UPDATE_METHOD, { sessionId, goal: { text } });
+  await callUnregisteredDaemonMethod(bridge, SESSION_GOAL_UPDATE_METHOD, {
+    sessionId,
+    goal: { text },
+  });
 }
 
 /** Clear the session's goal. The distinct operation. */
 export async function clearSessionGoal(bridge: ConsoleBridge, sessionId: string): Promise<void> {
-  await callDaemon(bridge, SESSION_GOAL_CLEAR_METHOD, { sessionId });
+  await callUnregisteredDaemonMethod(bridge, SESSION_GOAL_CLEAR_METHOD, { sessionId });
 }
