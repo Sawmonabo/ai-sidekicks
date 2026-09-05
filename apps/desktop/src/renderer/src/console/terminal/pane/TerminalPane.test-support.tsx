@@ -15,7 +15,9 @@ import { fixtureSessionSnapshot } from "../../bridge/fixture-session-snapshot.js
 import { growthUnavailable } from "../../bridge/growth-port.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
+import { DraftStore, UiStateStore } from "../../persistence/index.js";
+import type { PaneContextOf } from "../../seats/index.js";
+import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
@@ -197,17 +199,44 @@ export function paneRegionOf(container: HTMLElement): HTMLElement {
   return region;
 }
 
+/** The pane a suite mounts under when which pane it is is not the subject. */
+const DEFAULT_TEST_PANE_ID = "pane-terminal";
+
+/**
+ * The context the deck hands this pane, built once for every suite that mounts it.
+ *
+ * Exported because two suites outside this module mount the pane themselves rather
+ * than through `renderPane` — the output subscription's rebind cases, which need the
+ * `rerender` this function does not hand back, and the browser tier's box measurement,
+ * which mounts the pane inside a sized slot — and a per-suite copy would be a second
+ * answer to which members the `terminal` arm carries.
+ */
+export function terminalPaneContext(
+  sessionStore: SessionStore | undefined,
+  consoleBridge: ConsoleBridge = paneBridge(),
+): PaneContextOf<"terminal"> {
+  return {
+    // No `entity` member at all: the `terminal` address is session-scoped, so the
+    // kind's arm of the union carries none and an `undefined` one would be a
+    // reference this pane is documented never to be a view of.
+    kind: "terminal",
+    paneId: DEFAULT_TEST_PANE_ID,
+    bridge: consoleBridge,
+    frameStore: new FrameStore(),
+    sessionStore,
+    uiStateStore: UiStateStore.opening(),
+    draftStore: new DraftStore(),
+    linkedSourcePaneId: undefined,
+    focusHue: undefined,
+  };
+}
+
 export function renderPane(
   sessionStore: SessionStore | undefined,
   consoleBridge: ConsoleBridge = paneBridge(),
 ): HTMLElement {
   const { container } = render(
-    <TerminalPane
-      paneId="pane-terminal"
-      bridge={consoleBridge}
-      sessionStore={sessionStore}
-      focusHue={undefined}
-    />,
+    <TerminalPane {...terminalPaneContext(sessionStore, consoleBridge)} />,
   );
   return paneRegionOf(container);
 }

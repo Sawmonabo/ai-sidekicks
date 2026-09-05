@@ -50,7 +50,6 @@ import {
 } from "./bounded-cleanup.js";
 import { cleanupFailure, withCleanupOutcome, withProfileRemoval } from "./cleanup-disposition.js";
 import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
-import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
 import { BodyAllowance, withBoundedBody } from "./launch-body.js";
 import {
   LAUNCH_BUDGET_MS,
@@ -59,6 +58,8 @@ import {
   readinessFailure,
 } from "./launch-deadline.js";
 import { createLaunchProfile, removeLaunchProfile } from "./launch-profile.js";
+import { awaitPaintingConsoleWindow } from "./launch-readiness.js";
+import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
 
 /**
  * The environment variable the built main process reads a scenario id from.
@@ -70,21 +71,6 @@ import { createLaunchProfile, removeLaunchProfile } from "./launch-profile.js";
  * either side fails that tier rather than quietly selecting nothing.
  */
 const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
-
-/**
- * The prefix every launch breadcrumb carries.
- *
- * One tag, so a CI log is greppable for the whole set: a tier that failed on a
- * late first frame is diagnosable only if the passing launches printed what
- * their own first frame cost. The smoke test's boot fix records the same shape
- * for the same runner (`[SIDEKICKS_SMOKE_READY]`); this one is unconditional
- * rather than opt-in, because a breadcrumb nobody enabled is a breadcrumb nobody
- * has when the run they need it for has already finished.
- *
- * Lower-case and bracketed rather than the smoke tag's shouted form: that one is
- * parsed by a scanner and this one is only read.
- */
-const LAUNCH_TRACE_TAG = "[sidekicks-console-launch]";
 
 /** What a settled launch produces, before the body's own allowance is minted. */
 interface LaunchedConsole {
@@ -151,7 +137,29 @@ export interface LaunchConsoleOptions {
    * that same row (`tierTimeoutFor`, `vitest.config.ts`).
    */
   readonly bodyAllowanceMs?: number;
+  /**
+   * Whether this launch needs `performance.memory` to be a MEASUREMENT.
+   *
+   * At Blink's default precision `usedJSHeapSize` is quantized into buckets and
+   * served from a long-interval cache rather than read at the moment it is asked
+   * for, which is fine for a coarse sanity check and useless for a tier whose
+   * gated figures are differences of two readings taken seconds apart. A named
+   * option rather than a caller-spelled argument list, so the flag string lives in
+   * one place and a tier states what it NEEDS instead of how Chromium spells it.
+   *
+   * Off by default: the flag makes every read walk the heap, which is a cost no
+   * tier that does not measure one should pay.
+   */
+  readonly isPreciseHeapReadingRequired?: boolean;
 }
+
+/**
+ * What Chromium calls the precise-heap switch.
+ *
+ * One home, and named beside the option that asks for it: a second spelling in a
+ * tier would be a launch that silently kept the bucketized instrument.
+ */
+const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
 
 /**
  * Launch the built console and wait for its first window.
@@ -182,7 +190,11 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
   let application: ElectronApplication;
   try {
     application = await electron.launch({
-      args: [`--user-data-dir=${profile.directory}`, MAIN_ENTRY_PATH],
+      args: [
+        `--user-data-dir=${profile.directory}`,
+        ...(options.isPreciseHeapReadingRequired === true ? [PRECISE_MEMORY_INFO_FLAG] : []),
+        MAIN_ENTRY_PATH,
+      ],
       env: {
         ...process.env,
         ...options.env,
@@ -256,75 +268,7 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
   };
 
   try {
-    let window: Page;
-    let visibilityState: string;
-    try {
-      // READINESS FIRST, THEN THE FRAME QUESTION. Every wait here draws from the
-      // COLD-START budget rather than the frame budget, and that split is the fix
-      // for the flake this harness used to produce: a slow boot is charged to the
-      // thing that is slow, and the frame witness is armed only once the renderer
-      // has said it is ready. The signals, in the order the renderer reaches them:
-      //
-      //   • the first window — the Electron process got as far as opening one.
-      //   • `load` — the document and its subresources are in. Cheap, and it can
-      //     land AFTER React has mounted, so it is not implied by the selector.
-      //   • the frame element, not `domcontentloaded`: the document exists before
-      //     React has mounted anything, so waiting on the document alone would let
-      //     a test assert against an empty body and call it a pass.
-      //
-      // Each takes what the deadline has LEFT, so the four of them cost the
-      // budget once between them instead of once each.
-      window = await application.firstWindow({
-        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
-      });
-      await window.waitForLoadState("load", {
-        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
-      });
-      await window.waitForSelector(".meridian-frame", {
-        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
-      });
-      // Read through the deadline because `evaluate` carries no timeout of its
-      // own and ignores Playwright's default one: a renderer whose main thread is
-      // wedged would leave this round trip pending until the tier gave up, which
-      // is the undiagnosable failure the witness below exists to replace.
-      visibilityState = await deadline.settleWithin(
-        window.evaluate(() => document.visibilityState),
-        "the renderer visibility read",
-        POST_READINESS_RESERVE_MS,
-      );
-    } catch (error: unknown) {
-      throw readinessFailure(deadline, error);
-    }
-    // A measurement from a throttled renderer is a false one. The window is
-    // never revealed on macOS and revealed inactive elsewhere, so Chromium would
-    // by default throttle its timers and frames and report the document hidden
-    // — unless the build switched background throttling off for this launch.
-    // The tiers assert the state they measure in rather than trust it, twice:
-    // what the document REPORTS, and whether frames actually ARRIVE, since the
-    // first is a flag and the second is the thing the endurance tier times.
-    if (visibilityState !== "visible") {
-      throw new Error(
-        `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
-          "nothing measured in it would describe the console; the launched build must honour " +
-          `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
-      );
-    }
-    const frames = await new FrameWitness(rendererFrameSource(window)).witness();
-    if (!frames.painting) {
-      throw new Error(
-        `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +
-          "signalling ready, so it is not painting and nothing timed in it would describe the " +
-          "console; an unrevealed window paints only with background throttling off " +
-          "(src/main/window-reveal.ts)",
-      );
-    }
-    // Printed on EVERY launch, passing ones included. The bound above can only
-    // be re-derived from figures a real runner produced, and a figure that is
-    // printed only when it is already too late is no evidence at all.
-    console.error(
-      `${LAUNCH_TRACE_TAG} first frame ${String(Math.round(frames.frameIntervalMs))} ms in-renderer, ` +
-        `${String(frames.waitedMs)} ms driver-side, against a ${String(frames.budgetMs)} ms bound`,
-    );
+    const window = await awaitPaintingConsoleWindow(application, deadline);
     return { application, window, close };
   } catch (error: unknown) {
     // `close()` rejects on abnormal cleanup, and here that rejection must NOT
@@ -362,31 +306,4 @@ export async function withLaunchedConsole<TResult>(
   const bodyAllowance = new BodyAllowance(options.bodyAllowanceMs);
   const consoleApplication: ConsoleApplication = { ...launched, bodyAllowance };
   return await withBoundedBody(launched, bodyAllowance, async () => await body(consoleApplication));
-}
-
-/**
- * The Playwright implementation of the witness's seam.
- *
- * The interval is timed INSIDE the renderer, by `performance.now()` either side
- * of the two callbacks, so the figure the harness prints is the frame schedule
- * itself rather than the frame schedule plus a CDP round trip on a loaded
- * runner. The witness separately records the driver-side wall time, so a launch
- * where the two disagree says which half was slow — which is the diagnosis the
- * old single number could not give.
- */
-function rendererFrameSource(window: Page): RendererFrameSource {
-  return {
-    awaitTwoFrames: () =>
-      window.evaluate(
-        () =>
-          new Promise<number>((resolveInterval) => {
-            const requestedAt = performance.now();
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                resolveInterval(performance.now() - requestedAt);
-              });
-            });
-          }),
-      ),
-  };
 }

@@ -1,10 +1,19 @@
-// The two participants and the one transition builder the fold's suites share.
+// The two participants and the two event builders every lease suite shares.
 //
-// Both suites drive `projectTerminalLease` over an ordering of transitions, so both
-// need to author one — and two copies of an event builder is two ideas of what a
-// well-formed `pty.control_changed` looks like, which on this fold is exactly the
-// distinction under test: the malformed-shape cases are only meaningful against a
-// builder whose default IS well formed.
+// The directory's one home for both, and it has to be one: the reader, the fold, the
+// line, and the acquisition rule all name the same two participants, and every suite
+// that drives the reader or the fold authors a `pty.control_changed` event. Written
+// per suite, the cast came out under three spellings for two identities — one file's
+// `OTHER` was the neighbouring file's `HOLDER` — and the builder came out twice with
+// different signatures, which on this fold is exactly the distinction under test: the
+// malformed-shape cases are only meaningful against a builder whose default IS well
+// formed.
+//
+// TWO BUILDERS AND ONE IMPLEMENTATION. The reader's suites hand a payload straight in,
+// because what they are about is a payload this build cannot read; the fold's hand in
+// the members of a well-formed transition. So the structured one is expressed over the
+// raw one rather than beside it, and there is a single answer to what an event's id,
+// session, and instant look like.
 
 import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
@@ -19,15 +28,19 @@ import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
  * wire-declared UUIDs. Reading them off the join log keeps the family's fixtures saying
  * one thing about what a participant id is.
  */
-export const VIEWER: string = TERMINAL_SCENARIO_CAST.owner;
-export const OTHER: string = TERMINAL_SCENARIO_CAST.collaborator;
+export const VIEWER_PARTICIPANT: string = TERMINAL_SCENARIO_CAST.owner;
+export const OTHER_PARTICIPANT: string = TERMINAL_SCENARIO_CAST.collaborator;
 
-export function transitionEvent(
+/**
+ * A `pty.control_changed` carrying exactly the payload a case hands it.
+ *
+ * The reader's shape: its suites are about payloads this build cannot read, so the
+ * member set is the case's to decide and an absent payload is one of the cases.
+ */
+export function leaseEventWithPayload(
   sequence: number,
-  reason: string,
-  holderParticipantId: string | null,
-  previousHolderParticipantId: string | null = null,
-  actorId: string | undefined = holderParticipantId ?? undefined,
+  payload: Record<string, unknown> | undefined,
+  actorId: string | undefined = OTHER_PARTICIPANT,
 ): ConsoleSessionEvent {
   return {
     // Distinct per position, and readable rather than UUID-shaped: the fold reads this
@@ -40,6 +53,26 @@ export function transitionEvent(
     kind: TERMINAL_LEASE_EVENT_KIND,
     occurredAt: `2026-01-01T16:40:0${String(sequence % 10)}.000Z`,
     ...(actorId === undefined ? {} : { actorId }),
-    payload: { holderParticipantId, previousHolderParticipantId, reason },
+    ...(payload === undefined ? {} : { payload }),
   };
+}
+
+/**
+ * A well-formed transition, from the members a caller means to vary.
+ *
+ * The fold's shape, and the default that makes the malformed cases mean something:
+ * a caller changing one member is changing one member of an event the reader accepts.
+ */
+export function transitionEvent(
+  sequence: number,
+  reason: string,
+  holderParticipantId: string | null,
+  previousHolderParticipantId: string | null = null,
+  actorId: string | undefined = holderParticipantId ?? undefined,
+): ConsoleSessionEvent {
+  return leaseEventWithPayload(
+    sequence,
+    { holderParticipantId, previousHolderParticipantId, reason },
+    actorId,
+  );
 }

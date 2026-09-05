@@ -33,7 +33,7 @@
 
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 
-import { readNodeState } from "../../bridge/node-state-read.js";
+import { readNodeState } from "../../bridge/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import type { TerminalHoldingNodeReading } from "../lease/lease-model.js";
 

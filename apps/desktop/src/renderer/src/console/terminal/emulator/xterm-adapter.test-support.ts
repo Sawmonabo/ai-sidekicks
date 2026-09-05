@@ -17,7 +17,7 @@
 // instance built here settles on the DOM renderer — which is exactly the fallback path
 // the pool's cap and the context-loss handler both lead to, so it is the arm worth
 // exercising by default. The one path it cannot reach is a renderer that ACTIVATES,
-// and that is `webgl-context-loss.test-support.ts`'s, which stands the addon in.
+// and that is `webgl-fallback.test-support.ts`'s, which stands the addon in.
 
 import { vi } from "vitest";
 

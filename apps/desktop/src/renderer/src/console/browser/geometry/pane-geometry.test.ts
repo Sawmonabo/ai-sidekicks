@@ -14,10 +14,7 @@ import {
   roundPaneRect,
   type PaneRect,
 } from "./pane-geometry.js";
-
-function rect(x: number, y: number, width: number, height: number): PaneRect {
-  return { x, y, width, height };
-}
+import { rect } from "./geometry-publisher.test-support.js";
 
 describe("intersectRects", () => {
   it("returns the overlap of two rectangles", () => {

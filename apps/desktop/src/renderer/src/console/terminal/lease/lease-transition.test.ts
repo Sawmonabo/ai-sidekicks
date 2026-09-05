@@ -15,10 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
-import type { ConsoleSessionEvent } from "../../store/index.js";
 import {
-  TERMINAL_LEASE_EVENT_KIND,
   TERMINAL_LEASE_TRANSITION_REASONS,
   asTerminalLeaseTransitionReason,
   readTerminalLeaseTransition,
@@ -27,74 +24,64 @@ import {
   type TerminalLeaseTransition,
   type TerminalLeaseTransitionReason,
 } from "./lease-transition.js";
+import {
+  OTHER_PARTICIPANT,
+  VIEWER_PARTICIPANT,
+  leaseEventWithPayload,
+} from "./lease-model.test-support.js";
 
-/**
- * Two participants, taken from the scenario rather than written down.
- *
- * The reader treats a participant id as an opaque string, so a readable placeholder
- * would pass every case here — and would be the one participant id in this family
- * that no daemon could ever emit, sitting beside beats the scenario deliberately
- * moved onto wire-declared UUIDs.
- */
-const VIEWER = TERMINAL_SCENARIO_CAST.owner;
-const OTHER = TERMINAL_SCENARIO_CAST.collaborator;
-
-function transitionEvent(payload: Record<string, unknown> | undefined): ConsoleSessionEvent {
-  return {
-    id: "event-1",
-    sessionId: "session-terminal",
-    sequence: 1,
-    kind: TERMINAL_LEASE_EVENT_KIND,
-    occurredAt: "2026-01-01T16:40:01.000Z",
-    actorId: OTHER,
-    ...(payload === undefined ? {} : { payload }),
-  };
-}
+/** Every event below sits at the same position; what varies is the payload on it. */
+const READER_EVENT_SEQUENCE = 1;
 
 function transitionOf(reason: TerminalLeaseTransitionReason): TerminalLeaseTransition {
   return {
     sequence: 1,
     occurredAtIso: "2026-01-01T16:40:00.000Z",
     reason,
-    holderParticipantId: reason === "taken" ? OTHER : null,
-    previousHolderParticipantId: reason === "taken" ? null : OTHER,
-    actorId: OTHER,
+    holderParticipantId: reason === "taken" ? OTHER_PARTICIPANT : null,
+    previousHolderParticipantId: reason === "taken" ? null : OTHER_PARTICIPANT,
+    actorId: OTHER_PARTICIPANT,
   };
 }
 
 describe("reading one transition — the holder is the wire's, and both halves agree", () => {
   it("reads a take, carrying the holder and the previous holder the payload named", () => {
     const transition = readTerminalLeaseTransition(
-      transitionEvent({
+      leaseEventWithPayload(READER_EVENT_SEQUENCE, {
         reason: "taken",
-        holderParticipantId: OTHER,
-        previousHolderParticipantId: VIEWER,
+        holderParticipantId: OTHER_PARTICIPANT,
+        previousHolderParticipantId: VIEWER_PARTICIPANT,
       }),
     );
     expect(transition?.reason).toBe("taken");
-    expect(transition?.holderParticipantId).toBe(OTHER);
-    expect(transition?.previousHolderParticipantId).toBe(VIEWER);
+    expect(transition?.holderParticipantId).toBe(OTHER_PARTICIPANT);
+    expect(transition?.previousHolderParticipantId).toBe(VIEWER_PARTICIPANT);
     expect(transition?.sequence).toBe(1);
-    expect(transition?.actorId).toBe(OTHER);
+    expect(transition?.actorId).toBe(OTHER_PARTICIPANT);
   });
 
   it("reads a release as naming nobody, which is the free lease explicitly", () => {
     const transition = readTerminalLeaseTransition(
-      transitionEvent({
+      leaseEventWithPayload(READER_EVENT_SEQUENCE, {
         reason: "released",
         holderParticipantId: null,
-        previousHolderParticipantId: OTHER,
+        previousHolderParticipantId: OTHER_PARTICIPANT,
       }),
     );
     expect(transition?.holderParticipantId).toBeNull();
-    expect(transition?.previousHolderParticipantId).toBe(OTHER);
+    expect(transition?.previousHolderParticipantId).toBe(OTHER_PARTICIPANT);
   });
 
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
     // The expensive direction: a shell the daemon has just handed to someone, offered
     // as one anybody may claim.
     expect(
-      readTerminalLeaseTransition(transitionEvent({ reason: "taken", holderParticipantId: null })),
+      readTerminalLeaseTransition(
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, {
+          reason: "taken",
+          holderParticipantId: null,
+        }),
+      ),
     ).toBeUndefined();
   });
 
@@ -106,7 +93,12 @@ describe("reading one transition — the holder is the wire's, and both halves a
       (candidate) => candidate !== "taken",
     )) {
       expect(
-        readTerminalLeaseTransition(transitionEvent({ reason, holderParticipantId: VIEWER })),
+        readTerminalLeaseTransition(
+          leaseEventWithPayload(READER_EVENT_SEQUENCE, {
+            reason,
+            holderParticipantId: VIEWER_PARTICIPANT,
+          }),
+        ),
       ).toBeUndefined();
     }
   });
@@ -114,13 +106,20 @@ describe("reading one transition — the holder is the wire's, and both halves a
   it("refuses a reason outside the closed set, and a payload with no reason at all", () => {
     expect(
       readTerminalLeaseTransition(
-        transitionEvent({ reason: "auto_released_timeout", holderParticipantId: null }),
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, {
+          reason: "auto_released_timeout",
+          holderParticipantId: null,
+        }),
       ),
     ).toBeUndefined();
     expect(
-      readTerminalLeaseTransition(transitionEvent({ holderParticipantId: OTHER })),
+      readTerminalLeaseTransition(
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, { holderParticipantId: OTHER_PARTICIPANT }),
+      ),
     ).toBeUndefined();
-    expect(readTerminalLeaseTransition(transitionEvent(undefined))).toBeUndefined();
+    expect(
+      readTerminalLeaseTransition(leaseEventWithPayload(READER_EVENT_SEQUENCE, undefined)),
+    ).toBeUndefined();
   });
 
   it("negative control: a holder member of the wrong TYPE is not a holder", () => {
@@ -130,20 +129,26 @@ describe("reading one transition — the holder is the wire's, and both halves a
     // only ever checked the reason.
     for (const holderParticipantId of ["", 4, null, undefined]) {
       expect(
-        readTerminalLeaseTransition(transitionEvent({ reason: "taken", holderParticipantId })),
+        readTerminalLeaseTransition(
+          leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "taken", holderParticipantId }),
+        ),
       ).toBeUndefined();
     }
     expect(
-      readTerminalLeaseTransition(transitionEvent({ reason: "taken", holderParticipantId: OTHER }))
-        ?.holderParticipantId,
-    ).toBe(OTHER);
+      readTerminalLeaseTransition(
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, {
+          reason: "taken",
+          holderParticipantId: OTHER_PARTICIPANT,
+        }),
+      )?.holderParticipantId,
+    ).toBe(OTHER_PARTICIPANT);
   });
 });
 
 describe("reading the transition it could NOT read", () => {
   it("carries the reason the wire sent, so the operator has something to paste", () => {
     const unread = readTerminalLeaseUnreadTransition(
-      transitionEvent({ reason: "auto_released_quota_exhausted" }),
+      leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "auto_released_quota_exhausted" }),
     );
     expect(unread.reason).toBe("auto_released_quota_exhausted");
     expect(unread.sequence).toBe(1);
@@ -154,18 +159,24 @@ describe("reading the transition it could NOT read", () => {
     // Without it the case above would pass against a reader that stringified whatever
     // the member held, which is the surface inventing a vocabulary.
     expect(
-      readTerminalLeaseUnreadTransition(transitionEvent({ reason: "" })).reason,
+      readTerminalLeaseUnreadTransition(
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "" }),
+      ).reason,
     ).toBeUndefined();
     expect(
-      readTerminalLeaseUnreadTransition(transitionEvent({ reason: 4 })).reason,
+      readTerminalLeaseUnreadTransition(leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: 4 }))
+        .reason,
     ).toBeUndefined();
-    expect(readTerminalLeaseUnreadTransition(transitionEvent(undefined)).reason).toBeUndefined();
+    expect(
+      readTerminalLeaseUnreadTransition(leaseEventWithPayload(READER_EVENT_SEQUENCE, undefined))
+        .reason,
+    ).toBeUndefined();
   });
 });
 
 describe("transition sentences — five reasons, five sentences", () => {
   const labelFor = (participantId: string): string =>
-    participantId === OTHER ? "Priya" : participantId;
+    participantId === OTHER_PARTICIPANT ? "Priya" : participantId;
 
   it("gives every reason in the closed set a distinct sentence", () => {
     const sentences = TERMINAL_LEASE_TRANSITION_REASONS.map((reason) =>
@@ -188,7 +199,7 @@ describe("transition sentences — five reasons, five sentences", () => {
     expect(terminalLeaseTransitionSentence(transitionOf("taken"), labelFor)).toContain("Priya");
     expect(
       terminalLeaseTransitionSentence(transitionOf("taken"), (participantId) => participantId),
-    ).toContain(OTHER);
+    ).toContain(OTHER_PARTICIPANT);
   });
 
   it("negative control: a collapsed table would fail the distinctness claim", () => {

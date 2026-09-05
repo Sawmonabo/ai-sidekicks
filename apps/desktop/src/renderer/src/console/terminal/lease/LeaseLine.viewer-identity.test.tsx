@@ -11,13 +11,8 @@
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
-import {
-  HOLDER,
-  VIEWER,
-  leaseState,
-  refusingBridge,
-  renderLease,
-} from "./LeaseLine.test-support.js";
+import { leaseState, refusingBridge, renderLease } from "./LeaseLine.test-support.js";
+import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 
 describe("the claim control is gated on knowing who the viewer is", () => {
   /** The claim control, or `null` — the shape the withheld cases need. */
@@ -27,7 +22,7 @@ describe("the claim control is gated on knowing who the viewer is", () => {
 
   const HELD_BY_SOMEBODY = leaseState({
     holding: "held-by-another",
-    holderParticipantId: HOLDER,
+    holderParticipantId: OTHER_PARTICIPANT,
     holderVouching: "vouched",
     transitionCount: 1,
   });
@@ -69,7 +64,7 @@ describe("the claim control is gated on knowing who the viewer is", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-you",
-        holderParticipantId: VIEWER,
+        holderParticipantId: VIEWER_PARTICIPANT,
         holderVouching: "vouched",
         transitionCount: 1,
       }),

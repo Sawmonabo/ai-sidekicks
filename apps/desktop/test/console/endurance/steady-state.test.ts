@@ -88,10 +88,10 @@ import {
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
-  readSettledHeapBytes,
   SETTINGS_SURFACE_SELECTOR,
   WORKSPACE_SURFACE_SELECTOR,
 } from "./console-workload.js";
+import { expectPreciseHeapInstrument, readSettledHeapBytes } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
 const bundleIsBuilt = fixtureBundleExists();
@@ -192,6 +192,11 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         consoleApplication,
         FLAGSHIP_SESSION_ID,
       );
+      // Every figure below is a DIFFERENCE of two heap readings, which the default
+      // quantized instrument cannot carry — so the instrument is proved before the
+      // arithmetic that rests on it.
+      await expectPreciseHeapInstrument(consoleApplication);
+
       const baselineHeapBytes = await readSettledHeapBytes(consoleApplication);
 
       let beatsDelivered = beatsAfterWarmUp;

@@ -57,7 +57,22 @@ import { projectTerminalLease, type TerminalLeaseState } from "../lease/lease-mo
 import { projectNodePresence, resolveSoleHoldingNode } from "./node-presence-model.js";
 import { useTerminalOutputStream } from "./output-stream.js";
 import { useTerminalViewerIdentity } from "../lease/viewer-identity.js";
-import { TERMINAL_OUTPUT_LABEL } from "./terminal-pane-labels.js";
+
+/** What this family calls the surface, and the base the name below is built on. */
+const TERMINAL_SURFACE_WORD = "Terminal";
+
+/**
+ * The emulator's accessible name, inside the pane.
+ *
+ * `seats/ConsolePaneChrome` names the pane's own region, from a title table that is
+ * module-private to it — deliberately, so the view families cannot each spell the same
+ * pane two ways — and the emulator INSIDE it is still this family's to name. Deriving
+ * from a local word rather than reaching for that table is what keeps the private table
+ * private; the cost is that a rename of the pane kind does not reach in here, which is
+ * why the word above is stated as the base of a derivation rather than as the pane's
+ * name.
+ */
+const TERMINAL_OUTPUT_LABEL = `${TERMINAL_SURFACE_WORD} output`;
 
 export interface BoundTerminalPaneProps {
   readonly bridge: ConsoleBridge;

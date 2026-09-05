@@ -24,29 +24,16 @@
 
 import { Nothing } from "../../primitives/index.js";
 import { BoundTerminalPane } from "./BoundTerminalPane.js";
-import { ConsolePaneChrome, type ConsolePaneContext } from "../../seats/index.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 
-/**
- * What the pane reads off the deck's context, and nothing more.
- *
- * A `Pick` rather than the whole `ConsolePaneContext`, on `BrowserPane`'s rule
- * that a parameter destructured to satisfy a convention is a claim that the body
- * uses it. The registry's `render` still accepts this component, because a context
- * satisfies the narrower shape.
- */
-export type TerminalPaneProps = Pick<
-  ConsolePaneContext,
-  "paneId" | "bridge" | "sessionStore" | "focusHue"
->;
-
-export function TerminalPane(props: TerminalPaneProps): React.JSX.Element {
-  const { bridge, sessionStore } = props;
+export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Element {
+  // Three members of the context, and the three the body reads. `paneId` is not one of
+  // them: the shell this pane shows is keyed by the SESSION — `BoundTerminalPane.tsx`
+  // states why — and a destructured binding nothing uses reads as a claim that the body
+  // uses it.
+  const { bridge, sessionStore, focusHue } = context;
   return (
-    <ConsolePaneChrome
-      kind="terminal"
-      sessionId={sessionStore?.sessionId}
-      focusHue={props.focusHue}
-    >
+    <ConsolePaneChrome kind="terminal" sessionId={sessionStore?.sessionId} focusHue={focusHue}>
       <div className="meridian-terminal-pane">
         {sessionStore === undefined ? (
           <Nothing

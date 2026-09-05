@@ -16,7 +16,7 @@
 //
 // The lease STATE is a value here, built directly rather than folded from a
 // scenario, because `lease-model.test.ts` already holds the fold to the wire and
-// these suites' subject is what each state RENDERS. The VIEWER's identity is a value
+// these suites' subject is what each state RENDERS. The viewer's identity is a value
 // for the same reason: `terminal/pane/TerminalPane.test.tsx` drives the read that
 // produces one, against the real port, and every case renders under a settled one so
 // that the state it names is what it is about.
@@ -26,24 +26,13 @@ import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { CallerMembershipRoleResult } from "../../store/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
-import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
+import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalParticipantMark } from "./participant-mark.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "./lease-model.js";
 import type { TerminalLeaseTransition } from "./lease-transition.js";
-
-/**
- * The holder and the viewer, read off the scenario's join log rather than invented.
- *
- * `lease-model.test.ts`'s reason: a readable placeholder here would be a participant
- * id no daemon could emit, sitting beside a fixture whose own beats are wire-declared
- * UUIDs. The cast names the role each one plays, which an index into the join log
- * does not. The line renders the id verbatim when no roster supplies a name, so the
- * cases below assert against the same string the pane would show.
- */
-export const VIEWER: string = TERMINAL_SCENARIO_CAST.owner;
-export const HOLDER: string = TERMINAL_SCENARIO_CAST.collaborator;
 
 /**
  * The lease's own subject on the wire, read off the scenario rather than invented.
@@ -78,7 +67,7 @@ export function servingBridge(): ConsoleBridge {
       // `controlHolder`, a release answers with the freed lease.
       terminalAcquireWriteLease: async () => ({
         status: "served" as const,
-        value: { controlHolder: VIEWER },
+        value: { controlHolder: VIEWER_PARTICIPANT },
       }),
       terminalReleaseWriteLease: async () => ({
         status: "served" as const,
@@ -177,7 +166,7 @@ export class HeldLeaseWire {
 }
 
 export function markFor(participantId: string): TerminalParticipantMark | undefined {
-  return participantId === HOLDER
+  return participantId === OTHER_PARTICIPANT
     ? { hueStep: 3, ringTreatment: "dashed", displayName: undefined }
     : undefined;
 }
@@ -195,9 +184,9 @@ export function transitionAt(
     sequence,
     occurredAtIso: `2026-01-01T16:40:0${String(sequence)}.000Z`,
     reason,
-    holderParticipantId: reason === "taken" ? HOLDER : null,
-    previousHolderParticipantId: reason === "taken" ? null : HOLDER,
-    actorId: HOLDER,
+    holderParticipantId: reason === "taken" ? OTHER_PARTICIPANT : null,
+    previousHolderParticipantId: reason === "taken" ? null : OTHER_PARTICIPANT,
+    actorId: OTHER_PARTICIPANT,
     ...overrides,
   };
 }
@@ -205,13 +194,13 @@ export function transitionAt(
 /**
  * The identity every case below renders under unless it is about the other arms.
  *
- * Read, and read as the VIEWER: the claim control is gated on the identity having
+ * Read, and read as the viewer: the claim control is gated on the identity having
  * landed, so a default of anything else would make every case in this file about the
  * withheld state instead of about the state it names.
  */
 export const VIEWER_IDENTITY_READ: TerminalViewerIdentity = {
   status: "read",
-  participantId: VIEWER,
+  participantId: VIEWER_PARTICIPANT,
 };
 
 /**
@@ -223,7 +212,7 @@ export const VIEWER_IDENTITY_READ: TerminalViewerIdentity = {
  */
 export const CALLER_ROLE_COLLABORATOR: CallerMembershipRoleResult = {
   status: "read",
-  participantId: VIEWER,
+  participantId: VIEWER_PARTICIPANT,
   role: "collaborator",
 };
 

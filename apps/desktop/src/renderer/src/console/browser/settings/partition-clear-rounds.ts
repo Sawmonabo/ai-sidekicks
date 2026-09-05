@@ -27,7 +27,7 @@
 // decision here is a property of an act starting and settling rather than of a render
 // happening, so it is drivable with no renderer at all.
 
-import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 import type { ClearSiteDataOutcome, ClearSiteDataStep } from "./site-data-clear.js";
 
@@ -35,7 +35,28 @@ import type { ClearSiteDataOutcome, ClearSiteDataStep } from "./site-data-clear.
 export type PartitionClearState =
   | { readonly phase: "idle" }
   | { readonly phase: "running"; readonly step: ClearSiteDataStep }
-  | { readonly phase: "settled"; readonly outcome: ClearSiteDataOutcome };
+  | {
+      readonly phase: "settled";
+      readonly outcome: ClearSiteDataOutcome;
+      /**
+       * The projected refusal this settlement was ranked over, so the ranking can
+       * expire when that projection moves.
+       *
+       * A round now outlives the row and lasts as long as the PAGE, and the rule it
+       * feeds — an outcome settled here is the operator's own act and outranks the
+       * projection — was written when a remount retired it. With no expiry a
+       * `cleared` verdict suppressed every later projected refusal for the life of
+       * the page, so the control went on asserting a removal the listing had since
+       * contradicted.
+       *
+       * Compared by IDENTITY where it is read, not by content: a repeat of the same
+       * out-of-band failure carries the same code and the same sentence, so a
+       * content comparison would hide the second one. Identity errs the other way —
+       * a listing that re-projects an unchanged refusal as a fresh object lets it
+       * speak again — and that is the direction a refusal should err in.
+       */
+      readonly rankedOverRefusal: ConsoleRefusal | undefined;
+    };
 
 /**
  * What a partition nobody has cleared reads as.
@@ -98,10 +119,21 @@ export class PartitionClearRounds {
    * `generation-latch.ts` draws: a settlement from a round something else superseded
    * installs nowhere, while `release` is guarded inside the register and cannot free a
    * key its successor holds.
+   *
+   * `rankedOverRefusal` is the projection the caller's own act displaces, recorded
+   * so the displacement expires when that projection does. The caller supplies what
+   * it held when the act STARTED, which is the conservative reading: a projection
+   * that arrived while the act was in flight is news this settlement was never
+   * ranked over.
    */
-  public settle(round: GenerationClaim, sessionId: string, outcome: ClearSiteDataOutcome): void {
+  public settle(
+    round: GenerationClaim,
+    sessionId: string,
+    outcome: ClearSiteDataOutcome,
+    rankedOverRefusal: ConsoleRefusal | undefined,
+  ): void {
     round.settle(() => {
-      this.#write(sessionId, { phase: "settled", outcome });
+      this.#write(sessionId, { phase: "settled", outcome, rankedOverRefusal });
     });
     round.release();
   }

@@ -10,6 +10,7 @@
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ConsoleRefusal } from "../../core/index.js";
 import { PartitionClearRounds } from "./partition-clear-rounds.js";
 import { PartitionClearControl, type PartitionClearControlProps } from "./PartitionClearControl.js";
 import {
@@ -21,21 +22,49 @@ import {
   SESSION_ID,
 } from "./PartitionClearControl.test-support.js";
 
-function renderControl(overrides: Partial<PartitionClearControlProps>): HTMLElement {
-  // A fresh page record per case: what happens when one is SHARED across a remount is
-  // the sibling suite's subject.
-  const { container } = render(
+function controlElement(
+  rounds: PartitionClearRounds,
+  overrides: Partial<PartitionClearControlProps>,
+): React.JSX.Element {
+  return (
     <PartitionClearControl
-      rounds={new PartitionClearRounds()}
+      rounds={rounds}
       sessionId={SESSION_ID}
       hasOpenPane={false}
       lastClearRefusal={undefined}
       onClosePane={undefined}
       onClearSiteData={undefined}
       {...overrides}
-    />,
+    />
   );
+}
+
+function renderControl(overrides: Partial<PartitionClearControlProps>): HTMLElement {
+  // A fresh page record per case: what happens when one is SHARED across a remount is
+  // the sibling suite's subject.
+  const { container } = render(controlElement(new PartitionClearRounds(), overrides));
   return controlIn(container);
+}
+
+/**
+ * A control whose row can be RE-PROJECTED, which is how a listing refresh reaches it.
+ *
+ * The same mounted control throughout — a remount is the sibling suite's subject, and
+ * a case that remounted here would be asserting the round's survival rather than the
+ * ranking's expiry.
+ */
+function renderReprojectableControl(overrides: Partial<PartitionClearControlProps>): {
+  readonly control: () => HTMLElement;
+  readonly reproject: (lastClearRefusal: ConsoleRefusal | undefined) => void;
+} {
+  const rounds = new PartitionClearRounds();
+  const view = render(controlElement(rounds, overrides));
+  return {
+    control: () => controlIn(view.container),
+    reproject: (lastClearRefusal) => {
+      view.rerender(controlElement(rounds, { ...overrides, lastClearRefusal }));
+    },
+  };
 }
 
 function confirmButton(control: HTMLElement): HTMLButtonElement {
@@ -268,6 +297,64 @@ describe("PartitionClearControl — which verdict is shown", () => {
     await waitFor(() => {
       expect(control.textContent).toContain("Cleared");
     });
+  });
+
+  it("stands down for a refusal the row projected after its own act settled", async () => {
+    // The round outlives the row now, and its ranking rule was written when a remount
+    // retired it. Without an expiry a `cleared` verdict suppresses every later
+    // projected refusal until the whole settings page unmounts — the control asserting
+    // a removal the listing has since contradicted, for as long as it stays open.
+    const mounted = renderReprojectableControl({ onClearSiteData: servingAct([], "clear") });
+
+    confirmButton(mounted.control()).click();
+    await waitFor(() => {
+      expect(mounted.control().textContent).toContain("Cleared");
+    });
+
+    mounted.reproject(PROJECTED_FAILURE);
+
+    expect(mounted.control().textContent).toContain("browser.partition_stale");
+    expect(mounted.control().textContent).not.toContain("Cleared");
+  });
+
+  it("stands its own refusal down for a newer one the row projected", async () => {
+    // The other outcome arm of the same rule: a verdict the operator took here is
+    // still about the state of the row it was taken against.
+    const mounted = renderReprojectableControl({
+      hasOpenPane: true,
+      onClosePane: () => Promise.resolve({ status: "refused", refusal: PANE_HELD_OPEN }),
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    confirmButton(mounted.control()).click();
+    await waitFor(() => {
+      expect(mounted.control().textContent).toContain("browser.pane_busy");
+    });
+
+    mounted.reproject(PROJECTED_FAILURE);
+
+    expect(mounted.control().textContent).toContain("browser.partition_stale");
+    expect(mounted.control().textContent).not.toContain("browser.pane_busy");
+  });
+
+  it("negative control: it keeps its receipt while the row's projection has not moved", async () => {
+    // Without this, a control that simply stopped ranking its own settlements would
+    // satisfy both cases above — and would report the stale failure again the moment
+    // a listing refresh re-delivered it, which is the defect the ranking exists for.
+    const mounted = renderReprojectableControl({
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    confirmButton(mounted.control()).click();
+    await waitFor(() => {
+      expect(mounted.control().textContent).toContain("Cleared");
+    });
+
+    mounted.reproject(PROJECTED_FAILURE);
+
+    expect(mounted.control().textContent).toContain("Cleared");
+    expect(mounted.control().textContent).not.toContain("browser.partition_stale");
   });
 
   it("negative control: a served clear is reported and not merely left blank", async () => {

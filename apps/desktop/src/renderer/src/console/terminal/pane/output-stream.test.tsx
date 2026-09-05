@@ -27,6 +27,7 @@ import {
   paneRegionOf,
   renderPane,
   storeThrough,
+  terminalPaneContext,
 } from "./TerminalPane.test-support.js";
 
 describe("terminal pane — a rejected output subscribe keeps its diagnosis", () => {
@@ -116,26 +117,12 @@ describe("terminal pane — the output reading belongs to the shell it was read 
     readonly rebindTo: (next: ConsoleBridge) => void;
   } {
     const store = storeThrough(1);
-    const { container, rerender } = render(
-      <TerminalPane
-        paneId="pane-terminal"
-        bridge={first}
-        sessionStore={store}
-        focusHue={undefined}
-      />,
-    );
+    const { container, rerender } = render(<TerminalPane {...terminalPaneContext(store, first)} />);
     const region = (): HTMLElement => paneRegionOf(container);
     return {
       region,
       rebindTo: (next) => {
-        rerender(
-          <TerminalPane
-            paneId="pane-terminal"
-            bridge={next}
-            sessionStore={store}
-            focusHue={undefined}
-          />,
-        );
+        rerender(<TerminalPane {...terminalPaneContext(store, next)} />);
       },
     };
   }
@@ -159,12 +146,7 @@ describe("terminal pane — the output reading belongs to the shell it was read 
     const rejecting = bridgeRejectingOutputWith(PERMISSION_DENIED);
     const first = storeThrough(1);
     const { container, rerender } = render(
-      <TerminalPane
-        paneId="pane-terminal"
-        bridge={rejecting}
-        sessionStore={first}
-        focusHue={undefined}
-      />,
+      <TerminalPane {...terminalPaneContext(first, rejecting)} />,
     );
     const region = (): HTMLElement => paneRegionOf(container);
     await waitFor(() => {
@@ -173,14 +155,7 @@ describe("terminal pane — the output reading belongs to the shell it was read 
 
     const second = new SessionStore({ sessionId: "session-another-shell" });
     second.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-    rerender(
-      <TerminalPane
-        paneId="pane-terminal"
-        bridge={rejecting}
-        sessionStore={second}
-        focusHue={undefined}
-      />,
-    );
+    rerender(<TerminalPane {...terminalPaneContext(second, rejecting)} />);
 
     expect(outputRefusal(region())).toBeNull();
     expect(region().textContent).toContain("Asking for the output stream");

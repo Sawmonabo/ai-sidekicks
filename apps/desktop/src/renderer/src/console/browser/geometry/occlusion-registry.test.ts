@@ -17,22 +17,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { installFakeResizeObserver } from "../../primitives/element-resize.test-support.js";
-import { fakeAnimationOf, withAnimations } from "./element-motion.test-support.js";
+import {
+  attachedPair,
+  detachAttachedRoots,
+  fakeAnimationOf,
+  withAnimations,
+} from "./element-motion.test-support.js";
 import { OVERLAY_KINDS, PaneOcclusionRegistry } from "./occlusion-registry.js";
 import type { PaneRect } from "./pane-geometry.js";
 
 const SOMEWHERE: PaneRect = { x: 0, y: 0, width: 10, height: 10 };
-
-const attachedRoots: Element[] = [];
-
-function attachedPair(): { readonly ancestor: HTMLElement; readonly element: HTMLElement } {
-  const ancestor = document.createElement("div");
-  const element = document.createElement("div");
-  ancestor.append(element);
-  document.body.append(ancestor);
-  attachedRoots.push(ancestor);
-  return { ancestor, element };
-}
 
 /** One mutable animation reading, so a test can let the motion finish. */
 function withPlayState(element: Element, readPlayState: () => AnimationPlayState): void {
@@ -44,9 +38,7 @@ function withPlayState(element: Element, readPlayState: () => AnimationPlayState
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  for (const root of attachedRoots.splice(0)) {
-    root.remove();
-  }
+  detachAttachedRoots();
 });
 
 describe("PaneOcclusionRegistry", () => {

@@ -73,8 +73,9 @@ import { describe, expect, it } from "vitest";
 
 import { withLaunchedConsole } from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
-import { ENDURANCE_BODY_ALLOWANCE_MS } from "../launch-budgets.js";
 import { HeapSampler } from "../heap-sampling.js";
+import { enduranceLaunchOptions } from "./console-workload.js";
+import { expectPreciseHeapInstrument } from "./heap-instrument.js";
 import {
   measureFullScrollbackRetainedBytes,
   requireHeapCollector,
@@ -237,11 +238,17 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
     }
 
     await withLaunchedConsole(
-      { scenarioId: TERMINAL_SCENARIO.id, bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS },
+      enduranceLaunchOptions(TERMINAL_SCENARIO.id),
       async (consoleApplication) => {
         const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
         try {
           await openHarnessOnDeliveredSession(consoleApplication);
+          // Every figure this case gates is a DIFFERENCE of two heap readings — the
+          // pane's standing cost, the slope across instances, the teardown residue.
+          // A launch reading Blink's default quantized, cached MemoryInfo reports
+          // those as rounding, and the slope band swallows them, so the instrument
+          // is proved before the arithmetic rather than assumed from a launch flag.
+          await expectPreciseHeapInstrument(consoleApplication);
 
           // The warm-up cycle. Its whole purpose is to move the emulator chunk and every
           // other one-time page cost to the LEFT of the baseline, so the first instance's

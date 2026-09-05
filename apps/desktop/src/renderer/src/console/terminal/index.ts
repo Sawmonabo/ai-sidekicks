@@ -13,10 +13,13 @@
 // and a body parked under `console/panes/` is subtracted from both view-family
 // layering rules.
 //
-// WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7, GROUPED BY SEAM. The family held 24
-// flat modules over three concerns that share no state and change for no common
+// WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7, GROUPED BY SEAM. The family held its
+// modules flat over three concerns that share no state and change for no common
 // reason, which is a bucket rather than a module; each is now a sub-module directory
-// reached by deep intra-family specifiers, and the door below is unchanged.
+// reached by deep intra-family specifiers, and the door below is unchanged. The count
+// of modules is deliberately not stated — it moves with every module the family adds
+// — and what the argument rests on is the three concerns, which the directories below
+// are.
 //
 //   • `emulator/` — everything between this console and `@xterm/xterm`, and the one
 //     directory the lazy chunk is drawn from. The wrapper (`xterm-adapter.ts`) with
@@ -66,8 +69,8 @@
 // `Spec-023 §Console Design (Meridian)` §Budgets excludes when it names the terminal
 // a lazy chunk.
 import "./pane/pane.css";
-import "./lease/lease-line.css";
-import "./emulator/host.css";
+import "./lease/lease.css";
+import "./emulator/emulator.css";
 import "./focus-ring.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";

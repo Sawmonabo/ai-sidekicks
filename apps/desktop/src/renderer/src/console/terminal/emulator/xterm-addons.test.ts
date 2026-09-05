@@ -39,7 +39,7 @@ describe("the renderer mode, as something a surface can follow", () => {
     // This environment has no WebGL2, so the selection settles on the mode the
     // instance was constructed with. Announcing that would report a fallback that
     // never happened — the change the emulator's own context loss makes is
-    // `webgl-context-loss.test.tsx`'s subject.
+    // `xterm-adapter.context-loss.test.ts`'s subject.
     const { adapter } = mountedAdapter({ terminalId: "no-context" });
     const observed: string[] = [];
     adapter.subscribeToRendererMode((mode) => observed.push(mode));

@@ -29,10 +29,24 @@
 // of band, and the outcome of the act the operator ran here. Preferring "whichever
 // refusal exists" reports failure after a clear that WORKED, because a served
 // settlement carries no refusal to prefer. So the two are ranked instead: an outcome
-// settled in this mount is the operator's own act and outranks the projection whichever
-// way it went, and the projection speaks only while this control has settled nothing.
+// settled here is the operator's own act and outranks the projection whichever way it
+// went, and the projection speaks only while this control has settled nothing.
 // A served settlement gets a reading of its own, because a receipt that renders as the
 // absence of a complaint is indistinguishable from an act that never ran.
+//
+// AND THE RANKING EXPIRES, WHICH IS WHAT THE ROUND OUTLIVING THE ROW COST. That rule
+// was written when the round lived in this component, so a remount retired it by
+// accident. The round now lasts as long as the page, and without a deliberate expiry
+// a `cleared` verdict suppressed every later projected refusal until the whole
+// settings page unmounted — the control asserting a removal the listing had since
+// contradicted. So the settlement records WHICH projection it outranked, and speaks
+// only while that is still the projection on the row. A refusal that arrives after it
+// is news the operator's own act cannot answer, and it renders.
+//
+// The comparison is on IDENTITY. A repeated out-of-band failure carries the same code
+// and the same sentence, so comparing content would hide the second one — and between
+// showing a refusal the listing is still projecting and hiding one it has just raised,
+// only the first is the safe way to be wrong.
 
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -75,12 +89,17 @@ type ClearControlReport =
  * `running` reports nothing on purpose. An act is in flight, the button already says
  * which step it is waiting on, and the projection it is about to replace is the one
  * verdict on screen that is certainly not about this attempt.
+ *
+ * A settlement outranks only the projection it was RANKED OVER. Once the row carries
+ * a different one, the settlement is a verdict about a state the listing has moved
+ * past and the newer projection speaks — which is what keeps a `cleared` receipt from
+ * outliving the removal it reports.
  */
 function reportFor(
   state: PartitionClearState,
   lastClearRefusal: ConsoleRefusal | undefined,
 ): ClearControlReport {
-  if (state.phase === "settled") {
+  if (state.phase === "settled" && state.rankedOverRefusal === lastClearRefusal) {
     return state.outcome.status === "cleared"
       ? { kind: "cleared" }
       : { kind: "refused", refusal: state.outcome.refusal };
@@ -146,21 +165,30 @@ export function PartitionClearControl(props: PartitionClearControlProps): React.
       },
     }).then(
       (outcome) => {
-        rounds.settle(round, sessionId, outcome);
+        rounds.settle(round, sessionId, outcome, lastClearRefusal);
       },
       (failure: unknown) => {
-        rounds.settle(round, sessionId, {
-          status: "refused",
-          at: reachedStep,
-          refusal: normalizeWireRejection(CLEAR_CONTROL_REFUSAL_ORIGIN, failure, {
-            code: "site-data-act-failed",
-            detail:
-              "The node stopped answering during this step, so how far it got is not known from here. Re-reading the site-data list is what says where this partition ended up.",
-          }),
-        });
+        rounds.settle(
+          round,
+          sessionId,
+          {
+            status: "refused",
+            at: reachedStep,
+            refusal: normalizeWireRejection(CLEAR_CONTROL_REFUSAL_ORIGIN, failure, {
+              code: "site-data-act-failed",
+              detail:
+                "The node stopped answering during this step, so how far it got is not known from here. Re-reading the site-data list is what says where this partition ended up.",
+            }),
+          },
+          lastClearRefusal,
+        );
       },
     );
-  }, [hasOpenPane, onClearSiteData, onClosePane, rounds, sessionId]);
+    // The projection as it stood when the act STARTED, closed over rather than read
+    // at settlement: one that arrived while the act was in flight is news this
+    // settlement was never ranked over, and reading the newest at settlement would
+    // let it be silenced by an act that predates it.
+  }, [hasOpenPane, lastClearRefusal, onClearSiteData, onClosePane, rounds, sessionId]);
 
   const report = reportFor(state, lastClearRefusal);
 

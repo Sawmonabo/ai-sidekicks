@@ -16,6 +16,11 @@
 // The skeleton is the primitive every other surface uses for a read in flight; a
 // spinner here would be the console's second vocabulary for one state.
 //
+// WHERE THAT FETCH IS DECIDED. `emulator-state.ts` beside this file holds the
+// reading and the rejection arm, because this component resolves the page's own
+// loader and a fetch that REFUSES is only drivable where the loader is a parameter.
+// This module renders the reading and decides nothing about it.
+//
 // WHY THE ADAPTER IS BUILT IN AN EFFECT AND NOT IN THE RENDER BODY. React may
 // discard a render pass, and an adapter constructed during one would be an
 // emulator — with a pooled WebGL context — that nothing will ever dispose. An
@@ -51,11 +56,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Nothing } from "../../primitives/index.js";
-import {
-  terminalEmulatorLoader,
-  type TerminalEmulatorLoader,
-  type TerminalEmulatorModule,
-} from "./emulator-loader.js";
+import { terminalEmulatorLoader, type TerminalEmulatorModule } from "./emulator-loader.js";
+import { useTerminalEmulator, type TerminalEmulatorState } from "./emulator-state.js";
 import type { TerminalRendererMode } from "./xterm-adapter.js";
 
 export interface XtermHostProps {
@@ -219,23 +221,21 @@ function useLatestRef<Value>(value: Value): { readonly current: Value } {
 /** The adapter instance type, taken from the class the loader resolves. */
 type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTerminalAdapter"]>;
 
-/** Where the emulator's code is: still coming, here, or refused. */
-type TerminalEmulatorState =
-  | { readonly status: "loading" }
-  | { readonly status: "loaded"; readonly module: TerminalEmulatorModule }
-  | { readonly status: "failed"; readonly reason: string };
-
-const LOADING_EMULATOR: TerminalEmulatorState = { status: "loading" };
-
 /**
  * What stands in the host box while the emulator's code is not there.
  *
  * Two of `Nothing`'s five kinds, and the two the states actually are: a fetch in
  * flight is `not-loaded` — the skeleton that says nothing, because there is nothing
- * yet to say — and a fetch that refused is `error`, carrying the reason verbatim
- * rather than a sentence this file wrote. Neither is `empty`, which would claim the
- * shell printed nothing, and neither is `not-checked`, which would claim nobody
- * asked.
+ * yet to say — and a fetch that refused is `error`. Neither is `empty`, which would
+ * claim the shell printed nothing, and neither is `not-checked`, which would claim
+ * nobody asked.
+ *
+ * The refused arm renders the refusal's own two halves, which is the shape
+ * `browser/settings/PartitionTable.tsx` already gives a surface that could not be
+ * read: rule 9 puts the code on screen because a code is what a person acts on, and
+ * the sentence beneath it is whatever the producing side wrote — never a
+ * serialization of the rejected value, which `core/wire-rejection.ts` is the one
+ * place allowed to decide.
  */
 function renderEmulatorAbsence(
   emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,
@@ -246,53 +246,10 @@ function renderEmulatorAbsence(
     <Nothing
       kind="error"
       placement="surface"
-      title="The terminal emulator could not be loaded."
-      detail={emulator.reason}
+      title={emulator.refusal.code}
+      detail={emulator.refusal.detail}
     />
   );
-}
-
-/**
- * Fetch the emulator's chunk and say where it got to.
- *
- * A hook rather than a call in the render body, on `apps/desktop/AGENTS.md`'s rule
- * and for a concrete reason: `import()` is a side effect, and a render body that
- * started one would start a second on every discarded pass.
- *
- * UNMOUNT BEFORE THE CHUNK ARRIVES is the arm worth naming. A pane opened and
- * closed inside one fetch leaves a promise still in flight over a component React
- * has already dropped, and settling it into state would be a write against a
- * disposed host. The flag below is read on both arms, so a late resolution and a
- * late rejection are each ignored rather than one of them handled — and the memo
- * inside the loader means the fetch itself is not wasted: the next mount gets the
- * chunk this one paid for.
- */
-function useTerminalEmulator(loader: TerminalEmulatorLoader): TerminalEmulatorState {
-  const [emulator, setEmulator] = useState<TerminalEmulatorState>(LOADING_EMULATOR);
-
-  useEffect(() => {
-    let isMounted = true;
-    loader.load().then(
-      (module) => {
-        if (isMounted) {
-          setEmulator({ status: "loaded", module });
-        }
-      },
-      (loadError: unknown) => {
-        if (isMounted) {
-          setEmulator({
-            status: "failed",
-            reason: loadError instanceof Error ? loadError.message : String(loadError),
-          });
-        }
-      },
-    );
-    return () => {
-      isMounted = false;
-    };
-  }, [loader]);
-
-  return emulator;
 }
 
 /**

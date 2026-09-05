@@ -26,11 +26,8 @@ import type { CDPSession } from "@playwright/test";
 
 import type { ConsoleApplication } from "../electron-harness.js";
 import { SETTLE_ROUNDS } from "../heap-sampling.js";
-import {
-  advanceScenario,
-  readAppliedEventCount,
-  readSettledHeapBytes,
-} from "./console-workload.js";
+import { advanceScenario, readAppliedEventCount } from "./console-workload.js";
+import { readSettledHeapBytes } from "./heap-instrument.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
 
 /** The pane kind the address names. The harness is per kind; this row is this one. */
