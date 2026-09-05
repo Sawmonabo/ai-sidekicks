@@ -15,11 +15,13 @@
 // rules subtract that path from, so a terminal body importing this family's registry
 // was a green build. Here the isolation rules govern it like any other family module.
 //
-// WHAT THE FAMILY HOLDS, GROUPED BY SEAM. The family held 30 flat modules over five
+// WHAT THE FAMILY HOLDS, GROUPED BY SEAM. The family held its modules flat over five
 // concerns, and its own CSS had already named four of them — which is the argument
 // this grouping makes in code: a reader looking for the pane's chrome should not
 // scroll past the partition table to reach it. Each is a sub-module directory reached
-// by deep intra-family specifiers; the door below is unchanged.
+// by deep intra-family specifiers; the door below is unchanged. The count of modules
+// is deliberately not stated: it moves with every module the family adds, and what
+// the argument rests on is the five concerns, which the directories below are.
 //
 //   • `pane/` — the deck's browser body and the reads only it makes: the pane
 //     (`BrowserPane.tsx`), its chrome control and address field, the act sequence the
