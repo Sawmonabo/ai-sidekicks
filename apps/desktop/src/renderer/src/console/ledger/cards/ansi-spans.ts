@@ -30,7 +30,7 @@
 // Reverse video IS reproduced, by swapping the two channels at render. It is a relation
 // between the two colours a span paints, so honouring it needs no palette the console
 // lacks — only the console's OWN default pair for whichever channel the stream left
-// unset, which is what `ANSI_DEFAULT_COLORS` names and `ledger.css` resolves.
+// unset, which is what `ANSI_DEFAULT_COLORS` names and `tokens/palette.ts` resolves.
 
 import Anser from "anser";
 
@@ -79,9 +79,9 @@ export type AnsiColorName = (typeof ANSI_COLOR_NAMES)[number];
  * They exist for exactly one caller: reverse video. A stream that reverses without having
  * set both colours is reversing against the terminal's defaults, so honouring it needs a
  * name for "the colour this body paints when the stream says nothing" on each channel.
- * These are those names, and `ledger.css` binds them to the same two tokens the body
- * itself reads, so the swap resolves to what the reader is actually looking at rather
- * than to a second opinion about it.
+ * These are those names, and `tokens/palette.ts` binds them, as aliases, to the same
+ * two tokens the body itself reads — so the swap resolves to what the reader is
+ * actually looking at rather than to a second opinion about it.
  *
  * A span the stream did not reverse never carries one: an unset channel inherits, which
  * is a weaker claim than painting a token and is the right one to make.

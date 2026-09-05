@@ -1,0 +1,313 @@
+/* `ledger/cards/`'s styles — ANSI command output and the message, tool, and
+ * machine-authored bodies.
+ *
+ * FIVE SHEETS, ONE FAMILY. `frame/frame.css`, `structure/structure.css`,
+ * `cards/cards.css` and `cards/markdown/markdown.css` carry the rules whose selectors
+ * belong to exactly one of those directories — one sheet per directory, so a rule
+ * sits beside the code that renders it — and `ledger.css` carries what is left over:
+ * a rule reachable from two of them, or from markup another family owns. All five are
+ * imported from `ledger/index.ts` and nowhere else, in that order, so they land once
+ * per bundle and cascade after the primitives' and the frame's.
+ *
+ * Markdown prose, code blocks, and math are `cards/markdown/markdown.css`'s, the
+ * directory that renders them; the retry control the ANSI card wears is
+ * `ledger.css`'s, because the frame's failed row wears the same one.
+ */
+
+/* --- Cards: ANSI command output ------------------------------------------ */
+
+/*
+ * The sixteen ANSI names live in `tokens/palette.ts`, with the nine code families,
+ * and the generator emits all three scheme layers for them.
+ *
+ * They were `oklch()` literals here. Nothing fitted them into the sRGB gamut, so the
+ * browser was remapping several to a colour no file stated, and nothing measured
+ * them against this well, so six of the light scheme's bright names sat below the
+ * 4.5:1 floor `Spec-023 §Console Design (Meridian)` rule 3 sets.
+ */
+
+.meridian-ansi__body {
+  margin: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  color: var(--meridian-ansi-default-foreground);
+  background: var(--meridian-ansi-default-background);
+  overflow-x: auto;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meridian-ansi__fg--black {
+  color: var(--meridian-ansi-black);
+}
+.meridian-ansi__fg--red {
+  color: var(--meridian-ansi-red);
+}
+.meridian-ansi__fg--green {
+  color: var(--meridian-ansi-green);
+}
+.meridian-ansi__fg--yellow {
+  color: var(--meridian-ansi-yellow);
+}
+.meridian-ansi__fg--blue {
+  color: var(--meridian-ansi-blue);
+}
+.meridian-ansi__fg--magenta {
+  color: var(--meridian-ansi-magenta);
+}
+.meridian-ansi__fg--cyan {
+  color: var(--meridian-ansi-cyan);
+}
+.meridian-ansi__fg--white {
+  color: var(--meridian-ansi-white);
+}
+.meridian-ansi__fg--bright-black {
+  color: var(--meridian-ansi-bright-black);
+}
+.meridian-ansi__fg--bright-red {
+  color: var(--meridian-ansi-bright-red);
+}
+.meridian-ansi__fg--bright-green {
+  color: var(--meridian-ansi-bright-green);
+}
+.meridian-ansi__fg--bright-yellow {
+  color: var(--meridian-ansi-bright-yellow);
+}
+.meridian-ansi__fg--bright-blue {
+  color: var(--meridian-ansi-bright-blue);
+}
+.meridian-ansi__fg--bright-magenta {
+  color: var(--meridian-ansi-bright-magenta);
+}
+.meridian-ansi__fg--bright-cyan {
+  color: var(--meridian-ansi-bright-cyan);
+}
+.meridian-ansi__fg--bright-white {
+  color: var(--meridian-ansi-bright-white);
+}
+
+.meridian-ansi__bg--black {
+  background: var(--meridian-ansi-black);
+}
+.meridian-ansi__bg--red {
+  background: var(--meridian-ansi-red);
+}
+.meridian-ansi__bg--green {
+  background: var(--meridian-ansi-green);
+}
+.meridian-ansi__bg--yellow {
+  background: var(--meridian-ansi-yellow);
+}
+.meridian-ansi__bg--blue {
+  background: var(--meridian-ansi-blue);
+}
+.meridian-ansi__bg--magenta {
+  background: var(--meridian-ansi-magenta);
+}
+.meridian-ansi__bg--cyan {
+  background: var(--meridian-ansi-cyan);
+}
+.meridian-ansi__bg--white {
+  background: var(--meridian-ansi-white);
+}
+.meridian-ansi__bg--bright-black {
+  background: var(--meridian-ansi-bright-black);
+}
+.meridian-ansi__bg--bright-red {
+  background: var(--meridian-ansi-bright-red);
+}
+.meridian-ansi__bg--bright-green {
+  background: var(--meridian-ansi-bright-green);
+}
+.meridian-ansi__bg--bright-yellow {
+  background: var(--meridian-ansi-bright-yellow);
+}
+.meridian-ansi__bg--bright-blue {
+  background: var(--meridian-ansi-bright-blue);
+}
+.meridian-ansi__bg--bright-magenta {
+  background: var(--meridian-ansi-bright-magenta);
+}
+.meridian-ansi__bg--bright-cyan {
+  background: var(--meridian-ansi-bright-cyan);
+}
+.meridian-ansi__bg--bright-white {
+  background: var(--meridian-ansi-bright-white);
+}
+
+/*
+ * The two channel values only reverse video reaches, and the only two of the four
+ * combinations that are reachable at all: a reversed run paints the body's background
+ * as its FOREGROUND and the body's foreground as its BACKGROUND. The other two would be
+ * a run painting the colour it already had, which nothing emits.
+ */
+.meridian-ansi__fg--default-background {
+  color: var(--meridian-ansi-default-background);
+}
+.meridian-ansi__bg--default-foreground {
+  background: var(--meridian-ansi-default-foreground);
+}
+
+.meridian-ansi--bold {
+  font-weight: 600;
+}
+.meridian-ansi--dim {
+  opacity: 0.7;
+}
+.meridian-ansi--italic {
+  font-style: italic;
+}
+.meridian-ansi--underline {
+  text-decoration: underline;
+}
+.meridian-ansi--strikethrough {
+  text-decoration: line-through;
+}
+
+/* --- Cards: the message card -------------------------------------------- */
+
+.meridian-message-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-message-card__family {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Reasoning is an aside, and reads as one: the same layout, one step quieter. */
+.meridian-message-card--assistant-reasoning {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-message-card__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-message-card__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+.meridian-message-card__receipt {
+  margin: 0;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-receipt-row {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  max-width: 68ch;
+}
+
+/* --- Cards: the tool card ------------------------------------------------ */
+
+/*
+ * One line, and it stays one line. `min-width: 0` on the summary is what lets it be the
+ * part that gives: a header that wrapped would defeat the density budget the collapsed
+ * row exists to hold.
+ */
+.meridian-tool-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-tool-card__name {
+  flex: none;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-tool-card__name--absent {
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+}
+
+.meridian-tool-card__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-tool-card__elapsed {
+  flex: none;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * Hover-revealed, and revealed by focus too — a control that appears only under a
+ * pointer is a control a keyboard cannot reach.
+ */
+.meridian-tool-card__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: none;
+  padding: 0 var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-ledger-row:hover .meridian-tool-card__disclosure,
+.meridian-tool-card__disclosure:focus-visible,
+.meridian-tool-card__disclosure[aria-expanded="true"] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meridian-tool-card__disclosure {
+    transition: none;
+  }
+}
+
+/* --- Cards: the machine-authored body ------------------------------------ */
+
+.meridian-machine-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+/*
+ * The empty body of an unreadable turn. It occupies the turn's position — that is the
+ * whole of what `cards/MachineBody.tsx` asks for — and carries no text, because the named absence beside
+ * it is where the reason is stated.
+ */
+.meridian-machine-body__empty {
+  margin: 0;
+  min-height: 1lh;
+}

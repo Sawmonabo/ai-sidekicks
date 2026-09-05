@@ -1,0 +1,158 @@
+/* `ledger/frame/`'s styles — the virtualized feed, its reading-anchor affordances,
+ * and the error slots.
+ *
+ * FIVE SHEETS, ONE FAMILY. `frame/frame.css`, `structure/structure.css`,
+ * `cards/cards.css` and `cards/markdown/markdown.css` carry the rules whose selectors
+ * belong to exactly one of those directories — one sheet per directory, so a rule
+ * sits beside the code that renders it — and `ledger.css` carries what is left over:
+ * a rule reachable from two of them, or from markup another family owns. All five are
+ * imported from `ledger/index.ts` and nowhere else, in that order, so they land once
+ * per bundle and cascade after the primitives' and the frame's.
+ *
+ * The retry control the failed row wears is `ledger.css`'s, because the ANSI card
+ * wears the same one.
+ */
+
+/* --- The ledger frame ---------------------------------------------------
+ *
+ * The virtualized feed, its reading-anchor affordances, and the error slots.
+ * `ledger/frame/` owns the behaviour; these rules own nothing but the boxes it
+ * needs. Every colour is a Meridian custom property and every space a step on the
+ * scale, so the frame follows the scheme attribute with no conditional in JSX.
+ */
+
+.meridian-ledger-viewport {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * The one scroll container in the ledger. A second box that scrolled anywhere
+ * inside it would give the chokepoint a rival `scrollTop` it does not own, and the
+ * reading anchor is an offset inside THIS box.
+ *
+ * `overscroll-behavior: contain` keeps a flick at the end of the log from scrolling
+ * the window behind it, which on a pinned reading position reads as the ledger
+ * having moved on its own.
+ */
+.meridian-ledger-viewport__surface {
+  position: relative;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+
+.meridian-ledger-viewport__surface:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Carries the whole log's height so the scrollbar is honest about how much there
+   is, while only the rows near the fold exist in the document. The height is written
+   by the virtualizer directly, so it is deliberately absent from this rule. */
+.meridian-ledger-viewport__sizer {
+  position: relative;
+  width: 100%;
+}
+
+/*
+ * Each mounted row is anchored at the top of the sizer and translated to its own
+ * offset. A transform rather than `top` because it composites: moving a row does not
+ * invalidate layout for anything that did not move, which is what keeps a four-lane
+ * stream inside the frame budget.
+ *
+ * The transform itself is written by the virtualizer under `directDomUpdates`, so no
+ * `transform` declaration belongs here: a value in this rule would be overwritten on
+ * the first scroll tick and would read as the row's position until then.
+ */
+.meridian-ledger-viewport__row {
+  display: block;
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  will-change: transform;
+}
+
+/*
+ * The tail strip: the pin's notice and the "N new" pill.
+ *
+ * Floating over the feed rather than in it, because inserting it into the flow
+ * would change the content height and move the very reading position it exists to
+ * protect.
+ */
+.meridian-ledger-viewport__tail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--meridian-space-2);
+  position: absolute;
+  inset-inline: 0;
+  bottom: var(--meridian-space-3);
+  pointer-events: none;
+}
+
+.meridian-ledger-viewport__pin {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The one primary act this surface offers. Quiet chrome everywhere else, so the
+ * pill can be the only filled control in the ledger without competing with anything.
+ */
+.meridian-ledger-viewport__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-ledger-viewport__pill:hover {
+  background: var(--meridian-surface);
+}
+
+.meridian-ledger-viewport__pill:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-ledger-viewport__notices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
+
+/* Ranked slots: the highest is a card, the rest sit under it as one quiet row. */
+.meridian-ledger-errors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3) var(--meridian-space-3) 0;
+}
+
+/*
+ * A row that failed to project, in its own place in the log.
+ *
+ * Red and named, per the frame's error rule — a gap here would read as the session
+ * having nothing at this point, which is the one thing it is not.
+ */
+.meridian-ledger-row-failure {
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  background: var(--meridian-red-ground);
+}
