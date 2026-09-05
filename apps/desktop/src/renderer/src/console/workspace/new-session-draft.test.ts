@@ -20,7 +20,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 
-const CREATED_SESSION_ID = "session-created-1";
+const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
 /** The one method the draft sends, named here so a count reads as what it counts. */
 const SESSION_CREATE_METHOD = "session.create";
@@ -35,7 +35,21 @@ function scenario(options: { readonly scriptsCreate: boolean }): ConsoleScenario
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
     replies: options.scriptsCreate
-      ? [{ call: "session.create", result: { sessionId: CREATED_SESSION_ID } }]
+      ? [
+          {
+            call: "session.create",
+            // The WHOLE registered response, because the fixture bridge parses a
+            // scripted reply against the method's own shape and refuses one that is
+            // short of it. A partial script here would have been a console tested
+            // against a reply the daemon cannot send.
+            result: {
+              sessionId: CREATED_SESSION_ID,
+              state: "active",
+              memberships: [],
+              channels: [],
+            },
+          },
+        ]
       : [],
   };
 }

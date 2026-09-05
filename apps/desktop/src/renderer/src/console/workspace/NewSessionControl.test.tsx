@@ -24,7 +24,7 @@ import type { ConsoleScenario } from "../bridge/scenario.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 
-const CREATED_SESSION_ID = "session-created-1";
+const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
 /**
  * A bridge whose `session.create` answers, or one whose does not.
@@ -43,7 +43,21 @@ function bridgeFor(options: { readonly scriptsCreate: boolean }): ConsoleBridge 
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
     replies: options.scriptsCreate
-      ? [{ call: "session.create", result: { sessionId: CREATED_SESSION_ID } }]
+      ? [
+          {
+            call: "session.create",
+            // The WHOLE registered response, because the fixture bridge parses a
+            // scripted reply against the method's own shape and refuses one that is
+            // short of it. A partial script here would have been a console tested
+            // against a reply the daemon cannot send.
+            result: {
+              sessionId: CREATED_SESSION_ID,
+              state: "active",
+              memberships: [],
+              channels: [],
+            },
+          },
+        ]
       : [],
   };
   return createFixtureBridge({ scenario });
@@ -245,7 +259,11 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     // The session exists — `session.create` is the one call of the three that is
     // registered — and the other two are named rather than silently skipped.
     expect(container.textContent).toContain("wire-unregistered");
-    expect(container.textContent).toContain("agent.attach and run.queueCreate");
+    // Named apart rather than joined, because they are unsendable for different
+    // reasons: one has no registered shape at all, and the other has a shape and no
+    // first turn to put in it.
+    expect(container.textContent).toContain("agent.attach");
+    expect(container.textContent).toContain("run.queueCreate");
     // Said once, in the announcer, in the vocabulary of what happened rather than
     // in the wire's.
     expect(politeText(container)).toBe(

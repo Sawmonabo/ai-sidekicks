@@ -35,18 +35,20 @@
 // another. The invariant is scoped to the object, so closing the draft — which
 // drops it — is what makes the next "+ New" a genuinely new session.
 //
-// WIRE TRUTH. Of the three calls the coalesced send names, exactly one is reachable
-// from the console today: `session.create`, which the shipped Tier-1 bootstrap
-// already calls over `daemon.call`. `agent.attach` and `run.queueCreate` are
-// registered nowhere in `@ai-sidekicks/contracts` and have no entry on the growth
-// port, so the send performs the first and REFUSES the other two by name rather
-// than inventing two method strings. Auto-pin is deliberately absent for the same
-// reason: it fires on a first SUCCESSFUL send, and no send can succeed until those
-// two wires land.
+// WIRE TRUTH. Of the three calls the coalesced send names, exactly one is issued
+// from here: `session.create`, over the bridge's own call door, which parses the
+// request before sending and the reply after. The other two are not sent, for
+// different reasons that the refusal names apart rather than lumping together.
+// `agent.attach` is registered nowhere in `@ai-sidekicks/contracts` and has no entry
+// on the growth port, so there is no shape to send. `run.queueCreate` IS registered
+// and callable — what is missing is the first turn's own body, which lives in the
+// composer and not in a draft that holds agents, a mount and a posture; inventing a
+// payload for it here would be this console sending words nobody typed. Auto-pin is
+// deliberately absent for the same reason it always was: it fires on a first
+// SUCCESSFUL send, and no send is complete while either call is unmade.
 
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
-
-import { type ConsoleBridge } from "../bridge/index.js";
+import { callDaemon, type ConsoleBridge } from "../bridge/index.js";
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 
 /**
@@ -124,8 +126,19 @@ export interface NewSessionSendResult {
 /** The one wire name this module sends, spelled once. */
 const SESSION_CREATE_METHOD = "session.create";
 
-/** The two the coalesced send needs and the console cannot reach. */
-const UNREGISTERED_SEND_CALLS: readonly string[] = ["agent.attach", "run.queueCreate"];
+/**
+ * The two the coalesced send needs and this draft cannot issue, and why.
+ *
+ * They are unreachable for DIFFERENT reasons, which is why the sentence below
+ * names them apart rather than calling both unavailable. `agent.attach` has no
+ * request or response pair in the contracts package and no growth-port operation,
+ * so there is no shape to send. `run.queueCreate` is registered and callable — what
+ * is missing is the first turn's own body, which lives in the composer and not in a
+ * draft that holds agents, a mount and a posture.
+ */
+const UNSENDABLE_CALL_WORDS =
+  "agent.attach is not available in this build, and run.queueCreate has no first turn to carry — " +
+  "a draft holds agents, a repository and a posture, and the turn's own words are the composer's";
 
 export class NewSessionDraft {
   readonly #bridge: ConsoleBridge;
@@ -269,10 +282,11 @@ export class NewSessionDraft {
       return this.#unregisteredRemainder(this.#landedCreate.sessionId);
     }
 
-    let sessionId: string | undefined;
-    try {
-      sessionId = readSessionId(await callDaemon(this.#bridge, SESSION_CREATE_METHOD, {}));
-    } catch {
+    // Through the bridge's one call door, which parses the request before sending
+    // and the reply after and never throws: the reply's `sessionId` is read off the
+    // method's own registered response shape rather than sniffed out of `unknown`.
+    const reply = await callDaemon(this.#bridge, SESSION_CREATE_METHOD, {});
+    if (reply.status === "refused") {
       // The daemon's own message is not console copy — it crosses an IPC boundary,
       // may be a stack, and describes a subsystem the person cannot act on. The
       // code names which call failed, which is what a person pastes into an issue.
@@ -287,6 +301,7 @@ export class NewSessionDraft {
       };
     }
 
+    const sessionId = reply.value.sessionId;
     this.#landedCreate = { sessionId };
     return this.#unregisteredRemainder(sessionId);
   }
@@ -310,7 +325,7 @@ export class NewSessionDraft {
       completedCalls: [SESSION_CREATE_METHOD],
       refusal: refuseDraft(
         "wire-unregistered",
-        `The session was created, but its sidekicks could not be attached and no first turn was queued — ${UNREGISTERED_SEND_CALLS.join(" and ")} are not available in this build.`,
+        `The session was created, but its sidekicks could not be attached and no first turn was queued — ${UNSENDABLE_CALL_WORDS}.`,
       ),
     };
   }
@@ -325,42 +340,4 @@ export class NewSessionDraft {
     };
     this.#changes.emit(this.#state);
   }
-}
-
-/**
- * The one `DaemonMethod` brand cast in this family, in one place.
- *
- * `packages/contracts/src/desktop-bridge.ts` types `DaemonMethod` as a
- * `never`-shaped brand until Plan-007 narrows it to the real method-name union, so
- * no string literal is structurally assignable to it. The shipped Tier-1 bootstrap
- * makes the same cast for the same call and says the same thing. Confining it to
- * one function means the day that union lands there is one site to delete, and
- * until then no surface in this family holds a way to call an arbitrary method.
- */
-async function callDaemon(
-  bridge: ConsoleBridge,
-  method: string,
-  params: unknown,
-): Promise<unknown> {
-  const call = bridge.sidekicks.daemon.call as (
-    method: string,
-    params: unknown,
-  ) => Promise<unknown>;
-  return await call(method, params);
-}
-
-/**
- * The session id off a create response, or `undefined`.
- *
- * Read structurally rather than parsed against a schema: `DaemonResult<M>` is a
- * Plan-007 stub resolving to `unknown`, so there is no typed response to narrow
- * against yet, and a hand-written schema here would be a second declaration of a
- * shape the contracts package will own.
- */
-function readSessionId(response: unknown): string | undefined {
-  if (typeof response !== "object" || response === null) {
-    return undefined;
-  }
-  const candidate = (response as { sessionId?: unknown }).sessionId;
-  return typeof candidate === "string" ? candidate : undefined;
 }
