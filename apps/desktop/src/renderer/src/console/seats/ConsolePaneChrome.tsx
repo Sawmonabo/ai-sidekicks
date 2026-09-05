@@ -44,6 +44,14 @@
 // pane rendered outside a deck is simply not draggable — the absent-not-disabled rule
 // again, applied to a gesture.
 //
+// AND SO IS THE PANE-LEVEL KEY CLAIM, for the same structural reason. A chord that
+// means "this pane" has to be heard wherever focus is inside the pane, and the head
+// is not inside the body — so a family that wants one cannot get it by wrapping its
+// own body, and wrapping the chrome from OUTSIDE puts an element between the deck and
+// the section it lays out. The browser pane shipped exactly that adapter, with
+// `display: contents` on it to stop the deck seeing a box; the prop below is what it
+// was standing in for.
+//
 // ITS STYLESHEET IS IMPORTED BY THE FAMILY DOOR, `seats/index.ts`, which is where
 // every other console family imports its own — `primitives/index.ts` and
 // `frame/index.ts` are the precedent and `apps/desktop/AGENTS.md` is the rule. The
@@ -198,6 +206,25 @@ export interface ConsolePaneChromeProps {
    * is silently unused rather than drawing a button the window model cannot serve.
    */
   readonly onOpenInWindow?: () => void;
+  /**
+   * A pane-level key claim, bound on the chrome's own `<section>`.
+   *
+   * IT IS ON THE SECTION AND NOT ON THE BODY, and that is the whole reason the seam
+   * exists. What a pane-level chord protects is the WINDOW, so the claim has to cover
+   * every element the chord can be pressed on while this pane has focus — and the head
+   * this chrome draws is not a descendant of the body a family supplies. A family that
+   * wraps `<ConsolePaneChrome>` from the outside to get the capture is drawing a second
+   * element around a laid-out pane; the one that shipped had to declare
+   * `display: contents` to stop the deck seeing a box, which is an adapter that exists
+   * only because this prop did not.
+   *
+   * CAPTURE and not bubble, on the same reasoning: the claim is the pane's, so it is
+   * decided before whatever the person was typing into sees the key. A handler that
+   * does not claim the event simply returns — nothing here calls `preventDefault` or
+   * `stopPropagation` on the caller's behalf, because which keys belong to the pane is
+   * the pane's question and not this frame's.
+   */
+  readonly onKeyDownCapture?: (event: React.KeyboardEvent<HTMLElement>) => void;
   readonly children: React.ReactNode;
 }
 
@@ -240,6 +267,7 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
       aria-labelledby={headingId}
       tabIndex={-1}
       style={focusRingStyle}
+      onKeyDownCapture={props.onKeyDownCapture}
     >
       <header className="meridian-pane__head" ref={registerDragHandle}>
         <span className="meridian-pane__kind">
