@@ -29,17 +29,12 @@
 // authority on a question the daemon owns. What it computes is what the operator can
 // SEE: a park, its shape, and a pin that has fallen behind.
 //
-// TWO COMPARISONS, TWO DIRECTIONS, AND NO SHARED SENTINEL. Both orderings below read
-// an RFC 3339 string a daemon sent, and each has to say what an UNPARSEABLE one means
-// — but they mean opposite things, so one sentinel cannot serve both. The run sort is
-// DESCENDING and hands its readings to `compareInstants`, which puts an unreadable
-// start LAST in both directions: a numeric floor cannot, because the value that sorts
-// last ascending sorts first descending, and two floors subtract to `NaN`, which a
-// comparator may answer and `Array.prototype.sort` may read as anything it likes. The
-// earliest-resume pick is ASCENDING over instants already known to be readable — the
-// classification parsed them to reach the armed arm — so an unreadable
-// `autoResumeAt` is not compared at all rather than floored into first place, where
-// it would report a resume nobody can read in place of the one that is actually next.
+// ONE COMPARISON, AND NO SENTINEL UNDER IT. The sort below reads an RFC 3339 string a
+// daemon sent and has to say what an UNPARSEABLE one means. It is DESCENDING and hands
+// its readings to `compareInstants`, which puts an unreadable start LAST in both
+// directions: a numeric floor cannot, because the value that sorts last ascending
+// sorts first descending, and two floors subtract to `NaN`, which a comparator may
+// answer and `Array.prototype.sort` may read as anything it likes.
 //
 // AND THE SORT ENDS ON THE RUN'S OWN IDENTITY. Band, then start, then `workflowRunId`
 // — because the first two both admit ties (two runs started in the same millisecond,
@@ -52,9 +47,13 @@
 // itself is `run-list-rows.ts`'s three-arm `WorkflowParkSchedule`, attached to each
 // parked phase as it is projected — because the surface that says which kind of park
 // this is renders ONE park at a time, and a row-level "something here is unscheduled"
-// cannot tell it which. Two row members used to carry that fact in aggregate and no
-// renderer consumed either: the badge re-derived the answer from `autoResumeAt`'s
-// presence and called a malformed instant a schedule.
+// cannot tell it which. THREE row members used to carry that fact in aggregate and no
+// renderer consumed any of them: the badge re-derived the answer from `autoResumeAt`'s
+// presence and called a malformed instant a schedule. The last of the three was the
+// soonest armed resume across a run's parks, which every surface that draws a resume
+// reads off the park it is drawing; a row member nothing reads is a derivation run per
+// row for nobody, and neither gate reports one — knip sees unused EXPORTS, not unused
+// members of a used interface.
 //
 // THE SHAPES ARE NEXT DOOR AND THE VOCABULARY IS ON THE SUBSTRATE. `run-list-rows.ts`
 // derives the run and phase rows from `bridge/workflow-projection.ts`, which is where
@@ -128,14 +127,6 @@ export interface WorkflowRunListRow {
   /** Every phase parked at the moment the snapshot was built. Empty when none is. */
   readonly parkedPhases: readonly WorkflowParkedPhase[];
   /**
-   * The soonest READABLE armed resume across this run's parks, verbatim as the wire
-   * sent it.
-   *
-   * `undefined` when no park armed one — which is the operator-resumable case, not
-   * the not-parked case. `parkedPhases` says which of the two.
-   */
-  readonly earliestAutoResumeAt: string | undefined;
-  /**
    * True when the run's pinned version is not the definition's newest.
    *
    * An inequality between two opaque ids. False when the caller supplied no latest,
@@ -190,31 +181,6 @@ function attentionBandFor(
   return parkedPhases.length > 0 ? "parked" : RUN_STATE_ATTENTION_BANDS[run.state];
 }
 
-/**
- * The soonest armed resume across a run's parks, or nothing where none is armed.
- *
- * Reads each park's already-classified schedule rather than its raw member, so the
- * ASCENDING comparison never sees an instant nothing could parse: an unreadable
- * boundary is `unreadable` on the phase that carries it, and a row therefore cannot
- * report a resume time no surface is allowed to draw. Whether a person is needed is
- * not returned beside this — it is on each parked phase, where the surface that says
- * so reads it.
- */
-function earliestArmedResumeFor(parkedPhases: readonly WorkflowParkedPhase[]): string | undefined {
-  let earliestAutoResumeAt: string | undefined;
-  let earliestMilliseconds = Number.POSITIVE_INFINITY;
-  for (const parked of parkedPhases) {
-    if (parked.schedule.kind !== "armed") {
-      continue;
-    }
-    if (parked.schedule.atMilliseconds < earliestMilliseconds) {
-      earliestMilliseconds = parked.schedule.atMilliseconds;
-      earliestAutoResumeAt = parked.schedule.autoResumeAt;
-    }
-  }
-  return earliestAutoResumeAt;
-}
-
 /** One run's row, with every derived fact read off the snapshot exactly once. */
 function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
   const parkedPhases: WorkflowParkedPhase[] = [];
@@ -232,7 +198,6 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
   return {
     run,
     parkedPhases,
-    earliestAutoResumeAt: earliestArmedResumeFor(parkedPhases),
     isPinnedBehindLatestVersion:
       run.definitionLatestWorkflowVersionId !== undefined &&
       run.definitionLatestWorkflowVersionId !== run.workflowVersionId,

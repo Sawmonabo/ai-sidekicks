@@ -134,14 +134,16 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     expect(scheduleFor("2026-01-01T10:00:00+01:00").kind).toBe("unreadable");
   });
 
-  it("admits a well-formed UTC instant and carries its parsed reading on the arm", () => {
+  it("admits a well-formed UTC instant and carries the wire's own spelling on the arm", () => {
     // The control for every case above: a projection that refused everything would
-    // satisfy all of them and leave no park schedulable at all.
-    const schedule = scheduleFor("2026-01-01T10:00:00.000Z");
-    expect(schedule.kind).toBe("armed");
-    expect(schedule.kind === "armed" ? schedule.atMilliseconds : undefined).toBe(
-      Date.UTC(2026, 0, 1, 10, 0, 0, 0),
-    );
+    // satisfy all of them and leave no park schedulable at all. The arm carries the
+    // wire's string and no reading of it — every surface that draws a resume draws
+    // this value, and the parsed number the arm used to carry had no reader left once
+    // the row-level earliest-resume pick was deleted.
+    expect(scheduleFor("2026-01-01T10:00:00.000Z")).toStrictEqual({
+      kind: "armed",
+      autoResumeAt: "2026-01-01T10:00:00.000Z",
+    });
   });
 
   it("admits one with whole seconds and no fraction", () => {
