@@ -19,14 +19,16 @@
 // path the block DOES cover, must trip at least one selector. That is what "earns" means,
 // and it is checkable without anyone re-reading the rationale.
 //
-// THE INSTRUMENT IS THE REAL ENGINE, TWICE. The exempt set is resolved by asking ESLint
+// THE INSTRUMENT IS THE REAL ENGINE, TWICE — the one in `test/console/eslint-harness.ts`,
+// which three gates now share so that the probe path and the config resolution cannot
+// drift between the gate that resolves the exempt set and the gate that plants rows. The exempt set is resolved by asking ESLint
 // what config it would apply to each console module, so an exemption added anywhere —
 // this block, a later block, a widened glob — is in the set. Then each exempt file's own
 // TEXT is linted at a non-exempt probe path, through the same config. Nothing here
 // restates a selector: a copy would pass with the config deleted, which is the failure
 // this file exists to prevent.
 
-import { ESLint } from "eslint";
+import type { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -35,18 +37,12 @@ import {
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
-
-/** `architecture/` → `console/` → `test/` → the desktop package. */
-const DESKTOP_PACKAGE_ROOT = new URL("../../../", import.meta.url).pathname;
-
-/**
- * A console path the ban block covers and no `ignores` entry names.
- *
- * It does not exist on disk and does not need to: `lintText` lints the text it is given
- * AS this path, and the path is what decides which config objects match. The first case
- * below asserts it is genuinely non-exempt, so the probe cannot silently become one.
- */
-const NON_EXEMPT_PROBE_PATH = `${DESKTOP_PACKAGE_ROOT}src/renderer/src/console/exemption-probe.ts`;
+import {
+  createDesktopLinter,
+  ESLINT_CASE_BUDGET_MS,
+  NON_EXEMPT_CONSOLE_PROBE_PATH,
+  ruleMessagesAt,
+} from "../eslint-harness.js";
 
 /**
  * The rule whose exempt set this file audits.
@@ -70,15 +66,6 @@ const WOULD_NOT_EARN_AN_EXEMPTION: readonly string[] = [
   "console/core/wire-rejection.ts",
 ];
 
-/** Sized to the machine, not the work — see the case budget note below. */
-const ESLINT_CASE_BUDGET_MS = 30_000;
-
-function createLinter(): ESLint {
-  // `cwd` anchors flat-config discovery on the desktop package, so the config under audit
-  // — which itself spreads the repo-root config — is the one that runs.
-  return new ESLint({ cwd: DESKTOP_PACKAGE_ROOT });
-}
-
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
   const resolved = await linter.calculateConfigForFile(absolutePath);
@@ -92,14 +79,11 @@ async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<
 
 /** How many selectors `source` trips when linted as a covered console module. */
 async function selectorHitsAtProbePath(linter: ESLint, source: string): Promise<number> {
-  const results = await linter.lintText(source, { filePath: NON_EXEMPT_PROBE_PATH });
-  return results
-    .flatMap((result) => result.messages)
-    .filter((message) => message.ruleId === AUDITED_RULE).length;
+  return (await ruleMessagesAt(linter, source, NON_EXEMPT_CONSOLE_PROBE_PATH, AUDITED_RULE)).length;
 }
 
 describe("eslint exemption census — every excused file trips something", () => {
-  const linter = createLinter();
+  const linter = createDesktopLinter();
   const modules: readonly ConsoleSourceModule[] = consoleSourceModules({ tests: true });
 
   it(
@@ -110,7 +94,7 @@ describe("eslint exemption census — every excused file trips something", () =>
       // itself exempt would make every hit count zero — two different ways to be green
       // for no reason.
       expect(modules.length).toBeGreaterThan(20);
-      expect(await restrictsSyntaxAt(linter, NON_EXEMPT_PROBE_PATH)).toBe(true);
+      expect(await restrictsSyntaxAt(linter, NON_EXEMPT_CONSOLE_PROBE_PATH)).toBe(true);
     },
     ESLINT_CASE_BUDGET_MS,
   );
