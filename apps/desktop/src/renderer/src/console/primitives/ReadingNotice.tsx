@@ -20,8 +20,8 @@
 // SENTENCE itself has to be spoken, the surface calls `useReadingAnnouncement`.
 
 import { Nothing } from "./Nothing.js";
-import { DerivedFigure } from "./Figure.js";
-import { InlineRefusal } from "./Refusal.js";
+import { DerivedFigure } from "./DerivedFigure.js";
+import { InlineRefusal } from "./InlineRefusal.js";
 import type { PartialReadNotice } from "./partial-read.js";
 
 export interface ReadingNoticeProps {
