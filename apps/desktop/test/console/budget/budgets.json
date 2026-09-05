@@ -2,7 +2,8 @@
   "schemaVersion": 2,
   "source": "docs/specs/023-desktop-shell-and-renderer.md — §Console Design (Meridian) §Budgets",
   "plan": "docs/plans/023-desktop-shell-and-renderer.md — Phase 1C (T-023p-1C-1..8), invariant I-023-14",
-  "description": "The single source of truth for every numeric budget the console is gated on. Rows carry a `scope`. A `product` row is one of `Spec-023 §Console Design (Meridian)` §Budgets' own figures: every budget that table names appears here exactly once, whether or not this revision can measure it, because a budget silently omitted is a budget nobody notices is ungated. A `harness` row is a bound the test scaffolding itself applies — no spec figure stands behind it, and its `specTarget` states the derivation instead. Both kinds live here for the same reason: one value, one home. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `producedBy`, the Plan-023 task that makes it measurable and, in `notMeasurableReason`, what is missing. Every harness that reads this file prints one line per \"n/a\" entry beside the budgets it did measure.",
+  "description": "The single source of truth for every numeric budget the console is gated on. Rows carry a `scope`. A `product` row is one of `Spec-023 §Console Design (Meridian)` §Budgets' own figures: every budget that table names appears here exactly once, whether or not this revision can measure it, because a budget silently omitted is a budget nobody notices is ungated. A `harness` row is a bound the test scaffolding itself applies — no spec figure stands behind it, so its `specTarget` states the bound in its own terms while `harnessBudgetDerivation` states, once for the whole set, why those figures and not others. Both kinds live here for the same reason: one value, one home. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `producedBy`, the Plan-023 task that makes it measurable and, in `notMeasurableReason`, what is missing. Every harness that reads this file prints one line per \"n/a\" entry beside the budgets it did measure.",
+  "harnessBudgetDerivation": "The three `console-launch-*` rows are slices of ONE deadline, so their derivation is a property of the set and is stated here rather than three times over. `launch-deadline.ts` mints a single deadline per launch and divides it into these three named bounds, so a launch that overruns produces its own diagnostic instead of vitest's undiagnosable kill. `architecture/launch-deadline.test.ts` resolves every launching tier through `createVitest` and holds the sum — these three bounds plus a 2 000 ms settlement residual — against the smaller of that tier's real `testTimeout` and `hookTimeout`, never against a literal copied out of the config. The constraint is therefore every launching tier's resolved `testTimeout`, of which the binding one today is `console-e2e`'s 60 000 ms; `console-endurance` resolves 600 000 ms and constrains nothing. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged launch rather than an expectation.",
   "unitConventions": {
     "kB": "1000 bytes (SI). The spec writes `kB`; the SI reading is also the stricter one (450 kB = 450000 B, against 450 KiB = 460800 B), so taking it costs the budget nothing and cannot make a passing measurement out of a failing one.",
     "MB": "1000000 bytes (SI), by the same reading and the same reasoning (120 MB = 120000000 B, against 120 MiB = 125829120 B).",
@@ -188,8 +189,8 @@
       "scope": "harness",
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
-      "measuredBy": "apps/desktop/test/console/launch-deadline.ts",
-      "notes": "Derived from the `console-e2e` tier's own 60 000 ms `testTimeout`, read from `vitest.config.ts` by `launch-deadline.test.ts`: these three bounds plus a 2 000 ms settlement residual must fit inside it, so a launch that overruns produces its own diagnostic instead of vitest's undiagnosable kill. Generous on purpose: a cold CI runner with no warm Electron cache is the case this must not flake on, and the figure is a ceiling for a wedged launch rather than an expectation."
+      "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
+      "notes": "The whole cold-start ladder — first window, `load`, the frame selector — charged once between its phases rather than once each, which is what the four independent 30 000 ms allowances this replaced got wrong. Generous on purpose: a cold CI runner with no warm Electron cache is the case it must not flake on. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
     },
     {
       "id": "console-launch-frame-witness",
@@ -206,8 +207,8 @@
       "scope": "harness",
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
-      "measuredBy": "apps/desktop/test/console/frame-witness.ts",
-      "notes": "Derived from the `console-e2e` tier's own 60 000 ms `testTimeout`, read from `vitest.config.ts` by `launch-deadline.test.ts`: these three bounds plus a 2 000 ms settlement residual must fit inside it, so a launch that overruns produces its own diagnostic instead of vitest's undiagnosable kill. Armed only once readiness has landed, so a slow boot is charged to the readiness row rather than reported as a frame that never came — which is the flake this split was introduced to remove."
+      "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
+      "notes": "Armed only once readiness has landed, so a slow boot is charged to the readiness row rather than reported as a frame that never came — the flake this split was introduced to remove. What it answers is whether the window painted at all, and late is not the same as never: it fails only on never. First-frame LATENCY is bounded by nothing at this revision — `frame-time-p95-four-lanes` is the row that would catch a frame-schedule regression and it is `n/a` until T-023p-1C-2 — so a green witness is a claim about paint and never about how long the paint took. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
     },
     {
       "id": "console-launch-cleanup",
@@ -224,8 +225,8 @@
       "scope": "harness",
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
-      "measuredBy": "apps/desktop/test/console/bounded-cleanup.ts",
-      "notes": "Derived from the `console-e2e` tier's own 60 000 ms `testTimeout`, read from `vitest.config.ts` by `launch-deadline.test.ts`: these three bounds plus a 2 000 ms settlement residual must fit inside it, so a launch that overruns produces its own diagnostic instead of vitest's undiagnosable kill. A reserve rather than a target: what it guards against is an Electron wedged rather than slow, so what matters is that some finite number is enforced. A healthy close costs well under a second locally. It is the FLOOR of the applied bound — a launch that failed early leaves most of the deadline unspent, and cleanup is given whatever is left."
+      "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
+      "notes": "A reserve rather than a target: what it guards against is an Electron wedged rather than slow, so what matters is that some finite number is enforced. It is the FLOOR of the applied bound — a launch that failed early leaves most of the deadline unspent, and cleanup is given whatever is left. Because `terminated` records and passes, this figure decides when the process tree is SIGKILLed rather than whether the tier goes red; `unterminable` and `closed-after-rejection` fail, and those are the two settlements that harm the launches after them. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
     }
   ]
 }

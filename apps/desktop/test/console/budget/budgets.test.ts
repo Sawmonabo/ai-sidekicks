@@ -2,8 +2,8 @@
 //
 // `budgets.json` is the single source of truth for every numeric budget the
 // console is gated on (`Spec-023 §Console Design (Meridian)` §Budgets, Plan-023
-// invariant I-023-14). Two failure modes make it worthless, and this file
-// closes both:
+// invariant I-023-14). Three failure modes make it worthless, and this file
+// closes all three:
 //
 //   • A budget quietly missing. Every row of the spec's §Budgets table is
 //     asserted present by id, so deleting one fails here rather than going
@@ -12,6 +12,13 @@
 //   • A budget quietly ungated. Every `"n/a"` entry must name the Plan-023 task
 //     that makes it measurable and the reason it is not measurable yet, and the
 //     report every harness prints must actually name all of them.
+//
+//   • A budget gated by a claim rather than by a measurement. A `harness` row's
+//     figure has no spec behind it, so the document states the derivation once
+//     for that whole set and each row points at it rather than carrying a copy;
+//     and such a row's `measuredBy` has to name a TEST, because a module that
+//     merely reads the figure measures nothing and leaves `existsSync` as the
+//     only thing standing behind the row.
 //
 // The loader's validation is additionally exercised against known-bad inputs
 // below, so "the registry parsed" is evidence rather than an assumption: a
@@ -168,6 +175,45 @@ describe("console budget registry", () => {
     }
   });
 
+  it("states the harness derivation once, and every harness row points at it", () => {
+    // The three launch rows each opened with the same 44-word sentence, which is
+    // one rule with three places to drift — and it was already imprecise: it
+    // named `console-e2e` as THE derivation, when the guard runs against every
+    // launching tier's resolved timeout and that tier merely happens to bind.
+    const derivation = registry.harnessBudgetDerivation ?? "";
+    expect(derivation, "the derivation is stated").not.toBe("");
+    expect(derivation, "held against every launching tier, not one named tier").toContain(
+      "every launching tier",
+    );
+    expect(derivation, "and it says which one binds").toContain("console-e2e");
+
+    const harnessNotes = registry.harnessBudgets().map((budget) => budget.notes);
+    for (const notes of harnessNotes) {
+      expect(notes, "a harness row says where its derivation lives").toContain(
+        "harnessBudgetDerivation",
+      );
+    }
+    // Three rows that open alike are three copies of one sentence, which is the
+    // shape the pointer replaced.
+    const openings = new Set(harnessNotes.map((notes) => notes.slice(0, 60)));
+    expect(openings.size, "harness rows repeat one derivation verbatim").toBe(harnessNotes.length);
+  });
+
+  it("points a harness row's `measuredBy` at a test rather than at a module that reads it", () => {
+    // `existsSync` alone passed over three rows naming `launch-deadline.ts`,
+    // `frame-witness.ts`, and `bounded-cleanup.ts` — the modules that CONSUME
+    // each figure. None of them measures anything; the file that holds a row to
+    // its constant is `architecture/launch-deadline.test.ts`, and for a
+    // `harness` row that file is the whole enforcement.
+    const enforcedHarnessBudgets = registry
+      .harnessBudgets()
+      .filter((budget) => budget.status === "enforced");
+    expect(enforcedHarnessBudgets.length, "harness rows to check").toBeGreaterThan(0);
+    for (const budget of enforcedHarnessBudgets) {
+      expect(budget.measuredBy ?? "", `${budget.id}: measuredBy`).toMatch(/\.test\.ts$/u);
+    }
+  });
+
   it("makes every un-measurable budget name its producing task and its reason", () => {
     const unavailable = registry.unavailableBudgets();
     expect(unavailable.length).toBe(
@@ -316,6 +362,29 @@ describe("registry validation (negative controls)", () => {
     // nothing checks.
     const entry = { ...validEntry, scope: "internal" };
     expect(loadFixture("bad-scope", { ...validDocument, budgets: [entry] })).toThrow(/scope/);
+  });
+
+  it("rejects a `harness` row in a document that states no derivation", () => {
+    // A bound the scaffolding applies to itself, with the reason for its figure
+    // written nowhere, is a number gated by nothing — which is what the harness
+    // rows were before they joined this file.
+    const entry = { ...validEntry, scope: "harness" };
+    expect(loadFixture("no-derivation", { ...validDocument, budgets: [entry] })).toThrow(
+      /harnessBudgetDerivation/,
+    );
+  });
+
+  it("accepts the same `harness` row once the derivation is stated", () => {
+    // The positive half: without it the case above passes over a loader that
+    // refused every harness row, whatever the document said.
+    const entry = { ...validEntry, scope: "harness" };
+    const loaded = loadFixture("with-derivation", {
+      ...validDocument,
+      harnessBudgetDerivation: "Why the scaffolding's own bounds are the figures they are.",
+      budgets: [entry],
+    })();
+    expect(loaded.harnessBudgetDerivation).not.toBeNull();
+    expect(loaded.harnessBudgets()).toHaveLength(1);
   });
 
   it("rejects a row with no scope at all", () => {

@@ -1,12 +1,14 @@
 // The one place a tier resolves this package's real Vitest projects.
 //
-// Two architecture tests ask questions whose answer is "what does the runner
+// Three architecture tests ask questions whose answer is "what does the runner
 // actually do" rather than "what does the config file appear to say":
 // `vitest-project-globs.test.ts` asks which project would discover a given file,
-// and `ci-tier-coverage.test.ts` asks which projects exist at all. Both answers
-// have to come from `createVitest` — a matcher or a project list of our own could
-// agree with the config and still disagree with the run — so the resolution lives
-// here once rather than in each of them.
+// `ci-tier-coverage.test.ts` asks which projects exist at all, and
+// `launch-deadline.test.ts` asks what patience each launching tier really
+// resolves to. All three answers have to come from `createVitest` — a matcher,
+// a project list, or a copied timeout of our own could agree with the config and
+// still disagree with the run — so the resolution lives here once rather than in
+// each of them.
 //
 // Resolving is not running. `createVitest` loads the config and constructs the
 // `TestProject` instances; no suite is collected, no browser is launched, and the
