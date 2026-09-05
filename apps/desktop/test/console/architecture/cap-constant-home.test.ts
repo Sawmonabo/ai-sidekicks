@@ -38,17 +38,22 @@
 // states a view family as the complement of the layer families and the two
 // composition sites, and a second list would be a second answer that drifts.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import extractDepcruiseConfig from "dependency-cruiser/config-utl/extract-depcruise-config";
 import { describe, expect, it } from "vitest";
 
+import {
+  consoleSourceModules,
+  readConsoleSourceModule,
+  CONSOLE_DIRECTORY,
+  moduleNamed,
+} from "../console-source-modules.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
 const CONFIG_PATH = resolve(PACKAGE_ROOT, ".dependency-cruiser.mjs");
-const CONSOLE_DIRECTORY = resolve(PACKAGE_ROOT, "src", "renderer", "src", "console");
 
 /** Where the layering rules are anchored, which is what their patterns match against. */
 const CONSOLE_ROOT = "src/renderer/src/console";
@@ -68,7 +73,7 @@ const VIEW_FAMILY_RULE = "console-view-family-isolation";
  * A path rather than a naming convention, so moving the home is an edit a reviewer
  * sees.
  */
-const CAP_HOME_MODULE = join("core", "constants.ts");
+const CAP_HOME_MODULE = "core/constants.ts";
 
 /**
  * The name segments that make an identifier a bound rather than a measurement.
@@ -136,22 +141,26 @@ async function nonViewFamilyPatterns(): Promise<readonly RegExp[]> {
   return patterns.map((pattern) => new RegExp(pattern, "u"));
 }
 
-function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx") &&
-        !entry.endsWith(".test-support.ts") &&
-        !entry.endsWith(".test-support.tsx") &&
-        !entry.endsWith(".d.ts"),
-    )
-    .sort();
+/**
+ * Every console source module, through the tier's one walk.
+ *
+ * Console-relative because that is the name every message below reports and what the
+ * layering patterns are anchored against; the walk's own `displayPath` carries the
+ * `console/` root in front of it. The walk itself is not this file's to write:
+ * `source-walk-chokepoint.test.ts` fails a gate that reaches renderer source through
+ * a `readdirSync` of its own, because five private walks are five slightly different
+ * ideas of what counts as source and the difference is invisible until one of them
+ * scans a file the others do not.
+ */
+const CONSOLE_MODULES = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
+
+/** The console-relative paths of every scanned module. */
+function consoleModulePaths(): readonly string[] {
+  return CONSOLE_MODULES.map((module) => module.displayPath.slice("console/".length));
 }
 
 describe("cap-constant-home — a bound is declared in one module", () => {
-  const modules = consoleSourceModules();
+  const modules = consoleModulePaths();
 
   it("finds a console tree to scan, and the home inside it", () => {
     // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
@@ -225,5 +234,5 @@ async function viewFamilyModulesAmong(modules: readonly string[]): Promise<reado
 }
 
 function readConsoleSource(module: string): string {
-  return readFileSync(join(CONSOLE_DIRECTORY, module), "utf8");
+  return readConsoleSourceModule(moduleNamed(CONSOLE_MODULES, `console/${module}`));
 }

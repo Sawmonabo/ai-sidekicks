@@ -26,15 +26,45 @@
 // hoisting it to the family door would put it in the document the operator waits
 // for. The rule this file holds is about which door a family's OWN sheet enters by.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  consoleSourceModules,
+  readConsoleSourceModule,
+  moduleNamed,
+  CONSOLE_DIRECTORY,
+} from "../console-source-modules.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
-const CONSOLE_DIRECTORY = resolve(PACKAGE_ROOT, "src", "renderer", "src", "console");
+
+/**
+ * Every console source module, through the tier's ONE walk.
+ *
+ * `source-walk-chokepoint.test.ts` fails a gate that reaches renderer source through
+ * a `readdirSync` of its own: five private walks are five slightly different ideas of
+ * what counts as source, and the difference between them is invisible until one of
+ * them scans a file the others do not — which is how this file came to exclude
+ * `.test.` by substring while its neighbours excluded four exact suffixes.
+ */
+const CONSOLE_MODULES = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
+
+/**
+ * Every stylesheet under the console, console-relative.
+ *
+ * Through Vite's own module graph rather than through a directory read, because the
+ * walk above answers for TypeScript and this claim needs the other half — and a
+ * second directory read here is the exact shape the chokepoint forbids. The glob is
+ * resolved by the same bundler that resolves the imports these edges are about, so
+ * both halves of every assertion below come from one resolver.
+ */
+const STYLESHEET_PATHS: readonly string[] = Object.keys(
+  import.meta.glob("../../../src/renderer/src/console/**/*.css", { query: "?url" }),
+)
+  .map((specifier) => consoleRelative(resolve(HERE, specifier)))
+  .sort();
 
 /** The one file in a family that may carry a stylesheet import. */
 const FAMILY_DOOR = "index.ts";
@@ -42,43 +72,30 @@ const FAMILY_DOOR = "index.ts";
 /** An `import "./somewhere.css";` statement, however it is quoted. Relative only. */
 const STYLESHEET_IMPORT_PATTERN = /import\s+["'](\.[^"']*\.css)["']/gu;
 
-/** Every file under the console with one of these extensions, relative to its root. */
-function consoleFilesWithExtension(extension: string): readonly string[] {
-  const found: string[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory)) {
-      const path = join(directory, entry);
-      if (statSync(path).isDirectory()) {
-        walk(path);
-      } else if (entry.endsWith(extension)) {
-        found.push(relative(CONSOLE_DIRECTORY, path));
-      }
-    }
-  };
-  walk(CONSOLE_DIRECTORY);
-  return found.sort();
+/** A path under the console, spelled the way every message here names one. */
+function consoleRelative(absolutePath: string): string {
+  return relative(CONSOLE_DIRECTORY, absolutePath).split("\\").join("/");
 }
 
 /** The family a console-relative path belongs to — its first path segment. */
 function familyOf(consoleRelativePath: string): string {
-  return consoleRelativePath.split(sep)[0] ?? "";
+  return consoleRelativePath.split("/")[0] ?? "";
 }
 
 /** Every stylesheet a module imports, as console-relative paths. */
 function stylesheetImportsOf(consoleRelativePath: string): readonly string[] {
-  const source = readFileSync(join(CONSOLE_DIRECTORY, consoleRelativePath), "utf8");
+  const source = readConsoleSourceModule(
+    moduleNamed(CONSOLE_MODULES, `console/${consoleRelativePath}`),
+  );
   const importedFrom = dirname(consoleRelativePath);
   return [...source.matchAll(STYLESHEET_IMPORT_PATTERN)].map((match) =>
-    relative(CONSOLE_DIRECTORY, resolve(CONSOLE_DIRECTORY, importedFrom, match[1] ?? "")),
+    consoleRelative(resolve(CONSOLE_DIRECTORY, importedFrom, match[1] ?? "")),
   );
 }
 
 describe("stylesheet edges — a family's CSS enters at that family's door", () => {
-  const stylesheets = consoleFilesWithExtension(".css");
-  const modules = [
-    ...consoleFilesWithExtension(".ts"),
-    ...consoleFilesWithExtension(".tsx"),
-  ].filter((path) => !path.includes(".test."));
+  const stylesheets = STYLESHEET_PATHS;
+  const modules = CONSOLE_MODULES.map((module) => module.displayPath.slice("console/".length));
 
   it("finds the console's stylesheets and modules at all", () => {
     // Without this, a wrong root would scan nothing and every assertion below would
@@ -89,7 +106,7 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
 
   it("is imported by no module but a family door", () => {
     const offenders = modules
-      .filter((module) => !module.endsWith(sep + FAMILY_DOOR) && module !== FAMILY_DOOR)
+      .filter((module) => !module.endsWith(`/${FAMILY_DOOR}`) && module !== FAMILY_DOOR)
       .flatMap((module) => stylesheetImportsOf(module).map((sheet) => `${module} -> ${sheet}`));
     expect(offenders).toStrictEqual([]);
   });
@@ -98,7 +115,7 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     // A submodule reaching for a sibling family's sheet is the same defect one level
     // out: the sheet then arrives on whichever chunk that family lands in.
     const crossFamilyEdges = modules
-      .filter((module) => module.endsWith(sep + FAMILY_DOOR))
+      .filter((module) => module.endsWith(`/${FAMILY_DOOR}`))
       .flatMap((door) =>
         stylesheetImportsOf(door)
           .filter((sheet) => familyOf(sheet) !== familyOf(door))
@@ -127,9 +144,9 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     // shapes it is looking for. Read out of the real tree rather than asserted about
     // it: the browser family's door carries its five sheets, and the component beside
     // it carries none.
-    const doorEdges = stylesheetImportsOf(join("browser", FAMILY_DOOR));
+    const doorEdges = stylesheetImportsOf(`browser/${FAMILY_DOOR}`);
     expect(doorEdges.length).toBeGreaterThan(1);
     expect(doorEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
-    expect(stylesheetImportsOf(join("browser", "BudgetMeter.tsx"))).toStrictEqual([]);
+    expect(stylesheetImportsOf("browser/BudgetMeter.tsx")).toStrictEqual([]);
   });
 });

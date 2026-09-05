@@ -33,17 +33,45 @@
 // rule forbids, and `console/browser/index.test.ts` names both unregistered wires
 // on purpose, as its own negative control.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  consoleSourceModules,
+  readConsoleSourceModule,
+  moduleNamed,
+  CONSOLE_DIRECTORY,
+  SHELL_DIRECTORY,
+} from "../console-source-modules.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SOURCE_DIRECTORY = resolve(HERE, "..", "..", "..", "src");
+const PACKAGE_SOURCE_ROOT = resolve(HERE, "..", "..", "..", "src");
+
+/**
+ * The four subtrees this claim is about, walked through the tier's ONE walk.
+ *
+ * Both process trees, because the second claim is about both of them: a renderer
+ * module importing the view class reaches across the boundary, and a MAIN-process
+ * module constructing one would be the native host this task deliberately did not
+ * mint. The walk is not this file's to write — `source-walk-chokepoint.test.ts` fails
+ * a gate that reaches renderer source through a `readdirSync` of its own — and it
+ * takes its roots as a parameter for exactly this: a claim wider than the console
+ * states the roots rather than growing a second opinion about what counts as source.
+ */
+const SOURCE_ROOTS: readonly string[] = [
+  CONSOLE_DIRECTORY,
+  SHELL_DIRECTORY,
+  resolve(PACKAGE_SOURCE_ROOT, "main"),
+  resolve(PACKAGE_SOURCE_ROOT, "preload"),
+  resolve(PACKAGE_SOURCE_ROOT, "shared"),
+];
+
+const SOURCE_MODULES = consoleSourceModules({ roots: SOURCE_ROOTS });
 
 /** A module that is expected to name the missing wire in prose, for the controls. */
-const PROSE_WITNESS = join("renderer", "src", "console", "browser", "geometry-publisher.ts");
+const PROSE_WITNESS = "console/browser/geometry-publisher.ts";
 
 /**
  * Specifier suffixes that make a `browser.` string a FILE rather than a namespace
@@ -153,19 +181,11 @@ function namespaceSignatures(source: string): readonly string[] {
 }
 
 function desktopSourceModules(): readonly string[] {
-  return readdirSync(SOURCE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx") &&
-        !entry.endsWith(".d.ts"),
-    )
-    .sort();
+  return SOURCE_MODULES.map((module) => module.displayPath);
 }
 
 function readSource(module: string): string {
-  return readFileSync(join(SOURCE_DIRECTORY, module), "utf8");
+  return readConsoleSourceModule(moduleNamed(SOURCE_MODULES, module));
 }
 
 describe("browser pane — no namespace call and no native host", () => {

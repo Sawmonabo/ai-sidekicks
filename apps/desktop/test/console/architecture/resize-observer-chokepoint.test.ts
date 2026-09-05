@@ -22,14 +22,14 @@
 // Test files are excluded: a fake has to construct the shape it stands in for, and
 // forbidding that would forbid testing the chokepoint's own degrade.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src", "console");
+import {
+  consoleSourceModules,
+  readConsoleSourceModule,
+  CONSOLE_DIRECTORY,
+  moduleNamed,
+} from "../console-source-modules.js";
 
 /**
  * The one module allowed to construct a size observer.
@@ -37,7 +37,7 @@ const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "sr
  * An allow-list of exactly one, written as a path rather than inferred from a naming
  * convention, so moving the chokepoint is an edit a reviewer sees.
  */
-const CHOKEPOINT_MODULE = join("primitives", "element-resize.ts");
+const CHOKEPOINT_MODULE = "primitives/element-resize.ts";
 
 /**
  * The ways this tree can take the constructor.
@@ -59,29 +59,34 @@ function resizeObserverConstructionSignatures(source: string): readonly string[]
   return CONSTRUCTION_FORMS.filter((form) => source.includes(form));
 }
 
-function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx") &&
-        !entry.endsWith(".test-support.ts") &&
-        !entry.endsWith(".d.ts"),
-    )
-    .sort();
+/**
+ * Every console source module, through the tier's one walk.
+ *
+ * Console-relative because that is the name every message below reports, and the
+ * walk's own `displayPath` carries the `console/` root in front of it. The walk
+ * itself is not this file's to write: `source-walk-chokepoint.test.ts` fails a gate
+ * that reaches renderer source through a `readdirSync` of its own, because five
+ * private walks is five slightly different ideas of what counts as source and the
+ * difference between them is invisible until one of them scans a file the others do
+ * not.
+ */
+const CONSOLE_MODULES = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
+
+/** The console-relative paths of every scanned module. */
+function consoleModulePaths(): readonly string[] {
+  return CONSOLE_MODULES.map((module) => module.displayPath.slice("console/".length));
 }
 
 function readConsoleSource(module: string): string {
-  return readFileSync(join(CONSOLE_DIRECTORY, module), "utf8");
+  return readConsoleSourceModule(moduleNamed(CONSOLE_MODULES, `console/${module}`));
 }
 
 describe("element-resize — the size observer is constructed in exactly one module", () => {
-  const modules = consoleSourceModules();
+  const modules = consoleModulePaths();
 
   it("finds a console tree to scan at all", () => {
-    // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and the assertion
-    // below would pass over the empty set.
+    // Without this, a walk that reached nothing would leave the assertion below
+    // passing over the empty set.
     expect(modules.length).toBeGreaterThan(20);
     expect(modules).toContain(CHOKEPOINT_MODULE);
   });
@@ -94,7 +99,7 @@ describe("element-resize — the size observer is constructed in exactly one mod
         signatures: resizeObserverConstructionSignatures(readConsoleSource(module)),
       }))
       .filter((entry) => entry.signatures.length > 0)
-      .map((entry) => `${relative(".", entry.module)}: ${entry.signatures.join(", ")}`);
+      .map((entry) => `${entry.module}: ${entry.signatures.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
