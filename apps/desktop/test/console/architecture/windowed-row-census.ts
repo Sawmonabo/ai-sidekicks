@@ -109,8 +109,10 @@ export function handRolledWindowedRows(
   source: string,
   fileName: string,
 ): readonly { readonly tag: string; readonly rowComponents: readonly string[] }[] {
-  // `TSX`, and it is the one option any caller of the shared parse home varies: parsed
-  // as `TS`, a JSX opening tag reads as a comparison and every row here disappears.
+  // The shared parse home reads the script kind off the name, so a `.tsx` module parses
+  // as JSX: parsed as `TS`, a JSX opening tag reads as a comparison and every row here
+  // disappears. Which is why `fileName` is a parameter rather than a label — the
+  // controls below hand it the name the corpus they drive would have had.
   const parsed = parseSourceText(fileName, source);
   const bindings = windowedRowBindings(parsed);
   const found: { tag: string; rowComponents: readonly string[] }[] = [];

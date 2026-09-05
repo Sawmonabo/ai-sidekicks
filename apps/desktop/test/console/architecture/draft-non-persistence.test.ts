@@ -38,6 +38,7 @@ import {
   PERSISTED_VALUE_CLASSES,
   validatePersistedValue,
 } from "../../../src/renderer/src/console/persistence/value-classes.js";
+
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
