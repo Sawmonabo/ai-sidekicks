@@ -7,13 +7,11 @@
 
 import { render } from "@testing-library/react";
 import { type RunState } from "@ai-sidekicks/contracts";
-import { type PaneContextOf } from "../pane-chrome.js";
+import { paneContext } from "../pane-chrome.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
-import { FrameStore } from "../../store/index.js";
-import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { RunsPane } from "./RunsPane.js";
 
 export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -62,28 +60,6 @@ export function scriptedBridge(deliveries: readonly unknown[]): ConsoleBridge {
   } as unknown as ConsoleBridge;
 }
 
-export function paneContext(
-  bridge: ConsoleBridge,
-  sessionStore: SessionStore | undefined,
-): PaneContextOf<"runs"> {
-  return {
-    // No `entity` member: the runs pane is session-scoped, and its arm of the address
-    // union carries none.
-    kind: "runs",
-    paneId: "pane-runs",
-    linkedSourcePaneId: undefined,
-    bridge,
-    frameStore: new FrameStore(),
-    sessionStore,
-    // An adapter that never arrives. The pane performs no UI-state read, so a
-    // store whose adapter never settles is the exact stand-in: if the pane ever
-    // grew one, it would hang here rather than passing against a stub.
-    uiStateStore: new UiStateStore({ adapter: new Promise(() => undefined) }),
-    draftStore: new DraftStore(),
-    focusHue: undefined,
-  };
-}
-
 export async function renderPane(
   bridge: ConsoleBridge,
   withSession: boolean,
@@ -93,7 +69,10 @@ export async function renderPane(
   if (sessionStore !== undefined) {
     seed?.(sessionStore);
   }
-  const { container } = render(<RunsPane {...paneContext(bridge, sessionStore)} />);
+  // No `entity` member: the runs pane is session-scoped, and its arm of the
+  // address union carries none.
+  const context = paneContext({ kind: "runs" }, { bridge, sessionStore });
+  const { container } = render(<RunsPane {...context} />);
   await settleScheduledRead(bridge);
   return container;
 }
@@ -101,3 +80,14 @@ export async function renderPane(
 /** A second and third run, so the seating has more than one row to reconcile. */
 export const SECOND_RUN_ID = "c4a1b2d3-5e6f-4071-9b82-ad3e4f506172";
 export const THIRD_RUN_ID = "d5b2c3e4-6f70-4182-8c93-be4f50617283";
+
+/**
+ * A run that is NOT {@link RUN_ID}, for the cases whose claim is about scoping.
+ *
+ * Distinct from `SECOND_RUN_ID` and deliberately so: that one is a row the seating
+ * reconciles beside the first, and this one is the id a per-run key, a per-run filter,
+ * or a per-run history must NOT match. Two suites had each declared it, and a case
+ * asserting "not this run" against a value only its own file knows is asserting
+ * against a coincidence.
+ */
+export const OTHER_RUN_ID = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";

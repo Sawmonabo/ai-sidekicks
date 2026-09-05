@@ -18,30 +18,24 @@ import {
 import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
-import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
-import { FrameStore, SessionStore } from "../../store/index.js";
+import { SessionStore } from "../../store/index.js";
 import { type ConsoleScenario } from "../../bridge/scenario.js";
 import { type PaneContextOf } from "../pane-chrome.js";
+import { paneContext } from "../pane-chrome.test-support.js";
 
-export function paneContext(
+/**
+ * The approvals pane's context, over the shared builder.
+ *
+ * A one-line wrapper rather than four spellings of the same address: the pane is
+ * session-scoped, so its arm of the address union carries no `entity` member, and
+ * naming that once here keeps every approvals suite mounting the same pane.
+ */
+export function approvalsPaneContext(
   bridge: ConsoleBridge,
   sessionStore: SessionStore | undefined,
 ): PaneContextOf<"approvals"> {
-  return {
-    // No `entity` member: the approvals pane is session-scoped, and its arm of the
-    // address union carries none.
-    kind: "approvals",
-    paneId: "pane-approvals",
-    linkedSourcePaneId: undefined,
-    bridge,
-    frameStore: new FrameStore(),
-    sessionStore,
-    uiStateStore: new UiStateStore({ adapter: new MemoryPersistenceAdapter() }),
-    draftStore: new DraftStore(),
-    focusHue: undefined,
-  };
+  return paneContext({ kind: "approvals" }, { bridge, sessionStore });
 }
-
 /**
  * A store bound to a session, carrying the scenario's own roster.
  *
@@ -90,7 +84,7 @@ export async function mountPane(
   scenario: ConsoleScenario = APPROVALS_SCENARIO,
 ): Promise<ConsoleBridge> {
   const bridge = createFixtureBridge({ scenario });
-  const context = paneContext(bridge, boundStore(scenario));
+  const context = approvalsPaneContext(bridge, boundStore(scenario));
   await act(async () => {
     render(<ApprovalsPane {...context} />);
   });

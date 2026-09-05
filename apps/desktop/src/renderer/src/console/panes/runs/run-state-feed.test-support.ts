@@ -11,9 +11,9 @@ import { act, render } from "@testing-library/react";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 import { useRunFeed, type RunStateFeed } from "./run-state-feed.js";
+import { RUN_ID } from "./runs-pane.test-support.js";
 
-/** Canonical UUIDs: both registered schemas brand their ids and refuse anything else. */
-export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+/** A canonical UUID: the registered session schema brands its id and refuses anything else. */
 export const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 
 /** A transition, exactly as `RunStateChangeEventSchema` registers it. */

@@ -14,12 +14,12 @@ import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { RUN_STATE_REFUSAL_ORIGIN, useRunFeed, type RunStateFeed } from "./run-state-feed.js";
 import {
-  RUN_ID,
   SESSION_ID,
   STATE_CHANGE_DELIVERY,
   mountStateFeed,
   openStateFeed,
 } from "./run-state-feed.test-support.js";
+import { RUN_ID } from "./runs-pane.test-support.js";
 
 describe("the run-state stream is opened with its registered request", () => {
   it("opens the stream for a session the registered request shape accepts", async () => {

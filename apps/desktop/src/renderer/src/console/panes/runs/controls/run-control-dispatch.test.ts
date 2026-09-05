@@ -18,6 +18,7 @@ import {
   type RunControlOutcome,
 } from "./run-control-dispatch.js";
 import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
+import { RUN_ID } from "../runs-pane.test-support.js";
 
 /**
  * A pinned mint, so a case asserts the guard rather than a random value. Named
@@ -25,8 +26,6 @@ import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-sup
  * high-entropy literal beside that noun as a credential.
  */
 const PINNED_IDEMPOTENCY = "6f1a0d3e-2c4b-4a7e-9f10-5b8c7d2e3a41";
-/** A canonical UUID: `RunIdSchema` is a branded UUID and refuses anything else. */
-const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 
 /** A bridge whose daemon records what it was asked and answers what it is told. */
 function stubBridge(answer: (call: RecordedDaemonCall) => Promise<unknown>): {

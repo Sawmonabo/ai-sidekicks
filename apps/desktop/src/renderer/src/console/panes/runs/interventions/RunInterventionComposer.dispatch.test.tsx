@@ -15,7 +15,6 @@ import { RunInterventionComposer, type ComposedControl } from "./RunIntervention
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import {
   APPLIED_ROLLBACK,
-  RUN_ID,
   bodyValue,
   renderComposer,
   runAt,
@@ -24,6 +23,7 @@ import {
   type ScriptedAnswer,
   typeInto,
 } from "./run-intervention-composer.test-support.js";
+import { RUN_ID, SECOND_RUN_ID } from "../runs-pane.test-support.js";
 import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
 
 describe("the composer outlives its dispatch", () => {
@@ -146,8 +146,6 @@ describe("the comparand is the newer of the two readings", () => {
 });
 
 describe("the form is keyed by what it is composing against", () => {
-  const SECOND_RUN_ID = "c4a1b2d3-5e6f-4071-9b82-ad3e4f506172";
-
   /** A dispatch that never settles, so the form stays pending across the switch. */
   const NEVER_SETTLES: ScriptedAnswer = () => new Promise(() => undefined);
 

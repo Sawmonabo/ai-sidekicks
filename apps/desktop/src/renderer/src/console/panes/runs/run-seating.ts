@@ -34,6 +34,7 @@
 
 import { compareInstants, parseInstant } from "../../core/index.js";
 import type { ConsoleEntity } from "../../store/index.js";
+import { readWireString } from "../entity-body-reads.js";
 import type { RunProjection } from "./run-state-projection.js";
 
 /**
@@ -130,16 +131,11 @@ function readKnownRun(entity: ConsoleEntity): KnownRun {
     state: entity.state,
     runVersion: readNumber(body, "runVersion"),
     touchedAtIso: entity.touchedAt,
-    stopTrigger: readString(body, "trigger"),
+    stopTrigger: readWireString(body["trigger"]),
     intendedClose: body["intendedClose"] === true,
-    failureCategory: readString(body, "failureCategory"),
-    providerFailureDetail: readString(body, "providerFailureDetail"),
+    failureCategory: readWireString(body["failureCategory"]),
+    providerFailureDetail: readWireString(body["providerFailureDetail"]),
   };
-}
-
-function readString(body: Readonly<Record<string, unknown>>, member: string): string | undefined {
-  const value = body[member];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function readNumber(body: Readonly<Record<string, unknown>>, member: string): number | undefined {

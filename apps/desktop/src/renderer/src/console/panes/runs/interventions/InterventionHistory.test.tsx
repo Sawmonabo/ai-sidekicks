@@ -12,9 +12,8 @@ import { describe, expect, it } from "vitest";
 import { refuse } from "../../../core/index.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
+import { OTHER_RUN_ID, RUN_ID } from "../runs-pane.test-support.js";
 
-const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-const OTHER_RUN_ID = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
 const INTERVENTION_ID = "d5f2c3e4-6071-4182-ac93-1e4f50617283";
 
 function refusedRecord(recordId: string, runId: string): RunControlRecord {

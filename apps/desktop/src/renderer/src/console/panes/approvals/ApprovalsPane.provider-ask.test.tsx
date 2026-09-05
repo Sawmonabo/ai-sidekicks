@@ -14,16 +14,14 @@ import { describe, expect, it } from "vitest";
 import { ApprovalsPane } from "./ApprovalsPane.js";
 import { APPROVAL_FLOW_PROJECTORS } from "../../bridge/approvals/approval-flow-projection.js";
 import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { createFixtureBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
-import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
 import {
-  FrameStore,
   SessionStore,
   type ConsoleSessionEvent,
   type EntityProjectorRegistry,
 } from "../../store/index.js";
-import { type PaneContextOf } from "../pane-chrome.js";
+import { approvalsPaneContext } from "./approvals-pane.test-support.js";
 
 /** The request the scenario raises as a provider permission ask. */
 const ASK_APPROVAL_ID = "019b7a33-3300-7f01-8140-d1a4c1150524";
@@ -39,23 +37,6 @@ const DIRECT_APPROVAL_ID = "019b7a33-3300-7f01-8130-d1a4c1150523";
  */
 const UNBEATEN_APPROVAL_ID = "019b7a33-3300-7f01-8150-d1a4c1150525";
 const ASK_EXPIRY = "2026-01-01T17:30:01.100Z";
-
-function paneContext(
-  bridge: ConsoleBridge,
-  sessionStore: SessionStore,
-): PaneContextOf<"approvals"> {
-  return {
-    kind: "approvals",
-    paneId: "pane-approvals",
-    linkedSourcePaneId: undefined,
-    bridge,
-    frameStore: new FrameStore(),
-    sessionStore,
-    uiStateStore: new UiStateStore({ adapter: new MemoryPersistenceAdapter() }),
-    draftStore: new DraftStore(),
-    focusHue: undefined,
-  };
-}
 
 /** A store fed the scenario's beats, folding with whatever it was opened with. */
 function storeOver(
@@ -84,7 +65,7 @@ async function mountOver(sessionStore: SessionStore): Promise<HTMLElement> {
   const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
   let container: HTMLElement | undefined;
   await act(async () => {
-    container = render(<ApprovalsPane {...paneContext(bridge, sessionStore)} />).container;
+    container = render(<ApprovalsPane {...approvalsPaneContext(bridge, sessionStore)} />).container;
   });
   await act(async () => {
     bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);

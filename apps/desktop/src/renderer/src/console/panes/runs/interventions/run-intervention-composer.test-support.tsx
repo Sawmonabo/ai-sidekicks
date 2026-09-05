@@ -13,8 +13,7 @@ import { RunInterventionComposer, type ComposedControl } from "./RunIntervention
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import { RunStateProjection, type RunProjection } from "../run-state-projection.js";
 import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
-
-export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+import { RUN_ID } from "../runs-pane.test-support.js";
 
 /** What the stub daemon answers one call with. Throwing is the refusal arm. */
 export type ScriptedAnswer = () => unknown;

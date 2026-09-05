@@ -12,7 +12,12 @@ import { createFixtureBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { type ConsoleScenario } from "../../bridge/scenario.js";
 import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
-import { boundStore, mountPane, paneContext, settle } from "./approvals-pane.test-support.js";
+import {
+  approvalsPaneContext,
+  boundStore,
+  mountPane,
+  settle,
+} from "./approvals-pane.test-support.js";
 
 describe("the session goal", () => {
   it("offers the control to the owner this window is", async () => {
@@ -49,7 +54,7 @@ describe("the session goal", () => {
     // the drain, which is the interval a hook that kept a previous answer would
     // have rendered a control in.
     const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
-    render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
+    render(<ApprovalsPane {...approvalsPaneContext(bridge, boundStore())} />);
     const goal = screen.getByRole("region", { name: "Session goal" });
     expect(within(goal).queryByRole("button")).toBeNull();
     await act(async () => {

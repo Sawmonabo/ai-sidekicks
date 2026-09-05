@@ -29,10 +29,7 @@ import {
   type RunControlAdmission,
 } from "./run-control-surface.js";
 import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
-
-/** A canonical UUID: `RunIdSchema` is a branded UUID and refuses anything else. */
-const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-const OTHER_RUN_ID = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
+import { OTHER_RUN_ID, RUN_ID } from "../runs-pane.test-support.js";
 
 /** A bridge that records what it was asked and answers nothing readable. */
 function recordingBridge(calls: RecordedDaemonCall[]): ConsoleBridge {
