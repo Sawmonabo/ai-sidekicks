@@ -26,10 +26,12 @@
 //     `DiffPane.test.tsx` owns it, where a DOM assertion can say WHICH absence it is
 //     and an image cannot.
 //   • The PROPOSAL GATE is a presentational body, and it is mounted TWICE for two
-//     different claims. Directly, on the `prepared` arm with a proposal supplied, it
-//     draws every part of the surface at once — the branch context, the proposal, its
-//     changed paths, and the three offers — which is a composition no read produces
-//     today, since no registered reply carries a title, a body, or a file list. And
+//     different claims. Directly, on the `prepared` arm with a READY proposal — the
+//     one state that offers the remote act — it draws every part of the surface at
+//     once: the branch context, the proposal, its changed paths, all three offers, and
+//     the refusal standing beside the one that was pressed and did not take. That is a
+//     composition no read produces today, since no registered reply carries a title, a
+//     body, or a file list. And
 //     through the SECTION, where the gate reaches the screen the way a person meets
 //     it: collapsed under its own execution root, its line a reading, its arm
 //     whatever the fixture actually served. The two are different subjects and both

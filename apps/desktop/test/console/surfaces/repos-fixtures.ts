@@ -199,7 +199,22 @@ const PREPARED_BRANCH_CONTEXT: BranchContextReading = {
   worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
 };
 
-/** The gate's `prepared` arm, which is the one that draws every part of the surface. */
+/**
+ * The gate's `prepared` arm, which is the one that draws every part of the surface.
+ *
+ * THE PROPOSAL IS `ready` AND THAT IS LOAD-BEARING, not a value picked to look
+ * plausible. `offeredProposalActions` withholds the remote act until the proposal says
+ * a person may send it, so a `draft` fixture offers two acts instead of three, prints
+ * the not-sendable sentence in place of the third, and — because a refusal is looked
+ * up only for an act that IS offered — renders `PUSH_REFUSAL` nowhere at all. Every
+ * subject drawn from this value was therefore pinning a surface with a missing row and
+ * a dead prop, under comments claiming the opposite, and an image would have looked
+ * identical if the gate had stopped rendering refusals entirely.
+ *
+ * The withheld composition is not unpinned by that: `proposal-actions.test.ts` owns the
+ * `draft` arm, where an assertion can name which act is absent and why, which is a
+ * claim a picture cannot make.
+ */
 export const PREPARED_GATE_STATE: ProposalGateState = {
   kind: "prepared",
   context: PREPARED_BRANCH_CONTEXT,
@@ -209,7 +224,7 @@ export const PREPARED_GATE_STATE: ProposalGateState = {
     body: "Adds the concurrency cap to the subscribe path.",
     baseBranch: "develop",
     headBranch: "sidekicks/abc123/rate-limit-wiring",
-    state: "draft",
+    state: "ready",
     trailers: ["Co-Authored-By: a sidekick"],
     changedPaths: [
       "packages/control-plane/src/rate-limit.ts",
@@ -224,6 +239,10 @@ export const PREPARED_GATE_STATE: ProposalGateState = {
  * On the REMOTE act, which is the one whose failure matters most to see: a push that
  * the daemon refused leaves the proposal intact and the offer standing, and the
  * sentence beside the control is the only thing that says the send did not happen.
+ *
+ * REACHED ONLY BECAUSE THE PROPOSAL ABOVE IS `ready`. `ProposalActionGroup` looks a
+ * refusal up per offered act, so this map is queried for `push` if and only if `push`
+ * is on screen — which is why the state and this value are one claim and not two.
  */
 export const PUSH_REFUSAL: ReadonlyMap<ProposalAction, ConsoleRefusal> = new Map([
   [
