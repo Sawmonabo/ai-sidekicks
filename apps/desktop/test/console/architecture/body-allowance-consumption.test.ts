@@ -23,13 +23,13 @@
 // object literal or multi-line argument list. `typescript-source.ts` holds the
 // parse; the budget tier asks the same kind of question of the same parser.
 
-import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
+import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -107,17 +107,24 @@ function boundedWaitCalls(fileName: string, sourceText: string): readonly Bounde
   return calls;
 }
 
+/**
+ * Every module in the launching tiers, through the tier's one walk.
+ *
+ * Not a `readdirSync` of its own: `source-walk-chokepoint.test.ts` next door
+ * fails a gate in this directory that walks a tree itself, for the reason that
+ * gate's header gives — a claim is only as good as the set it quantifies over,
+ * and per-gate walks drift silently. The tier prefix stays in `path` because a
+ * failure here names a file the way a person opens it.
+ */
 function launchingTierSources(): readonly { readonly path: string; readonly text: string }[] {
-  return LAUNCHING_TIER_DIRECTORIES.flatMap((tier) => {
-    const tierDirectory = join(CONSOLE_TEST_DIRECTORY, tier);
-    return readdirSync(tierDirectory, { recursive: true, encoding: "utf8" })
-      .filter((entry) => entry.endsWith(".ts"))
-      .sort()
-      .map((entry) => ({
-        path: `${tier}/${entry}`,
-        text: readFileSync(join(tierDirectory, entry), "utf8"),
-      }));
-  });
+  return LAUNCHING_TIER_DIRECTORIES.flatMap((tier) =>
+    consoleSourceModules({ roots: [join(CONSOLE_TEST_DIRECTORY, tier)], tests: true }).map(
+      (module) => ({
+        path: `${tier}/${module.relativePath}`,
+        text: readConsoleSourceModule(module),
+      }),
+    ),
+  );
 }
 
 describe("launched bodies charge every bounded wait to the allowance", () => {
