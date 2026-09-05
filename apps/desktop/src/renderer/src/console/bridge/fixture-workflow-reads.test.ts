@@ -1,12 +1,13 @@
 // What the fixture answers a workflow read with, and what it refuses to invent.
 //
-// A file of its own rather than a fourth block under `fixture-growth-port.test.ts`,
-// because the two are maintained against different things: that suite is about the
-// port's SERVED SET — every operation called, each answer checked against the set the
-// composition root reads synchronously — while this one is about four operations'
-// CONTENT, and the scenario fixtures it reads are re-scripted whenever the workflows
-// family grows a surface. Held together they were one module past the package's split
-// threshold whose two halves moved on unrelated schedules.
+// The suite beside `fixture-workflow-reads.ts`, and a file of its own rather than a
+// fourth block under `fixture-growth-port.test.ts`, because the two are maintained
+// against different things: that suite is about the port's SERVED SET — every
+// operation called, each answer checked against the set the composition root reads
+// synchronously — while this one is about four operations' CONTENT, and the scenario
+// fixtures it reads are re-scripted whenever the workflows family grows a surface.
+// Held together they were one module past the package's split threshold whose two
+// halves moved on unrelated schedules.
 //
 // Four operations, one seam, and two different honest absences — which is why THESE
 // are held together. The claim is not that a call returns something. It is that what
