@@ -35,7 +35,7 @@
 // was opened for, and a resource is opened again when a subject the surface left is
 // returned to.
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
 import { SubjectScopedHolder, type SubjectKey } from "./subject-scoped-holder.js";
 import { useHeldSubjectValue, type SubjectScopedState } from "./subject-scoped-state.js";
@@ -73,18 +73,38 @@ class SubjectScopedResourceLifetime<TResource> {
   };
 
   /**
+   * Hold the caller's latest disposal, and disturb nothing else.
+   *
+   * SEPARATE FROM {@link commit} BECAUSE A DISPOSAL IS NOT A LIFETIME. A caller
+   * whose `close` is minted per render — the shape the hook below documents support
+   * for — hands over a new identity on renders that have nothing to do with the
+   * resource, and an effect taking that identity as a dependency answered an
+   * unrelated rerender by running its own cleanup: it closed the resource the frame
+   * on screen was still reading through, then recommitted that closed value. So the
+   * per-render identity is written here, on its own dependency, and the lifetime
+   * effect depends on the resource alone.
+   *
+   * Written from the LAYOUT phase, which is what makes "the latest" exact: every
+   * layout effect for a commit runs before any passive cleanup for it, so the
+   * disposal this holds when a retired resource is closed is the one supplied by the
+   * render that retired it.
+   */
+  public holdClose(close: (resource: TResource) => void): void {
+    this.#close = close;
+  }
+
+  /**
    * Record what this commit is holding, and answer the cleanup that closes it.
    *
-   * The caller's disposal is re-read here rather than pinned at construction, so a
-   * caller whose `close` is minted per render disposes through its most recently
-   * committed one rather than through the first render's.
+   * The disposal is read when the cleanup RUNS rather than captured as it is built,
+   * so a resource retires through the caller's most recent `close` rather than
+   * through whichever render happened to install the value.
    */
-  public commit(resource: TResource, close: (resource: TResource) => void): () => void {
-    this.#close = close;
+  public commit(resource: TResource): () => void {
     this.#committed = { resource };
     return () => {
       this.#committed = undefined;
-      close(resource);
+      this.#close(resource);
     };
   }
 }
@@ -97,6 +117,10 @@ class SubjectScopedResourceLifetime<TResource> {
  * new subject, exactly as `initial` does; `close` is called at most once for each
  * resource this hook produced, whether the render that produced it committed or was
  * thrown away.
+ *
+ * A `close` MINTED PER RENDER IS SUPPORTED, AND IS NOT A LIFETIME. Its identity is
+ * held on a dependency of its own, so an unrelated rerender changes which disposal
+ * will run and changes nothing about what is open.
  *
  * WHY A HOOK RATHER THAN A FOURTH ARGUMENT AT EACH CALL SITE. The holder takes the
  * discard callback either way — the question is who supplies it. Supplied per call
@@ -125,6 +149,15 @@ export function useSubjectScopedResource<TResource>(
   holder.address(subject, key, open, lifetime.closeIfUncommitted);
   const held = useHeldSubjectValue(holder, subject, key);
   const { value } = held;
-  useEffect(() => lifetime.commit(value, close), [lifetime, value, close]);
+  // The caller's disposal, held on a dependency of its own so a `close` minted per
+  // render cannot restart the lifetime effect beneath it, and held in the layout
+  // phase so the resource that effect retires is closed through the newest one.
+  useLayoutEffect(() => {
+    lifetime.holdClose(close);
+  }, [lifetime, close]);
+  // THE RESOURCE IS THE WHOLE DEPENDENCY. Its replacement is the one fact that ends
+  // a resource's lifetime; every other thing that changes per render is about the
+  // caller and not about what this effect is holding.
+  useEffect(() => lifetime.commit(value), [lifetime, value]);
   return held;
 }
