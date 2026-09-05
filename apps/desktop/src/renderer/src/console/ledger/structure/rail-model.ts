@@ -34,6 +34,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type GlyphName } from "../../tokens/index.js";
 import { RAIL_THUMB_MIN_EXTENT } from "./constants.js";
+import { type FindStepDirection } from "./find-model.js";
 import { LedgerSeamIndex, SEAM_WIRE_BINDINGS, type LedgerSeamKind } from "./seams.js";
 
 /**
@@ -369,7 +370,7 @@ export class ProvenanceRailModel {
   public tickOfKind(
     kind: RailTickKind,
     fromSequence: number,
-    direction: "next" | "previous",
+    direction: FindStepDirection,
   ): RailTick | undefined {
     const ticks = this.model().ticks.filter((tick) => tick.kind === kind);
     if (direction === "next") {

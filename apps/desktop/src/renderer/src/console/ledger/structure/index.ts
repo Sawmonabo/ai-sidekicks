@@ -49,9 +49,17 @@ export {
   type LedgerJumpStages,
 } from "./filters.js";
 export {
+  /**
+   * The walk's closed direction set, published for `panes/timeline/`'s find acts.
+   *
+   * @consumedBy T-023p-1C-5
+   */
+  FIND_STEP_DIRECTIONS,
   emptyFindResult,
   findInLedger,
   stepFindMatch,
+  /** @consumedBy T-023p-1C-5 */
+  type FindStepDirection,
   type LedgerFindResult,
 } from "./find-model.js";
 export { useMountedLedger, type LedgerStructureActs } from "./mounted-ledger.js";

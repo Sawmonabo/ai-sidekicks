@@ -34,6 +34,22 @@ import { FIND_MATCH_CAP } from "./constants.js";
 export const LEDGER_FIND_SCOPE_NOTE = "Searched loaded rows only.";
 
 /**
+ * Which way a walk through the matches moves. Closed.
+ *
+ * Declared here because this is where the walk is, and declared at all because it
+ * was the family's one closed set restated inline: ten bare unions across six
+ * modules and two directories, in a family where every other closed set — the
+ * replay states, the rail tones, the chapter lifecycles — is an `as const` with a
+ * derived type. A third direction (a find that jumps to the head) would have meant
+ * editing ten declarations with nothing reporting a missed one; from here it is a
+ * compile error at every consumer.
+ */
+export const FIND_STEP_DIRECTIONS = ["next", "previous"] as const;
+
+/** One direction of a walk. Derived from the enumeration, never restated. */
+export type FindStepDirection = (typeof FIND_STEP_DIRECTIONS)[number];
+
+/**
  * The sentence a capped walk states, beside the scope note and never instead of it.
  *
  * A different boundary from the scope note's, and the difference is why it is its
@@ -181,7 +197,7 @@ const UNSELECTED_FIND_INDEX = -1;
 export function stepFindMatch(
   result: LedgerFindResult,
   currentIndex: number,
-  direction: "next" | "previous",
+  direction: FindStepDirection,
 ): { readonly index: number; readonly match: LedgerFindMatch } | undefined {
   const count = result.matches.length;
   if (count === 0) {
@@ -196,14 +212,14 @@ export function stepFindMatch(
 }
 
 /** Where a walk that has not started enters the list from. */
-function entryIndexFor(direction: "next" | "previous", count: number): number {
+function entryIndexFor(direction: FindStepDirection, count: number): number {
   return direction === "next" ? 0 : count - 1;
 }
 
 /** The next position along, wrapping in both directions. */
 function steppedIndexFrom(
   currentIndex: number,
-  direction: "next" | "previous",
+  direction: FindStepDirection,
   count: number,
 ): number {
   const step = direction === "next" ? 1 : -1;
