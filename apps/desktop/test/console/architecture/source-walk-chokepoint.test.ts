@@ -1,283 +1,232 @@
 // Every source-text gate reads the same tree, and the build says so.
 //
-// WHY THIS FILE EXISTS. Five gates in this directory make claims of the form "no
-// module in the console does X". Each claim is only as good as the SET it quantifies
-// over, and that set is a directory walk with an opinion about what counts as source.
-// Written per gate, those opinions drift silently: before this chokepoint there were
-// three copies plus the shared helper, and they already disagreed — two excluded
+// WHY THIS FILE EXISTS. Gates in this directory make claims of the form "no module in
+// the console does X". Each claim is only as good as the SET it quantifies over, and
+// that set is a directory walk with an opinion about what counts as source. Written
+// per gate, those opinions drift silently: before this chokepoint there were three
+// copies plus the shared helper, and they already disagreed — two excluded
 // `.test-support.*` and one did not, so `bridge/fixture-bridge.test-support.ts` was
 // inside one gate's universe and outside another's, with nothing anywhere reporting
 // the difference. A gate that scans a smaller tree than its sentence claims is not a
 // weaker gate; it is a gate that reports clean for the wrong reason.
 //
-// So `test/console/console-source-modules.ts` owns the walk, its `tests` option
-// expresses the one legitimate divergence, and this file is what keeps a sixth walk
-// from appearing beside it. It is the same posture the timer and byte-scaling
-// chokepoints take toward the console's own source: name the one module that may do
-// the thing, and assert nothing else does.
+// THE UNIVERSE IS EVERY MODULE UNDER `test/console/`, MODELS INCLUDED, and it was not
+// always. It used to be this directory's `*.test.ts` files, which left three classes
+// of module outside a claim that reads as if it covered them: a `*-census.ts` model
+// beside its gate, a harness, and every other tier — `assets/generated-tokens.test.ts`
+// walked the console for stylesheets from the tier next door and nothing reported it,
+// which is precisely the shape this file exists to catch. A chokepoint scoped to the
+// files that happen to end in `.test.ts` is a chokepoint a walk escapes by living in
+// the model beside one.
+//
+// So `test/console/console-source-modules.ts` owns the walk — modules through
+// `consoleSourceModules`, stylesheets through `consoleStylesheets`, its `tests` option
+// expressing the one legitimate divergence — and this file is what keeps a further
+// walk from appearing beside it. It is the same posture the timer and byte-scaling
+// chokepoints take toward the console's own source: name the modules that may do the
+// thing, and assert nothing else does.
 //
 // THE INSTRUMENT IS THE PARSER over source text, and it has to be: "this gate draws its
-// module set from the shared walk" is a claim about how a test file is written, which no
-// type and no runtime assertion inside those tests can reach.
+// module set from the shared walk" is a claim about how a module is written, which no
+// type and no runtime assertion inside those modules can reach. The reading lives in
+// `source-walk-census.ts` beside this file, so every predicate below can be driven
+// against planted text as well as against the real tree.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
   CONSOLE_DIRECTORY,
   CONSOLE_SOURCE_ROOTS,
   consoleSourceModules,
+  consoleStylesheets,
   moduleNamed,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import {
+  directoryWalkImports,
+  importsSharedWalk,
+  pathLiteralsIn,
+  readerOffenders,
+  readsAFile,
+  reachesRendererSource,
+  walkOffenders,
+  type TestTierModuleText,
+} from "./source-walk-census.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ARCHITECTURE_TIER_DIRECTORY = HERE;
-const SHARED_WALK_MODULE = resolve(HERE, "..", "console-source-modules.ts");
+const TEST_TIER_DIRECTORY = resolve(HERE, "..");
 
 /**
- * The `node:fs` bindings that enumerate a directory.
+ * The two modules that may reach renderer source and walk it anyway.
  *
- * Read from the IMPORT rather than from call text, which is the whole of this claim's
- * strength: three spellings carry no `readdirSync(` anywhere —
- * `import { readdirSync as listEntries }`, `const walkDirectory = readdirSync`, and
- * `globSync(pattern)` — and each was a hole in the text needles this replaced. A binding
- * has to be imported before it can be aliased, so the import list sees all three. It
- * also cannot fire on prose: a header explaining why a gate does NOT walk names the
- * function in a comment, and a comment is not an import.
- *
- * `globSync` is in the list because it was live in this tier when the list was written,
- * not as a hypothetical: `browser-mode-optimize-deps.test.ts` walked the whole of `src/`
- * with it, with its own idea of what counts as source and no exclusion for declaration
- * files.
+ * The shared walk is the walk, and this gate is the one file where the forbidden
+ * import has to appear so the needles can be driven against real code. Both are
+ * asserted below to still TRIP those needles, so neither admission can outlive its
+ * cause: a rename of `readdirSync` would leave two constants admitting modules that
+ * no longer match, and the clean result would stop meaning anything.
  */
-const DIRECTORY_WALK_BINDINGS: readonly string[] = [
-  "readdirSync",
-  "readdir",
-  "globSync",
-  "glob",
-  "opendirSync",
-  "opendir",
+const MODULES_THAT_MAY_WALK: readonly string[] = [
+  "console-source-modules.ts",
+  "architecture/source-walk-chokepoint.test.ts",
 ];
 
-/** The module specifiers a directory walk is imported from. */
-const FILE_SYSTEM_SPECIFIERS: readonly string[] = [
-  "node:fs",
-  "fs",
-  "node:fs/promises",
-  "fs/promises",
-];
-
-/** How a module shows it drew its set from the shared walk instead. */
-const SHARED_WALK_IMPORT = "console-source-modules.js";
-
-/** How a module shows it reads a file at all. */
-const FILE_READ_FORMS: readonly string[] = ["readFileSync(", "readFile("];
-
-/**
- * The path segments a gate composes to reach renderer source, and the shared walk's own
- * exported roots.
- *
- * This is what scopes both claims, and it replaces two hand-written admission lists. The
- * chokepoint is about the console SOURCE walk: a tier gate that enumerates test files to
- * check a project glob, or reads the CI workflow, or reads a harness beside it, holds no
- * opinion about what counts as console source and is outside both claims — while a gate
- * that reaches the renderer tree has to reach it through the one walk.
- *
- * Decided from STRING LITERALS through the parser, never from the file's text: every
- * renderer path in this tier is composed segment by segment, so a gate that reaches
- * renderer source carries a segment while a gate that merely discusses the renderer in
- * prose does not. `ci-tier-coverage.test.ts` is the second of those, and a text scan
- * would have read it as the first. The root constants ride beside the segments because a
- * gate could take `CONSOLE_DIRECTORY` from the shared module and then walk it itself,
- * which carries no segment of its own.
- */
-const RENDERER_REACH_SEGMENTS: readonly string[] = ["renderer", "src"];
-
-/** The shared walk's exported roots, which reach the same tree without a path segment. */
-const SHARED_WALK_ROOTS: readonly string[] = [
-  "CONSOLE_DIRECTORY",
-  "SHELL_DIRECTORY",
-  "CONSOLE_SOURCE_ROOTS",
-];
-
-/** Whether `source` reads a file itself. */
-function readsAFile(source: string): boolean {
-  return FILE_READ_FORMS.some((form) => source.includes(form));
-}
-
-/** Whether `source` composes a path into the renderer source tree. */
-function reachesRendererSource(source: string, fileName: string): boolean {
-  const literals = stringLiteralsIn(source, fileName);
-  return (
-    RENDERER_REACH_SEGMENTS.some((segment) => literals.includes(segment)) ||
-    SHARED_WALK_ROOTS.some((root) => source.includes(root))
-  );
-}
-
-/** Every string literal `source` contains, read through the parser and not by regex. */ /** Every string literal `source` contains, read through the parser and not by regex. */
-export function stringLiteralsIn(source: string, fileName: string): readonly string[] {
-  const literals: string[] = [];
-  forEachDescendant(parseSourceText(fileName, source), (node) => {
-    if (ts.isStringLiteralLike(node)) {
-      literals.push(node.text);
-    }
-  });
-  return literals;
-}
-
-/**
- * The one gate that names the walk API, which is this one.
- *
- * A chokepoint's own declaration of what it forbids is the one place the forbidden
- * text has to appear, and the byte-scaling gate next door draws the same line the
- * same way. The claim below asserts this file still TRIPS the needles, so the
- * admission cannot outlive its cause: a rename of `readdirSync` would leave a
- * constant admitting a file that no longer matches, and the clean result above would
- * stop meaning anything.
- */
-const FORM_DECLARING_GATE = "source-walk-chokepoint.test.ts";
-
-/**
- * Every directory-walking binding `source` imports from the file system, or `[]`.
- *
- * The TypeScript parser rather than a regular expression, per the package's own rule for
- * questions about source text: which bindings a module imports is a property of its
- * import declarations, and a regular expression that reads them runs past a declaration
- * boundary the first time a specifier list wraps.
- *
- * A NAMESPACE import of the file system is reported as its own finding rather than
- * resolved through: `import * as fs` puts every walk in the module's reach under a name
- * this scan cannot enumerate, and no gate in this tier needs one — `readFileSync` is a
- * named import everywhere it is used.
- */
-export function directoryWalkImports(source: string, fileName: string): readonly string[] {
-  const parsed = parseSourceText(fileName, source);
-  const found: string[] = [];
-  for (const statement of parsed.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
-      continue;
-    }
-    if (!FILE_SYSTEM_SPECIFIERS.includes(statement.moduleSpecifier.text)) {
-      continue;
-    }
-    const bindings = statement.importClause?.namedBindings;
-    if (bindings === undefined) {
-      continue;
-    }
-    if (ts.isNamespaceImport(bindings)) {
-      found.push(`* as ${bindings.name.text}`);
-      continue;
-    }
-    for (const element of bindings.elements) {
-      const imported = (element.propertyName ?? element.name).text;
-      if (DIRECTORY_WALK_BINDINGS.includes(imported)) {
-        found.push(imported);
-      }
-    }
-  }
-  return found;
-}
-
-/** Every gate in this directory, by file name. */
-function architectureGateFileNames(): readonly string[] {
-  return consoleSourceModules({ roots: [ARCHITECTURE_TIER_DIRECTORY], tests: true })
-    .map((module) => module.relativePath)
-    .filter((name) => name.endsWith(".test.ts"))
-    .sort();
-}
-
-function readArchitectureGate(fileName: string): string {
-  return readFileSync(join(ARCHITECTURE_TIER_DIRECTORY, fileName), "utf8");
+/** Every module in the console's test tier, models and harnesses included. */
+function testTierModules(): readonly TestTierModuleText[] {
+  return consoleSourceModules({ roots: [TEST_TIER_DIRECTORY], tests: true }).map((module) => ({
+    relativePath: module.relativePath.split("\\").join("/"),
+    source: readConsoleSourceModule(module),
+  }));
 }
 
 describe("source-walk chokepoint — one walk under every source-text claim", () => {
-  const gates = architectureGateFileNames();
+  const modules = testTierModules();
+  const named = (relativePath: string): TestTierModuleText => {
+    const found = modules.find((module) => module.relativePath === relativePath);
+    if (found === undefined) {
+      throw new Error(`the tier scan did not reach ${relativePath}`);
+    }
+    return found;
+  };
 
-  it("finds the architecture tier to scan at all", () => {
-    // Without this a wrong directory would scan nothing and both claims below would
-    // pass over the empty set.
-    expect(gates.length).toBeGreaterThan(8);
-    expect(gates).toContain("timer-chokepoint.test.ts");
-    expect(gates).toContain("source-walk-chokepoint.test.ts");
-  });
-
-  it("no gate that reaches renderer source walks a directory of its own", () => {
-    const offenders = gates
-      .filter(
-        (gate) =>
-          gate !== FORM_DECLARING_GATE && reachesRendererSource(readArchitectureGate(gate), gate),
-      )
-      .map((gate) => ({ gate, walks: directoryWalkImports(readArchitectureGate(gate), gate) }))
-      .filter((entry) => entry.walks.length > 0)
-      .map((entry) => `${entry.gate}: ${entry.walks.join(", ")}`);
-    expect(offenders).toStrictEqual([]);
-  });
-
-  it("finds gates on both sides of the scope, so neither claim is vacuous", () => {
-    // The scope is what replaced two hand-written admission lists, so both of its sides
-    // have to have members or the claims above and below quantify over nothing. Gates
-    // that walk and do NOT reach renderer source are the tier's own file enumerations —
-    // which project owns a test file, which bounded wait a launched body declares — and
-    // they are the reason the claims are scoped rather than absolute.
-    const reaching = gates.filter((gate) =>
-      reachesRendererSource(readArchitectureGate(gate), gate),
+  it("finds the whole tier to scan, and not just this directory", () => {
+    // Without this a wrong root would scan nothing and every claim below would pass
+    // over the empty set. The three names are one per class the widening added: a
+    // gate in this directory, a model beside one, and a gate in another tier.
+    expect(modules.length).toBeGreaterThan(40);
+    expect(modules.map((module) => module.relativePath)).toEqual(
+      expect.arrayContaining([
+        "architecture/timer-chokepoint.test.ts",
+        "architecture/barrel-census.ts",
+        "assets/generated-tokens.test.ts",
+      ]),
     );
-    const walkingOutsideIt = gates.filter(
-      (gate) =>
-        !reachesRendererSource(readArchitectureGate(gate), gate) &&
-        directoryWalkImports(readArchitectureGate(gate), gate).length > 0,
+  });
+
+  it("no module that reaches renderer source walks a directory of its own", () => {
+    expect(walkOffenders(modules, MODULES_THAT_MAY_WALK)).toStrictEqual([]);
+  });
+
+  it("every module that reads a file either uses the shared walk or reaches no renderer source", () => {
+    // The subject is every module that reads a FILE at all, decidable from the read
+    // rather than from the module's compliance. The shape this catches is a module
+    // that hard-codes a list of console paths and reads them itself — a further
+    // opinion about what counts as source wearing a different shape, which names no
+    // walk and would sit outside a claim subjected on walking.
+    expect(readerOffenders(modules, MODULES_THAT_MAY_WALK)).toStrictEqual([]);
+  });
+
+  it("finds modules on both sides of the scope, so neither claim is vacuous", () => {
+    // The scope is what replaced two hand-written admission lists, so both of its
+    // sides have to have members or the claims above quantify over nothing. Modules
+    // that walk and do NOT reach renderer source are the tier's own file
+    // enumerations — which project owns a test file, which bounded wait a launched
+    // body declares, what a release build contains — and they are the reason the
+    // claims are scoped rather than absolute.
+    const reaching = modules.filter((module) =>
+      reachesRendererSource(module.source, module.relativePath),
+    );
+    const walkingOutsideIt = modules.filter(
+      (module) =>
+        !reachesRendererSource(module.source, module.relativePath) &&
+        directoryWalkImports(module.source, module.relativePath).length > 0,
     );
     expect(reaching.length).toBeGreaterThan(1);
     expect(walkingOutsideIt.length).toBeGreaterThan(1);
-  });
-
-  it("negative control: the one admitted gate still imports the walk API", () => {
-    // See `FORM_DECLARING_GATE`. Without this the admission is a hole rather than a
-    // declaration: a renamed walk API would leave the scan matching nothing anywhere,
-    // and the clean result above would be clean for that reason instead.
-    expect(directoryWalkImports(readArchitectureGate(FORM_DECLARING_GATE), FORM_DECLARING_GATE)) //
-      .toStrictEqual(["readdirSync"]);
-  });
-
-  it("every gate that reads a file either uses the shared walk or reaches no renderer source", () => {
-    // RE-SUBJECTED, because the subject this claim used to take was circular: it read
-    // "the gates that name `readConsoleSourceModule`", which is the set of gates that
-    // already go through the shared walk. It could only ever find compliant gates. The
-    // shape it was written to catch — a gate that hard-codes a list of console paths and
-    // reads them itself, a sixth opinion about what counts as source wearing a different
-    // shape — names the reader nowhere and was therefore outside its own subject.
-    //
-    // The subject is now every gate that reads a FILE at all, decidable from the read
-    // rather than from the gate's compliance, and the escape is DERIVED rather than
-    // listed: a gate whose reads reach no renderer path — the tier gates that read a
-    // harness, the CI workflow, or a launched body's own text — holds no opinion about
-    // what counts as console source and passes without being added to a list.
-    const readers = gates.filter(
-      (gate) => gate !== FORM_DECLARING_GATE && readsAFile(readArchitectureGate(gate)),
-    );
-    // The floor names two readers rather than counting them: a count pinned to today's
-    // tree moves every time a gate is rebound onto the walk, and a floor that moves with
-    // the tree it guards is not a floor. These two read a harness and the CI workflow,
-    // reach no renderer path, and are exactly the escape the claim derives.
+    // The floor names readers rather than counting them: a count pinned to today's
+    // tree moves every time a gate is rebound onto the walk. These two read a
+    // harness and the CI workflow, reach no renderer path, and are exactly the
+    // escape the reader claim derives.
+    const readers = modules
+      .filter((module) => readsAFile(module.source, module.relativePath))
+      .map((module) => module.relativePath);
     expect(readers).toEqual(
-      expect.arrayContaining(["ci-tier-coverage.test.ts", "cleanup-disposition.test.ts"]),
+      expect.arrayContaining([
+        "architecture/ci-tier-coverage.test.ts",
+        "architecture/cleanup-disposition.test.ts",
+      ]),
     );
-    const offenders = readers.filter((gate) => {
-      const source = readArchitectureGate(gate);
-      return !source.includes(SHARED_WALK_IMPORT) && reachesRendererSource(source, gate);
-    });
-    expect(offenders).toStrictEqual([]);
+  });
+
+  it("negative control: a planted model with a private walk is an offence", () => {
+    // The class the old universe could not see at all. It is a `.ts` model, not a
+    // `.test.ts` gate, and it composes the renderer path in ONE literal — the two
+    // properties that let `assets/generated-tokens.test.ts` walk the console
+    // unreported for as long as it did.
+    const planted: TestTierModuleText = {
+      relativePath: "architecture/planted-census.ts",
+      source: [
+        'import { readdirSync } from "node:fs";',
+        'import { fileURLToPath } from "node:url";',
+        'const root = fileURLToPath(new URL("../../../src/renderer/src/console", import.meta.url));',
+        "export const entries = readdirSync(root, { recursive: true });",
+      ].join("\n"),
+    };
+    expect(walkOffenders([planted], MODULES_THAT_MAY_WALK)).toStrictEqual([
+      "architecture/planted-census.ts: readdirSync",
+    ]);
+    // And the same model drawing its set from the shared walk is not an offence.
+    expect(
+      walkOffenders(
+        [
+          {
+            relativePath: "architecture/planted-census.ts",
+            source: [
+              'import { consoleStylesheets, CONSOLE_DIRECTORY } from "../console-source-modules.js";',
+              "export const sheets = consoleStylesheets({ roots: [CONSOLE_DIRECTORY] });",
+            ].join("\n"),
+          },
+        ],
+        MODULES_THAT_MAY_WALK,
+      ),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: a planted reader that hard-codes console paths is an offence", () => {
+    const planted: TestTierModuleText = {
+      relativePath: "architecture/planted-reader.test.ts",
+      source: [
+        'import { readFileSync } from "node:fs";',
+        'import { resolve } from "node:path";',
+        'const one = resolve(HERE, "..", "..", "src", "renderer", "src", "console", "core.ts");',
+        'export const text = readFileSync(one, "utf8");',
+      ].join("\n"),
+    };
+    expect(readerOffenders([planted], MODULES_THAT_MAY_WALK)).toStrictEqual([
+      "architecture/planted-reader.test.ts",
+    ]);
+    // A reader that reaches the BUILD OUTPUT instead is outside the claim, and this
+    // is the case the one-literal rule had to be made adjacent-only to preserve.
+    expect(
+      readerOffenders(
+        [
+          {
+            relativePath: "budget/planted-build-reader.test.ts",
+            source: [
+              'import { readFileSync } from "node:fs";',
+              'import { NAMES } from "../../../src/renderer/src/console/core/fixture-globals.js";',
+              'const built = resolve(HERE, "out/renderer", "index.js");',
+              'export const text = [NAMES, readFileSync(built, "utf8")];',
+            ].join("\n"),
+          },
+        ],
+        MODULES_THAT_MAY_WALK,
+      ),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the admitted modules still trip the needles they are admitted for", () => {
+    for (const relativePath of MODULES_THAT_MAY_WALK) {
+      const module = named(relativePath);
+      expect(directoryWalkImports(module.source, relativePath)).toContain("readdirSync");
+      expect(reachesRendererSource(module.source, relativePath)).toBe(true);
+    }
   });
 
   it("negative control: the walk scan reads an import and not a mention of one", () => {
-    // Both sides, against the predicate rather than against whichever gate names a walk
-    // in prose today — this file's own header does.
     expect(directoryWalkImports('import { readdirSync } from "node:fs";', "probe.ts")) //
       .toStrictEqual(["readdirSync"]);
     // The three spellings the text needles missed, each measured passing them.
@@ -296,19 +245,37 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
       .toStrictEqual([]);
   });
 
-  it("negative control: the predicates separate their two sides", () => {
-    expect(readsAFile('const source = readFileSync(path, "utf8");')).toBe(true);
-    expect(readsAFile("await readFile(path);")).toBe(true);
-    expect(readsAFile("// a gate that reads a file names the shared walk")).toBe(false);
+  it("negative control: the predicates separate their sides", () => {
+    expect(readsAFile('import { readFileSync } from "node:fs";', "p.ts")).toBe(true);
+    expect(readsAFile('import { readFile } from "node:fs/promises";', "p.ts")).toBe(true);
+    expect(readsAFile("// a gate that reads a file names the shared walk", "p.ts")).toBe(false);
     // A composed renderer path reaches; the same words in prose do not, which is the
     // whole reason the scope is read from string literals through the parser.
     expect(
-      reachesRendererSource('const at = resolve(HERE, "..", "renderer", "src");', "probe.ts"),
+      reachesRendererSource('const at = resolve(HERE, "..", "renderer", "src");', "p.ts"),
     ).toBe(true);
-    expect(reachesRendererSource("// the renderer tier is selected twice", "probe.ts")).toBe(false);
+    expect(reachesRendererSource("// the renderer tier is selected twice", "p.ts")).toBe(false);
     expect(
       reachesRendererSource('const harness = resolve(HERE, "..", "electron-harness.ts");', "p.ts"),
     ).toBe(false);
+    // One literal reaches when its segments are adjacent, and not when they are not.
+    expect(reachesRendererSource('const at = new URL("../../src/renderer/src");', "p.ts")).toBe(
+      true,
+    );
+    expect(reachesRendererSource('const at = join(root, "out/renderer");', "p.ts")).toBe(false);
+    // An import specifier is resolved by the module system and composes no path.
+    expect(
+      reachesRendererSource('import { x } from "../../src/renderer/src/console/core.js";', "p.ts"),
+    ).toBe(false);
+    // A literal is a path where it is USED as one: the specifier is resolved by the
+    // module system, the initializer names a path, and the assertion argument — the
+    // form that reported `vitest-project-globs.test.ts` as an offender — is neither.
+    expect(pathLiteralsIn('import { x } from "./a.js";', "p.ts")).toStrictEqual([]);
+    expect(pathLiteralsIn('const b = "./a.js";', "p.ts")).toStrictEqual(["./a.js"]);
+    expect(pathLiteralsIn('expect(ownersOf("src/renderer/src/a.ts")).toEqual([]);', "p.ts")) //
+      .toStrictEqual([]);
+    expect(pathLiteralsIn('const at = join(root, "src/renderer/src");', "p.ts")) //
+      .toStrictEqual(["src/renderer/src"]);
     // And the shared walk's own roots reach it without composing a segment at all.
     expect(
       reachesRendererSource(
@@ -316,16 +283,11 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
         "p.ts",
       ),
     ).toBe(true);
-  });
-
-  it("negative control: the shared walk itself is the one module that walks", () => {
-    // The clean result above is only meaningful if the needles match real code, and
-    // the one place they must match is the module that owns the walk. It is outside
-    // this directory, so it is not an offender — and asserting it still trips turns a
-    // renamed API into a red gate rather than a silent hole.
-    expect(
-      directoryWalkImports(readFileSync(SHARED_WALK_MODULE, "utf8"), SHARED_WALK_MODULE),
-    ).toContain("readdirSync");
+    // The shared-walk import is read as an import, not as a mention.
+    expect(importsSharedWalk('import { x } from "../console-source-modules.js";', "p.ts")).toBe(
+      true,
+    );
+    expect(importsSharedWalk('const note = "../console-source-modules.js";', "p.ts")).toBe(false);
   });
 });
 
@@ -353,6 +315,22 @@ describe("source-walk chokepoint — the walk answers what its options say", () 
         consoleSourceModules({ tests }).filter((module) => module.displayPath.endsWith(".d.ts")),
       ).toStrictEqual([]);
     }
+  });
+
+  it("serves stylesheets and modules as separate lists off one walk", () => {
+    // The second file kind, and the reason it is a sibling rather than a flag: a
+    // source-text tripwire handed a `.css` entry would parse it as TypeScript, and a
+    // stylesheet gate handed a `.ts` one would read declarations as rules.
+    const stylesheets = consoleStylesheets({ roots: [CONSOLE_DIRECTORY] });
+    expect(stylesheets.length).toBeGreaterThan(0);
+    expect(stylesheets.every((sheet) => sheet.displayPath.endsWith(".css"))).toBe(true);
+    const modules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY], tests: true });
+    expect(modules.some((module) => module.displayPath.endsWith(".css"))).toBe(false);
+    // Same roots, same sorting, same shape — which is the part a root rename moves
+    // in one place.
+    expect(
+      [...stylesheets].sort((a, b) => a.displayPath.localeCompare(b.displayPath)),
+    ).toStrictEqual([...stylesheets]);
   });
 
   it("defaults to both console roots, and a missing root contributes nothing", () => {
@@ -402,5 +380,11 @@ describe("the shared walk — answers files, never a directory with a file's nam
     expect(notFiles.map((module) => module.displayPath)).toStrictEqual([]);
     // The spec itself is still read; only its reference directory is not.
     expect(modules.some((module) => module.relativePath === "frame.test.tsx")).toBe(true);
+  });
+
+  it("control: the tier scan reads real bytes, not an empty file", () => {
+    // `readFileSync` here is what makes this gate a member of the reader claim as
+    // well as the walk claim, which is why it is admitted by name above.
+    expect(readFileSync(join(HERE, "source-walk-census.ts"), "utf8")).toContain("walkOffenders");
   });
 });

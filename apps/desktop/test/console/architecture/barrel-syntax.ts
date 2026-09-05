@@ -42,11 +42,23 @@ export interface DoorSpecifier {
   readonly claimed: boolean;
 }
 
-/** One statement's reach into another module. */
+/** One reach into another module — a statement's, or an `import(…)`'s. */
 export interface ModuleReach {
   readonly moduleSpecifier: string | undefined;
   /** The names taken, or `"namespace"` for `import * as`. */
   readonly names: readonly string[] | "namespace";
+  /**
+   * Whether the reach is a door line republishing the names rather than using them.
+   *
+   * The census needs the two apart, and nothing else here does. A barrel that writes
+   * `export { X } from "./m.js"` MOVES `X`; a barrel that writes `import { X }` and
+   * builds something out of it READS it — and a rule that could only ask whether the
+   * importer was a barrel had to call both of them forwarding, which left every
+   * symbol whose one production consumer is a family door permanently claimed: the
+   * claim's retiring event was an import through the door that the rule refused to
+   * count.
+   */
+  readonly forwarded: boolean;
 }
 
 /** Everything the census asks of one module's text, read in a single parse. */
@@ -55,7 +67,7 @@ export interface ModuleSyntax {
   readonly isTest: boolean;
   /** Every `export { … }` name, whether or not the module is a door. */
   readonly doorSpecifiers: readonly DoorSpecifier[];
-  /** Every import and re-export, by the names the SOURCE module calls them. */
+  /** Every import, re-export, and `import(…)`, by the names the SOURCE module calls them. */
   readonly reaches: readonly ModuleReach[];
   /** Whether it re-exports a set its own text does not enumerate. */
   readonly forwardsUnnamedSet: boolean;
@@ -105,8 +117,13 @@ function readOneModule(module: CensusModule): ModuleSyntax {
     const moduleSpecifier = moduleSpecifierOf(statement);
     const named = namedExports(clause, sourceFile, moduleSpecifier);
     doorSpecifiers.push(...named);
-    reaches.push({ moduleSpecifier, names: named.map((door) => door.localName) });
+    reaches.push({
+      moduleSpecifier,
+      names: named.map((door) => door.localName),
+      forwarded: true,
+    });
   }
+  reaches.push(...deferredReaches(sourceFile));
   return {
     path: module.path,
     isTest: module.isTest,
@@ -179,7 +196,56 @@ function importReach(statement: ts.ImportDeclaration): ModuleReach | undefined {
     names: ts.isNamespaceImport(bindings)
       ? "namespace"
       : bindings.elements.map((element) => element.propertyName?.text ?? element.name.text),
+    forwarded: false,
   };
+}
+
+/**
+ * Every module an `import("…")` names, in both of the forms a lazy chunk writes.
+ *
+ * A STATEMENT WALK CANNOT SEE EITHER. Both are expressions nested arbitrarily deep —
+ * the call inside a method body, the type inside a type argument — so the loop above
+ * reads neither, and a door whose only reader is a lazy chunk's loader reads to the
+ * census as a door no module imports at all. That is a reading defect of exactly the
+ * kind this file exists to prevent: `panes/workflow-run/phase-graph/index.ts` is
+ * reached through `import()` AND THROUGH NOTHING ELSE by construction — the whole
+ * point of the split point — so the census would have reported the one door the
+ * bundle budget requires as the one door nothing consumes.
+ *
+ * The names are `"namespace"`, exactly as `import * as` is: the call resolves to the
+ * whole module object, and what a caller destructures off it is a property read on a
+ * value rather than a name in a specifier. The type form counts too — `typeof
+ * import(…)` is how a loader narrows the shape it hands back, and a reading that took
+ * only the runtime half would still under-count a door reached only through a type.
+ */
+function deferredReaches(sourceFile: ts.SourceFile): readonly ModuleReach[] {
+  const reaches: ModuleReach[] = [];
+  const visit = (node: ts.Node): void => {
+    const moduleSpecifier = deferredSpecifierOf(node);
+    if (moduleSpecifier !== undefined) {
+      reaches.push({ moduleSpecifier, names: "namespace", forwarded: false });
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return reaches;
+}
+
+/** The module one node names by `import(…)`, where it names one as a literal. */
+function deferredSpecifierOf(node: ts.Node): string | undefined {
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const [specifier] = node.arguments;
+    return specifier !== undefined && ts.isStringLiteralLike(specifier)
+      ? specifier.text
+      : undefined;
+  }
+  if (ts.isImportTypeNode(node)) {
+    const { argument } = node;
+    return ts.isLiteralTypeNode(argument) && ts.isStringLiteral(argument.literal)
+      ? argument.literal.text
+      : undefined;
+  }
+  return undefined;
 }
 
 /** The module a statement names, whichever quotation mark it was written with. */
