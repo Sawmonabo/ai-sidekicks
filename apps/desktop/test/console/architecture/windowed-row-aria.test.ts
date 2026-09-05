@@ -45,6 +45,7 @@
 // reviewer reading one tag, and a false pass is a reader being told the wrong length
 // of a list with nothing anywhere to notice.
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -92,13 +93,140 @@ const WINDOWED_ROW_ROLE_TAG = /<[A-Za-z][^>]*\brole="(?:row|option)"[^>]*>/g;
  */
 const WINDOWED_ROW_PRIMITIVE = "WindowedListRow";
 
+/** The host elements a row is spelled as when a module places its rows itself. */
+const HAND_ROLLED_ROW_TAGS: readonly string[] = ["li", "div", "tr"];
+
+/** How a windowed row array is obtained, which is what a `.map(` has to be over. */
+const WINDOW_READ = "getVirtualItems";
+
 function windowsAList(source: string): boolean {
   return WINDOWING_SIGNALS.some((signal) => source.includes(signal));
 }
 
-/** Whether `source` windows a list and renders its rows itself. See claim 3. */
-function windowsWithoutTheRowPrimitive(source: string): boolean {
-  return windowsAList(source) && !source.includes(WINDOWED_ROW_PRIMITIVE);
+/** Every JSX opening tag name inside `node`, in source order. */
+function jsxTagNamesIn(node: ts.Node): readonly string[] {
+  const tags: string[] = [];
+  const visit = (child: ts.Node): void => {
+    if (ts.isJsxOpeningElement(child) || ts.isJsxSelfClosingElement(child)) {
+      tags.push(child.tagName.getText());
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return tags;
+}
+
+/**
+ * The names that hold a windowed row array in `parsed`.
+ *
+ * `entryWindow.getVirtualItems()` reaches a `.map(` two ways — inline, and through a
+ * `const rows = …` on the line above — and the second is the ordinary spelling once the
+ * array is read once and used twice. Both have to resolve to the same claim or the rule
+ * is decided by where a variable was introduced.
+ */
+function windowedRowBindings(parsed: ts.SourceFile): readonly string[] {
+  const bindings: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      node.initializer.getText().includes(WINDOW_READ)
+    ) {
+      bindings.push(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return bindings;
+}
+
+/**
+ * Every row a windowing module places itself instead of routing through the primitive.
+ *
+ * THE INSTRUMENT IS THE PARSER, and claim 3's whole strength rests on that. The
+ * substring test this replaces asked whether the file MENTIONED the primitive's name,
+ * which failed in both directions and was measured doing so: a comment reading
+ * "deliberately not WindowedListRow" switched the claim off for a whole module, and a
+ * module whose rows are a sibling component — the ordinary answer once a row grows —
+ * was reported as an offence for naming a primitive its rows do go through.
+ *
+ * So the question asked here is the one the claim always meant: inside a `.map(` over
+ * the windowed rows, does a host element get placed without the primitive? A capitalised
+ * tag is a delegation and is answered by `rowComponentDelegates`, which reads the module
+ * that tag resolves to.
+ */
+export function handRolledWindowedRows(
+  source: string,
+  fileName: string,
+): readonly { readonly tag: string; readonly rowComponents: readonly string[] }[] {
+  const parsed = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const bindings = windowedRowBindings(parsed);
+  const found: { tag: string; rowComponents: readonly string[] }[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "map"
+    ) {
+      const receiver = node.expression.expression.getText();
+      const overTheWindow =
+        receiver.includes(WINDOW_READ) || bindings.some((binding) => receiver === binding);
+      if (overTheWindow) {
+        const tags = jsxTagNamesIn(node);
+        if (!tags.includes(WINDOWED_ROW_PRIMITIVE)) {
+          const rowComponents = tags.filter((tag) => /^[A-Z]/u.test(tag));
+          for (const tag of tags.filter((tag) => HAND_ROLLED_ROW_TAGS.includes(tag))) {
+            found.push({ tag, rowComponents });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return found;
+}
+
+/**
+ * Whether a row rendered as a component reaches the primitive in the module it names.
+ *
+ * The `DiffFileList` / `DiffFileRow` shape: the windowing module names no primitive and
+ * its rows do go through one. Resolved by matching the component's name to the module
+ * that declares it, which is this tree's own convention — one component per `.tsx` file,
+ * named for it.
+ */
+function rowComponentDelegates(
+  rowComponents: readonly string[],
+  modules: readonly ConsoleSourceModule[],
+): boolean {
+  return rowComponents.some((component) =>
+    modules.some(
+      (module) =>
+        module.displayPath.endsWith(`/${component}.tsx`) &&
+        readConsoleSourceModule(module).includes(WINDOWED_ROW_PRIMITIVE),
+    ),
+  );
+}
+
+/** Whether `source` windows a list and places rows the primitive should have placed. */
+function windowsWithoutTheRowPrimitive(
+  source: string,
+  fileName: string,
+  modules: readonly ConsoleSourceModule[],
+): boolean {
+  if (!windowsAList(source)) {
+    return false;
+  }
+  return handRolledWindowedRows(source, fileName).some(
+    (row) => !rowComponentDelegates(row.rowComponents, modules),
+  );
 }
 
 function writesPositionMembers(source: string): boolean {
@@ -115,6 +243,26 @@ function roleTagsMissingPosition(source: string): readonly string[] {
     .map((match) => match[0])
     .filter((tag) => !POSITION_MEMBERS.every((member) => tag.includes(member)));
 }
+
+/**
+ * A real hand-rolled windowed list, kept as one corpus for the cases that drive it.
+ *
+ * Bare `<li>` rows inside a `<ul>`, straight off `getVirtualItems()`: no role attribute,
+ * so claim 2 has no subject, and no position members, so claim 1 has no offender.
+ */
+const HAND_ROLLED_LIST = [
+  'import { useVirtualizer } from "@tanstack/react-virtual";',
+  "const virtualRows = entryWindow.getVirtualItems();",
+  "export const list = (",
+  '  <ul className="meridian-diff-files__list" onKeyDown={onKeyDown}>',
+  "    {virtualRows.map((virtualRow) => (",
+  '      <li key={entry.path} className="meridian-diff-files__row" data-index={virtualRow.index}>',
+  "        <DiffFileEntryButton entry={entry} />",
+  "      </li>",
+  "    ))}",
+  "  </ul>",
+  ");",
+].join("\n");
 
 describe("windowed rows — the position pair has one writer", () => {
   const modules: readonly ConsoleSourceModule[] = consoleSourceModules();
@@ -201,7 +349,9 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
 
   it("no module windows a list and renders its rows itself", () => {
     const offenders = modules
-      .filter((module) => windowsWithoutTheRowPrimitive(readConsoleSourceModule(module)))
+      .filter((module) =>
+        windowsWithoutTheRowPrimitive(readConsoleSourceModule(module), module.displayPath, modules),
+      )
       .map((module) => module.displayPath);
     expect(offenders).toStrictEqual([]);
   });
@@ -219,33 +369,68 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
     // rows inside a `<ul>` — no role attribute, no position pair, straight off
     // `getVirtualItems()`. Claims 1 and 2 both pass on it, which is the whole reason
     // this claim exists; the assertions below say so rather than leaving it implied.
-    const handRolled = [
-      'import { useVirtualizer } from "@tanstack/react-virtual";',
-      "const virtualRows = entryWindow.getVirtualItems();",
-      '<ul className="meridian-diff-files__list" onKeyDown={onKeyDown}>',
-      "{virtualRows.map((virtualRow) => (",
-      '  <li key={entry.path} className="meridian-diff-files__row" data-index={virtualRow.index}>',
-      "    <DiffFileEntryButton entry={entry} />",
-      "  </li>",
-      "))}",
-      "</ul>",
+    expect(windowsWithoutTheRowPrimitive(HAND_ROLLED_LIST, "HandRolled.tsx", modules)).toBe(true);
+    expect(writesPositionMembers(HAND_ROLLED_LIST)).toBe(false);
+    expect(roleTagsMissingPosition(HAND_ROLLED_LIST)).toStrictEqual([]);
+  });
+
+  it("planted violation: a prose mention of the primitive does not switch the claim off", () => {
+    // The smallest violation that PASSED the substring test this claim replaced: one
+    // comment carrying the primitive's name, and the whole module left the subject set.
+    const excused = [
+      "// Deliberately not WindowedListRow: this list places its rows itself.",
+      HAND_ROLLED_LIST,
     ].join("\n");
-    expect(windowsWithoutTheRowPrimitive(handRolled)).toBe(true);
-    expect(writesPositionMembers(handRolled)).toBe(false);
-    expect(roleTagsMissingPosition(handRolled)).toStrictEqual([]);
+    expect(excused).toContain(WINDOWED_ROW_PRIMITIVE);
+    expect(windowsWithoutTheRowPrimitive(excused, "Excused.tsx", modules)).toBe(true);
   });
 
   it("negative control: a list that renders through the primitive is not", () => {
     const throughThePrimitive = [
       'import { useVirtualizer } from "@tanstack/react-virtual";',
       'import { WindowedListRow } from "../primitives/index.js";',
-      "{entryWindow.getVirtualItems().map((virtualRow) => (",
-      "  <WindowedListRow rowIndex={virtualRow.index} totalRowCount={rows.length} />",
-      "))}",
+      "export const rows = entryWindow.getVirtualItems().map((virtualRow) => (",
+      "  <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
+      "));",
     ].join("\n");
-    expect(windowsWithoutTheRowPrimitive(throughThePrimitive)).toBe(false);
-    // And a module that windows nothing is outside the claim entirely, rather than
-    // an offence for not naming a primitive it has no use for.
-    expect(windowsWithoutTheRowPrimitive("export const total = rows.length;")).toBe(false);
+    expect(windowsWithoutTheRowPrimitive(throughThePrimitive, "Through.tsx", modules)).toBe(false);
+    // And a module that windows nothing is outside the claim entirely, rather than an
+    // offence for not naming a primitive it has no use for.
+    expect(windowsWithoutTheRowPrimitive("export const total = rows.length;", "x.ts", modules)) //
+      .toBe(false);
+  });
+
+  it("negative control: rows extracted into a sibling component are admitted", () => {
+    // The other direction the substring test got wrong, and the ordinary answer once a
+    // row grows: the windowing module names no primitive, and its rows do go through
+    // one. The sibling is resolved by name against the real module set, so the
+    // admission is a fact about the tree rather than a shape in this file.
+    const composed = [
+      "export const list = entryWindow.getVirtualItems().map((virtualRow) => (",
+      "  <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
+      "));",
+    ].join("\n");
+    const rowsOwnModule = moduleNamed(modules, WINDOWED_ROW_MODULE, "the row primitive");
+    expect(readConsoleSourceModule(rowsOwnModule)).toContain(WINDOWED_ROW_PRIMITIVE);
+    const delegating = [
+      "export const list = entryWindow.getVirtualItems().map((virtualRow) => (",
+      "  <li key={virtualRow.key}>",
+      "    <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
+      "  </li>",
+      "));",
+    ].join("\n");
+    expect(windowsWithoutTheRowPrimitive(composed, "Composed.tsx", modules)).toBe(false);
+    expect(windowsWithoutTheRowPrimitive(delegating, "Delegating.tsx", modules)).toBe(false);
+  });
+
+  it("negative control: the read is over the WINDOW and not over any list", () => {
+    // A windowing module that also maps an ordinary array into host elements — a row of
+    // badges, a header — is not placing windowed rows, and a claim that swept those in
+    // would be answered by moving the markup rather than by going through the primitive.
+    const otherList = [
+      'import { useVirtualizer } from "@tanstack/react-virtual";',
+      "export const badges = labels.map((label) => <div key={label}>{label}</div>);",
+    ].join("\n");
+    expect(windowsWithoutTheRowPrimitive(otherList, "Other.tsx", modules)).toBe(false);
   });
 });
