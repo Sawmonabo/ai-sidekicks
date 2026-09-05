@@ -1,12 +1,14 @@
-// What every artifact-act case is driven against: one session, one served row, and
-// the readers that hold a call open until a case releases it.
+// What every artifact-pane case is driven against: one session, one served row, the
+// port that answers whatever a case scripts, and the readers that hold a call open
+// until a case releases it.
 //
-// A SUPPORT MODULE BECAUSE TWO SUITES DRIVE THE SAME SURFACE. `artifact-actions` owns
+// A SUPPORT MODULE BECAUSE FOUR SUITES DRIVE THE SAME SURFACE. `artifact-actions` owns
 // the manifest re-read and the delete, `artifact-payload-fetch` owns the payload
-// single flight, and both press their control on a LIVE reader — the only
-// implementation of `ArtifactActionHost` there is. A second copy of these builders in
-// either suite would be a second definition of what "one served row" means, and the
-// two would drift.
+// single flight, `artifact-reader` owns when a read runs, and `artifact-pane-reads`
+// owns what a served or refused answer reads as. The first two press their control on
+// a LIVE reader — the only implementation of `ArtifactActionHost` there is. A second
+// copy of these builders in any suite would be a second definition of what "one served
+// row" means, and the copies would drift.
 //
 // THROUGH THE READER AND NEVER BESIDE IT, which is the reason these builders return
 // readers rather than act classes: a suite that supplied a hand-written host would be
@@ -73,6 +75,36 @@ export const REFUSAL = {
   detail: "Not checked — the artifact CRUD method strings are not registered yet.",
   origin: "growth-port",
 } as const;
+
+/** What a case scripts each of the pane's two reads to answer. */
+export interface PortScript {
+  readonly listAnswer: unknown;
+  readonly allowlistAnswer: unknown;
+}
+
+/**
+ * A port answering exactly what a case scripts — or REJECTING, where it scripts an
+ * `Error`.
+ *
+ * The shape the port's own union cannot express and the live bridge produces anyway:
+ * an IPC disconnect makes a call throw rather than answer. An `Error` is never a
+ * scripted answer here, so it needs no marker type to be told from one.
+ */
+export function bridgeAnswering(script: PortScript): ConsoleBridge {
+  return {
+    growth: {
+      artifactList: async () => scriptedAnswer(script.listAnswer),
+      artifactAllowlistRead: async () => scriptedAnswer(script.allowlistAnswer),
+    },
+  } as unknown as ConsoleBridge;
+}
+
+async function scriptedAnswer(scripted: unknown): Promise<unknown> {
+  if (scripted instanceof Error) {
+    throw scripted;
+  }
+  return scripted;
+}
 
 export async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));

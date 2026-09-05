@@ -33,7 +33,7 @@ import {
   readerWithHeldPayloadFetch,
   servedPayload,
   settle,
-} from "./artifact-actions.test-support.js";
+} from "./artifact-pane.test-support.js";
 
 describe("artifact pane actions — a served delete reconciles, superseded or not", () => {
   it("removes the row and reads again when nothing raced the delete", async () => {

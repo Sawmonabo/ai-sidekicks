@@ -55,9 +55,11 @@
 // REJECT, so a bridge that dropped only the bounds read took the whole refresh down:
 // the scheduler's error handler marked `artifacts` refused, and a session's manifests
 // and the allow-list's own fallback were both discarded because an unrelated read had
-// no answer. Each leg is now read through `readGrowthAnswer` (`growth-call.ts`), so a
-// rejection becomes THAT leg's refusal before the join sees it, neither leg can reject,
-// and a bounds outage costs exactly the bounds.
+// no answer. Both legs live in `artifact-pane-reads.ts` now — what a served answer
+// MEANS is a question about the wire and not about scheduling — and each goes through
+// `readGrowthAnswer` (`growth-call.ts`), so a rejection becomes THAT leg's refusal
+// before the join sees it, neither leg can reject, and a bounds outage costs exactly
+// the bounds.
 //
 // THE ACTS ARE NEXT DOOR, AND THIS CLASS IS THEIR HOST. `readManifest`, `fetchPayload`
 // and `deleteArtifact` delegate to `ArtifactPaneActions`, which is handed the five
@@ -72,10 +74,6 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
-  artifactManifestRowFromSummary,
-  type ArtifactsPanelState,
-} from "../../repos/artifacts/index.js";
-import {
   GenerationLatch,
   RefreshScheduler,
   SessionRefreshTriggers,
@@ -83,17 +81,15 @@ import {
 } from "../../store/index.js";
 import { ArtifactPaneActions } from "./artifact-actions.js";
 import { type ArtifactActionHost } from "./artifact-action-host.js";
-import { readGrowthAnswer } from "./growth-call.js";
 import {
   NOTHING_READ_YET,
-  SHIPPED_DEFAULT_ALLOWLIST,
   readFailureRefusal,
-  type ArtifactAllowlistReading,
   type ArtifactDeleteOutcome,
   type ArtifactPaneReading,
   type ArtifactRowActOutcome,
 } from "./artifact-pane-reading.js";
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
+import { readArtifactAllowlist, readArtifactList } from "./artifact-pane-reads.js";
 
 /**
  * The three frames this pane re-reads on.
@@ -330,8 +326,8 @@ export class ArtifactPaneReader {
     // ends on its own refused reading, and one that did not answer says so beside a
     // sibling that did.
     const [artifacts, allowlist] = await Promise.all([
-      this.#readArtifacts(sessionId),
-      this.#readAllowlist(sessionId),
+      readArtifactList(this.#bridge, sessionId),
+      readArtifactAllowlist(this.#bridge, sessionId),
     ]);
     if (!readRound.isCurrent) {
       return;
@@ -356,49 +352,6 @@ export class ArtifactPaneReader {
       manifestReadInFlightArtifactIds: this.#reading.manifestReadInFlightArtifactIds,
       refusalByArtifactId: this.#reading.refusalByArtifactId,
     });
-  }
-
-  async #readArtifacts(sessionId: string): Promise<ArtifactsPanelState> {
-    const answer = await readGrowthAnswer("The artifact list", () =>
-      this.#bridge.growth.artifactList({ sessionId }),
-    );
-    if (answer.status === "refused") {
-      return { kind: "refused", refusal: answer.refusal };
-    }
-    // Read. `listed` with an empty array is a DIFFERENT arm from `not-checked` and
-    // the reply's own length is what decides between them — a read that found none is
-    // not a read nobody made.
-    return { kind: "listed", rows: answer.value.map(artifactManifestRowFromSummary) };
-  }
-
-  /**
-   * The deployment's own bounds, or the shipped defaults and why they are showing.
-   *
-   * THE REFUSAL IS A DESIGNED ARM OF THIS READING AND NOT A FAILURE OF IT. A
-   * deployment that does not serve its bounds is the ordinary case on this build —
-   * the wire is unregistered — so the hint falls back to what the console ships and
-   * says which of the two a participant is looking at. Reading the refusal off the
-   * reply's own shape is what keeps it on that arm: read as served, it took the
-   * whole pane read down with a `TypeError` and reported the console as broken.
-   *
-   * A REJECTED CALL LANDS ON THE SAME ARM, for the same reason and by the same door:
-   * a deployment whose bounds read is refused and one whose bounds read never came
-   * back are both deployments this pane has no bounds from, and both are cases where
-   * the shipped defaults are what a participant is looking at.
-   */
-  async #readAllowlist(sessionId: string): Promise<ArtifactAllowlistReading> {
-    const answer = await readGrowthAnswer("The attachment allow-list read", () =>
-      this.#bridge.growth.artifactAllowlistRead({ sessionId }),
-    );
-    if (answer.status === "refused") {
-      return { ...SHIPPED_DEFAULT_ALLOWLIST, refusal: answer.refusal };
-    }
-    return {
-      source: "effective",
-      mediaTypes: answer.value.contentTypes,
-      maximumByteLength: answer.value.maximumByteLength,
-      refusal: undefined,
-    };
   }
 
   #publish(reading: ArtifactPaneReading): void {

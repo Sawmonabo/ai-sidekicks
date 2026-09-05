@@ -22,7 +22,7 @@ import {
   readerWithHeldPayloadFetch,
   servedPayload,
   settle,
-} from "./artifact-actions.test-support.js";
+} from "./artifact-pane.test-support.js";
 
 describe("artifact pane actions — one payload fetch in flight, each with its own identity", () => {
   it("sends one fetch when the control is pressed twice, and refuses the second in words", async () => {
