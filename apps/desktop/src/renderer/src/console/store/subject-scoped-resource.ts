@@ -39,6 +39,29 @@
 // holder hands it over, this module decides, and the decision is written once rather
 // than at each call site.
 //
+// AND A `close` MAY BE TERMINAL, WHICH IS A THIRD FACT ABOUT THE SAME RESOURCE. The
+// two moments above both END a lifetime and neither can start one, so a caller whose
+// disposal is a one-way `dispose()` had nowhere to say so: React's double-mount runs
+// the committed cleanup and then re-runs the effect against the value it just closed,
+// and the effect re-committed the corpse. Nothing was leaked and nothing was closed
+// twice — the subject simply went on holding a resource that would never work again,
+// which is invisible until something reads through it. A caller whose `close` merely
+// releases (a counter advanced, a subscription dropped) is unaffected, which is why
+// the reading is OPTIONAL and its absence means exactly the behaviour above.
+//
+// SO THE RE-MINT IS THE CALLER'S READING OF ITS OWN VALUE, NOT AN INTERFACE. `isClosed`
+// is supplied beside the `open` and `close` it belongs with rather than demanded of the
+// resource, because this hook is generic over values two unrelated window subsystems
+// own and a shape requirement here would reach into both of them. When the lifetime
+// effect is about to commit a value that reading calls closed, it publishes a fresh one
+// through `open` instead — the holder's own write path, so the retired value is
+// disposed on the same terms as any replaced one.
+//
+// AND IT IS THE EFFECT'S RUN THAT ARMS IT, NEVER A RENDER. The lifetime effect depends
+// on the resource alone, so a resource that disposes ITSELF while nothing else moves
+// re-runs nothing and is not re-minted: that arm is terminal on purpose, and a caller
+// wanting a fresh one publishes it.
+//
 // WHAT THIS IS NOT. It is not a second holder — there is one, next door, and this
 // hook addresses it. It is not a pool or a cache: nothing here survives the subject it
 // was opened for, and a resource is opened again when a subject the surface left is
@@ -46,8 +69,29 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 
-import { SubjectScopedHolder, type SubjectKey } from "./subject-scoped-holder.js";
+import {
+  SubjectScopedHolder,
+  type SubjectKey,
+  type SubjectScopedPublish,
+} from "./subject-scoped-holder.js";
 import { useHeldSubjectValue, type SubjectScopedState } from "./subject-scoped-state.js";
+
+/**
+ * How a resource whose `close` was terminal is replaced: the reading, the mint, and
+ * where the answer goes.
+ *
+ * Held together because they are one act and are all three minted per render — the
+ * reading and the mint close over whatever the caller's `open` reads, and the
+ * publisher is re-captured whenever the addressing moves. Held on the lifetime rather
+ * than read from the effect's closure for the same reason `close` is: the effect
+ * depends on the resource alone, so its closure is the one from the render that
+ * installed the value and may be several renders old.
+ */
+interface SubjectScopedResourceReopening<TResource> {
+  readonly isClosed: (resource: TResource) => boolean;
+  readonly open: () => TResource;
+  readonly publish: SubjectScopedPublish<TResource>;
+}
 
 /**
  * Which resource the last commit saw, for the hook that has to close the rest.
@@ -58,6 +102,7 @@ import { useHeldSubjectValue, type SubjectScopedState } from "./subject-scoped-s
  */
 class SubjectScopedResourceLifetime<TResource> {
   #close: (resource: TResource) => void;
+  #reopening: SubjectScopedResourceReopening<TResource> | undefined;
   #committed: { readonly resource: TResource } | undefined;
 
   public constructor(close: (resource: TResource) => void) {
@@ -81,9 +126,16 @@ class SubjectScopedResourceLifetime<TResource> {
    * The committed resource is deliberately NOT closed here: a live effect is holding
    * it, and the render doing the dropping may itself be discarded, in which case that
    * effect goes on holding it and this render never happened.
+   *
+   * NOR IS ONE THAT IS ALREADY CLOSED, which is what makes the re-mint below safe to
+   * write through the holder: the value a re-mint replaces is the corpse the committed
+   * cleanup has just disposed, and it arrives here as an ordinary replaced value with
+   * no commit holding it. Closing it again would be the second `dispose()` a terminal
+   * disposal is entitled to refuse. A caller that supplies no reading has no closed
+   * values to tell apart, and this guard is inert for it.
    */
   public readonly closeIfUncommitted = (dropped: TResource): void => {
-    if (this.#committed?.resource === dropped) {
+    if (this.#committed?.resource === dropped || this.#reopening?.isClosed(dropped) === true) {
       return;
     }
     this.#close(dropped);
@@ -111,13 +163,42 @@ class SubjectScopedResourceLifetime<TResource> {
   }
 
   /**
-   * Record what this commit is holding, and answer the cleanup that closes it.
+   * Hold the caller's latest way of replacing a resource its `close` ended.
+   *
+   * Beside {@link holdClose} and for its reason: all three parts are minted per render
+   * and none of them is a lifetime. `undefined` where the caller supplied no reading,
+   * which is every caller whose `close` releases rather than ends.
+   */
+  public holdReopening(reopening: SubjectScopedResourceReopening<TResource> | undefined): void {
+    this.#reopening = reopening;
+  }
+
+  /**
+   * Record what this commit is holding, or replace a value that is already closed.
    *
    * The disposal is read when the cleanup RUNS rather than captured as it is built,
    * so a resource retires through the caller's most recent `close` rather than
    * through whichever render happened to install the value.
+   *
+   * THE RE-MINT COMES FIRST AND HOLDS NOTHING. A run that finds the value closed is
+   * the double-mount's second one: the cleanup for this same resource has already
+   * disposed it, and committing it would install a resource that will never work
+   * again. So the replacement is published through the holder — which is what makes
+   * it the subject's value and re-runs this effect against a live resource — and this
+   * run records no commit and answers no cleanup, because it is holding nothing. The
+   * run the publish causes does both.
+   *
+   * A caller whose `open` answers with an already-closed resource publishes forever,
+   * and is stopped by React's own update-depth guard rather than by a count here: a
+   * bound would turn a caller's defect into this hook silently holding a corpse, which
+   * is the state it exists to prevent.
    */
-  public commit(resource: TResource): () => void {
+  public commit(resource: TResource): (() => void) | undefined {
+    const reopening = this.#reopening;
+    if (reopening !== undefined && reopening.isClosed(resource)) {
+      reopening.publish(reopening.open());
+      return undefined;
+    }
     this.#committed = { resource };
     return () => {
       this.#committed = undefined;
@@ -149,6 +230,13 @@ class SubjectScopedResourceLifetime<TResource> {
  * beyond the `open` thunk the holder already required, and both call sites pass a
  * declared `close` rather than an arrow.
  *
+ * A `close` THAT IS TERMINAL SAYS SO THROUGH `isClosed`, and is then re-minted rather
+ * than re-committed. Optional, and its absence is not a weaker claim but a different
+ * one: a caller whose disposal releases has no closed value to recognise. Supplied
+ * beside `open` and `close` rather than demanded of the resource, so a value another
+ * family owns needs no shape from this one — and read only where the lifetime effect
+ * RUNS, so a resource that disposes itself while nothing moves stays disposed.
+ *
  * A resource a caller PUBLISHES is disposed on the same terms, by the effect, when the
  * value it replaced retires — which is the one shape either caller uses: publishing is
  * how a window replaces a resource that has already closed itself. A caller that
@@ -163,6 +251,7 @@ export function useSubjectScopedResource<TResource>(
   key: SubjectKey,
   open: () => TResource,
   close: (resource: TResource) => void,
+  isClosed?: (resource: TResource) => boolean,
 ): SubjectScopedState<TResource> {
   const [lifetime] = useState(() => new SubjectScopedResourceLifetime<TResource>(close));
   // The holder is handed the disposal at construction, because a resource it lets go
@@ -185,7 +274,13 @@ export function useSubjectScopedResource<TResource>(
   // phase so the resource that effect retires is closed through the newest one.
   useLayoutEffect(() => {
     lifetime.holdClose(close);
-  }, [lifetime, close]);
+    // The publisher is this render's, which is what binds a re-mint to the visit on
+    // screen: one captured on an earlier addressing would refuse, and the fresh
+    // resource it was carrying would be disposed instead of installed.
+    lifetime.holdReopening(
+      isClosed === undefined ? undefined : { isClosed, open, publish: held.publish },
+    );
+  }, [lifetime, close, isClosed, open, held.publish]);
   // THE RESOURCE IS THE WHOLE DEPENDENCY. Its replacement is the one fact that ends
   // a resource's lifetime; every other thing that changes per render is about the
   // caller and not about what this effect is holding.
