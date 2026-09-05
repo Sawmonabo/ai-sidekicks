@@ -28,7 +28,8 @@
 // rather than on anything declared.
 //
 // So the target is DECLARED and never discovered. `WindowedListRow` marks exactly one
-// element per row with `WINDOWED_ROW_TARGET_ATTRIBUTE` — the wrapper where the row
+// element per row with the target attribute `windowed-row-markers.ts` owns — the
+// wrapper where the row
 // holds its own stop, the one control the row delegates to where its content IS a
 // control — and writes the roving `tabIndex` on that same element and on no other.
 // One element per row carries the marker and the stop together, which is what makes
@@ -58,6 +59,24 @@
 // it is dropped once the budget is spent — one retry, which is what an asynchronous
 // `revealIndex` needs, and not a standing claim on the page's focus.
 //
+// AND THE ANCHOR IS ASKED FOR RATHER THAN ASSUMED MOUNTED. A list reopened on a
+// selection starts its keyboard on that row, and a window mounts the rows a SCROLL
+// POSITION needs — two facts that only agree when the caller has already scrolled the
+// selection into view. Where they disagreed, this hook made an unmounted row active
+// and every mounted row was rendered `isTabbable={false}`, so the list held no
+// sequential tab stop at all: the reachability defect the clamp exists for, arriving
+// through the anchor instead of through a narrowed set. Requiring the caller to align
+// the two would be a rule no caller can check and no gate can state.
+//
+// So the anchor is REVEALED, once per index, through the same `revealIndex` a move
+// uses — and because a reveal is asynchronous, the list needs a tab stop for the
+// renders in between. That is the mounted fallback: while the roving row is not in
+// the window, the NEAREST mounted row holds the stop, so Tab always reaches the list
+// and the arrows always move from the row the reader can see. The fallback shadows
+// the roving index for the tab stop only; the pending focus claim still names the row
+// the key asked for, which is why the two are separate numbers below. A window that
+// has mounted no rows at all gets no stop, because there is none to give.
+//
 // AND A MOVE THAT GOES NOWHERE ARMS NOTHING. `End` on the last row, `Home` on the
 // first, `ArrowDown` at the bottom: each is a key this list consumes whose landing
 // place is the row the keyboard is already on. Arming a claim there is the delayed
@@ -84,33 +103,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/**
- * The attribute a windowed row carries its absolute index on.
- *
- * Declared here rather than in the component because this module is the READER and
- * `WindowedListRow` is the writer: two sides of one seam share a module, so a rename
- * cannot leave the lookup querying an attribute nothing writes.
- */
-export const WINDOWED_ROW_INDEX_ATTRIBUTE = "data-index";
-
-/**
- * The attribute the element holding a row's tab stop carries.
- *
- * Declared here beside the index attribute for the same reason: this module is the
- * READER and `WindowedListRow` is the writer, so a rename cannot leave the lookup
- * querying an attribute nothing writes.
- *
- * It replaced an interactive-element selector, and the replacement is the fix rather
- * than a tidier spelling of it. A selector asks which element in the row COULD take
- * focus and answers with whichever matched first — the wrapper, once the wrapper
- * carried a `tabindex` — while a marker asks which element the row SAID holds its
- * stop. A list whose rows are controls (a file list of buttons) keeps activation on
- * the control and marks it; a list whose rows are options marks the row.
- */
-export const WINDOWED_ROW_TARGET_ATTRIBUTE = "data-row-target";
-
-/** How the marked element is found, inside a row or as the row. */
-const WINDOWED_ROW_TARGET_SELECTOR = `[${WINDOWED_ROW_TARGET_ATTRIBUTE}]`;
+import { focusTargetWithin, nearestMountedRowIndex, rowElementAt } from "./windowed-row-markers.js";
 
 /** Where one key press moves the active row. */
 export type WindowedRowMove = "next" | "previous" | "first" | "last";
@@ -176,6 +169,10 @@ export interface WindowedRovingIndexOptions {
    *
    * A move supersedes it, and a move that falls outside a narrowed set falls back to
    * it, so a list reopened on a selection puts its one tab stop on that selection.
+   *
+   * It carries no alignment obligation: an anchor the mounted window does not hold is
+   * asked for through `revealIndex`, and the nearest mounted row holds the stop until
+   * it arrives. A caller states which row is selected and nothing about scrolling.
    */
   readonly anchorIndex: number;
   /** The element the moved-to row is looked up inside. */
@@ -197,7 +194,15 @@ export interface WindowedRovingIndexOptions {
 }
 
 export interface WindowedRovingIndex {
-  /** The one row that is tabbable, as a position in the current set. */
+  /**
+   * The one row that is tabbable, as a position in the current set AND in the mounted
+   * window.
+   *
+   * Two claims rather than one: a row a caller renders `isTabbable` for has to be a
+   * row the caller is rendering, or the list has no stop. Where the roving row is not
+   * mounted this is the nearest row that is, and it becomes the roving row again the
+   * moment the window produces it.
+   */
   readonly activeIndex: number;
   readonly onKeyDown: (keyEvent: React.KeyboardEvent) => void;
 }
@@ -205,12 +210,17 @@ export interface WindowedRovingIndex {
 /**
  * How many effect runs a move may wait through before its claim on focus expires.
  *
- * One. The arm is followed immediately by the run the move's own `setMovedToIndex`
- * causes, on which an asynchronous `revealIndex` has not answered yet; the run after
- * that is the reveal's, and a move still unmounted there is a move whose row the
- * window is not going to produce.
+ * Two, and both are this hook's own. The arm is followed immediately by the run the
+ * move's own `setMovedToIndex` causes, on which an asynchronous `revealIndex` has not
+ * answered yet; that run also installs the mounted fallback for a row the window has
+ * not produced, which is a second state write and so a second run, still before the
+ * reveal can have landed. The run after those two is the reveal's, and a move still
+ * unmounted there is a move whose row the window is not going to produce.
+ *
+ * It is a count of runs rather than of renders because that is what this hook can
+ * observe — see the header on why the window's own identity cannot be compared.
  */
-const PENDING_FOCUS_RETRIES = 1;
+const PENDING_FOCUS_RETRIES = 2;
 
 /**
  * A move waiting for its row to mount, and the two facts that bound it.
@@ -232,26 +242,54 @@ interface PendingRowFocus {
 export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): WindowedRovingIndex {
   const { rowCount, anchorIndex, containerRef, revealIndex, windowRevision } = options;
   const [movedToIndex, setMovedToIndex] = useState<number | undefined>(undefined);
+  const [mountedFallbackIndex, setMountedFallbackIndex] = useState<number | undefined>(undefined);
   const pendingFocus = useRef<PendingRowFocus | undefined>(undefined);
+  const revealRequestedForIndex = useRef<number | undefined>(undefined);
 
-  const activeIndex = clampedRowIndex(movedToIndex ?? anchorIndex, rowCount);
+  // Where the keyboard IS, and where the one tab stop can be put — the same number
+  // whenever the window holds the roving row, and different exactly while it does not.
+  const rovingIndex = clampedRowIndex(movedToIndex ?? anchorIndex, rowCount);
+  const activeIndex = clampedRowIndex(mountedFallbackIndex ?? rovingIndex, rowCount);
+
+  useEffect(() => {
+    if (rowCount === 0) {
+      setMountedFallbackIndex(undefined);
+      return;
+    }
+    if (rowElementAt(containerRef.current, rovingIndex) !== undefined) {
+      // The window holds it, so the stop is the roving row itself and a later scroll
+      // away from it is free to ask for it again.
+      revealRequestedForIndex.current = undefined;
+      setMountedFallbackIndex(undefined);
+      return;
+    }
+    if (revealRequestedForIndex.current !== rovingIndex) {
+      // Once per index, never once per run: a virtualizer hands back a fresh window
+      // value every render, so an unguarded call here would ask for the same row on
+      // every render the list makes while it waits.
+      revealRequestedForIndex.current = rovingIndex;
+      revealIndex(rovingIndex);
+    }
+    setMountedFallbackIndex(nearestMountedRowIndex(containerRef.current, rovingIndex));
+  }, [rovingIndex, containerRef, revealIndex, rowCount, windowRevision]);
 
   useEffect(() => {
     const pending = pendingFocus.current;
     if (pending === undefined) {
       return;
     }
-    if (pending.rowIndex !== activeIndex) {
+    if (pending.rowIndex !== rovingIndex) {
       // The set narrowed under the move, so the index now names a row nobody asked
       // for. Dropped rather than followed: answering a key press about row 39 by
-      // focusing row 4 is a different act, not a smaller one.
+      // focusing row 4 is a different act, not a smaller one. Compared against the
+      // ROVING index and never the tab stop: the tab stop may be standing in for an
+      // unmounted row, and a claim dropped against a stand-in would cancel every move
+      // out of the window.
       pendingFocus.current = undefined;
       return;
     }
-    const row = containerRef.current?.querySelector<HTMLElement>(
-      `[${WINDOWED_ROW_INDEX_ATTRIBUTE}="${String(activeIndex)}"]`,
-    );
-    if (row === null || row === undefined) {
+    const row = rowElementAt(containerRef.current, rovingIndex);
+    if (row === undefined) {
       // The row is not mounted on this run. A `revealIndex` that scrolls
       // asynchronously gets its budget of further runs to answer; past that the
       // claim on the page's focus is dropped rather than left standing for whatever
@@ -265,18 +303,13 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
     // Consumed here, before the focus call, so every path out of this effect has
     // spent the claim exactly once.
     pendingFocus.current = undefined;
-    // The element the ROW declared, never one a selector happened to match: the row
-    // marks its own wrapper where it holds the stop and marks the one control it
-    // delegates to where it does not, so this reads a statement rather than a guess.
-    const target = row.matches(WINDOWED_ROW_TARGET_SELECTOR)
-      ? row
-      : row.querySelector<HTMLElement>(WINDOWED_ROW_TARGET_SELECTOR);
-    if (target === null) {
+    const target = focusTargetWithin(row);
+    if (target === undefined) {
       // A row that declared no focus target is a row the keyboard cannot land on.
       return;
     }
     target.focus();
-  }, [activeIndex, containerRef, windowRevision]);
+  }, [rovingIndex, containerRef, windowRevision]);
 
   const onKeyDown = useCallback(
     (keyEvent: React.KeyboardEvent): void => {
@@ -285,6 +318,9 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
         return;
       }
       keyEvent.preventDefault();
+      // Measured from the tab stop, which is where focus actually is: a move out of a
+      // stand-in row starts from the row the reader can see, not from the one the
+      // window has yet to produce.
       const moved = movedRowIndex(move, activeIndex, rowCount);
       if (moved !== activeIndex) {
         // See the header: a boundary key pressed at that boundary lands on the row
@@ -294,6 +330,11 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
         pendingFocus.current = { rowIndex: moved, retriesRemaining: PENDING_FOCUS_RETRIES };
       }
       setMovedToIndex(moved);
+      // The stand-in is retired by the same act that supersedes the row it stood in
+      // for; the effect above reinstates one if the window still has not produced the
+      // moved-to row.
+      setMountedFallbackIndex(undefined);
+      revealRequestedForIndex.current = moved;
       revealIndex(moved);
     },
     [activeIndex, revealIndex, rowCount],
