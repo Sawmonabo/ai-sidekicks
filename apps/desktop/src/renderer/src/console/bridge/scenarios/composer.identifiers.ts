@@ -38,6 +38,18 @@ export interface ComposerAgentFixture {
   readonly attachedAtIso: string;
   /** The daemon's opaque row id for the attach event this entry produces. */
   readonly eventId: string;
+  /**
+   * The account this agent's turns are billed to, ABSENT where the provider's
+   * registered default pays.
+   *
+   * Both states are scripted across the cast on purpose: the chip renders a label
+   * only where the roster names an account AND the account plane supplied a word for
+   * it, and a cast where every agent took the same arm would leave the other one
+   * drawn by nothing. The id names an account this scenario's own
+   * `providerAccount.list` reply carries, because an id no reading resolves is a
+   * handle, and a handle is what the chip refuses to show.
+   */
+  readonly providerAccountId?: string;
 }
 
 export const COMPOSER_AGENTS: readonly ComposerAgentFixture[] = [
@@ -49,6 +61,7 @@ export const COMPOSER_AGENTS: readonly ComposerAgentFixture[] = [
     attachedAtMs: 120,
     attachedAtIso: "2026-01-01T11:05:00.120Z",
     eventId: "019b7a11-1100-7e00-8110-e5e0c1150003",
+    providerAccountId: "acct-claude-team",
   },
   {
     agentId: AGENT_REVIEWER,

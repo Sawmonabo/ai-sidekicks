@@ -51,16 +51,22 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
 
   it("passes a registered daemon method and a growth row's expected wire method", () => {
     // Both admitted classes, so the claim above is a finding about the call rather
-    // than about which registry a reader happened to check.
+    // than about which registry a reader happened to check. Both probes are also
+    // REACHABLE — a bound method and a served growth operation — because the walk's
+    // other reachability leg reports a scripted answer to an operation the fixture
+    // port refuses, and a probe that tripped it would report this case's own claim
+    // as a defect about something else entirely.
     expect(findScenarioWireTruthDefects([scenarioAnswering("run.queueList")])).toStrictEqual([]);
-    expect(findScenarioWireTruthDefects([scenarioAnswering("workflow.runRead")])).toStrictEqual([]);
+    expect(
+      findScenarioWireTruthDefects([scenarioAnswering("approval.projectionRead")]),
+    ).toStrictEqual([]);
   });
 
   it("passes an operation-id key only where the growth row registers no wire method", () => {
     // The one shape that is manifestly not a method string, and it is admitted for a
     // growth row that has no name to transcribe. A row that DOES declare one is
     // scripted under that name, because the live transport sends that name.
-    expect(findScenarioWireTruthDefects([scenarioAnswering("growth:browserNavigate")])) //
+    expect(findScenarioWireTruthDefects([scenarioAnswering("growth:callerParticipantRead")])) //
       .toStrictEqual([]);
 
     const wrongKey = findScenarioWireTruthDefects([scenarioAnswering("growth:sessionRead")]);
@@ -73,10 +79,10 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
   });
 
   it("negative control: the shipped seat board answers only registered calls", () => {
-    // The real tree, which is where a family's invented name would land. It passes
-    // today because the one call no console surface binds — `agent.list` — is a
-    // method the corpus itself registers, and the walk says so by name rather than by
-    // admitting anything that merely looks like a method.
+    // The real tree, which is where a family's invented name would land. Every call it
+    // scripts is admitted by a derived registry rather than by a transcription: the
+    // daemon binding table, or a growth row's own expected wire method, which is what
+    // admits `agent.list`.
     expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
   });
 });
@@ -133,6 +139,41 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
 
   it("negative control: the shipped seat board's own replies stay clean", () => {
     expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+  });
+});
+
+describe("scenario wire truth — a growth operation the fixture never serves", () => {
+  /** The flagship, with one extra reply answering `call`. */
+  const scenarioAnswering = (call: string): ConsoleScenario => ({
+    ...FLAGSHIP_SCENARIO,
+    id: "answers-an-unserved-operation",
+    replies: [...FLAGSHIP_SCENARIO.replies, { call, result: {} }],
+  });
+
+  it("reports a reply the port refuses without ever reading", () => {
+    // The defect this leg was written for, and it shipped: four scenarios scripted an
+    // `agent.list` roster while the port refused `agentList`, so the composer's target
+    // chip rendered a refusal on every provider-bound surface with a scripted answer
+    // sitting unread beside it. `gitflow.prPrepare` is the same shape today — a
+    // registered wire method whose operation the fixture deliberately does not serve.
+    const defects = findScenarioWireTruthDefects([scenarioAnswering("gitflow.prPrepare")]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toBe('reply "gitflow.prPrepare"');
+    expect(defects[0]?.reason).toContain("does not serve");
+  });
+
+  it("passes a served growth operation and a bound daemon method alike", () => {
+    // The two ways a scripted reply IS reachable, so the claim above is about the
+    // served set rather than about growth replies as a class: `approval.projectionRead`
+    // is served by the port, and `run.queueList` is bound, which the fixture bridge
+    // answers from the same script whatever the port does. The shipped flagship's own
+    // `agent.list` is the third — it is clean under the negative control above, which
+    // it was not before that operation joined the served set.
+    expect(
+      findScenarioWireTruthDefects([scenarioAnswering("approval.projectionRead")]),
+    ).toStrictEqual([]);
+    expect(findScenarioWireTruthDefects([scenarioAnswering("run.queueList")])).toStrictEqual([]);
   });
 });
 

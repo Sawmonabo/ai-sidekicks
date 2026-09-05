@@ -6,10 +6,11 @@
 // the owning spec names. A reading that calls the daemon straight from its open,
 // with nothing that can ask it again, satisfies the letter on its first read and
 // never again: it is current at mount and stale from the first reconnect, with
-// nothing on screen saying so. Two of this console's four wire readings shipped
-// exactly that way — the queue list and the provider-account registry each read once
-// when their stream opened and had no path back to the wire at all — which is why
-// this is a gate and not a review note.
+// nothing on screen saying so. Three of this console's readings shipped exactly that
+// way — the queue list and the provider-account registry each read once when their
+// stream opened and had no path back to the wire at all, and the composer's
+// agent-roster read was armed once per addressing by an effect — which is why this is
+// a gate and not a review note.
 //
 // WHAT A READING IS, mechanically. A class that BOTH publishes what a surface reads
 // off it — a member named `snapshot` or `readout`, the two names this console uses
@@ -35,8 +36,10 @@
 // where a class writes the clause; this proves the clause is there to write.
 //
 // THE CENSUS IS PINNED BY NAME. The walk can come back empty — a moved directory, a
-// changed extension — and a gate over an empty set passes. Naming the four readings
-// makes a disappearance a failure and makes a fifth one arrive here first.
+// changed extension — and a gate over an empty set passes. Naming every reading makes
+// a disappearance a failure and makes the next one arrive here first — which is what
+// happened to `AgentRosterReading`, whose predecessor was a hook and so satisfied none
+// of the three conjuncts this gate narrows on.
 
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
@@ -50,8 +53,9 @@ const READING_MEMBER_NAMES: ReadonlySet<string> = new Set(["snapshot", "readout"
 /** The two members `ReadTriggerTarget` requires. Declared once, asserted as a pair. */
 const TRIGGER_CONTRACT_MEMBERS: readonly string[] = ["triggeringEventKinds", "requestRead"];
 
-/** The readings that exist today, by class name. A fifth lands here before it ships. */
+/** The readings that exist today, by class name. The next lands here before it ships. */
 const EXPECTED_READINGS: readonly string[] = [
+  "AgentRosterReading",
   "ApprovalsReader",
   "BridgeCapabilityRead",
   "NodeProviderQuotaReading",
@@ -107,7 +111,7 @@ function declaresMember(declaration: ts.ClassDeclaration, name: string): boolean
  *
  * Read off a declared TYPE and never off a name, so a field called something else
  * still counts and a field called `bridge` holding something else does not. Both a
- * property declaration and a constructor parameter count: the four readings write
+ * property declaration and a constructor parameter count: every reading here writes
  * the first, and a class taking one and keeping it in a closure would still be one.
  */
 function holdsBridge(declaration: ts.ClassDeclaration): boolean {

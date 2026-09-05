@@ -19,7 +19,7 @@ import {
   bodyValue,
   renderComposer,
   runAt,
-  stubBridge,
+  interventionDispatchBridge,
   submit,
   type ScriptedAnswer,
   typeInto,
@@ -124,7 +124,7 @@ describe("the comparand is the newer of the two readings", () => {
 
   it("sends the stream's version once it has moved past the cached settlement", async () => {
     const calls: RecordedDaemonCall[] = [];
-    const bridge = stubBridge(calls, APPLIED_ROLLBACK);
+    const bridge = interventionDispatchBridge(calls, APPLIED_ROLLBACK);
     const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
     await rewindAt(container);
     expect(calls[0]?.params).toMatchObject({ expectedRunVersion: 8 });
@@ -136,7 +136,7 @@ describe("the comparand is the newer of the two readings", () => {
 
   it("negative control: the cached settlement still wins over a stream that is behind it", async () => {
     const calls: RecordedDaemonCall[] = [];
-    const bridge = stubBridge(calls, APPLIED_ROLLBACK);
+    const bridge = interventionDispatchBridge(calls, APPLIED_ROLLBACK);
     const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
     await rewindAt(container);
     rerender(<StableHarness bridge={bridge} runVersion={8} />);

@@ -20,6 +20,7 @@ import {
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
 
 describe("ProviderCommandAutocomplete — the surface follows every write to the draft", () => {
   /** Whether the discovery popover is on screen at all. */
@@ -31,8 +32,7 @@ describe("ProviderCommandAutocomplete — the surface follows every write to the
   async function pressEnter(line: HTMLTextAreaElement): Promise<void> {
     await act(async () => {
       fireEvent.keyDown(line, { key: "Enter" });
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
   }
 
@@ -45,8 +45,7 @@ describe("ProviderCommandAutocomplete — the surface follows every write to the
     line.setSelectionRange(edge, edge);
     await act(async () => {
       fireEvent.keyDown(line, { key });
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
   }
 
@@ -129,8 +128,7 @@ describe("ProviderCommandAutocomplete — the surface follows every write to the
     }
     await act(async () => {
       fireEvent.click(send);
-      await Promise.resolve();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(ranCount).toBe(1);

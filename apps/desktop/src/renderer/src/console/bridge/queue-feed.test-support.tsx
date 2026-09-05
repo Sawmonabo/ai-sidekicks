@@ -69,8 +69,14 @@ export const ENVELOPE_SHAPED_DELIVERY: EnvelopeShapedDelivery = {
  * The recorder is OUTERMOST, and that ordering is load-bearing: the capture answers
  * the queue stream itself rather than forwarding it, so a recorder inside it would
  * never see that open and would report every case compliant at zero.
+ *
+ * NAMED FOR WHAT IT ANSWERS. It was `stubBridge`, and so was a wrapper one family
+ * away that returns a bare `ConsoleBridge` — same name, same family, two shapes, so a
+ * suite reaching for the wrong one got a type error today and a silently different
+ * double the moment either return shape widened toward the other. Neither is a stub
+ * any more either: both are the shipped fixture with one arm over it.
  */
-export function stubBridge(snapshot: readonly unknown[] = []): {
+export function queueFeedBridge(snapshot: readonly unknown[] = []): {
   bridge: ConsoleBridge;
   deliver: (payload: unknown) => void;
   openedStreams: readonly string[];
@@ -119,7 +125,7 @@ export async function openFeed(
   latest: () => QueueFeed;
   openedStreams: readonly string[];
 }> {
-  const { bridge, deliver, openedStreams } = stubBridge(options.snapshot ?? []);
+  const { bridge, deliver, openedStreams } = queueFeedBridge(options.snapshot ?? []);
   let held: QueueFeed | undefined;
   render(
     <QueueFeedProbe

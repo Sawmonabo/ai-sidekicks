@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { formatRoute } from "../routing/index.js";
 import { FrameStore, useLocationHash } from "../store/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
+import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
 
 const SESSIONS_HASH = "#/sessions";
 const SETTINGS_HASH = "#/settings";
@@ -35,7 +36,7 @@ async function bind(): Promise<FrameStore> {
   const frameStore = new FrameStore({ initialRoute: { kind: "sessions" } });
   await act(async () => {
     render(<BoundFrame frameStore={frameStore} />);
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   return frameStore;
 }
@@ -101,7 +102,7 @@ describe("useHashRouteBinding", () => {
     });
     await act(async () => {
       render(<BoundFrame frameStore={frameStore} />);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     // Leave the workspace. The binding writes `#/settings`; the browser has not

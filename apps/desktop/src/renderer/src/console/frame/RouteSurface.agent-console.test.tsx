@@ -32,6 +32,7 @@ import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { BARE_TIMELINE_ROUTE, settle } from "./RouteSurface.test-support.js";
 import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
 
 /** The bare route whose grammar takes an agent WITH its session or not at all. */
 const BARE_AGENT_CONSOLE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "agent-console" };
@@ -110,7 +111,7 @@ async function clickChoice(value: string): Promise<void> {
   const choice = screen.getByRole("button", { name: value });
   await act(async () => {
     fireEvent.click(choice);
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 

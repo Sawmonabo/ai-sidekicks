@@ -63,6 +63,7 @@
 
 import { useMemo } from "react";
 import {
+  readRefusalOf,
   readingForDriver,
   useDriverCapabilities,
   useProviderQuotas,
@@ -82,13 +83,13 @@ import {
   type SessionStoreState,
 } from "../../../console/store/index.js";
 import { useComposerAddress } from "../composer-address.js";
-import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./CompactionSlot.js";
-import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./ContextMeterSlot.js";
+import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./compaction/CompactionSlot.js";
+import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./context-meter/ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
-import { PlusMenu } from "./PlusMenu.js";
-import { QueueShelf } from "./QueueShelf.js";
-import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./RateLimitSlot.js";
-import { waitingQueueRows } from "./waiting-queue.js";
+import { PlusMenu } from "./plus-menu/PlusMenu.js";
+import { QueueShelf } from "./queue-shelf/QueueShelf.js";
+import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./quotas/RateLimitSlot.js";
+import { waitingQueueRows } from "./queue-shelf/waiting-queue.js";
 import { newestCompactionBoundarySequence, newestContextWindowReading } from "./usage-readings.js";
 
 /**
@@ -164,13 +165,18 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   // stayed on screen for the rest of the window's life. This arms one timeout at a
   // time and none at all once every reset is behind, which is the no-polling rule.
   const nowMilliseconds = useDeadlineWake(clock, quotaResetDeadlines);
+  // Through the reading's own phase-aware accessor and never off the member: a
+  // registry that refused once and then healed carries the old refusal no longer,
+  // and this rail rendered one beside healthy chips for the life of the window while
+  // it read the member bare.
+  const quotaReadRefusal = readRefusalOf(providerQuotas);
   const quotaReadings: readonly ReadingState[] = [
-    providerQuotas.readRefusal === undefined
+    quotaReadRefusal === undefined
       ? { kind: "served" }
       : {
           kind: "refused",
           scope: providerQuotas.readings.length === 0 ? "whole-answer" : "beside-an-answer",
-          refusal: providerQuotas.readRefusal,
+          refusal: quotaReadRefusal,
         },
     unreadableDeliveryReading(
       providerQuotas.unreadableDeliveryCount,
@@ -182,8 +188,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
     <div className="meridian-composer__rail">
       <QueueShelf
         items={waitingItems}
-        phase={queueFeed.phase}
-        readRefusal={queueFeed.readRefusal}
+        snapshotRead={queueFeed}
         pendingCancelIds={queueFeed.pendingCancelIds}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}

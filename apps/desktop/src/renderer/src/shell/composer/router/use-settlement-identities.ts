@@ -23,8 +23,19 @@
 // THE MIRRORS ARE REFS AND NOT STATE, for the reason the single-flight latch is: both
 // are written and read inside one handler's own tick, and a state read there would
 // see the value from the render that produced the handler.
+//
+// AND THEY MOVE AT THE COMMIT, NOT DURING THE RENDER. They were assigned in the render
+// body, which opted out of the very case `store/subject-scoped-holder.ts` spends its
+// two-phase design on: a pass that addresses a new subject and is then THROWN AWAY.
+// In that window the mirrors named a visit nothing committed, so `isCurrent` answered
+// false for a settlement belonging to the visit actually on screen — its refusal
+// dropped and its draft left uncleared, both silently. A layout effect is the same
+// moment the holder itself confirms an addressing at, and it is the answer the render
+// cannot know: a discarded pass runs no effect, so the mirrors still name the visit a
+// person is looking at. Nothing in this tree discards a pass today; the first
+// concurrent feature that lands is what this closes ahead of.
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { useSubjectScopedState } from "../../../console/store/index.js";
@@ -60,12 +71,14 @@ export function useSettlementIdentities(
   });
   // The address a settlement is measured against is the composer's CURRENT one, and
   // a dispatch's own closure holds the address it was ISSUED at — so the current key
-  // and visit travel through refs that every render refreshes, and the two are
-  // compared where the call lands rather than assumed to be the same.
+  // and visit travel through refs that every COMMITTED render refreshes, and the two
+  // are compared where the call lands rather than assumed to be the same.
   const currentDraftKeyRef = useRef(draftKey);
-  currentDraftKeyRef.current = draftKey;
   const currentVisitRef = useRef(visit);
-  currentVisitRef.current = visit;
+  useLayoutEffect(() => {
+    currentDraftKeyRef.current = draftKey;
+    currentVisitRef.current = visit;
+  }, [draftKey, visit]);
   const nextAttemptIdRef = useRef(0);
   // Keyed by `addressedOperationKey` and not by operation: two slots for the whole
   // window let a send from one address retire an attempt made at another, so a

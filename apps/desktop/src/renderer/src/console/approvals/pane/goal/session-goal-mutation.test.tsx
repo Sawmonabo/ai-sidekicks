@@ -16,6 +16,7 @@ import { createRefusingGrowthPort, growthUnavailable } from "../../../bridge/gro
 import { createFixture } from "../../../bridge/fixture-bridge.test-support.js";
 import { useSessionGoalMutation } from "../approvals-hooks.js";
 import { SECOND_SESSION_ID, SESSION_ID } from "../approvals-hooks.test-support.js";
+import { drainMicrotasks } from "../../../bridge/fixture-bridge.test-support.js";
 
 describe("the goal mutation is keyed to the session it mutates", () => {
   /**
@@ -136,7 +137,7 @@ describe("the goal mutation is keyed to the session it mutates", () => {
 
     await act(async () => {
       refuseFor(SESSION_ID, growthUnavailable("sessionGoalUpdate"));
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     // The refusal belongs to a session this card is no longer addressed to, so
     // rendering it here would put one session's refusal beside another's goal.

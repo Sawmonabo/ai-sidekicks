@@ -19,7 +19,7 @@ import { settleScheduledRead } from "./scheduled-read.test-support.js";
 import { SessionStore } from "../store/index.js";
 import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
-import type { QueueReadPhase } from "./queue-reading.js";
+import type { WireReadPhase } from "./reading-lifecycle.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
@@ -112,7 +112,7 @@ describe("the queue reading re-reads on a repair", () => {
       return forward();
     });
     const sessionStore = initialisedStore();
-    let phase: QueueReadPhase | undefined;
+    let phase: WireReadPhase | undefined;
     function ParkedProbe(): null {
       phase = useQueueFeed(parked.bridge, sessionStore.sessionId).phase;
       useQueueRepairRead(parked.bridge, sessionStore);

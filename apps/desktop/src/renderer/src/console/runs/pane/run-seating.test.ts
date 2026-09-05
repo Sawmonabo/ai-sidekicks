@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsoleEntity } from "../../store/index.js";
 import { seatRuns } from "./run-seating.js";
+import { SEATED_KNOWN_RUN_CAP } from "./runs-bounds.js";
 import { RunStateProjection, type RunProjection } from "./run-state-projection.js";
 
 const RUN_A = "a1b2c3d4-5e6f-4071-8182-93a4b5c6d7e8";
@@ -73,6 +74,43 @@ describe("every known run seats a row", () => {
     // The projection first, then the two undescribed runs newest-touched first.
     expect(seating.rows.map((row) => row.runId)).toStrictEqual([RUN_C, RUN_B, RUN_A]);
     expect(seating.awaitingProjectionRunIds).toStrictEqual([RUN_B, RUN_A]);
+  });
+
+  it("cuts the coldest un-projected runs at the cap and counts what it cut", () => {
+    // The partition is folded from the log and nothing evicts it, so this list is as
+    // long as the session is old. Unbounded, it seated a row per run past the cap the
+    // projection fold spends two files away.
+    const overflow = 3;
+    const knownRuns: Record<string, ConsoleEntity> = {};
+    for (let index = 0; index < SEATED_KNOWN_RUN_CAP + overflow; index += 1) {
+      const runId = `run-${String(index).padStart(4, "0")}`;
+      // Later index = newer, so index 0 is the coldest run in the partition.
+      const minute = String(index % 60).padStart(2, "0");
+      const hour = String(Math.floor(index / 60)).padStart(2, "0");
+      knownRuns[runId] = knownEntity(runId, { touchedAt: `2026-01-01T${hour}:${minute}:00.000Z` });
+    }
+
+    const seating = seatRuns(knownRuns, []);
+
+    expect(seating.rows).toHaveLength(SEATED_KNOWN_RUN_CAP);
+    expect(seating.awaitingProjectionRunIds).toHaveLength(SEATED_KNOWN_RUN_CAP);
+    expect(seating.withheldKnownRunCount).toBe(overflow);
+    // Newest-touched first, so the cut takes the coldest: the last run seated is
+    // newer than every run withheld, and the coldest three are on no row.
+    expect(seating.awaitingProjectionRunIds[0]).toBe(
+      `run-${String(SEATED_KNOWN_RUN_CAP + overflow - 1).padStart(4, "0")}`,
+    );
+    expect(seating.awaitingProjectionRunIds).not.toContain("run-0000");
+    expect(seating.awaitingProjectionRunIds).not.toContain("run-0002");
+  });
+
+  it("negative control: a partition under the cap is seated whole and withholds none", () => {
+    // Without this the case above would pass over a seat that always cut to the cap,
+    // which would report a withheld count for a session that has every row on screen.
+    const seating = seatRuns({ [RUN_A]: knownEntity(RUN_A), [RUN_B]: knownEntity(RUN_B) }, []);
+
+    expect(seating.rows).toHaveLength(2);
+    expect(seating.withheldKnownRunCount).toBe(0);
   });
 
   it("negative control: an empty partition and an empty stream seat no rows", () => {

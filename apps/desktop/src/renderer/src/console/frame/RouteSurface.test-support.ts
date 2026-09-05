@@ -10,6 +10,7 @@
 import { act } from "@testing-library/react";
 
 import { type ConsoleRoute } from "../routing/index.js";
+import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
 
 /** The bare auxiliary address a Window-menu open lands on. */
 export const BARE_TIMELINE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "timeline" };
@@ -17,6 +18,6 @@ export const BARE_TIMELINE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "ti
 /** Let the directory read settle, so an assertion is about the answer. */
 export async function settle(): Promise<void> {
   await act(async () => {
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }

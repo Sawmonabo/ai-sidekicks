@@ -22,7 +22,7 @@ export function ComposerChipRail(props: ComposerSeatProps): React.JSX.Element {
   // renders that as the absence it is.
   const binding = useAgentBindingReading(
     props.bridge,
-    props.sessionStore.sessionId,
+    props.sessionStore,
     address.target.path === "provider-bound" ? address.target.agentId : undefined,
   );
   return (

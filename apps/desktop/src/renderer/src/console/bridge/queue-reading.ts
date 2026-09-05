@@ -45,13 +45,16 @@
 //     only here; this module composes its state onto the feed and publishes when it
 //     moves.
 //
-// AN UNOPENABLE STREAM IS A REFUSAL AND NOT A CRASH. Opening the tail is the first
-// thing this reading does, and on the shipped live bridge every daemon method throws
-// — so the open is a call that fails synchronously in the ordinary case, not an
-// exceptional one. It settles the reading `refused` with the thrown refusal's own
-// code rather than unwinding out of whichever surface happened to mount first, which
-// is the difference between a pane that renders a refusal and a window that renders
-// nothing at all.
+// AN UNOPENABLE STREAM IS A REFUSAL AND NOT A CRASH, AND A REFUSED OPEN IS NOT A
+// DEAD READING. Opening the tail is the first thing this reading does, and on the
+// shipped live bridge every daemon method throws — so the open is a call that fails
+// synchronously in the ordinary case, not an exceptional one. It settles the reading
+// `refused` with the thrown refusal's own code rather than unwinding out of whichever
+// surface happened to mount first, which is the difference between a pane that renders
+// a refusal and a window that renders nothing at all. It then leaves the reading
+// OPENABLE, so the next focus, repair, or mount re-opens rather than reading behind a
+// tail that is not there — `reading-lifecycle.ts` owns that state and says why the
+// unparseable-scope arm is the one failure that does not re-try.
 //
 // WHAT THE WIRE DOES NOT CARRY. This console would say which run a row is bound to.
 // The registered `QueueItemSummary` — `{ id, state, priority, channelId?,
@@ -91,6 +94,7 @@ import {
   type RefreshReason,
 } from "../store/index.js";
 import { QUEUE_SUBSCRIBE_STREAM, subscribeDaemon } from "./daemon-streams.js";
+import { WireReadLifecycle, type WireReadState } from "./reading-lifecycle.js";
 import { callDaemon } from "./daemon-reply.js";
 import { QueueOrder } from "./queue-order.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
@@ -103,9 +107,6 @@ import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
  */
 type ScopedSessionId = ReturnType<typeof RunQueueSubscribeRequestSchema.parse>["sessionId"];
 
-/** How the snapshot read has gone. Three answers, and none of them is an empty list. */
-export type QueueReadPhase = "reading" | "read" | "refused";
-
 /**
  * What the pane reads off the queue.
  *
@@ -114,12 +115,10 @@ export type QueueReadPhase = "reading" | "read" | "refused";
  * and a second declaration would be two places to keep a shape in step with the
  * surfaces that render it.
  */
-export interface QueueFeed extends QueueCancellationState, UnreadableDeliveryReading {
+export interface QueueFeed
+  extends QueueCancellationState, UnreadableDeliveryReading, WireReadState {
   /** Canonical order: the snapshot's, with live-only rows appended in arrival order. */
   readonly items: readonly QueueItemSummary[];
-  readonly phase: QueueReadPhase;
-  /** Why the snapshot could not be read. Rendered rather than swallowed. */
-  readonly readRefusal: ConsoleRefusal | undefined;
 }
 
 /**
@@ -148,8 +147,15 @@ export class SessionQueueReading implements ReadTriggerTarget {
   readonly #cancellations: QueueCancellations;
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
+  /**
+   * The phase, the newest read's refusal, and whether the tail is up.
+   *
+   * `reading-lifecycle.ts`'s and not three fields here, because the account plane's
+   * reading holds the same three and the two had drifted into two answers for one
+   * rule — see that module's header for which two.
+   */
+  readonly #lifecycle = new WireReadLifecycle();
   #closeStream: (() => void) | undefined = undefined;
-  #isOpen = false;
   /**
    * Whether this reading has been forgotten by the registry that held it.
    *
@@ -173,8 +179,6 @@ export class SessionQueueReading implements ReadTriggerTarget {
   // snapshot could land after the fresh one and undo it.
   #readOrdinal = 0;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
-  #phase: QueueReadPhase = "reading";
-  #readRefusal: ConsoleRefusal | undefined = undefined;
   #feed: QueueFeed;
 
   public constructor(bridge: ConsoleBridge, sessionId: string, onIdle: () => void) {
@@ -193,6 +197,16 @@ export class SessionQueueReading implements ReadTriggerTarget {
       // clock the only clock the renderer reads in fixture mode.
       clock: consoleClockFor(bridge),
       perform: async () => {
+        if (!this.#lifecycle.isOpen) {
+          // THE REPAIR IS THE OPEN, not a read behind a tail that is not there. An
+          // open that failed on the transport leaves this reading closed and
+          // openable, and the snapshot it would take without a tail stops being true
+          // the moment it lands — so the trigger that asked re-opens, and the open
+          // takes its own read. A reading whose stream can never open answers
+          // `isOpenable` false and this does nothing.
+          this.#open();
+          return;
+        }
         await this.#readSnapshot();
       },
       // A read that fails is already recorded as this feed's own `readRefusal`, so
@@ -210,7 +224,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
    * one session still cost one call.
    */
   public requestRead(reason: RefreshReason): void {
-    if (reason === "subscribe" && this.#isOpen && this.#phase !== "refused") {
+    if (reason === "subscribe" && this.#lifecycle.isOpen && this.#feed.phase !== "refused") {
       // THE OPEN IS THIS READING'S `subscribe` READ, so a surface arriving to an
       // already-open reading asks for nothing. Two reasons, and both matter: a joiner
       // needs no read because the tail has been keeping the reading current since the
@@ -218,7 +232,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
       // is frozen and only a scenario beat moves it, so a first read behind the
       // scheduler's window would never happen at all in fixture mode. A reading
       // settled as REFUSED falls through: the joiner's arrival is exactly the reason
-      // to try a failed read again.
+      // to try the failed read — or the failed OPEN — again.
       return;
     }
     this.#refresh.request(reason);
@@ -253,10 +267,9 @@ export class SessionQueueReading implements ReadTriggerTarget {
   }
 
   #open(): void {
-    if (this.#isOpen) {
+    if (!this.#lifecycle.isOpenable) {
       return;
     }
-    this.#isOpen = true;
 
     // The stream's own registered request, parsed here rather than assembled at
     // the wrapper: an id the wire's `SessionId` brand refuses is a refusal this
@@ -265,12 +278,18 @@ export class SessionQueueReading implements ReadTriggerTarget {
       sessionId: this.#sessionId,
     });
     if (!subscribeRequest.success) {
-      this.#settleRefused(
+      // TERMINAL, and that is the difference from the transport arm below. This
+      // request is composed from this reading's own session id every time, so a
+      // scope the registered shape refused once it refuses on every later trigger —
+      // and re-minting the same refusal on every window focus would re-render every
+      // watcher for a fact that has not moved.
+      this.#settleRefusedOpen(
         refuse(
           QUEUE_REFUSAL_ORIGIN,
           "session-unreadable",
           "The queue stream is session-scoped and this pane's session did not match the registered request shape, so the console did not open it.",
         ),
+        "terminal",
       );
       return;
     }
@@ -280,7 +299,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
         this.#bridge,
         { method: QUEUE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
         (payload) => {
-          if (!this.#isOpen) {
+          if (!this.#lifecycle.isOpen) {
             return;
           }
           const parsed = QueueItemSummarySchema.safeParse(payload);
@@ -302,9 +321,15 @@ export class SessionQueueReading implements ReadTriggerTarget {
       // keeps the list current, and a list read once off a bridge that could not
       // open a stream is a reading that stops being true the moment it lands — the
       // same reason the unscoped-open arm above returns rather than reading on.
-      this.#settleRefused(streamRefusalFor(streamRejection));
+      //
+      // RE-OPENABLE, unlike that arm: the bridge that threw is the same bridge a
+      // repair, a focus, or a fresh mount asks again, so the scheduler's `perform`
+      // re-opens. Leaving the reading marked open was what made every one of those
+      // triggers a guaranteed no-op for the life of the window.
+      this.#settleRefusedOpen(streamRefusalFor(streamRejection), "retryable");
       return;
     }
+    this.#lifecycle.markOpen();
 
     // The already-parsed id, taken off the stream's own request rather than parsed a
     // second time: one reading of this pane's session, and the guard above is where
@@ -328,13 +353,13 @@ export class SessionQueueReading implements ReadTriggerTarget {
    */
   async #readSnapshot(): Promise<void> {
     const sessionId = this.#scopedSessionId;
-    if (!this.#isOpen || sessionId === undefined) {
+    if (!this.#lifecycle.isOpen || sessionId === undefined) {
       return;
     }
     this.#readOrdinal += 1;
     const readOrdinal = this.#readOrdinal;
     await callDaemon(this.#bridge, "run.queueList", { sessionId }).then((reply) => {
-      if (!this.#isOpen || this.#readOrdinal !== readOrdinal) {
+      if (!this.#lifecycle.isOpen || this.#readOrdinal !== readOrdinal) {
         return;
       }
       // One branch: the door has already collapsed an unsendable request, a
@@ -346,7 +371,9 @@ export class SessionQueueReading implements ReadTriggerTarget {
       }
       this.#order.seat(reply.value.items);
       this.#items = this.#order.items();
-      this.#phase = "read";
+      // Served, so the phase moves AND the previous read's refusal is cleared — one
+      // act, because `readRefusal` means "the newest read failed".
+      this.#lifecycle.settleRead();
       // The snapshot restates the whole list at one moment, so whatever the tail
       // delivered unreadably before it is superseded rather than still missing.
       this.#unreadable.clear();
@@ -355,15 +382,31 @@ export class SessionQueueReading implements ReadTriggerTarget {
   }
 
   #close(): void {
-    this.#isOpen = false;
+    this.#lifecycle.markClosed();
     this.#refresh.dispose();
     this.#closeStream?.();
     this.#closeStream = undefined;
   }
 
+  /** A snapshot read refused. The tail is untouched; only this read failed. */
   #settleRefused(refusal: ConsoleRefusal): void {
-    this.#phase = "refused";
-    this.#readRefusal = refusal;
+    this.#lifecycle.refuseRead(refusal);
+    this.#publish();
+  }
+
+  /**
+   * The tail would not open, on one of the two arms the open distinguishes.
+   *
+   * Named rather than passed a boolean because the two are different facts about the
+   * same failure: `retryable` leaves the reading openable so a trigger re-opens it,
+   * and `terminal` closes that door for the life of the reading.
+   */
+  #settleRefusedOpen(refusal: ConsoleRefusal, disposition: "retryable" | "terminal"): void {
+    if (disposition === "terminal") {
+      this.#lifecycle.refuseOpenTerminally(refusal);
+    } else {
+      this.#lifecycle.refuseOpen(refusal);
+    }
     this.#publish();
   }
 
@@ -371,9 +414,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
     return {
       ...this.#cancellations.state,
       ...this.#unreadable.reading,
+      ...this.#lifecycle.state,
       items: this.#items,
-      phase: this.#phase,
-      readRefusal: this.#readRefusal,
     };
   }
 

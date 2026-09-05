@@ -17,6 +17,7 @@ import {
   useSessionDirectory,
   type SessionDirectoryState,
 } from "./session-directory.js";
+import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
 
 function DirectoryProbe(props: {
   readonly growth: GrowthPort;
@@ -28,7 +29,7 @@ function DirectoryProbe(props: {
 
 async function settle(): Promise<void> {
   await act(async () => {
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 

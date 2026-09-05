@@ -16,12 +16,13 @@ import {
   bodyValue,
   renderComposer,
   runAt,
-  stubBridge,
+  interventionDispatchBridge,
   submit,
   type ScriptedAnswer,
   typeInto,
 } from "./run-intervention-composer.test-support.js";
 import { RUN_ID, SECOND_RUN_ID } from "../runs-pane.test-support.js";
+import { drainMicrotasks } from "../../../bridge/fixture-bridge.test-support.js";
 
 describe("the form is keyed by what it is composing against", () => {
   /** A dispatch that never settles, so the form stays pending across the switch. */
@@ -64,7 +65,7 @@ describe("the form is keyed by what it is composing against", () => {
     readonly answer: ScriptedAnswer;
     readonly onCommit?: (committed: { body: string; isConfirmDisabled: boolean }) => void;
   }): React.JSX.Element {
-    const [bridge] = useState(() => stubBridge([], props.answer));
+    const [bridge] = useState(() => interventionDispatchBridge([], props.answer));
     const surface = useRunControlSurface(bridge);
     const identity = `${props.runId}:${props.control}`;
     const { onCommit } = props;
@@ -218,7 +219,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
     readonly answer: ScriptedAnswer;
     readonly onDismiss: () => void;
   }): React.JSX.Element {
-    const [bridge] = useState(() => stubBridge([], props.answer));
+    const [bridge] = useState(() => interventionDispatchBridge([], props.answer));
     const surface = useRunControlSurface(bridge);
     return (
       <RunInterventionComposer
@@ -302,7 +303,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
         state: "applied",
         runVersion: 9,
       });
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(dismissals).toBe(0);
     expect(bodyValue(container)).toBe("the second body");

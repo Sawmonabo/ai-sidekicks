@@ -10,6 +10,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 
 import { ConsoleRoot, type ConsoleRootProps } from "./ConsoleRoot.js";
 import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
 
 /** Where a window with no particular address lands. */
 export const SESSIONS_HASH = "#/sessions";
@@ -43,8 +44,7 @@ export async function mountConsole(
         };
   await act(async () => {
     mounted = render(<ConsoleRoot {...props} />);
-    await Promise.resolve();
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   if (mounted === undefined) {
     throw new Error("the console never mounted");

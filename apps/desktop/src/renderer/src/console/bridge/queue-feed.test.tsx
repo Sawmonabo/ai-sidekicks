@@ -19,7 +19,11 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import { QUEUE_SUBSCRIBE_STREAM } from "./daemon-streams.js";
-import { withUnopenableStream } from "./daemon-streams.test-support.js";
+import {
+  withRecordedStreamLifecycle,
+  withStreamUnopenableAtFirst,
+  withUnopenableStream,
+} from "./daemon-streams.test-support.js";
 import {
   createFixture,
   withDaemonCall,
@@ -37,12 +41,13 @@ import {
   TwoQueueSurfaces,
   methodsOf,
   openFeed,
-  stubBridge,
+  queueFeedBridge,
 } from "./queue-feed.test-support.js";
+import { drainMicrotasks } from "./fixture-bridge.test-support.js";
 
 describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
-    const { bridge, openedStreams, calls } = stubBridge();
+    const { bridge, openedStreams, calls } = queueFeedBridge();
     render(
       <TwoQueueSurfaces bridge={bridge} firstSessionId={SESSION_ID} secondSessionId={SESSION_ID} />,
     );
@@ -52,7 +57,7 @@ describe("one session's queue is read once for every surface", () => {
   });
 
   it("negative control: two sessions on one bridge are two readings", async () => {
-    const { bridge, openedStreams, calls } = stubBridge();
+    const { bridge, openedStreams, calls } = queueFeedBridge();
     render(
       <TwoQueueSurfaces
         bridge={bridge}
@@ -68,8 +73,8 @@ describe("one session's queue is read once for every surface", () => {
   it("negative control: two bridges are two readings of the same session", async () => {
     // The key is the pair. One window's reading is never handed to another's bridge,
     // which is what would happen if the readings were keyed on the session alone.
-    const first = stubBridge();
-    const second = stubBridge();
+    const first = queueFeedBridge();
+    const second = queueFeedBridge();
     render(
       <>
         <QueueFeedProbe bridge={first.bridge} sessionId={SESSION_ID} onFeed={() => undefined} />
@@ -77,7 +82,7 @@ describe("one session's queue is read once for every surface", () => {
       </>,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(first.openedStreams).toStrictEqual(["run.subscribeQueue"]);
     expect(second.openedStreams).toStrictEqual(["run.subscribeQueue"]);
@@ -89,7 +94,7 @@ describe("one session's queue is read once for every surface", () => {
     // subscribed through the reading it captured at render revived that one — live,
     // open, and outside the registry — and the next surface then minted a second,
     // so one session carried two snapshot reads and two tails.
-    const { bridge, openedStreams, calls } = stubBridge();
+    const { bridge, openedStreams, calls } = queueFeedBridge();
     const view = render(
       <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
@@ -115,12 +120,12 @@ describe("one session's queue is read once for every surface", () => {
     // unconditional `delete(sessionId)` evicted whatever was under that key by the
     // time the last watcher left — a SUCCESSOR with watchers of its own. A retiring
     // reading may only remove itself.
-    const { bridge, openedStreams } = stubBridge();
+    const { bridge, openedStreams } = queueFeedBridge();
     const swapped = render(
       <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     swapped.rerender(
       <QueueFeedProbe key="y" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
@@ -129,31 +134,31 @@ describe("one session's queue is read once for every surface", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     // The swapped-in surface leaves; the joiner stays, so the reading is still live
     // and still registered, and a fourth surface joins it rather than minting one.
     swapped.unmount();
     render(<QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />);
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
     joined.unmount();
   });
 
   it("reads afresh once the last surface has left, rather than serving a stale list", async () => {
-    const { bridge, openedStreams } = stubBridge();
+    const { bridge, openedStreams } = queueFeedBridge();
     const mounted = render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     mounted.unmount();
     render(<QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />);
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
   });
@@ -224,7 +229,7 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(held?.phase).toBe("refused");
     expect(held?.readRefusal?.code).toBe("stream-unavailable");
@@ -241,7 +246,7 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(held?.phase).toBe("refused");
     expect(held?.readRefusal?.origin).toBe("session-queue");
@@ -255,5 +260,88 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
     expect(openedStreams).toStrictEqual(["run.subscribeQueue"]);
     expect(latest().phase).toBe("read");
     expect(latest().readRefusal).toBeUndefined();
+  });
+});
+
+describe("a queue reading whose open refused can be opened again", () => {
+  /**
+   * The shipped fixture whose queue subscription throws once, then opens.
+   *
+   * The transport arm of a refused open. Refusing every open cannot state this
+   * claim — under it a reading that re-opens and one that never tries again look
+   * identical — so the second open has to be able to succeed.
+   */
+  function bridgeRefusingTheFirstOpen(): {
+    bridge: ConsoleBridge;
+    openCount: () => number;
+    calls: readonly RecordedDaemonCall[];
+  } {
+    const answered = withDaemonCall(createFixture().bridge, async () => ({ items: [] }));
+    const refusingFirst = withStreamUnopenableAtFirst(
+      answered.bridge,
+      QUEUE_SUBSCRIBE_STREAM,
+      new ConsoleRefusalError(
+        refuse("console-daemon-stream", "stream-unavailable", "The daemon is a stub."),
+      ),
+    );
+    const recorded = withRecordedStreamLifecycle(refusingFirst);
+    return {
+      bridge: recorded.bridge,
+      openCount: () => recorded.openCountFor(QUEUE_SUBSCRIBE_STREAM),
+      calls: answered.calls,
+    };
+  }
+
+  it("re-opens on the window's own reason and then reads", async () => {
+    // THE DEFECT. The catch arm left the reading marked open with no subscription
+    // behind it, and the scoped session id was assigned only after the open — so
+    // every later focus, repair, and mount was a guaranteed no-op and the pane held
+    // that first refusal for the life of the window.
+    const { bridge, openCount, calls } = bridgeRefusingTheFirstOpen();
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await drainMicrotasks();
+    });
+    expect(held?.phase).toBe("refused");
+    expect(methodsOf(calls)).toStrictEqual([]);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(bridge);
+
+    expect(openCount()).toBe(2);
+    expect(held?.phase).toBe("read");
+    // Cleared, not merely superseded: the reading that healed carries no refusal.
+    expect(held?.readRefusal).toBeUndefined();
+    expect(methodsOf(calls)).toStrictEqual(["run.queueList"]);
+  });
+
+  it("negative control: a request the registered shape refused is never re-opened", async () => {
+    // The other arm, and the reason the two are named apart. This request is
+    // composed from the same session id every time, so re-trying it would re-mint
+    // one refusal on every window focus and re-render every watcher for a fact that
+    // has not moved.
+    const recorded = withRecordedStreamLifecycle(
+      withDaemonCall(createFixture().bridge, async () => ({ items: [] })).bridge,
+    );
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe
+        bridge={recorded.bridge}
+        sessionId="not-a-session"
+        onFeed={(feed) => (held = feed)}
+      />,
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(recorded.bridge);
+
+    expect(recorded.openCountFor(QUEUE_SUBSCRIBE_STREAM)).toBe(0);
+    expect(held?.readRefusal?.code).toBe("session-unreadable");
   });
 });

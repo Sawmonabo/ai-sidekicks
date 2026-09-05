@@ -36,6 +36,13 @@ export const COMPOSER_REPLIES: readonly ScenarioReply[] = [
         name: agent.name,
         driverName: agent.driverName,
         modelId: agent.modelId,
+        // Spread rather than written as `undefined`, so a row for an agent the
+        // provider's default account pays for OMITS the member exactly as the wire
+        // does — absence is the statement, and a present-but-empty member is a
+        // different one.
+        ...(agent.providerAccountId === undefined
+          ? {}
+          : { providerAccountId: agent.providerAccountId }),
         config: {},
         // `AgentState` is the four-state lifecycle — `configured` / `ready` /
         // `disabled` / `archived`. A run being blocked is a RUN state and is read

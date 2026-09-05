@@ -6,7 +6,7 @@
 // no approval payload at all — so a surface that rendered whatever arrived would
 // render a row for a malformed emission as confidently as for a real one. Every
 // field below is parsed before it reaches a component, on the same posture
-// `shell/composer/.../queue-feed.ts` takes with the registered queue schema.
+// `console/bridge/queue-feed.ts` takes with the registered queue schema.
 //
 // TWO DECISIONS THIS MODULE MAKES ON PURPOSE.
 //

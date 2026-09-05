@@ -13,10 +13,11 @@
 // WHAT THIS MODULE OWNS, AND WHAT ITS NEIGHBOURS DO
 //
 // This one owns the decision: which operations are served, and with which outcome.
-// The four answers with a job of their own live beside it, because each fails in a
-// way this one cannot — `fixture-session-snapshot.ts` derives the base state one
-// session opens with, `fixture-session-directory.ts` derives what the node HAS,
-// `fixture-attention-derivation.ts` folds beats into an attention projection, and
+// The answers with a job of their own live beside it, because each fails in a way
+// this one cannot — `fixture-session-snapshot.ts` derives the base state one session
+// opens with, `fixture-session-directory.ts` derives what the node HAS,
+// `fixture-attention-derivation.ts` folds beats into an attention projection,
+// `fixture-agent-roster.ts` narrows a scripted roster reply, and
 // `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
 // WHY THE TWO SESSION READS ARE SERVED AND THE REST ARE NOT
@@ -162,6 +163,24 @@
 // read's: an empty approvals list is a claim that nothing is waiting on a decision,
 // and a scenario that models no approvals has not made it.
 //
+// WHY THE AGENT ROSTER READ IS SERVED
+//
+// Four shipped scenarios script `agent.list` and no caller could reach any of them:
+// the operation refused under both bridges, so the composer's target chip took its
+// refused arm on EVERY provider-bound composer — including the two reference surfaces
+// built on a real fixture bridge — and the paying account, the pending switch, and
+// the account-plane label join were unreachable through any scenario, screenshot, or
+// bridge-driven test. A surface whose only reachable state is its refusal is a
+// surface nothing has drawn.
+//
+// The rule is met the way the approvals reads meet it: a scenario states the roster,
+// so there is something to answer FROM, and the narrowing is the console's own
+// (`fixture-agent-roster.ts`) rather than the script's — a scenario cannot teach the
+// chip a row shape the wire will not send. A scenario that scripts no roster refuses
+// rather than serving an empty one, which is the `approvalProjectionRead`
+// disposition and not the branch read's: an empty roster is the claim that a session
+// has no agents, and a script that models none has not made it.
+//
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -174,6 +193,7 @@ import {
   readRememberedRuleList,
   type ParsedRows,
 } from "./approvals/approval-records.js";
+import { readAgentRoster } from "./fixture-agent-roster.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
@@ -201,6 +221,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   // name are the ones this window happens to have open.
   "sessionRead",
   "sessionList",
+  // agents — the roster four scenarios already script, answered from the script and
+  // refused by a scenario that models no agents. See the header.
+  "agentList",
   // The one projection the console must not compute for itself.
   "attentionProjectionRead",
   // gitflow — the branch-context read, whose whole answer today is that there is none.
@@ -251,6 +274,14 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             // IS served, and what it found for that session is nothing.
             { items: [] },
     }),
+    // agents
+    agentList: async (request) =>
+      mapGrowthServed(
+        await answerFromScriptedReply<unknown>(engine, "agent.list", "agentList", request, () =>
+          growthUnscriptedReply("agentList", "agent.list"),
+        ),
+        readAgentRoster,
+      ),
     // gitflow
     gitflowBranchContextRead: async (request) =>
       // Routed through the scripted-reply seam so a repos scenario that DOES script

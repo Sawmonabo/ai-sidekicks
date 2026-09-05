@@ -11,13 +11,18 @@
 // THE ROSTER READ IS THE GROWTH PORT'S. `agent.list` is registered in
 // `docs/architecture/contracts/api-payload-contracts.md` §`agent.attach /
 // agent.detach / agent.configUpdate / agent.list` and in no code package, so it
-// fails the reply registry's second admission conjunct and goes through the port,
-// whose live implementation refuses by name and says which document owes the wire.
+// fails the reply registry's second admission conjunct and goes through the port.
 // Its reply carries the two facts this module needs: the EFFECTIVE
 // `providerAccountId` (absent = the provider's registered default is paying) and
 // `pendingSwitch`, present exactly while a switch is accepted and unapplied —
 // re-armed after a daemon restart from the durable agent row, which is why a list
 // read is how a client that did not issue the mutation learns one is queued.
+//
+// AND IT IS A READING, NOT A ONE-SHOT. `agent-roster-reading.ts` holds the read and
+// the four moments it is re-taken at; this module is only the join and the React
+// wiring. The split is the one `provider-quota-feed.ts` makes with
+// `provider-account-quota.ts`: what one reading SAYS is the class's, how many there
+// are and how long each lives is the hook's.
 //
 // THE LABEL IS THE ACCOUNT PLANE'S, AND THIS MODULE DOES NOT READ IT ITSELF. The
 // account id the roster reports is a handle; `displayLabel` is what a person reads,
@@ -43,18 +48,24 @@
 // on `Plan-023 §Console growth slate` under `agent-provider-switch-failure`, and
 // nothing here invents a third carrier to render it from.
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
+  consoleClockFor,
+  readRefusalOf,
   useProviderQuotas,
   type ConsoleBridge,
   type GrowthAgentPendingSwitch,
 } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import { useSubjectScopedState } from "../../../console/store/index.js";
+import { useReadTriggers, type SessionStore } from "../../../console/store/index.js";
+import {
+  AgentRosterReading,
+  type AgentBindingPhase,
+  type AgentRosterReadout,
+} from "./agent-roster-reading.js";
 
-/** Where the binding read has got to, on the console's four-arm absence rule. */
-export type AgentBindingPhase = "not-checked" | "loading" | "read" | "refused";
+export type { AgentBindingPhase } from "./agent-roster-reading.js";
 
 /** What one addressed agent's binding reads say, or why they say nothing. */
 export interface AgentBindingReading {
@@ -74,47 +85,17 @@ export interface AgentBindingReading {
 }
 
 /**
- * The roster half, before the account plane's label is joined onto it.
+ * Read the addressed agent's binding, kept current for as long as it is addressed.
  *
- * A separate shape because the two halves settle at different times and from
- * different seams: the roster is one asynchronous read per addressed agent, and the
- * label is whatever the window's account-plane reading holds when this renders. Fusing
- * them into one asynchronous read is what made this module take a
- * `providerAccount.list` of its own.
- */
-interface AgentRosterReading {
-  readonly phase: AgentBindingPhase;
-  /** The daemon-minted handle the roster named, before any label is joined to it. */
-  readonly payingAccountId: string | undefined;
-  readonly isProviderDefaultAccount: boolean;
-  readonly pendingSwitch: GrowthAgentPendingSwitch | undefined;
-  readonly refusal: ConsoleRefusal | undefined;
-}
-
-/** Nothing has been asked. The seed for every subject that names no agent. */
-const NOTHING_ASKED: AgentRosterReading = Object.freeze({
-  phase: "not-checked",
-  payingAccountId: undefined,
-  isProviderDefaultAccount: false,
-  pendingSwitch: undefined,
-  refusal: undefined,
-});
-
-/** A read in flight. Entered once, on the pass that first names an agent. */
-const READ_IN_FLIGHT: AgentRosterReading = Object.freeze({ ...NOTHING_ASKED, phase: "loading" });
-
-/**
- * Read the addressed agent's binding, held under the bridge and the agent.
- *
- * `useSubjectScopedState` and not a `useState`: a bridge replacement retires every
- * call made through the old transport, and a reading taken through one is not a
- * reading of what the new one holds. Keying on the agent as well is what makes the
- * render that first sees a different agent read that agent's own seed rather than
- * the previous one's account for a frame.
+ * The reading is minted per `(bridge, sessionId, agentId)` and disposed with it: a
+ * bridge replacement retires every call made through the old transport, and a
+ * reading taken through one is not a reading of what the new one holds. Keying on
+ * the agent as well is what makes the render that first sees a different agent read
+ * that agent's own seed rather than the previous one's account for a frame.
  */
 export function useAgentBindingReading(
   bridge: ConsoleBridge,
-  sessionId: string,
+  sessionStore: SessionStore,
   agentId: string | undefined,
 ): AgentBindingReading {
   // The window's one account-plane reading, watched rather than re-read. Watched
@@ -122,38 +103,32 @@ export function useAgentBindingReading(
   // reading is node-scoped and shared: the composer's rate chips already hold it, so
   // a channel-addressed composer joins an open reading instead of opening one.
   const quotas = useProviderQuotas(bridge);
-  const { value, settle } = useSubjectScopedState<AgentRosterReading>(
-    bridge,
-    agentId === undefined ? undefined : `${sessionId}::${agentId}`,
-    () => (agentId === undefined ? NOTHING_ASKED : READ_IN_FLIGHT),
-  );
-  // `settle` and not `publish`: the effect below is armed once per addressing and
-  // publishes from inside a `.then`, which is exactly the caller `settle` exists for
-  // — it captures the visit on screen when it is CALLED, so a reading whose agent
-  // has moved on is dropped rather than rendered under the agent now addressed.
-  const publishSettlement = useCallback(
-    (reading: AgentRosterReading) => {
-      settle()(reading);
-    },
-    [settle],
+  const { sessionId } = sessionStore;
+  const reading = useMemo(
+    () => new AgentRosterReading({ bridge, sessionId, agentId, clock: consoleClockFor(bridge) }),
+    [bridge, sessionId, agentId],
   );
   useEffect(() => {
-    if (agentId === undefined) {
-      return;
-    }
-    let isAbandoned = false;
-    void readAgentRoster(bridge, sessionId, agentId).then((reading) => {
-      if (!isAbandoned) {
-        publishSettlement(reading);
-      }
-    });
     return () => {
-      isAbandoned = true;
+      reading.dispose();
     };
-  }, [bridge, sessionId, agentId, publishSettlement]);
+  }, [reading]);
+  // All four reasons, from the one place the console wires them. What stood here was
+  // an effect armed once per addressing, so a switch queued by a collaborator after
+  // this composer mounted never reached the chip.
+  useReadTriggers(reading, sessionStore);
+  const readout = useSyncExternalStore(
+    (onReadoutChanged) => reading.subscribe(onReadoutChanged),
+    () => reading.readout,
+    () => reading.readout,
+  );
+  // `readRefusalOf` and not `quotas.readRefusal`: the member says the NEWEST read
+  // failed only when the phase agrees, and a consumer reading it bare rendered an
+  // account plane's last failure beside rows a later read had already healed.
+  const accountReadRefusal = readRefusalOf(quotas);
   return useMemo(
-    () => joinAccountLabel(value, quotas.accountLabels, quotas.readRefusal),
-    [value, quotas.accountLabels, quotas.readRefusal],
+    () => joinAccountLabel(readout, quotas.accountLabels, accountReadRefusal),
+    [readout, quotas.accountLabels, accountReadRefusal],
   );
 }
 
@@ -169,7 +144,7 @@ export function useAgentBindingReading(
  * pending switch the roster did report.
  */
 function joinAccountLabel(
-  roster: AgentRosterReading,
+  roster: AgentRosterReadout,
   accountLabels: ReadonlyMap<string, string>,
   accountReadRefusal: ConsoleRefusal | undefined,
 ): AgentBindingReading {
@@ -185,43 +160,5 @@ function joinAccountLabel(
       (roster.payingAccountId !== undefined && payingAccountLabel === undefined
         ? accountReadRefusal
         : undefined),
-  };
-}
-
-/**
- * Take the roster read. One call, and the only one this module makes.
- *
- * The account plane is not read here at all: its reading is node-scoped and already
- * open in this window, so the label is joined at render from what that reading holds
- * rather than fetched per addressed agent. This read is per `(session, agent)` and
- * the label rows are per node, which is the second reason they are two seams and not
- * one — an agent change should not re-read a machine-wide registry.
- */
-async function readAgentRoster(
-  bridge: ConsoleBridge,
-  sessionId: string,
-  agentId: string,
-): Promise<AgentRosterReading> {
-  const roster = await bridge.growth.agentList({ sessionId });
-  if (roster.status !== "served") {
-    // The unavailable arm IS the refusal — `GrowthUnavailable` extends
-    // `ConsoleRefusal` — so it is carried through untouched. Re-minting one here
-    // would lose the operation, the slate row, and the document that owes the wire.
-    return { ...NOTHING_ASKED, phase: "refused", refusal: roster };
-  }
-  const summary = roster.value.find((candidate) => candidate.agentId === agentId);
-  if (summary === undefined) {
-    // The roster served and this agent is not on it. A reading and not a refusal:
-    // the daemon answered, and what it answered is that this session holds no such
-    // agent — which the chip renders as knowing nothing about a binding rather than
-    // as a read that failed.
-    return { ...NOTHING_ASKED, phase: "read" };
-  }
-  return {
-    phase: "read",
-    payingAccountId: summary.providerAccountId,
-    isProviderDefaultAccount: summary.providerAccountId === undefined,
-    pendingSwitch: summary.pendingSwitch,
-    refusal: undefined,
   };
 }

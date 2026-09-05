@@ -19,6 +19,7 @@ import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
+import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
 
 /**
  * The one bridge member the shipped probe touches.
@@ -78,7 +79,7 @@ function fixtureGrowthPort(): GrowthPort {
 /** Let the directory read settle, so an assertion is about the answer. */
 async function settle(): Promise<void> {
   await act(async () => {
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 
@@ -92,7 +93,7 @@ async function settle(): Promise<void> {
 async function press(name: string): Promise<void> {
   await act(async () => {
     screen.getByRole("button", { name }).click();
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 

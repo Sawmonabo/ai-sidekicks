@@ -39,8 +39,15 @@ export const APPLIED_ROLLBACK: ScriptedAnswer = () => ({
  * beside it deliberately: the harness below receives the array as a prop and mounts
  * the bridge inside itself, so the record a case can read has to be a value it
  * already held before the mount.
+ *
+ * NAMED FOR WHAT IT ANSWERS, on the queue reading's rule: both were `stubBridge`, and
+ * one name for two shapes in one family is a wrong import waiting for either return
+ * type to widen.
  */
-export function stubBridge(calls: RecordedDaemonCall[], answer: ScriptedAnswer): ConsoleBridge {
+export function interventionDispatchBridge(
+  calls: RecordedDaemonCall[],
+  answer: ScriptedAnswer,
+): ConsoleBridge {
   return withDaemonCall(createFixture().bridge, async (call) => {
     calls.push(call);
     return answer();
@@ -79,7 +86,7 @@ export function ComposerHarness(props: {
 }): React.JSX.Element {
   // Pinned for the harness's whole life: the surface keys its holders on the
   // bridge, so a stub rebuilt on every render would be a new transport each pass.
-  const [bridge] = useState(() => stubBridge(props.calls, props.answer));
+  const [bridge] = useState(() => interventionDispatchBridge(props.calls, props.answer));
   const surface = useRunControlSurface(bridge);
   return (
     <RunInterventionComposer

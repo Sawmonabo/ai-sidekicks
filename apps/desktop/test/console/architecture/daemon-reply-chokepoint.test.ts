@@ -129,7 +129,8 @@ function isBridgeFamilyModule(module: string): boolean {
  *      module rather than as "the send router": the router was split and imports the
  *      door nowhere, so a reader reconciling this number against the tree would have
  *      gone looking in the wrong file.
- *   2. `shell/composer/accessories/compaction-dispatch.ts` — the compaction dispatch.
+ *   2. `shell/composer/accessories/compaction/compaction-dispatch.ts` — the compaction
+ *      dispatch.
  *   3. `shell/composer/commands/provider-command-read.ts` — the provider-command read.
  *   4. `console/runs/pane/controls/run-control-dispatch.ts` — the runs pane's
  *      run-control dispatch.

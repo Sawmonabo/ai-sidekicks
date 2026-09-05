@@ -7,6 +7,14 @@
 // second: a call issued under one address, completing after the surface has moved to
 // another. Parking the call is what puts the case in charge of that interval.
 //
+// OVER THE REAL FIXTURE, AND NOT A CAST. An object cast to `ConsoleBridge` answers
+// every stream and every call with whatever its author remembered to write, which is
+// how this double came to carry `growth: {}` — so a surface under test that reached
+// the growth port threw instead of refusing typed — and `scenarioEngine: undefined`,
+// which left it with no frozen clock, so a case that grew a scheduled read had to
+// hand-roll its own settle. The parking is a call arm over the shipped fixture now:
+// the clock, the scenario, and every port the case does not park stay the fixture's.
+//
 // ONE QUEUE, SETTLED OLDEST FIRST, rather than a map keyed by method or by params.
 // The cases that use this issue at most a handful of calls and settle them in issue
 // order, so an index would be a second structure over a list short enough to read —
@@ -29,6 +37,8 @@
 // puts anything the second use hoists.
 
 import type { ConsoleBridge } from "../../console/bridge/index.js";
+import { bridgeAnswering } from "../../console/bridge/fixture-bridge.test-support.js";
+import { COMPOSER_SCENARIO } from "../../console/bridge/scenarios/composer.js";
 
 /** One parked call's two ways out. */
 interface ParkedCall {
@@ -41,21 +51,16 @@ export class ParkedDaemonCalls {
   public readonly bridge: ConsoleBridge;
 
   public constructor() {
-    this.bridge = {
-      sidekicks: {
-        daemon: {
-          call: async () =>
-            new Promise((resolve, reject) => {
-              this.#parked.push({ resolve, reject });
-            }),
-          subscribe: () => () => undefined,
-        },
-      },
-      growth: {},
-      growthServedOperations: new Set(),
-      source: "fixture",
-      scenarioEngine: undefined,
-    } as unknown as ConsoleBridge;
+    // The composer's own scenario, because these cases are the composer's: a call
+    // this double does not park still reaches the fixture's script rather than a
+    // hand-written literal.
+    this.bridge = bridgeAnswering(
+      async () =>
+        new Promise((resolve, reject) => {
+          this.#parked.push({ resolve, reject });
+        }),
+      COMPOSER_SCENARIO,
+    ).bridge;
   }
 
   /** How many calls are waiting. A case asserts on this to prove one was issued. */
