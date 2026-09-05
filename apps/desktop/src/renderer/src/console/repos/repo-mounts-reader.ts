@@ -56,7 +56,7 @@ import type {
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import type { ConsoleBridge } from "../bridge/index.js";
+import type { ConsoleBridge, DaemonReply } from "../bridge/index.js";
 import {
   Emitter,
   RealClock,
@@ -76,7 +76,6 @@ import {
   readSessionWorkspaces,
   readWorktreeStatus,
   refusalFromRejection,
-  type RepoCallOutcome,
 } from "./repo-reads.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
@@ -249,7 +248,7 @@ export class RepoMountsReader {
       }
       firstRefusal = recordFirstRefusal(firstRefusal, mountOutcome);
       if (
-        mountOutcome.status === "read" &&
+        mountOutcome.status === "served" &&
         !mounts.some((held) => held.id === mountOutcome.value.id)
       ) {
         mounts.push(mountOutcome.value);
@@ -271,7 +270,7 @@ export class RepoMountsReader {
       if (this.#disposed) {
         return;
       }
-      if (capabilitiesOutcome.status === "read") {
+      if (capabilitiesOutcome.status === "served") {
         capabilitiesByWorkspaceId[workspace.id] = capabilitiesOutcome.value;
       } else {
         refusalByWorkspaceId[workspace.id] = capabilitiesOutcome.refusal;
@@ -282,13 +281,13 @@ export class RepoMountsReader {
       status: "read",
       mounts,
       workspaces,
-      worktrees: worktreeOutcome.status === "read" ? worktreeOutcome.value.worktrees : [],
+      worktrees: worktreeOutcome.status === "served" ? worktreeOutcome.value.worktrees : [],
       // Both arrays off the one reply, so a refused root read empties both together
       // and a served one carries whatever each array held — including an empty
       // `ephemeralClones`, which the contract requires present and which is a lawful
       // answer rather than a gap.
       ephemeralClones:
-        worktreeOutcome.status === "read" ? worktreeOutcome.value.ephemeralClones : [],
+        worktreeOutcome.status === "served" ? worktreeOutcome.value.ephemeralClones : [],
       readAtMilliseconds: this.#clock.now(),
       capabilitiesByWorkspaceId,
       refusal: firstRefusal,
@@ -313,12 +312,12 @@ export class RepoMountsReader {
 
 function recordFirstRefusal(
   held: ConsoleRefusal | undefined,
-  outcome: RepoCallOutcome<unknown>,
+  reply: DaemonReply<unknown>,
 ): ConsoleRefusal | undefined {
-  if (held !== undefined || outcome.status === "read") {
+  if (held !== undefined || reply.status === "served") {
     return held;
   }
-  return outcome.refusal;
+  return reply.refusal;
 }
 
 /** What the hook hands a surface: the reading, and the one mutation the picker sends. */

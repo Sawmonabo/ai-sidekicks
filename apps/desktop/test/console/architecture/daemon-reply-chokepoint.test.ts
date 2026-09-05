@@ -120,21 +120,20 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * ZERO, and PINNED rather than left as a floor, because zero is the whole reading:
- * the two reach claims above are satisfied by an empty set here — no surface reaches
- * the daemon call door because no surface calls the daemon at all — and a scan that
- * reports the tree compliant for that reason is not making the claim this file's
- * title makes.
+ * ONE — `console/repos/repo-reads.ts`, the repos family's five `repo.*` reads, which
+ * is the first surface-side consumer the console has. The claim above stopped being
+ * vacuous when that module landed: it used to reach `daemon.call` itself and hold its
+ * own parser and its own two refusal codes beside it, and it now names five registry
+ * keys and holds none of the three.
  *
- * A pinned count is what makes that visible without shipping a red gate on
- * `develop`. It fails the moment the number moves in either direction, so the family
- * lane that binds the first surface to a registered method — the composer's send
- * router and the runs pane's run controls are the two nearest, both T-023p-1C-3 —
- * moves this constant in its own PR, and a reader learns from that diff that the
- * claim has stopped being vacuous. It cannot silently stay at zero once the console
- * has consumers, and it cannot be raised by accident either.
+ * PINNED rather than left as a floor, because a floor cannot tell "every caller goes
+ * through the door" from "nobody calls the daemon at all". It fails the moment the
+ * number moves in either direction, so the family lane that binds the next surface —
+ * the composer's send router and the runs pane's run controls are the two nearest,
+ * both T-023p-1C-3 — moves this constant in its own PR, and a reader learns from that
+ * diff that the set has grown. It cannot be raised by accident either.
  */
-const CALL_DOOR_CONSUMER_COUNT = 0;
+const CALL_DOOR_CONSUMER_COUNT = 1;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

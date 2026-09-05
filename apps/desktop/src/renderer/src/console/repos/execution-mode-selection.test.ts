@@ -5,15 +5,20 @@
 // case that built an `ExecutionModeSelections` over a hand-written host would be
 // asserting against a host the console never composes.
 //
-// THE BRIDGE IS THE REAL FIXTURE WITH ONE CALL HELD OPEN. Every read a case makes is
-// the scenario's own; only `repo.executionModeSelect` is gated, because the whole
-// subject here is what happens BETWEEN a press and its answer — a window a scripted
-// reply that settles immediately has no way to open.
+// THE BRIDGE IS THE REAL FIXTURE WITH ONE CALL HELD OPEN, through the bridge family's
+// own `withDaemonCall`. Every read a case makes is the scenario's own — the pass-through
+// that helper hands the answer is what delegates them — and only
+// `repo.executionModeSelect` is gated, because the whole subject here is what happens
+// BETWEEN a press and its answer, a window a scripted reply that settles immediately has
+// no way to open. Spreading the daemon namespace here instead would be this suite
+// reaching the call door, which the chokepoint gate forbids for exactly the reason it
+// forbids it in a surface.
 
-import type { DaemonMethod, ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
+import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import { withDaemonCall } from "../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
 import { GIT_WORKSPACE_ID, PLAIN_WORKSPACE_ID } from "../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
@@ -47,38 +52,32 @@ type ReleasedSelect = "served" | "rejected";
 type ReleasedSelects = ReleasedSelect | readonly ReleasedSelect[];
 
 function bridgeHoldingModeSelect(released: ReleasedSelects = "served"): HeldModeSelect {
-  const fixture = createFixtureBridge({ scenario: REPOS_SCENARIO });
   const parked: (() => void)[] = [];
   let calls = 0;
   const answerFor = (callNumber: number): ReleasedSelect =>
     typeof released === "string"
       ? released
       : (released[Math.min(callNumber - 1, released.length - 1)] ?? "served");
+  const held = withDaemonCall(
+    createFixtureBridge({ scenario: REPOS_SCENARIO }),
+    async (call, passThrough) => {
+      if (call.method !== MODE_SELECT_CALL) {
+        return await passThrough();
+      }
+      calls += 1;
+      const answer = answerFor(calls);
+      await new Promise<void>((letThrough) => parked.push(letThrough));
+      if (answer === "rejected") {
+        // A typed daemon refusal, in the envelope shape the wire sends. The refusal
+        // path is what a settle-after-unmount would WRITE, which is why the case that
+        // asserts it writes nothing has to take this arm.
+        throw { code: "workspace.busy", message: "This workspace is provisioning." };
+      }
+      return await passThrough();
+    },
+  );
   return {
-    bridge: {
-      ...fixture,
-      sidekicks: {
-        ...fixture.sidekicks,
-        daemon: {
-          ...fixture.sidekicks.daemon,
-          call: async (method: DaemonMethod, params: unknown): Promise<unknown> => {
-            if (method !== MODE_SELECT_CALL) {
-              return await fixture.sidekicks.daemon.call(method, params);
-            }
-            calls += 1;
-            const answer = answerFor(calls);
-            await new Promise<void>((letThrough) => parked.push(letThrough));
-            if (answer === "rejected") {
-              // A typed daemon refusal, in the envelope shape the wire sends. The
-              // refusal path is what a settle-after-unmount would WRITE, which is why
-              // the case that asserts it writes nothing has to take this arm.
-              throw { code: "workspace.busy", message: "This workspace is provisioning." };
-            }
-            return await fixture.sidekicks.daemon.call(method, params);
-          },
-        },
-      },
-    } as ConsoleBridge,
+    bridge: held.bridge,
     selectCallCount: () => calls,
     release: () => {
       for (const letThrough of parked.splice(0)) {

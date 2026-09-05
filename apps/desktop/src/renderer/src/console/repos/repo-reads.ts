@@ -1,104 +1,60 @@
-// The repos family's daemon seam: five `repo.*` calls, parsed, and one refusal shape.
+// The repos family's five `repo.*` reads, named once.
 //
-// `SidekicksBridge.daemon.call` is a single generic door — a branded method name in,
-// `unknown` out, until Plan-007 lands its discriminated unions. That leaves two jobs
-// nobody above this file should be doing twice: naming the method, and turning the
-// `unknown` reply into a value with a type. Both live here, once, so the reader
-// beside this file holds parsed responses and the cards hold nothing else.
+// EVERY ONE OF THEM GOES THROUGH `callDaemon`, and this module holds nothing that
+// door already holds. The parse in both directions, the refusal vocabulary, and the
+// normalizer that reads a rejection are the bridge family's, registered against
+// `bridge/daemon-reply-registry.ts`, so a method the corpus has not registered is a
+// compile error here rather than an `unknown` somebody remembered to check. What is
+// left is the part that IS this family's: which five reads the repos and workspaces
+// sections make, and why each of them is the read it is.
 //
-// EVERY REPLY IS PARSED BY THE CONTRACT'S OWN SCHEMA. `packages/contracts/src/repo.ts`
-// and `worktree.ts` own these shapes and validate them in both directions on the
-// daemon side; parsing here is the renderer's half of that, and it is what makes a
-// `RepoMountReadResponse` in this console a value the wire actually sent rather than
-// a cast over an `unknown`. A reply that does not parse is a REFUSAL, never a
-// half-rendered card.
-//
-// THE METHOD NAMES ARE BRANDED ONCE, HERE. `DaemonMethod` is a Tier-1 brand
-// (`packages/contracts/src/desktop-bridge.ts`) whose whole purpose is to make every
-// call site acknowledge that the method-to-params mapping is still a stub. Four
-// bindings at the top of one module is that acknowledgement written down; the same
-// assertion sprinkled through a component tree would be four places to fix when
-// Plan-007 replaces the brand with a real union, and the compiler would flag none of
-// them.
-//
-// WHY THE REJECTION NORMALIZER IS HERE AND NOT IN `core/`. It is the FIRST of its
-// kind in the console — `src/shared/wire-errors.ts` normalizes a rejection into an
-// `Error`, which is the three legacy renderer families' currency, and nothing yet
-// normalizes one into the console's own `ConsoleRefusal`. `apps/desktop/AGENTS.md`
-// hoists a helper on its SECOND use, so it lives in the family that needed it first
-// and moves down to `core/` the moment a second family calls a daemon method.
+// THE FIVE, AND THE THREE THAT ARE NOT AMONG THEM. `repo.attach`, `repo.workspaceBind`,
+// and `repo.detach` are the three the surfaces would otherwise reach for, for three
+// different reasons each recorded where the surface that would call it lives: attach
+// needs a node roster this section does not read, bind needs the directory picker
+// attach would open, and detach is offered by no renderer surface at all in V1
+// (`Spec-009 §Detach Semantics (V1 Definition)`).
 
-import {
-  ExecutionModeSelectResponseSchema,
-  RepoMountReadResponseSchema,
-  WorkspaceExecutionModeCapabilitiesReadResponseSchema,
-  WorkspaceListResponseSchema,
-  WorktreeStatusReadResponseSchema,
-  type DaemonMethod,
-  type ExecutionMode,
-  type ExecutionModeSelectResponse,
-  type RepoMountId,
-  type RepoMountReadResponse,
-  type SessionId,
-  type WorkspaceExecutionModeCapabilitiesReadResponse,
-  type WorkspaceId,
-  type WorkspaceListResponse,
-  type WorktreeStatusReadResponse,
+import type {
+  ExecutionMode,
+  ExecutionModeSelectResponse,
+  RepoMountId,
+  RepoMountReadResponse,
+  SessionId,
+  WorkspaceExecutionModeCapabilitiesReadResponse,
+  WorkspaceId,
+  WorkspaceListResponse,
+  WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
 import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
 import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
+import {
+  callDaemon,
+  type ConsoleBridge,
+  type DaemonReply,
+  type DaemonReplyRefusalCode,
+} from "../bridge/index.js";
 
 /** The subsystem every refusal this module raises names as its author. */
 export const REPO_READS_REFUSAL_ORIGIN = "repos";
 
 /**
- * Why a repos call failed on the console's side of the wire.
+ * The one place the console re-narrows a session id.
  *
- * Two members, closed, and neither overlaps a DAEMON code: a daemon refusal keeps
- * its own code verbatim (`repo.not_found`, `workspace.busy`, …) and is never
- * re-labelled with one of these. These name the two failures that are the
- * console's own to describe — a reply that did not match the contract, and a
- * rejection carrying no code at all.
+ * The store holds it as a plain string because it arrived from the wire as one;
+ * `SessionId` is a compile-time marker over that same opaque value, and the console
+ * never mints one — it forwards the one it was given.
  */
-export const REPO_READ_REFUSAL_CODES = ["reply-unparseable", "call-rejected"] as const;
-
-/** One console-side repos refusal code. Derived, so the vocabulary is declared once. */
-export type RepoReadRefusalCode = (typeof REPO_READ_REFUSAL_CODES)[number];
-
-/** A parsed reply, or the refusal that stands in its place. Never both, never neither. */
-export type RepoCallOutcome<TValue> =
-  | { readonly status: "read"; readonly value: TValue }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/**
- * The five method names, branded once.
- *
- * The five the repos and workspaces sections actually call. `repo.attach`,
- * `repo.workspaceBind`, and `repo.detach` are the three the surfaces would otherwise
- * reach for and are not among them, for three different reasons, each recorded where
- * the surface that would
- * call it lives: attach needs a node roster this section does not read, bind needs
- * the directory picker attach would open, and detach is offered by no renderer
- * surface at all in V1 (`Spec-009 §Detach Semantics (V1 Definition)`).
- */
-const MOUNT_READ_METHOD = "repo.mountRead" as DaemonMethod;
-const WORKSPACE_LIST_METHOD = "repo.workspaceList" as DaemonMethod;
-const CAPABILITIES_READ_METHOD = "repo.executionModeCapabilitiesRead" as DaemonMethod;
-const EXECUTION_MODE_SELECT_METHOD = "repo.executionModeSelect" as DaemonMethod;
-const WORKTREE_STATUS_READ_METHOD = "repo.worktreeStatusRead" as DaemonMethod;
-
-/** Minimal parse surface, so this module composes schemas without importing zod. */
-interface ReplyParser<TValue> {
-  parse(reply: unknown): TValue;
+function forwardedSessionId(sessionId: string): SessionId {
+  return sessionId as SessionId;
 }
 
 /** One mount, with the freshly probed health verdict only this read carries. */
 export async function readRepoMount(
   bridge: ConsoleBridge,
   repoMountId: RepoMountId,
-): Promise<RepoCallOutcome<RepoMountReadResponse>> {
-  return callRepoMethod(bridge, MOUNT_READ_METHOD, { repoMountId }, RepoMountReadResponseSchema);
+): Promise<DaemonReply<RepoMountReadResponse>> {
+  return callDaemon(bridge, "repo.mountRead", { repoMountId });
 }
 
 /**
@@ -113,17 +69,8 @@ export async function readRepoMount(
 export async function readSessionWorkspaces(
   bridge: ConsoleBridge,
   sessionId: string,
-): Promise<RepoCallOutcome<WorkspaceListResponse>> {
-  return callRepoMethod(
-    bridge,
-    WORKSPACE_LIST_METHOD,
-    // The one place the console re-narrows a session id. The store holds it as a
-    // plain string because it arrived from the wire as one; `SessionId` is a
-    // compile-time marker over that same opaque value, and the console never mints
-    // one — it forwards the one it was given.
-    { sessionId: sessionId as SessionId },
-    WorkspaceListResponseSchema,
-  );
+): Promise<DaemonReply<WorkspaceListResponse>> {
+  return callDaemon(bridge, "repo.workspaceList", { sessionId: forwardedSessionId(sessionId) });
 }
 
 /**
@@ -136,13 +83,8 @@ export async function readSessionWorkspaces(
 export async function readExecutionModeCapabilities(
   bridge: ConsoleBridge,
   workspaceId: WorkspaceId,
-): Promise<RepoCallOutcome<WorkspaceExecutionModeCapabilitiesReadResponse>> {
-  return callRepoMethod(
-    bridge,
-    CAPABILITIES_READ_METHOD,
-    { workspaceId },
-    WorkspaceExecutionModeCapabilitiesReadResponseSchema,
-  );
+): Promise<DaemonReply<WorkspaceExecutionModeCapabilitiesReadResponse>> {
+  return callDaemon(bridge, "repo.executionModeCapabilitiesRead", { workspaceId });
 }
 
 /**
@@ -157,13 +99,8 @@ export async function selectExecutionMode(
   bridge: ConsoleBridge,
   workspaceId: WorkspaceId,
   executionMode: ExecutionMode,
-): Promise<RepoCallOutcome<ExecutionModeSelectResponse>> {
-  return callRepoMethod(
-    bridge,
-    EXECUTION_MODE_SELECT_METHOD,
-    { workspaceId, executionMode },
-    ExecutionModeSelectResponseSchema,
-  );
+): Promise<DaemonReply<ExecutionModeSelectResponse>> {
+  return callDaemon(bridge, "repo.executionModeSelect", { workspaceId, executionMode });
 }
 
 /**
@@ -182,39 +119,10 @@ export async function selectExecutionMode(
 export async function readWorktreeStatus(
   bridge: ConsoleBridge,
   sessionId: string,
-): Promise<RepoCallOutcome<WorktreeStatusReadResponse>> {
-  return callRepoMethod(
-    bridge,
-    WORKTREE_STATUS_READ_METHOD,
-    { sessionId: sessionId as SessionId },
-    WorktreeStatusReadResponseSchema,
-  );
-}
-
-async function callRepoMethod<TValue>(
-  bridge: ConsoleBridge,
-  method: DaemonMethod,
-  params: unknown,
-  parser: ReplyParser<TValue>,
-): Promise<RepoCallOutcome<TValue>> {
-  let reply: unknown;
-  try {
-    reply = await bridge.sidekicks.daemon.call(method, params);
-  } catch (error) {
-    return { status: "refused", refusal: refusalFromRejection(method, error) };
-  }
-  try {
-    return { status: "read", value: parser.parse(reply) };
-  } catch (error) {
-    return {
-      status: "refused",
-      refusal: refuse(
-        REPO_READS_REFUSAL_ORIGIN,
-        "reply-unparseable" satisfies RepoReadRefusalCode,
-        `${method} answered with a shape the contract does not admit: ${lossyStringify(error)}`,
-      ),
-    };
-  }
+): Promise<DaemonReply<WorktreeStatusReadResponse>> {
+  return callDaemon(bridge, "repo.worktreeStatusRead", {
+    sessionId: forwardedSessionId(sessionId),
+  });
 }
 
 /**
@@ -246,7 +154,7 @@ export function refusalFromRejection(method: string, rejection: unknown): Consol
   }
   return refuse(
     REPO_READS_REFUSAL_ORIGIN,
-    "call-rejected" satisfies RepoReadRefusalCode,
+    "call-rejected" satisfies DaemonReplyRefusalCode,
     `${method} was rejected: ${lossyStringify(rejection)}`,
   );
 }

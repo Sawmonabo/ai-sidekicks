@@ -119,12 +119,25 @@ export interface BridgeUnderTest {
  * Takes the bridge rather than building one, so a suite that has already overridden a
  * different namespace — a growth port answering its own operation, say — composes the
  * two instead of minting a second builder to hold both.
+ *
+ * THE ANSWER IS HANDED THE WRAPPED BRIDGE'S OWN CALL, which is what lets a suite
+ * override ONE method and leave the rest scripted by the scenario. Without it such a
+ * suite has to reach `bridge.sidekicks.daemon.call` itself, and a suite that reaches
+ * the door directly is exactly what the chokepoint gate beside this family forbids —
+ * so the delegation lives here, once, rather than being spelled at each site that
+ * needs it.
  */
 export function withDaemonCall(
   bridge: ConsoleBridge,
-  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+  answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   const calls: RecordedDaemonCall[] = [];
+  // Taken before the spread, so the pass-through reaches the bridge this helper
+  // wrapped rather than the one it is building.
+  const wrappedCall = bridge.sidekicks.daemon.call.bind(bridge.sidekicks.daemon) as (
+    method: string,
+    params: unknown,
+  ) => Promise<unknown>;
   return {
     calls,
     bridge: {
@@ -136,7 +149,7 @@ export function withDaemonCall(
           call: (async (method: string, params: unknown): Promise<unknown> => {
             const recorded: RecordedDaemonCall = { method, params };
             calls.push(recorded);
-            return answer(recorded);
+            return answer(recorded, async () => wrappedCall(method, params));
           }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
         },
       },
@@ -146,7 +159,7 @@ export function withDaemonCall(
 
 /** The shipped fixture over the flagship scenario, with that call arm on it. */
 export function bridgeAnswering(
-  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+  answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   return withDaemonCall(createFixture().bridge, answer);
 }
