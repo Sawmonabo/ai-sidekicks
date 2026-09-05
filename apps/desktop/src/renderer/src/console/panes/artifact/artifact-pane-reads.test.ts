@@ -23,8 +23,8 @@ import {
   REFUSAL,
   SERVED_SUMMARY,
   SESSION_ID,
-  bridgeAnswering,
-  type PortScript,
+  artifactBridgeAnswering,
+  type ArtifactPortScript,
 } from "./artifact-pane.test-support.js";
 
 /** The bounds read served, so a case can assert the leg that DID answer. */
@@ -37,11 +37,11 @@ const SERVED_ALLOWLIST = {
 const DISCONNECTED = new Error("the bridge went away mid-read");
 
 /** Both legs of one read, over a port answering whatever the case scripts. */
-async function bothLegs(script: PortScript): Promise<{
+async function bothLegs(script: ArtifactPortScript): Promise<{
   readonly artifacts: Awaited<ReturnType<typeof readArtifactList>>;
   readonly allowlist: Awaited<ReturnType<typeof readArtifactAllowlist>>;
 }> {
-  const bridge = bridgeAnswering(script);
+  const bridge = artifactBridgeAnswering(script);
   const [artifacts, allowlist] = await Promise.all([
     readArtifactList(bridge, SESSION_ID),
     readArtifactAllowlist(bridge, SESSION_ID),
@@ -52,7 +52,7 @@ async function bothLegs(script: PortScript): Promise<{
 describe("artifact pane reads — a refused list and a served one", () => {
   it("carries the port's refusal verbatim rather than reporting an empty list", async () => {
     const state = await readArtifactList(
-      bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+      artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
       SESSION_ID,
     );
     expect(state.kind).toBe("refused");
@@ -61,7 +61,7 @@ describe("artifact pane reads — a refused list and a served one", () => {
 
   it("reads a served manifest summary as a row, member for member", async () => {
     const state = await readArtifactList(
-      bridgeAnswering({
+      artifactBridgeAnswering({
         listAnswer: { status: "served", value: [SERVED_SUMMARY] },
         allowlistAnswer: REFUSAL,
       }),
@@ -95,7 +95,10 @@ describe("artifact pane reads — a refused list and a served one", () => {
     // empty served list would pass every member assertion and still be wrong about the
     // one thing an empty list says.
     const state = await readArtifactList(
-      bridgeAnswering({ listAnswer: { status: "served", value: [] }, allowlistAnswer: REFUSAL }),
+      artifactBridgeAnswering({
+        listAnswer: { status: "served", value: [] },
+        allowlistAnswer: REFUSAL,
+      }),
       SESSION_ID,
     );
     expect(state.kind).toBe("listed");
@@ -106,7 +109,7 @@ describe("artifact pane reads — a refused list and a served one", () => {
 describe("artifact pane reads — the allow-list hint", () => {
   it("falls back to the shipped default and says so, carrying the refusal", async () => {
     const allowlist = await readArtifactAllowlist(
-      bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+      artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
       SESSION_ID,
     );
     expect(allowlist.source).toBe("shipped-default");
@@ -140,7 +143,7 @@ describe("artifact pane reads — the allow-list hint", () => {
     // Wholesale, never merged: an operator override REPLACES the default, so a reading
     // that unioned the two would describe a deployment that does not exist.
     const allowlist = await readArtifactAllowlist(
-      bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: SERVED_ALLOWLIST }),
+      artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: SERVED_ALLOWLIST }),
       SESSION_ID,
     );
     expect(allowlist.source).toBe("effective");

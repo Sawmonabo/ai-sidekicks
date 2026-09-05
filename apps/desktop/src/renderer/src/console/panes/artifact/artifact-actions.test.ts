@@ -18,6 +18,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -32,7 +33,6 @@ import {
   listedRowIds,
   readThrough,
   readerRacingADelete,
-  settle,
 } from "./artifact-pane.test-support.js";
 
 describe("artifact pane actions — a served delete reconciles, superseded or not", () => {
@@ -170,7 +170,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await settle();
+    await drainMicrotasks();
     const secondPress = await reader.readManifest(SERVED_SUMMARY.artifactId);
 
     expect(artifactRead).toHaveBeenCalledTimes(1);
@@ -201,7 +201,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     const press = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await settle();
+    await drainMicrotasks();
     reader.dispose();
     releaseNthRead(0, servedManifest("sha256:stale"));
 
@@ -219,13 +219,13 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await settle();
+    await drainMicrotasks();
     releaseNthRead(0, servedManifest("sha256:first"));
     expect((await firstPress).status).toBe("settled");
     expect(reader.snapshot.manifestReadInFlightArtifactIds.size).toBe(0);
 
     const secondPress = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await settle();
+    await drainMicrotasks();
     releaseNthRead(1, servedManifest("sha256:second"));
 
     expect((await secondPress).status).toBe("settled");
@@ -244,9 +244,9 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     void reader.readManifest(SERVED_SUMMARY.artifactId);
-    await settle();
+    await drainMicrotasks();
     void reader.readManifest(OTHER_ARTIFACT_ID);
-    await settle();
+    await drainMicrotasks();
 
     expect(artifactRead).toHaveBeenCalledTimes(2);
     expect(reader.snapshot.manifestReadInFlightArtifactIds.has(OTHER_ARTIFACT_ID)).toBe(true);

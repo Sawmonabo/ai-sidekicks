@@ -12,6 +12,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -24,7 +25,6 @@ import {
   readThrough,
   readerWithHeldPayloadFetch,
   servedPayload,
-  settle,
 } from "./artifact-pane.test-support.js";
 
 /**
@@ -148,7 +148,7 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
     await readThrough(clock);
 
     const served = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
+    await drainMicrotasks();
     releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the bytes came back"));
     expect((await served).status).toBe("settled");
 

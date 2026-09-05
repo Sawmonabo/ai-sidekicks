@@ -28,18 +28,18 @@ import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment
 import { ArtifactPane } from "./ArtifactPane.js";
 import {
   ARTIFACT_ENTITY,
-  DELETE_RECEIPT,
+  SERVED_DELETE,
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ENTITY,
   SESSION_ID,
-  bridgeListing,
+  artifactBridgeAnswering,
   confirmDelete,
   contextFor,
   readAnswering,
   readThrough,
   renderPane,
   settleAct,
-} from "./ArtifactPane.test-support.js";
+} from "./artifact-pane.test-support.js";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -179,7 +179,10 @@ describe("artifact pane — reading one row's manifest", () => {
     // Two acts over one method, told apart by `includePayload`. The row's control is
     // named for what its read serves; the pane's is named for the bytes it asks for.
     const { getByRole } = renderPane(
-      contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+        sessionId: SESSION_ID,
+      }),
     );
     await readThrough();
     expect(getByRole("button", { name: "Read manifest" })).toBeDefined();
@@ -191,7 +194,8 @@ describe("artifact pane — reading one row's manifest", () => {
     // not carry, and the row has to move to it.
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
           readAnswer: readAnswering("superseded"),
         }),
         sessionId: SESSION_ID,
@@ -212,7 +216,8 @@ describe("artifact pane — reading one row's manifest", () => {
   it("says once that the manifest was re-read", async () => {
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
           readAnswer: readAnswering("superseded"),
         }),
         sessionId: SESSION_ID,
@@ -230,7 +235,10 @@ describe("artifact pane — reading one row's manifest", () => {
 
   it("renders the refusal beside the control and leaves the row where it was", async () => {
     const { container, getByRole } = renderPane(
-      contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+        sessionId: SESSION_ID,
+      }),
     );
     await readThrough();
     fireEvent.click(getByRole("button", { name: "Read manifest" }));
@@ -249,7 +257,7 @@ describe("artifact pane — reading one row's manifest", () => {
     // render body would speak again on every unrelated transition. The same bridge
     // and session are handed back, so the reader is the one that already read and
     // this is a re-render rather than a remount.
-    const bridge = bridgeListing({});
+    const bridge = artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW });
     const context = contextFor(ARTIFACT_ENTITY, { bridge, sessionId: SESSION_ID });
     const { container, getByRole, rerender } = renderPane(context);
     await readThrough();
@@ -274,9 +282,10 @@ describe("artifact pane — deleting one row", () => {
       .mockResolvedValue({ status: "served", value: [] });
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
           artifactList,
-          deleteAnswer: DELETE_RECEIPT,
+          deleteAnswer: SERVED_DELETE,
         }),
         sessionId: SESSION_ID,
       }),
@@ -296,7 +305,10 @@ describe("artifact pane — deleting one row", () => {
   it("says what the delete reported, in the daemon's own two facts", async () => {
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({ deleteAnswer: DELETE_RECEIPT }),
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
+          deleteAnswer: SERVED_DELETE,
+        }),
         sessionId: SESSION_ID,
       }),
     );
@@ -316,7 +328,10 @@ describe("artifact pane — deleting one row", () => {
   it("draws the receipt on the panel as well as announcing it", async () => {
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({ deleteAnswer: DELETE_RECEIPT }),
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
+          deleteAnswer: SERVED_DELETE,
+        }),
         sessionId: SESSION_ID,
       }),
     );
@@ -336,7 +351,7 @@ describe("artifact pane — deleting one row", () => {
     const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({ artifactList, deleteAnswer: DELETE_RECEIPT }),
+        bridge: artifactBridgeAnswering({ artifactList, deleteAnswer: SERVED_DELETE }),
         sessionId: SESSION_ID,
       }),
     );
