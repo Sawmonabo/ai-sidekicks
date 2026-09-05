@@ -2,7 +2,7 @@
 //
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `DefinitionsBrowser.tsx`, for the
 // reason `DefinitionListItem.tsx` beside it states: one component per `.tsx`, reached
-// by a relative import from its host and published through no door line.
+// by a deep relative import from its host and published through no door line.
 //
 // THE SCOPE PROSE TRAVELS WITH THE GROUP. The summaries and the copy-on-write
 // consequence have exactly one reader and it is the component below; a sentence about

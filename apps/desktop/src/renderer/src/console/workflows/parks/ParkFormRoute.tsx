@@ -1,8 +1,8 @@
 // How a park card reaches the form that ends its wait, where the caller can offer one.
 //
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `ParkBadge.tsx`, for the reason
-// `ParkSchedule.tsx` beside it states: one component per `.tsx`, reached by a relative
-// import from its host and published through no door line.
+// `ParkSchedule.tsx` beside it states: one component per `.tsx`, reached by a deep
+// relative import from its host and published through no door line.
 //
 // THE ROUTE TYPE IS DECLARED HERE, WITH THE COMPONENT THAT CONSUMES IT, rather than in
 // the badge that merely passes it through. Declared on the badge it would have to be
