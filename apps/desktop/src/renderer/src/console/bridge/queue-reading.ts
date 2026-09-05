@@ -73,26 +73,20 @@
 // opens BEFORE the snapshot lands, so the window this clears is a real one.
 
 import {
-  QueueItemListResponseSchema,
+  QueueItemIdSchema,
   QueueItemSummarySchema,
   RunQueueSubscribeRequestSchema,
   type QueueItemSummary,
 } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import {
-  isConsoleRefusal,
+  normalizeWireRejection,
   refuse,
   refusedMemberPaths,
   type ConsoleRefusal,
 } from "../core/index.js";
-import {
-  QUEUE_CANCEL_METHOD,
-  QUEUE_LIST_METHOD,
-  QUEUE_SUBSCRIBE_STREAM,
-  callUnregisteredDaemonMethod,
-  subscribeDaemon,
-} from "./daemon-calls.js";
+import { QUEUE_SUBSCRIBE_STREAM, subscribeDaemon } from "./daemon-streams.js";
+import { callDaemon } from "./daemon-reply.js";
 import { QueueOrder } from "./queue-order.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
@@ -140,22 +134,20 @@ export interface QueueFeed {
 /**
  * The refusal an unopenable stream settles as.
  *
- * A `ConsoleRefusalError` raised by the subscription wrapper's own unscoped-open
- * guard already carries a refusal naming its origin and its code; re-wrapping it
- * would replace both with this module's origin and a stringified message, and the
- * code is what a person pastes into a search. Anything else is a wire rejection and
- * goes through the one normalizer this file already uses on the snapshot's path —
- * there is no second normalization here.
+ * The console's ONE reading of a rejected promise, consumed rather than re-derived.
+ * `normalizeWireRejection` already unwraps a `ConsoleRefusalError`'s carried refusal
+ * structurally — which is what keeps the subscription wrapper's own unscoped-open
+ * code intact instead of replacing it with this module's origin and a stringified
+ * message — and already takes a typed envelope's dotted code off `data.type`, where
+ * a `{ code: string }` guard cannot see it. All this module supplies is the two
+ * things that are its own: the origin, and the sentence for a rejection that said
+ * nothing machine-readable.
  */
 function streamRefusalFor(rejection: unknown): ConsoleRefusal {
-  if (typeof rejection === "object" && rejection !== null) {
-    const carried = (rejection as { readonly refusal?: unknown }).refusal;
-    if (isConsoleRefusal(carried)) {
-      return carried;
-    }
-  }
-  const wireError = wireRejectionToError(rejection, { total: true });
-  return refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message);
+  return normalizeWireRejection(QUEUE_REFUSAL_ORIGIN, rejection, {
+    code: "stream-unopenable",
+    detail: "The queue's live tail could not be opened, so the console read no queue.",
+  });
 }
 
 /**
@@ -266,40 +258,30 @@ export class SessionQueueReading {
       return;
     }
 
-    void callUnregisteredDaemonMethod(this.#bridge, QUEUE_LIST_METHOD, {
-      sessionId: this.#sessionId,
-    })
-      .then((reply) => {
-        if (!this.#isOpen) {
-          return;
-        }
-        const parsed = QueueItemListResponseSchema.safeParse(reply);
-        if (!parsed.success) {
-          this.#settleRefused(
-            refuse(
-              QUEUE_REFUSAL_ORIGIN,
-              "reply-unreadable",
-              "The queue reply did not match the registered list shape, so the console did not read rows from it.",
-            ),
-          );
-          return;
-        }
-        this.#order.seat(parsed.data.items);
-        this.#items = this.#order.items();
-        this.#phase = "read";
-        // The snapshot restates the whole list at one moment, so whatever the tail
-        // delivered unreadably before it is superseded rather than still missing.
-        this.#unreadableDeliveryCount = 0;
-        this.#unreadableRefusal = undefined;
-        this.#publish();
-      })
-      .catch((rejection: unknown) => {
-        if (!this.#isOpen) {
-          return;
-        }
-        const wireError = wireRejectionToError(rejection, { total: true });
-        this.#settleRefused(refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));
-      });
+    // The already-parsed id, taken off the stream's own request rather than parsed a
+    // second time: one reading of this pane's session, and the guard above is where
+    // an unreadable one refuses.
+    const { sessionId } = subscribeRequest.data;
+    void callDaemon(this.#bridge, "run.queueList", { sessionId }).then((reply) => {
+      if (!this.#isOpen) {
+        return;
+      }
+      // One branch: the door has already collapsed an unsendable request, a
+      // rejection carrying the daemon's own code, and a reply the registered list
+      // shape does not admit into one refusal that keeps its own code.
+      if (reply.status === "refused") {
+        this.#settleRefused(reply.refusal);
+        return;
+      }
+      this.#order.seat(reply.value.items);
+      this.#items = this.#order.items();
+      this.#phase = "read";
+      // The snapshot restates the whole list at one moment, so whatever the tail
+      // delivered unreadably before it is superseded rather than still missing.
+      this.#unreadableDeliveryCount = 0;
+      this.#unreadableRefusal = undefined;
+      this.#publish();
+    });
   }
 
   #close(): void {
@@ -308,8 +290,23 @@ export class SessionQueueReading {
     this.#closeStream = undefined;
   }
 
-  #cancelItem = (queueItemId: string): void => {
-    if (this.#pendingCancelIds.has(queueItemId)) {
+  #cancelItem = (rawQueueItemId: string): void => {
+    const queueItemId = QueueItemIdSchema.safeParse(rawQueueItemId);
+    if (!queueItemId.success) {
+      const next = new Map(this.#cancelRefusalByItemId);
+      next.set(
+        rawQueueItemId,
+        refuse(
+          QUEUE_REFUSAL_ORIGIN,
+          "queue-item-unreadable",
+          "The console is holding an identifier for this queued message that the daemon would not accept, so it asked for no cancel.",
+        ),
+      );
+      this.#cancelRefusalByItemId = next;
+      this.#publish();
+      return;
+    }
+    if (this.#pendingCancelIds.has(rawQueueItemId)) {
       // Silent rather than refused: the person pressed Cancel for the cancel that is
       // already going, and a refusal card would report a failure where the only
       // thing that happened is that they were early. This is the chokepoint and not
@@ -317,23 +314,21 @@ export class SessionQueueReading {
       // behind — two presses inside one frame both read a control that was live.
       return;
     }
-    this.#pendingCancelIds = withId(this.#pendingCancelIds, queueItemId);
+    this.#pendingCancelIds = withId(this.#pendingCancelIds, rawQueueItemId);
     this.#publish();
-    void callUnregisteredDaemonMethod(this.#bridge, QUEUE_CANCEL_METHOD, { queueItemId })
-      .then(() => {
-        // Deliberately nothing to the list. The reply confirms the request; the
+    void callDaemon(this.#bridge, "run.queueCancel", { queueItemId: queueItemId.data }).then(
+      (reply) => {
+        this.#pendingCancelIds = withoutId(this.#pendingCancelIds, rawQueueItemId);
+        if (reply.status === "refused") {
+          const next = new Map(this.#cancelRefusalByItemId);
+          next.set(rawQueueItemId, reply.refusal);
+          this.#cancelRefusalByItemId = next;
+        }
+        // A served reply changes nothing about the list. It confirms the REQUEST; the
         // row's state changes when the tail says the daemon changed it.
-        this.#pendingCancelIds = withoutId(this.#pendingCancelIds, queueItemId);
         this.#publish();
-      })
-      .catch((rejection: unknown) => {
-        const wireError = wireRejectionToError(rejection, { total: true });
-        this.#pendingCancelIds = withoutId(this.#pendingCancelIds, queueItemId);
-        const next = new Map(this.#cancelRefusalByItemId);
-        next.set(queueItemId, refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));
-        this.#cancelRefusalByItemId = next;
-        this.#publish();
-      });
+      },
+    );
   };
 
   #settleRefused(refusal: ConsoleRefusal): void {

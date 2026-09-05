@@ -33,7 +33,12 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { SessionRepairWatcher, consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  SessionRepairWatcher,
+  consoleClockFor,
+  type ConsoleBridge,
+  type GrowthOutcome,
+} from "../../bridge/index.js";
 import { useSessionScopedState } from "../../seats/index.js";
 import {
   useGenerationLatch,
@@ -258,7 +263,7 @@ export function useSessionGoalMutation(
   const latch = useGenerationLatch();
 
   const perform = useCallback(
-    (mutate: () => Promise<void>) => {
+    (mutate: () => Promise<GrowthOutcome<undefined>>) => {
       const claim = latch.claim(bridge, sessionId);
       if (claim === undefined) {
         publishRefusal(
@@ -272,22 +277,21 @@ export function useSessionGoalMutation(
       }
       publishIsMutating(true);
       publishRefusal(undefined);
-      void mutate()
-        .catch((rejection: unknown) => {
-          const wireError = wireRejectionToError(rejection, { total: true });
-          claim.settle(() => {
-            publishRefusal(refuse(SESSION_GOAL_REFUSAL_ORIGIN, wireError.name, wireError.message));
-          });
-        })
-        .finally(() => {
-          claim.settle(() => {
-            publishIsMutating(false);
-          });
-          // Released through the claim the call was ISSUED under, so a settlement
-          // that arrives after a rebind frees its own round and never the one the
-          // pane is now addressed to.
-          claim.release();
+      // The port never rejects, so there is one settlement and no `catch`: a
+      // refusal is a VALUE, and it is published as it arrived — its origin still
+      // names the operation that refused and the document that owes its wire.
+      void mutate().then((outcome) => {
+        claim.settle(() => {
+          if (outcome.status === "unavailable") {
+            publishRefusal(outcome);
+          }
+          publishIsMutating(false);
         });
+        // Released through the claim the call was ISSUED under, so a settlement
+        // that arrives after a rebind frees its own round and never the one the
+        // pane is now addressed to.
+        claim.release();
+      });
     },
     [bridge, latch, publishIsMutating, publishRefusal, sessionId],
   );

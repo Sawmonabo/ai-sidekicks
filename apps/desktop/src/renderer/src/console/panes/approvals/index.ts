@@ -22,7 +22,7 @@ import { ApprovalsPane } from "./ApprovalsPane.js";
 // because the two write into two different boards: one claims a pane kind and the
 // other claims event kinds, and a registrar taking both registries would hide which
 // of them a caller was composing.
-export { registerApprovalFlowProjectors } from "./approval-flow-projector.js";
+export { registerApprovalFlowProjectors } from "../../bridge/index.js";
 
 // The sheet is imported here, at the pane's single door, for the reason
 // `pane-chrome.tsx` gives for its own: every body behind this door renders through

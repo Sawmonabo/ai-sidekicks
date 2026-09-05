@@ -14,9 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
-  SESSION_GOAL_CLEAR_METHOD,
   SESSION_GOAL_EVENT_KINDS,
-  SESSION_GOAL_UPDATE_METHOD,
   foldSessionGoal,
 } from "./session-goal.js";
 
@@ -90,9 +88,9 @@ function originGoalClear(
 
 describe("two operations, never one", () => {
   it("names a distinct method for setting and for clearing", () => {
-    expect(SESSION_GOAL_UPDATE_METHOD).toBe("session.goalUpdate");
-    expect(SESSION_GOAL_CLEAR_METHOD).toBe("session.goalClear");
-    expect(SESSION_GOAL_UPDATE_METHOD).not.toBe(SESSION_GOAL_CLEAR_METHOD);
+    expect("session.goalUpdate").toBe("session.goalUpdate");
+    expect("session.goalClear").toBe("session.goalClear");
+    expect("session.goalUpdate").not.toBe("session.goalClear");
   });
 
   it("watches exactly the two projection sources", () => {

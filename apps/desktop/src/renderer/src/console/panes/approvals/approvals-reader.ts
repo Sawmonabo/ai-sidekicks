@@ -35,7 +35,12 @@ import {
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { RefreshScheduler, type RefreshReason } from "../../store/index.js";
 import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
-import { type ApprovalRecord, type RememberedRule } from "./approval-records.js";
+import {
+  type ApprovalRecord,
+  type GrowthOutcome,
+  type ParsedRows,
+  type RememberedRule,
+} from "../../bridge/index.js";
 import {
   readApprovals,
   readRememberedRules,
@@ -172,29 +177,26 @@ export class ApprovalsReader {
         request.approvalRequestId,
       ),
     });
-    void resolveApproval(this.#bridge, request)
-      .then(() => {
-        // Deliberately nothing about the record's state. The reply confirms the
-        // request; what the record BECAME is the next projection read's answer,
-        // and a card that settled itself here would be the renderer deciding an
-        // authorization outcome.
-        this.#clearResolving(request.approvalRequestId);
-        this.requestRead("terminal-event");
-      })
-      .catch((rejection: unknown) => {
-        this.#clearResolving(request.approvalRequestId);
+    void resolveApproval(this.#bridge, request).then((outcome) => {
+      // Deliberately nothing about the record's state on the served arm. The reply
+      // confirms the request; what the record BECAME is the next projection read's
+      // answer, and a card that settled itself here would be the renderer deciding
+      // an authorization outcome.
+      this.#clearResolving(request.approvalRequestId);
+      if (outcome.status === "unavailable") {
         this.#update({
           resolveRefusalByApprovalId: withEntry(
             this.#snapshot.resolveRefusalByApprovalId,
             request.approvalRequestId,
-            asRefusal(rejection),
+            outcome,
           ),
         });
-        // A concurrent resolver's `approval.already_resolved` drops the card on the
-        // next signal re-read, so the surface asks for one rather than leaving a
-        // stale pending card beside a refusal that explains why it is stale.
-        this.requestRead("terminal-event");
-      });
+      }
+      // A concurrent resolver's `approval.already_resolved` drops the card on the
+      // next signal re-read, so the surface asks for one on BOTH arms rather than
+      // leaving a stale pending card beside a refusal that explains why it is stale.
+      this.requestRead("terminal-event");
+    });
   }
 
   /** Revoke one standing permission. Fired only by a confirming click. */
@@ -206,22 +208,15 @@ export class ApprovalsReader {
       revokingRuleIds: withMember(this.#snapshot.revokingRuleIds, ruleId),
       revokeRefusalByRuleId: withoutKey(this.#snapshot.revokeRefusalByRuleId, ruleId),
     });
-    void revokeRememberedRule(this.#bridge, ruleId)
-      .then(() => {
-        this.#clearRevoking(ruleId);
-        this.requestRead("terminal-event");
-      })
-      .catch((rejection: unknown) => {
-        this.#clearRevoking(ruleId);
+    void revokeRememberedRule(this.#bridge, ruleId).then((outcome) => {
+      this.#clearRevoking(ruleId);
+      if (outcome.status === "unavailable") {
         this.#update({
-          revokeRefusalByRuleId: withEntry(
-            this.#snapshot.revokeRefusalByRuleId,
-            ruleId,
-            asRefusal(rejection),
-          ),
+          revokeRefusalByRuleId: withEntry(this.#snapshot.revokeRefusalByRuleId, ruleId, outcome),
         });
-        this.requestRead("terminal-event");
-      });
+      }
+      this.requestRead("terminal-event");
+    });
   }
 
   /** Terminal. The scheduler is dropped, so no read can outlive the pane. */
@@ -232,7 +227,10 @@ export class ApprovalsReader {
   }
 
   async #performReads(): Promise<void> {
-    const [approvals, rules] = await Promise.allSettled([
+    // `Promise.all` rather than `allSettled`: the port never rejects, so a settled
+    // wrapper here would be a second failure vocabulary over a seam that already has
+    // exactly one, and the two `unavailable` arms below are what a refusal is.
+    const [approvals, rules] = await Promise.all([
       readApprovals(this.#bridge, this.#sessionId),
       readRememberedRules(this.#bridge, this.#sessionId),
     ]);
@@ -240,14 +238,8 @@ export class ApprovalsReader {
       return;
     }
     this.#update({
-      approvals:
-        approvals.status === "fulfilled"
-          ? { status: "answered", ...approvals.value }
-          : { status: "refused", refusal: asRefusal(approvals.reason) },
-      rules:
-        rules.status === "fulfilled"
-          ? { status: "answered", ...rules.value }
-          : { status: "refused", refusal: asRefusal(rules.reason) },
+      approvals: readPhaseFor(approvals),
+      rules: readPhaseFor(rules),
     });
   }
 
@@ -271,21 +263,18 @@ export class ApprovalsReader {
 }
 
 /**
- * Turn any rejection into the console's one refusal shape.
+ * One growth outcome, as the phase a render reads.
  *
- * A rejection that already IS a refusal — the fixture bridge's and the growth
- * port's both are — is passed through rather than re-wrapped, so its origin still
- * names the subsystem that actually refused.
+ * The port answers `served` or `unavailable` and NEVER rejects, so there is no
+ * rejection to normalize here and no third arm to guard against. `GrowthUnavailable`
+ * extends `ConsoleRefusal` structurally, which is why the refused arm carries the
+ * outcome itself: the refusal a person reads still names the operation that refused
+ * and the document that owes its wire, rather than a sentence this surface composed.
  */
-function asRefusal(rejection: unknown): ConsoleRefusal {
-  if (isConsoleRefusal(rejection)) {
-    return rejection;
-  }
-  if (rejection instanceof ConsoleRefusalError) {
-    return rejection.refusal;
-  }
-  const wireError = wireRejectionToError(rejection, { total: true });
-  return refuse(APPROVALS_REFUSAL_ORIGIN, wireError.name, wireError.message);
+function readPhaseFor<TRow>(outcome: GrowthOutcome<ParsedRows<TRow>>): ReadPhase<TRow> {
+  return outcome.status === "unavailable"
+    ? { status: "refused", refusal: outcome }
+    : { status: "answered", ...outcome.value };
 }
 
 function withMember(held: ReadonlySet<string>, member: string): ReadonlySet<string> {

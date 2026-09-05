@@ -6,13 +6,19 @@
 // surface one import for the vocabulary it renders without pulling in the router.
 //
 // TWO PRODUCERS, ONE SHAPE. A composer-side refusal is minted here from the closed
-// code set below; a daemon-side rejection is CARRIED here, verbatim. Both leave as
-// `core/refusal.ts`'s one `ConsoleRefusal`, so `primitives/Refusal` renders either
-// without knowing which it got.
+// code set below; a daemon-side one is the daemon's own, and this module does not
+// read a rejection to build it. Every call the composer makes goes through
+// `callDaemon`, whose door normalizes a rejection once for the whole console
+// (`core/wire-rejection.ts`) — so a rejection reader here would be a second reading
+// of one seam, and the code `session.not_found` arrived under would become whichever
+// word this file chose. What survives is the one refusal the daemon ANSWERED with:
+// `run.intervene` settles with a lifecycle state, and a state that declined the
+// message is a refusal nothing rejected. Both leave as `core/refusal.ts`'s one
+// `ConsoleRefusal`, so `primitives/Refusal` renders either without knowing which it
+// got.
 
 import type { InterventionState } from "@ai-sidekicks/contracts";
 
-import { isWireErrorEnvelope, lossyStringify } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 
 /** The subsystem name every refusal the composer itself raises carries. */
@@ -26,15 +32,6 @@ export const COMPOSER_REFUSAL_ORIGIN = "composer";
  * composer's own origin would read as the console's decision.
  */
 export const DAEMON_REFUSAL_ORIGIN = "daemon";
-
-/**
- * The code a rejection with no wire envelope is rendered under.
- *
- * A last resort rather than a category: the console did reach the daemon and the
- * daemon did say no, so the honest reading is "rejected, shape unrecognised" — not
- * a composer-side code, which would claim the console refused, and not silence.
- */
-export const DAEMON_UNTYPED_REJECTION_CODE = "rejected";
 
 /**
  * Why the composer refused, before the wire was reached.
@@ -53,8 +50,6 @@ export const COMPOSER_REFUSAL_CODES = [
   "identifier-unparseable",
   "command-unexecutable",
   "provider-command-discovery-only",
-  "intervention-unreadable",
-  "queue-unreadable",
 ] as const;
 
 /** One composer refusal code. Derived, so the vocabulary is declared exactly once. */
@@ -70,64 +65,6 @@ export function unparseableIdentifier(subject: string): ConsoleRefusal {
   return composerRefusal(
     "identifier-unparseable",
     `The console is holding an identifier for ${subject} that the daemon would not accept. Reopen the session so its identifiers are read again.`,
-  );
-}
-
-/**
- * Carry a daemon rejection through, WITHOUT paraphrasing it.
- *
- * `Spec-023 §Console Design (Meridian)` rule 9 puts the code in mono and the
- * daemon's message verbatim, and the console "never re-derives the daemon's rule".
- * So there is deliberately no table here mapping a wire code onto console prose: the
- * code the daemon sent is the code a person sees, and the sentence beside it is the
- * daemon's own.
- *
- * Two envelope positions are checked because a rejection arrives both ways — as a
- * plain wire object, and as an `Error` subclass carrying the refusal on a property.
- * Anything else is rendered through the total stringifier rather than as a sentence
- * the console invented.
- */
-export function carriedDaemonRefusal(cause: unknown): ConsoleRefusal {
-  if (isWireErrorEnvelope(cause)) {
-    return refuse(DAEMON_REFUSAL_ORIGIN, cause.code, cause.message);
-  }
-  const carried = (cause as { readonly refusal?: unknown } | null | undefined)?.refusal;
-  if (isWireErrorEnvelope(carried)) {
-    return refuse(DAEMON_REFUSAL_ORIGIN, carried.code, carried.message);
-  }
-  return refuse(DAEMON_REFUSAL_ORIGIN, DAEMON_UNTYPED_REJECTION_CODE, lossyStringify(cause));
-}
-
-/**
- * The refusal for an intervention reply the registered response shape does not admit.
- *
- * A composer-side code and not a carried one, because nothing was carried: the call
- * was answered and the answer is unreadable, so what refuses is this console's own
- * parse. The DRAFT IS KEPT on this arm, which is the whole reason it is a refusal
- * rather than a success — the daemon may or may not have taken the steer, and losing
- * the participant's words to an ambiguity is worse than letting them decide to send
- * again.
- */
-export function unreadableInterventionReply(): ConsoleRefusal {
-  return composerRefusal(
-    "intervention-unreadable",
-    "The daemon answered this steer with a shape the console could not read, so it cannot confirm the message reached the run. Your message is still in the line.",
-  );
-}
-
-/**
- * The refusal for a queue-create reply the registered response shape does not admit.
- *
- * The sibling of the one above, and composer-side for the same reason: the call was
- * answered, and the answer is unreadable, so what refuses is this console's own
- * parse rather than anything the daemon said. The DRAFT IS KEPT here too — a reply
- * carrying no readable queue item is a reply that confirms no queued message, and
- * clearing the line on it would lose the participant's words to a protocol mismatch.
- */
-export function unreadableQueueReply(): ConsoleRefusal {
-  return composerRefusal(
-    "queue-unreadable",
-    "The daemon answered this message with a shape the console could not read, so it cannot confirm the message was queued. Your message is still in the line.",
   );
 }
 

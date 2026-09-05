@@ -431,6 +431,54 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "method",
     "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
   ),
+  // approval — the four methods the pane calls. All four method strings ARE
+  // registered by the corpus and named here, because what the slate row is about is
+  // the missing PAYLOAD pair rather than a missing name; the disjointness test holds
+  // these against the registered-method table, so a landing pair is caught the day it
+  // lands.
+  approvalProjectionRead: op(
+    "approvalProjectionRead",
+    "approval-method-payloads",
+    "method",
+    "read a session's approval projection unfiltered, so the pane renders every record the daemon holds rather than a state the client chose",
+    "approval.projectionRead",
+  ),
+  approvalResolve: op(
+    "approvalResolve",
+    "approval-method-payloads",
+    "method",
+    "answer one approval request, approve or reject, optionally remembering the decision as a standing rule",
+    "approval.resolve",
+  ),
+  approvalRuleList: op(
+    "approvalRuleList",
+    "approval-method-payloads",
+    "method",
+    "read a session's standing permissions with revoked rules included, because this list is the audit and a vanished rule reads as one never granted",
+    "approval.ruleList",
+  ),
+  approvalRuleRevoke: op(
+    "approvalRuleRevoke",
+    "approval-method-payloads",
+    "method",
+    "revoke one standing permission, fired only by the confirming click of the two-step control",
+    "approval.ruleRevoke",
+  ),
+  // session goals — the owner/collaborator pair the goal card drives.
+  sessionGoalUpdate: op(
+    "sessionGoalUpdate",
+    "session-goal-methods",
+    "method",
+    "set the session's goal, which the daemon appends as `session.goal_updated` and every surface then reads off the log",
+    "session.goalUpdate",
+  ),
+  sessionGoalClear: op(
+    "sessionGoalClear",
+    "session-goal-methods",
+    "method",
+    "clear the session's goal — the distinct operation, never an update carrying empty text",
+    "session.goalClear",
+  ),
   // sidekick — four of the five registered pairs, in the registry's own order. The
   // fifth, the per-session peer-invocation opt-in, is not here: it is session state
   // rather than a definition, and no surface on this substrate sets it.

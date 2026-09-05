@@ -21,18 +21,12 @@
 // floor still has to ask for the terminal.
 
 import { useCallback, useRef, useState } from "react";
-import { RunControlAckSchema, type RunControlAck } from "@ai-sidekicks/contracts";
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
-import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
-import {
-  RUN_PAUSE_METHOD,
-  callUnregisteredDaemonMethod,
-  type ConsoleBridge,
-} from "../../../console/bridge/index.js";
-import { Glyph, InlineRefusal, WireFigure } from "../../../console/primitives/index.js";
-
-/** The subsystem name every refusal this control raises carries. */
-export const STEP_IN_REFUSAL_ORIGIN = "composer-step-in";
+import { RunIdSchema, type RunControlAck } from "@ai-sidekicks/contracts";
+import { refuse } from "../../../console/core/index.js";
+import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
+import { Glyph } from "../../../console/primitives/index.js";
+import { StepInReceipt } from "./StepInReceipt.js";
+import { STEP_IN_REFUSAL_ORIGIN, type StepInState } from "./step-in-state.js";
 
 export interface StepInProps {
   readonly bridge: ConsoleBridge;
@@ -53,12 +47,6 @@ export interface StepInProps {
   readonly onTakeTheFloor: () => void;
 }
 
-type StepInState =
-  | { readonly phase: "idle" }
-  | { readonly phase: "pausing" }
-  | { readonly phase: "paused"; readonly acknowledgment: RunControlAck }
-  | { readonly phase: "refused"; readonly refusal: ConsoleRefusal };
-
 const STEP_IN_GLYPH_SIZE = 12;
 
 export function StepIn(props: StepInProps): React.JSX.Element {
@@ -70,34 +58,36 @@ export function StepIn(props: StepInProps): React.JSX.Element {
     if (isInFlight.current) {
       return;
     }
+    const parsedRunId = RunIdSchema.safeParse(targetRunId);
+    if (!parsedRunId.success) {
+      setState({
+        phase: "refused",
+        refusal: refuse(
+          STEP_IN_REFUSAL_ORIGIN,
+          "addressed-run-unparseable",
+          "The console is holding an identifier for this run that the daemon would not accept, so it asked for no pause. Reopen the session so its identifiers are read again.",
+        ),
+      });
+      return;
+    }
     isInFlight.current = true;
     setState({ phase: "pausing" });
-    void callUnregisteredDaemonMethod(bridge, RUN_PAUSE_METHOD, { targetRunId, expectedRunVersion })
-      .then((reply) => {
-        isInFlight.current = false;
-        const parsed = RunControlAckSchema.safeParse(reply);
-        if (!parsed.success) {
-          setState({
-            phase: "refused",
-            refusal: refuse(
-              STEP_IN_REFUSAL_ORIGIN,
-              "reply-unreadable",
-              "The pause reply did not match the registered acknowledgment shape, so the console did not read a transition from it.",
-            ),
-          });
-          return;
-        }
-        setState({ phase: "paused", acknowledgment: parsed.data });
-        onTakeTheFloor();
-      })
-      .catch((rejection: unknown) => {
-        isInFlight.current = false;
-        const wireError = wireRejectionToError(rejection, { total: true });
-        setState({
-          phase: "refused",
-          refusal: refuse(STEP_IN_REFUSAL_ORIGIN, wireError.name, wireError.message),
-        });
-      });
+    // The door parses both directions and never rejects, so the whole settlement is
+    // one branch: a refusal — the daemon's own code, or the door's `reply-unreadable`
+    // — renders verbatim, and a served acknowledgment is what the receipt is composed
+    // from. The floor moves only on the served arm.
+    void callDaemon(bridge, "run.pause", {
+      targetRunId: parsedRunId.data,
+      expectedRunVersion,
+    }).then((reply) => {
+      isInFlight.current = false;
+      if (reply.status === "refused") {
+        setState({ phase: "refused", refusal: reply.refusal });
+        return;
+      }
+      setState({ phase: "paused", acknowledgment: reply.value });
+      onTakeTheFloor();
+    });
   }, [bridge, targetRunId, expectedRunVersion, onTakeTheFloor]);
 
   return (
@@ -113,25 +103,5 @@ export function StepIn(props: StepInProps): React.JSX.Element {
       </button>
       <StepInReceipt agentLabel={props.agentLabel} state={state} />
     </div>
-  );
-}
-
-/** What happened, said once, in the daemon's own figures. */
-function StepInReceipt(props: {
-  readonly agentLabel: string;
-  readonly state: StepInState;
-}): React.JSX.Element | null {
-  const { state } = props;
-  if (state.phase === "refused") {
-    return <InlineRefusal code={state.refusal.code} detail={state.refusal.detail} />;
-  }
-  if (state.phase !== "paused") {
-    return null;
-  }
-  return (
-    <span className="meridian-step-in__receipt" role="status">
-      Paused {props.agentLabel} at <WireFigure value={state.acknowledgment.currentState} />, version{" "}
-      <WireFigure value={String(state.acknowledgment.runVersion)} />. You have the floor.
-    </span>
   );
 }

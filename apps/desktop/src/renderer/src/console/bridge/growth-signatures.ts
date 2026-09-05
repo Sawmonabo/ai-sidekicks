@@ -53,6 +53,12 @@ import type { AttentionProjection } from "./attention-projection.js";
 import type { GrowthStream } from "./growth-outcome.js";
 import type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 import type {
+  ApprovalRecord,
+  ApprovalResolveRequest,
+  ParsedRows,
+  RememberedRule,
+} from "./approvals/approval-records.js";
+import type {
   GrowthArtifactDeleteReceipt,
   GrowthArtifactRead,
   GrowthArtifactSummary,
@@ -382,6 +388,56 @@ export interface GrowthOperationSignatures {
   callbackToolRegistryRead: {
     request: { readonly sessionId: string };
     value: readonly GrowthCallbackTool[];
+  };
+  // approval — the four methods the approvals pane calls. The corpus REGISTERS all
+  // four method strings (`api-payload-contracts.md §Approval Method-Name Registry`),
+  // and `@ai-sidekicks/contracts` publishes neither half of any of their pairs — so
+  // they fail the registry's second admission conjunct and are the port's, not
+  // `callDaemon`'s. `approval.requestCreate` is the registry's fifth and is
+  // daemon-raised, so this console holds no operation for it; `PermissionCheck` is
+  // deliberately registered nowhere and is reached from nowhere here either.
+  //
+  // The two reads answer with rows this family has ALREADY narrowed
+  // (`bridge/approvals/approval-records.ts`), not with the raw reply: the port is the
+  // console's boundary onto an unregistered wire, and a surface handed an `unknown`
+  // to parse would be the per-site parse the call door exists to abolish, moved one
+  // seam over. `unreadableCount` rides the value for the same reason it rides the
+  // parse — "the daemon returned eleven and nine were readable" is one fact.
+  approvalProjectionRead: {
+    // Unfiltered. The server-side `state?` / `category?` filters exist and this
+    // surface passes neither: its history renders every record an unfiltered read
+    // returns, and the client filters by state nowhere.
+    request: { readonly sessionId: string };
+    value: ParsedRows<ApprovalRecord>;
+  };
+  approvalResolve: {
+    // Approve and reject are this one operation with a different decision. There is
+    // no fourth interaction on the card and so no fourth member here.
+    request: ApprovalResolveRequest;
+    value: undefined;
+  };
+  approvalRuleList: {
+    // Always read with revoked rules included — a revoked rule that vanished would
+    // read as one that was never granted, which is the opposite of an audit.
+    request: { readonly sessionId: string; readonly includeRevoked: boolean };
+    value: ParsedRows<RememberedRule>;
+  };
+  approvalRuleRevoke: {
+    request: { readonly ruleId: string };
+    value: undefined;
+  };
+  // session goals — two operations and never one. `session.goalUpdate` sets and
+  // `session.goalClear` clears; an update carrying no goal is malformed rather than
+  // a clear, which is why the request below has no optional goal member. Neither
+  // answers with anything the card reads: the goal is a PROJECTION of the event log,
+  // so what a caller waits for is the `session.goal_updated` beat and not a reply.
+  sessionGoalUpdate: {
+    request: { readonly sessionId: string; readonly goal: { readonly text: string } };
+    value: undefined;
+  };
+  sessionGoalClear: {
+    request: { readonly sessionId: string };
+    value: undefined;
   };
   // sidekick — four of the five registered pairs, in the registry's own order. The
   // fifth is named in the slate row's own wire text: the per-session peer-invocation

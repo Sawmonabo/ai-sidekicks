@@ -36,13 +36,13 @@ import { useState } from "react";
 
 import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
-import { type RememberedRule } from "./approval-records.js";
+import { type RememberedRule } from "../../bridge/index.js";
 import {
   TRIGGER_PHRASE,
   asInvalidationTrigger,
   asRememberedScopeKind,
   rememberedScopeKindPhrase,
-} from "./approval-vocabulary.js";
+} from "../../bridge/index.js";
 
 export interface RememberedGrantsProps {
   readonly rules: readonly RememberedRule[];

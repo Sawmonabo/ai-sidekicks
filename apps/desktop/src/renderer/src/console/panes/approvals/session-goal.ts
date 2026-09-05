@@ -20,18 +20,12 @@
 
 import { compareInstants, parseInstant } from "../../core/index.js";
 import {
-  callUnregisteredDaemonMethod,
   readGoalOriginKeys,
   readGoalPayloadText,
   type ConsoleBridge,
+  type GrowthOutcome,
 } from "../../bridge/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
-
-/** Set the goal. Carries the goal; an absent one is malformed, not a clear. */
-export const SESSION_GOAL_UPDATE_METHOD = "session.goalUpdate";
-
-/** Clear the goal. The distinct operation, never an update with empty text. */
-export const SESSION_GOAL_CLEAR_METHOD = "session.goalClear";
 
 /** The two projection sources, wire-verbatim. */
 export const SESSION_GOAL_EVENT_KINDS = ["session.goal_updated", "session.goal_cleared"] as const;
@@ -226,19 +220,27 @@ function compareByEnvelope(left: ConsoleSessionEvent, right: ConsoleSessionEvent
   return left.id > right.id ? 1 : -1;
 }
 
-/** Set the session's goal. */
-export async function updateSessionGoal(
+/**
+ * Set the session's goal.
+ *
+ * Through the GROWTH PORT and not `callDaemon`: `session.goalUpdate` is a registered
+ * method STRING whose request and reply shapes `@ai-sidekicks/contracts` does not
+ * publish, so there is nothing for the call door to parse against and the registered
+ * table admits no row for it. The port refuses by name under the live bridge and says
+ * that Plan-016 owes the pair.
+ */
+export function updateSessionGoal(
   bridge: ConsoleBridge,
   sessionId: string,
   text: string,
-): Promise<void> {
-  await callUnregisteredDaemonMethod(bridge, SESSION_GOAL_UPDATE_METHOD, {
-    sessionId,
-    goal: { text },
-  });
+): Promise<GrowthOutcome<undefined>> {
+  return bridge.growth.sessionGoalUpdate({ sessionId, goal: { text } });
 }
 
-/** Clear the session's goal. The distinct operation. */
-export async function clearSessionGoal(bridge: ConsoleBridge, sessionId: string): Promise<void> {
-  await callUnregisteredDaemonMethod(bridge, SESSION_GOAL_CLEAR_METHOD, { sessionId });
+/** Clear the session's goal. The distinct operation, on the same seam. */
+export function clearSessionGoal(
+  bridge: ConsoleBridge,
+  sessionId: string,
+): Promise<GrowthOutcome<undefined>> {
+  return bridge.growth.sessionGoalClear({ sessionId });
 }

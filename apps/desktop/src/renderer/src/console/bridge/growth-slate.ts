@@ -36,8 +36,10 @@ export type GrowthSlateRowId =
   | "workflow-definition-scope"
   | "timeline-epoch-attestation"
   | "timeline-path-reference"
+  | "approval-method-payloads"
   | "approval-remembered-rule"
   | "approval-amendment-arm"
+  | "session-goal-methods"
   | "session-search"
   | "window-control-namespace"
   | "provider-session-import"
@@ -238,6 +240,13 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "timeline pane",
     wireRegistered: false,
   },
+  "approval-method-payloads": {
+    id: "approval-method-payloads",
+    wire: "registered request and reply payload shapes for the four `approval.*` methods the pane calls",
+    owningDocument: "Plan-012",
+    consumingSurface: "approvals pane",
+    wireRegistered: false,
+  },
   "approval-remembered-rule": {
     id: "approval-remembered-rule",
     wire: "per-row remembered-rule match on approval rows",
@@ -250,6 +259,13 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the approval amendment arm",
     owningDocument: "Spec-012",
     consumingSurface: "approvals pane",
+    wireRegistered: false,
+  },
+  "session-goal-methods": {
+    id: "session-goal-methods",
+    wire: "registered request and reply payload shapes for `session.goalUpdate` and `session.goalClear`",
+    owningDocument: "Plan-016",
+    consumingSurface: "approvals pane (the session goal card)",
     wireRegistered: false,
   },
   "session-search": {

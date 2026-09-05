@@ -45,18 +45,26 @@
 import type {
   ChannelListRequest,
   ChannelListResponse,
+  CompactContextRequest,
+  DriverAckResult,
+  DriverCompactionResult,
+  DriverReadParams,
   ExecutionModeSelectRequest,
   ExecutionModeSelectResponse,
+  InterruptRunParams,
   InterventionRequestPayload,
   InterventionRequestResponse,
   InviteRevoke,
   InviteRevokeResponse,
+  ListCapabilitiesResult,
+  ListProviderCommandsRequest,
   MembershipUpdate,
   MembershipUpdateResponse,
   PresenceReadRequest,
   PresenceReadResponse,
   ProviderAccountListRequest,
   ProviderAccountListResponse,
+  ProviderCommandListResult,
   QueueItemCancelRequest,
   QueueItemCancelResponse,
   QueueItemCreateRequest,
@@ -81,18 +89,26 @@ import type {
 import {
   ChannelListRequestSchema,
   ChannelListResponseSchema,
+  CompactContextRequestSchema,
+  DriverAckResultSchema,
+  DriverCompactionResultSchema,
+  DriverReadParamsSchema,
   ExecutionModeSelectRequestSchema,
   ExecutionModeSelectResponseSchema,
+  InterruptRunParamsSchema,
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
   InviteRevokeResponseSchema,
   InviteRevokeSchema,
+  ListCapabilitiesResultSchema,
+  ListProviderCommandsRequestSchema,
   MembershipUpdateResponseSchema,
   MembershipUpdateSchema,
   PresenceReadRequestSchema,
   PresenceReadResponseSchema,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
+  ProviderCommandListResultSchema,
   QueueItemCancelRequestSchema,
   QueueItemCancelResponseSchema,
   QueueItemCreateRequestSchema,
@@ -146,6 +162,55 @@ export interface ConsoleDaemonMethodContract {
   readonly "run.intervene": {
     readonly request: InterventionRequestPayload;
     readonly response: InterventionRequestResponse;
+  };
+
+  // driver — the four client-facing verbs a composer or a run control reaches.
+  /**
+   * Stop the addressed run. Answered with `DriverAckResult`, the empty object.
+   *
+   * Registered rather than settled by fulfilment alone: the empty object is a SHAPE
+   * the corpus publishes, and a reply carrying members is a protocol mismatch this
+   * console would otherwise read as a successful stop. The parse costs nothing and
+   * the row is what puts the method under the one door.
+   */
+  readonly "driver.interruptRun": {
+    readonly request: InterruptRunParams;
+    readonly response: DriverAckResult;
+  };
+  /**
+   * Participant-triggered context compaction.
+   *
+   * Run-addressed within the session; the daemon resolves the binding itself, which
+   * is why the request carries no binding member for the console to supply. The reply
+   * is a discriminated union whose `refused` and `failed` arms are DATA a surface
+   * branches on rather than rejections it catches.
+   */
+  readonly "driver.compactContext": {
+    readonly request: CompactContextRequest;
+    readonly response: DriverCompactionResult;
+  };
+  /**
+   * The bound provider's own command and skill enumeration.
+   *
+   * Agent-addressed, because one agent can hold several live bindings at once and the
+   * daemon fans out across them — the reply's group list carries the
+   * `(driverName, providerAccountId)` each entry was read under. A LIVE READ held for
+   * the composer's current target and nothing longer; there is no registry behind it.
+   */
+  readonly "driver.listProviderCommands": {
+    readonly request: ListProviderCommandsRequest;
+    readonly response: ProviderCommandListResult;
+  };
+  /**
+   * Which capabilities each bound driver declares.
+   *
+   * `DriverReadParams` is the empty object the corpus registers for the three no-arg
+   * driver reads — a published shape and not this module's invention, which is what
+   * admits the row under the second conjunct.
+   */
+  readonly "driver.listCapabilities": {
+    readonly request: DriverReadParams;
+    readonly response: ListCapabilitiesResult;
   };
 
   // repo — the mounts, workspaces, and execution roots the repos section reads.
@@ -289,6 +354,16 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
     InterventionRequestPayloadSchema,
     InterventionRequestResponseSchema,
   ),
+  "driver.interruptRun": bindDaemonMethod(InterruptRunParamsSchema, DriverAckResultSchema),
+  "driver.compactContext": bindDaemonMethod(
+    CompactContextRequestSchema,
+    DriverCompactionResultSchema,
+  ),
+  "driver.listProviderCommands": bindDaemonMethod(
+    ListProviderCommandsRequestSchema,
+    ProviderCommandListResultSchema,
+  ),
+  "driver.listCapabilities": bindDaemonMethod(DriverReadParamsSchema, ListCapabilitiesResultSchema),
   "repo.mountRead": bindDaemonMethod(RepoMountReadRequestSchema, RepoMountReadResponseSchema),
   "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceListResponseSchema),
   "repo.executionModeCapabilitiesRead": bindDaemonMethod(

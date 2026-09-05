@@ -121,6 +121,12 @@ export type GrowthOperationId =
   // identity, and the callback-tool registry the approvals pane reads
   | "callerParticipantRead"
   | "callbackToolRegistryRead"
+  | "approvalProjectionRead"
+  | "approvalResolve"
+  | "approvalRuleList"
+  | "approvalRuleRevoke"
+  | "sessionGoalUpdate"
+  | "sessionGoalClear"
   // sidekick — the registry's own order; each id is its wire method's tail with the
   // root folded in, which `growth-operations.test.ts` holds every entry to.
   | "sidekickDefinitionList"

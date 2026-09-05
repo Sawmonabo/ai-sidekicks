@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import { COMPACT_CONTEXT_METHOD } from "../../../console/bridge/index.js";
+import {} from "../../../console/bridge/index.js";
 import { settleCompaction } from "./compaction-dispatch.js";
 
 const SESSION_ID = "session-compaction";
@@ -38,7 +38,7 @@ function scenarioReplying(result: unknown): ConsoleScenario {
     participantIdsInJoinOrder: ["participant-you"],
     startedAtIso: "2026-01-01T00:00:00.000Z",
     beats: [],
-    replies: [{ call: COMPACT_CONTEXT_METHOD, result }],
+    replies: [{ call: "driver.compactContext", result }],
   };
 }
 

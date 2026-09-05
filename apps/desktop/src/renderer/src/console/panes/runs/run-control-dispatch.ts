@@ -46,22 +46,13 @@
 
 import {
   InterventionRequestPayloadSchema,
-  InterventionRequestResponseSchema,
-  RunControlAckSchema,
   RunIdSchema,
   type InterventionRequestResponse,
   type RunControlAck,
 } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import {
-  RUN_INTERVENE_METHOD,
-  RUN_PAUSE_METHOD,
-  RUN_RESUME_METHOD,
-  callUnregisteredDaemonMethod,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
@@ -183,7 +174,7 @@ export class RunControlDispatcher {
 
   /** Pause. `run.pause`, and never an intervention arm — the union has none. */
   public pause(target: RunControlTarget): Promise<RunControlOutcome> {
-    return this.#dispatchControlVerb("pause", RUN_PAUSE_METHOD, target);
+    return this.#dispatchControlVerb("pause", "run.pause", target);
   }
 
   /**
@@ -192,7 +183,7 @@ export class RunControlDispatcher {
    * paused run back to running and no other.
    */
   public resume(target: RunControlTarget): Promise<RunControlOutcome> {
-    return this.#dispatchControlVerb("resume", RUN_RESUME_METHOD, target);
+    return this.#dispatchControlVerb("resume", "run.resume", target);
   }
 
   public steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
@@ -219,35 +210,32 @@ export class RunControlDispatcher {
   /** Pause and resume: one shape, one acknowledgment, one comparand threaded back. */
   async #dispatchControlVerb(
     control: RunControl,
-    method: string,
+    method: "run.pause" | "run.resume",
     target: RunControlTarget,
   ): Promise<RunControlOutcome> {
     const runId = RunIdSchema.safeParse(target.runId);
     if (!runId.success) {
       return this.#unparseableRun(control);
     }
-    try {
-      const reply = await callUnregisteredDaemonMethod(this.#bridge, method, {
-        targetRunId: runId.data,
-        expectedRunVersion: target.expectedRunVersion,
-      });
-      const parsed = RunControlAckSchema.safeParse(reply);
-      if (!parsed.success) {
-        return this.#unreadableReply(control, "acknowledgment");
-      }
-      this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
-      return { kind: "acknowledged", control, ack: parsed.data };
-    } catch (rejection) {
-      return carriedRunControlRefusal(control, rejection);
+    const reply = await callDaemon(this.#bridge, method, {
+      targetRunId: runId.data,
+      expectedRunVersion: target.expectedRunVersion,
+    });
+    if (reply.status === "refused") {
+      return { kind: "refused", control, refusal: reply.refusal };
     }
+    this.#freshComparandByRunId.set(target.runId, reply.value.runVersion);
+    return { kind: "acknowledged", control, ack: reply.value };
   }
 
   /**
    * Steer, interrupt, cancel, rollback: one method, four arms.
    *
-   * The request is built here and parsed through the registered schema BEFORE it is
-   * sent, so a shape the daemon would refuse becomes a rendered refusal instead of
-   * a rejected round trip — the posture the composer's send router already takes.
+   * The ARM is built and parsed here rather than at the door, because the union's
+   * discriminant decides which members are required and this is the only place that
+   * knows which control was pressed. The door parses the whole request again before
+   * sending it, which costs nothing and is what makes the parse unskippable; what
+   * this parse buys is a refusal that names the CONTROL rather than the method.
    */
   async #dispatchIntervention(
     control: RunControl,
@@ -276,21 +264,12 @@ export class RunControlDispatcher {
         ),
       };
     }
-    try {
-      const reply = await callUnregisteredDaemonMethod(
-        this.#bridge,
-        RUN_INTERVENE_METHOD,
-        request.data,
-      );
-      const parsed = InterventionRequestResponseSchema.safeParse(reply);
-      if (!parsed.success) {
-        return this.#unreadableReply(control, "intervention response");
-      }
-      this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
-      return { kind: "settled", control, response: parsed.data };
-    } catch (rejection) {
-      return carriedRunControlRefusal(control, rejection);
+    const reply = await callDaemon(this.#bridge, "run.intervene", request.data);
+    if (reply.status === "refused") {
+      return { kind: "refused", control, refusal: reply.refusal };
     }
+    this.#freshComparandByRunId.set(target.runId, reply.value.runVersion);
+    return { kind: "settled", control, response: reply.value };
   }
 
   #unparseableRun(control: RunControl): RunControlOutcome {
@@ -305,21 +284,15 @@ export class RunControlDispatcher {
     };
   }
 
-  #unreadableReply(control: RunControl, subject: string): RunControlOutcome {
-    return {
-      kind: "refused",
-      control,
-      refusal: refuse(
-        RUN_CONTROL_REFUSAL_ORIGIN,
-        "reply-unreadable",
-        `The ${subject} did not match the registered shape, so the console read no settlement from it.`,
-      ),
-    };
-  }
 }
 
 /**
  * Carry a rejection through without paraphrasing it.
+ *
+ * The console's ONE reading of a rejected promise, consumed and not copied. Every
+ * dispatch above reaches the wire through `callDaemon`, which normalizes its own
+ * rejections; this one survives because the React binding's `perform` can reject
+ * BEFORE the dispatcher runs at all, and one rejection deserves one reading.
  *
  * The code the daemon sent is the code a person sees; there is deliberately no
  * table here mapping a wire code onto console prose — `Spec-023 §Rules every console
@@ -331,18 +304,17 @@ export class RunControlDispatcher {
  * `intervention.idempotency_conflict`, `auth.principal_mismatch` — and each travels
  * this one path.
  *
- * Module-level rather than a private method because the React binding needs the
- * same carriage for a `perform` that rejects before the dispatcher ever runs, and
- * one rejection deserves one reading.
  */
 export function carriedRunControlRefusal(
   control: RunControl,
   rejection: unknown,
 ): RunControlOutcome {
-  const wireError = wireRejectionToError(rejection, { total: true });
   return {
     kind: "refused",
     control,
-    refusal: refuse(RUN_CONTROL_REFUSAL_ORIGIN, wireError.name, wireError.message),
+    refusal: normalizeWireRejection(RUN_CONTROL_REFUSAL_ORIGIN, rejection, {
+      code: "control-rejected",
+      detail: `The ${control} control was rejected.`,
+    }),
   };
 }

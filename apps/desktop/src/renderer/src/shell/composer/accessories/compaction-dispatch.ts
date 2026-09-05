@@ -50,28 +50,29 @@
 // answered and stops there.
 
 import { useCallback } from "react";
-import { DriverCompactionResultSchema, type DriverCompactionResult } from "@ai-sidekicks/contracts";
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
-import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 import {
-  COMPACT_CONTEXT_METHOD,
-  callUnregisteredDaemonMethod,
-  type ConsoleBridge,
-} from "../../../console/bridge/index.js";
+  RunIdSchema,
+  SessionIdSchema,
+  type DriverCompactionResult,
+} from "@ai-sidekicks/contracts";
+import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
+import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COMPACTION_REFUSAL_ORIGIN = "composer-compaction";
 
 /**
- * Why the console refused to render the reply as a settlement.
+ * Why the console refused a compaction on its own side.
  *
  * One code, and a closed set so a second is a decision rather than a free string.
- * It is raised only for a reply that does not parse as the registered result — a
- * daemon-composed shape the console has no reading for, which is a composition bug
- * and not a user-facing outcome.
+ * The unreadable REPLY is deliberately not among them: the call door owns that
+ * vocabulary for the whole console, and a second spelling here would be a second
+ * name for one failure. What is left is the question the door cannot answer — the
+ * composer is addressed at identifiers the registered request would not accept, so
+ * nothing was asked.
  */
-export const COMPACTION_REFUSAL_CODES = ["reply-unreadable"] as const;
+export const COMPACTION_REFUSAL_CODES = ["addressed-run-unparseable"] as const;
 
 /** One composer-side compaction refusal code. Derived, declared once. */
 export type CompactionRefusalCode = (typeof COMPACTION_REFUSAL_CODES)[number];
@@ -232,37 +233,30 @@ export async function settleCompaction(
   sessionId: string,
   targetRunId: string,
 ): Promise<CompactionDispatchState> {
-  try {
-    const reply = await callUnregisteredDaemonMethod(bridge, COMPACT_CONTEXT_METHOD, {
-      sessionId,
-      runId: targetRunId,
-    });
-    const parsed = DriverCompactionResultSchema.safeParse(reply);
-    if (!parsed.success) {
-      return {
-        phase: "rejected",
-        refusal: unreadableReply(),
-      };
-    }
-    return { phase: "settled", result: parsed.data };
-  } catch (rejection) {
-    const wireError = wireRejectionToError(rejection, { total: true });
-    return {
-      phase: "rejected",
-      // `Error.name` carries the wire code when the rejection was a typed envelope
-      // — that is what `wireRejectionToError` puts there — so the refusal renders
-      // `driver.capability_unsupported: …` rather than a class name nobody can
-      // search for. The message is the daemon's own and is never reworded.
-      refusal: refuse(COMPACTION_REFUSAL_ORIGIN, wireError.name, wireError.message),
-    };
+  const parsedSessionId = SessionIdSchema.safeParse(sessionId);
+  const parsedRunId = RunIdSchema.safeParse(targetRunId);
+  if (!parsedSessionId.success || !parsedRunId.success) {
+    return { phase: "rejected", refusal: unparseableAddress() };
   }
+  const reply = await callDaemon(bridge, "driver.compactContext", {
+    sessionId: parsedSessionId.data,
+    runId: parsedRunId.data,
+  });
+  // A refusal renders under its own code — `driver.capability_unsupported`,
+  // `session.not_found`, or the door's own `reply-unreadable` — and its own
+  // sentence. Nothing here rewords one, and nothing maps one onto a result reason,
+  // which would name a settlement the daemon reached and this call never did.
+  return reply.status === "refused"
+    ? { phase: "rejected", refusal: reply.refusal }
+    : { phase: "settled", result: reply.value };
 }
 
-function unreadableReply(): ConsoleRefusal {
-  const code: CompactionRefusalCode = "reply-unreadable";
+/** The refusal for a composer addressed at identifiers the wire would not accept. */
+function unparseableAddress(): ConsoleRefusal {
+  const code: CompactionRefusalCode = "addressed-run-unparseable";
   return refuse(
     COMPACTION_REFUSAL_ORIGIN,
     code,
-    "The compaction reply did not match the registered result shape, so the console did not read a settlement from it.",
+    "The console is holding identifiers for this run that the daemon would not accept, so it requested no compaction. Reopen the session so its identifiers are read again.",
   );
 }

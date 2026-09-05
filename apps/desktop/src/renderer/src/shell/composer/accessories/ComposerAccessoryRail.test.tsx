@@ -17,7 +17,6 @@ import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekick
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../../console/core/index.js";
 
 import {
-  PROVIDER_ACCOUNT_LIST_METHOD,
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   QUEUE_SUBSCRIBE_STREAM,
   createFixtureBridge,
@@ -91,7 +90,7 @@ const EMPTY_SCENARIO: ConsoleScenario = {
   // scenario the rail mounts against has to answer it: an unscripted call is a
   // fixture authoring error, which would put a refusal in every case below. This
   // node has no account registered, which is an answered read and not a failure.
-  replies: [{ call: PROVIDER_ACCOUNT_LIST_METHOD, result: EMPTY_REGISTRY }],
+  replies: [{ call: "providerAccount.list", result: EMPTY_REGISTRY }],
 };
 
 function mountRail(
@@ -284,7 +283,7 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
       sidekicks: {
         daemon: {
           call: async (method: string): Promise<unknown> =>
-            method === PROVIDER_ACCOUNT_LIST_METHOD ? EMPTY_REGISTRY : queueListReply,
+            method === "providerAccount.list" ? EMPTY_REGISTRY : queueListReply,
           subscribe: () => () => undefined,
         },
       },
@@ -341,7 +340,7 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
       sidekicks: {
         daemon: {
           call: async (method: string): Promise<unknown> =>
-            method === PROVIDER_ACCOUNT_LIST_METHOD ? EMPTY_REGISTRY : { items: [] },
+            method === "providerAccount.list" ? EMPTY_REGISTRY : { items: [] },
           subscribe: (stream: string, handler: (payload: unknown) => void) => {
             // The rail opens more than one stream (the account plane's is another),
             // so the case keeps the queue stream's handler and no other.
@@ -634,7 +633,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
             // The rail's own node-scoped quota read, answered so the recorder below
             // holds compaction dispatches and nothing else — the claim is about which
             // run was compacted, not about which calls the rail makes.
-            if (method === PROVIDER_ACCOUNT_LIST_METHOD) {
+            if (method === "providerAccount.list") {
               return EMPTY_REGISTRY;
             }
             compactionCalls.push({ method, params });
@@ -685,7 +684,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
             if (method === "driver.listCapabilities") {
               return { drivers: [reportFor("claude", ["context_compaction"])] };
             }
-            if (method === PROVIDER_ACCOUNT_LIST_METHOD) {
+            if (method === "providerAccount.list") {
               return EMPTY_REGISTRY;
             }
             compactionCalls.push({ method, params });
@@ -852,7 +851,7 @@ describe("ComposerAccessoryRail — the quota chips come off the account plane",
     return createFixtureBridge({
       scenario: {
         ...EMPTY_SCENARIO,
-        replies: [{ call: PROVIDER_ACCOUNT_LIST_METHOD, result: reply }],
+        replies: [{ call: "providerAccount.list", result: reply }],
       },
     });
   }
@@ -923,7 +922,7 @@ describe("ComposerAccessoryRail — an unreadable delivery is said beside the ch
     const base = createFixtureBridge({
       scenario: {
         ...EMPTY_SCENARIO,
-        replies: [{ call: PROVIDER_ACCOUNT_LIST_METHOD, result: reply }],
+        replies: [{ call: "providerAccount.list", result: reply }],
       },
     });
     const subscribe = base.sidekicks.daemon.subscribe;

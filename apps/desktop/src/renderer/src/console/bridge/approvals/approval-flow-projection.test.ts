@@ -28,8 +28,8 @@ import {
   APPROVAL_FLOW_EVENT_KINDS,
   APPROVAL_FLOW_PROJECTORS,
   projectApprovalFlowEvent,
-} from "./approval-flow-projector.js";
-import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
+} from "./approval-flow-projection.js";
+import { APPROVALS_SCENARIO } from "../scenarios/approvals.js";
 import { RUN_LIFECYCLE_EVENT_KINDS } from "../../frame/run-lifecycle-projector.js";
 import {
   ConsoleEntityProjectorRegistry,

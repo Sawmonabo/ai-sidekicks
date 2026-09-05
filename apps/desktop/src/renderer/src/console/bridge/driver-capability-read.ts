@@ -61,22 +61,18 @@
 // that leaves a stale or refused capability set standing.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import { ListCapabilitiesResultSchema, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../shared/wire-errors.js";
-import { refuse, type ConsoleRefusal } from "../core/index.js";
+import type { ConsoleRefusal } from "../core/index.js";
 import {
   RefreshScheduler,
   useSessionDegradedCause,
   type RefreshReason,
   type SessionStore,
 } from "../store/index.js";
-import { DRIVER_LIST_CAPABILITIES_METHOD, callUnregisteredDaemonMethod } from "./daemon-calls.js";
+import { callDaemon } from "./daemon-reply.js";
 import { SessionRepairWatcher } from "./session-repair-watcher.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
-
-/** The subsystem name every refusal this module raises carries. */
-const DRIVER_CAPABILITY_REFUSAL_ORIGIN = "driver-capabilities";
 
 /** One driver's declared flags, exactly as its own report carried them. */
 export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;
@@ -179,41 +175,27 @@ class BridgeCapabilityRead {
   }
 
   async #read(): Promise<void> {
-    try {
-      const parsed = ListCapabilitiesResultSchema.safeParse(
-        await callUnregisteredDaemonMethod(this.#bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}),
-      );
-      if (!parsed.success) {
-        // A reply the registered schema will not accept resolves no binding. The
-        // flags stay absent — the fail-closed direction — and the reading says why.
-        this.#settle(
-          refusedReadout(
-            refuse(
-              DRIVER_CAPABILITY_REFUSAL_ORIGIN,
-              "reply-unreadable",
-              "The capability reply did not match the registered shape, so the console read no declarations out of it.",
-            ),
-          ),
-        );
-        return;
-      }
-      const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
-      for (const report of parsed.data.drivers) {
-        flagsByDriverName.set(report.driverName, report.capabilities.flags);
-      }
-      // A reply naming no driver settles with no entries and no refusal: nothing
-      // failed, and this node declares nothing.
-      this.#settle({
-        flagsByDriverName,
-        driverNameByRunId: NO_RUN_BINDINGS,
-        readRefusal: undefined,
-      });
-    } catch (rejection: unknown) {
-      const wireError = wireRejectionToError(rejection, { total: true });
-      this.#settle(
-        refusedReadout(refuse(DRIVER_CAPABILITY_REFUSAL_ORIGIN, wireError.name, wireError.message)),
-      );
+    // One branch, because the door has already collapsed the three ways a read can
+    // fail into one: a request the registry would not admit, a rejection carrying the
+    // daemon's own code, and a reply the registered shape does not accept all arrive
+    // as a refusal with its code intact. A refused read declares NOTHING — the flags
+    // stay absent, which is the fail-closed direction — and carries why.
+    const reply = await callDaemon(this.#bridge, "driver.listCapabilities", {});
+    if (reply.status === "refused") {
+      this.#settle(refusedReadout(reply.refusal));
+      return;
     }
+    const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
+    for (const report of reply.value.drivers) {
+      flagsByDriverName.set(report.driverName, report.capabilities.flags);
+    }
+    // A reply naming no driver settles with no entries and no refusal: nothing
+    // failed, and this node declares nothing.
+    this.#settle({
+      flagsByDriverName,
+      driverNameByRunId: NO_RUN_BINDINGS,
+      readRefusal: undefined,
+    });
   }
 
   #settle(readout: DriverCapabilityReadout): void {

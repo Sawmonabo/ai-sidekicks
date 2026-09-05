@@ -49,7 +49,33 @@
 
 import { z } from "zod";
 
-import { REMEMBERED_SCOPE_KINDS } from "./approval-vocabulary.js";
+import { REMEMBERED_SCOPE_KINDS, type ApprovalDecision } from "./approval-vocabulary.js";
+
+/**
+ * What one resolve carries.
+ *
+ * Nothing on it edits the requested action: the Approvals View sketch's interactions
+ * are approve / deny / remember and no fourth. Beside the two reply readings rather
+ * than beside the surface, because a request shape and the reply shape it is answered
+ * with are two sides of one seam, and the growth port's signature table names both.
+ */
+export interface ApprovalResolveRequest {
+  readonly approvalRequestId: string;
+  readonly decision: ApprovalDecision;
+  /**
+   * Informational and routing only. The console never treats it as authoritative —
+   * a mismatch is the daemon's `auth.principal_mismatch`.
+   */
+  readonly approver?: string;
+  /** Never broader than requested. The surface offers no scope-widening control. */
+  readonly effectiveScope?: string;
+  /**
+   * Present only where the participant opted in, and only on an `approved`
+   * decision. An untouched control omits the member entirely rather than sending a
+   * falsy one, because a remembered scope is valid only on the approve path.
+   */
+  readonly rememberedScope?: { readonly kind: string; readonly pattern?: string };
+}
 
 /**
  * One approval record, as this surface holds it.

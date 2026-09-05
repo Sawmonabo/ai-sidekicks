@@ -30,26 +30,20 @@
 // diagnostic rather than rendered as a regression (`#mergeWindow`).
 
 import {
-  ProviderAccountListResponseSchema,
   ProviderAccountNotificationSchema,
   ProviderAccountSubscribeRequestSchema,
   type ProviderAccountNotification,
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import {
-  isConsoleRefusal,
+  normalizeWireRejection,
   refuse,
   refusedMemberPaths,
   type ConsoleRefusal,
 } from "../core/index.js";
-import {
-  PROVIDER_ACCOUNT_LIST_METHOD,
-  PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
-  callUnregisteredDaemonMethod,
-  subscribeNodeDaemon,
-} from "./daemon-calls.js";
+import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM, subscribeNodeDaemon } from "./daemon-streams.js";
+import { callDaemon } from "./daemon-reply.js";
 import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
 import { ProviderQuotaNotificationHold } from "./provider-quota-notification-hold.js";
 import type { ConsoleBridge } from "./console-bridge.js";
@@ -197,47 +191,28 @@ export class NodeProviderQuotaReading {
     const readOrdinal = this.#seedReadOrdinal;
     this.#notificationHold.begin();
 
-    void callUnregisteredDaemonMethod(this.#bridge, PROVIDER_ACCOUNT_LIST_METHOD, {})
-      .then((reply) => {
-        if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
-          return;
-        }
-        const parsed = ProviderAccountListResponseSchema.safeParse(reply);
-        if (!parsed.success) {
-          // The held notifications are replayed even here. They are not waiting on
-          // this snapshot for correctness — they were waiting so the snapshot could
-          // not overwrite them — and with no snapshot they are the only reading the
-          // console has.
-          this.#replayHeldNotifications();
-          this.#settleRefused(
-            refuse(
-              PROVIDER_QUOTA_REFUSAL_ORIGIN,
-              "reply-unreadable",
-              "The provider-account reply did not match the registered list shape, so the console read no quotas from it.",
-            ),
-          );
-          return;
-        }
-        for (const account of parsed.data.accounts) {
-          this.#fold.seatAccount(account);
-        }
-        for (const usageWindow of parsed.data.usageWindows) {
-          this.#mergeWindow(usageWindow);
-        }
-        this.#phase = "read";
-        this.#replayHeldNotifications();
-        this.#publish();
-      })
-      .catch((rejection: unknown) => {
-        if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
-          return;
-        }
-        this.#replayHeldNotifications();
-        const wireError = wireRejectionToError(rejection, { total: true });
-        this.#settleRefused(
-          refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message),
-        );
-      });
+    void callDaemon(this.#bridge, "providerAccount.list", {}).then((reply) => {
+      if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
+        return;
+      }
+      // The held notifications are replayed on BOTH arms. They were not waiting on
+      // this snapshot for correctness — they were waiting so the snapshot could not
+      // overwrite them — and on the refused arm they are the only reading the console
+      // has.
+      this.#replayHeldNotifications();
+      if (reply.status === "refused") {
+        this.#settleRefused(reply.refusal);
+        return;
+      }
+      for (const account of reply.value.accounts) {
+        this.#fold.seatAccount(account);
+      }
+      for (const usageWindow of reply.value.usageWindows) {
+        this.#mergeWindow(usageWindow);
+      }
+      this.#phase = "read";
+      this.#publish();
+    });
   }
 
   /**
@@ -396,18 +371,17 @@ function unreadableDeliveryRefusal(
 /**
  * The refusal an unopenable stream settles as.
  *
- * A refusal the subscription wrapper already composed carries its own origin and
- * code, and the code is what a person pastes into a search; re-wrapping it would
- * replace both. Anything else is a wire rejection and goes through the one
- * normalizer this file already uses on the read's path.
+ * The console's ONE reading of a rejected promise, consumed rather than re-derived:
+ * it unwraps a carried refusal structurally — which keeps the subscription wrapper's
+ * own code intact rather than replacing it with this module's — and reads a typed
+ * envelope's dotted code off `data.type`, where a `{ code: string }` guard cannot see
+ * it. This module supplies only the origin and the sentence for a rejection that said
+ * nothing machine-readable.
  */
 function streamRefusalFor(rejection: unknown): ConsoleRefusal {
-  if (typeof rejection === "object" && rejection !== null) {
-    const carried = (rejection as { readonly refusal?: unknown }).refusal;
-    if (isConsoleRefusal(carried)) {
-      return carried;
-    }
-  }
-  const wireError = wireRejectionToError(rejection, { total: true });
-  return refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message);
+  return normalizeWireRejection(PROVIDER_QUOTA_REFUSAL_ORIGIN, rejection, {
+    code: "stream-unopenable",
+    detail:
+      "The provider-account registry's live tail could not be opened, so the console read no quotas.",
+  });
 }

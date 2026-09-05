@@ -19,7 +19,7 @@ import { type ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
-import { APPROVAL_PROJECTION_READ_METHOD } from "./approvals-wire.js";
+import {} from "./approvals-wire.js";
 
 const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 const SECOND_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";
@@ -118,7 +118,7 @@ function lifecycleEvent(sessionId: string, sequence: number): ConsoleSessionEven
 
 function sessionIdsRead(calls: readonly RecordedCall[]): readonly unknown[] {
   return calls
-    .filter((call) => call.method === APPROVAL_PROJECTION_READ_METHOD)
+    .filter((call) => call.method === "approval.projectionRead")
     .map((call) => (call.params as { readonly sessionId?: unknown }).sessionId);
 }
 

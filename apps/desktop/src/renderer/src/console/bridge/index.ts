@@ -46,27 +46,65 @@ export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 // would be measured against the wrong one.
 export { runStateForTransitionKind } from "./session-event-streams.js";
 
-// The one widening of the daemon's branded `call` / `subscribe` signatures, and the
-// registered method-name constants the console reaches through it. Here rather than
-// beside a caller because two families need it and neither may import the other —
-// `daemon-calls.ts` records the whole reasoning.
+// The one widening of the daemon's branded `subscribe` signature, and the registered
+// stream names the console opens through it. Here rather than beside a caller because
+// two families need it and neither may import the other — `daemon-streams.ts` records
+// the whole reasoning, including why a subscription is a different seam from a call.
 export {
-  COMPACT_CONTEXT_METHOD,
-  DRIVER_LIST_CAPABILITIES_METHOD,
-  LIST_PROVIDER_COMMANDS_METHOD,
-  PROVIDER_ACCOUNT_LIST_METHOD,
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
-  QUEUE_CANCEL_METHOD,
-  QUEUE_LIST_METHOD,
   QUEUE_SUBSCRIBE_STREAM,
-  RUN_INTERVENE_METHOD,
-  RUN_PAUSE_METHOD,
-  RUN_RESUME_METHOD,
   RUN_STATE_SUBSCRIBE_STREAM,
-  callUnregisteredDaemonMethod,
   subscribeDaemon,
   subscribeNodeDaemon,
-} from "./daemon-calls.js";
+} from "./daemon-streams.js";
+
+// The approvals surface's wire readings: the two reply narrowings, the resolve
+// request they pair with, and the vocabulary that classifies the wire strings both
+// carry. Here rather than beside the pane because `packages/contracts` publishes no
+// approval payload at all, so these ARE validators, and the console's one validator
+// family is this one — the pane may hold none. The projector beside them folds the
+// same wire's events; a surface consumes the ANSWER and never the schema.
+export {
+  APPROVAL_RECORD_MEMBERS,
+  hasCompleteResolvedQuad,
+  isResolvedState,
+  readApprovalProjection,
+  readRememberedRuleList,
+  type ApprovalRecord,
+  type ApprovalResolveRequest,
+  type ParsedRows,
+  type RememberedRule,
+  type RememberedScope,
+} from "./approvals/approval-records.js";
+export {
+  APPROVAL_CATEGORIES,
+  APPROVAL_DECISIONS,
+  APPROVAL_STATES,
+  CATEGORY_PHRASE,
+  INVALIDATION_TRIGGERS,
+  REMEMBERED_SCOPE_KINDS,
+  SCOPE_KIND_PHRASE,
+  STATE_PHRASE,
+  STATE_TONE,
+  TRIGGER_PHRASE,
+  asApprovalCategory,
+  asApprovalState,
+  asInvalidationTrigger,
+  asRememberedScopeKind,
+  rememberedScopeKindPhrase,
+  type ApprovalCategory,
+  type ApprovalDecision,
+  type ApprovalState,
+  type InvalidationTrigger,
+  type RememberedScopeKind,
+} from "./approvals/approval-vocabulary.js";
+export {
+  APPROVAL_BODY_MEMBER_TABLES,
+  APPROVAL_FLOW_EVENT_KINDS,
+  APPROVAL_FLOW_PROJECTORS,
+  projectApprovalFlowEvent,
+  registerApprovalFlowProjectors,
+} from "./approvals/approval-flow-projection.js";
 
 // The goal payload readings and the two bounds a goal is refused against. Through
 // this door because the approvals surface is a view family and may hold no
@@ -163,7 +201,7 @@ export type {
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
-export type { GrowthUnavailable } from "./growth-outcome.js";
+export type { GrowthOutcome, GrowthServed, GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

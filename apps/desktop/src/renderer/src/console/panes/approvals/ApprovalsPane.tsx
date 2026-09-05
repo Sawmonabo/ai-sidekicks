@@ -50,7 +50,7 @@ import { RememberedGrants } from "./RememberedGrants.js";
 import { SessionGoalCard } from "./SessionGoalCard.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { useGoalMutationAuthorization } from "./goal-authorization.js";
-import { type ApprovalRecord, type RememberedRule } from "./approval-records.js";
+import { type ApprovalRecord, type RememberedRule } from "../../bridge/index.js";
 import { type ReadPhase } from "./approvals-reader.js";
 import { foldSessionGoal } from "./session-goal.js";
 

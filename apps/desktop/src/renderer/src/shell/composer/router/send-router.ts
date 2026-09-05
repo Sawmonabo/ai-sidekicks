@@ -18,28 +18,28 @@
 //      holds wire-verbatim strings; `run.queueCreate` and `run.intervene` take
 //      branded ids. Parsing here means the console never dispatches a shape the
 //      daemon would refuse, and an unparseable id becomes a rendered refusal
-//      instead of a rejected round trip.
+//      instead of a rejected round trip. The REQUEST as a whole, and every reply,
+//      are parsed by `callDaemon` rather than here: this module resolves identifiers
+//      because the resolution is pure and testable without a bridge, and the door
+//      one layer down is what makes the parse unskippable.
 //   3. **A missing comparand refuses.** `expectedRunVersion` is MANDATORY and
 //      fail-closed on the wire (D-004-2). The console has no `run.subscribeState`
 //      projection yet, so the comparand is routinely absent — and the answer to an
 //      absent stale-replay guard is to refuse, never to send a zero, which would be
 //      a guard the caller invented rather than one the daemon verified.
-//   4. **A fulfilled call is not a successful send.** Both send paths answer with a
-//      registered response, and this module used to treat any reply that did not
-//      throw as "sent". `run.intervene` answers with a lifecycle STATE, and two of
-//      the six mean the run did not take the message, so a normally rejected steer
-//      cleared the participant's draft as if it had landed; the response is parsed
-//      against its registered shape and the state decides, and the answer's
-//      `runVersion` is kept — an applied native steer advances the run version with
-//      no state event to broadcast it, so the response is the only place the fresh
-//      comparand exists and a second steer was guaranteed to be refused as stale
-//      without it. `run.queueCreate` answers with the queued item, and a reply that
-//      is not the registered shape confirms no queued message at all — a
-//      protocol-version mismatch used to clear the draft on one. Only the stop is
-//      settled by fulfilment alone, and that is a property of its contract rather
-//      than a shortcut: `driver.interruptRun` answers with `DriverAckResult`, which
-//      is the empty object, so there is no member a reply could carry for a parse
-//      to read.
+//   4. **A fulfilled call is not a successful send.** All three send paths reach the
+//      wire through `callDaemon`, which answers `served` or `refused` and never
+//      throws, so a reply that did not parse against its registered shape can no
+//      longer be read as "sent" — the failure this module used to make once per call
+//      site is now structural. On top of that, a SERVED reply is still not
+//      necessarily a landed message: `run.intervene` answers with a lifecycle STATE,
+//      and two of the six mean the run did not take it, so the state decides and the
+//      answer's `runVersion` is kept — an applied native steer advances the run
+//      version with no state event to broadcast it, so the response is the only place
+//      the fresh comparand exists and a second steer was guaranteed to be refused as
+//      stale without it. The other two settle on the served reply itself:
+//      `run.queueCreate` answers with the queued item, and `driver.interruptRun` with
+//      `DriverAckResult`, the empty object, which carries no member to branch on.
 //
 // TRIMMING IS A TEST AND NEVER A TRANSFORM. This module used to resolve against
 // `text.trim()` and hand that trimmed value to both request builders, so the daemon
@@ -59,9 +59,7 @@ import {
   ChannelIdSchema,
   InterruptRunParamsSchema,
   InterventionRequestPayloadSchema,
-  InterventionRequestResponseSchema,
   QueueItemCreateRequestSchema,
-  QueueItemCreateResponseSchema,
   RunIdSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
@@ -71,7 +69,7 @@ import {
   type QueueItemCreateRequest,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import {
   LITERAL_SLASH_ESCAPE,
@@ -87,12 +85,9 @@ import type {
   ProviderCommandPredicate,
 } from "./send-resolutions.js";
 import {
-  carriedDaemonRefusal,
   composerRefusal,
   interventionNotApplied,
   unparseableIdentifier,
-  unreadableInterventionReply,
-  unreadableQueueReply,
   type ComposerRefusalCode,
 } from "./send-refusals.js";
 import { RunVersionLedger } from "./run-version-ledger.js";
@@ -122,15 +117,6 @@ export interface ComposerSendRouterOptions {
    */
   readonly runVersions?: RunVersionLedger;
 }
-
-/** The wire method a new turn is queued through. */
-const QUEUE_CREATE_METHOD = "run.queueCreate";
-
-/** The wire method every intervention travels, steer included. */
-const INTERVENE_METHOD = "run.intervene";
-
-/** The wire method a stop travels. Reachable during any active turn. */
-const INTERRUPT_RUN_METHOD = "driver.interruptRun";
 
 export class ComposerSendRouter {
   readonly #bridge: ConsoleBridge;
@@ -369,21 +355,20 @@ export class ComposerSendRouter {
   }
 
   /**
-   * Dispatch the stop, whose fulfilment IS the settlement.
+   * Dispatch the stop, whose SERVED reply IS the settlement.
    *
-   * The one send path with nothing to read back, and that is its CONTRACT rather
-   * than a shortcut: `driver.interruptRun` answers with `DriverAckResult`, which the
-   * registered schema declares as the empty object. A parse here would assert that
-   * `{}` is `{}` and would tell a person nothing a rejection has not already told
-   * them.
+   * The one send path with nothing to read OFF the reply, and that is its CONTRACT
+   * rather than a shortcut: `driver.interruptRun` answers with `DriverAckResult`,
+   * which the registered schema declares as the empty object, so there is no member
+   * a settlement could branch on. The reply is still parsed — the door parses every
+   * one — and a shape carrying members is a protocol mismatch this path refuses
+   * rather than reads as a stop that happened.
    */
   async #dispatchInterrupt(params: InterruptRunParams): Promise<ComposerSendOutcome> {
-    try {
-      await this.#call(INTERRUPT_RUN_METHOD, params);
-      return { status: "sent", path: "provider-bound" };
-    } catch (cause) {
-      return { status: "refused", refusal: carriedDaemonRefusal(cause) };
-    }
+    const reply = await callDaemon(this.#bridge, "driver.interruptRun", params);
+    return reply.status === "refused"
+      ? { status: "refused", refusal: reply.refusal }
+      : { status: "sent", path: "provider-bound" };
   }
 
   /**
@@ -401,16 +386,10 @@ export class ComposerSendRouter {
    * parse buys is the confirmation itself and not a member to carry forward.
    */
   async #dispatchQueuedTurn(request: QueueItemCreateRequest): Promise<ComposerSendOutcome> {
-    let reply: unknown;
-    try {
-      reply = await this.#call(QUEUE_CREATE_METHOD, request);
-    } catch (cause) {
-      return { status: "refused", refusal: carriedDaemonRefusal(cause) };
-    }
-    if (!QueueItemCreateResponseSchema.safeParse(reply).success) {
-      return { status: "refused", refusal: unreadableQueueReply() };
-    }
-    return { status: "sent", path: "channel-message" };
+    const reply = await callDaemon(this.#bridge, "run.queueCreate", request);
+    return reply.status === "refused"
+      ? { status: "refused", refusal: reply.refusal }
+      : { status: "sent", path: "channel-message" };
   }
 
   /**
@@ -428,46 +407,18 @@ export class ComposerSendRouter {
    * without a re-read the console has no projection to perform.
    */
   async #dispatchIntervention(request: InterventionRequestPayload): Promise<ComposerSendOutcome> {
-    let reply: unknown;
-    try {
-      reply = await this.#call(INTERVENE_METHOD, request);
-    } catch (cause) {
-      return { status: "refused", refusal: carriedDaemonRefusal(cause) };
+    const reply = await callDaemon(this.#bridge, "run.intervene", request);
+    if (reply.status === "refused") {
+      return { status: "refused", refusal: reply.refusal };
     }
-    const parsed = InterventionRequestResponseSchema.safeParse(reply);
-    if (!parsed.success) {
-      return { status: "refused", refusal: unreadableInterventionReply() };
-    }
-    this.#runVersions.record(request.targetRunId, parsed.data.runVersion);
-    if (!isInterventionAdmitted(parsed.data.state)) {
+    this.#runVersions.record(request.targetRunId, reply.value.runVersion);
+    if (!isInterventionAdmitted(reply.value.state)) {
       return {
         status: "refused",
-        refusal: interventionNotApplied(parsed.data.state, parsed.data.rejectionReason),
+        refusal: interventionNotApplied(reply.value.state, reply.value.rejectionReason),
       };
     }
     return { status: "sent", path: "provider-bound" };
-  }
-
-  /**
-   * Hand one already-validated request to the daemon, brand cast and all.
-   *
-   * THE BRAND CAST IS HERE AND NOWHERE ELSE. `daemon.call<M extends DaemonMethod>`
-   * takes a `never`-shaped brand until Plan-007 narrows it to the real method-name
-   * union, so no string literal is structurally assignable to it. The method name
-   * stays loosely `string` — the genuinely untypeable part — while the params keep
-   * their registered contract type, which is the tightening the shipped
-   * `session-members/participant-roster.tsx` precedent settled on. One documented
-   * bypass for the whole composer rather than one per call site.
-   */
-  async #call(
-    method: string,
-    params: QueueItemCreateRequest | InterventionRequestPayload | InterruptRunParams,
-  ): Promise<unknown> {
-    const call = this.#bridge.sidekicks.daemon.call as (
-      method: string,
-      params: QueueItemCreateRequest | InterventionRequestPayload | InterruptRunParams,
-    ) => Promise<unknown>;
-    return await call(method, params);
   }
 }
 

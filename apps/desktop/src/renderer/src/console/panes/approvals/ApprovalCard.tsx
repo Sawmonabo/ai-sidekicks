@@ -48,7 +48,7 @@ import {
   hasCompleteResolvedQuad,
   isResolvedState,
   type ApprovalRecord,
-} from "./approval-records.js";
+} from "../../bridge/index.js";
 import {
   CATEGORY_PHRASE,
   STATE_PHRASE,
@@ -56,7 +56,7 @@ import {
   asApprovalCategory,
   asApprovalState,
   rememberedScopeKindPhrase,
-} from "./approval-vocabulary.js";
+} from "../../bridge/index.js";
 import {
   IDLE_REMEMBERED_GRANT_INTENT,
   RememberDecision,

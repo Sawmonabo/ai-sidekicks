@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import { RUN_PAUSE_METHOD } from "../../../console/bridge/index.js";
+import {} from "../../../console/bridge/index.js";
 import { StepIn } from "./StepIn.js";
 
 /** A real UUID, because the registered run identifier is a branded UUID. */
@@ -68,7 +68,7 @@ function renderStepIn(replies: ConsoleScenario["replies"]): {
 }
 
 const ACKNOWLEDGED_PAUSE = {
-  call: RUN_PAUSE_METHOD,
+  call: "run.pause",
   result: { runId: TARGET_RUN_ID, currentState: "paused", runVersion: 8 },
 };
 
@@ -98,7 +98,7 @@ describe("StepIn — the floor moves on the acknowledgment, never on the dispatc
     // rendered the reply as received would report a pause that never happened.
     const { container, trigger, onTakeTheFloor } = renderStepIn([
       {
-        call: RUN_PAUSE_METHOD,
+        call: "run.pause",
         result: { runId: TARGET_RUN_ID, currentState: "napping", runVersion: 8 },
       },
     ]);

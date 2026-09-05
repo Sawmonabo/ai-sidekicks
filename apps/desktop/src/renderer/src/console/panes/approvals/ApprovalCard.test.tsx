@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { ApprovalCard } from "./ApprovalCard.js";
 import { ACCENT_FILL_CLASS } from "../../primitives/index.js";
-import { type ApprovalRecord } from "./approval-records.js";
+import { type ApprovalRecord } from "../../bridge/index.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
 
 function pendingRecord(overrides: Partial<ApprovalRecord> = {}): ApprovalRecord {

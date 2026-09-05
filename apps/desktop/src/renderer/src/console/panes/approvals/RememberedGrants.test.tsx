@@ -9,7 +9,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RememberedGrants } from "./RememberedGrants.js";
-import { type RememberedRule } from "./approval-records.js";
+import { type RememberedRule } from "../../bridge/index.js";
 
 function rule(overrides: Partial<RememberedRule> = {}): RememberedRule {
   return {

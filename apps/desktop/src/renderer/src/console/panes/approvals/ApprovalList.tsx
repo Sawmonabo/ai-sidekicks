@@ -13,7 +13,7 @@ import { type ConsoleRefusal } from "../../core/index.js";
 import { ApprovalCard } from "./ApprovalCard.js";
 import { ProviderAskFraming } from "./ProviderAskFraming.js";
 import { countAsksMissingDeadline, type ProviderAsk } from "./provider-ask.js";
-import { type ApprovalRecord } from "./approval-records.js";
+import { type ApprovalRecord } from "../../bridge/index.js";
 import { type ReadPhase } from "./approvals-reader.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
 
