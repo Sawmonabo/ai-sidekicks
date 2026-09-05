@@ -17,7 +17,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ManualClock, consoleTripwires, isConsoleRefusal } from "../core/index.js";
+import { ManualClock, isConsoleRefusal } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import { PERSISTENCE_GLOBAL_PARTITION } from "./adapter.js";
 import { MemoryPersistenceAdapter } from "./memory-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";

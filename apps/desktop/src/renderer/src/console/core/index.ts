@@ -43,6 +43,34 @@ export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // release-absence sweep, which imports the leaf directly — a barrel line no
 // importer reaches is a dead export the structure gate reports.
 export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
-export { DuplicateRegistrationError, KeyedRegistry } from "./keyed-registry.js";
+export {
+  compareInstants,
+  parseInstant,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type Instant,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type InstantOffsetPolicy,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type InstantOrder,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type InstantReading,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type MalformedInstant,
+} from "./instant.js";
+// The registry classes leave through this door; the two symbols only their own
+// suites read do not. `DuplicateRegistrationError` is what `KeyedRegistry` throws
+// and `consoleTripwires` is the singleton `reportTripwire` writes to, so a family
+// consumes each of them by calling the symbol beside it rather than by naming it.
+// A test asserting on either reaches the module that declares it.
+export { KeyedRegistry } from "./keyed-registry.js";
 export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
-export { consoleTripwires, reportTripwire } from "./tripwires.js";
+export { reportTripwire } from "./tripwires.js";
+export {
+  normalizeWireRejection,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type RejectionFallback,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type WireRefusal,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type WireRetryHint,
+} from "./wire-rejection.js";

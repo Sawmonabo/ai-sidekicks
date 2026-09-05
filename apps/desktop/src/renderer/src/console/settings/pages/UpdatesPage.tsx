@@ -38,7 +38,7 @@ import {
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import {
   DerivedFigure,
   Nothing,
@@ -151,7 +151,7 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
     try {
       await perform();
     } catch (rejection: unknown) {
-      setRequestRefusal(normalizeWireRejection(rejection, { total: true }).message);
+      setRequestRefusal(wireRejectionToError(rejection, { total: true }).message);
     }
   }, []);
 

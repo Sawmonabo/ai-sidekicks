@@ -29,6 +29,14 @@ const RUN_FINISHED = "019b7a11-0280-740e-8120-d1a4c1150022";
 const RUN_FAILED = "019b7a11-0280-740e-8130-d1a4c1150023";
 
 /**
+ * The instant this scenario's beats are offset from.
+ *
+ * Built with `Date.UTC` rather than parsed, so the fixture never asks a second
+ * reader what `core/instant.ts` is the one reader for.
+ */
+const ATTENTION_SCENARIO_STARTED_AT_MILLISECONDS = Date.UTC(2026, 0, 1, 16, 0, 0);
+
+/**
  * The daemon's opaque row id for the beat at `sequence`.
  *
  * A UUID v7 like every identifier the shipped scenarios carry, and deliberately
@@ -55,7 +63,7 @@ function runTransition(
       sessionId: ATTENTION_SESSION_ID,
       sequence,
       kind: `run.${newState}`,
-      occurredAt: new Date(Date.parse("2026-01-01T16:00:00.000Z") + atMs).toISOString(),
+      occurredAt: new Date(ATTENTION_SCENARIO_STARTED_AT_MILLISECONDS + atMs).toISOString(),
       payload: {
         sessionId: ATTENTION_SESSION_ID,
         runId,

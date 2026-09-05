@@ -18,7 +18,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { consoleTripwires } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import { SurfaceErrorBoundary } from "../frame/ErrorBoundary.js";
 import { SessionStore } from "../store/index.js";
 import { CollaborationSessionModelHolder, useSessionModels } from "./session-models.js";

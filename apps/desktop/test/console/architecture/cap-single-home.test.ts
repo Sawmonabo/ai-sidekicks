@@ -21,11 +21,14 @@
 //
 // Test files are excluded: a case that plants a would-be offender has to write one.
 
-import { join } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
-import { consoleSourceModules, readConsoleSource } from "../console-source-modules.js";
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
 
 /**
  * The one module allowed to declare a bound.
@@ -33,7 +36,7 @@ import { consoleSourceModules, readConsoleSource } from "../console-source-modul
  * An allow-list of exactly one, written as a path rather than inferred, so moving
  * the home is an edit a reviewer sees.
  */
-const BOUNDS_MODULE = join("core", "constants.ts");
+const BOUNDS_MODULE = ["console", "core", "constants.ts"].join("/");
 
 /**
  * How this tree spells a bound in an identifier.
@@ -57,27 +60,27 @@ function declaredBoundNames(source: string): readonly string[] {
 }
 
 describe("console bounds — every cap is declared in one module", () => {
-  // `*.test-support.ts` is dropped here rather than in the shared walk: those
-  // modules are test scaffolding, and this rule already exempts a test that has to
-  // write a would-be offender in order to prove the checker bites.
-  const modules = consoleSourceModules().filter((module) => !module.endsWith(".test-support.ts"));
+  // The shared walk already drops co-located tests and their support modules, which
+  // is the exemption this rule needs: a case that plants a would-be offender has to
+  // be able to write one.
+  const modules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
 
   it("finds a console tree to scan at all", () => {
     // Without this, a wrong console directory would scan nothing and the assertion
     // below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
-    expect(modules).toContain(BOUNDS_MODULE);
+    expect(modules.map((module) => module.displayPath)).toContain(BOUNDS_MODULE);
   });
 
   it("declares no bound outside that module", () => {
     const secondHomes = modules
-      .filter((module) => module !== BOUNDS_MODULE)
+      .filter((module) => module.displayPath !== BOUNDS_MODULE)
       .map((module) => ({
         module,
-        names: declaredBoundNames(readConsoleSource(module)),
+        names: declaredBoundNames(readConsoleSourceModule(module)),
       }))
       .filter((entry) => entry.names.length > 0)
-      .map((entry) => `${entry.module}: ${entry.names.join(", ")}`);
+      .map((entry) => `${entry.module.displayPath}: ${entry.names.join(", ")}`);
     expect(secondHomes).toStrictEqual([]);
   });
 
@@ -85,7 +88,9 @@ describe("console bounds — every cap is declared in one module", () => {
     // The checker reads real files and the pattern matches real declarations.
     // Without this, a typo in the pattern would make the clean result above mean
     // nothing at all.
-    const declared = declaredBoundNames(readConsoleSource(BOUNDS_MODULE));
+    const declared = declaredBoundNames(
+      readConsoleSourceModule(moduleNamed(modules, BOUNDS_MODULE, "the console's bounds module")),
+    );
     expect(declared.length).toBeGreaterThan(10);
     expect(declared).toContain("PALETTE_RESULT_CAP");
   });

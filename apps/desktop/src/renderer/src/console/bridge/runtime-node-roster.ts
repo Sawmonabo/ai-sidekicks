@@ -54,7 +54,7 @@ import type {
   Unsubscribe,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 import type { ScenarioRuntimeNodeRosterFrame } from "./scenario.js";
@@ -208,7 +208,7 @@ export type RuntimeNodePresenceSubscribe = (
  * Read the roster over the registered control-plane procedure. The live arm.
  *
  * The rejection is converted rather than propagated, and the wire's own code
- * survives the conversion: `normalizeWireRejection` rebuilds a `{code, message}`
+ * survives the conversion: `wireRejectionToError` rebuilds a `{code, message}`
  * envelope as an `Error` whose `name` IS the wire code, so a typed
  * `runtimenode.*` refusal reaches the surface as that code and not as a
  * console-scoped paraphrase. Anything else keeps its own error name, which is a
@@ -226,7 +226,7 @@ export async function readRuntimeNodeRosterOverControlPlane(
     const value = await callProcedure(RUNTIME_NODE_ROSTER_PROCEDURE, request);
     return { status: "served", value };
   } catch (rejection: unknown) {
-    const normalized = normalizeWireRejection(rejection);
+    const normalized = wireRejectionToError(rejection);
     return refusedByWire(normalized.name, normalized.message);
   }
 }
@@ -319,7 +319,7 @@ export function subscribeRuntimeNodePresence(
       // So the ones already taken are released and the whole attempt refuses,
       // carrying the thrower's own name and sentence rather than a paraphrase.
       releaseAll();
-      const normalized = normalizeWireRejection(rejection);
+      const normalized = wireRejectionToError(rejection);
       return refusedByWire(normalized.name, normalized.message);
     }
   }

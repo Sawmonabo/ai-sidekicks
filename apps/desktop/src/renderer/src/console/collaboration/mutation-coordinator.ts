@@ -54,7 +54,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import {
   AttemptGeneration,
   Emitter,
@@ -253,7 +253,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   /**
    * Widen any rejection into the console's one refusal shape.
    *
-   * `normalizeWireRejection` puts the wire code on `Error.name` — that is the
+   * `wireRejectionToError` puts the wire code on `Error.name` — that is the
    * repository's single normalizer for this seam and rewriting it here would be
    * the second copy `src/shared/wire-errors.ts` exists to prevent. `total`
    * because a rejection crossing the preload boundary is `unknown`, and the
@@ -275,7 +275,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   }
 
   #asRefusal(rejection: unknown): ConsoleRefusal {
-    const normalized = normalizeWireRejection(rejection, { total: true });
+    const normalized = wireRejectionToError(rejection, { total: true });
     return refuse(
       COLLABORATION_REFUSAL_ORIGIN,
       normalized.name,

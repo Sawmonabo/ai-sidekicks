@@ -13,6 +13,14 @@ export default defineConfig({
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
+    // Every `pre-commit-runner` case builds a throwaway git repository, stages
+    // files into it, and spawns the runner as a child process; measured on the
+    // hosted runners those cases take 2.7–3.1 s each, and Vitest's 5 s default
+    // gave a loaded runner under 2x headroom — the `flags an inbound cite-target
+    // failure … (PR #97 scenario)` case timed out at exactly 5000 ms on PR #428's
+    // gate run while every sibling passed. The bound stays a bound (a hung git
+    // spawn still fails), sized so runner load alone cannot trip it.
+    testTimeout: 30_000,
     // BL-123 Stage 1 measurement substrate. This is the one tree that does NOT
     // consume the repo-root `sharedCoverageOptions()` factory: `tsc -p
     // tools/docs-corpus` pins `rootDir` to this directory, so importing a file

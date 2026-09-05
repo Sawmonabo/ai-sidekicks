@@ -64,6 +64,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
+import { daemonMethodBindingFor } from "./daemon-reply-registry.js";
 import {
   FIXTURE_SERVED_GROWTH_OPERATION_IDS,
   createFixtureGrowthPort,
@@ -93,16 +94,26 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * stream's registered payload requires. It refuses rather than delivering the half
  * it could build, because a projection missing a required member renders as blank
  * and reviews as working.
+ *
+ * `reply-off-contract` is the other half of that authoring claim, on the request /
+ * response seam rather than the subscription one: the scenario scripted a reply for
+ * a method the corpus HAS registered, and the value does not match the shape
+ * `daemon-reply-registry.ts` binds to it. It refuses rather than resolving, because
+ * a fixture that hands a surface a shape the live wire cannot send teaches that
+ * surface to render a frame production never produces — the same defect the
+ * projection arm above exists to prevent, arriving through the call door.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   "reply-unscripted",
   "capability-absent",
   "beat-unprojectable",
+  "reply-off-contract",
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
 ] = [
   "reply-unscripted",
   "capability-absent",
   "beat-unprojectable",
+  "reply-off-contract",
   ...SCRIPTED_REPLY_REFUSAL_CODES,
 ];
 
@@ -157,12 +168,16 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       // `DaemonResult<M>` is a Plan-007 stub that resolves to `unknown`, so the
       // assertion narrows nothing today; it is here so that when Plan-007 lands the
       // real method-to-result mapping, this line becomes the one place the fixture
-      // has to prove its scripted replies match the wire.
+      // has to prove its scripted replies match the wire. Until then the check
+      // beside it does that job for every method the corpus has already registered.
       call: async <MethodName extends DaemonMethod>(
         method: MethodName,
         params: DaemonParams<MethodName>,
       ): Promise<DaemonResult<MethodName>> =>
-        (await resolveScriptedReply(scenarioEngine, method, params)) as DaemonResult<MethodName>,
+        assertScriptedReplyOnContract(
+          method,
+          await resolveScriptedReply(scenarioEngine, method, params),
+        ) as DaemonResult<MethodName>,
       subscribe: <EventName extends DaemonEvent>(
         event: EventName,
         handler: (payload: DaemonEventPayload<EventName>) => void,
@@ -404,6 +419,43 @@ async function resolveScriptedReply(
     case "resolved":
       return settlement.value;
   }
+}
+
+/**
+ * Hold one resolved scripted reply to the shape the corpus registers for its method.
+ *
+ * THE SAME REGISTRY THE CONSOLE READS THROUGH. `daemon-reply.ts` parses every live
+ * reply against `daemon-reply-registry.ts`; this reads the same table, so a scenario
+ * that scripts a reply the wire could not send fails in the scenario's own tests
+ * rather than in whichever surface renders it — the `scenario-wire-truth` posture,
+ * moved onto the call door. Two tables would let the fixture teach a shape the
+ * console then refuses, with both halves green.
+ *
+ * ASSERTS, AND DOES NOT SUBSTITUTE. The ORIGINAL value travels on, never the parsed
+ * one: a fixture is a stand-in for the wire, and a wire delivers what it delivers.
+ * Handing back the validator's output would let a scenario lean on a coercion or a
+ * default and look correct against a live daemon that supplies neither.
+ *
+ * A method the registry does not bind passes through untouched, which is the honest
+ * answer rather than a lax one: the corpus registers no shape for it, so there is
+ * nothing to check against. Those calls are the growth port's, and it types them.
+ * This is also why the check lives on the daemon arm alone — a control-plane
+ * procedure is not a daemon method and the registry does not describe one.
+ */
+function assertScriptedReplyOnContract(method: string, value: unknown): unknown {
+  const binding = daemonMethodBindingFor(method);
+  if (binding === undefined) {
+    return value;
+  }
+  const parsed = binding.responseSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new FixtureBridgeError(
+      method,
+      "reply-off-contract",
+      "the scenario scripts a reply this build does not register for that method. Script the registered shape rather than teaching a surface a frame the daemon cannot send.",
+    );
+  }
+  return value;
 }
 
 /**

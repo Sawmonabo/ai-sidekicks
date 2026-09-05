@@ -64,10 +64,8 @@ import { NotificationCenter } from "../../../src/renderer/src/console/sessions/n
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
-import {
-  CONSOLE_SCHEMES,
-  ParticipantHueAllocator,
-} from "../../../src/renderer/src/console/tokens/index.js";
+import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
+import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
 
 /** The instant the roster's relative stamps are measured against. */
 const AUDIT_INSTANT_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");

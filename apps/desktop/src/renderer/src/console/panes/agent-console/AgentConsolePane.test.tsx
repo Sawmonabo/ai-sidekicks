@@ -24,7 +24,7 @@ import {
 import { AgentConsoleModels } from "../../agents/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
-import { consoleTripwires } from "../../core/index.js";
+import { consoleTripwires } from "../../core/tripwires.js";
 import { SurfaceErrorBoundary } from "../../frame/ErrorBoundary.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
 import { SessionStore, type SessionSnapshot } from "../../store/index.js";

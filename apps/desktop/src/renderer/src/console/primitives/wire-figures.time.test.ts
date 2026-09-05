@@ -1,30 +1,29 @@
-// The four time readings: the unit changes rather than the number growing.
+// The three time readings: the unit changes rather than the number growing.
 //
 // `Spec-023 §Console Design (Meridian)` §The eight rules puts every quantity through
-// `Intl`, and these four are where that rule has a second half — WHICH unit the
+// `Intl`, and these three are where that rule has a second half — WHICH unit the
 // figure is read in is itself a decision, and each of them makes it differently:
 // `formatDuration` switches at fixed boundaries and pads the borrowed fields once it
 // is digital, `formatRelativeTime` picks by magnitude and lets the platform compose
-// the words, `formatClockTime` fixes its fields and drops the date entirely because
-// the day divider carries it, and `formatDateTime` keeps the date for a surface that
-// has no divider to carry it. So the interesting cases are the boundaries, and each
-// one is asserted a millisecond either side of itself.
+// the words, and `formatClockTime` fixes its fields and drops the date entirely
+// because the day divider carries it. So the interesting cases are the boundaries,
+// and each one is asserted a millisecond either side of itself.
 //
 // `formatClockTime` is asserted by SHAPE rather than by literal, deliberately.
 // `Intl.DateTimeFormat` with no `timeZone` renders in the runner's zone, so a
 // literal expectation would pin the test to whoever ran it first and fail in CI for
-// a reason that has nothing to do with the console. `formatDateTime` is read the same
-// way, for the same reason.
+// a reason that has nothing to do with the console.
+//
+// Both readers take their instant from `core/instant.ts`, so both refuse what that
+// module refuses. The `Date.parse` leniency cases are asserted here as well as in
+// that module's own test, because "the parser refuses it" and "the FIGURE refuses
+// it" are two claims and only the second is what a person sees. The instants these
+// tests need are built with `Date.UTC` rather than parsed, so the test never asks a
+// second parser what the module under test is for.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  formatClockTime,
-  formatDateTime,
-  formatDuration,
-  formatRelativeTime,
-  wireInstantRank,
-} from "./wire-figures.js";
+import { formatClockTime, formatDuration, formatRelativeTime } from "./wire-figures.js";
 
 describe("formatDuration — the unit changes rather than the number growing", () => {
   it("keeps sub-second durations in milliseconds", () => {
@@ -74,7 +73,7 @@ describe("formatDuration — the unit changes rather than the number growing", (
 });
 
 describe("formatRelativeTime — the platform composes the phrase", () => {
-  const now = Date.parse("2026-09-01T12:00:00Z");
+  const now = Date.UTC(2026, 8, 1, 12, 0, 0);
 
   it("picks its unit by magnitude and lets Intl write the words", () => {
     expect(formatRelativeTime("2026-09-01T12:00:00Z", now, "en-US")).toBe("now");
@@ -98,6 +97,23 @@ describe("formatRelativeTime — the platform composes the phrase", () => {
     expect(formatRelativeTime("not an instant", now, "en-US")).toBe("—");
     expect(formatRelativeTime("", now, "en-US")).toBe("—");
   });
+
+  it("reads a numeric offset as the instant it names", () => {
+    // 10:00+02:00 is 08:00Z, four hours before `now`. Rendering the digits rather
+    // than the instant would read "2 hours ago".
+    expect(formatRelativeTime("2026-09-01T10:00:00+02:00", now, "en-US")).toBe("4 hours ago");
+  });
+
+  it("refuses the stamps Date.parse would have rendered a figure for", () => {
+    // The negative control for the whole repoint: each of these produced a rendered
+    // figure before, and the second assertion is why — `Date.parse` answers a number
+    // for all three, normalizing a day that does not exist and reading a
+    // timezone-less stamp in whatever zone the runner happens to be in.
+    for (const text of ["2026-02-30T10:00:00Z", "2026-01-01T24:00:00Z", "2026-09-01T10:00:00"]) {
+      expect(formatRelativeTime(text, now, "en-US")).toBe("—");
+      expect(Number.isNaN(Date.parse(text))).toBe(false);
+    }
+  });
 });
 
 describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
@@ -118,7 +134,7 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
-      }).format(Date.parse(instant)),
+      }).format(Date.UTC(2026, 8, 1, 13, 4, 5)),
     ).toMatch(/AM|PM/u);
   });
 
@@ -143,78 +159,9 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
   it("renders a dash for an instant it cannot parse", () => {
     expect(formatClockTime("nope", "en-US")).toBe("—");
   });
-});
 
-describe("formatDateTime — the reading for a surface with no day divider", () => {
-  // Two instants three days apart at the same wall-clock time, in January so no
-  // zone this runner might be in shifts between them. The pair is the point: the
-  // defect this formatter exists for is two figures that read identically.
-  const firstInstant = "2026-01-05T13:04:05Z";
-  const threeDaysLater = "2026-01-08T13:04:05Z";
-
-  it("distinguishes two instants that differ only in the day", () => {
-    expect(formatDateTime(threeDaysLater, "en-US")).not.toBe(formatDateTime(firstInstant, "en-US"));
-  });
-
-  it("negative control: the date-free clock reading renders both the same", () => {
-    // This is the whole finding. Without it the assertion above would pass over a
-    // formatter that differed for some other reason, and it would not say why the
-    // ledger's own formatter cannot serve this surface.
-    expect(formatClockTime(threeDaysLater, "en-US")).toBe(formatClockTime(firstInstant, "en-US"));
-  });
-
-  it("carries a calendar date and a wall-clock time, in a pinned locale", () => {
-    // Pinned so the assertion is about the fields rather than the runner's
-    // preferences; the zone is still the runner's, so the day is read out of the
-    // rendered string rather than asserted as a literal.
-    const rendered = formatDateTime(firstInstant, "en-US");
-    expect(rendered).toMatch(/^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2}$/u);
-  });
-
-  it("is 24-hour, like the clock reading it sits beside", () => {
-    expect(formatDateTime(firstInstant, "en-US")).not.toMatch(/AM|PM/u);
-  });
-
-  it("renders the same dash as its neighbours for an instant it cannot parse", () => {
-    expect(formatDateTime("not an instant", "en-US")).toBe("—");
-    expect(formatDateTime("", "en-US")).toBe("—");
-  });
-});
-
-describe("wireInstantRank — one instant has many spellings", () => {
-  it("ranks by the instant and not by the string", () => {
-    // The whole reason this reading is shared. `10:00+02:00` is an hour EARLIER than
-    // `09:00Z` and sorts AFTER it in every lexical comparison, so a surface ordering
-    // rows by their stamps as text names the older row as newest.
-    const earlier = "2026-09-01T10:00:00.000+02:00";
-    const later = "2026-09-01T09:00:00.000Z";
-    expect(wireInstantRank(earlier)).toBeLessThan(wireInstantRank(later));
-    expect(earlier > later).toBe(true);
-  });
-
-  it("gives two spellings of one instant one rank", () => {
-    expect(wireInstantRank("2026-09-01T11:00:00.000+02:00")).toBe(
-      wireInstantRank("2026-09-01T09:00:00.000Z"),
-    );
-  });
-
-  it("ranks an absent and an unreadable stamp below every readable one, and equally", () => {
-    // Equally, and not as `NaN`: a comparison against `NaN` is false in both
-    // directions, so an unreadable stamp would take a different place at each end
-    // of a fold. `-Infinity` gives it one place.
-    expect(wireInstantRank(undefined)).toBe(Number.NEGATIVE_INFINITY);
-    expect(wireInstantRank("not an instant")).toBe(Number.NEGATIVE_INFINITY);
-    expect(wireInstantRank("")).toBe(Number.NEGATIVE_INFINITY);
-    expect(wireInstantRank("2026-09-01T09:00:00.000Z")).toBeGreaterThan(
-      wireInstantRank("not an instant"),
-    );
-  });
-
-  it("negative control: two different instants do not share a rank", () => {
-    // Without this, the cases above would pass over a reading that answered one
-    // number for everything it was given.
-    expect(wireInstantRank("2026-09-01T09:00:00.000Z")).not.toBe(
-      wireInstantRank("2026-09-01T10:00:00.000Z"),
-    );
+  it("refuses a day that does not exist rather than rendering the day after it", () => {
+    expect(formatClockTime("2026-02-30T10:00:00Z", "en-US")).toBe("—");
+    expect(Number.isNaN(Date.parse("2026-02-30T10:00:00Z"))).toBe(false);
   });
 });

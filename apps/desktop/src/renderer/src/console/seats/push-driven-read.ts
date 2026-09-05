@@ -56,7 +56,7 @@ import {
   type ConsoleClock,
   type ConsoleRefusal,
 } from "../core/index.js";
-import { isWireErrorEnvelope, normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { isWireErrorEnvelope, wireRejectionToError } from "../../../../shared/wire-errors.js";
 import { RefreshScheduler, type RefreshReason } from "../store/index.js";
 
 /**
@@ -266,7 +266,7 @@ export function consoleRefusalFrom(
   // which is not total: a null-prototype value carrying no `toString` throws inside
   // the very expression that exists to say that something failed, and the throw
   // lands in a `catch` that has already been left.
-  return refuse(origin, fallbackCode, normalizeWireRejection(error, { total: true }).message);
+  return refuse(origin, fallbackCode, wireRejectionToError(error, { total: true }).message);
 }
 
 /**

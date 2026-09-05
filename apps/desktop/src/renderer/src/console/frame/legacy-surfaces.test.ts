@@ -27,11 +27,8 @@ import { describe, expect, it } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
-import {
-  createFixtureBridge,
-  type ConsoleBridge,
-  type ConsoleBridgeSource,
-} from "../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import type { ConsoleBridgeSource } from "../bridge/console-bridge.js";
 import { COLLABORATION_SCENARIO } from "../bridge/scenarios/collaboration.js";
 import { unscriptedScenario } from "../bridge/fixture-bridge-overrides.test-support.js";
 import { ConsoleRefusalError } from "../core/index.js";

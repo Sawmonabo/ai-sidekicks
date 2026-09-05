@@ -34,7 +34,7 @@
 
 import { useMemo } from "react";
 
-import { wireInstantRank } from "../primitives/index.js";
+import { compareInstants, parseInstant } from "../core/index.js";
 import { useSessionPartition, type SessionStore } from "../store/index.js";
 
 /**
@@ -69,9 +69,16 @@ export function newestRunIdForAgent(
   if (runs.length === 0) {
     return undefined;
   }
-  return runs.reduce((newest, candidate) =>
-    wireInstantRank(candidate.touchedAt) > wireInstantRank(newest.touchedAt) ? candidate : newest,
-  ).id;
+  return runs.reduce((newest, candidate) => {
+    // Parsed into names before the comparison rather than inline, which is the shape
+    // `compareInstants` asks for: it takes readings so a fold parses once per row
+    // instead of twice per comparison.
+    const candidateReading = parseInstant(candidate.touchedAt ?? "");
+    const newestReading = parseInstant(newest.touchedAt ?? "");
+    return compareInstants(candidateReading, newestReading, "newest-first") < 0
+      ? candidate
+      : newest;
+  }).id;
 }
 
 /**

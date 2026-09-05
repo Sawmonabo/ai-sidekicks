@@ -190,7 +190,7 @@ import type {
 // therefore bought nothing on the render path and is gone; the compile-time
 // binding to the contracts literal survives in the one view that BRANCHES on
 // the code (`MixedVersionStatus.tsx#VERSION_FLOOR_EXCEEDED_WIRE_CODE`).
-import { normalizeWireRejection } from "../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../shared/wire-errors.js";
 
 // The held-answer stamp. A settled roster belongs to the session AND the transport
 // it was read through, and comparing one of those during render is what left the
@@ -527,7 +527,7 @@ export function NodeRoster({
           // to `error` (the Tier-3 posture, matching the initial-read
           // failure); a resilient "keep last snapshot" is a Tier-8 polish, not
           // a Tier-3 requirement.
-          const normalizedError = normalizeWireRejection(bridgeError);
+          const normalizedError = wireRejectionToError(bridgeError);
           publishRosterViewState(readSubject, { kind: "error", error: normalizedError });
         }
       })();
@@ -567,7 +567,7 @@ export function NodeRoster({
       if (!cancelled) {
         publishRosterViewState(readSubject, {
           kind: "error",
-          error: normalizeWireRejection(subscribeError),
+          error: wireRejectionToError(subscribeError),
         });
       }
     }

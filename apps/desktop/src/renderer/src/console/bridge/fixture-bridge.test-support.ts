@@ -1,13 +1,15 @@
 // What every fixture-bridge suite needs before it can ask the bridge anything.
 //
-// One home for the three roles more than one of the sibling suites plays: the
+// One home for the four roles more than one of the sibling suites plays: the
 // fixture and the engine driving it, the two ways a surface reaches that bridge —
-// a subscription and a call — and the macrotask drain the settling cases wait on.
-// It holds nothing a single suite uses: the scripts each concern re-writes, and the
-// constants only one of them reads, stay beside their reader.
+// a subscription and a call — the bridge whose call arm a suite decides the answer
+// for, and the macrotask drain the settling cases wait on. It holds nothing a single
+// suite uses: the scripts each concern re-writes, and the constants only one of them
+// reads, stay beside their reader.
 
 import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
 
+import type { ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
@@ -91,6 +93,62 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
 
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
   return fixture.bridge.sidekicks.daemon.call(method as DaemonMethod, undefined);
+}
+
+/** What the daemon was asked, so a case can assert it was never asked at all. */
+export interface RecordedDaemonCall {
+  readonly method: string;
+  readonly params: unknown;
+}
+
+/** A bridge whose call arm answers as the suite says, and the record of what it was asked. */
+export interface BridgeUnderTest {
+  readonly bridge: ConsoleBridge;
+  readonly calls: readonly RecordedDaemonCall[];
+}
+
+/**
+ * Replace one bridge's `daemon.call` with an arm this suite decides the answer for.
+ *
+ * A spread over a REAL bridge, which is the console's established shape for driving
+ * one namespace member (`palette/bridge-commands.test.tsx`). That the rest is real is
+ * the point: a surface reaches the wire through `bridge.sidekicks.daemon.call` and
+ * nothing else, so a case passing against a hand-built object would not have proved
+ * it reached a bridge at all.
+ *
+ * Takes the bridge rather than building one, so a suite that has already overridden a
+ * different namespace — a growth port answering its own operation, say — composes the
+ * two instead of minting a second builder to hold both.
+ */
+export function withDaemonCall(
+  bridge: ConsoleBridge,
+  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+): BridgeUnderTest {
+  const calls: RecordedDaemonCall[] = [];
+  return {
+    calls,
+    bridge: {
+      ...bridge,
+      sidekicks: {
+        ...bridge.sidekicks,
+        daemon: {
+          ...bridge.sidekicks.daemon,
+          call: (async (method: string, params: unknown): Promise<unknown> => {
+            const recorded: RecordedDaemonCall = { method, params };
+            calls.push(recorded);
+            return answer(recorded);
+          }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
+        },
+      },
+    },
+  };
+}
+
+/** The shipped fixture over the flagship scenario, with that call arm on it. */
+export function bridgeAnswering(
+  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+): BridgeUnderTest {
+  return withDaemonCall(createFixture().bridge, answer);
 }
 
 /**

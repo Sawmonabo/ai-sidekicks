@@ -21,6 +21,16 @@
 // The `wire-figure-formatting` tripwire's test asserts by grep that this file is
 // the only site in `console/**` doing the scaling. If a component needs a byte
 // figure, it calls `formatByteQuantity`.
+//
+// The two time readings below take their instant from `core/instant.ts` rather than
+// from `Date.parse`, so DISPLAY and ORDERING read a wire stamp the same way. They did
+// not before, and the two disagreements were both invisible: `Date.parse` normalizes
+// `2026-02-30T10:00:00Z` into March and reads a timezone-less stamp in the host's
+// zone, so a figure rendered here could name an instant no sort would ever agree
+// with and no daemon ever sent. An unreadable stamp now renders the same em dash the
+// rest of this module uses for a figure it cannot stand behind.
+
+import { parseInstant } from "../core/index.js";
 
 /**
  * The closed unit set, ascending; the index IS the power of 1024.
@@ -156,64 +166,6 @@ export function formatRate(perSecond: number, unitLabel: string, locale?: string
 }
 
 /**
- * A proportion, as a percentage.
- *
- * The input is a FRACTION and not a percentage, because that is what
- * `Intl.NumberFormat`'s percent style takes — a caller holding a 0-to-100 wire
- * figure divides at the call site, which is one visible division rather than a
- * hidden convention this function would have to be read to discover.
- *
- * It lives here for the reason every other formatter does: the `%` sign is a unit
- * label, and `formatRate` is beside it precisely because a unit composed at a call
- * site is a second formatter. Out-of-range and non-finite inputs answer the same em
- * dash as its siblings rather than rendering a percentage nobody can act on.
- */
-export function formatPercent(fraction: number, locale?: string): string {
-  if (!Number.isFinite(fraction) || fraction < 0) {
-    return "—";
-  }
-  return new Intl.NumberFormat(locale, {
-    style: "percent",
-    maximumFractionDigits: 0,
-  }).format(fraction);
-}
-
-/**
- * One wire instant as epoch milliseconds, or `undefined` where the platform cannot
- * read it.
- *
- * The single reading of a wire timestamp, private to this module and published only
- * through {@link wireInstantRank}. `Date.parse` answers `NaN` for a string it cannot
- * read, and `NaN` is the one number that compares false against everything including
- * itself — so a caller that forgot the guard would not get a wrong figure, it would
- * get a comparison whose answer depends on which side the unreadable value landed
- * on. Answering an absence instead makes the guard the type's own.
- */
-function readWireInstant(iso: string): number | undefined {
-  const milliseconds = Date.parse(iso);
-  return Number.isNaN(milliseconds) ? undefined : milliseconds;
-}
-
-/**
- * A wire instant as a comparable rank. Newest is greatest; unknown is least.
- *
- * THE STAMPS ARE PARSED AND NOT COMPARED AS TEXT. An ISO-8601 instant may carry a
- * numeric offset as readily as `Z`, so one instant has many spellings and two
- * spellings sort by neither: `10:00+02:00` is an hour EARLIER than `09:00Z` and
- * sorts after it in every lexical comparison. A surface that ordered rows by their
- * stamps as strings therefore showed the wrong one as newest.
- *
- * Absent and unreadable answer the same `-Infinity`, which puts such a row below
- * every readable stamp while leaving it reachable when it is the only row there is —
- * and, unlike `NaN`, gives it one place in the order rather than a different one at
- * each end of a fold.
- */
-export function wireInstantRank(iso: string | undefined): number {
-  const milliseconds = iso === undefined ? undefined : readWireInstant(iso);
-  return milliseconds ?? Number.NEGATIVE_INFINITY;
-}
-
-/**
  * A relative time, through `Intl.RelativeTimeFormat`.
  *
  * The unit is chosen by magnitude, not by arithmetic on a wire figure: the input is
@@ -224,11 +176,11 @@ export function formatRelativeTime(
   nowMilliseconds: number,
   locale?: string,
 ): string {
-  const fromMilliseconds = readWireInstant(fromIso);
-  if (fromMilliseconds === undefined) {
+  const from = parseInstant(fromIso);
+  if (from.kind === "malformed") {
     return "—";
   }
-  const deltaSeconds = (fromMilliseconds - nowMilliseconds) / 1000;
+  const deltaSeconds = (from.epochMilliseconds - nowMilliseconds) / 1000;
   const relativeTimeFormat = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   const absoluteSeconds = Math.abs(deltaSeconds);
   if (absoluteSeconds < 60) {
@@ -248,8 +200,8 @@ export function formatRelativeTime(
  * align; the date is shown separately by the day divider, never per row.
  */
 export function formatClockTime(iso: string, locale?: string): string {
-  const milliseconds = readWireInstant(iso);
-  if (milliseconds === undefined) {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
     return "—";
   }
   return new Intl.DateTimeFormat(locale, {
@@ -257,7 +209,7 @@ export function formatClockTime(iso: string, locale?: string): string {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).format(milliseconds);
+  }).format(instant.epochMilliseconds);
 }
 
 /**
@@ -277,8 +229,8 @@ export function formatClockTime(iso: string, locale?: string): string {
  * neighbour so two figures on one surface do not disagree about the format.
  */
 export function formatDateTime(iso: string, locale?: string): string {
-  const milliseconds = readWireInstant(iso);
-  if (milliseconds === undefined) {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
     return "—";
   }
   return new Intl.DateTimeFormat(locale, {
@@ -288,7 +240,30 @@ export function formatDateTime(iso: string, locale?: string): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(milliseconds);
+  }).format(instant.epochMilliseconds);
+}
+
+/**
+ * A ratio as a percentage, through `Intl`.
+ *
+ * The input is a FRACTION and not a percentage, because that is what
+ * `Intl.NumberFormat`'s percent style takes — a caller holding a 0-to-100 wire
+ * figure divides at the call site, which is one visible division rather than a
+ * hidden convention this function would have to be read to discover.
+ *
+ * It lives here for the reason every other formatter does: the `%` sign is a unit
+ * label, and `formatRate` is beside it precisely because a unit composed at a call
+ * site is a second formatter. Out-of-range and non-finite inputs answer the same em
+ * dash as its siblings rather than rendering a percentage nobody can act on.
+ */
+export function formatPercent(fraction: number, locale?: string): string {
+  if (!Number.isFinite(fraction) || fraction < 0) {
+    return "—";
+  }
+  return new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: 0,
+  }).format(fraction);
 }
 
 /**

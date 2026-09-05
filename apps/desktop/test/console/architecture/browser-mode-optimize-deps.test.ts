@@ -12,11 +12,12 @@
 // The derivation reads source text rather than resolving modules because the
 // question is "which specifiers will Vite see", and Vite sees the text.
 
-import { globSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+
+import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
 
 import {
   BASE_UI_ENTRY_POINTS,
@@ -33,11 +34,21 @@ const BASE_UI_IMPORT_PATTERN = new RegExp(
   "g",
 );
 
+/**
+ * Every Base UI entry point the tree under `rootDirectory` imports.
+ *
+ * The module set comes from `test/console/console-source-modules.ts`, which is the one
+ * walk under every source-text claim in this tier. It used to be a `globSync` here with
+ * its own idea of what counts as source — declaration files included, which the shared
+ * walk excludes because nothing in one runs — and that is exactly the sixth opinion the
+ * source-walk chokepoint next door exists to refuse. `{ tests: true }` keeps the
+ * universe this derivation always had: a specifier Vite will see is a specifier Vite
+ * will see whether the file importing it is a test or not.
+ */
 function baseUiEntryPointsImportedUnder(rootDirectory: string): ReadonlySet<string> {
   const imported = new Set<string>();
-  for (const relativePath of globSync("**/*.{ts,tsx}", { cwd: rootDirectory })) {
-    const text = readFileSync(join(rootDirectory, relativePath), "utf8");
-    for (const match of text.matchAll(BASE_UI_IMPORT_PATTERN)) {
+  for (const module of consoleSourceModules({ roots: [rootDirectory], tests: true })) {
+    for (const match of readConsoleSourceModule(module).matchAll(BASE_UI_IMPORT_PATTERN)) {
       imported.add(match[1] as string);
     }
   }

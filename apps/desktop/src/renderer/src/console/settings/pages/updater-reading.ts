@@ -34,7 +34,7 @@
 
 import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import { AttemptGeneration, Emitter, type Attempt, type Unsubscribe } from "../../core/index.js";
 
 /**
@@ -180,6 +180,6 @@ export class UpdaterReadingHolder {
 function unreachableFrom(rejection: unknown): UpdateReading {
   return {
     kind: "unreachable",
-    detail: normalizeWireRejection(rejection, { total: true }).message,
+    detail: wireRejectionToError(rejection, { total: true }).message,
   };
 }

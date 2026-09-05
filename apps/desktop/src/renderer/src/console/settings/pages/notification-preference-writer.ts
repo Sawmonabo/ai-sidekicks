@@ -53,7 +53,7 @@
 // meanwhile. What goes stale is the whole-set PUBLICATION, and that is what the
 // generation guards.
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import {
   AttemptGeneration,
@@ -363,7 +363,7 @@ function toggleableValueFor(
  * says something failed.
  */
 function rejectionRefusal(rejection: unknown): ConsoleRefusal {
-  const normalized = normalizeWireRejection(rejection, { total: true });
+  const normalized = wireRejectionToError(rejection, { total: true });
   return refuse(
     NOTIFICATION_PREFERENCE_REFUSAL_ORIGIN,
     normalized.name,

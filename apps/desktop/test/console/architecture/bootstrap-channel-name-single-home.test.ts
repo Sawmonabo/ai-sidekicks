@@ -28,7 +28,12 @@
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { consoleSourceModules, readConsoleSource } from "../console-source-modules.js";
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
 
 /**
  * The three ways this tree can quote a string, applied to the contracts value.
@@ -54,20 +59,25 @@ function spelledBootstrapNames(source: string): readonly string[] {
 }
 
 describe("bootstrap channel name — the console imports it and spells it nowhere", () => {
-  const modules = consoleSourceModules();
+  const modules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
 
   it("finds a console tree to scan at all", () => {
-    // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and the assertion
+    // Without this, a wrong console directory would scan nothing and the assertion
     // below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
-    expect(modules).toContain("collaboration/channel-model.ts");
+    expect(modules.map((module) => module.displayPath)).toContain(
+      "console/collaboration/channel-model.ts",
+    );
   });
 
   it("spells the name in no module", () => {
     const spellers = modules
-      .map((module) => ({ module, spellings: spelledBootstrapNames(readConsoleSource(module)) }))
+      .map((module) => ({
+        module,
+        spellings: spelledBootstrapNames(readConsoleSourceModule(module)),
+      }))
       .filter((entry) => entry.spellings.length > 0)
-      .map((entry) => `${entry.module}: ${entry.spellings.join(", ")}`);
+      .map((entry) => `${entry.module.displayPath}: ${entry.spellings.join(", ")}`);
     expect(spellers).toStrictEqual([]);
   });
 
@@ -75,8 +85,11 @@ describe("bootstrap channel name — the console imports it and spells it nowher
     // The other half of the claim, and the half a scan for absence cannot make: a
     // family that deleted its copy and then stopped recognising the bootstrap
     // channel altogether would satisfy the assertion above.
-    for (const module of ["collaboration/channel-model.ts", "collaboration/CreateChannel.tsx"]) {
-      expect(readConsoleSource(module)).toContain(
+    for (const displayPath of [
+      "console/collaboration/channel-model.ts",
+      "console/collaboration/CreateChannel.tsx",
+    ]) {
+      expect(readConsoleSourceModule(moduleNamed(modules, displayPath))).toContain(
         'import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts"',
       );
     }

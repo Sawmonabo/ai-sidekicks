@@ -27,24 +27,42 @@
 // provide, so they would silently be the library default rather than the
 // project's. Waiting is therefore explicit (`locator.waitFor`) and asserting is
 // Vitest's, which is the same split the browser-mode tiers already use.
+//
+// EVERY WAIT IS CHARGED TO THE BODY'S ALLOWANCE
+//
+// `withLaunchedConsole` reserves an allowance for what runs between a settled
+// launch and its cleanup, and a wait that ignored it would be bounded twice over
+// with the wrong one winning: a poll declaring 10 000 ms against an allowance
+// with 200 ms left runs past the allowance, and the outer race then replaces the
+// poll's own message ("the scheme did not change") with the generic body-overrun
+// sentence. So every bounded wait below is handed
+// `bodyAllowance.boundedMs(<its own bound>)` — the smaller of the two — which is
+// what makes the FIRST wait that cannot fit fail saying which step it was.
+// `architecture/body-allowance-consumption.test.ts` reads this file and fails on
+// a wait that names no allowance.
 
 import { describe, expect, it } from "vitest";
 
 import { RENDERER_ORIGIN } from "../../../src/main/renderer-scheme.js";
 import {
-  CONSOLE_DATABASE_NAME,
   PERSISTENCE_GLOBAL_PARTITION,
   SCHEME_PREFERENCE_KEY,
-  UI_STATE_STORE_NAME,
 } from "../../../src/renderer/src/console/persistence/index.js";
-import { fixtureBundleExists, launchConsole } from "../electron-harness.js";
+import {
+  CONSOLE_DATABASE_NAME,
+  UI_STATE_STORE_NAME,
+} from "../../../src/renderer/src/console/persistence/indexeddb-adapter.js";
+import { withLaunchedConsole } from "../electron-harness.js";
+import { fixtureBundleExists } from "../fixture-bundle.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "../launch-body.js";
+import { READINESS_BUDGET_MS } from "../launch-budgets.js";
+import { LaunchDeadline } from "../launch-deadline.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", () => {
   it("serves the window from the privileged renderer scheme", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       // The origin is the persistence partition key: a scheme registered without
       // `standard: true` has no origin at all, and an origin-less document gets
       // neither IndexedDB nor `localStorage` — so the scheme-persistence test
@@ -54,14 +72,11 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // compile time instead of leaving it comparing two stale literals.
       const origin = await consoleApplication.window.evaluate(() => window.location.origin);
       expect(origin).toBe(RENDERER_ORIGIN);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("boots the frame with its rail, a mounted surface, and a reserved one", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // The rail exists and carries the destinations the frame declares. Read as
@@ -77,8 +92,14 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // session". The claim is that the OWNER rendered and the frame's
       // reserved-slot arm did not fire: the owner's section is present and the
       // frame's composed absence wrapper is not.
-      await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
-      await consoleWindow.locator(".meridian-sessions").waitFor({ state: "visible" });
+      await consoleWindow.locator(".meridian-frame").waitFor({
+        state: "visible",
+        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      });
+      await consoleWindow.locator(".meridian-sessions").waitFor({
+        state: "visible",
+        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      });
       expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
 
       // And the directory read has a PRODUCER, which is what this destination
@@ -101,9 +122,10 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // attention panel — and each renders its own honest absence, so an unscoped
       // exclusion would be asserting that those reads had answered rather than
       // that this one had.
-      await consoleWindow
-        .locator(".meridian-sessions__list .meridian-nothing--empty")
-        .waitFor({ state: "visible" });
+      await consoleWindow.locator(".meridian-sessions__list .meridian-nothing--empty").waitFor({
+        state: "visible",
+        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      });
       expect(
         await consoleWindow
           .locator(".meridian-sessions__list .meridian-nothing--not-checked")
@@ -131,17 +153,15 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       await consoleWindow.evaluate(() => {
         window.location.hash = "#/workflows";
       });
-      await consoleWindow
-        .locator(".meridian-frame__absence .meridian-nothing--empty")
-        .waitFor({ state: "visible" });
-    } finally {
-      await consoleApplication.close();
-    }
+      await consoleWindow.locator(".meridian-frame__absence .meridian-nothing--empty").waitFor({
+        state: "visible",
+        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      });
+    });
   });
 
   it("keeps the renderer free of Node globals", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       // The Tier-1 smoke test asserts this against a `SIDEKICKS_SMOKE_PROBE`
       // build through a stdout probe. It is re-asserted here for a different
       // reason and against a different artifact: this is the FIXTURES bundle
@@ -158,34 +178,34 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
         process: "undefined",
         global: "undefined",
       });
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("opens the palette from a real keystroke", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
       // A real key event through the real window, which is the only place the
       // whole chord path runs end to end: the browser tier's synthetic events
       // never traverse Electron's own accelerator handling, and a chord the
       // application menu swallowed would still pass there.
       await consoleWindow.keyboard.press("ControlOrMeta+KeyK");
-      await consoleWindow.getByRole("dialog").waitFor({ state: "visible" });
+      await consoleWindow.getByRole("dialog").waitFor({
+        state: "visible",
+        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      });
 
       // And it closes. Stated because a palette that opens and cannot be
       // dismissed is worse than one that never opened — the person is stuck.
       await consoleWindow.keyboard.press("Escape");
-      await consoleWindow.getByRole("dialog").waitFor({ state: "hidden" });
-    } finally {
-      await consoleApplication.close();
-    }
+      await consoleWindow.getByRole("dialog").waitFor({
+        state: "hidden",
+        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      });
+    });
   });
 
   it("persists an explicit colour scheme across a reload", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
       const readScheme = async (): Promise<string | null> =>
         await consoleWindow.evaluate(
@@ -250,11 +270,17 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // command, store, chokepoint, IndexedDB — and a direct store call would
       // prove only that the store works, which the unit tier already knows.
       await consoleWindow.keyboard.press("ControlOrMeta+KeyK");
-      await consoleWindow.getByRole("dialog").waitFor({ state: "visible" });
+      await consoleWindow.getByRole("dialog").waitFor({
+        state: "visible",
+        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      });
       await consoleWindow.keyboard.type("Use the dark colour scheme");
       await consoleWindow.keyboard.press("Enter");
       await expect
-        .poll(readScheme, { timeout: 10_000, message: "the scheme did not change" })
+        .poll(readScheme, {
+          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+          message: "the scheme did not change",
+        })
         .toBe("dark");
 
       // The applied attribute is set synchronously and the durable write is not,
@@ -263,7 +289,10 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // shape of losing that race is a lost preference reported as a broken
       // feature.
       await expect
-        .poll(readPersistedScheme, { timeout: 10_000, message: "the scheme was never written" })
+        .poll(readPersistedScheme, {
+          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+          message: "the scheme was never written",
+        })
         .toBe("dark");
 
       // The reload is the assertion. Everything above could pass against state
@@ -271,13 +300,26 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // was written from one that is merely readable in the window that wrote it.
       // IndexedDB is per-origin and this launch has its own profile, so the read
       // is of this run's own write.
-      await consoleWindow.reload();
-      await consoleWindow.waitForSelector(".meridian-frame");
+      //
+      // The reload boots the renderer a second time, which is the subject
+      // `console-launch-readiness` bounds — so the navigation and the frame
+      // element it must produce share ONE clock at that figure rather than
+      // taking it each, exactly as `launchConsole` divides its own ladder. Both
+      // legs are additionally held to what is left of the body's allowance, so
+      // whichever runs out first is the one that names itself.
+      const reloadDeadline = new LaunchDeadline(READINESS_BUDGET_MS);
+      await consoleWindow.reload({
+        timeout: consoleApplication.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
+      });
+      await consoleWindow.waitForSelector(".meridian-frame", {
+        timeout: consoleApplication.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
+      });
       await expect
-        .poll(readScheme, { timeout: 10_000, message: "the scheme did not survive a reload" })
+        .poll(readScheme, {
+          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+          message: "the scheme did not survive a reload",
+        })
         .toBe("dark");
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 });

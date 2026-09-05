@@ -44,7 +44,7 @@ import {
   type Unsubscribe,
 } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 
 /** What one carrier read answers. Derived off the port rather than restated. */
 type ShellConfigReadOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["shellConfigRead"]>>;
@@ -379,7 +379,7 @@ function appliedReading(
  * hostile `toString` — throws there. That throw happened INSIDE the catch that exists
  * to publish the failure, so `choose` rejected without clearing its pending key and
  * the toggle stayed busy for the life of the window, on the one path whose whole job
- * is to say that something went wrong. `normalizeWireRejection` also puts a wire code
+ * is to say that something went wrong. `wireRejectionToError` also puts a wire code
  * on `Error.name`, so an envelope rejection renders its own message instead of
  * `[object Object]`; the refusal's `code` stays this module's, because what the wire
  * calls the failure is the carrier's word and not this store's.
@@ -394,7 +394,7 @@ function asRefusal(rejection: unknown): ConsoleRefusal {
   return refuse(
     SHELL_PREFERENCE_REFUSAL_ORIGIN,
     "preference-write-failed",
-    normalizeWireRejection(rejection, { total: true }).message,
+    wireRejectionToError(rejection, { total: true }).message,
   );
 }
 

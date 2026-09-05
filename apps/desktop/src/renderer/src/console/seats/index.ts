@@ -115,13 +115,17 @@ export {
   SIDEBAR_SECTION_IDS,
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
+  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionContext,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -172,10 +176,30 @@ export {
 } from "./inline-card-seats.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   OwnerSlotContract,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   OwnerSlotProps,
 } from "./owner-slot.js";
+
+// The session vocabulary, straight from the module that DECLARES it rather than
+// through `store/index.js`, which would be a barrel chain. Without these four lines
+// the door written for the view families is unreachable through the one import path
+// they are allowed to use: a pane reaching `../../seats/session-subject.js` is a deep
+// cross-family import the package standard forbids, so the only other answer would be
+// not to bind at all. Both gates were green on that for reasons neither intends — the
+// module's own test keeps it reachable, and it imports two families so it is no
+// orphan — which is why the census below is the thing that says who owes the rebind.
+export {
+  isCurrentSessionSubject,
+  /** @consumedBy T-023p-1C-3 */
+  useSessionScopedState,
+} from "./session-subject.js";
+export type {
+  /** @consumedBy T-023p-1C-3 */
+  SessionScopedKey,
+  SessionSubject,
+} from "./session-subject.js";
 
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
@@ -192,12 +216,6 @@ export {
   usePushDrivenRead,
   type PushDrivenReadState,
 } from "./push-driven-read.js";
-
-// What a session-scoped holder was built for, and whether it still is. Two view
-// families hold one set of models each and both had written the same guard against
-// the session id alone; siblings may not import each other, so the shared predicate
-// lives at the lowest family above both.
-export { isCurrentSessionSubject, type SessionSubject } from "./session-subject.js";
 
 // The console's single copy of the daemon-method cast, for the same reason: the
 // brand `SidekicksBridge.daemon.call` takes is `never`-shaped until Plan-007 narrows

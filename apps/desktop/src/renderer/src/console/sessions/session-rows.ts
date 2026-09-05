@@ -34,7 +34,7 @@
 import type { SessionState } from "@ai-sidekicks/contracts";
 
 import type { AttentionSeverity } from "../bridge/index.js";
-import { wireInstantRank } from "../primitives/index.js";
+import { compareInstants, parseInstant } from "../core/index.js";
 
 /**
  * The two tiers the list folds into. Closed, declared once, union derived.
@@ -131,10 +131,15 @@ export function compareSessionRows(left: SessionListRow, right: SessionListRow):
   if (byLifecycle !== 0) {
     return byLifecycle;
   }
-  // Newest first, unknown last, through the primitives family's one reading of a
-  // wire timestamp — a missing or unreadable stamp ranks below every real instant
-  // instead of landing in 1970 among sessions genuinely untouched since.
-  const byRecency = wireInstantRank(right.touchedAtIso) - wireInstantRank(left.touchedAtIso);
+  // Newest first, unknown last, through the console's one reading of a wire
+  // timestamp — a missing or unreadable stamp sorts below every real instant
+  // instead of landing in 1970 among sessions genuinely untouched since, and it
+  // does so in BOTH directions, which a numeric sentinel cannot.
+  const byRecency = compareInstants(
+    parseInstant(left.touchedAtIso ?? ""),
+    parseInstant(right.touchedAtIso ?? ""),
+    "newest-first",
+  );
   if (byRecency !== 0) {
     return byRecency;
   }
