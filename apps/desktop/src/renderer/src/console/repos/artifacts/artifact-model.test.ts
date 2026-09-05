@@ -26,6 +26,7 @@ import {
   ARTIFACT_TYPE_FILTER_ALL,
   ARTIFACT_VISIBILITY_PRESENTATION,
   artifactDeleteReceiptSentence,
+  artifactManifestRowFromSummary,
   artifactProducerLabel,
   artifactReplicationPresentation,
   artifactTypeCounts,
@@ -239,5 +240,83 @@ describe("artifact-model — the delete disclosure states only what is known whe
     // Negative control on the pair: the two receipts must not read the same, which is
     // the whole reason the flag rides the reply.
     expect(sentence).not.toContain("still possible");
+  });
+});
+
+describe("artifact manifest row — metadata a daemon can send and JSON cannot hold", () => {
+  /** One summary whose metadata is whatever the case is about. Every other member is fixed. */
+  function rowWithMetadata(metadata: Readonly<Record<string, unknown>>): ArtifactManifestRow {
+    return artifactManifestRowFromSummary({
+      artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
+      sessionId: REPOS_SESSION_ID,
+      runId: REPOS_IMPLEMENTER_RUN_ID,
+      createdBy: REPOS_VIEWING_PARTICIPANT_ID,
+      artifactType: "diff",
+      digest: "sha256:2b4c",
+      size: 4096,
+      annotations: {},
+      visibility: "shared",
+      state: "published",
+      replicationStatus: "pinned",
+      metadata,
+      createdAt: "2026-09-02T07:00:00.000Z",
+    } as unknown as Parameters<typeof artifactManifestRowFromSummary>[0]);
+  }
+
+  it("renders a value JSON refuses to serialize rather than taking the pane down", () => {
+    // `metadata` is freeform provenance typed `unknown` on the wire, so a `BigInt` or
+    // a structure that refers to itself is a value the daemon can send. Thrown from
+    // the row builder it escapes the fold and the render, and one provenance entry
+    // takes the whole pane with it. On the bare `JSON.stringify` this replaces, the
+    // construction below throws before a single assertion runs.
+    const selfReferential: Record<string, unknown> = { name: "cycle" };
+    selfReferential["itself"] = selfReferential;
+    const hostile = {
+      toJSON(): never {
+        throw new Error("this value refuses to be serialized");
+      },
+    };
+
+    const row = rowWithMetadata({
+      byteCount: 9007199254740993n,
+      selfReferential,
+      hostile,
+    });
+
+    expect(typeof row.metadata["byteCount"]).toBe("string");
+    expect(row.metadata["byteCount"]).toContain("9007199254740993");
+    expect(typeof row.metadata["selfReferential"]).toBe("string");
+    expect(typeof row.metadata["hostile"]).toBe("string");
+  });
+
+  it("renders a value JSON serializes to nothing rather than writing a hole", () => {
+    // The other half, and the quieter one. `JSON.stringify` ANSWERS `undefined` for
+    // these three — no throw — so the value went into a `Record<string, string>`
+    // unchecked and the row carried a hole the compiler had been told was a string.
+    const row = rowWithMetadata({
+      absent: undefined,
+      callable: () => "provenance",
+      named: Symbol("provenance"),
+    });
+
+    for (const key of ["absent", "callable", "named"]) {
+      expect(typeof row.metadata[key]).toBe("string");
+      expect(row.metadata[key]).not.toBe("");
+    }
+  });
+
+  it("negative control: an ordinary value is still its own JSON, and a string is verbatim", () => {
+    // Without this the fix could route everything through the total stringifier, and
+    // a nested object would render as `[object Object]` — provenance the row exists to
+    // show, replaced by a sentence about JavaScript.
+    const row = rowWithMetadata({
+      producer: "codex-driver",
+      counts: { added: 4, removed: 1 },
+      flags: [true, null],
+    });
+
+    expect(row.metadata["producer"]).toBe("codex-driver");
+    expect(row.metadata["counts"]).toBe('{"added":4,"removed":1}');
+    expect(row.metadata["flags"]).toBe("[true,null]");
   });
 });

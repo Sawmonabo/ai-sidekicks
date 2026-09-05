@@ -44,6 +44,8 @@
 //   • No nulling of a derivative's `subject`. `subject` is read and rendered; the
 //     remedy on a blocked delete is the daemon's own, and the console states it.
 
+import { lossyStringify } from "../../../../../shared/wire-errors.js";
+
 import type {
   GrowthArtifactPayloadDisposition,
   GrowthArtifactReplicationStatus,
@@ -366,13 +368,47 @@ export function artifactManifestRowFromSummary(
   };
 }
 
-/** Every metadata entry, as the string a row draws for it. */
+/**
+ * Every metadata entry, as the string a row draws for it.
+ *
+ * `JSON.stringify` IS NOT TOTAL, AND BOTH OF ITS FAILURES REACH THIS ROW. `metadata`
+ * is freeform daemon-side provenance typed `unknown` on the wire, so nothing upstream
+ * of here constrains what a value is:
+ *
+ *   • IT THROWS on a `BigInt`, on a structure that refers to itself, and on a hostile
+ *     `toJSON`. Thrown from here it escapes the row builder, the reader's fold, and
+ *     the render — taking the whole pane down over one provenance entry.
+ *   • IT ANSWERS `undefined` for `undefined`, a function, and a symbol, which the
+ *     return type says cannot happen. That value went into a `Record<string, string>`
+ *     unchecked, so the row carried a hole the compiler had been told was a string
+ *     and a surface reading `.length` on it threw one layer further out.
+ *
+ * Both land on `lossyStringify`, `src/shared/wire-errors.ts`'s total stringifier —
+ * the same one `core/wire-rejection.ts` reaches for, and total by construction rather
+ * than by one more layer of `try`. A value is RENDERED IN SOME FORM either way,
+ * because a row that silently showed fewer entries than the daemon sent would
+ * misreport the provenance it exists to show.
+ */
 function renderableMetadata(
   metadata: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, string>> {
   const rendered: Record<string, string> = {};
   for (const [key, value] of Object.entries(metadata)) {
-    rendered[key] = typeof value === "string" ? value : JSON.stringify(value);
+    rendered[key] = typeof value === "string" ? value : renderableMetadataValue(value);
   }
   return rendered;
+}
+
+/** One non-string metadata value, as a string, whatever it is. */
+function renderableMetadataValue(value: unknown): string {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    // A `BigInt`, a cycle, or a `toJSON` that threw. The value is still shown.
+    return lossyStringify(value);
+  }
+  // `undefined`, a function, or a symbol: serialization succeeded and produced no
+  // JSON at all, which is a different fact from a failure and takes the same home.
+  return serialized ?? lossyStringify(value);
 }
