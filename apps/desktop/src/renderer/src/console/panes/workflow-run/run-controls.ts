@@ -34,6 +34,12 @@
 // than as a dead button.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+// The console's one byte measurement, through the family door that publishes it.
+// This surface bounds a cancellation reason exactly as the durable path bounds a
+// record, and `apps/desktop/AGENTS.md` §Chokepoints gives that one function: a
+// second one here agreed on ASCII and would have drifted on the first rule either
+// grew.
+import { measureUtf8ByteLength } from "../../persistence/index.js";
 
 /**
  * The two run controls, and exactly two.
@@ -59,14 +65,15 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
  * verbatim. These two are the cases where there is no daemon in the loop at all —
  * a wire that does not exist, and an input this surface can measure before it
  * spends anyone's round trip.
+ *
+ * A UNION AND NOT AN EXPORTED TUPLE, unlike the actions above, and the difference is
+ * that the actions array is READ — the surface renders a control per member — while
+ * nothing ever read this one. It was published all the same, which is how a second
+ * surface comes to restate the literals rather than import them; and a value whose
+ * only reader is `typeof` is dead weight at runtime, which is the reason
+ * `run-list-rows.ts` gives for its own type-over-value choice.
  */
-export const WORKFLOW_RUN_CONTROL_REFUSAL_CODES = [
-  "wire-unregistered",
-  "reason-past-bound",
-] as const;
-
-/** One locally-raised refusal code. Derived from the tuple, never restated. */
-export type WorkflowRunControlRefusalCode = (typeof WORKFLOW_RUN_CONTROL_REFUSAL_CODES)[number];
+export type WorkflowRunControlRefusalCode = "wire-unregistered" | "reason-past-bound";
 
 /**
  * Bytes a cancellation reason may occupy, bounded exactly as the engine's own park
@@ -81,18 +88,6 @@ export type WorkflowRunControlRefusalCode = (typeof WORKFLOW_RUN_CONTROL_REFUSAL
  */
 export const WORKFLOW_CANCEL_REASON_BYTE_CAP: number = 8 * 1024;
 
-/**
- * How many bytes a string occupies once encoded.
- *
- * The console's first byte MEASUREMENT — `primitives/wire-figures.ts` formats byte
- * figures and measures none, and `persistence/` caps a serialised value by its
- * JSON length. A second one is a hoist, not a copy: it moves down to the lowest
- * family that needs it the moment a second module does.
- */
-export function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).length;
-}
-
 /** What the operator has spent of the reason budget, and whether they are past it. */
 export interface CancelReasonBudget {
   readonly byteLength: number;
@@ -103,7 +98,7 @@ export interface CancelReasonBudget {
 
 /** Measure a reason against the bound. Pure; the caller decides what to do about it. */
 export function cancelReasonBudget(reason: string): CancelReasonBudget {
-  const byteLength = utf8ByteLength(reason);
+  const byteLength = measureUtf8ByteLength(reason);
   return {
     byteLength,
     remainingBytes: Math.max(0, WORKFLOW_CANCEL_REASON_BYTE_CAP - byteLength),

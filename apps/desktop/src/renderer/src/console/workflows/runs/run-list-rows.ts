@@ -243,18 +243,16 @@ export interface WorkflowParkedPhase {
  * `2026-01-01T10:00:00`, which `Date.parse` reads in the HOST's zone, and a date-only
  * `2026-01-01`, which it reads in UTC.
  *
- * Deliberately NOT a numeric sentinel. The list's two orderings read an instant in
- * opposite directions — runs sort descending and armed resumes pick ascending — so a
- * floor that sends an unreadable value last in one sends it first in the other. Each
- * caller states its own rule against this `undefined` instead.
+ * Deliberately NOT a numeric sentinel. An unreadable start sorts LAST in the run list,
+ * and a numeric floor cannot express that: the value that sorts last ascending sorts
+ * first descending, so the rule would hold in one direction and invert in the other.
+ * Each caller states its own rule against the malformed ARM instead.
  *
- * IT ANSWERS THE READING RATHER THAN THE NUMBER, because its two callers want two
- * different halves of it. The park classification wants the milliseconds, which the
- * reading carries on both arms so no narrowing ceremony is needed to take them; the
- * run sort wants the reading itself, because `compareInstants` orders readings and is
- * what puts an unreadable start last in BOTH directions — a rule a number and a
- * sentinel cannot express, since the sentinel that sorts last ascending sorts first
- * descending.
+ * IT ANSWERS THE READING RATHER THAN THE NUMBER, because that is what both of its
+ * callers want. The park classification wants only which arm the value landed on —
+ * an instant the console can read is a schedule and one it cannot is not — and the run
+ * sort wants the reading itself, because `compareInstants` orders readings and is what
+ * puts an unreadable start last in BOTH directions.
  *
  * Exported because those two are the only readers of a wire instant in this family,
  * and the plane's `"utc-only"` declaration said at two call sites is one rule with two
@@ -277,14 +275,15 @@ export function workflowInstant(iso: string): InstantReading {
  */
 export type WorkflowParkSchedule =
   /**
-   * The wire's instant, and the reading of it that made this arm the armed one.
+   * The wire's instant, carried verbatim, on the arm the reading admitted it to.
    *
-   * The parsed milliseconds ride the arm because the classification already had to
-   * parse to reach it, and the earliest-resume pick next door would otherwise parse
-   * the same string a second time to compare it — two parses of one value, which is
-   * the shape that eventually disagrees with itself.
+   * The parsed milliseconds used to ride this arm as well, for a row-level
+   * earliest-resume pick that has since been deleted for having no reader. Nothing
+   * compares two resumes now — every surface that draws one draws the park it belongs
+   * to — so the number would be a second derived value carried for nobody, which is
+   * the member class the projection next door records purging.
    */
-  | { readonly kind: "armed"; readonly autoResumeAt: string; readonly atMilliseconds: number }
+  | { readonly kind: "armed"; readonly autoResumeAt: string }
   | { readonly kind: "unscheduled" }
   | { readonly kind: "unreadable"; readonly autoResumeAt: string };
 
@@ -315,10 +314,9 @@ export function parkSchedule(park: WorkflowPhasePark): WorkflowParkSchedule {
   if (armed === undefined) {
     return { kind: "unscheduled" };
   }
-  const atMilliseconds = workflowInstant(armed).epochMilliseconds;
-  return atMilliseconds === undefined
+  return workflowInstant(armed).kind === "malformed"
     ? { kind: "unreadable", autoResumeAt: armed }
-    : { kind: "armed", autoResumeAt: armed, atMilliseconds };
+    : { kind: "armed", autoResumeAt: armed };
 }
 
 /**

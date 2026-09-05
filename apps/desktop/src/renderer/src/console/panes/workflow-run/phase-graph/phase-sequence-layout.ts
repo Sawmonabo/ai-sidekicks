@@ -63,8 +63,12 @@ export const PHASE_NODE_HEIGHT_PX: number = 64;
  *
  * 48 px, which is `--meridian-space-8` at the 16 px root, so the sequence edge reads
  * as a connector with a direction rather than as a seam between two stacked cards.
+ *
+ * MODULE-PRIVATE: the pitch on the next line is the number every position is a
+ * multiple of, and it is the one a caller wants. A published spacing is a second
+ * number a layout could reach for and get a different answer from.
  */
-export const PHASE_RANK_SPACING_PX: number = 48;
+const PHASE_RANK_SPACING_PX = 48;
 
 /** Rank to rank, box included. The one number every position is a multiple of. */
 export const PHASE_RANK_PITCH_PX: number = PHASE_NODE_HEIGHT_PX + PHASE_RANK_SPACING_PX;

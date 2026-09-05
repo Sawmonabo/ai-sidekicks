@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { measureUtf8ByteLength } from "../../persistence/index.js";
 import {
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
   WORKFLOW_RUN_CONTROL_ACTIONS,
@@ -16,14 +17,30 @@ import {
   cancelReasonBudget,
   reasonPastBoundRefusal,
   unregisteredRunControl,
-  utf8ByteLength,
 } from "./run-controls.js";
 
 describe("the reason bound is measured on the encoding", () => {
+  // Read through the budget rather than through a measurement function of this
+  // module's own: there is no such function any more. This surface had its own
+  // `utf8ByteLength`, commented as the console's first — `persistence/` had been
+  // measuring the durable path's cap with `measureUtf8ByteLength` since before it —
+  // and the two agreed on ASCII while each was free to grow a surrogate-pair or
+  // normalisation rule the other did not. The budget is what a caller consumes, so
+  // asserting on it checks the bound AND the fact that it is reached through the one
+  // measurement `apps/desktop/AGENTS.md` §Chokepoints gives every cap.
   it("counts UTF-8 bytes and not code units", () => {
-    expect(utf8ByteLength("abc")).toBe(3);
-    expect(utf8ByteLength("é")).toBe(2);
-    expect(utf8ByteLength("😀")).toBe(4);
+    expect(cancelReasonBudget("abc").byteLength).toBe(3);
+    expect(cancelReasonBudget("é").byteLength).toBe(2);
+    expect(cancelReasonBudget("😀").byteLength).toBe(4);
+  });
+
+  it("agrees byte for byte with the measurement the durable path's own cap uses", () => {
+    // One ruler, asserted as one. Two functions that agree today are two functions
+    // that disagree on the day either grows a rule — and a cap is exactly where that
+    // is invisible until somebody's sentence is refused at a length nothing states.
+    for (const text of ["abc", "é", "😀", "a".repeat(1000), ""]) {
+      expect(cancelReasonBudget(text).byteLength).toBe(measureUtf8ByteLength(text));
+    }
   });
 
   it("negative control: the code-unit count disagrees, so the case above is not vacuous", () => {
@@ -31,8 +48,8 @@ describe("the reason bound is measured on the encoding", () => {
     // `value.length` would pass the ASCII case and fail here — which is exactly the
     // implementation this bound has to rule out, since a cap counted in code units
     // refuses a shorter sentence in one script than in another.
-    expect("😀".length).not.toBe(utf8ByteLength("😀"));
-    expect("é".length).not.toBe(utf8ByteLength("é"));
+    expect("😀".length).not.toBe(cancelReasonBudget("😀").byteLength);
+    expect("é".length).not.toBe(cancelReasonBudget("é").byteLength);
   });
 
   it("admits a reason exactly at the bound and refuses one byte past it", () => {

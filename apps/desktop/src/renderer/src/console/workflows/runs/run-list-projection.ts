@@ -29,17 +29,21 @@
 // authority on a question the daemon owns. What it computes is what the operator can
 // SEE: a park, its shape, and a pin that has fallen behind.
 //
-// TWO COMPARISONS, TWO DIRECTIONS, AND NO SHARED SENTINEL. Both orderings below read
-// an RFC 3339 string a daemon sent, and each has to say what an UNPARSEABLE one means
-// — but they mean opposite things, so one sentinel cannot serve both. The run sort is
-// DESCENDING and hands its readings to `compareInstants`, which puts an unreadable
-// start LAST in both directions: a numeric floor cannot, because the value that sorts
-// last ascending sorts first descending, and two floors subtract to `NaN`, which a
-// comparator may answer and `Array.prototype.sort` may read as anything it likes. The
-// earliest-resume pick is ASCENDING over instants already known to be readable — the
-// classification parsed them to reach the armed arm — so an unreadable
-// `autoResumeAt` is not compared at all rather than floored into first place, where
-// it would report a resume nobody can read in place of the one that is actually next.
+// ONE COMPARISON, AND NO SENTINEL UNDER IT. The sort below reads an RFC 3339 string a
+// daemon sent and has to say what an UNPARSEABLE one means. It is DESCENDING and hands
+// its readings to `compareInstants`, which puts an unreadable start LAST in both
+// directions: a numeric floor cannot, because the value that sorts last ascending
+// sorts first descending, and two floors subtract to `NaN`, which a comparator may
+// answer and `Array.prototype.sort` may read as anything it likes.
+//
+// ONE PARSE OF THE START, AND EVERY READER TAKES IT. The reading rides the row, so the
+// sort and the surface that PRINTS the start are looking at the same value. They were
+// not: the row printed `run.startedAt` through the figure chokepoint's `formatDateTime`,
+// which reads an instant under the default `"any-offset"` policy, while the sort read
+// it under this plane's declared `"utc-only"` one. A start spelled with a numeric
+// offset is legible to the first and malformed to the second, so the list sorted such a
+// run last — under every run whose start it could read — and then printed a perfectly
+// readable time on it, with nothing on screen saying its stamp had been refused.
 //
 // AND THE SORT ENDS ON THE RUN'S OWN IDENTITY. Band, then start, then `workflowRunId`
 // — because the first two both admit ties (two runs started in the same millisecond,
@@ -52,19 +56,26 @@
 // itself is `run-list-rows.ts`'s three-arm `WorkflowParkSchedule`, attached to each
 // parked phase as it is projected — because the surface that says which kind of park
 // this is renders ONE park at a time, and a row-level "something here is unscheduled"
-// cannot tell it which. Two row members used to carry that fact in aggregate and no
-// renderer consumed either: the badge re-derived the answer from `autoResumeAt`'s
-// presence and called a malformed instant a schedule.
+// cannot tell it which. THREE row members used to carry that fact in aggregate and no
+// renderer consumed any of them: the badge re-derived the answer from `autoResumeAt`'s
+// presence and called a malformed instant a schedule. The last of the three was the
+// soonest armed resume across a run's parks, which every surface that draws a resume
+// reads off the park it is drawing; a row member nothing reads is a derivation run per
+// row for nobody, and neither gate reports one — knip sees unused EXPORTS, not unused
+// members of a used interface.
 //
 // THE SHAPES ARE NEXT DOOR AND THE VOCABULARY IS ON THE SUBSTRATE. `run-list-rows.ts`
 // derives the run and phase rows from `bridge/workflow-projection.ts`, which is where
 // the statuses and park reasons are declared; this module holds the reading — bands,
 // order, and the counts a header shows — and declares exactly one closed set of its
 // own, the attention band, because a band is a reading of a status rather than a
-// status. The row symbols below are re-exported because their readers — the park
-// badge, the run list, and the run pane — read a run ROW through the module that
-// projects a run LIST, and a second import edge into the family for the same fact is
-// the thing that drifts.
+// status. It re-exports none of those shapes: this module used to forward
+// `parkAwaitsPerson`, `parkSchedule`, `phasePark`, and six types it does not declare,
+// so a reader who followed the park badge's import arrived at a module whose whole
+// subject is the run LIST and found nothing there — the declaration was one more hop
+// away, and the forwarding line was the only thing that said so. Every consumer names
+// the declaring module directly, which is the same rule the family door obeys one
+// level up.
 
 import { compareInstants, type InstantReading } from "../../core/index.js";
 import {
@@ -72,18 +83,9 @@ import {
   phasePark,
   workflowInstant,
   type WorkflowParkedPhase,
+  type WorkflowPhaseStateRow,
   type WorkflowRunSnapshot,
   type WorkflowRunState,
-} from "./run-list-rows.js";
-
-export { parkAwaitsPerson, parkSchedule, phasePark } from "./run-list-rows.js";
-export type {
-  WorkflowParkedPhase,
-  WorkflowParkReason,
-  WorkflowParkSchedule,
-  WorkflowPhasePark,
-  WorkflowRunSnapshot,
-  WorkflowRunState,
 } from "./run-list-rows.js";
 
 /**
@@ -94,8 +96,12 @@ export type {
  * will happen. Ordering by the six-value status directly would put `pending` above
  * `suspended` because the contract declares it first, which is a fact about the DDL
  * and not about what an operator should look at.
+ *
+ * MODULE-PRIVATE: the comparator below is the only reader, and the band a surface
+ * shows arrives on the row. Published, the tuple invites a second surface to band a
+ * run itself rather than reading the one this projection already decided.
  */
-export const WORKFLOW_RUN_ATTENTION_BANDS = ["parked", "active", "settled"] as const;
+const WORKFLOW_RUN_ATTENTION_BANDS = ["parked", "active", "settled"] as const;
 
 /** One attention band. Derived from the tuple, never restated. */
 export type WorkflowRunAttentionBand = (typeof WORKFLOW_RUN_ATTENTION_BANDS)[number];
@@ -128,13 +134,14 @@ export interface WorkflowRunListRow {
   /** Every phase parked at the moment the snapshot was built. Empty when none is. */
   readonly parkedPhases: readonly WorkflowParkedPhase[];
   /**
-   * The soonest READABLE armed resume across this run's parks, verbatim as the wire
-   * sent it.
+   * The run's start as this plane reads it, malformed included.
    *
-   * `undefined` when no park armed one — which is the operator-resumable case, not
-   * the not-parked case. `parkedPhases` says which of the two.
+   * The READING rather than the string, because the surface that prints it and the
+   * comparator that orders it must not read the wire's spelling twice under two
+   * grammars. `run.startedAt` is still on the snapshot for the title a figure carries
+   * — the wire's own bytes, which is what a person pastes into a search.
    */
-  readonly earliestAutoResumeAt: string | undefined;
+  readonly startedAt: InstantReading;
   /**
    * True when the run's pinned version is not the definition's newest.
    *
@@ -145,12 +152,15 @@ export interface WorkflowRunListRow {
   readonly attentionBand: WorkflowRunAttentionBand;
 }
 
-/** One row beside the reading of its own start, so the sort parses each run once. */
-interface SortableRunRow {
-  readonly row: WorkflowRunListRow;
-  /** The run's start as this plane reads it, malformed included. */
-  readonly startedAt: InstantReading;
-}
+/**
+ * What a row's open control does, when a caller supplies one.
+ *
+ * Declared beside the row it hands back rather than inside either component, on the
+ * precedent `definitions/definition-rows.ts` sets for `OpenDefinition`: the list and
+ * the row are two modules that have to agree about one signature, and declaring it in
+ * one of them makes the other import a component module for a type.
+ */
+export type OpenRun = (row: WorkflowRunListRow) => void;
 
 /**
  * The tie-break, and the reason the ordering is a property rather than a hope.
@@ -163,9 +173,9 @@ interface SortableRunRow {
  * different orders and make a screenshot reference a fact about the machine that took
  * it.
  */
-function workflowRunIdAscending(left: SortableRunRow, right: SortableRunRow): number {
-  const leftRunId = left.row.run.workflowRunId;
-  const rightRunId = right.row.run.workflowRunId;
+function workflowRunIdAscending(left: WorkflowRunListRow, right: WorkflowRunListRow): number {
+  const leftRunId = left.run.workflowRunId;
+  const rightRunId = right.run.workflowRunId;
   if (leftRunId === rightRunId) {
     return 0;
   }
@@ -181,34 +191,25 @@ function attentionBandFor(
 }
 
 /**
- * The soonest armed resume across a run's parks, or nothing where none is armed.
+ * Every phase of one run that is parked, classified, in the order they arrived.
  *
- * Reads each park's already-classified schedule rather than its raw member, so the
- * ASCENDING comparison never sees an instant nothing could parse: an unreadable
- * boundary is `unreadable` on the phase that carries it, and a row therefore cannot
- * report a resume time no surface is allowed to draw. Whether a person is needed is
- * not returned beside this — it is on each parked phase, where the surface that says
- * so reads it.
+ * THE PARK PROJECTION, AND THE ONLY ONE. Three surfaces draw a park — the run row's
+ * badges, the run pane's stack of cards, and the phase node above that stack — and each
+ * used to apply the discriminator and the schedule rule itself. Two of the three then
+ * disagreed about the phase's NAME, because one read the row's own member and the other
+ * substituted a module-level constant, so one screen named a parked phase and the
+ * surface beside it drew the same park with no name at all. That is not a bug in either
+ * one: it is the consequence of there being three.
+ *
+ * Takes the phases rather than the run because two of the three callers hold only a
+ * phase list, and a projection that demanded a whole run would have sent them back to
+ * deriving it themselves — which is the state this replaces.
  */
-function earliestArmedResumeFor(parkedPhases: readonly WorkflowParkedPhase[]): string | undefined {
-  let earliestAutoResumeAt: string | undefined;
-  let earliestMilliseconds = Number.POSITIVE_INFINITY;
-  for (const parked of parkedPhases) {
-    if (parked.schedule.kind !== "armed") {
-      continue;
-    }
-    if (parked.schedule.atMilliseconds < earliestMilliseconds) {
-      earliestMilliseconds = parked.schedule.atMilliseconds;
-      earliestAutoResumeAt = parked.schedule.autoResumeAt;
-    }
-  }
-  return earliestAutoResumeAt;
-}
-
-/** One run's row, with every derived fact read off the snapshot exactly once. */
-function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
+export function projectParkedPhases(
+  phaseStates: readonly WorkflowPhaseStateRow[],
+): readonly WorkflowParkedPhase[] {
   const parkedPhases: WorkflowParkedPhase[] = [];
-  for (const phase of run.phaseStates) {
+  for (const phase of phaseStates) {
     const park = phasePark(phase);
     if (park !== undefined) {
       parkedPhases.push({
@@ -219,10 +220,20 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
       });
     }
   }
+  return parkedPhases;
+}
+
+/** One run's row, with every derived fact read off the snapshot exactly once. */
+function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
+  const parkedPhases = projectParkedPhases(run.phaseStates);
   return {
     run,
     parkedPhases,
-    earliestAutoResumeAt: earliestArmedResumeFor(parkedPhases),
+    // The start is read ONCE per run, here, rather than once per comparison and again
+    // at the row. A key function called from inside the comparator parses the same
+    // string on the order of `n log n` occasions, and — the reason that matters — gives
+    // the sort a place to disagree with itself and with the surface above it.
+    startedAt: workflowInstant(run.startedAt),
     isPinnedBehindLatestVersion:
       run.definitionLatestWorkflowVersionId !== undefined &&
       run.definitionLatestWorkflowVersionId !== run.workflowVersionId,
@@ -248,16 +259,11 @@ export class RunListProjection {
 
   public constructor(runs: readonly WorkflowRunSnapshot[]) {
     this.#rows = runs
-      // The start is read ONCE per run rather than once per comparison. A key function
-      // called from inside the comparator parses the same string on the order of `n
-      // log n` occasions and — the reason that matters here — gives the sort a place
-      // to disagree with itself if the reading ever stopped being a pure function of
-      // the string.
-      .map((run) => ({ row: projectRun(run), startedAt: workflowInstant(run.startedAt) }))
+      .map((run) => projectRun(run))
       .sort((left, right) => {
         const bandDelta =
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.row.attentionBand) -
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(right.row.attentionBand);
+          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.attentionBand) -
+          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(right.attentionBand);
         if (bandDelta !== 0) {
           return bandDelta;
         }
@@ -274,8 +280,7 @@ export class RunListProjection {
         // without it the list held whatever order the enumeration supplied, and a
         // later read that supplied them the other way round swapped them on screen.
         return startDelta !== 0 ? startDelta : workflowRunIdAscending(left, right);
-      })
-      .map(({ row }) => row);
+      });
   }
 
   /** Every row, attention first and newest first inside a band. */

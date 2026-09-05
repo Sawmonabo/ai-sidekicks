@@ -44,9 +44,21 @@
 // lifting all three into a parent that then renders nothing else. The two render
 // functions below take exactly what they need, which is the idiom `WorkflowChrome`
 // established for a switch that must stay total.
+//
+// AND BOTH OF THOSE ARE ANSWERS ABOUT ONE RUN. A typed cancellation reason and a
+// chosen re-pin target are the operator's answers about the run in front of them, and
+// the pane holding this component is RETARGETED IN PLACE — the deck rewrites its
+// address and hands the same instance another run. Held for the mount, the reason
+// carried over as a sentence about a run it was never written about, and the re-pin
+// carried a version id that is in the new run's chain nowhere: the picker fell back to
+// displaying its first option while the state kept run A's id, so pressing Resume sent
+// run B a target the operator had never seen. Both are therefore held against the same
+// `(growth, workflowRunId)` pair the pane's own read is addressed at, so the render
+// that re-addresses already reads an empty field and no target.
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef } from "react";
 
+import type { GrowthPort } from "../../bridge/index.js";
 import {
   DerivedFigure,
   Glyph,
@@ -54,6 +66,7 @@ import {
   WireFigure,
   formatByteQuantity,
 } from "../../primitives/index.js";
+import { useSubjectScopedState } from "../../store/index.js";
 import {
   cancelReasonBudget,
   reasonPastBoundRefusal,
@@ -79,12 +92,33 @@ const RE_PARKED_RUN_STATE = "suspended";
 export interface OperatorControlsProps {
   readonly cancel: WorkflowCancelControl;
   readonly resume: WorkflowResumeControl;
+  /**
+   * The port the pane's run read is addressed at, taken as a SUBJECT and not called.
+   *
+   * This component issues no read — the controls arrive already admitted or refused —
+   * so the port is here for its identity alone. It is in the pair for the read's own
+   * reason: the fixture's scenario switch replaces the bridge and keeps the run id, so
+   * a run-only holder would carry a reason typed against the previous daemon into the
+   * next one.
+   */
+  readonly growth: GrowthPort;
+  /** The run whose controls these are, and which the fields below are answers about. */
+  readonly workflowRunId: string;
 }
 
 /** The run's two controls, each offered or refused exactly as its caller said. */
 export function OperatorControls(props: OperatorControlsProps): React.JSX.Element {
-  const [reason, setReason] = useState("");
-  const [repinTarget, setRepinTarget] = useState(NO_REPIN);
+  const { growth, workflowRunId } = props;
+  const { value: reason, publish: setReason } = useSubjectScopedState<string>(
+    growth,
+    workflowRunId,
+    () => "",
+  );
+  const { value: repinTarget, publish: setRepinTarget } = useSubjectScopedState<string>(
+    growth,
+    workflowRunId,
+    () => NO_REPIN,
+  );
   const reasonFieldId = useId();
   const repinFieldId = useId();
   // Refs rather than a controlled `open`, deliberately. The disclosure below is the

@@ -39,12 +39,12 @@
 import { Chip, WireFigure, type ChipTone } from "../../primitives/index.js";
 import { ParkFormRoute, type WorkflowParkFormRoute } from "./ParkFormRoute.js";
 import { ParkSchedule } from "./ParkSchedule.js";
-import { parkAwaitsPerson } from "../runs/run-list-projection.js";
+import { parkAwaitsPerson } from "../runs/run-list-rows.js";
 import type {
   WorkflowParkedPhase,
   WorkflowParkReason,
   WorkflowParkSchedule,
-} from "../runs/run-list-projection.js";
+} from "../runs/run-list-rows.js";
 
 /**
  * What each reason is called on screen.

@@ -116,7 +116,13 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // have to be the same answer. Handed `entity.id` separately, a pane retargeted
   // mid-read would pair the newly addressed run with the phases still on screen from
   // the run before it.
+  //
+  // The ADDRESS goes in beside it, and it is the same pair the read above is held at:
+  // the selection is an answer about one run, and this pane is retargeted without ever
+  // unmounting, so a mount-scoped selection outlived the run it was made about.
   const humanForms = useHumanFormSelection(
+    bridge.growth,
+    addressedRunId,
     snapshot.status === "served" ? snapshot.snapshot : undefined,
   );
 
@@ -154,6 +160,11 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
     <WorkflowChrome glyph="run" heading={HEADING} summary={SUMMARY} state={{ kind: "ready" }}>
       <RunReadState snapshot={snapshot} humanForms={humanForms} />
       <OperatorControls
+        // The same pair the read above is held at. The controls hold a typed reason
+        // and a chosen re-pin target, and both are answers about THIS run: a pane
+        // retargeted in place must not carry either into the next one.
+        growth={bridge.growth}
+        workflowRunId={entity.id}
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />

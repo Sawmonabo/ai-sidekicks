@@ -59,7 +59,7 @@ describe("the band a run status lands in", () => {
 });
 
 describe("what a row reads off its parks", () => {
-  it("takes the earliest armed resume, verbatim, across a run's parks", () => {
+  it("classifies every park of a run that armed two readable boundaries", () => {
     const projection = new RunListProjection([
       run({
         phaseStates: [
@@ -78,14 +78,13 @@ describe("what a row reads off its parks", () => {
         ],
       }),
     ]);
-    expect(projection.rows[0]?.earliestAutoResumeAt).toBe("2026-09-01T11:30:00.000Z");
     expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([
       "armed",
       "armed",
     ]);
   });
 
-  it("reports no armed resume and an unscheduled park where nothing was armed", () => {
+  it("keeps an unscheduled park unscheduled beside one that armed a boundary", () => {
     const projection = new RunListProjection([
       run({
         phaseStates: [
@@ -99,11 +98,9 @@ describe("what a row reads off its parks", () => {
         ],
       }),
     ]);
-    // One park armed a schedule and one did not: the run still needs a person, and
-    // reporting only the armed one would say it resumes itself.
-    expect(projection.rows[0]?.earliestAutoResumeAt).toBe("2026-09-01T13:00:00.000Z");
-    // The classification is per PARK, because the badge that draws it draws one park
-    // at a time: a row-level "something here is unscheduled" cannot say which.
+    // One park armed a schedule and one did not, and the run still needs a person. The
+    // classification is per PARK, because the badge that draws it draws one park at a
+    // time: a row-level "something here is unscheduled" cannot say which one.
     expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([
       "unscheduled",
       "armed",

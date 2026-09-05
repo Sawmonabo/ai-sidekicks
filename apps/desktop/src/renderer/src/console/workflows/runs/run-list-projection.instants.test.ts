@@ -1,9 +1,9 @@
 // The readings taken when an instant the console cannot parse arrives anyway.
 //
-// A malformed boundary is not a hypothetical: the projection compares instants in two
-// directions — ascending for the soonest resume, descending for the newest start — and
-// a sentinel that satisfies one satisfies the other backwards. So both directions are
-// asserted here, against a fixture whose unreadability is itself checked first.
+// A malformed boundary is not a hypothetical, and it reaches two places: the park a
+// phase carries, where it is classified rather than folded into "nothing was armed",
+// and the run's own start, where it must sort under every start a person can read. Both
+// are asserted here, against a fixture whose unreadability is itself checked first.
 
 import { describe, expect, it } from "vitest";
 
@@ -30,7 +30,7 @@ describe("an instant the console cannot read", () => {
     expect(workflowInstant(UNREADABLE_INSTANT).kind).toBe("malformed");
   });
 
-  it("picks the valid armed resume when another park armed one it cannot read", () => {
+  it("classifies each park on its own reading when one run holds both kinds", () => {
     const projection = new RunListProjection([
       run({
         phaseStates: [
@@ -49,10 +49,13 @@ describe("an instant the console cannot read", () => {
         ],
       }),
     ]);
-    // The shared floor sentinel this replaces sorted an unreadable instant last in
-    // the DESCENDING run sort and first in this ASCENDING pick, so the row reported
-    // the malformed value as the soonest resume.
-    expect(projection.rows[0]?.earliestAutoResumeAt).toBe("2026-09-01T11:30:00.000Z");
+    // Per PARK and never per row: the surface that says which kind of park this is
+    // draws one park at a time, so a row-level reading could not tell it which of
+    // these two the sentence in front of the operator is about.
+    expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([
+      "unreadable",
+      "armed",
+    ]);
   });
 
   it("reports the unreadable park as unscheduled and names its phase", () => {
@@ -68,7 +71,6 @@ describe("an instant the console cannot read", () => {
         ],
       }),
     ]);
-    expect(projection.rows[0]?.earliestAutoResumeAt).toBeUndefined();
     // Classified `unreadable` rather than folded into `unscheduled`: the malformed
     // value is the only evidence the engine armed anything, and the badge reports it.
     expect(projection.rows[0]?.parkedPhases[0]?.schedule).toStrictEqual({
@@ -92,7 +94,6 @@ describe("an instant the console cannot read", () => {
     expect(projection.rows[0]?.parkedPhases[0]?.schedule).toStrictEqual({
       kind: "armed",
       autoResumeAt: "2026-09-01T11:30:00.000Z",
-      atMilliseconds: Date.UTC(2026, 8, 1, 11, 30, 0, 0),
     });
   });
 

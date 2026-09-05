@@ -13,6 +13,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowPhaseState } from "../../bridge/index.js";
+import * as runListProjection from "./run-list-projection.js";
+import * as runListRows from "./run-list-rows.js";
 import { parkSchedule, phasePark, workflowInstant } from "./run-list-rows.js";
 import { phase } from "./run-list-projection.test-support.js";
 
@@ -134,14 +136,16 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     expect(scheduleFor("2026-01-01T10:00:00+01:00").kind).toBe("unreadable");
   });
 
-  it("admits a well-formed UTC instant and carries its parsed reading on the arm", () => {
+  it("admits a well-formed UTC instant and carries the wire's own spelling on the arm", () => {
     // The control for every case above: a projection that refused everything would
-    // satisfy all of them and leave no park schedulable at all.
-    const schedule = scheduleFor("2026-01-01T10:00:00.000Z");
-    expect(schedule.kind).toBe("armed");
-    expect(schedule.kind === "armed" ? schedule.atMilliseconds : undefined).toBe(
-      Date.UTC(2026, 0, 1, 10, 0, 0, 0),
-    );
+    // satisfy all of them and leave no park schedulable at all. The arm carries the
+    // wire's string and no reading of it — every surface that draws a resume draws
+    // this value, and the parsed number the arm used to carry had no reader left once
+    // the row-level earliest-resume pick was deleted.
+    expect(scheduleFor("2026-01-01T10:00:00.000Z")).toStrictEqual({
+      kind: "armed",
+      autoResumeAt: "2026-01-01T10:00:00.000Z",
+    });
   });
 
   it("admits one with whole seconds and no fraction", () => {
@@ -218,5 +222,37 @@ describe("a calendar and a clock, not four groups of digits", () => {
     // What the host parser makes of each — the first of March, and a number either way
     // — is asserted in `core/instant.test.ts`, where the ban is lifted to show it.
     expect(workflowInstant("2027-02-29T00:00:00Z").kind).toBe("malformed");
+  });
+});
+
+/*
+ * WHERE A ROW'S SHAPES ARE DECLARED, asserted as the module boundary and not as prose.
+ *
+ * `run-list-projection.ts` used to re-export `parkAwaitsPerson`, `parkSchedule`, and
+ * `phasePark` beside six types it does not declare, so the park badge, the phase
+ * graph, and the pane's cards all named the projection for a fact this module owns. A
+ * reader who followed one of those imports arrived at a module whose whole subject is
+ * the run LIST and found the declaration another hop away.
+ *
+ * The exact set is the assertion rather than three absences: an exact set fails on a
+ * forward re-appearing AND on the projection quietly growing an export nobody decided
+ * to publish, which is how the forwarding block got there in the first place.
+ */
+describe("the two run modules' published surfaces", () => {
+  const ROW_SYMBOLS = ["parkAwaitsPerson", "parkSchedule", "phasePark", "workflowInstant"];
+
+  it("declares the row vocabulary here and forwards none of it from the projection", () => {
+    expect(Object.keys(runListRows).toSorted()).toStrictEqual(ROW_SYMBOLS.toSorted());
+    expect(Object.keys(runListProjection).toSorted()).toStrictEqual(
+      ["RunListProjection", "projectParkedPhases"].toSorted(),
+    );
+  });
+
+  it("negative control: the two sets are disjoint rather than trivially empty", () => {
+    // Without this the case above would be satisfied by a pair of modules that had
+    // stopped exporting anything at all, which is a green run and an empty family.
+    const rowNames = new Set(Object.keys(runListRows));
+    expect(rowNames.size).toBeGreaterThan(0);
+    expect(Object.keys(runListProjection).filter((name) => rowNames.has(name))).toStrictEqual([]);
   });
 });

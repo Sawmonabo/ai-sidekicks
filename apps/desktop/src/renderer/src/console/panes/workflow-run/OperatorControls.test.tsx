@@ -7,6 +7,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { GrowthPort } from "../../bridge/index.js";
 import { OperatorControls, type OperatorControlsProps } from "./OperatorControls.js";
 import {
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
@@ -14,8 +15,30 @@ import {
   type WorkflowVersionChoice,
 } from "./run-controls.js";
 
+/**
+ * The address the controls hold their two fields against.
+ *
+ * The port is a subject TOKEN and nothing calls it — this component issues no read —
+ * so it is cast rather than built, the idiom `WorkflowRunPane.test-support.tsx` states
+ * for the pane context: standing a fixture bridge up to supply an identity would make
+ * the setup the subject. Every case but the retarget group below renders at this one
+ * address, because none of them moves.
+ */
+const RUN_A_ADDRESS = { growth: {} as GrowthPort, workflowRunId: "run-a" } as const;
+
+/**
+ * The picker's own value for "resume without re-pinning".
+ *
+ * The component's `NO_REPIN` is module-private and stays that way — it is the empty
+ * string because that is what an unselected `<option>` carries, and publishing it would
+ * be publishing a fact about HTML. Restated here as what the DOM shows, which is the
+ * only thing these cases read.
+ */
+const NO_REPIN_VALUE = "";
+
 /** Both controls refused, which is every arm this build can actually reach. */
 const BOTH_REFUSED: OperatorControlsProps = {
+  ...RUN_A_ADDRESS,
   cancel: { kind: "refused", refusal: unregisteredRunControl("cancel") },
   resume: { kind: "refused", refusal: unregisteredRunControl("resume") },
 };
@@ -44,6 +67,7 @@ describe("a refused control renders its refusal and offers no press", () => {
     // button on any arm at all.
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "admitted", cancel: vi.fn() }}
         resume={{ kind: "admitted", resume: vi.fn(), versionChain: [] }}
       />,
@@ -57,6 +81,7 @@ describe("cancel is never gated, queued or disabled", () => {
     const cancel = vi.fn();
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "admitted", cancel }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />,
@@ -69,6 +94,7 @@ describe("cancel is never gated, queued or disabled", () => {
     const cancel = vi.fn();
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "admitted", cancel }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />,
@@ -82,6 +108,7 @@ describe("cancel is never gated, queued or disabled", () => {
     const cancel = vi.fn();
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "admitted", cancel }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />,
@@ -106,6 +133,7 @@ describe("cancel is never gated, queued or disabled", () => {
     const cancel = vi.fn();
     const { container } = render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "admitted", cancel }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />,
@@ -139,6 +167,7 @@ describe("cancel is never gated, queued or disabled", () => {
     const cancel = vi.fn();
     const { container } = render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "admitted", cancel }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />,
@@ -159,6 +188,7 @@ describe("cancel is never gated, queued or disabled", () => {
     const atBound = "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP);
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "admitted", cancel }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />,
@@ -174,6 +204,7 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
   it("offers no picker when no version chain was read", () => {
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "admitted", resume: vi.fn(), versionChain: [] }}
       />,
@@ -185,6 +216,7 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     const resume = vi.fn();
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "admitted", resume, versionChain: VERSION_CHAIN }}
       />,
@@ -197,6 +229,7 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     const resume = vi.fn();
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "admitted", resume, versionChain: VERSION_CHAIN }}
       />,
@@ -209,6 +242,7 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
   it("offers exactly the chain the caller read, plus the no-re-pin choice", () => {
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "admitted", resume: vi.fn(), versionChain: VERSION_CHAIN }}
       />,
@@ -226,10 +260,107 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     // its options from a source other than the chain it was handed.
     render(
       <OperatorControls
+        {...RUN_A_ADDRESS}
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "admitted", resume: vi.fn(), versionChain: [] }}
       />,
     );
     expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
+});
+
+/*
+ * THE PANE HOLDING THESE CONTROLS IS RETARGETED IN PLACE. The deck rewrites a pane's
+ * address and hands the same component instance another run, so the two fields here —
+ * a typed cancellation reason and a chosen re-pin target — have to be answers about
+ * the run the controls are now addressed at.
+ *
+ * The re-pin is the sharper half. A version chain is per run, so run A's chosen id is
+ * in run B's chain nowhere: a `<select>` whose value matches no option falls back to
+ * DISPLAYING its first one while the state it is bound to still holds run A's id. The
+ * operator sees "Keep the pinned version", presses Resume, and the call carries a
+ * target they never chose for a run they had not looked at.
+ */
+describe("the two fields are answers about one run", () => {
+  const RUN_B_CHAIN: readonly WorkflowVersionChoice[] = [
+    { workflowVersionId: "wfv-09", label: "Version 9", isCurrentPin: true },
+  ];
+
+  function admitted(props: {
+    readonly workflowRunId: string;
+    readonly versionChain: readonly WorkflowVersionChoice[];
+    readonly resume: () => void;
+  }): React.JSX.Element {
+    return (
+      <OperatorControls
+        growth={RUN_A_ADDRESS.growth}
+        workflowRunId={props.workflowRunId}
+        cancel={{ kind: "admitted", cancel: vi.fn() }}
+        resume={{ kind: "admitted", resume: props.resume, versionChain: props.versionChain }}
+      />
+    );
+  }
+
+  function typedReason(): string {
+    const field = screen.getByLabelText("Reason");
+    return field instanceof HTMLTextAreaElement ? field.value : "";
+  }
+
+  function chosenRepin(): string {
+    const picker = screen.getByRole("combobox");
+    return picker instanceof HTMLSelectElement ? picker.value : "";
+  }
+
+  /** Fill both fields on run A, then hand the same controls run B. */
+  function fillRunAThenRetarget(resume: () => void): ReturnType<typeof render> {
+    const rendered = render(
+      admitted({ workflowRunId: "run-a", versionChain: VERSION_CHAIN, resume }),
+    );
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "superseded" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "wfv-02" } });
+    // The premise: both fields really did take the operator's answers about run A.
+    expect(typedReason()).toBe("superseded");
+    expect(chosenRepin()).toBe("wfv-02");
+    rendered.rerender(admitted({ workflowRunId: "run-b", versionChain: RUN_B_CHAIN, resume }));
+    return rendered;
+  }
+
+  it("carries neither the reason nor the re-pin target into the next run", () => {
+    fillRunAThenRetarget(vi.fn());
+    expect(typedReason()).toBe("");
+    expect(chosenRepin()).toBe(NO_REPIN_VALUE);
+    // And the line that quotes the target is gone with it, rather than printing run
+    // A's version id under run B's address.
+    expect(screen.queryByText(/resuming onto/iu)).toBeNull();
+  });
+
+  it("resumes the new run with no target rather than the one chosen for the old one", () => {
+    const resume = vi.fn();
+    fillRunAThenRetarget(resume);
+    fireEvent.click(screen.getByRole("button", { name: /resume this run/iu }));
+    expect(resume).toHaveBeenCalledWith(undefined);
+    expect(resume).not.toHaveBeenCalledWith({ targetWorkflowVersionId: "wfv-02" });
+  });
+
+  it("negative control: run A's chosen version is in run B's chain nowhere", () => {
+    // The premise of the case above, asserted rather than assumed: an id the new chain
+    // happened to contain would be a legal choice there, and the defect would be a
+    // silent one rather than a wrong call.
+    expect(RUN_B_CHAIN.map((choice) => choice.workflowVersionId)).not.toContain("wfv-02");
+  });
+
+  it("negative control: a re-render at the SAME run keeps both answers", () => {
+    // Without this, the cases above would be satisfied by fields that cleared on every
+    // render — which would make the reason untypeable and the picker unusable.
+    const resume = vi.fn();
+    const rendered = render(
+      admitted({ workflowRunId: "run-a", versionChain: VERSION_CHAIN, resume }),
+    );
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "superseded" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "wfv-02" } });
+    rendered.rerender(admitted({ workflowRunId: "run-a", versionChain: VERSION_CHAIN, resume }));
+
+    expect(typedReason()).toBe("superseded");
+    expect(chosenRepin()).toBe("wfv-02");
   });
 });

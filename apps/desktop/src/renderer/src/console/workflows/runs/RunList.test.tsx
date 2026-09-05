@@ -2,37 +2,24 @@
 // through `RunListProjection` rather than through hand-built rows: a test that
 // constructed its own row values would prove the markup and leave the seam between
 // the two — the part that can actually drift — unchecked.
+//
+// WHAT IS ASSERTED HERE AND WHAT IS ASSERTED NEXT DOOR. This suite is the list's own
+// three claims: the absence, the header's counts, and the order the rows come out in.
+// Everything a ROW draws is `RunListItem.test.tsx`, which splits along the same seam
+// the modules do.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatClockTime, formatDateTime } from "../../primitives/index.js";
+import { formatDateTime } from "../../primitives/index.js";
 import { RunList } from "./RunList.js";
-import {
-  RunListProjection,
-  type WorkflowRunListRow,
-  type WorkflowRunSnapshot,
-} from "./run-list-projection.js";
+import { RunListProjection } from "./run-list-projection.js";
+import { workflowInstant } from "./run-list-rows.js";
+import type { WorkflowPhaseStateRow, WorkflowRunSnapshot } from "./run-list-rows.js";
+import { phase, run } from "./run-list-projection.test-support.js";
 
-function run(overrides: Partial<WorkflowRunSnapshot> = {}): WorkflowRunSnapshot {
-  return {
-    workflowRunId: "run-1",
-    state: "running",
-    workflowVersionId: "version-1",
-    startedAt: "2026-09-01T10:00:00.000Z",
-    phaseStates: [],
-    definitionName: "Release checklist",
-    ...overrides,
-  };
-}
-
-function renderList(
-  runs: readonly WorkflowRunSnapshot[],
-  onOpenRun?: (row: WorkflowRunListRow) => void,
-): HTMLElement {
-  const { container } = render(
-    <RunList projection={new RunListProjection(runs)} onOpenRun={onOpenRun} />,
-  );
+function renderList(runs: readonly WorkflowRunSnapshot[]): HTMLElement {
+  const { container } = render(<RunList projection={new RunListProjection(runs)} />);
   const root = container.firstElementChild;
   if (!(root instanceof HTMLElement)) {
     throw new Error("the list rendered nothing");
@@ -44,6 +31,26 @@ function rowNames(root: HTMLElement): readonly string[] {
   return [...root.querySelectorAll(".meridian-run-row__name")].map(
     (name) => name.textContent ?? "",
   );
+}
+
+/** Each row's start figure, in the order the list drew the rows. */
+function startFigures(root: HTMLElement): readonly string[] {
+  return [...root.querySelectorAll(".meridian-run-row__meta")].map((meta) => {
+    const start = [...meta.querySelectorAll(".meridian-figure--wire")].find(
+      (figure) => figure.getAttribute("title") !== null,
+    );
+    return start?.textContent ?? "";
+  });
+}
+
+/** One phase parked on a person, which is what puts a run in the parked band. */
+function parkedPhase(phaseId: string): WorkflowPhaseStateRow {
+  return phase({
+    phaseId,
+    phaseName: "Sign-off",
+    parkReason: "waiting-human",
+    parkCause: "Waiting for sign-off.",
+  });
 }
 
 describe("an empty list", () => {
@@ -60,216 +67,111 @@ describe("an empty list", () => {
   });
 });
 
-describe("the rows", () => {
+describe("the order the rows come out in", () => {
   it("follows the projection's order rather than the caller's", () => {
     const root = renderList([
-      run({ workflowRunId: "run-active", definitionName: "Active" }),
+      run({ workflowRunId: "run-active", definitionName: "Active", phaseStates: [] }),
       run({
         workflowRunId: "run-parked",
         definitionName: "Parked",
-        phaseStates: [
-          {
-            phaseId: "phase-1",
-            phaseName: "Sign-off",
-            state: "running",
-            parkReason: "waiting-human",
-            parkCause: "Waiting for sign-off.",
-          },
-        ],
+        phaseStates: [parkedPhase("phase-1")],
       }),
     ]);
     expect(rowNames(root)).toStrictEqual(["Parked", "Active"]);
   });
 
-  it("says one park per parked phase and none on a run with no park", () => {
-    const root = renderList([
-      run({
-        phaseStates: [
-          {
-            phaseId: "phase-1",
-            phaseName: "Sign-off",
-            state: "running",
-            parkReason: "waiting-human",
-            parkCause: "Waiting for sign-off.",
-          },
-          { phaseId: "phase-2", phaseName: "Publish", state: "pending" },
-        ],
-      }),
-    ]);
-    expect(root.querySelectorAll(".meridian-park")).toHaveLength(1);
-    expect(root.textContent).toContain("Sign-off");
-  });
-
-  it("counts what it is showing, including the parks", () => {
-    const root = renderList([
-      run({ workflowRunId: "run-clean" }),
+  it("negative control: the caller's own order is the other one", () => {
+    // Without this the case above would pass over a list that happened to render its
+    // input unchanged, which is exactly what it exists to disprove.
+    const callerOrder = [
+      run({ workflowRunId: "run-active", definitionName: "Active", phaseStates: [] }),
       run({
         workflowRunId: "run-parked",
-        phaseStates: [
-          {
-            phaseId: "phase-1",
-            phaseName: "Sign-off",
-            state: "running",
-            parkReason: "waiting-human",
-            parkCause: "Waiting for sign-off.",
-          },
-        ],
+        definitionName: "Parked",
+        phaseStates: [parkedPhase("phase-1")],
       }),
+    ].map((snapshot) => snapshot.definitionName);
+    expect(callerOrder).toStrictEqual(["Active", "Parked"]);
+  });
+});
+
+describe("the counts the header shows", () => {
+  it("counts what it is showing, including the parks", () => {
+    const root = renderList([
+      run({ workflowRunId: "run-clean", phaseStates: [] }),
+      run({ workflowRunId: "run-parked", phaseStates: [parkedPhase("phase-1")] }),
     ]);
     const summary = root.querySelector(".meridian-run-list__summary")?.textContent ?? "";
     expect(summary).toContain("Runs");
     expect(summary).toContain("Parked");
   });
 
-  it("renders a failure reason verbatim, as the daemon's sentence about the run", () => {
-    const root = renderList([
-      run({ state: "failed", failureReason: "Quality gate rejected the phase output." }),
-    ]);
-    expect(root.querySelector(".meridian-run-row__failure")?.textContent).toBe(
-      "Quality gate rejected the phase output.",
-    );
-    expect(root.querySelector(".meridian-chip--failure")).not.toBeNull();
+  it("says nothing about parks or frozen pins on a list that has neither", () => {
+    // The negative control for the case above: a header that printed both lines
+    // unconditionally would satisfy it while claiming a park on every list.
+    const summary =
+      renderList([run({ phaseStates: [] })]).querySelector(".meridian-run-list__summary")
+        ?.textContent ?? "";
+    expect(summary).toContain("Runs");
+    expect(summary).not.toContain("Parked");
+    expect(summary).not.toContain("Frozen pins");
   });
 });
 
 /*
- * One wire member, two facts. `failureReason` is preserved on any bound breach AND
- * carries the reason a cancel supplied, so the run's status is the only thing that
- * says which arrived — and the row used to render both in the failure treatment,
- * presenting an outcome somebody asked for as a breach.
- *
- * The cancelled run's sentence is the committed workflows fixture's own, so the case
- * reads what a person actually sees on that scenario. It is built through this file's
- * factory rather than imported from the scenario, on the header's rule: the seam
- * under test is the projection's, and a unit case reaching into the fixture module
- * would be a second import edge for a string.
+ * The start is DISPLAYED under the grammar it is SORTED under, and the two used to be
+ * different readers. `run-list-rows.ts` declares this plane `"utc-only"` so an encoding
+ * change arrives as the unreadable value it is; the row printed through the figure
+ * chokepoint's `formatDateTime`, whose default policy admits a numeric offset. So a run
+ * spelled `+02:00` sorted last — under every start the plane could read — and printed a
+ * legible time on the row, with nothing saying its stamp had been refused.
  */
-describe("the reason a run carries", () => {
-  function reasonOf(root: HTMLElement, className: string): string | undefined {
-    return root.querySelector(`.${className}`)?.textContent?.trim();
+describe("a start spelled with a numeric offset", () => {
+  // 10:00Z, so it is genuinely NEWER than the run below it and belongs above it in a
+  // newest-first band — which is what makes its placement last a visible symptom
+  // rather than a coincidence of the values chosen.
+  const offsetSpelled = "2026-01-01T12:00:00+02:00";
+  const utcSpelled = "2026-01-01T09:00:00Z";
+
+  function twoRuns(): HTMLElement {
+    return renderList([
+      run({ workflowRunId: "run-offset", definitionName: "Offset", startedAt: offsetSpelled }),
+      run({ workflowRunId: "run-utc", definitionName: "Utc", startedAt: utcSpelled }),
+      // Both unparked and both active, so the band is not what orders them.
+    ]);
   }
 
-  it("says a cancellation is one, in prose rather than in the failure treatment", () => {
-    const root = renderList([
-      run({
-        state: "cancelled",
-        failureReason: "Cancelled: the incident was resolved out of band.",
-      }),
+  it("sorts it last and prints it as the unreadable value the plane made it", () => {
+    const root = twoRuns();
+    expect(rowNames(root)).toStrictEqual(["Utc", "Offset"]);
+    expect(startFigures(root)).toStrictEqual([formatDateTime(utcSpelled), "—"]);
+  });
+
+  it("keeps the wire's own spelling on the refused row, as the only evidence of it", () => {
+    const meta = [...twoRuns().querySelectorAll(".meridian-run-row__meta")][1];
+    const titles = [...(meta?.querySelectorAll(".meridian-figure--wire") ?? [])].map((figure) =>
+      figure.getAttribute("title"),
+    );
+    expect(titles).toContain(offsetSpelled);
+  });
+
+  it("negative control: the display formatter alone reads that spelling perfectly well", () => {
+    // The finding. Without it the case above would pass over a row that printed the em
+    // dash for some unrelated reason, and would not name the reader that disagreed.
+    expect(formatDateTime(offsetSpelled)).not.toBe("—");
+    expect(formatDateTime(offsetSpelled)).toBe(formatDateTime("2026-01-01T10:00:00Z"));
+  });
+
+  it("negative control: the plane's own reader is the one that refuses it", () => {
+    expect(workflowInstant(offsetSpelled).kind).toBe("malformed");
+    expect(workflowInstant(utcSpelled).kind).toBe("instant");
+  });
+
+  it("negative control: a plain Z start still prints its figure rather than the dash", () => {
+    // Without this the case above would be satisfied by a row that had stopped
+    // rendering a start at all.
+    expect(startFigures(renderList([run({ startedAt: utcSpelled })]))).toStrictEqual([
+      formatDateTime(utcSpelled),
     ]);
-
-    expect(reasonOf(root, "meridian-run-row__reason")).toBe(
-      "Cancellation reason Cancelled: the incident was resolved out of band.",
-    );
-    // The daemon's sentence verbatim, with only the name in front of it added.
-    expect(root.querySelector(".meridian-run-row__reason")?.textContent).toContain(
-      "Cancelled: the incident was resolved out of band.",
-    );
-    expect(root.querySelector(".meridian-run-row__failure")).toBeNull();
-  });
-
-  it("keeps the failure treatment, unlabelled, for a run that failed", () => {
-    // Negative control for the case above: it would pass over a row that had dropped
-    // the failure arm entirely and called every reason a cancellation.
-    const root = renderList([
-      run({ state: "failed", failureReason: "Quality gate rejected the phase output." }),
-    ]);
-
-    expect(reasonOf(root, "meridian-run-row__failure")).toBe(
-      "Quality gate rejected the phase output.",
-    );
-    expect(root.querySelector(".meridian-run-row__reason")).toBeNull();
-  });
-
-  it("renders neither shape for a run that carries no reason", () => {
-    // The second control: both cases above read a class off a row, and a list that
-    // rendered an empty paragraph for every run would satisfy neither claim honestly.
-    const root = renderList([run({ state: "completed" })]);
-
-    expect(root.querySelector(".meridian-run-row__reason")).toBeNull();
-    expect(root.querySelector(".meridian-run-row__failure")).toBeNull();
-  });
-
-  it("spends the status chip's tone on the status and the treatment on the reason", () => {
-    // A cancelled run is settled rather than broken, so neither the chip nor the
-    // reason wears the failure hue — the two facts are told apart by words here.
-    const root = renderList([
-      run({ state: "cancelled", failureReason: "Cancelled: superseded by a newer run." }),
-    ]);
-
-    expect(root.querySelector(".meridian-chip--failure")).toBeNull();
-    expect(root.querySelector(".meridian-run-row__reason-label")?.textContent).toBe(
-      "Cancellation reason",
-    );
-  });
-});
-
-describe("the start a row reads", () => {
-  // A run list has no day divider above it, so the two runs below — started at the
-  // same hour a week apart — are the pair the ledger's date-free reading collapses.
-  const startedOnTheFirst = "2026-09-01T10:00:00.000Z";
-  const startedOnTheEighth = "2026-09-08T10:00:00.000Z";
-
-  function startFigureText(startedAt: string): string {
-    const meta = renderList([run({ startedAt })]).querySelector(".meridian-run-row__meta");
-    return [...(meta?.querySelectorAll(".meridian-figure--wire") ?? [])]
-      .map((figure) => figure.textContent ?? "")
-      .join(" ");
-  }
-
-  it("tells two runs a week apart apart", () => {
-    expect(startFigureText(startedOnTheEighth)).not.toBe(startFigureText(startedOnTheFirst));
-  });
-
-  it("negative control: the ledger's date-free reading renders the two identically", () => {
-    // The finding. Without it the case above would pass over a row that differed for
-    // some other reason and would not name the reading that lost the day.
-    expect(formatClockTime(startedOnTheEighth)).toBe(formatClockTime(startedOnTheFirst));
-  });
-
-  it("draws the figure chokepoint's date-carrying reading beside the wire instant", () => {
-    const meta = renderList([run({ startedAt: startedOnTheFirst })]).querySelector(
-      ".meridian-run-row__meta",
-    );
-    const start = [...(meta?.querySelectorAll(".meridian-figure--wire") ?? [])].find(
-      (figure) => figure.getAttribute("title") === startedOnTheFirst,
-    );
-    expect(start?.textContent).toBe(formatDateTime(startedOnTheFirst));
-  });
-});
-
-describe("the frozen-definition state", () => {
-  it("marks a run whose pin is behind its definition, and shows the pin it is on", () => {
-    const root = renderList([
-      run({ workflowVersionId: "version-1", definitionLatestWorkflowVersionId: "version-4" }),
-    ]);
-    expect(root.textContent).toContain("Frozen on an older version");
-    expect(root.querySelector(".meridian-run-row__pin")?.textContent).toContain("version-1");
-  });
-
-  it("negative control: a run whose latest the caller does not hold is not marked", () => {
-    const root = renderList([run({ workflowVersionId: "version-1" })]);
-    expect(root.textContent).not.toContain("Frozen on an older version");
-    expect(root.querySelector(".meridian-run-row__pin")).toBeNull();
-  });
-});
-
-describe("the open control", () => {
-  it("is absent while nothing can address a run", () => {
-    expect(renderList([run()]).querySelectorAll("button")).toHaveLength(0);
-  });
-
-  it("hands the row back when its caller supplies the action", () => {
-    // A typed capture rather than a bare spy: the claim is that the ROW travels, and
-    // reading it back off an untyped mock call would assert against `any`.
-    const openedRuns: WorkflowRunListRow[] = [];
-    const root = renderList([run({ workflowRunId: "run-1" })], (row) => {
-      openedRuns.push(row);
-    });
-    const button = root.querySelector("button");
-    if (!(button instanceof HTMLButtonElement)) {
-      throw new Error("the row rendered no open control");
-    }
-    button.click();
-    expect(openedRuns.map((row) => row.run.workflowRunId)).toStrictEqual(["run-1"]);
   });
 });
