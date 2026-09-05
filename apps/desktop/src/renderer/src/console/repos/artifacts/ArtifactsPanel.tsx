@@ -58,6 +58,7 @@ import { useMemo, useState } from "react";
 // The wire's own type census, so the filter offers exactly the types the manifest
 // envelope declares. Read here rather than through a family-local copy of the list:
 // a copy goes on offering a type the wire dropped, with nothing failing.
+import { useSubjectScopedState } from "../../store/index.js";
 import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
@@ -118,11 +119,63 @@ export interface ArtifactsPanelProps {
 /** One shared empty list, so the memos below see a stable reference on the row-less arms. */
 const NO_ROWS: readonly ArtifactManifestRow[] = [];
 
+/**
+ * Which listing this panel is currently showing, as one comparable value.
+ *
+ * THE ARM IS PART OF IT, AND THAT IS THE WHOLE POINT. A list that went away and came
+ * back is a different showing even when it comes back holding the same rows, because
+ * the surface above re-pointed at another subject in between and the reader it minted
+ * published its unread absence on the way. The row ids alone cannot tell that visit
+ * from a refresh — a refresh of one session lists the same artifacts — so the arm is
+ * carried beside them and the `not-checked` frame between the two is what moves this
+ * value. A refresh that lists the same rows composes the same scope and holds whatever
+ * a participant had open.
+ */
+function listingScopeOf(state: ArtifactsPanelState): string {
+  return state.kind === "listed"
+    ? `listed ${state.rows.map((row) => row.id).join(" ")}`
+    : state.kind;
+}
+
+/**
+ * The one delete confirmation this panel holds, and the listing it belongs to.
+ *
+ * A CONFIRMATION IS AN APPROVAL OF ONE PARTICULAR THING, so it does not outlive it —
+ * `repos/proposals/ProposalActionGroup.tsx` states the rule at length one directory
+ * over and this register was the copy that had not taken it. A participant armed the
+ * confirm on one artifact, the deck re-pointed the pane at another, and this component
+ * stayed mounted at the same tree position while its rows unmounted and came back — so
+ * the row rendered again with a destructive act armed and one click from firing, its
+ * consequence text having been off screen in between.
+ *
+ * SEEDED DURING THE RENDER THAT RE-ADDRESSES, which is what `useSubjectScopedState`
+ * buys over an effect: no committed frame carries the previous listing's confirmation,
+ * where an effect would clear it one commit later — and that commit is a frame in which
+ * the confirm control is on screen and pressable.
+ *
+ * THE MOUNT IS THE SUBJECT AND THE LISTING IS THE KEY WITHIN IT. There is no live
+ * object here whose replacement retires the confirmation; the thing it belongs to is a
+ * value, which is exactly what a key is.
+ */
+function usePendingDeleteConfirmation(state: ArtifactsPanelState): DeleteConfirmState {
+  const [confirmationSubject] = useState<object>(() => ({}));
+  const { value, publish } = useSubjectScopedState<string | undefined>(
+    confirmationSubject,
+    listingScopeOf(state),
+    () => undefined,
+  );
+  return {
+    artifactIdAwaitingDeleteConfirm: value,
+    setArtifactIdAwaitingDeleteConfirm: (artifactId: string | undefined) => {
+      publish(artifactId);
+    },
+  };
+}
+
 export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
   const [typeFilter, setTypeFilter] = useState<ArtifactTypeFilter>(ARTIFACT_TYPE_FILTER_ALL);
-  const [artifactIdAwaitingDeleteConfirm, setArtifactIdAwaitingDeleteConfirm] = useState<
-    string | undefined
-  >(undefined);
+  const { artifactIdAwaitingDeleteConfirm, setArtifactIdAwaitingDeleteConfirm } =
+    usePendingDeleteConfirmation(props.state);
 
   // ABSENT on every arm but `listed`, and that absence is what the head and the filter
   // group are gated on. `NO_ROWS` still backs the two memos so their inputs keep a

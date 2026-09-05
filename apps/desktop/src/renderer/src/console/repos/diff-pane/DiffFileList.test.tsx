@@ -199,6 +199,67 @@ describe("diff file list — a narrowing this filter hides", () => {
   });
 });
 
+describe("diff file list — the filter belongs to the change set it filters", () => {
+  /** The filter input's current text, which is what a participant is looking at. */
+  function filterInputText(container: HTMLElement): string {
+    return (
+      container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input")?.value ?? ""
+    );
+  }
+
+  it("drops the filter when the pane is pointed at another change set", () => {
+    // The defect: `filterText` was a bare register, and this list is not keyed — so a
+    // pane re-pointed at another diff kept the previous change set's filter in the
+    // input and drew "No changed file matches that filter." over a change set that
+    // has files. On that code both assertions below are false.
+    const { container, rerender } = render(
+      <DiffFileList
+        diff={EXTENDED_HEADER_DIFF}
+        selectedFilePath={undefined}
+        onSelectFilePath={() => undefined}
+      />,
+    );
+    filterTo(container, fixtureFileAt(EXTENDED_HEADER_DIFF, 0).path);
+    expect(filterInputText(container)).not.toBe("");
+
+    rerender(
+      <DiffFileList
+        diff={TEXTUAL_ONLY_DIFF}
+        selectedFilePath={undefined}
+        onSelectFilePath={() => undefined}
+      />,
+    );
+
+    expect(filterInputText(container)).toBe("");
+    expect(container.textContent).not.toContain("No changed file matches that filter.");
+  });
+
+  it("negative control: a re-render at the same change set keeps what was typed", () => {
+    // Without this the case above would pass against a filter cleared on every render,
+    // which would erase a participant's narrowing on any unrelated pane update — and a
+    // deck composes a fresh props object on each of its own renders.
+    const { container, rerender } = render(
+      <DiffFileList
+        diff={TEXTUAL_ONLY_DIFF}
+        selectedFilePath={undefined}
+        onSelectFilePath={() => undefined}
+      />,
+    );
+    const typed = fixtureFileAt(TEXTUAL_ONLY_DIFF, 0).path;
+    filterTo(container, typed);
+
+    rerender(
+      <DiffFileList
+        diff={TEXTUAL_ONLY_DIFF}
+        selectedFilePath={undefined}
+        onSelectFilePath={() => undefined}
+      />,
+    );
+
+    expect(filterInputText(container)).toBe(typed);
+  });
+});
+
 describe("diff file list — a move made in a list that then changed", () => {
   /** The mounted entries the page can tab to, which is at most one of them. */
   function tabbableEntryCount(container: HTMLElement): number {
