@@ -29,6 +29,7 @@
 // payload it does not have would fail at the next slice instead of here.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
+import { GenerationLatch, type CurrentGenerationClaim } from "../store/index.js";
 import {
   attachmentIngestEntryFrom,
   type AttachmentIngestEntry,
@@ -40,20 +41,27 @@ import {
 /**
  * What one entry stood at, taken before an await and checked after it.
  *
- * The generation is the ledger's own record of how many times an entry has been
- * rewritten, and it is what makes the check total: two states can be equal across an
- * await that changed and changed back, and a counter that only ever rises cannot be.
- * It is NOT on the entry a card renders, because it is bookkeeping about the record
- * rather than anything a participant is shown.
+ * The claim is the round this entry was on when the stamp was taken, and it is what
+ * makes the check total: two states can be equal across an await that changed and
+ * changed back, and a round a write superseded can never be current again. It is NOT
+ * on the entry a card renders, because it is bookkeeping about the record rather than
+ * anything a participant is shown.
+ *
+ * IT IS THE CONSOLE'S ONE GENERATION REGISTER RATHER THAN A COUNTER OF THIS FILE'S
+ * OWN. The hand-rolled `Map<string, number>` this replaces was a second implementation
+ * of `store/generation-latch.ts` — and one whose size nothing bounded or reported,
+ * where the register frees a key on the supersede and answers `heldKeyCount` for what
+ * it still holds.
  */
 export interface AttachmentLedgerStamp {
   readonly state: AttachmentIngestState;
-  readonly generation: number;
+  readonly claim: CurrentGenerationClaim;
 }
 
 export class AttachmentIngestLedger {
   readonly #entriesByLocalId = new Map<string, AttachmentIngestEntry>();
-  readonly #generationByLocalId = new Map<string, number>();
+  /** The rounds entries are on, one key per local id. Never a module-level singleton. */
+  readonly #rounds = new GenerationLatch();
   readonly #declaredOrder: string[] = [];
   readonly #changes = new Emitter<readonly AttachmentIngestEntry[]>("attachment ingest");
 
@@ -85,7 +93,7 @@ export class AttachmentIngestLedger {
     if (entry === undefined) {
       return undefined;
     }
-    return { state: entry.state, generation: this.#generationByLocalId.get(localId) ?? 0 };
+    return { state: entry.state, claim: this.#rounds.currentClaim(this, localId) };
   }
 
   /**
@@ -104,14 +112,13 @@ export class AttachmentIngestLedger {
     if (entry === undefined || entry.state !== stamp.state) {
       return undefined;
     }
-    return (this.#generationByLocalId.get(localId) ?? 0) === stamp.generation ? entry : undefined;
+    return stamp.claim.isCurrent ? entry : undefined;
   }
 
   /** Take one attachment into the carrier, at the end of the declared order. */
   public declare(source: AttachmentSource): void {
     const localId = source.declared.localId;
     this.#declaredOrder.push(localId);
-    this.#generationByLocalId.set(localId, 0);
     this.#entriesByLocalId.set(localId, {
       declared: source.declared,
       payload: source.payload,
@@ -148,7 +155,9 @@ export class AttachmentIngestLedger {
       return;
     }
     this.#entriesByLocalId.set(localId, written);
-    this.#generationByLocalId.set(localId, (this.#generationByLocalId.get(localId) ?? 0) + 1);
+    // Every stamp taken before this write is now about a record that no longer stands,
+    // so the round it named ends here and the key goes back.
+    this.#rounds.supersede(this, localId);
     this.#publish();
   }
 
@@ -160,7 +169,7 @@ export class AttachmentIngestLedger {
     }
     this.#declaredOrder.splice(position, 1);
     this.#entriesByLocalId.delete(localId);
-    this.#generationByLocalId.delete(localId);
+    this.#rounds.supersede(this, localId);
     this.#publish();
   }
 
@@ -195,8 +204,14 @@ export class AttachmentIngestLedger {
     return artifactIds;
   }
 
+  /** How many entries a continuation is still holding a round on. The register's bound. */
+  public get heldRoundCount(): number {
+    return this.#rounds.heldKeyCount(this);
+  }
+
   public dispose(): void {
     this.#disposed = true;
+    this.#rounds.supersedeAll();
     this.#changes.clear();
   }
 

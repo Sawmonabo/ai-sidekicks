@@ -31,7 +31,7 @@
 // the declared name would silently drop the second of two `notes.md`. The counter
 // rises and never repeats, which is the whole requirement.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
@@ -41,6 +41,7 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../core/index.js";
+import { useSubjectScopedResource } from "../store/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
@@ -233,45 +234,49 @@ export interface AttachmentCarrierBinding {
   readonly abandon: (localId: string) => void;
 }
 
+/** Close one carrier. Declared once so the resource seam holds one identity for it. */
+function closeAttachmentCarrier(carrier: AttachmentCarrier): void {
+  carrier.dispose();
+}
+
 /**
  * Bind one carrier to one component's lifetime.
  *
- * The carrier is built once per mounted component and never in a render body, so a
- * re-render does not mint a second client over the same session — which would leave the
- * first one's open streams unreachable and its spools to the daemon's reaper.
+ * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION, which is what a carrier is
+ * scoped to, so the console's own resource seam holds it: `useSubjectScopedResource`
+ * opens the carrier on the render that first sees a `(bridge, session)` pair and
+ * closes it however that render ended — including the pass React discards, which a
+ * `useState` initializer with an effect-held cleanup never closed at all. It is also
+ * what keeps this module off a second implementation of subject-scoped state; the
+ * chokepoint gate beside the holder fails the build on one.
  *
- * A `useState` INITIALIZER, NOT `useMemo`, AND A RE-MINT ARM — the shape
- * `frame/ui-state-lifecycle.ts` and `frame/session-lifecycle.ts` already use for the
- * two other objects a window owns, and for exactly the reason they give. React's
- * StrictMode double-mount runs this effect's cleanup and then its setup again on the
- * SAME component instance, and a memo is preserved across that: the cleanup terminally
- * disposed the ingest client, the replayed setup called `start()` on the corpse, and
- * every file the participant chose afterwards reached a client whose `attach` returns
- * at once — the attachment surface inert, with nothing on screen to say so. Asking the
- * carrier whether it is disposed is what makes that arm correct without a second flag,
- * and a memo cannot be re-minted at all because a memo is not state.
- *
- * The collaborators stay in the dependency list: a bridge or a session that changes
- * disposes the carrier through the same cleanup, and the pass that follows finds a
- * disposed one and mints the replacement over the new pair.
+ * A RE-MINT ARM STILL, and for the reason it always had. React's StrictMode
+ * double-mount runs the seam's cleanup and then this effect's setup again on the SAME
+ * committed carrier: the cleanup terminally disposed the ingest client, the replayed
+ * setup called `start()` on the corpse, and every file the participant chose
+ * afterwards reached a client whose `attach` returns at once — the attachment surface
+ * inert, with nothing on screen to say so. Asking the carrier whether it is disposed
+ * is what makes that arm correct without a second flag, and the replacement is
+ * PUBLISHED through the seam, so it is closed on the seam's own terms rather than by
+ * a cleanup of this effect's.
  */
 export function useAttachmentCarrier(
   bridge: ConsoleBridge,
   sessionId: string,
 ): AttachmentCarrierBinding {
-  const [carrier, setCarrier] = useState<AttachmentCarrier>(
+  const { value: carrier, settle } = useSubjectScopedResource(
+    bridge,
+    sessionId,
     () => new AttachmentCarrier({ bridge, sessionId }),
+    closeAttachmentCarrier,
   );
   useEffect(() => {
     if (carrier.isDisposed) {
-      setCarrier(new AttachmentCarrier({ bridge, sessionId }));
+      settle()(new AttachmentCarrier({ bridge, sessionId }));
       return;
     }
     carrier.start();
-    return () => {
-      carrier.dispose();
-    };
-  }, [carrier, bridge, sessionId]);
+  }, [carrier, settle, bridge, sessionId]);
   const subscribe = useCallback(
     (onCarrierChange: () => void) => carrier.subscribe(onCarrierChange),
     [carrier],

@@ -75,7 +75,12 @@ import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
 } from "../../repos/artifact-model.js";
-import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
+import {
+  GenerationLatch,
+  RefreshScheduler,
+  SessionRefreshTriggers,
+  type SessionStore,
+} from "../../store/index.js";
 import { ArtifactPaneActions, type ArtifactActionHost } from "./artifact-actions.js";
 import { readGrowthAnswer } from "./growth-call.js";
 import {
@@ -104,6 +109,16 @@ const ARTIFACT_TERMINAL_EVENT_KINDS = [
   "artifact.superseded",
   "artifact.visibility_updated",
 ] satisfies readonly SessionEventType[];
+
+/**
+ * The one key this pane's scheduled read is claimed under.
+ *
+ * ONE KEY AND NOT ONE PER ARTIFACT, because a scheduled read re-reads the whole list:
+ * there is a single round in flight at a time and every act comparing against it is
+ * asking the same question. The acts' own single flight is keyed by artifact id, in
+ * `artifact-actions.ts`, and the header there says why the two registers are separate.
+ */
+const SCHEDULED_READ_KEY = "scheduled-read";
 
 export interface ArtifactPaneReaderOptions {
   readonly bridge: ConsoleBridge;
@@ -141,11 +156,13 @@ export class ArtifactPaneReader {
   /**
    * Which refresh a completion belongs to.
    *
-   * Bumped when a read starts AND when the reader is disposed, so one comparison
-   * answers both "this answer was superseded" and "this answer outlived its pane".
-   * A second boolean beside it would be two mechanisms for one question.
+   * The console's one generation register rather than a counter of this file's own:
+   * a read takes the key, so a completion asks whether its own round is still the one
+   * the key is on. Superseded when a read starts AND when the reader is disposed, so
+   * one question answers both "this answer was superseded" and "this answer outlived
+   * its pane". A second boolean beside it would be two mechanisms for one question.
    */
-  #generation = 0;
+  readonly #reads = new GenerationLatch();
 
   public constructor(options: ArtifactPaneReaderOptions) {
     this.#bridge = options.bridge;
@@ -257,7 +274,7 @@ export class ArtifactPaneReader {
   /** Terminal. No later completion, frame, or focus can reach a pane that unmounted. */
   public dispose(): void {
     this.#disposed = true;
-    this.#generation += 1;
+    this.#reads.supersedeAll();
     // The acts are disposed too, so a fetch still in flight settles into nothing
     // rather than into a register whose surface has gone.
     this.#actions.dispose();
@@ -282,7 +299,7 @@ export class ArtifactPaneReader {
       publish: (reading: ArtifactPaneReading) => {
         this.#publish(reading);
       },
-      scheduledReadGeneration: () => this.#generation,
+      scheduledReadClaim: () => this.#reads.currentClaim(this, SCHEDULED_READ_KEY),
       isDisposed: () => this.#disposed,
       requestRefreshAfterAct: () => {
         this.#scheduler.request("terminal-event");
@@ -295,8 +312,10 @@ export class ArtifactPaneReader {
     if (sessionId === undefined) {
       return;
     }
-    this.#generation += 1;
-    const generation = this.#generation;
+    // A scheduled read always runs and always supersedes the one before it: the
+    // rows it is about to re-read are the same rows, so the older answer has nothing
+    // left to say about them.
+    const readRound = this.#reads.supersedeAndClaim(this, SCHEDULED_READ_KEY);
 
     // ENTERED ONCE, NEVER RE-ENTERED. Rule 8 separates "a read is in flight" from
     // "nobody asked", and a refresh that dropped the rows back to the in-flight
@@ -313,7 +332,7 @@ export class ArtifactPaneReader {
       this.#readArtifacts(sessionId),
       this.#readAllowlist(sessionId),
     ]);
-    if (generation !== this.#generation) {
+    if (!readRound.isCurrent) {
       return;
     }
     // ONE SNAPSHOT, BOTH LEGS. Publishing each leg as it lands would let a snapshot

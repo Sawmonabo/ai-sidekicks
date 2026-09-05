@@ -172,12 +172,16 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     expect(holdsPayload(ledger.current("attachment-1"))).toBe(false);
 
     const stampAfterCompletion = ledger.stamp("attachment-1");
+    if (stampAfterCompletion === undefined) {
+      throw new Error("the ledger held no entry to stamp");
+    }
     ledger.write("attachment-1", { ...completedRecord, state: "declared" });
 
     expect(ledger.current("attachment-1")?.state).toBe("complete");
-    // Nothing was written, so nothing advanced: a continuation holding the earlier
-    // stamp still recognises this entry rather than reading it as one that moved.
-    expect(ledger.stamp("attachment-1")?.generation).toBe(stampAfterCompletion?.generation);
+    // Nothing was written, so no round was superseded: a continuation holding the
+    // earlier stamp still recognises this entry rather than reading it as one that
+    // moved.
+    expect(ledger.currentIfUnchanged("attachment-1", stampAfterCompletion)).toBeDefined();
   });
 
   it("negative control: an upload still in flight is holding the bytes", async () => {

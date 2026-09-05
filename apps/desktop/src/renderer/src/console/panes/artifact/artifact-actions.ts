@@ -32,7 +32,7 @@
 //     one artifact's bytes under another's name.
 //
 // WHY THE FETCH HAS AN IDENTITY OF ITS OWN AND NO LONGER READS THE REFRESH STAMP.
-// Both questions used to be answered by the reader's `#generation`, and that conflated
+// Both questions used to be answered by the reader's one read round, and that conflated
 // two facts that move independently. A list refresh landing under a fetch bumped the
 // stamp, so the fetch returned `superseded` and published nothing — leaving the
 // reading on `{ status: "fetching" }` with no answer ever coming, which is precisely
@@ -44,7 +44,7 @@
 //
 // AND THE RE-READ HAS AN IDENTITY OF ITS OWN, BECAUSE THE REFRESH STAMP IS NOT ONE.
 // Two presses on one row before the first settles capture the SAME
-// `scheduledReadGeneration` — starting an act does not advance it, and it is the
+// scheduled read round — starting an act does not supersede it, and it is the
 // reader's to move — so both continuations passed the supersession check and whichever
 // reply the bridge delivered LAST decided what the row says. Two reads of one manifest
 // can settle in either order, so that is the older answer overwriting the newer one,
@@ -76,6 +76,7 @@
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
+import type { CurrentGenerationClaim } from "../../store/index.js";
 import { artifactManifestRowFromSummary } from "../../repos/artifact-model.js";
 import { readGrowthAnswer } from "./growth-call.js";
 import {
@@ -99,21 +100,24 @@ import { artifactPayloadReadingFrom, type ArtifactPayloadOutcome } from "./artif
  * DECLARED ONCE AND IMPLEMENTED BY THE READER, so the two halves share a contract
  * rather than a field. Every member reads or writes state the reader owns, which is
  * why they are named as the operations they are rather than exposed as the fields they
- * touch — `scheduledReadGeneration` is a stamp an act COMPARES and can never set, and
- * `requestRefreshAfterAct` names the one reason an act may put on the scheduler.
+ * touch — `scheduledReadClaim` answers with a round an act COMPARES and can never
+ * mint, and `requestRefreshAfterAct` names the one reason an act may put on the
+ * scheduler.
  */
 export interface ArtifactActionHost {
   /** The reading standing right now. Every publish below spreads forward from it. */
   currentReading(): ArtifactPaneReading;
   publish(reading: ArtifactPaneReading): void;
   /**
-   * Which scheduled read is current.
+   * The round the scheduled read is on.
    *
-   * Compared, never interpreted: an act captures it before its call and compares it
-   * after, and a value that moved means a refresh has re-read the rows this act was
-   * about. It is deliberately NOT the fetch register — see the header.
+   * Read, never mutated: an act takes it before its call and asks `isCurrent` after,
+   * and a round the reader superseded means a refresh has re-read the rows this act
+   * was about. A claim that cannot give the key back is the whole of what makes it
+   * safe to hand an act — a settlement cannot revoke the single flight the reader is
+   * relying on. It is deliberately NOT the fetch register — see the header.
    */
-  scheduledReadGeneration(): number;
+  scheduledReadClaim(): CurrentGenerationClaim;
   /** Whether the pane behind this reader has gone. The only reason to publish nothing. */
   isDisposed(): boolean;
   /** Ask for the read that follows an act the daemon accepted. */
@@ -209,7 +213,7 @@ export class ArtifactPaneActions {
     }
     const request: InFlightManifestRead = { artifactId, requestId: this.#nextRequestId };
     this.#nextRequestId += 1;
-    const generation = this.#host.scheduledReadGeneration();
+    const readRound = this.#host.scheduledReadClaim();
     this.#holdManifestRead(request);
     try {
       const answer = await readGrowthAnswer("The manifest re-read", () =>
@@ -222,7 +226,7 @@ export class ArtifactPaneActions {
       if (!this.#stillStandingForManifestRead(request)) {
         return { status: "superseded" };
       }
-      if (generation !== this.#host.scheduledReadGeneration()) {
+      if (!readRound.isCurrent) {
         return { status: "superseded" };
       }
       if (answer.status === "refused") {
@@ -338,15 +342,15 @@ export class ArtifactPaneActions {
    * screen says nothing is being fetched, which the untouched register contradicted.
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
-    const generation = this.#host.scheduledReadGeneration();
+    const readRound = this.#host.scheduledReadClaim();
     const answer = await readGrowthAnswer("The delete", () =>
       this.#bridge.growth.artifactDelete({ artifactId }),
     );
     if (answer.status === "refused") {
-      // A refusal records an act that did NOT happen, so a stamp that moved under it
+      // A refusal records an act that did NOT happen, so a round superseded under it
       // means the row it was about has since been re-read and the refusal has nothing
       // left to stand beside.
-      if (generation !== this.#host.scheduledReadGeneration()) {
+      if (!readRound.isCurrent) {
         return { status: "superseded" };
       }
       this.#recordRowRefusal(artifactId, answer.refusal);
@@ -374,7 +378,7 @@ export class ArtifactPaneActions {
       refusalByArtifactId: withoutRowRefusal(reading.refusalByArtifactId, artifactId),
     });
     this.#host.requestRefreshAfterAct();
-    return generation === this.#host.scheduledReadGeneration()
+    return readRound.isCurrent
       ? { status: "settled", receipt }
       : { status: "reconciling", receipt };
   }
