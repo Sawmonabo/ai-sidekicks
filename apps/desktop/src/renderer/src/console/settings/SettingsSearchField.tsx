@@ -1,4 +1,5 @@
 import { Glyph } from "../primitives/index.js";
+import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 
 export interface SettingsSearchFieldProps {
   readonly query: string;
@@ -16,7 +17,7 @@ export interface SettingsSearchFieldProps {
 export function SettingsSearchField(props: SettingsSearchFieldProps): React.JSX.Element {
   return (
     <div className="meridian-settings__search">
-      <Glyph name="search" size={SEARCH_GLYPH_SIZE} />
+      <Glyph name="search" size={GLYPH_SIZE_CHROME} />
       <input
         type="search"
         className="meridian-settings__search-input"
@@ -30,6 +31,3 @@ export function SettingsSearchField(props: SettingsSearchFieldProps): React.JSX.
     </div>
   );
 }
-
-export /** The search glyph sits inside the field, at the field's own optical size. */
-const SEARCH_GLYPH_SIZE = 14;
