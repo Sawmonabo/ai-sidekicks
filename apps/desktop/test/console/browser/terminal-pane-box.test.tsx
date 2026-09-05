@@ -22,6 +22,10 @@ import { renderSettled } from "../console-harness.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { TerminalPane } from "../../../src/renderer/src/console/terminal/pane/TerminalPane.js";
+// The context builder beside the pane, for the reason it is exported: the `terminal`
+// arm's members are answered in one place, and a tier that spelled its own copy would
+// be the second answer.
+import { terminalPaneContext } from "../../../src/renderer/src/console/terminal/pane/TerminalPane.test-support.js";
 // The family door, imported for its side effect: `apps/desktop/AGENTS.md` puts a
 // family's stylesheet behind its own barrel and nowhere else, and this tier is about
 // what that stylesheet computes to.
@@ -49,12 +53,7 @@ async function mountPaneInFixedSlot(): Promise<MountedPaneBoxes> {
     // section takes the 400 px the deck allotted it. A block parent would leave the
     // section at its content height and the case below would measure nothing.
     <div style={{ display: "grid", height: `${String(SLOT_HEIGHT_PX)}px` }}>
-      <TerminalPane
-        paneId="pane-terminal"
-        bridge={bridge}
-        sessionStore={undefined}
-        focusHue={undefined}
-      />
+      <TerminalPane {...terminalPaneContext(undefined, bridge)} />
     </div>,
   );
   const slot = container.firstElementChild;
