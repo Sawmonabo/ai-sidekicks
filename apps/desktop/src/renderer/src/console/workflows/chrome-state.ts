@@ -47,25 +47,6 @@ export const WORKFLOW_CHROME_STATES = [
 export type WorkflowChromeStateKind = (typeof WORKFLOW_CHROME_STATES)[number];
 
 /**
- * Edge length, in CSS pixels, of every glyph a workflows chrome draws.
- *
- * ONE HOME BECAUSE TWO NAMED EACH OTHER. The header's glyph and the run controls'
- * glyphs were two private constants of the same number, and each comment cited the
- * other as its authority — the header matched the breadcrumb, the controls matched
- * the header — so the family had a scale nobody owned and either site could be
- * edited without the other moving. Chrome is what both are: the quiet frame rule 7
- * gives all three surfaces, at a scale one step under the primitive's default so an
- * inline glyph sits with text rather than over it.
- *
- * PENDING A TOKEN. This is a family home for a console-wide fact — the refusal
- * shapes carry the same number in `primitives/refusal-contract.ts` — and the scale
- * belongs in `tokens/glyphs.ts` beside `GLYPH_DEFAULT_SIZE`. The lane that mints it
- * there retires this constant to an import; until then a family-local home is one
- * copy fewer than the two it replaced.
- */
-export const WORKFLOW_CHROME_GLYPH_SIZE = 14;
-
-/**
  * What a workflows chrome is showing.
  *
  * Copy travels ON the state rather than being looked up from the kind, because the

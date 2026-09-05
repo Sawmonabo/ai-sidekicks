@@ -29,9 +29,9 @@ import { describe, expect, it } from "vitest";
 import type { GrowthPort } from "../bridge/index.js";
 import { refuse } from "../core/index.js";
 import { OperatorControls } from "./pane/run/OperatorControls.js";
+import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 import { WorkflowChrome } from "./WorkflowChrome.js";
 import {
-  WORKFLOW_CHROME_GLYPH_SIZE,
   WORKFLOW_CHROME_STATES,
   refusedWorkflowChrome,
   unaskedWorkflowChrome,
@@ -228,10 +228,11 @@ describe("the family draws its chrome at one scale", () => {
   // TWO CONSUMERS IN ONE TREE, because the defect this replaces was invisible to
   // either alone. The header and the run controls each held a private constant of the
   // same number and each comment named the OTHER as its authority, so nothing owned
-  // the scale and either could be edited while the other stayed. Rendering both and
-  // reading the edge lengths off the markup is the only instrument that fails when
-  // one of them drifts; asserting each against the constant it imports would pass on
-  // a site that had gone back to a literal of its own.
+  // the scale and either could be edited while the other stayed. The number now has
+  // one console-wide home (`tokens/glyphs.ts :: GLYPH_SIZE_CHROME`), and this case
+  // still earns its place: rendering both and reading the edge lengths off the markup
+  // is the only instrument that fails when one of them drifts back to a literal of its
+  // own, which asserting each site against the constant it imports would pass.
   function glyphEdgeLengths(tree: HTMLElement): readonly string[] {
     return [...tree.querySelectorAll("svg.meridian-glyph")].map(
       (glyph) => `${glyph.getAttribute("width") ?? "?"}x${glyph.getAttribute("height") ?? "?"}`,
@@ -258,7 +259,7 @@ describe("the family draws its chrome at one scale", () => {
       />,
     );
     const drawn = [...glyphEdgeLengths(chrome.container), ...glyphEdgeLengths(controls.container)];
-    const scale = `${String(WORKFLOW_CHROME_GLYPH_SIZE)}x${String(WORKFLOW_CHROME_GLYPH_SIZE)}`;
+    const scale = `${String(GLYPH_SIZE_CHROME)}x${String(GLYPH_SIZE_CHROME)}`;
     // A floor first: an assertion over no glyphs at all would be satisfied by a
     // chrome that drew none and controls that were refused into prose.
     expect(drawn.length).toBeGreaterThanOrEqual(3);
