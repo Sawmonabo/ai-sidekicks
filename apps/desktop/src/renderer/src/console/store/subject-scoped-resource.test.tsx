@@ -21,20 +21,20 @@ import { useEffect, useState, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { useSubjectScopedResource } from "./subject-scoped-resource.js";
+import type { NamedFixtureSubject } from "./subject-fixtures.test-support.js";
 import {
   DISCARDED_SUBJECT,
   ResourceLedger,
   SETTLED_SUBJECT,
-  type NamedSubject,
   type OpenResource,
 } from "./subject-scoped-resource.test-support.js";
 import { useSubjectScopedState } from "./subject-scoped-state.js";
 
 interface DiscardProbeProps {
   /** The subject the pass React throws away is addressed at. */
-  readonly firstPassSubject: NamedSubject;
+  readonly firstPassSubject: NamedFixtureSubject;
   /** The subject the pass that actually commits is addressed at. */
-  readonly settledSubject: NamedSubject;
+  readonly settledSubject: NamedFixtureSubject;
   readonly ledger: ResourceLedger;
 }
 
@@ -86,7 +86,7 @@ function EffectOnlyDisposalProbe(props: DiscardProbeProps): ReactElement {
 }
 
 interface SwapProbeProps {
-  readonly subject: NamedSubject;
+  readonly subject: NamedFixtureSubject;
   readonly ledger: ResourceLedger;
   readonly onReady?: (publish: (next: OpenResource) => void) => void;
 }

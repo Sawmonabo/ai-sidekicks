@@ -39,13 +39,16 @@ import {
 } from "react";
 import { describe, expect, it } from "vitest";
 
-import { SUBJECT_ONE, SUBJECT_TWO } from "./subject-fixtures.test-support.js";
+import {
+  SUBJECT_ONE,
+  SUBJECT_TWO,
+  type NamedFixtureSubject,
+} from "./subject-fixtures.test-support.js";
 import { useSubjectScopedResource } from "./subject-scoped-resource.js";
 import {
   DISCARDED_SUBJECT,
   ResourceLedger,
   SETTLED_SUBJECT,
-  type NamedSubject,
   type OpenResource,
 } from "./subject-scoped-resource.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
@@ -154,7 +157,7 @@ function PairKeyedValueProbe(props: ValueProbeProps): ReactElement {
 }
 
 interface ResourceProbeProps {
-  readonly subject: NamedSubject;
+  readonly subject: NamedFixtureSubject;
   readonly suspendOn: Promise<void> | undefined;
   readonly ledger: ResourceLedger;
   readonly onReady: (publish: (next: OpenResource) => void) => void;
@@ -247,7 +250,7 @@ async function driveResourceDetour(Probe: (props: ResourceProbeProps) => ReactEl
 }> {
   const ledger = new ResourceLedger();
   let publishInto: (next: OpenResource) => void = () => {};
-  const view = await driveDroppedPass<NamedSubject>(
+  const view = await driveDroppedPass<NamedFixtureSubject>(
     (subject, suspendOn) => (
       <Suspense fallback={<p>waiting for the visit that was dropped</p>}>
         <Probe

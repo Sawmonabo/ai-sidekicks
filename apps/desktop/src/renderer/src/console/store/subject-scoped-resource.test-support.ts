@@ -6,17 +6,20 @@
 // they are only visible if opens and closes are counted BY NAME against one record. A
 // second copy of it would be two records that agree until one of them stops counting
 // something, which is precisely the failure it is watching for.
+//
+// The subjects are named for the roles these two suites put them in rather than shared
+// with `subject-fixtures.test-support.ts`, because the ledger prints the name and
+// "discarded" says what the case is about where "subject one" does not. The TYPE is
+// that module's: two one-field interfaces meaning "a fixture subject with a name" in
+// one directory is the second implementation this package's rules forbid.
 
-/** A subject, named so the ledger can say which one a resource belonged to. */
-export interface NamedSubject {
-  readonly name: string;
-}
+import type { NamedFixtureSubject } from "./subject-fixtures.test-support.js";
 
 /** The subject the pass React throws away is addressed at. */
-export const DISCARDED_SUBJECT: NamedSubject = { name: "discarded" };
+export const DISCARDED_SUBJECT: NamedFixtureSubject = { name: "discarded" };
 
 /** The subject the pass that actually commits is addressed at. */
-export const SETTLED_SUBJECT: NamedSubject = { name: "settled" };
+export const SETTLED_SUBJECT: NamedFixtureSubject = { name: "settled" };
 
 /** What one of these owns is nothing at all; being opened and closed is the whole of it. */
 export interface OpenResource {
