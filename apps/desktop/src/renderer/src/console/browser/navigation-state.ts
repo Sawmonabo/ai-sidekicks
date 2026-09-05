@@ -13,11 +13,11 @@
 // declaration of a contract this family does not own, and the two would agree only
 // until somebody widened one.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
-import { isCurrentPaneSubject, type PaneSubject } from "./pane-subject.js";
+import { useSubjectScopedState } from "../store/index.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
 const NAVIGATION_REFUSAL_ORIGIN = "browser-navigation";
@@ -110,10 +110,6 @@ const UNREAD_NAVIGATION: NavigationReading = { status: "unread" };
  * A stamp rather than a reset-in-an-effect, because a reset is a second render pass
  * that the first pass — the one that dispatches — happens before.
  */
-interface StampedNavigationReading extends PaneSubject {
-  readonly reading: NavigationReading;
-}
-
 /**
  * Subscribe to the view's reported navigation state for the life of the pane.
  *
@@ -133,27 +129,25 @@ interface StampedNavigationReading extends PaneSubject {
  * is reporting. So the same close the failing path runs happens here too, and the
  * reading says the subscription is over rather than staying on its final frame.
  *
- * AND THE READING IS STAMPED TO ITS SUBJECT. Every write carries the `(bridge,
- * paneId)` the subscription was opened under, and the return compares that stamp
- * against the subject this render is for: a mismatch reads `unread`, so a changed
- * pane renders its designed unread arm — no URL, no history controls — until the new
- * stream's first frame, and a frame from the old stream that arrives after the
- * change is dropped by the same comparison rather than by the cancellation flag
- * alone.
+ * AND THE READING IS HELD FOR ITS SUBJECT. The console's one subject-scoped holder
+ * keys the value on the `(bridge, paneId)` the subscription was opened under, so a
+ * changed pane renders its designed unread arm — no URL, no history controls — until
+ * the new stream's first frame, and a frame from the old stream that arrives after
+ * the change is refused by the holder rather than by the cancellation flag alone.
  */
 export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): NavigationReading {
-  const [stamped, setStamped] = useState<StampedNavigationReading>({
+  const { value: reading, publish } = useSubjectScopedState(
     bridge,
     paneId,
-    reading: UNREAD_NAVIGATION,
-  });
+    () => UNREAD_NAVIGATION,
+  );
 
   useEffect(() => {
     let stream: NavigationStream | undefined;
     let cancelled = false;
     /** Publish a reading under the subject THIS effect subscribed to, never another. */
-    const setReading = (reading: NavigationReading): void => {
-      setStamped({ bridge, paneId, reading });
+    const setReading = (next: NavigationReading): void => {
+      publish(next);
     };
     /** Close the acquired stream at most once, from whichever path reaches it first. */
     const closeStream = (): void => {
@@ -215,13 +209,9 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
       cancelled = true;
       closeStream();
     };
-  }, [bridge, paneId]);
+  }, [bridge, paneId, publish]);
 
-  // The comparison the whole stamp exists for, and it runs on the render that
-  // dispatches rather than one after it. Through the family's one comparison, so the
-  // three surfaces that stamp against this pair cannot come to disagree about what
-  // "the same subject" means.
-  return isCurrentPaneSubject(stamped, { bridge, paneId }) ? stamped.reading : UNREAD_NAVIGATION;
+  return reading;
 }
 
 /**

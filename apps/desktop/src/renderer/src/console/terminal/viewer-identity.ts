@@ -24,15 +24,16 @@
 // SETTLED IDENTITIES BELONG TO THE INPUTS THAT PRODUCED THEM, which is that hook's
 // rule and holds here for its reason. A pane handed a different bridge or a
 // different session gets a different answer, and the previous one must not stand in
-// the interval before the replacement lands: comparing the stamp during render is
-// what makes the reading revert to `not-loaded` on the pass that first sees the new
-// inputs, rather than reporting the old window's participant against the new
-// session's log.
+// the interval before the replacement lands — so the reading is held for its
+// `(bridge, sessionId)` subject by the console's one holder, which reverts it to
+// `not-loaded` on the pass that first sees the new inputs rather than reporting the
+// old window's participant against the new session's log.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
+import { useSubjectScopedState } from "../store/index.js";
 
 /**
  * Who this window is, or why the console cannot say.
@@ -89,7 +90,11 @@ export function useTerminalViewerIdentity(
   bridge: ConsoleBridge,
   sessionId: string,
 ): TerminalViewerIdentity {
-  const [reading, setReading] = useState<ViewerIdentityReading | undefined>(undefined);
+  const { value: identity, publish } = useSubjectScopedState<TerminalViewerIdentity>(
+    bridge,
+    sessionId,
+    () => NOT_LOADED_VIEWER_IDENTITY,
+  );
 
   useEffect(() => {
     let isAbandoned = false;
@@ -99,30 +104,23 @@ export function useTerminalViewerIdentity(
         if (isAbandoned) {
           return;
         }
-        setReading({
-          bridge,
-          sessionId,
-          identity:
-            outcome.status === "served"
-              ? { status: "read", participantId: outcome.value.participantId }
-              : { status: "refused", refusal: outcome },
-        });
+        publish(
+          outcome.status === "served"
+            ? { status: "read", participantId: outcome.value.participantId }
+            : { status: "refused", refusal: outcome },
+        );
       })
       .catch((failure: unknown) => {
         if (isAbandoned) {
           return;
         }
-        setReading({
-          bridge,
-          sessionId,
-          identity: {
-            status: "refused",
-            refusal: normalizeWireRejection(
-              VIEWER_IDENTITY_REFUSAL_ORIGIN,
-              failure,
-              VIEWER_IDENTITY_REJECTION_FALLBACK,
-            ),
-          },
+        publish({
+          status: "refused",
+          refusal: normalizeWireRejection(
+            VIEWER_IDENTITY_REFUSAL_ORIGIN,
+            failure,
+            VIEWER_IDENTITY_REJECTION_FALLBACK,
+          ),
         });
       });
     return () => {
@@ -130,16 +128,7 @@ export function useTerminalViewerIdentity(
       // afterwards would publish a stale window's participant into a fresh one.
       isAbandoned = true;
     };
-  }, [bridge, sessionId]);
+  }, [bridge, publish, sessionId]);
 
-  return reading !== undefined && reading.bridge === bridge && reading.sessionId === sessionId
-    ? reading.identity
-    : NOT_LOADED_VIEWER_IDENTITY;
-}
-
-/** A settled identity together with the inputs it was read against. */
-interface ViewerIdentityReading {
-  readonly bridge: ConsoleBridge;
-  readonly sessionId: string;
-  readonly identity: TerminalViewerIdentity;
+  return identity;
 }

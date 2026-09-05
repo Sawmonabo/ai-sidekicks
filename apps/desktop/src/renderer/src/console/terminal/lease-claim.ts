@@ -32,9 +32,10 @@
 // same session superseded; and an unmount needs no flag of its own, because there is
 // no longer a committed state for a late settlement to reach.
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../store/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 
 /**
@@ -59,19 +60,15 @@ export interface TerminalLeaseClaim {
 }
 
 /**
- * One dispatch's state, together with the subject it was made under.
+ * The two facts one dispatch publishes.
  *
- * The subject is `(bridge, sessionId)` because that is what the call was made under:
- * `session.takeControl` and `session.releaseControl` both take `{ sessionId }` and
- * V1 gives a session one shared shell, so the pane's own terminal id is not an input
- * any call here carries. The serial distinguishes two dispatches on ONE subject,
- * which the subject alone cannot: without it an earlier press's `finally` cleared the
- * in-flight flag a later press had just set.
+ * WHOSE they are is not on this shape and is deliberately not restated here: the
+ * subject is `(bridge, sessionId)` — `session.takeControl` and
+ * `session.releaseControl` both take `{ sessionId }` and V1 gives a session one
+ * shared shell, so the pane's own terminal id is not an input any call here carries
+ * — and the console's one subject-scoped holder is what binds a reading to it.
  */
-interface StampedTerminalLeaseClaim {
-  readonly bridge: ConsoleBridge;
-  readonly sessionId: string;
-  readonly dispatchSerial: number;
+interface TerminalLeaseClaimReading {
   readonly isInFlight: boolean;
   readonly refusal: ConsoleRefusal | undefined;
 }
@@ -79,14 +76,14 @@ interface StampedTerminalLeaseClaim {
 /**
  * What a subject that has dispatched nothing renders as.
  *
- * One frozen value rather than a fresh literal per render: the two members are read
- * straight out of it on every pass where the stamp does not match, and a new object
- * each time would be a new value for consumers that compare.
+ * One frozen value rather than a fresh literal per seed: the two members are read
+ * straight out of it on every pass before a dispatch, and a new object each time
+ * would be a new value for consumers that compare.
  */
-const IDLE_TERMINAL_LEASE_CLAIM = {
+const IDLE_TERMINAL_LEASE_CLAIM: TerminalLeaseClaimReading = {
   isInFlight: false,
   refusal: undefined,
-} as const satisfies Pick<TerminalLeaseClaim, "isInFlight" | "refusal">;
+};
 
 /**
  * Call the lease wire and render what it answers — and nothing else.
@@ -106,34 +103,30 @@ export function useTerminalLeaseClaim(
   bridge: ConsoleBridge,
   sessionId: string,
 ): TerminalLeaseClaim {
-  const [stampedClaim, setStampedClaim] = useState<StampedTerminalLeaseClaim | undefined>(
-    undefined,
+  const { value: reading, publish } = useSubjectScopedState<TerminalLeaseClaimReading>(
+    bridge,
+    sessionId,
+    () => IDLE_TERMINAL_LEASE_CLAIM,
   );
-  // The serial is minted inside `call`, never during render: a ref written on a
-  // render pass is a write React is entitled to run twice, and this one has to
-  // advance exactly once per press.
-  const [dispatchSerials] = useState(() => new DispatchSerialSequence());
+  // The single-flight rule, stated by claiming a key rather than by counting: the
+  // latch refuses a second claim while one is live, which is the rule the control's
+  // disabled state renders. Its claim is also the serial the two settlements compare
+  // against, so an earlier press's `finally` can no longer clear the in-flight flag a
+  // later press had just set.
+  const dispatches = useGenerationLatch();
 
   const call = useCallback(
     (operation: "acquire" | "release"): void => {
       // The subject is read out of the closure, and the closure is rebuilt whenever
       // either input changes — so a press on session B's FIRST committed render
       // carries B, with no effect having had to flush first.
-      const dispatchSerial = dispatchSerials.next();
-      const isStillCurrent = (
-        previous: StampedTerminalLeaseClaim | undefined,
-      ): previous is StampedTerminalLeaseClaim =>
-        previous !== undefined &&
-        previous.bridge === bridge &&
-        previous.sessionId === sessionId &&
-        previous.dispatchSerial === dispatchSerial;
-      setStampedClaim({
-        bridge,
-        sessionId,
-        dispatchSerial,
-        isInFlight: true,
-        refusal: undefined,
-      });
+      const dispatch = dispatches.claim(bridge, sessionId);
+      if (dispatch === undefined) {
+        // A call is already out for this subject. The control is disabled for exactly
+        // that lifetime, so there is nothing to start and nothing new to say.
+        return;
+      }
+      publish({ isInFlight: true, refusal: undefined });
       const request = { sessionId };
       const pending =
         operation === "acquire"
@@ -141,32 +134,29 @@ export function useTerminalLeaseClaim(
           : bridge.growth.terminalReleaseWriteLease(request);
       void pending
         .then((outcome) => {
-          setStampedClaim((previous) =>
-            isStillCurrent(previous)
-              ? {
-                  ...previous,
-                  refusal: outcome.status === "unavailable" ? outcome : undefined,
-                }
-              : previous,
-          );
+          dispatch.settle(() => {
+            publish((previous) => ({
+              ...previous,
+              refusal: outcome.status === "unavailable" ? outcome : undefined,
+            }));
+          });
         })
         .catch((error: unknown) => {
-          setStampedClaim((previous) =>
-            isStillCurrent(previous)
-              ? {
-                  ...previous,
-                  refusal: normalizeWireRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error),
-                }
-              : previous,
-          );
+          dispatch.settle(() => {
+            publish((previous) => ({
+              ...previous,
+              refusal: normalizeWireRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error),
+            }));
+          });
         })
         .finally(() => {
-          setStampedClaim((previous) =>
-            isStillCurrent(previous) ? { ...previous, isInFlight: false } : previous,
-          );
+          dispatch.settle(() => {
+            publish((previous) => ({ ...previous, isInFlight: false }));
+          });
+          dispatch.release();
         });
     },
-    [bridge, dispatchSerials, sessionId],
+    [bridge, dispatches, publish, sessionId],
   );
 
   const acquire = useCallback(() => {
@@ -176,31 +166,5 @@ export function useTerminalLeaseClaim(
     call("release");
   }, [call]);
 
-  // The comparison, during render. A state stamped with anything but the subject
-  // this pass is about renders as the idle arm — never as the previous session's
-  // disabled control, and never as its refusal.
-  const isCurrentSubject =
-    stampedClaim !== undefined &&
-    stampedClaim.bridge === bridge &&
-    stampedClaim.sessionId === sessionId;
-  const claim = isCurrentSubject ? stampedClaim : IDLE_TERMINAL_LEASE_CLAIM;
-
-  return { isInFlight: claim.isInFlight, refusal: claim.refusal, acquire, release };
-}
-
-/**
- * The monotonic serial each dispatch is stamped with.
- *
- * A tiny class rather than a `useRef` counter incremented in place, on this
- * package's rule that stateful logic is encapsulated: the sequence is per hook
- * instance, it is never read during render, and the one thing a caller may do with
- * it is take the next number.
- */
-class DispatchSerialSequence {
-  #issued = 0;
-
-  public next(): number {
-    this.#issued += 1;
-    return this.#issued;
-  }
+  return { isInFlight: reading.isInFlight, refusal: reading.refusal, acquire, release };
 }

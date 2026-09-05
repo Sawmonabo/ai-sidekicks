@@ -48,7 +48,7 @@
 // `node-presence-model.ts` states the rule and why the payload's `actor` is not a
 // substitute for the link the wire withholds.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { membershipRoleOf } from "../../bridge/entity-body-reads.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -57,6 +57,7 @@ import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import {
   useCallerMembershipRole,
   useSessionStore,
+  useSubjectScopedState,
   type CallerParticipantReader,
   type SessionStore,
   type SessionStoreState,
@@ -117,10 +118,13 @@ function BoundTerminalPane(props: {
   readonly sessionStore: SessionStore;
 }): React.JSX.Element {
   const { bridge, sessionStore } = props;
-  const terminalId = sessionStore.sessionId;
+  // The session's id, read once. V1 gives a session one shared shell, so this is also
+  // the terminal's id — and naming it here is what lets every subject-keyed hook and
+  // callback below take the same identifier rather than re-reading the store.
+  const sessionId = sessionStore.sessionId;
   const timeline = useSessionStore(sessionStore, selectTimeline);
-  const outputReading = useTerminalOutputStream(bridge, terminalId);
-  const viewerIdentity = useTerminalViewerIdentity(bridge, sessionStore.sessionId);
+  const outputReading = useTerminalOutputStream(bridge, sessionId);
+  const viewerIdentity = useTerminalViewerIdentity(bridge, sessionId);
   // The entitlement beside the identity, because the claim control needs both: the
   // fold compares the holder against WHO this window is, and the daemon checks what
   // that participant MAY DO before it moves the shell. The reader is adapted here
@@ -128,11 +132,9 @@ function BoundTerminalPane(props: {
   // port; the served arm hands over the participant id and the refusing arm travels
   // as the `ConsoleRefusal` it already is.
   const readCallerParticipant: CallerParticipantReader = useCallback(async () => {
-    const outcome = await bridge.growth.callerParticipantRead({
-      sessionId: sessionStore.sessionId,
-    });
+    const outcome = await bridge.growth.callerParticipantRead({ sessionId });
     return outcome.status === "served" ? outcome.value.participantId : outcome;
-  }, [bridge, sessionStore]);
+  }, [bridge, sessionId]);
   const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
 
   // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
@@ -186,7 +188,7 @@ function BoundTerminalPane(props: {
     <>
       <LeaseLine
         bridge={bridge}
-        sessionId={sessionStore.sessionId}
+        sessionId={sessionId}
         state={lease}
         markFor={markFor}
         viewerIdentity={viewerIdentity}
@@ -211,7 +213,7 @@ function BoundTerminalPane(props: {
         />
       )}
       <XtermHost
-        terminalId={terminalId}
+        terminalId={sessionId}
         isWriteEnabled={lease.holding === "held-by-you"}
         label={`${TERMINAL_PANE_LABEL} output`}
       />
@@ -229,13 +231,14 @@ function BoundTerminalPane(props: {
  * "computing" absence rather than an empty stream.
  */
 function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): TerminalOutputReading {
-  const [stamped, setStamped] = useState<StampedTerminalOutputReading | undefined>(undefined);
+  const { value: reading, publish } = useSubjectScopedState<TerminalOutputReading>(
+    bridge,
+    terminalId,
+    () => ASKING_FOR_OUTPUT,
+  );
 
   useEffect(() => {
     let isMounted = true;
-    const publish = (reading: TerminalOutputReading): void => {
-      setStamped({ bridge, terminalId, reading });
-    };
     void bridge.growth
       .terminalSubscribeOutput({ terminalId })
       .then((outcome) => {
@@ -274,37 +277,25 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
     return () => {
       isMounted = false;
     };
-  }, [bridge, terminalId]);
+  }, [bridge, terminalId, publish]);
 
-  // The comparison the stamp exists for, on the render that mounts the emulator
-  // rather than one after it.
-  return stamped !== undefined && stamped.bridge === bridge && stamped.terminalId === terminalId
-    ? stamped.reading
-    : ASKING_FOR_OUTPUT;
+  return reading;
 }
 
-/**
- * A settled output reading together with the inputs it was read against.
- *
- * The reading is a fact about ONE shell on ONE bridge, and `BoundTerminalPane`
- * outlives both: a deck that hands the same instance a different bridge or a
- * different session store replaces the effect while the state still holds the
- * previous terminal's answer, and the mount flag cannot help — it is the flag of the
- * effect that is being torn down, and its cleanup runs a pass AFTER the render that
- * has already put the previous shell's absence or refusal on screen for the
- * replacement. A promise from the retired subject can also settle in that same
- * window, before the cleanup that would have flipped the flag.
- *
- * So the reading travels with its subject and the render compares, which is the
- * shape `terminal/viewer-identity.ts` and `browser/navigation-state.ts` already
- * take. A mismatch reads `ASKING_FOR_OUTPUT` — the honest state for a question that
- * has just been put and not yet answered — rather than the previous shell's.
+/*
+ * WHOSE READING IT IS. The reading is a fact about ONE shell on ONE bridge, and
+ * `BoundTerminalPane` outlives both: a deck that hands the same instance a different
+ * bridge or a different session store replaces the effect while the state still
+ * holds the previous terminal's answer, and the mount flag cannot help — it is the
+ * flag of the effect that is being torn down, and its cleanup runs a pass AFTER the
+ * render that has already put the previous shell's absence or refusal on screen for
+ * the replacement. A promise from the retired subject can also settle in that same
+ * window, before the cleanup that would have flipped the flag. So the reading is
+ * held for its `(bridge, terminalId)` subject by the console's one holder, which
+ * answers on the render that mounts the emulator rather than one after it: a
+ * replacement subject reads `ASKING_FOR_OUTPUT` — the honest state for a question
+ * that has just been put and not yet answered — rather than the previous shell's.
  */
-interface StampedTerminalOutputReading {
-  readonly bridge: ConsoleBridge;
-  readonly terminalId: string;
-  readonly reading: TerminalOutputReading;
-}
 
 /**
  * The subsystem name every refusal this read raises itself carries.

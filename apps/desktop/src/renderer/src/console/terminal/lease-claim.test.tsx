@@ -187,11 +187,13 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
   });
 
-  it("negative control: a second press on one session retires the first press's answer", async () => {
-    // The subject alone cannot tell two dispatches on ONE session apart, which is
-    // why each carries a serial as well. Without it the earlier call's settlement
-    // cleared the in-flight flag the later press had just set, and the control came
-    // back enabled while a take was still out.
+  it("negative control: a second press while a call is out starts nothing", async () => {
+    // ONE ACT AT A TIME, and the latch states it by refusing a claim on a key it is
+    // already holding. The control is disabled for exactly that lifetime, so the
+    // second press is a press that should not have reached the wire at all — and the
+    // shape this replaced could not say so: it dispatched a second call and let the
+    // earlier settlement clear the in-flight flag the later press had just set,
+    // bringing the control back enabled while a take was still out.
     const heldWire = new HeldLeaseWire();
     const log = new ClaimFrameLog();
     renderClaim(heldWire, log);
@@ -201,12 +203,22 @@ describe("the terminal lease claim, stamped to its subject", () => {
     act(() => {
       log.newestFrame.acquire();
     });
-    expect(heldWire.heldCallCount).toBe(2);
+    expect(heldWire.heldCallCount).toBe(1);
+    expect(log.newestFrame.isInFlight).toBe(true);
 
+    // And the one call that WAS dispatched still settles: refusing the second claim
+    // must not orphan the first, which is the failure a bare "ignore while busy"
+    // guard makes when it forgets to release.
     heldWire.rejectCall(0);
     await settle();
 
-    expect(log.newestFrame.isInFlight).toBe(true);
-    expect(log.newestFrame.refusal).toBeUndefined();
+    expect(log.newestFrame.isInFlight).toBe(false);
+    expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
+
+    // The key is back, so the next press dispatches.
+    act(() => {
+      log.newestFrame.acquire();
+    });
+    expect(heldWire.heldCallCount).toBe(2);
   });
 });

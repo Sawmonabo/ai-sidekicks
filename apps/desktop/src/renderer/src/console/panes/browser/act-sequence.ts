@@ -32,10 +32,11 @@
 // `(bridge, paneId)` it was raised under and the render compares it, and the tokens
 // outstanding under a retired subject are superseded rather than left to write.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
@@ -84,13 +85,6 @@ class BrowserActSequence {
   }
 }
 
-/** A refusal and the `(bridge, paneId)` the act that raised it was dispatched for. */
-interface StampedActRefusal {
-  readonly bridge: ConsoleBridge;
-  readonly paneId: string;
-  readonly refusal: ConsoleRefusal | undefined;
-}
-
 /** The pane's acts, and the one refusal they report between them. */
 export interface BrowserPaneActs {
   /** The newest act's refusal, or `undefined` where the newest act did not refuse. */
@@ -110,41 +104,30 @@ export interface BrowserPaneActs {
 /**
  * Hold one pane's act ordering and the one refusal it renders.
  *
- * The sequence is minted in a `useState` initializer rather than a `useRef` so it is
- * constructed once per mount and never on a re-render, which is the same shape the
- * pane's geometry publisher already takes. The three operations are stable for as
- * long as the subject is — only `refusal` changes — so a caller's `useCallback` over
- * them does not churn on every settled act.
- *
- * TWO MECHANISMS, BECAUSE THEY CLOSE TWO DIFFERENT GAPS. The stamp is compared
- * during RENDER, so the pass that first sees the replacement subject already shows
- * no refusal — an effect would clear it one pass late, and that pass is on screen.
- * Superseding runs in the effect's CLEANUP, so an act dispatched under the retired
- * subject writes nothing at all rather than writing a refusal the stamp then has to
- * hide; the same cleanup covers unmount, where there is no later render to compare.
+ * TWO MECHANISMS, BECAUSE THEY CLOSE TWO DIFFERENT GAPS, and the console's two
+ * subject primitives are each of them. The refusal is HELD for its subject, so the
+ * pass that first sees the replacement subject already shows no refusal — an effect
+ * would clear it one pass late, and that pass is on screen. The sequence is a
+ * RESOURCE opened for that subject, so retiring it supersedes what is in flight and
+ * an act dispatched under the retired subject writes nothing at all rather than
+ * writing a refusal the holder then has to hide; the same disposal covers unmount,
+ * where there is no later render to compare.
  */
 export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): BrowserPaneActs {
-  const [sequence] = useState(() => new BrowserActSequence());
-  const [stamped, setStamped] = useState<StampedActRefusal>({
+  // The subject is changing, or the pane is going: whatever is in flight was
+  // dispatched for a pane this hook no longer serves, so the disposal supersedes it.
+  const { value: sequence } = useSubjectScopedResource(
     bridge,
     paneId,
-    refusal: undefined,
-  });
-
-  useEffect(
-    () => () => {
-      // The subject is changing, or the pane is going. Whatever is in flight was
-      // dispatched for a pane this hook no longer serves.
-      sequence.supersedeOutstanding();
+    () => new BrowserActSequence(),
+    (retired) => {
+      retired.supersedeOutstanding();
     },
-    [sequence, bridge, paneId],
   );
-
-  const publish = useCallback(
-    (refusal: ConsoleRefusal | undefined): void => {
-      setStamped({ bridge, paneId, refusal });
-    },
-    [bridge, paneId],
+  const { value: refusal, publish } = useSubjectScopedState<ConsoleRefusal | undefined>(
+    bridge,
+    paneId,
+    () => undefined,
   );
 
   const run = useCallback(
@@ -177,9 +160,6 @@ export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): Brows
   const dismiss = useCallback((): void => {
     publish(undefined);
   }, [publish]);
-
-  const refusal =
-    stamped.bridge === bridge && stamped.paneId === paneId ? stamped.refusal : undefined;
 
   return { refusal, run, refuseLocally, dismiss };
 }
