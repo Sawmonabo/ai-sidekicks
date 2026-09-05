@@ -1,0 +1,47 @@
+/*
+ * What every primitive shares: the hidden region and the one focus ring.
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3, which
+ * puts the focus ring at 3:1 against ADJACENT colours.
+ */
+
+.meridian-visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * One focus treatment for everything the primitives own. An outline rather than a
+ * box-shadow so it survives `overflow: hidden` ancestors, and `outline-offset` so it
+ * never sits on top of the control's own boundary — rule 3 puts the focus ring at
+ * 3:1 against ADJACENT colours, and a ring drawn over a border has no adjacent.
+ */
+.meridian-chip:focus-visible,
+.meridian-choice-list__choice:focus-visible,
+.meridian-chord :focus-visible,
+.meridian-nothing :focus-visible,
+.meridian-refusal :focus-visible,
+.meridian-refusal__dismiss:focus-visible,
+.meridian-accent-fill:focus-visible,
+.meridian-ledger-row :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

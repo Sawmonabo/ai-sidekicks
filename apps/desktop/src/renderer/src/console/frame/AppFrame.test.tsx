@@ -23,7 +23,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import { CommandRegistry, PaletteOverlay } from "../palette/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { AppFrame } from "./AppFrame.js";

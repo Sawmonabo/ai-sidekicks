@@ -134,10 +134,7 @@ import type { RuntimeNodeRosterEntry, VersionFloorExceededCode } from "@ai-sidek
 // view and its siblings is ONE boundary fact (this rejection arrives as a
 // PROP, theirs as bridge `catch` bindings), and that difference is now the
 // `total` option rather than a third normalizer.
-import {
-  isWireErrorEnvelopeWithCode,
-  normalizeWireRejection,
-} from "../../../shared/wire-errors.js";
+import { isWireErrorEnvelopeWithCode, wireRejectionToError } from "../../../shared/wire-errors.js";
 
 // `VERSION_FLOOR_EXCEEDED_WIRE_CODE` — the canonical wire code for the
 // below-floor refusal (ADR-018 §Decision #10), single-sourced in contracts as
@@ -355,7 +352,7 @@ export function MixedVersionStatus({
     // unmount the tree — no error boundary exists in the renderer at Tier 3 —
     // and even a future boundary would only swap the crash for a fallback that
     // hides the node: an eject-by-render, which I-003-1 forbids.
-    const normalizedRejection = normalizeWireRejection(writeAttemptRejection, { total: true });
+    const normalizedRejection = wireRejectionToError(writeAttemptRejection, { total: true });
     writeRefusalBlock = (
       <div role="alert" aria-label="unrecognized-write-rejection" data-write-refusal="unrecognized">
         <p>

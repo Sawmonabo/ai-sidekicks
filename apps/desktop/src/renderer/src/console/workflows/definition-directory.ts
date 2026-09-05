@@ -63,7 +63,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
-import { useSubjectStampedRead, type SubjectStampedRead } from "../store/index.js";
+import { useSubjectStampedRead, type SubjectStampedRead } from "../store/subject-stamped-state.js";
 import {
   WORKFLOW_DEFINITION_SCOPES,
   type WorkflowDefinitionRow,

@@ -21,6 +21,16 @@
 // The `wire-figure-formatting` tripwire's test asserts by grep that this file is
 // the only site in `console/**` doing the scaling. If a component needs a byte
 // figure, it calls `formatByteQuantity`.
+//
+// The two time readings below take their instant from `core/instant.ts` rather than
+// from `Date.parse`, so DISPLAY and ORDERING read a wire stamp the same way. They did
+// not before, and the two disagreements were both invisible: `Date.parse` normalizes
+// `2026-02-30T10:00:00Z` into March and reads a timezone-less stamp in the host's
+// zone, so a figure rendered here could name an instant no sort would ever agree
+// with and no daemon ever sent. An unreadable stamp now renders the same em dash the
+// rest of this module uses for a figure it cannot stand behind.
+
+import { parseInstant } from "../core/index.js";
 
 /**
  * The closed unit set, ascending; the index IS the power of 1024.
@@ -166,11 +176,11 @@ export function formatRelativeTime(
   nowMilliseconds: number,
   locale?: string,
 ): string {
-  const fromMilliseconds = Date.parse(fromIso);
-  if (Number.isNaN(fromMilliseconds)) {
+  const from = parseInstant(fromIso);
+  if (from.kind === "malformed") {
     return "—";
   }
-  const deltaSeconds = (fromMilliseconds - nowMilliseconds) / 1000;
+  const deltaSeconds = (from.epochMilliseconds - nowMilliseconds) / 1000;
   const relativeTimeFormat = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   const absoluteSeconds = Math.abs(deltaSeconds);
   if (absoluteSeconds < 60) {
@@ -190,8 +200,8 @@ export function formatRelativeTime(
  * align; the date is shown separately by the day divider, never per row.
  */
 export function formatClockTime(iso: string, locale?: string): string {
-  const milliseconds = Date.parse(iso);
-  if (Number.isNaN(milliseconds)) {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
     return "—";
   }
   return new Intl.DateTimeFormat(locale, {
@@ -199,7 +209,7 @@ export function formatClockTime(iso: string, locale?: string): string {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).format(milliseconds);
+  }).format(instant.epochMilliseconds);
 }
 
 /**
@@ -219,8 +229,8 @@ export function formatClockTime(iso: string, locale?: string): string {
  * neighbour so two figures on one surface do not disagree about the format.
  */
 export function formatDateTime(iso: string, locale?: string): string {
-  const milliseconds = Date.parse(iso);
-  if (Number.isNaN(milliseconds)) {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
     return "—";
   }
   return new Intl.DateTimeFormat(locale, {
@@ -230,7 +240,7 @@ export function formatDateTime(iso: string, locale?: string): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(milliseconds);
+  }).format(instant.epochMilliseconds);
 }
 
 /**

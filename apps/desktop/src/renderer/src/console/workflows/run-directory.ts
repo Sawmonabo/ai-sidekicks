@@ -45,7 +45,7 @@ import { useEffect } from "react";
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
 import type { GrowthPort, WorkflowRunListEntry } from "../bridge/index.js";
-import { useSubjectStampedRead, type SubjectStampedRead } from "../store/index.js";
+import { useSubjectStampedRead, type SubjectStampedRead } from "../store/subject-stamped-state.js";
 import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What this read looks like once it has an answer, either kind. */

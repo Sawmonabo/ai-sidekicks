@@ -22,9 +22,10 @@
 // unrelated app, an orphan from a killed run — loses `requestSingleInstanceLock()`
 // and quits before opening a window, which would surface here as a timeout with no
 // error. Every launch therefore gets its own `--user-data-dir` under the system
-// temporary directory, removed on close. This is the same defect and the same fix
-// the Tier-1 smoke test records; the mechanism is restated rather than imported
-// because that test owns a spawn-and-parse-stdout probe, not a driven window.
+// temporary directory (`launch-profile.ts`), removed as part of the close. This is
+// the same defect and the same fix the Tier-1 smoke test records; the mechanism is
+// restated rather than imported because that test owns a spawn-and-parse-stdout
+// probe, not a driven window.
 //
 // HEADLESS LINUX
 //
@@ -36,69 +37,28 @@
 // inherit through `process.env`. They run in the aggregate `test` script's last
 // group and in that job's desktop step, both on the fixture build.
 
-import { mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 
 import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = resolve(HERE, "..", "..");
-
-/** The built main entry both tiers launch. Produced by `pnpm build:fixtures`. */
-export const MAIN_ENTRY_PATH: string = join(PACKAGE_ROOT, "out", "main", "index.js");
-
-/**
- * The property a fixture build hangs the tripwire registry on.
- *
- * Re-exported from the renderer module that SETS it rather than copied. A string
- * duplicated across this boundary cannot go wrong loudly: a rename in the
- * renderer would leave the endurance tier reading `undefined` from a global that
- * no longer exists, at the far end of the longest tier in the suite, with a
- * message about a missing property rather than about a rename. Importing makes
- * that a compile error.
- *
- * These tiers compile under `tsconfig.console-electron-test.json`, which carries
- * both the Node and the DOM libs precisely so the driver can name what the
- * renderer declares; the build-time signals the console's modules read are
- * substituted for the driver process by each tier's `define` in `vitest.config.ts`.
- */
-export { TRIPWIRE_FIXTURE_GLOBAL } from "../../src/renderer/src/console/core/tripwires.js";
-
-/**
- * The property a fixture build hangs the scenario control on, and its shape.
- *
- * Re-exported from the module that declares it, for the reason above: a tier that
- * retyped the string would read `undefined` from a property that no longer exists
- * and report a missing member rather than a rename. The module is reached
- * directly rather than through `console/bridge/index.js` because that barrel pulls
- * the provider's `.tsx` in, and this program has no JSX.
- */
-export {
-  SCENARIO_FIXTURE_GLOBAL,
-  type ScenarioFixtureHandle,
-} from "../../src/renderer/src/console/bridge/scenario-selection.js";
-
-/**
- * The property a fixture build hangs the session-store diagnostics on, and its
- * shape.
- *
- * The third of the three handles these tiers read, re-exported on the same rule
- * as the two above: the string is imported from the module that sets it, never
- * retyped, so a rename is a compile error rather than a tier reading `undefined`
- * from a property that no longer exists. Beats delivered by the scenario engine
- * and events admitted to a store's apply chokepoint are two different claims, and
- * the endurance tier asserts both.
- */
-export {
-  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  type ConsoleSessionDiagnostics,
-} from "../../src/renderer/src/console/frame/session-event-binder.js";
+import {
+  BoundedCleanup,
+  type CleanupOutcome,
+  ELECTRON_PROCESS_TERMINATOR,
+} from "./bounded-cleanup.js";
+import { cleanupFailure, withCleanupOutcome, withProfileRemoval } from "./cleanup-disposition.js";
+import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
+import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
+import { BodyAllowance, withBoundedBody } from "./launch-body.js";
+import {
+  LAUNCH_BUDGET_MS,
+  LaunchDeadline,
+  POST_READINESS_RESERVE_MS,
+  readinessFailure,
+} from "./launch-deadline.js";
+import { createLaunchProfile, removeLaunchProfile } from "./launch-profile.js";
 
 /**
  * The environment variable the built main process reads a scenario id from.
@@ -112,30 +72,51 @@ export {
 const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
 
 /**
- * How long a window may take to appear before the launch is called failed.
+ * The prefix every launch breadcrumb carries.
  *
- * Generous, and deliberately so: this bounds a COLD Electron start on a shared
- * CI runner, which is a different quantity from anything the budgets measure. A
- * tight bound here would turn runner contention into a red tier, and the budget
- * tier — which measures what this one merely waits for — is where a slow start
- * is supposed to be caught.
+ * One tag, so a CI log is greppable for the whole set: a tier that failed on a
+ * late first frame is diagnosable only if the passing launches printed what
+ * their own first frame cost. The smoke test's boot fix records the same shape
+ * for the same runner (`[SIDEKICKS_SMOKE_READY]`); this one is unconditional
+ * rather than opt-in, because a breadcrumb nobody enabled is a breadcrumb nobody
+ * has when the run they need it for has already finished.
+ *
+ * Lower-case and bracketed rather than the smoke tag's shouted form: that one is
+ * parsed by a scanner and this one is only read.
  */
-export const WINDOW_APPEAR_TIMEOUT_MS = 30_000;
+const LAUNCH_TRACE_TAG = "[sidekicks-console-launch]";
 
-/**
- * How long two consecutive animation frames may take to arrive before the
- * launch is declared throttled. A painting renderer delivers them within two
- * display refreshes; a hidden or occluded one under Chromium's default
- * throttling delivers none at all, so the bound only has to be clearly above
- * a refresh interval and clearly below a tier's patience.
- */
-const FRAME_WITNESS_TIMEOUT_MS = 2_000;
-
-export interface ConsoleApplication {
+/** What a settled launch produces, before the body's own allowance is minted. */
+interface LaunchedConsole {
   readonly application: ElectronApplication;
   readonly window: Page;
-  /** Close the app and remove its private profile. Safe to call twice. */
+  /**
+   * Close the app and remove its private profile. Safe to call twice.
+   *
+   * REJECTS when cleanup may have left something behind — a termination that was
+   * refused, a close that rejected outright, or a profile that would not come off
+   * disk. A caller that awaits this therefore fails a test whose assertions passed
+   * but which leaked an Electron or its directory, which is the point: vitest does
+   * not read logs, and either would otherwise survive into the launches after it.
+   * A close that lost its race and was SIGKILLed is breadcrumbed and resolves: the
+   * tree is gone, so the launches after it are unaffected. The second call is a
+   * no-op and never throws.
+   */
   readonly close: () => Promise<void>;
+}
+
+export interface ConsoleApplication extends LaunchedConsole {
+  /**
+   * What is LEFT of the body's own allowance — hand it to a poll's `timeout`.
+   *
+   * A body that waits has to bound its wait, and a body that invents a figure for
+   * that is a second copy of a bound which will drift from the registered one. So
+   * the wrapper mints the allowance once the launch has settled and passes it
+   * down: `consoleApplication.bodyAllowance.remainingMs()` is always what is left
+   * at the moment it is asked, and overrunning it fails with the harness's own
+   * sentence rather than vitest's generic kill (`launch-body.ts`).
+   */
+  readonly bodyAllowance: BodyAllowance;
 }
 
 export interface LaunchConsoleOptions {
@@ -159,6 +140,17 @@ export interface LaunchConsoleOptions {
    * is playing the RIGHT one worth making.
    */
   readonly scenarioId?: string;
+  /**
+   * How long this tier's body gets between the settled launch and its cleanup.
+   *
+   * Defaults to `BODY_ALLOWANCE_MS`, the shorter of the two registered figures,
+   * so a tier that says nothing fails inside a bound that names itself rather
+   * than under vitest's generic kill. A tier whose body is a different subject —
+   * the endurance workload, hundreds of driven cycles rather than one interaction
+   * — states `ENDURANCE_BODY_ALLOWANCE_MS`, and its `testTimeout` is derived from
+   * that same row (`tierTimeoutFor`, `vitest.config.ts`).
+   */
+  readonly bodyAllowanceMs?: number;
 }
 
 /**
@@ -167,11 +159,21 @@ export interface LaunchConsoleOptions {
  * Throws rather than returning a partial handle: a caller that received an
  * application with no window would have to re-check the same condition, and the
  * failure it is re-checking for is exactly the one worth reporting loudly.
+ *
+ * Every wait below draws its timeout from ONE deadline minted here, so the whole
+ * call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run — see
+ * `launch-deadline.ts` for why a timeout per phase could not be.
  */
-export async function launchConsole(
-  options: LaunchConsoleOptions = {},
-): Promise<ConsoleApplication> {
-  const userDataDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-console-"));
+async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedConsole> {
+  // Minted before the first phase, including the profile directory: everything
+  // this function waits on is inside the budget, or the budget is not the
+  // launch's. It carries the WHOLE allowance — readiness, the witness, and
+  // cleanup — and each readiness wait below reserves the two later slices off
+  // it, so a slow ladder cannot spend the intervals that diagnose it. Cleanup
+  // takes its own slice as a ceiling rather than drawing on what is left here,
+  // which is why it is not handed this clock (`bounded-cleanup.ts`).
+  const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
+  const profile = createLaunchProfile();
   // The scenario is applied LAST so a named option cannot be shadowed by an `env`
   // entry that happens to spell the same variable — one place decides, and it is
   // the typed one.
@@ -180,7 +182,7 @@ export async function launchConsole(
   let application: ElectronApplication;
   try {
     application = await electron.launch({
-      args: [`--user-data-dir=${userDataDirectory}`, MAIN_ENTRY_PATH],
+      args: [`--user-data-dir=${profile.directory}`, MAIN_ENTRY_PATH],
       env: {
         ...process.env,
         ...options.env,
@@ -192,35 +194,107 @@ export async function launchConsole(
         // (see `src/main/window-reveal.ts`).
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       } as Record<string, string>,
-      timeout: WINDOW_APPEAR_TIMEOUT_MS,
+      timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
   } catch (error: unknown) {
-    rmSync(userDataDirectory, { recursive: true, force: true });
-    throw error;
+    // No application was produced, so there is no cleanup verdict for the removal
+    // to travel on — and a bare `remove()` throwing here would replace the launch
+    // failure with a sentence about a directory. Surfaced and folded instead, so
+    // the readiness failure stays the error that explains the run.
+    throw withProfileRemoval(readinessFailure(deadline, error), removeLaunchProfile(profile));
   }
 
+  const cleanup = new BoundedCleanup(
+    {
+      close: () => application.close(),
+      // Guarded because Playwright throws rather than returning `undefined` once
+      // the application handle is gone, and cleanup asking who to kill must not
+      // itself become the failure that stops the profile being removed.
+      processId: () => {
+        try {
+          return application.process().pid;
+        } catch {
+          return undefined;
+        }
+      },
+    },
+    ELECTRON_PROCESS_TERMINATOR,
+    profile,
+  );
   let closed = false;
+  let cleanupOutcome: CleanupOutcome | undefined;
   const close = async (): Promise<void> => {
     if (closed) {
       return;
     }
     closed = true;
-    // The profile is removed whether or not the close succeeds: a temporary
-    // directory left behind by a crashed run is the thing that makes the NEXT
-    // run's disk-space failure look like a console defect.
-    try {
-      await application.close();
-    } finally {
-      rmSync(userDataDirectory, { recursive: true, force: true });
+    // The close itself is bounded and force-terminating, and it removes the
+    // profile, so this always returns a verdict rather than possibly not
+    // returning at all — and the removal reaches the caller ON that verdict. It
+    // used to be an `rmSync` in its own `try`/`catch` here whose `catch` only
+    // printed, so a removal that failed left a passing tier green and the
+    // directory on disk for every launch after it.
+    cleanupOutcome = await cleanup.close();
+    // Breadcrumbed on every settlement but a clean close, and that is wider than
+    // the set that throws: a SIGKILLed tree is worth a line in the log and is not
+    // worth a red check, so `terminated` is recorded here and passes below.
+    if (cleanupOutcome.settlement !== "closed") {
+      console.error(
+        `${LAUNCH_TRACE_TAG} close settled ${cleanupOutcome.settlement} after ` +
+          `${String(cleanupOutcome.waitedMs)} ms of the ${String(cleanupOutcome.budgetMs)} ms it was given`,
+      );
     }
+    const failure = cleanupFailure(cleanupOutcome);
+    if (failure === undefined) {
+      return;
+    }
+    // Thrown, not only logged: a `console.error` is not a failure to vitest, so a
+    // tier whose assertions passed would otherwise report success while leaving
+    // an Electron alive for every launch after it. The launch-failure path
+    // swallows this rejection to keep the original error on top.
+    throw failure;
   };
 
   try {
-    const window = await application.firstWindow({ timeout: WINDOW_APPEAR_TIMEOUT_MS });
-    // The frame element, not `domcontentloaded`: the document exists before React
-    // has mounted anything, so waiting on the document would let a test assert
-    // against an empty body and call it a pass.
-    await window.waitForSelector(".meridian-frame", { timeout: WINDOW_APPEAR_TIMEOUT_MS });
+    let window: Page;
+    let visibilityState: string;
+    try {
+      // READINESS FIRST, THEN THE FRAME QUESTION. Every wait here draws from the
+      // COLD-START budget rather than the frame budget, and that split is the fix
+      // for the flake this harness used to produce: a slow boot is charged to the
+      // thing that is slow, and the frame witness is armed only once the renderer
+      // has said it is ready. The signals, in the order the renderer reaches them:
+      //
+      //   • the first window — the Electron process got as far as opening one.
+      //   • `load` — the document and its subresources are in. Cheap, and it can
+      //     land AFTER React has mounted, so it is not implied by the selector.
+      //   • the frame element, not `domcontentloaded`: the document exists before
+      //     React has mounted anything, so waiting on the document alone would let
+      //     a test assert against an empty body and call it a pass.
+      //
+      // Each takes what the deadline has LEFT, so the four of them cost the
+      // budget once between them instead of once each.
+      window = await application.firstWindow({
+        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+      });
+      await window.waitForLoadState("load", {
+        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+      });
+      await window.waitForSelector(".meridian-frame", {
+        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+      });
+      // Read through the deadline because `evaluate` carries no timeout of its
+      // own and ignores Playwright's default one: a renderer whose main thread is
+      // wedged would leave this round trip pending until the tier gave up, which
+      // is the undiagnosable failure the witness below exists to replace.
+      visibilityState = await deadline.settleWithin(
+        window.evaluate(() => document.visibilityState),
+        "the renderer visibility read",
+        POST_READINESS_RESERVE_MS,
+      );
+    } catch (error: unknown) {
+      throw readinessFailure(deadline, error);
+    }
     // A measurement from a throttled renderer is a false one. The window is
     // never revealed on macOS and revealed inactive elsewhere, so Chromium would
     // by default throttle its timers and frames and report the document hidden
@@ -228,7 +302,6 @@ export async function launchConsole(
     // The tiers assert the state they measure in rather than trust it, twice:
     // what the document REPORTS, and whether frames actually ARRIVE, since the
     // first is a flag and the second is the thing the endurance tier times.
-    const visibilityState = await window.evaluate(() => document.visibilityState);
     if (visibilityState !== "visible") {
       throw new Error(
         `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
@@ -236,67 +309,84 @@ export async function launchConsole(
           `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
       );
     }
-    const framesArrive = await witnessAnimationFrames(window);
-    if (!framesArrive) {
+    const frames = await new FrameWitness(rendererFrameSource(window)).witness();
+    if (!frames.painting) {
       throw new Error(
-        `no animation frame arrived within ${String(FRAME_WITNESS_TIMEOUT_MS)} ms, so the renderer ` +
-          "is not painting and nothing timed in it would describe the console; an unrevealed " +
-          `window paints only with background throttling off (src/main/window-reveal.ts)`,
+        `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +
+          "signalling ready, so it is not painting and nothing timed in it would describe the " +
+          "console; an unrevealed window paints only with background throttling off " +
+          "(src/main/window-reveal.ts)",
       );
     }
+    // Printed on EVERY launch, passing ones included. The bound above can only
+    // be re-derived from figures a real runner produced, and a figure that is
+    // printed only when it is already too late is no evidence at all.
+    console.error(
+      `${LAUNCH_TRACE_TAG} first frame ${String(Math.round(frames.frameIntervalMs))} ms in-renderer, ` +
+        `${String(frames.waitedMs)} ms driver-side, against a ${String(frames.budgetMs)} ms bound`,
+    );
     return { application, window, close };
   } catch (error: unknown) {
-    await close();
-    throw error;
+    // `close()` rejects on abnormal cleanup, and here that rejection must NOT
+    // win: the launch already failed and its error is the one that explains the
+    // run. So it is swallowed and the cleanup outcome is attached to the original
+    // instead — one error carrying both, never two with the wrong one on top.
+    try {
+      await close();
+    } catch {
+      // Recorded in `cleanupOutcome`, and attached by the throw below.
+    }
+    throw withCleanupOutcome(error, cleanupOutcome);
   }
 }
 
 /**
- * Whether the built bundle these tiers need is on disk.
+ * Launch the console, run `body` against it, and close it afterwards.
  *
- * Used to SKIP with a message rather than fail with a stack trace. A missing
- * bundle is a "you have not run the build" condition, not a defect in the
- * console, and reporting it as a failure trains a reader to ignore the tier.
- *
- * `statSync` rather than `existsSync` so an entry that exists but is a directory
- * or is unreadable is also treated as absent — those fail later and much less
- * legibly, inside Electron's own startup.
+ * The one way in, so `launchConsole` is not exported: a tier that held the
+ * handle itself would have to spell the disposition out, and nine of them did —
+ * as a bare `finally`, which destroys the body's failure whenever the close
+ * fails too. `closeAfterBody` states that rule once and is tested without an
+ * Electron; this adds the launch, so no tier can reach the launched application
+ * without also getting the rule.
  */
-export function fixtureBundleExists(): boolean {
-  try {
-    return statSync(MAIN_ENTRY_PATH).isFile();
-  } catch {
-    return false;
-  }
+export async function withLaunchedConsole<TResult>(
+  options: LaunchConsoleOptions,
+  body: (consoleApplication: ConsoleApplication) => Promise<TResult>,
+): Promise<TResult> {
+  const launched = await launchConsole(options);
+  // Minted HERE and not inside the launch: the allowance bounds what runs after
+  // the launch settled, so a slow-but-valid launch spends none of it. That is the
+  // whole arithmetic the tier timeout is derived from — launch, then body, then
+  // the cleanup the launch budget already reserves.
+  const bodyAllowance = new BodyAllowance(options.bodyAllowanceMs);
+  const consoleApplication: ConsoleApplication = { ...launched, bodyAllowance };
+  return await withBoundedBody(launched, bodyAllowance, async () => await body(consoleApplication));
 }
 
 /**
- * Whether the renderer delivers two consecutive animation frames in bounded
- * time. Two rather than one: a single callback can be the tail of a frame the
- * compositor was already producing, while the second proves the schedule is
- * running. The timer is cleared on either outcome so a passing launch leaves
- * nothing armed.
+ * The Playwright implementation of the witness's seam.
+ *
+ * The interval is timed INSIDE the renderer, by `performance.now()` either side
+ * of the two callbacks, so the figure the harness prints is the frame schedule
+ * itself rather than the frame schedule plus a CDP round trip on a loaded
+ * runner. The witness separately records the driver-side wall time, so a launch
+ * where the two disagree says which half was slow — which is the diagnosis the
+ * old single number could not give.
  */
-async function witnessAnimationFrames(window: Page): Promise<boolean> {
-  let timeoutHandle: NodeJS.Timeout | undefined;
-  const timedOut = new Promise<false>((resolve) => {
-    timeoutHandle = setTimeout(() => {
-      resolve(false);
-    }, FRAME_WITNESS_TIMEOUT_MS);
-  });
-  const framed = window.evaluate(
-    () =>
-      new Promise<true>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            resolve(true);
-          });
-        });
-      }),
-  );
-  try {
-    return await Promise.race([framed, timedOut]);
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
+function rendererFrameSource(window: Page): RendererFrameSource {
+  return {
+    awaitTwoFrames: () =>
+      window.evaluate(
+        () =>
+          new Promise<number>((resolveInterval) => {
+            const requestedAt = performance.now();
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                resolveInterval(performance.now() - requestedAt);
+              });
+            });
+          }),
+      ),
+  };
 }

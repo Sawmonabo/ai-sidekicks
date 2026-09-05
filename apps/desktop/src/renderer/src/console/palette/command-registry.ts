@@ -21,6 +21,8 @@
 //     refused is still offered, and its refusal is rendered when it comes back —
 //     `Spec-023 §Console Design (Meridian)`'s "Offer, then render the refusal".
 
+import { lossyStringify } from "../../../../shared/wire-errors.js";
+
 import { KeyedRegistry, PALETTE_RECENTS_CAP } from "../core/index.js";
 import type { ConsoleCommand } from "./contributions.js";
 import {
@@ -196,7 +198,14 @@ export class CommandRegistry {
     try {
       completion = Promise.resolve(command.run());
     } catch (error) {
-      completion = Promise.reject(error instanceof Error ? error : new Error(String(error)));
+      // Through the total stringifier rather than `String(...)`, which itself throws
+      // on a null-prototype thrown value — inside the very expression that exists to
+      // report a failure, and inside a `catch` that has already been left, so the
+      // throw escapes `invoke` and aborts the whole key dispatch this arm exists to
+      // keep alive.
+      completion = Promise.reject(
+        error instanceof Error ? error : new Error(lossyStringify(error)),
+      );
     }
     return { status: "ran", commandId, completion };
   }

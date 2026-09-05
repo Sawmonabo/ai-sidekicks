@@ -137,7 +137,12 @@ export default {
         "A module with no dependents AND no dependencies is connected to nothing. This is a " +
         "narrower claim than the dead-code gate's: `knip` owns reachability from the entry " +
         "points, this owns total disconnection, and neither subsumes the other. Ambient " +
-        "declarations, stylesheets, and tool configuration are roots, not orphans.",
+        "declarations, stylesheets, and tool configuration are roots, not orphans — and so " +
+        "is a `.test-support.*` module, whose only legitimate dependents are the suites " +
+        "`options.exclude` below removes from the graph BEFORE this rule runs. Its emptiness " +
+        "is a property of that exclusion rather than of the module, and the gate that does " +
+        "own its reachability is `knip`, which sees the test entries and reports an unused " +
+        "export there like any other.",
       severity: "error",
       from: {
         orphan: true,
@@ -146,6 +151,7 @@ export default {
           "\\.css$",
           "\\.json$",
           "(^|/)[^/]+\\.config\\.(ts|mjs|cjs|js)$",
+          "\\.test-support\\.(ts|tsx)$",
         ],
       },
       to: {},

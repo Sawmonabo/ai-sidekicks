@@ -198,6 +198,45 @@ describe("vitest projects — the carve-outs hold on paths that do not exist yet
   });
 });
 
+describe("vitest projects — the smoke tier keeps its cost off pure units", () => {
+  // `vitest.config.ts` narrows the `main` project to `test/*.test.ts` and calls
+  // that the three files directly under `test/`, and only those. Both halves
+  // were prose until a pure unit landed beside them: two `process.kill(pid, 0)`
+  // assertions that then needed a 120-160 MB Electron download and a smoke
+  // bundle before they could run, serialized behind two Electron-spawning files,
+  // because this project sets `fileParallelism: false` and CI runs it as its own
+  // `--concurrency=1` group. Nothing about that file was wrong; its address was,
+  // and no gate noticed. The count notices, so the count is asserted here rather
+  // than written into a comment and read never.
+
+  /** Directly under `test/` — the whole of the smoke project's glob. */
+  function isRootLevelTestFile(relativePath: string): boolean {
+    const segments = relativePath.split("/");
+    return segments.length === 2 && segments[0] === "test";
+  }
+
+  it("claims the three files directly under `test/`, and nothing deeper", () => {
+    const smokeMatcher = matchers.find((matcher) => matcher.name === "main");
+    expect(smokeMatcher, "the `main` project resolved").toBeDefined();
+    const claimed = testFiles.filter(
+      (relativePath) => smokeMatcher?.claims(join(PACKAGE_ROOT, relativePath)) === true,
+    );
+    expect(claimed.filter((relativePath) => !isRootLevelTestFile(relativePath))).toStrictEqual([]);
+    // Re-derive by counting `test/*.test.ts`, and re-derive the config's own
+    // sentence with it: a fourth file at this address is a fourth file paying
+    // the tier's cost, which is a decision somebody should have to make.
+    expect(claimed).toHaveLength(3);
+  });
+
+  it("negative control: the depth rule rejects a file one directory down", () => {
+    // Without this the case above passes over a rule that answered true for
+    // every path — which is what it becomes the moment `split` is asked the
+    // wrong question.
+    expect(isRootLevelTestFile("test/launch.smoke.test.ts")).toBe(true);
+    expect(isRootLevelTestFile("test/console/architecture/process-tree.test.ts")).toBe(false);
+  });
+});
+
 describe("vitest projects — the check itself can fail", () => {
   const alwaysClaims = (name: string): ProjectMatcher => ({ name, claims: () => true });
   const neverClaims = (name: string): ProjectMatcher => ({ name, claims: () => false });

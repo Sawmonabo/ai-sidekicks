@@ -15,7 +15,8 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires, reportTripwire } from "../core/index.js";
+import { reportTripwire } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 
 const RENDER_FAILURE_MESSAGE = "the timeline could not render this row";

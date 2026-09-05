@@ -20,7 +20,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { GROWTH_OPERATIONS } from "./growth-operations.js";
 import { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";

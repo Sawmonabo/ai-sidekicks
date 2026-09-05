@@ -38,7 +38,7 @@
 // stringifier is reused here for exactly the arm that needs one, so the totality rule
 // (a null-prototype object's `String(...)` can itself throw) has one implementation.
 
-import { isWireErrorEnvelope, normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
 import {
   ConsoleRefusalError,
   isConsoleRefusal,
@@ -115,7 +115,7 @@ function refusalFromRejection(rejection: unknown): SettledReadRefusal {
       // The thrown text is carried rather than summarized: it is the only account of
       // what happened, and a read that failed for a reason nobody can read is
       // indistinguishable from one that was never put.
-      `The read failed before it produced an answer — ${normalizeWireRejection(rejection, { total: true }).message}`,
+      `The read failed before it produced an answer — ${lossyStringify(rejection)}`,
     ),
     status: "unavailable",
   };

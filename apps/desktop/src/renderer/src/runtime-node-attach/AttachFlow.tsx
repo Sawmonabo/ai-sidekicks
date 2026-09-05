@@ -124,7 +124,7 @@ import type {
   SessionId,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../shared/wire-errors.js";
 import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 
 // The `window.sidekicks` ambient type lives in the renderer-wide
@@ -324,7 +324,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
         setAttachViewState({ kind: "resolved", response: attachmentResponse });
       } catch (bridgeError: unknown) {
         // Tier-3 production branch at the Tier-1 bridge — see
-        // `normalizeWireRejection` (shared, `src/shared/wire-errors.ts`) does
+        // `wireRejectionToError` (shared, `src/shared/wire-errors.ts`) does
         // the envelope handling: a typed refusal —
         // `runtimenode.attach_conflict`, the single-active-attachment
         // (Plan-003 §Invariants I-003-5) refusal, or
@@ -338,7 +338,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
         // attach — read-only, never refused (`Spec-003 §Required Behavior`;
         // I-003-1 admit-not-eject) — so `VERSION_FLOOR_EXCEEDED` is a verdict
         // on SUBSEQUENT version-sensitive writes, never on this call.
-        setAttachViewState({ kind: "rejected", error: normalizeWireRejection(bridgeError) });
+        setAttachViewState({ kind: "rejected", error: wireRejectionToError(bridgeError) });
       }
     })();
   };
@@ -440,7 +440,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   // Rejected — role="alert" so assistive tech announces the failure; the
   // envelope renders `name: message` (the Tier-1 `NotImplementedAtTier1Error`
   // is the production-observable case; a typed wire envelope renders its wire
-  // `code` as the name — see `normalizeWireRejection`). Unlike T6.1's TERMINAL
+  // `code` as the name — see `wireRejectionToError`). Unlike T6.1's TERMINAL
   // rejected branch (retrying a single-use invite token is not safely
   // re-armable), attach is retryable: the server treats a re-attach as the
   // single-active-attachment upsert (Plan-003 §Invariants I-003-5), so the

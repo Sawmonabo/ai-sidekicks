@@ -1270,7 +1270,10 @@ shipped:
       - apps/desktop/test/console/bench/ledger.ts
       - apps/desktop/test/console/browser/frame-geometry.test.tsx
       - apps/desktop/test/console/budget/budgets.json
-      - apps/desktop/test/console/budget/budgets.test.ts
+      - apps/desktop/test/console/budget/budget-document.test.ts
+      - apps/desktop/test/console/budget/budget-evaluation.test.ts
+      - apps/desktop/test/console/budget/budget-registry.test.ts
+      - apps/desktop/test/console/budget/budget-report.test.ts
       - apps/desktop/test/console/budget/bundle-budget.test.ts
       - apps/desktop/test/console/budget/heap-budget.test.ts
       - apps/desktop/test/console/budget/release-absence.test.ts

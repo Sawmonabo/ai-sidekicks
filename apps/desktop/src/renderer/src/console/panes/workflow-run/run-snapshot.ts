@@ -27,7 +27,10 @@
 import { useEffect } from "react";
 
 import type { GrowthPort, WorkflowRunSnapshot } from "../../bridge/index.js";
-import { useSubjectStampedRead, type SubjectStampedRead } from "../../store/index.js";
+import {
+  useSubjectStampedRead,
+  type SubjectStampedRead,
+} from "../../store/subject-stamped-state.js";
 import { settleGrowthRead, type SettledReadRefusal } from "../../workflows/read-settlement.js";
 
 /** What this read looks like once it has an answer, either kind. */
