@@ -11,8 +11,10 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { formatDateTime } from "../../primitives/index.js";
 import { RunList } from "./RunList.js";
 import { RunListProjection } from "./run-list-projection.js";
+import { workflowInstant } from "./run-list-rows.js";
 import type { WorkflowPhaseStateRow, WorkflowRunSnapshot } from "./run-list-rows.js";
 import { phase, run } from "./run-list-projection.test-support.js";
 
@@ -29,6 +31,16 @@ function rowNames(root: HTMLElement): readonly string[] {
   return [...root.querySelectorAll(".meridian-run-row__name")].map(
     (name) => name.textContent ?? "",
   );
+}
+
+/** Each row's start figure, in the order the list drew the rows. */
+function startFigures(root: HTMLElement): readonly string[] {
+  return [...root.querySelectorAll(".meridian-run-row__meta")].map((meta) => {
+    const start = [...meta.querySelectorAll(".meridian-figure--wire")].find(
+      (figure) => figure.getAttribute("title") !== null,
+    );
+    return start?.textContent ?? "";
+  });
 }
 
 /** One phase parked on a person, which is what puts a run in the parked band. */
@@ -103,5 +115,63 @@ describe("the counts the header shows", () => {
     expect(summary).toContain("Runs");
     expect(summary).not.toContain("Parked");
     expect(summary).not.toContain("Frozen pins");
+  });
+});
+
+/*
+ * The start is DISPLAYED under the grammar it is SORTED under, and the two used to be
+ * different readers. `run-list-rows.ts` declares this plane `"utc-only"` so an encoding
+ * change arrives as the unreadable value it is; the row printed through the figure
+ * chokepoint's `formatDateTime`, whose default policy admits a numeric offset. So a run
+ * spelled `+02:00` sorted last — under every start the plane could read — and printed a
+ * legible time on the row, with nothing saying its stamp had been refused.
+ */
+describe("a start spelled with a numeric offset", () => {
+  // 10:00Z, so it is genuinely NEWER than the run below it and belongs above it in a
+  // newest-first band — which is what makes its placement last a visible symptom
+  // rather than a coincidence of the values chosen.
+  const offsetSpelled = "2026-01-01T12:00:00+02:00";
+  const utcSpelled = "2026-01-01T09:00:00Z";
+
+  function twoRuns(): HTMLElement {
+    return renderList([
+      run({ workflowRunId: "run-offset", definitionName: "Offset", startedAt: offsetSpelled }),
+      run({ workflowRunId: "run-utc", definitionName: "Utc", startedAt: utcSpelled }),
+      // Both unparked and both active, so the band is not what orders them.
+    ]);
+  }
+
+  it("sorts it last and prints it as the unreadable value the plane made it", () => {
+    const root = twoRuns();
+    expect(rowNames(root)).toStrictEqual(["Utc", "Offset"]);
+    expect(startFigures(root)).toStrictEqual([formatDateTime(utcSpelled), "—"]);
+  });
+
+  it("keeps the wire's own spelling on the refused row, as the only evidence of it", () => {
+    const meta = [...twoRuns().querySelectorAll(".meridian-run-row__meta")][1];
+    const titles = [...(meta?.querySelectorAll(".meridian-figure--wire") ?? [])].map((figure) =>
+      figure.getAttribute("title"),
+    );
+    expect(titles).toContain(offsetSpelled);
+  });
+
+  it("negative control: the display formatter alone reads that spelling perfectly well", () => {
+    // The finding. Without it the case above would pass over a row that printed the em
+    // dash for some unrelated reason, and would not name the reader that disagreed.
+    expect(formatDateTime(offsetSpelled)).not.toBe("—");
+    expect(formatDateTime(offsetSpelled)).toBe(formatDateTime("2026-01-01T10:00:00Z"));
+  });
+
+  it("negative control: the plane's own reader is the one that refuses it", () => {
+    expect(workflowInstant(offsetSpelled).kind).toBe("malformed");
+    expect(workflowInstant(utcSpelled).kind).toBe("instant");
+  });
+
+  it("negative control: a plain Z start still prints its figure rather than the dash", () => {
+    // Without this the case above would be satisfied by a row that had stopped
+    // rendering a start at all.
+    expect(startFigures(renderList([run({ startedAt: utcSpelled })]))).toStrictEqual([
+      formatDateTime(utcSpelled),
+    ]);
   });
 });

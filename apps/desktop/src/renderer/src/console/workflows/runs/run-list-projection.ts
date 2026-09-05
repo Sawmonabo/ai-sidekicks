@@ -36,6 +36,15 @@
 // sorts first descending, and two floors subtract to `NaN`, which a comparator may
 // answer and `Array.prototype.sort` may read as anything it likes.
 //
+// ONE PARSE OF THE START, AND EVERY READER TAKES IT. The reading rides the row, so the
+// sort and the surface that PRINTS the start are looking at the same value. They were
+// not: the row printed `run.startedAt` through the figure chokepoint's `formatDateTime`,
+// which reads an instant under the default `"any-offset"` policy, while the sort read
+// it under this plane's declared `"utc-only"` one. A start spelled with a numeric
+// offset is legible to the first and malformed to the second, so the list sorted such a
+// run last — under every run whose start it could read — and then printed a perfectly
+// readable time on it, with nothing on screen saying its stamp had been refused.
+//
 // AND THE SORT ENDS ON THE RUN'S OWN IDENTITY. Band, then start, then `workflowRunId`
 // — because the first two both admit ties (two runs started in the same millisecond,
 // two unreadable starts) and a comparator that answers zero hands the pair back in
@@ -127,6 +136,15 @@ export interface WorkflowRunListRow {
   /** Every phase parked at the moment the snapshot was built. Empty when none is. */
   readonly parkedPhases: readonly WorkflowParkedPhase[];
   /**
+   * The run's start as this plane reads it, malformed included.
+   *
+   * The READING rather than the string, because the surface that prints it and the
+   * comparator that orders it must not read the wire's spelling twice under two
+   * grammars. `run.startedAt` is still on the snapshot for the title a figure carries
+   * — the wire's own bytes, which is what a person pastes into a search.
+   */
+  readonly startedAt: InstantReading;
+  /**
    * True when the run's pinned version is not the definition's newest.
    *
    * An inequality between two opaque ids. False when the caller supplied no latest,
@@ -146,13 +164,6 @@ export interface WorkflowRunListRow {
  */
 export type OpenRun = (row: WorkflowRunListRow) => void;
 
-/** One row beside the reading of its own start, so the sort parses each run once. */
-interface SortableRunRow {
-  readonly row: WorkflowRunListRow;
-  /** The run's start as this plane reads it, malformed included. */
-  readonly startedAt: InstantReading;
-}
-
 /**
  * The tie-break, and the reason the ordering is a property rather than a hope.
  *
@@ -164,9 +175,9 @@ interface SortableRunRow {
  * different orders and make a screenshot reference a fact about the machine that took
  * it.
  */
-function workflowRunIdAscending(left: SortableRunRow, right: SortableRunRow): number {
-  const leftRunId = left.row.run.workflowRunId;
-  const rightRunId = right.row.run.workflowRunId;
+function workflowRunIdAscending(left: WorkflowRunListRow, right: WorkflowRunListRow): number {
+  const leftRunId = left.run.workflowRunId;
+  const rightRunId = right.run.workflowRunId;
   if (leftRunId === rightRunId) {
     return 0;
   }
@@ -198,6 +209,11 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
   return {
     run,
     parkedPhases,
+    // The start is read ONCE per run, here, rather than once per comparison and again
+    // at the row. A key function called from inside the comparator parses the same
+    // string on the order of `n log n` occasions, and — the reason that matters — gives
+    // the sort a place to disagree with itself and with the surface above it.
+    startedAt: workflowInstant(run.startedAt),
     isPinnedBehindLatestVersion:
       run.definitionLatestWorkflowVersionId !== undefined &&
       run.definitionLatestWorkflowVersionId !== run.workflowVersionId,
@@ -223,16 +239,11 @@ export class RunListProjection {
 
   public constructor(runs: readonly WorkflowRunSnapshot[]) {
     this.#rows = runs
-      // The start is read ONCE per run rather than once per comparison. A key function
-      // called from inside the comparator parses the same string on the order of `n
-      // log n` occasions and — the reason that matters here — gives the sort a place
-      // to disagree with itself if the reading ever stopped being a pure function of
-      // the string.
-      .map((run) => ({ row: projectRun(run), startedAt: workflowInstant(run.startedAt) }))
+      .map((run) => projectRun(run))
       .sort((left, right) => {
         const bandDelta =
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.row.attentionBand) -
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(right.row.attentionBand);
+          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.attentionBand) -
+          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(right.attentionBand);
         if (bandDelta !== 0) {
           return bandDelta;
         }
@@ -249,8 +260,7 @@ export class RunListProjection {
         // without it the list held whatever order the enumeration supplied, and a
         // later read that supplied them the other way round swapped them on screen.
         return startDelta !== 0 ? startDelta : workflowRunIdAscending(left, right);
-      })
-      .map(({ row }) => row);
+      });
   }
 
   /** Every row, attention first and newest first inside a band. */

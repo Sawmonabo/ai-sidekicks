@@ -26,9 +26,37 @@
 
 import { memo } from "react";
 
+import type { InstantReading } from "../../core/index.js";
 import { Chip, WireFigure, formatDateTime } from "../../primitives/index.js";
 import { ParkBadge } from "../parks/ParkBadge.js";
 import type { OpenRun, WorkflowRunListRow, WorkflowRunState } from "./run-list-projection.js";
+
+/**
+ * What this row prints where the start is a value the plane refused.
+ *
+ * The same em dash `primitives/wire-figures.ts` prints for a figure it cannot stand
+ * behind, restated here because that module keeps the glyph private and this row
+ * refuses under a STRICTER policy than the formatter does — so the branch cannot be
+ * delegated to it. Named rather than inlined so the one place it is spent says what it
+ * means, and a substrate request stands to publish the glyph from the module that owns
+ * the convention.
+ */
+const UNREADABLE_START = "—";
+
+/**
+ * The start a row prints, taken from the reading the projection already made.
+ *
+ * One parse, one truth. The row used to hand `run.startedAt` straight to
+ * `formatDateTime`, whose default `"any-offset"` policy is WIDER than the `"utc-only"`
+ * one this plane declares and the sort obeys — so a start spelled with a numeric offset
+ * sorted last, as the unreadable value the plane made it, and printed a legible time
+ * anyway. A reading the plane refused prints the em dash the sort's own placement
+ * already stands for; one it admitted goes to the figure chokepoint, which cannot
+ * refuse what the stricter reader accepted.
+ */
+function startFigureFor(startedAt: InstantReading): string {
+  return startedAt.kind === "malformed" ? UNREADABLE_START : formatDateTime(startedAt.text);
+}
 
 /** How the sentence a run carries about its own ending reads on a row. */
 interface RunReasonReading {
@@ -168,8 +196,12 @@ export const RunListItem: React.MemoExoticComponent<
           nothing above these rows divides them by day — so two runs started a week
           apart at the same hour read as one figure under the ledger's date-free
           clock, which is the reading this row used to draw.
+
+          The title is the wire's own spelling on both arms, including the refused one:
+          the malformed value is the only evidence of what the engine actually sent, and
+          a row that dropped it would report an unreadable start as an absent one.
         */}
-        <WireFigure value={formatDateTime(run.startedAt)} title={run.startedAt} />
+        <WireFigure value={startFigureFor(row.startedAt)} title={run.startedAt} />
         {row.isPinnedBehindLatestVersion ? (
           <span className="meridian-run-row__pin">
             pinned <WireFigure value={run.workflowVersionId} />
