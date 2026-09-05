@@ -108,27 +108,27 @@ export {
 // module header for why the two vocabularies sit beside each other rather than one
 // inside the other.
 export type {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsence,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsenceKind,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsenceNotice,
 } from "./window-absence.js";
 export {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WINDOW_ABSENCE_KINDS,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   windowAbsenceNotice,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   windowAbsenceNotices,
 } from "./window-absence.js";
 export type {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsencesProps,
 } from "./WindowAbsences.js";
 export {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsences,
 } from "./WindowAbsences.js";
 
