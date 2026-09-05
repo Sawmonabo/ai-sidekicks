@@ -17,7 +17,7 @@
 // signature as every other figure the daemon sent (rule 4). A chip whose label the
 // console composed leaves it off.
 
-import { type GlyphName } from "../tokens/index.js";
+import { GLYPH_SIZE_ROW, type GlyphName } from "../tokens/index.js";
 import { Glyph } from "./Glyph.js";
 import { formatWireString } from "./wire-figures.js";
 
@@ -40,8 +40,6 @@ export interface ChipProps {
   readonly glyph?: GlyphName;
 }
 
-const CHIP_GLYPH_SIZE = 12;
-
 export function Chip(props: ChipProps): React.JSX.Element {
   const tone = props.tone ?? "neutral";
   const isMono = props.mono === true;
@@ -51,7 +49,7 @@ export function Chip(props: ChipProps): React.JSX.Element {
 
   return (
     <span className={className}>
-      {props.glyph !== undefined ? <Glyph name={props.glyph} size={CHIP_GLYPH_SIZE} /> : null}
+      {props.glyph !== undefined ? <Glyph name={props.glyph} size={GLYPH_SIZE_ROW} /> : null}
       <span className="meridian-chip__label">
         {isMono ? formatWireString(props.label) : props.label}
       </span>

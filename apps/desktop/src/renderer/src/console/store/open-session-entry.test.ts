@@ -12,18 +12,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../core/index.js";
-import type { ConsoleSessionEvent } from "./entities.js";
+import { eventOfKind } from "./session-event.test-support.js";
 import { OpenSessionEntry } from "./open-session-entry.js";
-
-function eventAt(sequence: number): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: "session-1",
-    sequence,
-    kind: "run.starting",
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
-  };
-}
 
 /** A reader that establishes nothing, so no read can clear what a test set up. */
 const readsNothing = (): Promise<undefined> => Promise.resolve(undefined);
@@ -39,7 +29,10 @@ describe("OpenSessionEntry — dispose is terminal on both children", () => {
     });
 
     entry.dispose();
-    entry.applyQueue.enqueueAll([eventAt(1), eventAt(2)]);
+    entry.applyQueue.enqueueAll([
+      eventOfKind("session-1", "run.starting", 1),
+      eventOfKind("session-1", "run.starting", 2),
+    ]);
     entry.refreshScheduler.request("window-focus");
 
     // Neither child re-arms, and the dropped delivery is counted rather than
@@ -62,7 +55,10 @@ describe("OpenSessionEntry — dispose is terminal on both children", () => {
       refreshDebounceMs: 20,
     });
 
-    entry.applyQueue.enqueueAll([eventAt(1), eventAt(2)]);
+    entry.applyQueue.enqueueAll([
+      eventOfKind("session-1", "run.starting", 1),
+      eventOfKind("session-1", "run.starting", 2),
+    ]);
     entry.refreshScheduler.request("window-focus");
 
     // One frame for the queue, one timeout for the scheduler.
