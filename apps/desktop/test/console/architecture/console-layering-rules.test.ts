@@ -55,6 +55,16 @@ const CONSOLE_ROOT = join("src", "renderer", "src", "console");
 /** The rule names this file owns. Everything else the cruise reports is another test's. */
 const BARREL_CHAIN_RULE = "console-no-barrel-chain";
 const VIEW_FAMILY_ISOLATION_RULE = "console-view-family-isolation";
+const PANE_BODY_RULE = "console-panes-hold-no-body";
+const IMPORTED_PANE_BODY_RULE = "console-panes-hold-no-imported-body";
+
+/** The rules this file reads out of a cruise. Everything else it reports is another test's. */
+const RULES_UNDER_TEST: readonly string[] = [
+  BARREL_CHAIN_RULE,
+  VIEW_FAMILY_ISOLATION_RULE,
+  PANE_BODY_RULE,
+  IMPORTED_PANE_BODY_RULE,
+];
 
 type PlantedTree = Readonly<Record<string, string>>;
 
@@ -93,6 +103,26 @@ const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
 };
 
 /**
+ * A pane body parked under the board, which is the shape the flatness rules forbid.
+ *
+ * Both endpoints are planted deliberately: the body has its own outgoing edge and the
+ * board imports the body. Only the first is reported by a rule reading `from`, and a
+ * body that imported nothing — a table, a closed set — would be reported by neither that
+ * rule nor the orphan rule, because the board gives it a dependent.
+ *
+ * The body reaches for another VIEW family rather than for a layer, and that is the
+ * second claim: under the board's old directory-wide exemption this edge was subtracted
+ * from the sibling-isolation rule on both endpoints and passed in silence. The
+ * `collaboration/` → `repos/` case below is the same rule with neither endpoint
+ * exempted; this one is the rule reaching a module that used to be outside it.
+ */
+const PANE_BOARD_SUBDIRECTORY_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "panes/runs/RunsPaneBody.ts": `import type { RepoRefusal } from "../../repos/RepoList.js";\n\nexport type RunsPaneRefusal = RepoRefusal;\n`,
+  "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\nimport type { RunsPaneRefusal } from "./runs/RunsPaneBody.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  const refusal: RunsPaneRefusal | undefined = undefined;\n  return refusal === undefined ? registry.size : 0;\n}\n`,
+};
+
+/**
  * The clean shape again under a FRESH identity, for the cleanup proof below.
  *
  * A distinct object rather than one of the three above, because the memo answers a
@@ -107,6 +137,7 @@ const EVERY_PLANTED_TREE: readonly PlantedTree[] = [
   CLEAN_TREE,
   BARREL_CHAIN_TREE,
   VIEW_FAMILY_EDGE_TREE,
+  PANE_BOARD_SUBDIRECTORY_TREE,
   PROOF_TREE,
 ];
 
@@ -255,11 +286,7 @@ class PlantedTreeCache {
       throw new TypeError("expected a cruise result object, not a formatted report");
     }
     return cruised.output.summary.violations
-      .filter(
-        (violation) =>
-          violation.rule.name === BARREL_CHAIN_RULE ||
-          violation.rule.name === VIEW_FAMILY_ISOLATION_RULE,
-      )
+      .filter((violation) => RULES_UNDER_TEST.includes(violation.rule.name))
       .map((violation) => `${violation.rule.name}: ${violation.from} → ${violation.to}`);
   }
 }
@@ -302,6 +329,53 @@ describe("console layering rules", () => {
       ]);
     },
     ONE_TREE_MS,
+  );
+
+  it(
+    "fails a pane body parked under the board, from both endpoints",
+    async () => {
+      // The composer's three pane bodies lived at `panes/runs/`, `panes/approvals/`, and
+      // `panes/inspector/` before the rule that every body lives in its own family. The
+      // board's own exemption is what made that invisible: `panes/` was subtracted from
+      // the view-family set wholesale, so a body under it could import any view family
+      // it liked and no rule said a word.
+      const body = join(CONSOLE_ROOT, "panes/runs/RunsPaneBody.ts");
+      const sibling = join(CONSOLE_ROOT, "repos/RepoList.ts");
+      // Sorted, because three rules fire on two edges and the order dependency-cruiser
+      // reports them in is its own — asserting it would be asserting the reporter.
+      expect([...(await cruiseCache.violationsFor(PANE_BOARD_SUBDIRECTORY_TREE))].sort()).toEqual(
+        [
+          `${PANE_BODY_RULE}: ${body} → ${sibling}`,
+          `${IMPORTED_PANE_BODY_RULE}: ${join(CONSOLE_ROOT, "panes/index.ts")} → ${body}`,
+          // The narrowing, witnessed: the board's exemption is now the FILES on it, so a
+          // body under it is an ordinary view family and its edge into `repos/` is the
+          // sibling edge every other family is held to.
+          `${VIEW_FAMILY_ISOLATION_RULE}: ${body} → ${sibling}`,
+        ].sort(),
+      );
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "control: the board's own files are composition and are left alone",
+    async () => {
+      // The other direction, and the reason the narrowing is a file pattern rather than
+      // a directory: `panes/index.ts` is the seat board itself, it sits in every tree
+      // above, and a rule that reported it would make the board unwritable.
+      const everyViolation = [
+        ...(await cruiseCache.violationsFor(CLEAN_TREE)),
+        ...(await cruiseCache.violationsFor(PANE_BOARD_SUBDIRECTORY_TREE)),
+      ];
+      expect(
+        everyViolation.filter(
+          (line) => line.startsWith(PANE_BODY_RULE) || line.startsWith(IMPORTED_PANE_BODY_RULE),
+        ),
+      ).toHaveLength(2);
+      expect(everyViolation.filter((line) => line.includes("panes/index.ts → ../"))).toEqual([]);
+      expect(await cruiseCache.violationsFor(CLEAN_TREE)).toEqual([]);
+    },
+    layeringTimeoutFor(2),
   );
 
   it(
