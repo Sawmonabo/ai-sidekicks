@@ -30,6 +30,12 @@
 //     for and the answer was no, which is the one arm here that carries a code. It
 //     goes through `normalizeWireRejection` and renders in the refusal grammar, so
 //     the fetch's own message survives verbatim beside a code a person can quote.
+//     And it carries a way to ask again, because the loader drops its memo on a
+//     rejection precisely so a second `load()` re-fetches — a transient network or
+//     disk failure being the expected cause. Without a control the only caller
+//     latched the refusal for the life of the pane: the hardening was in the loader
+//     and unreachable from the screen, so a fetch that failed once could be answered
+//     only by closing the pane and opening it again.
 //
 // Collapsing any two would be exactly the conflation the console's absence rule
 // exists to prevent, and the first two are decided before the chunk is asked for.
@@ -48,7 +54,7 @@
 // two graphs on screen never share one and the renderer downstream is handed arrays
 // whose identity holds still while the run does.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { normalizeWireRejection, type WireRefusal } from "../../../../core/index.js";
 import { Nothing, RefusalBanner } from "../../../../primitives/index.js";
@@ -96,7 +102,10 @@ export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
   // conditions are named: an empty run lays out cleanly — a drawable sequence of no
   // phases — so `drawn` alone would fetch a renderer for a canvas with nothing on it.
   const isCanvasNeeded = layout.status === "drawn" && props.phases.length > 0;
-  const graphModule = usePhaseGraphModule(phaseGraphLoader, isCanvasNeeded);
+  const { state: graphModule, retry: retryChunk } = usePhaseGraphModule(
+    phaseGraphLoader,
+    isCanvasNeeded,
+  );
 
   if (props.phases.length === 0) {
     return (
@@ -125,7 +134,9 @@ export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
   }
 
   if (graphModule.status !== "loaded") {
-    return <div className="meridian-phase-graph">{renderUnloadedCanvas(graphModule)}</div>;
+    return (
+      <div className="meridian-phase-graph">{renderUnloadedCanvas(graphModule, retryChunk)}</div>
+    );
   }
 
   // Bound to a capitalised local because JSX reads a lowercase leading identifier as
@@ -161,6 +172,18 @@ type PhaseGraphModuleState =
 
 const LOADING_GRAPH_MODULE: PhaseGraphModuleState = { status: "loading" };
 
+/** Where the chunk got to, and how a person asks for it again. */
+interface PhaseGraphModuleFetch {
+  readonly state: PhaseGraphModuleState;
+  /**
+   * Ask for the chunk again. Only the refused arm offers it to anybody.
+   *
+   * Stable for the mount, so the refusal banner is handed one identity rather than a
+   * fresh callback each pass.
+   */
+  readonly retry: () => void;
+}
+
 /**
  * What stands in the canvas box while the renderer's code is not there.
  *
@@ -172,14 +195,29 @@ const LOADING_GRAPH_MODULE: PhaseGraphModuleState = { status: "loading" };
  * of this family renders a failed read in, carrying its code in mono. It was a
  * `Nothing kind="error"` with a bare message and no code — the one failure on this
  * surface a person could not quote.
+ *
+ * THE NEXT MOVE RIDES THE REFUSAL AND NOT THE ABSENCE, which is the grammar's own
+ * split: `action` is the caller's answer to "what now", and a chunk still in flight
+ * has no answer to offer. The button wears the family's own action treatment, whose
+ * rules are in `workflows.css` and therefore in the initial document — a control
+ * styled from the chunk that failed to arrive would be invisible on exactly the arm
+ * that needs it.
  */
 function renderUnloadedCanvas(
   graphModule: Exclude<PhaseGraphModuleState, { status: "loaded" }>,
+  retryChunk: () => void,
 ): React.JSX.Element {
   return graphModule.status === "loading" ? (
     <Nothing kind="not-loaded" placement="surface" title="Loading the phase graph" />
   ) : (
-    <RefusalBanner {...graphModule.refusal} />
+    <RefusalBanner
+      {...graphModule.refusal}
+      action={
+        <button type="button" className="meridian-workflow__action" onClick={retryChunk}>
+          Try loading the graph again
+        </button>
+      }
+    />
   );
 }
 
@@ -217,9 +255,23 @@ function usePhaseSequenceLayout(
  * `isNeeded` false leaves the state at `loading` and starts nothing. That is not a
  * fourth state pretending to be a third: the caller reads this value only on the arm
  * where a sequence is drawable, which is the same condition.
+ *
+ * THE ATTEMPT COUNT IS WHAT MAKES A SECOND FETCH REACHABLE. `loader` is module-scope
+ * and `isNeeded` is true once a sequence is drawable, so neither of the other two
+ * dependencies moves again for the life of the pane — the effect ran once and the
+ * refusal it latched stood until the pane was closed, while the loader had already
+ * dropped its memo so that a second `load()` would re-fetch. The counter is the one
+ * dependency a person can move, and the state goes back to `loading` in the same act,
+ * so the box says a fetch is in flight rather than holding the refusal beside it.
+ *
+ * A LATE SETTLEMENT FROM THE PREVIOUS ATTEMPT IS DROPPED BY THE ATTEMPT THAT RAISED
+ * IT, not by a re-read of anything: each effect run owns its own flag and its cleanup
+ * clears that one, so the answer to "was this settlement still wanted" is the identity
+ * of the run that asked rather than a second look at the state it would write into.
  */
-function usePhaseGraphModule(loader: PhaseGraphLoader, isNeeded: boolean): PhaseGraphModuleState {
+function usePhaseGraphModule(loader: PhaseGraphLoader, isNeeded: boolean): PhaseGraphModuleFetch {
   const [graphModule, setGraphModule] = useState<PhaseGraphModuleState>(LOADING_GRAPH_MODULE);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!isNeeded) {
@@ -252,7 +304,12 @@ function usePhaseGraphModule(loader: PhaseGraphLoader, isNeeded: boolean): Phase
     return () => {
       isMounted = false;
     };
-  }, [loader, isNeeded]);
+  }, [loader, isNeeded, attempt]);
 
-  return graphModule;
+  const retry = useCallback(() => {
+    setGraphModule(LOADING_GRAPH_MODULE);
+    setAttempt((previous) => previous + 1);
+  }, []);
+
+  return { state: graphModule, retry };
 }
