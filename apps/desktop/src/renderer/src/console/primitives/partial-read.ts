@@ -37,6 +37,17 @@
 // thing a caller supplies is the subject — a lowercase noun phrase naming what was
 // read ("the queue", "these quotas", "this run's command list") — and it is the only
 // variable in the set, because the grammar around it is what must not drift.
+//
+// WHICH MEANS NO ARM MAY AGREE WITH THE SUBJECT'S NUMBER. The subject is a noun
+// phrase the caller writes, and this module never learns whether it is singular or
+// plural; "these quotas" is one of the examples above and is plural. So an arm that
+// put the subject in front of a verb — `${subject} was cut` — read correctly for two
+// of the three examples and ungrammatically for the third, and the only way to fix it
+// at the call site would be a second parameter carrying the verb form, which is the
+// caller writing grammar again. Every arm therefore either uses a modal (`may`,
+// number-neutral), makes the subject a modifier of a noun this module supplies (`the
+// read of ${subject} was refused`), or keeps it out of the verb's way entirely. The
+// suite beside this file asserts it against both a singular and a plural subject.
 
 import type { ConsoleRefusal } from "../core/index.js";
 import { formatCount } from "./wire-figures.js";
@@ -283,7 +294,11 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
       return {
         shape: "counted-sentence",
         figure: formatCount(state.servedCount),
-        copy: `read before ${subject} was cut, so what is not shown here may still exist.`,
+        // `the answer for ${subject}` and not `${subject}` alone: the verb agrees with
+        // the head noun this module supplies rather than with a caller's noun phrase
+        // whose number it cannot know. It is also the truer sentence — a producer
+        // truncated its own answer, and the thing that was cut is that answer.
+        copy: `read before the answer for ${subject} was cut short, so what is not shown here may still exist.`,
         refusal: undefined,
       };
     case "unchecked":

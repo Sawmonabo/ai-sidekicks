@@ -9,27 +9,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../core/index.js";
 import { PartialRead } from "./PartialRead.js";
 import { READING_STATE_KINDS, type ReadingState, type ReadingStateKind } from "./partial-read.js";
-
-const SUBJECT = "the queue";
-
-const PARSE_REFUSAL = refuse(
-  "session-queue",
-  "delivery-unreadable",
-  "A queue delivery did not match the registered row shape.",
-);
-
-const STATE_BY_KIND: Readonly<Record<ReadingStateKind, ReadingState>> = {
-  served: { kind: "served" },
-  reading: { kind: "reading" },
-  refused: { kind: "refused", scope: "beside-an-answer", refusal: PARSE_REFUSAL },
-  stale: { kind: "stale", refusal: PARSE_REFUSAL },
-  partial: { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL },
-  cut: { kind: "cut", servedCount: 12 },
-  unchecked: { kind: "unchecked", uncheckedCount: 4, newestRefusal: PARSE_REFUSAL },
-};
+import { PARSE_REFUSAL, READING_SUBJECT, STATE_BY_KIND } from "./partial-read.test-support.js";
 
 /** Every element that is a live region, however it is spelled. */
 function liveRegions(container: HTMLElement): readonly Element[] {
@@ -37,7 +19,7 @@ function liveRegions(container: HTMLElement): readonly Element[] {
 }
 
 function renderNotice(...states: readonly ReadingState[]): HTMLElement {
-  const { container } = render(<PartialRead states={states} subject={SUBJECT} />);
+  const { container } = render(<PartialRead states={states} subject={READING_SUBJECT} />);
   return container;
 }
 
