@@ -187,4 +187,75 @@ describe("useWindowedRovingIndex — a move belongs to the sequence it was made 
     // its own job over a keyboard position this rule just corrected.
     expect(tabbableIndexes(list)).toStrictEqual(["36"]);
   });
+
+  it("takes no focus when the redrawn list puts an unrelated row at the claimed index", async () => {
+    // The case the dropped MOVE does not answer, because the two are separate values:
+    // the move is discarded by its identity and the keyboard falls back to the anchor,
+    // so a redrawing whose own anchor sits at the number the claim names hands the
+    // claim exactly the roving index it is waiting for. Row 39 of the list that was
+    // being read and row 39 of a re-filtered one are different rows, and the claim was
+    // armed for the first, so it must not be spent on the second.
+    const firstDrawing = drawnSequence();
+    const { container, rerender } = render(
+      <RovingList
+        rowCount={40}
+        windowStart={0}
+        windowLength={4}
+        anchorIndex={0}
+        rowSetIdentity={firstDrawing}
+        onReveal={() => undefined}
+      />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+    rerender(
+      <RovingList
+        rowCount={40}
+        windowStart={36}
+        windowLength={4}
+        anchorIndex={39}
+        rowSetIdentity={drawnSequence()}
+        onReveal={() => undefined}
+      />,
+    );
+
+    expect(list.querySelector('li[data-index="39"]')).not.toBeNull();
+    expect(document.activeElement).toBe(document.body);
+    // The anchor still holds the stop, so the redrawn list is reachable — reachable
+    // without having had the reader's focus pulled into it.
+    expect(tabbableIndexes(list)).toStrictEqual(["39"]);
+  });
+
+  it("negative control: the same script under one drawing does land the focus", async () => {
+    // Identical to the case above but for the one fact under test — the second render
+    // is the SAME sequence — and the claim is spent the way a move that is still the
+    // move on screen must be. Without it, "focus went nowhere" would be satisfied by a
+    // hook that had stopped honouring pending claims at all, and by a fixture whose
+    // rerender never mounted row 39.
+    const oneDrawing = drawnSequence();
+    const { container, rerender } = render(
+      <RovingList
+        rowCount={40}
+        windowStart={0}
+        windowLength={4}
+        anchorIndex={0}
+        rowSetIdentity={oneDrawing}
+        onReveal={() => undefined}
+      />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+    rerender(
+      <RovingList
+        rowCount={40}
+        windowStart={36}
+        windowLength={4}
+        anchorIndex={39}
+        rowSetIdentity={oneDrawing}
+        onReveal={() => undefined}
+      />,
+    );
+
+    expect(document.activeElement?.textContent).toBe("row 39");
+  });
 });

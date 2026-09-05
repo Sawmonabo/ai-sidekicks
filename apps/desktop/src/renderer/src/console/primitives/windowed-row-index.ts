@@ -72,7 +72,10 @@
 // is dropped when the set narrowed under it and the index now points at a DIFFERENT
 // row (focusing there would answer a key press about row 39 by moving to row 4), and
 // it is dropped once the budget is spent — one retry, which is what an asynchronous
-// `revealIndex` needs, and not a standing claim on the page's focus.
+// `revealIndex` needs, and not a standing claim on the page's focus. And it is dropped
+// when the SEQUENCE it was made in is no longer drawn, which is why the claim holds the
+// move itself rather than a copy of its number: an index alone was answered by any
+// redrawing that mounted a row there, so a press about the old list took the focus.
 //
 // AND THE ANCHOR IS ASKED FOR RATHER THAN ASSUMED MOUNTED. A list reopened on a
 // selection starts its keyboard on that row, and a window mounts the rows a SCROLL
@@ -250,20 +253,6 @@ export interface WindowedRovingIndex {
 const PENDING_FOCUS_RETRIES = 2;
 
 /**
- * A move waiting for its row to mount, and the two facts that bound it.
- *
- * `rowIndex` is the row the key press asked for, so a set that narrows underneath
- * is answered by dropping the move rather than by focusing whichever row the clamp
- * now points at. `retriesRemaining` is how many more runs may miss before the claim
- * is over, which is what separates "the window has not answered yet" from "the
- * window answered and this row was not in it".
- */
-interface PendingRowFocus {
-  readonly rowIndex: number;
-  readonly retriesRemaining: number;
-}
-
-/**
  * Where the keyboard moved to, and the drawn sequence that index addresses.
  *
  * The two are held together rather than the index alone, because an index without
@@ -273,6 +262,22 @@ interface PendingRowFocus {
 interface MovedRow {
   readonly index: number;
   readonly rowSetIdentity: unknown;
+}
+
+/**
+ * A move waiting for its row to mount, and the two facts that bound it.
+ *
+ * `movedRow` is the move itself — the very value the roving state holds, not a copy
+ * of its number — so a claim and the move it was armed for cannot disagree about
+ * which sequence they are in. A set that narrows underneath, and equally one redrawn
+ * under a new identity, is answered by dropping the move rather than by focusing
+ * whichever row now sits at that index. `retriesRemaining` is how many more runs may
+ * miss before the claim is over, which separates "the window has not answered yet"
+ * from "the window answered and this row was not in it".
+ */
+interface PendingRowFocus {
+  readonly movedRow: MovedRow;
+  readonly retriesRemaining: number;
 }
 
 /**
@@ -323,13 +328,15 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
     if (pending === undefined) {
       return;
     }
-    if (pending.rowIndex !== rovingIndex) {
-      // The set narrowed under the move, so the index now names a row nobody asked
-      // for. Dropped rather than followed: answering a key press about row 39 by
-      // focusing row 4 is a different act, not a smaller one. Compared against the
-      // ROVING index and never the tab stop: the tab stop may be standing in for an
-      // unmounted row, and a claim dropped against a stand-in would cancel every move
-      // out of the window.
+    const { movedRow } = pending;
+    if (movedRow.rowSetIdentity !== rowSetIdentity || movedRow.index !== rovingIndex) {
+      // The move this claim was armed for is not the move on screen: the SEQUENCE was
+      // redrawn, so a drawing that mounts a row at that index must not answer a press
+      // about the old list; or the set narrowed and the index names a different row,
+      // and answering a press about row 39 by focusing row 4 is a different act rather
+      // than a smaller one. Dropped either way, and compared against the ROVING index
+      // and never the tab stop — that may be standing in for an unmounted row, and a
+      // claim dropped against a stand-in would cancel every move out of the window.
       pendingFocus.current = undefined;
       return;
     }
@@ -341,7 +348,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       // renders next.
       pendingFocus.current =
         pending.retriesRemaining > 0
-          ? { rowIndex: pending.rowIndex, retriesRemaining: pending.retriesRemaining - 1 }
+          ? { movedRow, retriesRemaining: pending.retriesRemaining - 1 }
           : undefined;
       return;
     }
@@ -354,7 +361,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       return;
     }
     target.focus();
-  }, [rovingIndex, containerRef, windowRevision]);
+  }, [rovingIndex, containerRef, windowRevision, rowSetIdentity]);
 
   const onKeyDown = useCallback(
     (keyEvent: React.KeyboardEvent): void => {
@@ -367,16 +374,17 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       // stand-in row starts from the row the reader can see, not from the one the
       // window has yet to produce.
       const moved = movedRowIndex(move, activeIndex, rowCount);
+      // The sequence is captured WITH the move, so the move carries the only thing
+      // that makes its index mean a row — and the claim is armed with that same value.
+      const movedRow: MovedRow = { index: moved, rowSetIdentity };
       if (moved !== activeIndex) {
         // See the header: a boundary key pressed at that boundary lands on the row
         // the keyboard is already on, and a claim armed for it has no render to
         // spend it on. The reveal and the state write below still run — the key was
         // consumed, and the reader asked to see that end of the list.
-        pendingFocus.current = { rowIndex: moved, retriesRemaining: PENDING_FOCUS_RETRIES };
+        pendingFocus.current = { movedRow, retriesRemaining: PENDING_FOCUS_RETRIES };
       }
-      // The sequence is captured WITH the move, so the move carries the only thing
-      // that makes its index mean a row.
-      setMovedTo({ index: moved, rowSetIdentity });
+      setMovedTo(movedRow);
       // The stand-in is retired by the same act that supersedes the row it stood in
       // for; the effect above reinstates one if the window still has not produced the
       // moved-to row.
