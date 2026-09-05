@@ -1,0 +1,74 @@
+/*
+ * Chapter 12.10's bounds table.
+ *
+ * One of the browser family's five sheets. The family's own discipline holds in
+ * every one of them: no literal colour, every value read back out of a Meridian
+ * custom property, and the two hues spent only on their one meaning each
+ * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
+ * red where something failed). Grep any of these files for `amber` and `red` and
+ * every hit is one of those.
+ *
+ * Every sheet here is imported from `console/browser/index.ts` and from nowhere
+ * else, so the bundler sees exactly one edge into each however many surfaces this
+ * family grows. It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a
+ * `styles/` directory of its own: one sheet per sub-module directory, named for
+ * that directory, so the shapes and the rules that draw them are read together and
+ * a sixth sheet has one plausible home instead of two.
+ *
+ * The ledger the resource ceiling renders as: twenty-odd rows a reviewer scans
+ * down one column of, which is what a table is for and what rule 5's density
+ * argument asks for wherever the data is dense.
+ */
+
+/* ------------------------------------------------------------------- bounds */
+
+/*
+ * The bounds block of 12.10. A table because it is one: four columns, and the
+ * fourth is the derivation, so a ceiling on screen always arrives with the reason
+ * it is that number and not another.
+ */
+.meridian-browser-bounds {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-browser-bounds__caption {
+  caption-side: top;
+  padding-block-end: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  text-align: start;
+}
+
+.meridian-browser-bounds th,
+.meridian-browser-bounds td {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+  text-align: start;
+  vertical-align: top;
+}
+
+.meridian-browser-bounds thead th {
+  font-weight: 500;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-bounds__name {
+  font-weight: 400;
+}
+
+.meridian-browser-bounds__why {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-bounds__reading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+}
+
+/* Rule 3: red is spent here on one meaning — a ceiling that has been reached. */
+.meridian-browser-bounds__reading--tripped {
+  color: var(--meridian-red-text);
+}

@@ -52,7 +52,7 @@ export interface ConsoleBridge {
    *
    * Beside the growth port rather than inside it, and the reason is the same one
    * that keeps the port beside `sidekicks`: this is not a wire. It is 12.11's
-   * wiring-table INPUT — the thing the resolver in `browser/view-host.ts` selects
+   * wiring-table INPUT — the thing the resolver in `browser/geometry/view-host.ts` selects
    * on — and folding it into the port would put a fabricated operation name on a
    * seam whose whole point is that `browser.setRect` is unregistered.
    *

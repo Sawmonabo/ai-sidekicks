@@ -1,7 +1,7 @@
 // The browser family's registration terms, and the fixture it is registered against.
 //
 // Two claims, and neither is about what the pane looks like — that is
-// `panes/browser/BrowserPane.test.tsx`'s. Here: the deck holds the pane on the terms
+// `browser/pane/BrowserPane.test.tsx`'s. Here: the deck holds the pane on the terms
 // the descriptor states, and the scenario the fixture plays calls no method the
 // corpus has not registered. The second is the one worth a test rather than a
 // review: a fabricated method string in a fixture is invisible until the day the

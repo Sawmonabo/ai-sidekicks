@@ -21,7 +21,7 @@ import { ConsolePaneRegistry } from "../seats/index.js";
 import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,
   TERMINAL_LEASE_TRANSITION_REASONS as LEASE_TRANSITION_REASONS,
-} from "./lease-transition.js";
+} from "./lease/lease-transition.js";
 import { registerTerminalPanes } from "./index.js";
 
 function leaseTransitionReasons(): readonly unknown[] {

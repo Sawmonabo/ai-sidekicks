@@ -21,8 +21,8 @@ import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
 } from "../../../src/renderer/src/console/core/constants.js";
-import type { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/renderer-pool.js";
-import { XtermTerminalAdapter } from "../../../src/renderer/src/console/terminal/xterm-adapter.js";
+import type { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/emulator/renderer-pool.js";
+import { XtermTerminalAdapter } from "../../../src/renderer/src/console/terminal/emulator/xterm-adapter.js";
 import { retainedGrowthBytes, type HeapSampler } from "../heap-sampling.js";
 
 /** Lines per `write`. Batched: a per-line await pays a task hop ten thousand times. */

@@ -20,7 +20,7 @@
 //      host this task deliberately did not mint.
 //
 // COMMENTS ARE NOT CODE, and the distinction is load-bearing rather than a
-// convenience. `browser/geometry-publisher.ts` and `browser/keyboard-handback.ts` are
+// convenience. `browser/geometry/geometry-publisher.ts` and `browser/pane/keyboard-handback.ts` are
 // REQUIRED to name `browser.setRect` and `browser.onAccelerator` in prose — naming the
 // wire you do not have is how the next task finds what it owes — and `pane-kinds.ts`
 // names `WebContentsView` when it says why a browser pane cannot be torn off into an
@@ -80,7 +80,7 @@ const SOURCE_ROOTS: readonly string[] = [
 const SOURCE_MODULES = consoleSourceModules({ roots: SOURCE_ROOTS });
 
 /** A module that is expected to name the missing wire in prose, for the controls. */
-const PROSE_WITNESS = "console/browser/geometry-publisher.ts";
+const PROSE_WITNESS = "console/browser/geometry/geometry-publisher.ts";
 
 /**
  * Specifier suffixes that make a `browser.` string a FILE rather than a namespace

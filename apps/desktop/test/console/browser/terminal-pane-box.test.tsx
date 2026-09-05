@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { renderSettled } from "../console-harness.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-import { TerminalPane } from "../../../src/renderer/src/console/panes/terminal/TerminalPane.js";
+import { TerminalPane } from "../../../src/renderer/src/console/terminal/pane/TerminalPane.js";
 // The family door, imported for its side effect: `apps/desktop/AGENTS.md` puts a
 // family's stylesheet behind its own barrel and nowhere else, and this tier is about
 // what that stylesheet computes to.

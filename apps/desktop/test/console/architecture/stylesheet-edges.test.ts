@@ -27,7 +27,7 @@
 // explaining the absence of.
 //
 // A LIBRARY'S OWN SHEET IS NOT A FAMILY'S SHEET, so only RELATIVE specifiers are
-// read. `terminal/xterm-adapter.ts` imports `@xterm/xterm/css/xterm.css` from the
+// read. `terminal/emulator/xterm-adapter.ts` imports `@xterm/xterm/css/xterm.css` from the
 // lazy chunk's entry deliberately, and that placement is the point: the emulator's
 // grid geometry has to arrive on the same edge as the code that draws the grid, and
 // hoisting it to the family door would put it in the document the operator waits
@@ -196,7 +196,7 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     const doorEdges = stylesheetImportsOf(`browser/${FAMILY_DOOR}`);
     expect(doorEdges.length).toBeGreaterThan(1);
     expect(doorEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
-    expect(stylesheetImportsOf("browser/BudgetMeter.tsx")).toStrictEqual([]);
+    expect(stylesheetImportsOf("browser/bounds/BudgetMeter.tsx")).toStrictEqual([]);
   });
 
   it("negative control: a sentence about an import is not an edge", () => {

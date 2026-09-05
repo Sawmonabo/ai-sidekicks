@@ -5,7 +5,7 @@
 // `console/core/constants.ts` with a rationale each", and its pre-PR self-audit
 // repeats it. Until this file nothing checked it, and two view families had already
 // grown their own: `terminal/constants.ts` held the scrollback, WebGL, and ledger
-// caps, and `browser/BudgetMeter.tsx` embedded twenty runtime ceilings in the
+// caps, and `browser/bounds/BudgetMeter.tsx` embedded twenty runtime ceilings in the
 // component that displays them. Both were written against a sentence in
 // `core/constants.ts` that licensed exactly that — which is the shape a rule takes
 // when nothing enforces it, and the reason this tripwire sits beside the byte-scaling
@@ -244,7 +244,7 @@ describe("cap-constant-home — a bound is declared in one module", () => {
       capNamesDeclaredIn("browser-bounds.ts", 'const names = ["SNAPSHOT_TEXT_MAX"];'),
     ).toStrictEqual([]);
     // And the real module, so the claim is about the tree and not only the predicate.
-    expect(capNamesIn("browser/browser-bounds.ts")).toStrictEqual([]);
+    expect(capNamesIn("browser/bounds/browser-bounds.ts")).toStrictEqual([]);
   });
 
   it("negative control: a layout literal and a measurement are not bounds", () => {
