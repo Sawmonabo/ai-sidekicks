@@ -46,12 +46,32 @@ describe("PartitionClearRounds", () => {
   it("gives the slot back on settlement, so the next act may run", () => {
     const rounds = new PartitionClearRounds();
     const round = rounds.begin(PARTITION, "clearing");
-    rounds.settle(round as NonNullable<typeof round>, PARTITION, { status: "cleared" });
+    rounds.settle(round as NonNullable<typeof round>, PARTITION, { status: "cleared" }, undefined);
     expect(rounds.stateFor(PARTITION)).toStrictEqual({
       phase: "settled",
       outcome: { status: "cleared" },
+      rankedOverRefusal: undefined,
     });
     expect(rounds.begin(PARTITION, "clearing")).toBeDefined();
+  });
+
+  it("records which projection the settlement was ranked over", () => {
+    // The half that gives the ranking an expiry: without it the settled verdict is
+    // about no particular state of the row, so nothing can ever say it has been
+    // overtaken.
+    const rounds = new PartitionClearRounds();
+    const round = rounds.begin(PARTITION, "clearing");
+    rounds.settle(
+      round as NonNullable<typeof round>,
+      PARTITION,
+      { status: "cleared" },
+      DIRECTORY_STUCK,
+    );
+    expect(rounds.stateFor(PARTITION)).toStrictEqual({
+      phase: "settled",
+      outcome: { status: "cleared" },
+      rankedOverRefusal: DIRECTORY_STUCK,
+    });
   });
 
   it("wakes its subscribers on every write, and stops on unsubscribe", () => {
@@ -65,7 +85,7 @@ describe("PartitionClearRounds", () => {
     expect(wakes).toBe(2);
 
     unsubscribe();
-    rounds.settle(round as NonNullable<typeof round>, PARTITION, { status: "cleared" });
+    rounds.settle(round as NonNullable<typeof round>, PARTITION, { status: "cleared" }, undefined);
     expect(wakes).toBe(2);
   });
 
@@ -75,14 +95,20 @@ describe("PartitionClearRounds", () => {
     // person is actually waiting on.
     const rounds = new PartitionClearRounds();
     const abandoned = rounds.begin(PARTITION, "closing-pane");
-    rounds.settle(abandoned as NonNullable<typeof abandoned>, PARTITION, { status: "cleared" });
+    rounds.settle(
+      abandoned as NonNullable<typeof abandoned>,
+      PARTITION,
+      { status: "cleared" },
+      undefined,
+    );
     const live = rounds.begin(PARTITION, "clearing");
 
-    rounds.settle(abandoned as NonNullable<typeof abandoned>, PARTITION, {
-      status: "refused",
-      at: "clearing",
-      refusal: DIRECTORY_STUCK,
-    });
+    rounds.settle(
+      abandoned as NonNullable<typeof abandoned>,
+      PARTITION,
+      { status: "refused", at: "clearing", refusal: DIRECTORY_STUCK },
+      undefined,
+    );
 
     expect(rounds.stateFor(PARTITION)).toStrictEqual({ phase: "running", step: "clearing" });
     // And the live round still owns the slot, so the abandoned settlement did not free
