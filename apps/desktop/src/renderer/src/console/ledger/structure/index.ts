@@ -21,14 +21,16 @@
 // classifier's internals, the rail's own geometry and the command table's fixtures
 // stop here, reached deeply by their siblings inside this directory.
 //
-// A NAME REACHED ONLY BY A TEST IS NOT ON THIS LIST. Four were: the superseded-band
+// A NAME REACHED ONLY BY A TEST IS NOT ON THIS LIST. Five were: the superseded-band
 // derivation, the jump-absence tuple and the replay-state tuple, each imported by one
-// suite in another directory to assert totality over a closed set — and the command
-// owner beside its registrar, whose one production reader imports the declaring
-// module directly and whose only reader THROUGH this door was the feed's scaffolding,
-// invisible to the census while that scaffolding was misnamed as production. A door
-// line for a test is a door widened for testing, so those four suites reach their
-// module directly and the door publishes what production reaches.
+// suite in another directory to assert totality over a closed set; the command owner
+// beside its registrar, whose one production reader imports the declaring module
+// directly and whose only reader THROUGH this door was the feed's scaffolding,
+// invisible to the census while that scaffolding was misnamed as production; and the
+// find walk's direction TUPLE, whose derived type the pane's find acts hold and whose
+// values only the family's own closed-set suite reads. A door line for a test is a
+// door widened for testing, so those five suites reach their module directly and the
+// door publishes what production reaches.
 
 export { ChapterHeader } from "./ChapterHeader.js";
 export { FindInLedger } from "./FindInLedger.js";
@@ -53,16 +55,9 @@ export {
   type LedgerJumpStages,
 } from "./filters.js";
 export {
-  /**
-   * The walk's closed direction set, published for `ledger/pane/`'s find acts.
-   *
-   * @consumedBy T-023p-1C-5
-   */
-  FIND_STEP_DIRECTIONS,
   emptyFindResult,
   findInLedger,
   stepFindMatch,
-  /** @consumedBy T-023p-1C-5 */
   type FindStepDirection,
   type LedgerFindResult,
 } from "./find-model.js";

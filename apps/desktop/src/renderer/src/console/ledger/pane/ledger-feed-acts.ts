@@ -39,7 +39,11 @@ import { useMemo } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { raiseConsoleActRefusal } from "../../frame/command-surface.js";
-import { useMountedLedger, type LedgerStructureActs } from "../structure/index.js";
+import {
+  useMountedLedger,
+  type FindStepDirection,
+  type LedgerStructureActs,
+} from "../structure/index.js";
 import { type LedgerFindState } from "./ledger-find.js";
 import { type LedgerFilterState } from "./ledger-narrowing.js";
 import { type LedgerReplayState } from "./ledger-replay-window.js";
@@ -103,7 +107,7 @@ export interface LedgerFeedActInputs {
  * to compile here instead of silently reaching a mounted ledger through nothing.
  */
 export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStructureActs {
-  const stepAndJump = (direction: "next" | "previous"): void => {
+  const stepAndJump = (direction: FindStepDirection): void => {
     const walked = inputs.find.step(direction);
     if (walked !== undefined) {
       inputs.jumpToRow(walked.match.rowId);

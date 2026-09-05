@@ -20,6 +20,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import {
   UNFILTERED_LEDGER,
+  type FindStepDirection,
   type LedgerChapter,
   type LedgerFilter,
   type LedgerJumpOutcome,
@@ -45,7 +46,7 @@ export interface LedgerFindAndJump {
   /** The act that reaches it over THIS ledger, where one exists. */
   readonly reach: LedgerJumpReach | undefined;
   /** Walk to the next or previous match, scrolling to it. */
-  readonly onStep: (direction: "next" | "previous") => void;
+  readonly onStep: (direction: FindStepDirection) => void;
   /** Close the field and put focus back on the log. */
   readonly onClose: () => void;
 }
@@ -136,7 +137,7 @@ export function useLedgerFindAndJump(inputs: {
   });
 
   const onStep = useCallback(
-    (direction: "next" | "previous") => {
+    (direction: FindStepDirection) => {
       const step = find.step(direction);
       if (step !== undefined) {
         jumpToRow(step.match.rowId);

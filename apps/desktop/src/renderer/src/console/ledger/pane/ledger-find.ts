@@ -13,6 +13,7 @@ import {
   emptyFindResult,
   findInLedger,
   stepFindMatch,
+  type FindStepDirection,
   type LedgerFindResult,
 } from "../structure/index.js";
 import { type VisibleLedgerWindow } from "./ledger-visible-window.js";
@@ -64,7 +65,7 @@ export interface LedgerFindState {
    */
   readonly openRequestCount: number;
   readonly close: () => void;
-  readonly step: (direction: "next" | "previous") => ReturnType<typeof stepFindMatch>;
+  readonly step: (direction: FindStepDirection) => ReturnType<typeof stepFindMatch>;
 }
 
 /**
@@ -128,7 +129,7 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
   }, []);
 
   const step = useCallback(
-    (direction: "next" | "previous") => {
+    (direction: FindStepDirection) => {
       const outcome = stepFindMatch(result, currentMatchIndex, direction);
       if (outcome !== undefined) {
         setSelectedMatchRowId(outcome.match.rowId);
