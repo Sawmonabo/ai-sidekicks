@@ -37,6 +37,7 @@
 
 import { useId, useRef, useState } from "react";
 
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph, Nothing } from "../../primitives/index.js";
 import { registerInlineCardBody, type DiffInlineCardProps } from "../../seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
@@ -47,9 +48,6 @@ import { useDiffModelViewState } from "./diff-view-state.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_DIFF_CARD_OWNER = "repos";
-
-/** Glyph edge length in the card's chrome, matching the primitives' inline size. */
-const INLINE_DIFF_CARD_GLYPH_SIZE = 12;
 
 export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
@@ -75,7 +73,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
     <section className="meridian-diff-card" aria-labelledby={headingId}>
       <header className="meridian-diff-card__header">
         <h4 className="meridian-diff-card__heading" id={headingId}>
-          <Glyph name="diff" size={INLINE_DIFF_CARD_GLYPH_SIZE} />
+          <Glyph name="diff" size={GLYPH_SIZE_ROW} />
           Diff
         </h4>
         {/* Wire-verbatim, and the diff rather than the run: the run is the row's own

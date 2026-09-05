@@ -1,3 +1,4 @@
+import { GLYPH_SIZE_DENSE } from "../../tokens/index.js";
 import { Glyph } from "../../primitives/index.js";
 import { type DiffLine } from "./diff-model.js";
 
@@ -32,7 +33,7 @@ export function DiffGutter(props: {
         >
           <Glyph
             name="agent"
-            size={DIFF_GUTTER_GLYPH_SIZE}
+            size={GLYPH_SIZE_DENSE}
             title={`Attributed to ${attribution.agentName}`}
           />
         </span>
@@ -40,6 +41,3 @@ export function DiffGutter(props: {
     </span>
   );
 }
-
-/** Glyph edge length in the gutter, where the mark sits beside a line number. */
-export const DIFF_GUTTER_GLYPH_SIZE = 10;

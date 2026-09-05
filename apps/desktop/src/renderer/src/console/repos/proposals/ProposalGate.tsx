@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { Glyph, Nothing, WireFigure } from "../../primitives/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { BranchContextSummary } from "../mounts/BranchContextSummary.js";
@@ -18,7 +19,6 @@ import {
 } from "./proposal-gate-state.js";
 import { StatusRollup } from "./StatusRollup.js";
 import { CheckoutConflictChoice } from "./CheckoutConflictChoice.js";
-import { GATE_GLYPH_SIZE } from "./proposal-gate-chrome.js";
 
 export interface ProposalGateProps {
   readonly state: ProposalGateState;
@@ -54,7 +54,7 @@ export function ProposalGate(props: ProposalGateProps): React.JSX.Element {
     <section className="meridian-proposal-gate" aria-labelledby={headingId}>
       <header className="meridian-proposal-gate__head">
         <h3 className="meridian-proposal-gate__heading" id={headingId}>
-          <Glyph name="workflow" size={GATE_GLYPH_SIZE} />
+          <Glyph name="workflow" size={GLYPH_SIZE_CHROME} />
           Change proposal
         </h3>
         {props.state.kind === "prepared" && props.state.detectedHost !== undefined ? (
@@ -106,7 +106,7 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
     return (
       <div className="meridian-proposal-gate__body">
         <p className="meridian-proposal-gate__degraded" role="status">
-          <Glyph name="alert" size={GATE_GLYPH_SIZE} />
+          <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
           {HOSTING_UNAVAILABLE_COPY}
         </p>
         <BranchContextSummary context={state.context} />

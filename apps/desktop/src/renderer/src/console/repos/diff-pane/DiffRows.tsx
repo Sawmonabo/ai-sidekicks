@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph } from "../../primitives/index.js";
 import { diffFileChangeNotes, type DiffViewMode } from "./diff-model.js";
 import type { DiffRow } from "./diff-row-model.js";
@@ -7,9 +8,6 @@ import type { IntralineSegmentCache } from "./intraline-segments.js";
 import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
-
-/** Glyph edge length in a diff row's chrome, matching the primitives' own inline size. */
-const DIFF_ROW_GLYPH_SIZE = 12;
 
 export interface DiffRowViewProps {
   readonly rowIndex: number;
@@ -63,7 +61,7 @@ export const DiffRowView: React.MemoExoticComponent<
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
         <span className="meridian-diff__file-path" role="cell" title={file?.path}>
-          <Glyph name="diff" size={DIFF_ROW_GLYPH_SIZE} />
+          <Glyph name="diff" size={GLYPH_SIZE_ROW} />
           {file?.path ?? ""}
           {changeNotes.length === 0 ? null : (
             <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
@@ -97,7 +95,7 @@ export const DiffRowView: React.MemoExoticComponent<
               props.onExpandGap(row.fileIndex, row.hunkIndex);
             }}
           >
-            <Glyph name="more" size={DIFF_ROW_GLYPH_SIZE} />
+            <Glyph name="more" size={GLYPH_SIZE_ROW} />
             {`Expand ${String(row.hiddenLineCount)} hidden lines`}
           </button>
         </span>

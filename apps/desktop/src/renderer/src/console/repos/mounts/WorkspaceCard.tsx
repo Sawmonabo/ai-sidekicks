@@ -31,6 +31,7 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceState,
 } from "@ai-sidekicks/contracts";
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { Chip, Glyph, Nothing, WireFigure, type ChipTone } from "../../primitives/index.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
@@ -52,8 +53,6 @@ const STATE_TONES: Readonly<Record<WorkspaceState, ChipTone>> = {
   archived: "neutral",
 };
 
-const ROOT_GLYPH_SIZE = 12;
-
 export interface WorkspaceCardProps {
   readonly workspace: RepoWorkspaceRow;
   readonly capabilities: WorkspaceExecutionModeCapabilitiesReadResponse | undefined;
@@ -70,7 +69,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
   return (
     <article className="meridian-workspace-card" aria-label={`Workspace ${workspace.id}`}>
       <header className="meridian-workspace-card__head">
-        <Glyph name="workspace" size={ROOT_GLYPH_SIZE} />
+        <Glyph name="workspace" size={GLYPH_SIZE_ROW} />
         <WireFigure value={workspace.id} title={workspace.id} />
         <Chip label={workspace.executionMode} mono tone="neutral" />
         <Chip label={workspace.state} mono tone={STATE_TONES[workspace.state]} />

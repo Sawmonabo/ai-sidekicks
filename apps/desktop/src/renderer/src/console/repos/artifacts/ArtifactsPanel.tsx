@@ -58,6 +58,7 @@ import { useMemo, useState } from "react";
 // The wire's own type census, so the filter offers exactly the types the manifest
 // envelope declares. Read here rather than through a family-local copy of the list:
 // a copy goes on offering a type the wire dropped, with nothing failing.
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import {
@@ -114,8 +115,6 @@ export interface ArtifactsPanelProps {
   readonly onDelete?: ((row: ArtifactManifestRow) => void) | undefined;
 }
 
-const PANEL_GLYPH_SIZE = 14;
-
 /** One shared empty list, so the memos below see a stable reference on the row-less arms. */
 const NO_ROWS: readonly ArtifactManifestRow[] = [];
 
@@ -137,7 +136,7 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
     <section className="meridian-artifacts" aria-label="Artifacts">
       <header className="meridian-artifacts__head">
         <h3 className="meridian-artifacts__heading">
-          <Glyph name="artifact" size={PANEL_GLYPH_SIZE} />
+          <Glyph name="artifact" size={GLYPH_SIZE_CHROME} />
           Artifacts
         </h3>
         {listedRows === undefined ? null : (
@@ -174,7 +173,7 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
 
       {props.lastDeleteReceipt === undefined ? null : (
         <p className="meridian-artifacts__receipt" role="status">
-          <Glyph name="check" size={PANEL_GLYPH_SIZE} />
+          <Glyph name="check" size={GLYPH_SIZE_CHROME} />
           {artifactDeleteReceiptSentence(props.lastDeleteReceipt)}
         </p>
       )}

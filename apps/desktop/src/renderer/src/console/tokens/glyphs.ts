@@ -39,6 +39,31 @@ export const GLYPH_STROKE_WIDTH = 1.5;
 /** Rendered edge length when a caller names no size, in CSS pixels. */
 export const GLYPH_DEFAULT_SIZE = 16;
 
+// THE ICON SCALE, and why it is a token rather than a constant beside each caller.
+//
+// A glyph's rendered edge length is a decision of the design language, not of the
+// surface that happens to draw one: tighten the console's icons by a pixel and every
+// glyph in every family moves together or the set stops reading as one family. It had
+// been re-declared once per component — eight copies across one family alone, four of
+// them the literal `12` — so the tightening was eight edits with nothing failing when
+// seven were made.
+//
+// Three steps, named for the density they belong to rather than for the caller that
+// spends them, so a second caller at the same density reads its own name in the
+// import. Every step is strictly below `GLYPH_DEFAULT_SIZE`: a glyph inside a row, a
+// chip, or a piece of chrome is subordinate to the text it sits beside, and the
+// default is the standalone size. `tokens/glyphs.test.ts` asserts both properties, so
+// a fourth step added out of order fails rather than silently inverting the scale.
+
+/** Inside a dense gutter or a numeric column — the smallest step the set reads at. */
+export const GLYPH_SIZE_DENSE = 10;
+
+/** Inside a row, a chip, a toolbar toggle, or a card's leading mark. */
+export const GLYPH_SIZE_ROW = 12;
+
+/** Beside a section heading, a disclosure summary, or a gate's own chrome. */
+export const GLYPH_SIZE_CHROME = 14;
+
 /**
  * The path data, keyed by name. One `d` string per glyph — no groups, no fills, no
  * per-glyph stroke overrides, because a family whose members each carry their own

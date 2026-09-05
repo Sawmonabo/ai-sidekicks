@@ -1,3 +1,4 @@
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph } from "../../primitives/index.js";
 
 /**
@@ -21,11 +22,8 @@ export function DiffToggle(props: {
       aria-pressed={props.pressed}
       onClick={props.onToggle}
     >
-      <Glyph name={props.glyph} size={DIFF_TOOLBAR_GLYPH_SIZE} />
+      <Glyph name={props.glyph} size={GLYPH_SIZE_ROW} />
       {props.label}
     </button>
   );
 }
-
-/** Glyph edge length in the toolbar, matching the primitives' own inline size. */
-export const DIFF_TOOLBAR_GLYPH_SIZE = 12;

@@ -1,12 +1,10 @@
 import { useId } from "react";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { Chip, DerivedFigure, Glyph, WireFigure, formatCount } from "../../primitives/index.js";
 import type { ChipTone } from "../../primitives/index.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
 import { RestoreEnumerationLists } from "./RestoreEnumerationLists.js";
 import { restoreEnumerations } from "./restore-enumerations.js";
-
-/** The glyph size every head in this surface draws at, matching the family's cards. */
-const RESTORE_GLYPH_SIZE = 14;
 
 /** One rollback disposition, as the contract's own union names them. */
 type RollbackDisposition = RollbackInterventionResult["disposition"];
@@ -106,7 +104,7 @@ export function FileRestoreDisclosure(props: FileRestoreDisclosureProps): React.
     >
       <header className="meridian-restore-disclosure__head">
         <h4 className="meridian-restore-disclosure__heading" id={headingId}>
-          <Glyph name="worktree" size={RESTORE_GLYPH_SIZE} />
+          <Glyph name="worktree" size={GLYPH_SIZE_CHROME} />
           Working tree
         </h4>
         <Chip tone={presentation.tone} label={result.disposition} mono />

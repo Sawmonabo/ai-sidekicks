@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph, WindowedListRow, useWindowedRovingIndex } from "../../primitives/index.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD, DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
 import {
@@ -16,9 +17,6 @@ export interface DiffFileListProps {
   readonly selectedFilePath: string | undefined;
   readonly onSelectFilePath: (path: string | undefined) => void;
 }
-
-/** Glyph edge length in a file row, matching the primitives' own inline size. */
-const DIFF_FILE_GLYPH_SIZE = 12;
 
 export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   const filterId = useId();
@@ -79,7 +77,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   return (
     <div className={`meridian-diff-files${isScrolling ? " meridian-diff-files--scrolling" : ""}`}>
       <label className="meridian-diff-files__filter" htmlFor={filterId}>
-        <Glyph name="search" size={DIFF_FILE_GLYPH_SIZE} />
+        <Glyph name="search" size={GLYPH_SIZE_ROW} />
         <span className="meridian-visually-hidden">Filter changed files</span>
         <input
           id={filterId}

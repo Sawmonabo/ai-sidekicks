@@ -63,10 +63,8 @@ import {
   ingestCeilingRemainingMs,
   isIngestStalled,
 } from "./attachment-presentation.js";
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import type { AttachmentIngestEntry, AttachmentReading } from "./attachment-shapes.js";
-
-/** Glyph edge length in the card's chrome, matching the primitives' inline size. */
-const ATTACHMENT_GLYPH_SIZE = 12;
 
 /** Whose claim a name is, where the name shown is still the caller's own. */
 const DECLARED_NAME_TITLE = "Declared by the sender";
@@ -88,7 +86,7 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
       {reading.kind === "ingesting" ? renderIngesting(reading.entry, props) : null}
       {reading.kind === "resolved" ? (
         <div className="meridian-attachment__face">
-          <Glyph name="artifact" size={ATTACHMENT_GLYPH_SIZE} />
+          <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
           <WireFigure value={reading.derived.normalizedName} />
           <Chip label={reading.derived.derivedMediaType} mono />
           <WireFigure
@@ -142,7 +140,7 @@ function renderIngesting(
   return (
     <>
       <div className="meridian-attachment__face">
-        <Glyph name="artifact" size={ATTACHMENT_GLYPH_SIZE} />
+        <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
         {nameReading.provenance === "declared" ? (
           <WireFigure value={nameReading.name} title={DECLARED_NAME_TITLE} />
         ) : (
@@ -248,7 +246,7 @@ function renderUnresolved(
   return (
     <div className="meridian-attachment__unresolved">
       <div className="meridian-attachment__face">
-        <Glyph name="alert" size={ATTACHMENT_GLYPH_SIZE} />
+        <Glyph name="alert" size={GLYPH_SIZE_ROW} />
         <Chip label={cause} mono tone="attention" />
         <span className="meridian-attachment__artifact-id">
           <WireFigure value={attachmentId} />
