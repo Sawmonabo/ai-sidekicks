@@ -14,6 +14,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { settleReads } from "./agent-console.test-support.js";
 import { AgentConsolePane } from "./AgentConsolePane.js";
 import {
   fixtureBridgeWithGrowth,
@@ -167,16 +168,6 @@ function projectingStore(): SessionStore {
   });
   sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
   return sessionStore;
-}
-
-/** Let the mount's effects, the frozen clock, and every settled reply land. */
-async function settleReads(bridge: ConsoleBridge): Promise<void> {
-  await act(async () => {
-    bridge.scenarioEngine?.advance(500);
-    for (let pass = 0; pass < 4; pass += 1) {
-      await Promise.resolve();
-    }
-  });
 }
 
 /** Mount the pane over a store and a bridge this file owns. */

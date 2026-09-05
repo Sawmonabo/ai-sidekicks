@@ -25,6 +25,7 @@ import {
 import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
+import { settleReads } from "./agent-console.test-support.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
 
 /**
@@ -173,16 +174,6 @@ function modelsOver(bridge: ConsoleBridge, sessionId = "session-9"): AgentConsol
   const models = new AgentConsoleModels(bridge, new SessionStore({ sessionId }));
   openedModels.push(models);
   return models;
-}
-
-/** Move the frozen clock past the refresh debounce and let the replies land. */
-async function settleReads(bridge: ConsoleBridge): Promise<void> {
-  await act(async () => {
-    bridge.scenarioEngine?.advance(500);
-    for (let pass = 0; pass < 4; pass += 1) {
-      await Promise.resolve();
-    }
-  });
 }
 
 /** The submit control as it stands now — re-queried, never held across a render. */

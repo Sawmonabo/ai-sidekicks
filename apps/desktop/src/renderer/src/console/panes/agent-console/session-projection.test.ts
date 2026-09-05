@@ -9,41 +9,31 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  fixtureBridgeWithGrowth,
   growthRefusing,
   growthServing,
-  unscriptedScenario,
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
-import { SessionStore, type ConsoleEntity, type SessionSnapshot } from "../../store/index.js";
+import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
+import { SessionStore } from "../../store/index.js";
+import {
+  PROJECTION_SESSION_ID as SESSION_ID,
+  SETTLE_ADVANCE_MS,
+  bridgeReadingProjection as bridgeReading,
+  drainScheduledReads,
+  sessionEntity,
+  snapshotEnabling,
+} from "./agent-console.test-support.js";
 import { SessionProjectionReRead, peerInvocationEnabledIn } from "./session-projection.js";
 
-const SESSION_ID = "session-9";
-
-function sessionEntity(body: Readonly<Record<string, unknown>>): ConsoleEntity {
-  return { kind: "session", id: SESSION_ID, body };
-}
-
-function snapshotEnabling(enabled: boolean): SessionSnapshot {
-  return {
-    cursor: 4,
-    entities: [sessionEntity({ peerInvocationEnabled: enabled })],
-    participantJoinLog: [],
-  };
-}
-
-/** The real fixture bridge with the one operation this model reads replaced. */
-function bridgeReading(sessionRead: ConsoleBridge["growth"]["sessionRead"]): ConsoleBridge {
-  return fixtureBridgeWithGrowth(unscriptedScenario("agent-console-projection"), { sessionRead });
-}
-
-/** Move the frozen clock past the refresh debounce and let the read's reply land. */
-async function releaseRead(bridge: ConsoleBridge): Promise<void> {
-  bridge.scenarioEngine?.advance(500);
-  for (let pass = 0; pass < 4; pass += 1) {
-    await Promise.resolve();
-  }
-}
+describe("session projection — the settle window", () => {
+  it("clears the trailing debounce without reaching the absolute deadline", () => {
+    // The claim the shared settle rests on, asserted rather than assumed: a shorter
+    // advance would leave requested reads unfired and every case counting them would
+    // read zero, and one past the deadline would fire the starvation arm, so a burst
+    // that must cost one read would cost two.
+    expect(SETTLE_ADVANCE_MS).toBeGreaterThan(REFRESH_DEBOUNCE_MS);
+    expect(SETTLE_ADVANCE_MS).toBeLessThan(REFRESH_MAX_WAIT_MS);
+  });
+});
 
 describe("session projection — the peer-invocation fold", () => {
   it("reads a projected boolean through", () => {
@@ -84,7 +74,7 @@ describe("session projection — the re-read", () => {
       .toBeUndefined();
 
     reRead.request();
-    await releaseRead(bridge);
+    await drainScheduledReads(bridge);
 
     expect(reRead.readCount).toBe(1);
     expect(reRead.refusal).toBeUndefined();
@@ -100,7 +90,7 @@ describe("session projection — the re-read", () => {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const reRead = new SessionProjectionReRead({ bridge, sessionStore });
 
-    await releaseRead(bridge);
+    await drainScheduledReads(bridge);
 
     expect(reRead.readCount).toBe(0);
     expect(sessionStore.snapshot().initialised).toBe(false);
@@ -114,7 +104,7 @@ describe("session projection — the re-read", () => {
     reRead.request();
     reRead.request();
     reRead.request();
-    await releaseRead(bridge);
+    await drainScheduledReads(bridge);
 
     expect(reRead.readCount).toBe(1);
     expect(peerInvocationEnabledIn(sessionStore.snapshot().partitions.session, SESSION_ID)).toBe(
@@ -128,7 +118,7 @@ describe("session projection — the re-read", () => {
     const reRead = new SessionProjectionReRead({ bridge, sessionStore });
 
     reRead.request();
-    await releaseRead(bridge);
+    await drainScheduledReads(bridge);
 
     expect(reRead.refusal?.code).toBe("wire-unregistered");
     expect(reRead.refusal?.origin).toBe("growth-port");
@@ -146,12 +136,12 @@ describe("session projection — the re-read", () => {
     const reRead = new SessionProjectionReRead({ bridge, sessionStore });
 
     reRead.request();
-    await releaseRead(bridge);
+    await drainScheduledReads(bridge);
     expect(reRead.refusal).not.toBeUndefined();
 
     served = true;
     reRead.request();
-    await releaseRead(bridge);
+    await drainScheduledReads(bridge);
 
     expect(reRead.readCount).toBe(2);
     expect(reRead.refusal).toBeUndefined();
@@ -164,7 +154,7 @@ describe("session projection — the re-read", () => {
 
     reRead.dispose();
     reRead.request();
-    await releaseRead(bridge);
+    await drainScheduledReads(bridge);
 
     expect(reRead.readCount).toBe(0);
   });
