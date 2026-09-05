@@ -70,7 +70,7 @@ export function stampedExecutionPostureOf(
 /**
  * The membership role the roster carries for one participant, or `undefined`.
  *
- * `bridge/growth-signatures.ts` states the reasoning this selector is the other
+ * `bridge/growth-signatures/identity.ts` states the reasoning this selector is the other
  * half of: the session's participant roster already carries every member's role,
  * so a role member on the caller-identity read would be a second source of truth
  * for a fact this partition owns — and the two could disagree with nothing able to

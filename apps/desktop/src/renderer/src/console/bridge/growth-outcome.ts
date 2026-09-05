@@ -4,7 +4,7 @@
 // This is the half of the port a caller writes code against. A surface that calls
 // one operation narrows on `status`, renders the refusal or the value, and never
 // needs the operation table, the signature table, or the port type — so those live
-// next door in `growth-operations.ts`, `growth-signatures.ts`, and `growth-port.ts`,
+// next door in `growth-operations.ts`, `growth-signatures/`, and `growth-port.ts`,
 // and this module imports none of them. The
 // dependency runs one way: the port produces these values, they do not know which
 // port produced them.
