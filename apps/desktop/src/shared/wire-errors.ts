@@ -16,9 +16,15 @@
 // This module lives in `src/shared/` rather than under `src/renderer/` because
 // the same shapes cross the preload boundary in both directions and a main-side
 // consumer must not have to reach into renderer source for them. It imports
-// nothing at all: no `electron`, no `node:*`, not even contracts — the guards are
-// structural by design (see `isWireErrorEnvelope`), so binding them to a schema
+// nothing at all: no `electron`, no `node:*`, not even contracts — the readers are
+// structural by design (see `readWireErrorEnvelope`), so binding them to a schema
 // would narrow them below what their callers need.
+//
+// AND NOTHING HERE IS A TYPE PREDICATE OVER A CANDIDATE. Every envelope question is
+// answered by a READER that hands back a snapshot it has already taken, because a
+// predicate answers by narrowing the source — and the source is a rejected value
+// nobody validated, whose next property access is the throw these guards exist to
+// prevent. See {@link readWireErrorEnvelope}.
 
 /**
  * The code+message-only refusal shape the typed wire errors carry.
@@ -104,16 +110,16 @@ export function isErrorInstance(value: unknown): value is Error {
 /**
  * Read `value` as a wire error envelope, or answer `undefined`.
  *
- * THE READER, and {@link isWireErrorEnvelope} is the predicate spelled on top of it.
- * That direction is the point: a predicate promises a caller that `.code` is a
- * string, and the caller's own read is then a SECOND property access on the same
- * unvalidated value — which a getter that throws on its second read defeats, in the
- * one line the narrowing was supposed to make safe. A reader hands back the strings
- * it already read, on a fresh object, so there is no second access to defeat.
+ * THE READER, AND THERE IS NO PREDICATE BESIDE IT. That is the point rather than a
+ * preference: a predicate promises a caller that `.code` is a string, and the
+ * caller's own read is then a SECOND property access on the same unvalidated value —
+ * which a getter that throws on its second read defeats, in the one line the
+ * narrowing was supposed to make safe. A reader hands back the strings it already
+ * read, on a fresh object, so there is no second access to defeat.
  *
  * Shape-generic — any string `code` plus any string `message` — deliberately not
  * bound to specific code literals: a caller that needs to branch on a particular
- * code uses {@link isWireErrorEnvelopeWithCode}, and one that only needs to
+ * code uses {@link readWireErrorEnvelopeWithCode}, and one that only needs to
  * render `code: message` must not have to enumerate every code that exists.
  */
 export function readWireErrorEnvelope(value: unknown): WireErrorEnvelope | undefined {
@@ -123,33 +129,33 @@ export function readWireErrorEnvelope(value: unknown): WireErrorEnvelope | undef
 }
 
 /**
- * Whether `value` is a wire error envelope.
+ * Read `value` as a wire error envelope carrying exactly `code`, or `undefined`.
  *
- * Kept as a predicate for the arms that only need to BRANCH; an arm that goes on to
- * read the members takes {@link readWireErrorEnvelope} instead, for the reason that
- * function's own note gives.
- */
-export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope {
-  return readWireErrorEnvelope(value) !== undefined;
-}
-
-/**
- * Whether `value` is a wire error envelope carrying exactly `code`.
- *
- * The narrowing form, so a caller that distinguishes one typed refusal from the
- * generic case writes the discriminant once. `===` on the code is sound because
+ * The discriminating form, so a caller that distinguishes one typed refusal from
+ * the generic case writes the discriminant once. `===` on the code is sound because
  * every wire code is a plain single-sourced string-literal type and not a
  * nominal brand; passing the contracts-exported const rather than a free string
  * is what keeps the comparison compile-time-bound to the contract.
  *
+ * A READER RATHER THAN A TYPE PREDICATE, and this module offers no predicate over a
+ * candidate at all. A predicate's whole product is a narrowing of the SOURCE object,
+ * which is precisely the value nobody may read again: the guard reads a snapshot,
+ * says yes, and every member the caller then renders is a fresh access on the
+ * unvalidated candidate — a second reading, one layer later, in a render, outside
+ * every `catch`. A getter that answers something else the second time renders an arm
+ * the wire never sent; one that throws unmounts the surface that exists to say a call
+ * failed. The reader hands back the strings it already read, so there is no second
+ * access for a caller to be tempted into.
+ *
  * The comparison is against the code the READER returned, not against a second read
  * of the candidate's own property — one access per member, whatever the answer.
  */
-export function isWireErrorEnvelopeWithCode<TCode extends string>(
+export function readWireErrorEnvelopeWithCode<TCode extends string>(
   value: unknown,
   code: TCode,
-): value is { readonly code: TCode; readonly message: string } {
-  return readWireErrorEnvelope(value)?.code === code;
+): { readonly code: TCode; readonly message: string } | undefined {
+  const envelope = readWireErrorEnvelope(value);
+  return envelope?.code === code ? { code, message: envelope.message } : undefined;
 }
 
 /**
