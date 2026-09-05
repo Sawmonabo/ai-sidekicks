@@ -28,6 +28,7 @@ import {
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
 import { SessionStore } from "../../store/index.js";
+import { settleReads } from "./agent-console.test-support.js";
 import { AgentConsolePane } from "./AgentConsolePane.js";
 
 const FIRST_SESSION_ID = "session-first";
@@ -127,16 +128,6 @@ function storeProjecting(sessionId: string, peerInvocationEnabled: boolean): Ses
     participantJoinLog: [],
   });
   return sessionStore;
-}
-
-/** Let the mount's effects, the frozen clock, and every settled reply land. */
-async function settleReads(bridge: ConsoleBridge): Promise<void> {
-  await act(async () => {
-    bridge.scenarioEngine?.advance(500);
-    for (let pass = 0; pass < 4; pass += 1) {
-      await Promise.resolve();
-    }
-  });
 }
 
 /** Whether the grant switch is drawn, and where it stands. */

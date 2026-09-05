@@ -39,12 +39,24 @@ import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../co
 import {
   RefreshScheduler,
   useSessionPartition,
+  useSubjectScopedState,
   type ConsoleEntity,
   type SessionStore,
 } from "../../store/index.js";
 
 /** Named in a refusal, so a failed re-read says which read failed. */
 export const SESSION_PROJECTION_ORIGIN = "session-projection";
+
+/**
+ * The address a mount that has resolved no bridge is held under.
+ *
+ * The holder below takes the TRANSPORT as its subject, because a replaced bridge
+ * retires every read requested through it — and this mount renders on an arm where
+ * there is no bridge to name. A frozen module constant answers that: it is one
+ * identity for "no transport", so the two arms are distinguishable to the holder and
+ * a bridge ARRIVING is a re-address rather than a value that survives one.
+ */
+const NO_BRIDGE_RESOLVED: object = Object.freeze({});
 
 /**
  * The refusal a press gets when this mount holds no session to re-read.
@@ -205,7 +217,23 @@ export function useSessionProjectionReRead(
   sessionStore: SessionStore | undefined,
 ): SessionProjectionReReadBinding {
   const [reRead, setReRead] = useState<SessionProjectionReRead | undefined>(undefined);
-  const [unaskableRefusal, setUnaskableRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  // WHETHER THE LAST PRESS FOUND NOTHING TO READ, held against the address it was
+  // pressed at. As mount-lifetime state this outlived its own reason: a press with no
+  // session pinned "nothing was asked of the daemon" on screen, and a session
+  // ARRIVING under the same mount left it there — the control then reported an
+  // unaskable read beside a session it could ask about, and no later press could
+  // clear it while the read itself answered nothing. Subject-scoped, the pass that
+  // first sees a new address already reads that address's own seed, which is that
+  // nothing has been pressed there.
+  //
+  // A BOOLEAN AND NOT THE REFUSAL: the refusal is a module constant, so holding it
+  // would store one of two known values where the question is only which of them.
+  const { value: lastPressFoundNoSession, publish: publishLastPressFoundNoSession } =
+    useSubjectScopedState<boolean>(
+      bridge ?? NO_BRIDGE_RESOLVED,
+      sessionStore?.sessionId,
+      () => false,
+    );
 
   useEffect(() => {
     if (bridge === undefined || sessionStore === undefined) {
@@ -229,14 +257,17 @@ export function useSessionProjectionReRead(
 
   const requestReRead = useCallback((): void => {
     if (reRead === undefined) {
-      setUnaskableRefusal(NO_SESSION_TO_READ);
+      publishLastPressFoundNoSession(true);
       return;
     }
-    setUnaskableRefusal(undefined);
+    publishLastPressFoundNoSession(false);
     reRead.request();
-  }, [reRead]);
+  }, [reRead, publishLastPressFoundNoSession]);
 
-  return { requestReRead, refusal: readRefusal ?? unaskableRefusal };
+  return {
+    requestReRead,
+    refusal: readRefusal ?? (lastPressFoundNoSession ? NO_SESSION_TO_READ : undefined),
+  };
 }
 
 /** The unsubscribe a mount with no session hands `useSyncExternalStore`. */

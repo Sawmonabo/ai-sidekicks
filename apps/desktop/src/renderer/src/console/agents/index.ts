@@ -16,11 +16,24 @@
 // re-declared at the second one, and two declarations of one contract is exactly
 // what `seats/owner-slot.ts` exists to prevent.
 //
-// THE STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, so a surface can never render one
-// of these components without the CSS that makes it legible, and the bundler sees one
-// edge into the sheet rather than one per component.
+// EVERY STYLESHEET IN THIS FAMILY IS IMPORTED HERE AND NOWHERE ELSE, so a surface
+// can never render one of these components without the CSS that makes it legible, and
+// the bundler sees one edge into each sheet rather than one per component.
+//
+// There are four rather than one, because three sub-modules carry their own: the
+// provider switch, the run linkage, and the sidekicks page. That is a split of the
+// SHEETS and not of the rule — the rule is still one import site, and it is this one.
+// The definitions sheet used to be imported from its own page instead, which is how
+// one BEM block came to be written across two files with two edges into it.
+//
+// The sub-modules have no doors of their own — nothing outside `agents/` reaches into
+// any of them — so their sheets are imported here rather than from a barrel that
+// would exist only to hold a CSS import.
 
 import "./agents.css";
+import "./definitions/definitions-page.css";
+import "./provider-switch/provider-switch.css";
+import "./run-console/run-console.css";
 
 import type { OwnerSlotProps } from "../seats/index.js";
 
@@ -83,8 +96,8 @@ export type { ProviderAxis } from "./agent-wire.js";
 
 export { AgentCard } from "./AgentCard.js";
 export { AgentRosterEmpty } from "./AgentRosterEmpty.js";
-export { AttachSidekick } from "./AttachSidekick.js";
-export { AttachSidekickForm } from "./attach-model.js";
+export { AttachSidekick } from "./attach/AttachSidekick.js";
+export { AttachSidekickForm } from "./attach/attach-model.js";
 export { PeerInvocation } from "./PeerInvocation.js";
 export { ProviderSwitch } from "./provider-switch/ProviderSwitch.js";
 export { RunLinkage } from "./run-console/RunLinkage.js";

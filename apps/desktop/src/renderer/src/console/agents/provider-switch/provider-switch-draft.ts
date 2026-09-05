@@ -81,7 +81,12 @@ export const EMPTY_AXIS_DRAFT: AxisDraft = {};
  * take. Left in the draft it rode the request unchanged and the daemon had no answer
  * but to refuse it.
  */
-const DRIVER_GOVERNED_AXES = ["modelId", "effort", "outputSpeed", "providerAccountId"] as const;
+const DRIVER_GOVERNED_AXES: readonly ProviderAxis[] = [
+  "modelId",
+  "effort",
+  "outputSpeed",
+  "providerAccountId",
+];
 
 /** The draft, with the binding it was composed against. */
 export interface HeldAxisDraft {

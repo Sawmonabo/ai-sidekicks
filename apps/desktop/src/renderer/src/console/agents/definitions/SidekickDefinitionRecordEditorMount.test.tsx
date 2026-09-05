@@ -15,7 +15,7 @@ import {
   SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT,
   SidekickDefinitionRecordEditorMount,
   type SidekickDefinitionRecordEditorBody,
-} from "./DefinitionEditorSlot.js";
+} from "./SidekickDefinitionRecordEditorMount.js";
 
 /** A seat whose body has arrived. Renders what it was handed, and nothing else. */
 const FILLED_SLOT: OwnerSlotProps<SidekickDefinitionRecordEditorBody> = {

@@ -21,7 +21,7 @@ import { createRefusingGrowthPort } from "./growth-port.js";
 import {
   readRuntimeNodeRosterOverControlPlane,
   subscribeRuntimeNodePresence,
-} from "./runtime-node-roster.js";
+} from "./runtime-node-roster-transport.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
 export function readInstalledBridge(): SidekicksBridge | undefined {

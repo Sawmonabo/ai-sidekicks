@@ -181,20 +181,21 @@ export interface PeerInvocationReading {
  * definition-only attach parses — and an explicitly-present member merges per field
  * over the definition it names. Requiring any one of them here would refuse an arm
  * the wire admits.
+ *
+ * DERIVED FROM THE ECHO RATHER THAN RESTATED. The configuration half of this request
+ * is what {@link AgentResolvedConfiguration} describes — the same eight axes, which
+ * is not a coincidence but the contract: what an attach may SEND is exactly what an
+ * attach RESOLVES TO, and the daemon echoes the resolution back on the same seam.
+ * Written out a second time, the two drifted the first time an axis landed on one
+ * and not the other, and the compiler had nothing to say about it. What is stated
+ * here is only the part that is NOT configuration: which session the agent joins,
+ * which definition it resolves through, and what it is called.
  */
-export interface AgentAttachRequest {
+export type AgentAttachRequest = {
   readonly sessionId: string;
   readonly definitionId?: string | undefined;
   readonly name?: string | undefined;
-  readonly driverName?: string | undefined;
-  readonly modelId?: string | undefined;
-  readonly providerAccountId?: string | undefined;
-  readonly effort?: string | undefined;
-  readonly instructions?: string | undefined;
-  readonly goal?: string | undefined;
-  readonly toolAllowlist?: readonly string[] | undefined;
-  readonly executionPostureMode?: string | undefined;
-}
+} & AgentResolvedConfiguration;
 
 /**
  * What a configuration update sends: the agent, the axes moved, and the boundary.

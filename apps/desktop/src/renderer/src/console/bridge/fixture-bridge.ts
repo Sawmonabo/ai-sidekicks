@@ -71,10 +71,8 @@ import {
 } from "./fixture-growth-port.js";
 import { RUN_QUEUE_ROW_READ } from "./queue-row-source.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.js";
-import {
-  readRuntimeNodeRosterFromScenario,
-  subscribeRuntimeNodePresence,
-} from "./runtime-node-roster.js";
+import { readRuntimeNodeRosterFromScenario } from "./runtime-node-roster.js";
+import { subscribeRuntimeNodePresence } from "./runtime-node-roster-transport.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 import type { ConsoleScenario } from "./scenario.js";

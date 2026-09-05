@@ -25,19 +25,19 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useId } from "react";
 
-import type { ConsoleRefusal } from "../core/index.js";
-import { Chip, Nothing, RefusalCard, WireFigure } from "../primitives/index.js";
-import type { PushDrivenReadState } from "../seats/index.js";
-import { AxisCombobox } from "./AxisCombobox.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import { Chip, Nothing, RefusalCard, WireFigure } from "../../primitives/index.js";
+import type { PushDrivenReadState } from "../../seats/index.js";
+import { AxisCombobox } from "../AxisCombobox.js";
 import { ATTACH_ARMS, type AttachArm, type AttachSidekickForm } from "./attach-model.js";
 import {
   driverNamesOf,
   effortLevelsFor,
   modelsFor,
   type DriverCatalogReading,
-} from "./driver-catalog.js";
-import type { AgentAttachReading, AgentResolvedConfiguration } from "../bridge/index.js";
-import type { SidekickDefinitionListReading } from "./agent-wire.js";
+} from "../driver-catalog.js";
+import type { AgentAttachReading, AgentResolvedConfiguration } from "../../bridge/index.js";
+import type { SidekickDefinitionListReading } from "../agent-wire.js";
 
 export interface AttachSidekickProps {
   readonly open: boolean;

@@ -30,12 +30,13 @@
 
 import { useEffect, useState } from "react";
 
-import { RealClock, type ConsoleClock } from "../../core/index.js";
-import type {
-  AgentAttachReading,
-  AgentConfigUpdateReading,
-  ConsoleBridge,
-  PeerInvocationReading,
+import type { ConsoleClock } from "../../core/index.js";
+import {
+  consoleClockFor,
+  type AgentAttachReading,
+  type AgentConfigUpdateReading,
+  type ConsoleBridge,
+  type PeerInvocationReading,
 } from "../../bridge/index.js";
 import {
   isCurrentSessionSubject,
@@ -54,7 +55,7 @@ import {
   type DriverCatalogRead,
   type SidekickDefinitionRead,
 } from "./agent-console-reads.js";
-import type { AttachRequest } from "../attach-model.js";
+import type { AttachRequest } from "../attach/attach-model.js";
 
 /**
  * One holder's grant of a parent run's child-link read.
@@ -112,7 +113,12 @@ export class AgentConsoleModels {
 
   public constructor(bridge: ConsoleBridge, sessionStore: SessionStore) {
     this.subject = { bridge, sessionStore };
-    this.#clock = bridge.scenarioEngine?.clock ?? new RealClock();
+    // Through the bridge family's own door rather than resolved here. The rule — a
+    // fixture bridge running an engine shares that engine's FROZEN clock, and only a
+    // running engine owns one — is `bridge/console-bridge.ts`, and a second copy of it
+    // is how a window ends up with stores on wall time while its scenario beats advance
+    // on frozen time, which is the exact drift that seam was minted to end.
+    this.#clock = consoleClockFor(bridge);
     this.roster = createAgentRoster(bridge, sessionStore, this.#clock);
     this.driverCatalog = createDriverCatalog(bridge, this.#clock);
     this.definitions = createSidekickDefinitions(bridge, this.#clock);

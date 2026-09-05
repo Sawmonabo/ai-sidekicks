@@ -17,28 +17,14 @@ import { renderHook } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import {
-  fixtureBridgeWithGrowth,
-  unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { AgentConsoleModels, useAgentConsoleModels } from "./agent-console-model.js";
+import { initialisedStore, unscriptedBridge } from "./run-console.test-support.js";
 
 const PARENT_RUN_ID = "run-7";
 const OTHER_PARENT_RUN_ID = "run-9";
-
-/** A real fixture bridge that scripts no reply, so every read settles as refused. */
-function unscriptedBridge(id: string): ConsoleBridge {
-  return fixtureBridgeWithGrowth(unscriptedScenario(id), {});
-}
-
-/** An initialised store, so an appended event is admitted rather than buffered. */
-function initialisedStore(sessionId: string): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-  return sessionStore;
-}
 
 // --- A model never belongs to a session it is not for -------------------------
 
@@ -303,5 +289,51 @@ describe("the agent console's models — the exact bridge and store they answer 
     expect(
       answered.slice(beforeReplacement).some((models) => models?.subject.bridge === retired),
     ).toBe(true);
+  });
+});
+
+// --- A model reads on the bridge's clock, never on one it minted --------------
+
+/** Drain microtasks without touching any clock, so only a due timer can fire. */
+async function drainMicrotasks(): Promise<void> {
+  for (let pass = 0; pass < 4; pass += 1) {
+    await Promise.resolve();
+  }
+}
+
+describe("the agent console's models — whose clock their reads run on", () => {
+  it("performs its opening reads when the bridge's own clock advances", async () => {
+    // The property the shared `consoleClockFor` seam exists for, driven rather than
+    // asserted about a private field. A fixture bridge running an engine owns a FROZEN
+    // clock, and every read a model opens is armed through the refresh chokepoint — so
+    // a model that minted its own `RealClock` would arm on wall time inside a window
+    // whose scenario beats advance on frozen time, and nothing here would fall due.
+    const bridge = unscriptedBridge("agent-models-clock");
+    const sessionStore = initialisedStore("session-clock");
+    const models = new AgentConsoleModels(bridge, sessionStore);
+    await drainMicrotasks();
+    expect(models.roster.readCount).toBe(0);
+
+    bridge.scenarioEngine?.advance(REFRESH_MAX_WAIT_MS);
+    await drainMicrotasks();
+
+    expect(models.roster.readCount).toBe(1);
+    models.dispose();
+  });
+
+  it("negative control: with the bridge's clock held still nothing falls due", async () => {
+    // Without this, the case above would pass over a model whose reads were performed
+    // eagerly on construction — which is a read nobody scheduled and a clock nothing
+    // consults, and would make the advance above incidental rather than the subject.
+    const bridge = unscriptedBridge("agent-models-clock-held");
+    const sessionStore = initialisedStore("session-clock-held");
+    const models = new AgentConsoleModels(bridge, sessionStore);
+
+    await drainMicrotasks();
+    await drainMicrotasks();
+
+    expect(models.roster.readCount).toBe(0);
+    expect(models.driverCatalog.readCount).toBe(0);
+    models.dispose();
   });
 });
