@@ -26,8 +26,10 @@
 //     id repeated, so the next move is to fix the producer rather than to guess.
 //   • A chunk still in flight is NOT-LOADED: the read-in-flight skeleton, which says
 //     nothing because there is nothing yet to say.
-//   • A chunk the browser refused is an ERROR carrying the fetch's own message
-//     verbatim, because what to do next depends on what failed.
+//   • A chunk the browser refused is a REFUSAL, not an absence: something was asked
+//     for and the answer was no, which is the one arm here that carries a code. It
+//     goes through `normalizeWireRejection` and renders in the refusal grammar, so
+//     the fetch's own message survives verbatim beside a code a person can quote.
 //
 // Collapsing any two would be exactly the conflation the console's absence rule
 // exists to prevent, and the first two are decided before the chunk is asked for.
@@ -35,8 +37,10 @@
 // THE WRAPPER IS UNSTYLED UNTIL THE CHUNK LANDS, and that is the arrangement rather
 // than an oversight: this family's sheet rides the lazy chunk, so before it arrives
 // `.meridian-phase-graph` matches no rule. Nothing that renders in that window needs
-// one — the absence primitive brings its own styling from the initial bundle, and the
-// wrapper's only job until then is to be the block the absence stands in.
+// one — the absence primitive and the refusal banner both come from `primitives/`,
+// whose sheet is in the initial bundle, and the wrapper's only job until then is to
+// be the block they stand in. That matters most on the arm where the chunk never
+// arrives at all: a refusal styled from the chunk that failed would be invisible.
 //
 // WHY THE LAYOUT LIVES IN A REF AND NOT IN A RENDER BODY. Placing phases is a
 // derivation, and `apps/desktop/AGENTS.md` puts derivations in a class or a hook.
@@ -46,7 +50,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Nothing } from "../../../primitives/index.js";
+import { normalizeWireRejection, type WireRefusal } from "../../../core/index.js";
+import { Nothing, RefusalBanner } from "../../../primitives/index.js";
 import {
   phaseGraphLoader,
   type PhaseGraphLoader,
@@ -120,7 +125,7 @@ export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
   }
 
   if (graphModule.status !== "loaded") {
-    return <div className="meridian-phase-graph">{renderModuleAbsence(graphModule)}</div>;
+    return <div className="meridian-phase-graph">{renderUnloadedCanvas(graphModule)}</div>;
   }
 
   // Bound to a capitalised local because JSX reads a lowercase leading identifier as
@@ -152,29 +157,29 @@ function repeatedPhaseDetail(repeatedPhaseIds: readonly string[]): string {
 type PhaseGraphModuleState =
   | { readonly status: "loading" }
   | { readonly status: "loaded"; readonly module: PhaseGraphModule }
-  | { readonly status: "failed"; readonly reason: string };
+  | { readonly status: "failed"; readonly refusal: WireRefusal };
 
 const LOADING_GRAPH_MODULE: PhaseGraphModuleState = { status: "loading" };
 
 /**
  * What stands in the canvas box while the renderer's code is not there.
  *
- * Two of the absence primitive's five kinds, and the two these states actually are.
- * Neither is `empty`, which would claim the run has no phases — a claim this arm has
- * already disproved — and neither is `not-checked`, which would claim nobody asked.
+ * TWO STATES AND TWO GRAMMARS, because they are two different facts. A chunk in
+ * flight is an absence — `not-loaded`, and deliberately neither `empty`, which would
+ * claim the run has no phases this arm has already disproved, nor `not-checked`,
+ * which would claim nobody asked. A chunk the browser refused is a REFUSAL: something
+ * was asked for and the answer was no, so it renders in the refusal grammar the rest
+ * of this family renders a failed read in, carrying its code in mono. It was a
+ * `Nothing kind="error"` with a bare message and no code — the one failure on this
+ * surface a person could not quote.
  */
-function renderModuleAbsence(
+function renderUnloadedCanvas(
   graphModule: Exclude<PhaseGraphModuleState, { status: "loaded" }>,
 ): React.JSX.Element {
   return graphModule.status === "loading" ? (
     <Nothing kind="not-loaded" placement="surface" title="Loading the phase graph" />
   ) : (
-    <Nothing
-      kind="error"
-      placement="surface"
-      title="The phase graph could not be loaded."
-      detail={graphModule.reason}
-    />
+    <RefusalBanner {...graphModule.refusal} />
   );
 }
 
@@ -231,7 +236,15 @@ function usePhaseGraphModule(loader: PhaseGraphLoader, isNeeded: boolean): Phase
         if (isMounted) {
           setGraphModule({
             status: "failed",
-            reason: loadError instanceof Error ? loadError.message : String(loadError),
+            // Through the console's one reader of a caught value, and never through
+            // `instanceof` and `String(...)` written here. Both of those THROW on
+            // values a rejection may legitimately carry — the first on a revoked
+            // Proxy, the second on a null-prototype object with no `toString` — and
+            // a throw inside this handler escapes as an unhandled rejection, leaving
+            // the graph at `loading` forever with nothing on screen saying why. No
+            // fallback: the browser's own message is what says which fetch failed,
+            // and the synthesized `phase-graph-chunk-call-failed` names the seam.
+            refusal: normalizeWireRejection("phase-graph-chunk", loadError),
           });
         }
       },
