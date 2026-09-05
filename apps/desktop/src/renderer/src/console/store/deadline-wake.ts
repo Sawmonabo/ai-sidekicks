@@ -43,13 +43,17 @@ import type { ConsoleClock, ScheduledHandle } from "../core/index.js";
  * module ever arms.
  *
  * `setTimeout` stores its delay in a signed 32-bit integer, so a delay above this
- * does not fire late — it fires on the NEXT TICK. Measured on Node 22:
- * `setTimeout(fn, 2 ** 31)` warns `TimeoutOverflowWarning` and runs `fn` two
- * milliseconds later. A deadline more than about 24.8 days out is ordinary here — a
- * clone scheduled for disposal in two months, an invitation good for a quarter — so
- * an unclamped delay would publish that far-future instant immediately and render
- * every row in the list past its deadline, permanently: with the instant beyond
- * every threshold, nothing is outstanding and nothing re-arms.
+ * does not fire late — it fires on the NEXT TICK. Measured on Node 22: a delay of
+ * `2 ** 31` warns `TimeoutOverflowWarning`, reports that the duration was set to 1,
+ * and runs the callback two milliseconds later. The call form is deliberately not
+ * spelled out above — the timer chokepoint gate reads source text, and a call in a
+ * comment is indistinguishable from a call.
+ *
+ * A deadline more than about 24.8 days out is ordinary here — a clone scheduled for
+ * disposal in two months, an invitation good for a quarter — so an unclamped delay
+ * would publish that far-future instant immediately and render every row in the list
+ * past its deadline, permanently: with the instant beyond every threshold, nothing
+ * is outstanding and nothing re-arms.
  *
  * It is a platform constant rather than a console cap, which is why it lives beside
  * the one module that arms against it rather than in the caps table.
