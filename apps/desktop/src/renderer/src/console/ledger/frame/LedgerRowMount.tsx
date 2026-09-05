@@ -22,7 +22,7 @@ import { memo } from "react";
 
 import { WindowedListRow } from "../../primitives/index.js";
 import { LedgerRowGroup } from "./LedgerRowGroup.js";
-import type { LedgerViewportRow } from "./viewport-snapshot.js";
+import type { LedgerViewportRow } from "./viewport/index.js";
 
 /**
  * What a ledger row is in the accessibility tree.

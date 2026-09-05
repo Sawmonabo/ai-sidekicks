@@ -49,11 +49,14 @@ import { installMeridianTokens } from "../../../src/renderer/src/console/frame/i
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door
 // widened for testing.
-import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledger/cards/FixtureShellRows.js";
+import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledger/cards/shell/FixtureShellRows.js";
 import {
   TimelinePane,
   type TimelinePaneContext,
-} from "../../../src/renderer/src/console/panes/timeline/TimelinePane.js";
+} from "../../../src/renderer/src/console/ledger/pane/TimelinePane.js";
+// The pane's chrome is `workspace/`'s one implementation of it and reaches the body as
+// a composition argument, so this tier composes it the way the pane board does.
+import { PaneHeader } from "../../../src/renderer/src/console/workspace/index.js";
 import { FrameStore, SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/timeline-row-slot.js";
@@ -124,7 +127,10 @@ async function mountLedger(scenario: ConsoleScenario): Promise<HTMLElement> {
   const { container } = await renderSettled(
     <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario })}>
       <div className="meridian-ledger-surface">
-        <TimelinePane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
+        <TimelinePane
+          context={ledgerPaneContext(scenario.sessionId, sessionStore)}
+          paneHeader={PaneHeader}
+        />
       </div>
     </SidekicksBridgeProvider>,
   );

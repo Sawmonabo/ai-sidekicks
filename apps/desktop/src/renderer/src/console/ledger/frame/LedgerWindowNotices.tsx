@@ -8,7 +8,7 @@
 // turns a mystery into a report.
 
 import { Nothing } from "../../primitives/index.js";
-import { type LedgerViewportBinding } from "./viewport-binding.js";
+import { type LedgerViewportBinding } from "./viewport/index.js";
 
 export interface LedgerWindowNoticesProps {
   readonly binding: LedgerViewportBinding;

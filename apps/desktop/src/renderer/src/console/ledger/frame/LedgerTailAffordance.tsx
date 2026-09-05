@@ -5,7 +5,7 @@
 // inside the composition that mounts it.
 
 import { DerivedFigure, formatCount } from "../../primitives/index.js";
-import type { LedgerViewportSnapshot } from "./viewport-snapshot.js";
+import type { LedgerViewportSnapshot } from "./viewport/index.js";
 
 export interface LedgerTailAffordanceProps {
   readonly snapshot: LedgerViewportSnapshot;

@@ -13,31 +13,49 @@
 // directory is a value a test can drive with no DOM at all, which is why the
 // derivations and the painting live in different files.
 //
+// FIVE SEAMS, IN DIRECTORIES OF THEIR OWN. Forty-odd files on one floor is a pile with a
+// door rather than a module, and the concerns in it change for five different reasons —
+// `chapters/` (how the log folds), `narrowing/` (what a filter admits and what a query
+// matched), `rail/` (the minimap: its ticks, its bands, its painter and its surface),
+// `replay/` (where a walk has got to), and `seams/` (where a run begins, ends, or is
+// retired). What stays at this root is what every one of them spends or publishes: this
+// door, the bounds, the sheet, the command table and the mount registry it acts on, and
+// the row fixture their suites share.
+//
+// A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS. `seams/` does — the rail and
+// the replay engine both hold its index. The other four are read from outside only by
+// THIS file, which must reach the DECLARING module or `console-no-barrel-chain` reports
+// the second hop; a door whose only would-be reader cannot use it is a door with no
+// consumer, which `barrel-census` and the dead-code gate both fail. Their siblings reach
+// them by deep intra-family specifiers, which is what an intra-family import is for.
+//
 // WHY EVERY LINE BELOW IS NAMED. A door is what a name uses to LEAVE this directory,
 // and until this file was named it forwarded seventeen modules with `export *`, so the
 // census could not enumerate what it published and a reader could not tell the
 // family's interface from what happened to be exported beside it. The list below is
-// exactly what `panes/timeline/` and `ledger/cards/` import — the painter, the seam
+// exactly what `ledger/pane/` and `ledger/cards/` import — the painter, the seam
 // classifier's internals, the rail's own geometry and the command table's fixtures
 // stop here, reached deeply by their siblings inside this directory.
 //
-// A NAME REACHED ONLY BY A TEST IS NOT ON THIS LIST. Four were: the superseded-band
+// A NAME REACHED ONLY BY A TEST IS NOT ON THIS LIST. Five were: the superseded-band
 // derivation, the jump-absence tuple and the replay-state tuple, each imported by one
-// suite in another directory to assert totality over a closed set — and the command
-// owner beside its registrar, whose one production reader imports the declaring
-// module directly and whose only reader THROUGH this door was the feed's scaffolding,
-// invisible to the census while that scaffolding was misnamed as production. A door
-// line for a test is a door widened for testing, so those four suites reach their
-// module directly and the door publishes what production reaches.
+// suite in another directory to assert totality over a closed set; the command owner
+// beside its registrar, whose one production reader imports the declaring module
+// directly and whose only reader THROUGH this door was the feed's scaffolding,
+// invisible to the census while that scaffolding was misnamed as production; and the
+// find walk's direction TUPLE, whose derived type the pane's find acts hold and whose
+// values only the family's own closed-set suite reads. A door line for a test is a
+// door widened for testing, so those five suites reach their module directly and the
+// door publishes what production reaches.
 
-export { ChapterHeader } from "./ChapterHeader.js";
-export { FindInLedger } from "./FindInLedger.js";
-export { LedgerFilterBar } from "./LedgerFilterBar.js";
-export { ProvenanceRail } from "./ProvenanceRail.js";
-export { ReplayControls } from "./ReplayControls.js";
-export { SeamRow } from "./SeamRow.js";
-export { ChapterCollapseState } from "./chapter-collapse.js";
-export { LedgerChapterIndex, type LedgerChapter } from "./chapters.js";
+export { ChapterHeader } from "./chapters/ChapterHeader.js";
+export { FindInLedger } from "./narrowing/FindInLedger.js";
+export { LedgerFilterBar } from "./narrowing/LedgerFilterBar.js";
+export { ProvenanceRail } from "./rail/ProvenanceRail.js";
+export { ReplayControls } from "./replay/ReplayControls.js";
+export { SeamRow } from "./seams/SeamRow.js";
+export { ChapterCollapseState } from "./chapters/chapter-collapse.js";
+export { LedgerChapterIndex, type LedgerChapter } from "./chapters/chapters.js";
 export { CHAPTER_VISIBLE_ROW_CAP } from "./structure-bounds.js";
 export {
   UNFILTERED_LEDGER,
@@ -51,29 +69,22 @@ export {
   type LedgerJumpAbsence,
   type LedgerJumpOutcome,
   type LedgerJumpStages,
-} from "./filters.js";
+} from "./narrowing/filters.js";
 export {
-  /**
-   * The walk's closed direction set, published for `panes/timeline/`'s find acts.
-   *
-   * @consumedBy T-023p-1C-5
-   */
-  FIND_STEP_DIRECTIONS,
   emptyFindResult,
   findInLedger,
   stepFindMatch,
-  /** @consumedBy T-023p-1C-5 */
   type FindStepDirection,
   type LedgerFindResult,
-} from "./find-model.js";
+} from "./narrowing/find-model.js";
 export { useMountedLedger, type LedgerStructureActs } from "./mounted-ledger.js";
-export { railViewportBand, type RailViewportBand } from "./rail-bands.js";
-export { ProvenanceRailModel } from "./rail-model.js";
+export { railViewportBand, type RailViewportBand } from "./rail/rail-bands.js";
+export { ProvenanceRailModel } from "./rail/rail-model.js";
 export {
   ReplayEngine,
   type ReplayPosition,
   type ReplaySpeed,
   type ReplayState,
-} from "./replay-model.js";
-export { LedgerSeamIndex, type LedgerSeam } from "./seams.js";
-export { SupersededIndex } from "./superseded-bands.js";
+} from "./replay/replay-model.js";
+export { LedgerSeamIndex, type LedgerSeam } from "./seams/seams.js";
+export { SupersededIndex } from "./seams/superseded-bands.js";

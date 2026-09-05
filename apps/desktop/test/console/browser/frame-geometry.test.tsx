@@ -28,7 +28,7 @@ import {
   tokenVariableName,
 } from "../../../src/renderer/src/console/tokens/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
-import { LedgerScrollController } from "../../../src/renderer/src/console/ledger/frame/scroll-chokepoint.js";
+import { LedgerScrollController } from "../../../src/renderer/src/console/ledger/frame/scroll/scroll-chokepoint.js";
 
 /**
  * Wait for the platform to deliver a resize observation, then run the frame it

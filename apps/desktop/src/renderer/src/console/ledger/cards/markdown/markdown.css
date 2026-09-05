@@ -1,13 +1,17 @@
 /* `ledger/cards/markdown/`'s styles — prose, code blocks, math, and the footnote
  * popover.
  *
- * FIVE SHEETS, ONE FAMILY. `frame/frame.css`, `structure/structure.css`,
- * `cards/cards.css` and `cards/markdown/markdown.css` carry the rules whose selectors
- * belong to exactly one of those directories — one sheet per directory, so a rule
- * sits beside the code that renders it — and `ledger.css` carries what is left over:
- * a rule reachable from two of them, or from markup another family owns. All five are
- * imported from `ledger/index.ts` and nowhere else, in that order, so they land once
- * per bundle and cascade after the primitives' and the frame's.
+ * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
+ * reachable from TWO directories goes in their nearest shared parent's sheet — which is
+ * `ledger.css` for the family and `structure/structure.css` for that subtree's five.
+ * `structure/` is the only subtree split further, and the reason is the module ceiling
+ * rather than symmetry: it was one 503-line sheet over five subjects that change for
+ * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
+ * ceiling, because their sub-modules draw INSIDE the boxes the parent sheet already
+ * sizes — a body inside a card, a row inside the frame — and splitting a box from its
+ * contents buys no reading. Every sheet is imported from `ledger/index.ts` and nowhere
+ * else, parent before children, so they land once per bundle and cascade after the
+ * primitives' and the frame's.
  *
  * The nine code-token families the code block spends are colours rather than boxes
  * and live in `tokens/palette.ts`; the note below the first banner says why.
