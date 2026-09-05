@@ -103,6 +103,24 @@ describe("what a refusal must not do to a person's hides", () => {
   });
 });
 
+/**
+ * A reader that answers its FIRST call and stalls on every later one.
+ *
+ * What makes a round trip observable: the same function reference is handed back to
+ * the shelf on the third visit, and the answer it gave on the first is a fact about a
+ * question this shelf has not put since it left.
+ */
+function readerAnsweringOnce(outcomes: readonly ShelfOutcome[]): InviteShelfReader {
+  let asked = false;
+  return () => {
+    if (asked) {
+      return new Promise<readonly ShelfOutcome[]>(() => undefined);
+    }
+    asked = true;
+    return Promise.resolve(outcomes);
+  };
+}
+
 /** A reader that answers when a case decides to, so a replacement can stall. */
 function heldReader(): {
   readonly read: InviteShelfReader;
@@ -189,6 +207,39 @@ describe("an answer that belongs to the session set it was asked of", () => {
 
     const text = view.container.textContent ?? "";
     expect(text).not.toContain("invite-from-the-set-we-left");
+    expect(text).toContain("Reading your invitations.");
+  });
+
+  it("reads again on the round trip back to a set it has already been on", async () => {
+    // The case a stamp comparison cannot see, and the reason this component now goes
+    // through `store/subject-scoped-state.ts` rather than holding its own: on the
+    // third visit the reader IS the reader from the first, so `stamped.reader === read`
+    // calls the first visit's answer current and the shelf renders invitations it has
+    // not asked about since it left. The holder addresses per VISIT, so returning to a
+    // set re-seeds it and the shelf reads again.
+    const uiStateStore = openStore();
+    const roundTrip = readerAnsweringOnce([
+      served([invite({ inviteId: "invite-from-the-first-visit" })]),
+    ]);
+    const view = render(
+      <InviteShelf read={roundTrip} uiStateStore={uiStateStore} clock={frozenClock()} />,
+    );
+    await settle();
+    expect(view.container.textContent ?? "").toContain("invite-from-the-first-visit");
+
+    const away = heldReader();
+    view.rerender(
+      <InviteShelf read={away.read} uiStateStore={uiStateStore} clock={frozenClock()} />,
+    );
+    await settle();
+
+    view.rerender(
+      <InviteShelf read={roundTrip} uiStateStore={uiStateStore} clock={frozenClock()} />,
+    );
+    await settle();
+
+    const text = view.container.textContent ?? "";
+    expect(text).not.toContain("invite-from-the-first-visit");
     expect(text).toContain("Reading your invitations.");
   });
 
