@@ -77,13 +77,6 @@ export function mountReadFor(
   };
 }
 
-/** An initialised store, so an appended event is admitted rather than buffered. */
-export function initialisedStore(sessionId: string): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-  return sessionStore;
-}
-
 /** One admitted event of the given kind, numbered so the store's cursor moves. */
 export function eventOfKind(
   sessionStore: SessionStore,

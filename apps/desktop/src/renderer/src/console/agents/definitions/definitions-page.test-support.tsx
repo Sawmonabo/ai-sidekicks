@@ -16,6 +16,7 @@
 import { act, render } from "@testing-library/react";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
+import { settle as settlePasses } from "../../core/settle.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SidekickDefinitionsPage } from "./DefinitionsPage.js";
 import type { SidekickDefinitionRecord } from "./definition-rows.js";
@@ -173,13 +174,17 @@ export async function releaseAnnouncementHold(clock: ManualClock): Promise<void>
   });
 }
 
+/**
+ * The depth of this page's own effect chain: the read, the delete, and the re-read
+ * the delete schedules, each settling the next.
+ *
+ * The bound stays with the caller and the loop is `core/`'s — see that module.
+ */
+const DEFINITIONS_SETTLE_PASSES = 6;
+
 /** Let the read, the delete, and the re-read the delete schedules all land. */
 export async function settle(): Promise<void> {
-  for (let pass = 0; pass < 6; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+  await settlePasses(DEFINITIONS_SETTLE_PASSES);
 }
 
 export function politeText(container: HTMLElement): string {

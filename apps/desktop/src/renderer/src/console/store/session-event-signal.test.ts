@@ -14,13 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { SessionStore, type ConsoleSessionEvent } from "./index.js";
 import { subscribeToSessionEventKinds } from "./session-event-signal.js";
-
-/** An initialised store, so an appended event is admitted rather than buffered. */
-function initialisedStore(sessionId: string): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-  return sessionStore;
-}
+import { initialisedStore } from "./session-store-registry.test-support.js";
 
 /** One admitted event of the given kind, numbered so the cursor moves. */
 function eventOfKind(

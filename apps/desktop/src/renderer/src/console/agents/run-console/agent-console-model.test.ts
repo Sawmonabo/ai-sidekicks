@@ -21,7 +21,8 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { AgentConsoleModels, useAgentConsoleModels } from "./agent-console-model.js";
-import { initialisedStore, unscriptedBridge } from "./run-console.test-support.js";
+import { initialisedStore } from "../../store/session-store-registry.test-support.js";
+import { unscriptedBridge } from "./run-console.test-support.js";
 
 const PARENT_RUN_ID = "run-7";
 const OTHER_PARENT_RUN_ID = "run-9";
