@@ -10,7 +10,9 @@
 // store seeded without one holds rows nothing could ever ask about.
 
 import { EVENT_ID_STEM } from "../../bridge/scenarios/ledger-cast.js";
-import { shellRowId } from "../../ledger/cards/index.js";
+// Deeply, and deliberately: the card door publishes what PRODUCTION reaches, and
+// this is the only reader `shellRowId` has ever had.
+import { shellRowId } from "../../ledger/cards/fixture-shell-projection.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 
 export const SESSION_ID = "session-ledger-feed";
