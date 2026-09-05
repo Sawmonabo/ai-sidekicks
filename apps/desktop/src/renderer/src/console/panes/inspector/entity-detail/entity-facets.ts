@@ -29,6 +29,7 @@
 
 import type { ConsoleEntity, SessionStore, useSessionDegradedCause } from "../../../store/index.js";
 import { formatByteQuantity, formatClockTime, formatCount } from "../../../primitives/index.js";
+import { parseInstant } from "../../../core/index.js";
 
 /**
  * Why the session's projection is known-incomplete.
@@ -165,7 +166,7 @@ export function byteFacet(label: string, value: unknown, memberName: string): En
  * fact is that the console was handed something that is not an instant.
  */
 export function instantFacet(label: string, value: unknown, memberName: string): EntityFacet {
-  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+  if (typeof value !== "string" || parseInstant(value).kind === "malformed") {
     return { label, value: unrecorded(memberName) };
   }
   return { label, value: { form: "derived", text: formatClockTime(value) } };

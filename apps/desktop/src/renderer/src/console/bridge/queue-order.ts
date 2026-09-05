@@ -9,6 +9,8 @@
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
+import { compareInstants, parseInstant } from "../core/index.js";
+
 /**
  * The ordered fold, as a class so the order rule is one place rather than a
  * convention spread across three `setState` callbacks.
@@ -82,13 +84,14 @@ export class QueueOrder {
  * `updatedAt` is `z.iso.datetime({ offset: true })` on both sides, so both parse;
  * an unparseable value answers `false`, which keeps the held row — the fail-closed
  * direction, since the alternative is letting an unreadable stamp overwrite a
- * reading the console knows is real.
+ * reading the console knows is real. Read through `parseInstant`, so an offset form
+ * and a `Z` form naming the same moment compare as the same moment.
  */
 function isStrictlyNewer(candidate: QueueItemSummary, held: QueueItemSummary): boolean {
-  const candidateInstant = Date.parse(candidate.updatedAt);
-  const heldInstant = Date.parse(held.updatedAt);
-  if (Number.isNaN(candidateInstant) || Number.isNaN(heldInstant)) {
+  const candidateInstant = parseInstant(candidate.updatedAt);
+  const heldInstant = parseInstant(held.updatedAt);
+  if (candidateInstant.kind === "malformed" || heldInstant.kind === "malformed") {
     return false;
   }
-  return candidateInstant > heldInstant;
+  return compareInstants(candidateInstant, heldInstant, "newest-first") < 0;
 }

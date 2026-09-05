@@ -10,8 +10,13 @@ import { describe, expect, it } from "vitest";
 
 import { ProviderAskFraming } from "./ProviderAskFraming.js";
 
-/** 2026-01-01T13:30:00Z, so the deadline below reads as four hours out. */
-const NOW_MILLISECONDS = Date.parse("2026-01-01T13:30:00.000Z");
+/**
+ * 2026-01-01T13:30:00Z, so the deadline below reads as four hours out.
+ *
+ * Built rather than parsed: a base a test PARSES is a test that reads a stamp, which
+ * is the reading the console's own parser owns.
+ */
+const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 13, 30);
 const EXPIRY = "2026-01-01T17:30:00.000Z";
 
 describe("what the framing says beyond the card", () => {

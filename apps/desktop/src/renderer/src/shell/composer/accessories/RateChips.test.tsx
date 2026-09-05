@@ -12,7 +12,9 @@ import { describe, expect, it } from "vitest";
 import type { ProviderQuotaReading } from "../../../console/bridge/index.js";
 import { RATE_CHIP_TONES, RateChips, rateChipToneFor } from "./RateChips.js";
 
-const NOW_MILLISECONDS = Date.parse("2026-01-01T00:00:00.000Z");
+// Built rather than parsed: a base a test PARSES is a test that reads a stamp, which
+// is the reading the console's own parser owns.
+const NOW_MILLISECONDS = Date.UTC(2026, 0, 1);
 
 function reading(overrides: Partial<ProviderQuotaReading> = {}): ProviderQuotaReading {
   return {

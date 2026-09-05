@@ -21,7 +21,11 @@
 
 import { RunStateSchema, type RunState } from "@ai-sidekicks/contracts";
 
+import { compareInstants, parseInstant } from "../../../console/core/index.js";
 import type { ConsoleEntity } from "../../../console/store/index.js";
+
+/** The rank a first candidate takes: newer than nothing, so it seats. */
+const NEWER_THAN_NOTHING = -1;
 
 /**
  * Whether a run in each state is still one a steer can be addressed to.
@@ -81,7 +85,18 @@ export function resolveAddressedRun(
     if (boundAgentId !== agentId || !stateAdmitsSteer(run.state)) {
       continue;
     }
-    if (addressed === undefined || (run.touchedAt ?? "") > (addressed.touchedAt ?? "")) {
+    // Ranked into a local before it is compared, so the comparison a reader sees is
+    // between a rank and zero rather than between two stamps — which is the shape the
+    // console's own ban is about, and the shape a later edit could quietly become.
+    const rankAgainstAddressed =
+      addressed === undefined
+        ? NEWER_THAN_NOTHING
+        : compareInstants(
+            parseInstant(run.touchedAt ?? ""),
+            parseInstant(addressed.touchedAt ?? ""),
+            "newest-first",
+          );
+    if (rankAgainstAddressed < 0) {
       addressed = run;
     }
   }

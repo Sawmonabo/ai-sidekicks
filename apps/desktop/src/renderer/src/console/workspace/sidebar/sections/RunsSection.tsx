@@ -48,6 +48,7 @@ import {
   type ConsoleEntity,
 } from "../../../store/index.js";
 import { type SidebarSectionContext } from "../../../seats/index.js";
+import { compareInstants, parseInstant } from "../../../core/index.js";
 
 /**
  * Which group a run's state sorts into, total over the registered union.
@@ -225,10 +226,16 @@ function groupRuns(
     }
   }
   for (const rows of grouped.values()) {
-    // Newest first within a group. `touchedAt` is an ISO-8601 string, which sorts
-    // lexicographically in exactly timestamp order for a fixed offset — the wire
-    // sends UTC — so no date is parsed to order a list.
-    rows.sort((left, right) => (right.touchedAt ?? "").localeCompare(left.touchedAt ?? ""));
+    // Newest first within a group, ordered as MOMENTS. Lexical order agrees with
+    // instant order only while every stamp carries the same offset, and the console
+    // does not get to assume the wire never sends another one.
+    rows.sort((left, right) =>
+      compareInstants(
+        parseInstant(left.touchedAt ?? ""),
+        parseInstant(right.touchedAt ?? ""),
+        "newest-first",
+      ),
+    );
   }
   return grouped;
 }

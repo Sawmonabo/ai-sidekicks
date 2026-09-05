@@ -37,6 +37,8 @@
 
 import type { ProviderAccount, ProviderAccountUsageWindow } from "@ai-sidekicks/contracts";
 
+import { compareInstants, parseInstant } from "../core/index.js";
+
 /** One provider account's quota in one limit window, as a surface renders it. */
 export interface ProviderQuotaReading {
   readonly accountId: string;
@@ -109,10 +111,15 @@ export function quotaMergeDispositionFor(
   if (isSameWindow(candidate, held) && candidate.usedPercent < held.usedPercent) {
     return "dropped-below-high-water";
   }
-  if (candidate.observedAt === held.observedAt) {
+  const ranked = compareInstants(
+    parseInstant(candidate.observedAt),
+    parseInstant(held.observedAt),
+    "newest-first",
+  );
+  if (ranked === 0) {
     return isCandidateLaterArrival ? "seated" : "held";
   }
-  return candidate.observedAt > held.observedAt ? "seated" : "held";
+  return ranked < 0 ? "seated" : "held";
 }
 
 /**
