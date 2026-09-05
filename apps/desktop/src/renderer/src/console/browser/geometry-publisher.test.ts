@@ -29,7 +29,7 @@ describe("PaneGeometryPublisher", () => {
     readonly occlusion: PaneOcclusionRegistry;
   } {
     const clock = new ManualClock();
-    const occlusion = new PaneOcclusionRegistry();
+    const occlusion = new PaneOcclusionRegistry({ clock });
     return { publisher: new PaneGeometryPublisher({ host, clock, occlusion }), clock, occlusion };
   }
 
@@ -38,7 +38,7 @@ describe("PaneGeometryPublisher", () => {
     const publisher = new PaneGeometryPublisher({
       host: unavailablePaneViewHost("no host in this window"),
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     expect(publisher.armedSourceCount).toBe(0);

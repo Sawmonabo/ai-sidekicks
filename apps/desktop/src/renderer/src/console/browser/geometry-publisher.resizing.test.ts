@@ -36,7 +36,7 @@ describe("PaneGeometryPublisher — the size source", () => {
       publisher: new PaneGeometryPublisher({
         host,
         clock,
-        occlusion: new PaneOcclusionRegistry(),
+        occlusion: new PaneOcclusionRegistry({ clock }),
       }),
     };
   }

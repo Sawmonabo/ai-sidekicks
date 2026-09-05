@@ -35,6 +35,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../src/renderer/src/console/bridge/index.js";
+import { releaseQueuedPaneFrames } from "../../src/renderer/src/console/panes/browser/BrowserPane.test-support.js";
 import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
@@ -172,6 +173,7 @@ export async function mountBrowserPane(): Promise<MountedFamilySurface> {
       {...paneBinding({ paneId: "pane-browser-surface", bridge, sessionStore: undefined })}
     />,
   );
+  await releaseQueuedPaneFrames(bridge);
   return { element: requireRegion(container, "Browser"), bridge };
 }
 

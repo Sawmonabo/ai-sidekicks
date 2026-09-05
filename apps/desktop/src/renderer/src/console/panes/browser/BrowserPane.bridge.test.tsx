@@ -9,8 +9,8 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
-import { ConsoleRefusalError, refuse } from "../../core/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import {
   addressField,
   findRefusalBanner,
@@ -19,6 +19,7 @@ import {
   navigationReportingBridge,
   paneViewHostRefusing,
   queryRefusalBanner,
+  releaseQueuedPaneFrames,
   renderBrowserPane,
   reportedState,
 } from "./BrowserPane.test-support.js";
@@ -279,6 +280,9 @@ describe("browser pane geometry outcomes", () => {
     };
 
     const { region } = await renderBrowserPane(bridge);
+    // The publish is reached by a state change and never by elapsed wall time: the
+    // frame it waits on is armed on THIS window's clock, which the fixture freezes.
+    await releaseQueuedPaneFrames(bridge);
 
     await waitFor(() => {
       expect(published.length).toBeGreaterThan(0);
@@ -294,10 +298,47 @@ describe("browser pane geometry outcomes", () => {
   });
 
   it("renders the host's refusal, which lands after the frame the pane cannot wait for", async () => {
-    const { region } = await renderBrowserPane(paneViewHostRefusing(PANE_GONE));
+    const bridge = paneViewHostRefusing(PANE_GONE);
+    const { region } = await renderBrowserPane(bridge);
+    await releaseQueuedPaneFrames(bridge);
     await waitFor(() => {
       expect(region.textContent).toContain(PANE_GONE);
     });
+  });
+
+  it("arms its publish on the window's own clock, and publishes nothing before it runs", async () => {
+    // `Spec-023 §Console Design (Meridian)` §The fixture bridge: the fixture clock is
+    // the only clock the renderer reads in fixture mode. The publisher used to mint a
+    // private `RealClock`, invisible to this one — so its frame and its `sampledAtMs`
+    // ran on wall time inside a window whose scenario beats, refresh scheduler, and
+    // stores were all frozen, and whether a screenshot or an endurance step caught the
+    // first publish was decided by how fast the runner happened to be.
+    const published: string[] = [];
+    const bridge: ConsoleBridge = {
+      ...fixtureBrowserBridge(),
+      paneViewHostScript: {
+        transport: "scripted",
+        holdsPane: (paneId) => {
+          published.push(paneId);
+          return { holds: true };
+        },
+      },
+    };
+    const clock = consoleClockFor(bridge);
+    if (!(clock instanceof ManualClock)) {
+      throw new Error("the fixture bridge did not hand this window a frozen clock");
+    }
+
+    await renderBrowserPane(bridge);
+
+    // The frame is on the WINDOW's clock, which is the whole claim: a publisher on a
+    // clock of its own would leave this one holding nothing and would still publish.
+    expect(clock.pendingFrameCount).toBeGreaterThan(0);
+    expect(published).toStrictEqual([]);
+
+    await releaseQueuedPaneFrames(bridge);
+
+    expect(published).toStrictEqual(["pane-browser-1"]);
   });
 
   it("renders the unavailable host's own sentence under a live bridge, and publishes nothing", async () => {
@@ -309,6 +350,29 @@ describe("browser pane geometry outcomes", () => {
       expect(region.textContent).toContain("reports its rectangle to nothing");
     });
     expect(region.textContent).not.toContain("has not been told which page it holds");
+  });
+
+  it("negative control: a run frame with no publisher armed publishes nothing", async () => {
+    // Without this, a case that ran the window's frame and then found a publish would
+    // pass over a pane that published on mount and never armed a frame at all — which
+    // is the shape the private clock produced from this window's point of view.
+    const published: string[] = [];
+    const bridge: ConsoleBridge = {
+      ...fixtureBrowserBridge(),
+      paneViewHostScript: {
+        transport: "scripted",
+        holdsPane: (paneId) => {
+          published.push(paneId);
+          return { holds: true };
+        },
+      },
+    };
+    const clock = consoleClockFor(bridge);
+    if (!(clock instanceof ManualClock)) {
+      throw new Error("the fixture bridge did not hand this window a frozen clock");
+    }
+    clock.runFrame();
+    expect(published).toStrictEqual([]);
   });
 
   it("negative control: the fixture bridge is not the unavailable arm", async () => {

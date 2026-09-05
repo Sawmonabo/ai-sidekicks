@@ -25,6 +25,7 @@ import {
   fixtureBrowserBridge,
   liveBrowserBridge,
   mountBrowserPaneForSubject,
+  releaseQueuedPaneFrames,
 } from "./BrowserPane.test-support.js";
 
 /** What a window with no view host says under the viewport. */
@@ -118,15 +119,19 @@ describe("browser pane rebound to another bridge", () => {
     // on writing rectangles to a host the window has left while its replacement is
     // already writing to the new one.
     const publishLog: string[] = [];
-    const mount = await mountBrowserPaneForSubject(
-      labelledRecordingBridge("retired", publishLog),
-      DEFAULT_TEST_PANE_ID,
-    );
+    // Each window is its own bridge and therefore its own frozen clock, so each one's
+    // frame is released against the window that armed it — which is the ordering this
+    // case is about, said in the one place it can be said without a stopwatch.
+    const retiredWindow = labelledRecordingBridge("retired", publishLog);
+    const mount = await mountBrowserPaneForSubject(retiredWindow, DEFAULT_TEST_PANE_ID);
+    await releaseQueuedPaneFrames(retiredWindow);
     await waitFor(() => {
       expect(publishLog).toContain("retired");
     });
 
-    await mount.rebindToBridge(labelledRecordingBridge("successor", publishLog));
+    const successorWindow = labelledRecordingBridge("successor", publishLog);
+    await mount.rebindToBridge(successorWindow);
+    await releaseQueuedPaneFrames(successorWindow);
     await waitFor(() => {
       expect(publishLog).toContain("successor");
     });
@@ -144,6 +149,7 @@ describe("browser pane rebound to another bridge", () => {
     const publishes: string[] = [];
     const bridge = recordingBrowserBridge(publishes);
     const mount = await mountBrowserPaneForSubject(bridge, DEFAULT_TEST_PANE_ID);
+    await releaseQueuedPaneFrames(bridge);
     await waitFor(() => {
       expect(publishes.length).toBeGreaterThan(0);
     });
@@ -151,6 +157,9 @@ describe("browser pane rebound to another bridge", () => {
     const publishesBeforeRerender = publishes.length;
     await mount.rebindToBridge(bridge);
     await mount.rebindTo(DEFAULT_TEST_PANE_ID);
+    // Released again, which is what makes the claim below a claim: a re-mint would
+    // have armed a frame on this window, and this is where it would have published.
+    await releaseQueuedPaneFrames(bridge);
 
     // A re-mint would publish the pane's rectangle again on attach; the same binding
     // publishes nothing, because nothing invalidated.

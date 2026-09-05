@@ -16,11 +16,10 @@ import {
   PaneGeometryPublisher,
   type PaneGeometryOutcome,
 } from "../../browser/geometry-publisher.js";
-import { consoleOcclusionRegistry } from "../../browser/occlusion-registry.js";
+import { consoleOcclusionRegistryFor } from "../../browser/occlusion-registry.js";
 import { isCurrentPaneSubject, type PaneSubject } from "../../browser/pane-subject.js";
 import { resolvePaneViewHost, type PaneViewHost } from "../../browser/view-host.js";
-import { RealClock } from "../../core/index.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 
 /**
  * One publisher over the host this window actually has, for the pane it is for, and
@@ -37,6 +36,15 @@ import type { ConsoleBridge } from "../../bridge/index.js";
  * pane's viewport is describing this pane's host" a fact rather than two lookups that
  * agree today.
  *
+ * THE CLOCK AND THE OVERLAY REGISTRY BOTH COME OFF THE BRIDGE, which is the same rule
+ * twice. `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock
+ * is the only clock the renderer reads in fixture mode", and the console has one answer
+ * to which clock a window reads. A privately minted `RealClock` here was invisible to
+ * `ManualClock` — the instrument the budgets are counted with — so under a frozen
+ * scenario this publisher's frame and its `sampledAtMs` ran on wall time while every
+ * other timer in the same pane was stopped, and whether a screenshot caught the first
+ * publish was decided by how fast the runner was.
+ *
  * Pure: it arms nothing.
  */
 export function createGeometryBinding(subject: PaneSubject): BoundGeometryPublisher {
@@ -46,8 +54,8 @@ export function createGeometryBinding(subject: PaneSubject): BoundGeometryPublis
     host,
     publisher: new PaneGeometryPublisher({
       host,
-      clock: new RealClock(),
-      occlusion: consoleOcclusionRegistry,
+      clock: consoleClockFor(subject.bridge),
+      occlusion: consoleOcclusionRegistryFor(subject.bridge),
     }),
   };
 }
