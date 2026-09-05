@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { unvouchedAxesOf } from "./dependent-axis-chain.js";
-import { OVERLAPPING_DRIVER_CATALOG_FIXTURE } from "./driver-catalog-fixtures.js";
+import { OVERLAPPING_DRIVER_CATALOG_FIXTURE } from "./driver-catalog.test-support.js";
 
 const CATALOG = OVERLAPPING_DRIVER_CATALOG_FIXTURE;
 

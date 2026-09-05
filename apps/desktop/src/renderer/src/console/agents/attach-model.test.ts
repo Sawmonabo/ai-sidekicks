@@ -20,7 +20,7 @@ import { AttachSidekickForm, type AttachRequest } from "./attach-model.js";
 import {
   DRIVER_CATALOG_FIXTURE,
   OVERLAPPING_DRIVER_CATALOG_FIXTURE,
-} from "./driver-catalog-fixtures.js";
+} from "./driver-catalog.test-support.js";
 import type { DriverCatalogReading } from "./driver-catalog.js";
 
 const SESSION_ID = "session-9";

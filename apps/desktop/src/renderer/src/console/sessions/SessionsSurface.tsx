@@ -67,16 +67,16 @@ import {
 } from "./notifications/index.js";
 import { DerivedFigure, InlineRefusal, Nothing, formatCount } from "../primitives/index.js";
 import { useOpenSessionIds } from "../store/index.js";
-import { InviteShelf, type InviteShelfReader } from "./InviteShelf.js";
-import { useOpenSessionRows } from "./open-session-rows.js";
+import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
+import { useOpenSessionRows } from "./rows/open-session-rows.js";
 import { SessionList } from "./SessionList.js";
 import {
   mergeSessionRows,
   sessionsAbsenceKindFor,
   withAttentionSeverity,
-} from "./session-directory-rows.js";
-import { useSessionPins, type SessionPinBinding } from "./session-pins.js";
-import type { SessionListRow } from "./session-rows.js";
+} from "./rows/session-directory-rows.js";
+import { useSessionPins, type SessionPinBinding } from "./rows/session-pins.js";
+import type { SessionListRow } from "./rows/session-rows.js";
 
 export interface SessionsSurfaceProps {
   readonly context: ConsoleSurfaceContext;

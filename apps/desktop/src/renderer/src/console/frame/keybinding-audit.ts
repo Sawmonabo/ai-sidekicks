@@ -14,7 +14,7 @@
 //
 // WHY THIS LIVES IN `frame/` AND NOT BESIDE THE KEYBOARD PAGE
 //
-// It was in `settings/pages/keybinding-map.ts`, which is where its only reader was.
+// It was in `settings/pages/keyboard/keybinding-map.ts`, which is where its only reader was.
 // The override store next door is now a second reader, and it sits BELOW settings in
 // the console's family DAG — so leaving the table there would have meant either an
 // upward import or a second copy of the reserved-chord list and the probe loop. The

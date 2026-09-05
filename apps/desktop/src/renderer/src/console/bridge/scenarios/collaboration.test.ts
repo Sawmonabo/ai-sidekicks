@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseInstant } from "../../core/index.js";
-import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/presence-model.js";
+import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/members/presence-model.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import type { ScenarioReply, ScenarioResolvingReply } from "../scenario.js";
 

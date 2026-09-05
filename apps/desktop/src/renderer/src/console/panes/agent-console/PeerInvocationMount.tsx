@@ -35,7 +35,7 @@
 // previous subject's answer under the new one.
 //
 // The comparison is on the SESSION and never on the value, for
-// `agents/agent-console-model.ts`' reason: two sessions agreeing about the grant is
+// `agents/run-console/agent-console-model.ts`' reason: two sessions agreeing about the grant is
 // not one fact, it is two, and only one of them was read.
 
 import { useCallback, useEffect, useState } from "react";

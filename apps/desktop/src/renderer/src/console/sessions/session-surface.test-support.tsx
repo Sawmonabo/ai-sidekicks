@@ -195,7 +195,7 @@ export function contextWith(options: {
  * Mount the destination the way the frame does: under the console's one announcer.
  *
  * THE SURFACE'S OWN ELEMENT IS RETURNED, not the render container — the
- * `settings/pages/UpdatesPage.test.tsx` shape, and here it is load-bearing rather
+ * `settings/pages/updates/UpdatesPage.test.tsx` shape, and here it is load-bearing rather
  * than tidy. The provider's two live regions are siblings ABOVE this surface, and
  * they carry the settlement sentence, so a case asserting the panel does not say
  * "Nothing needs you." would otherwise be reading the announcement of exactly that

@@ -60,7 +60,7 @@ export interface RefusedAttentionSession {
  * beside a refused one render as an all-clear — a person told nothing needs them
  * on the strength of a question half the sessions never answered.
  *
- * It is the vocabulary `sessions/InviteShelf.tsx` already folds its own fan-out
+ * It is the vocabulary `sessions/invitations/InviteShelf.tsx` already folds its own fan-out
  * into, one level down: outcomes are tracked rather than survivors, so "one session
  * has nothing for you" and "another would not say" stay two facts.
  */

@@ -26,7 +26,7 @@ import type { ReactNode } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { PreferenceToggleRow } from "./PreferenceToggleRow.js";
-import { useShellPreferences } from "./shell-preferences-holder.js";
+import { useShellPreferences } from "./shell-preferences/shell-preferences-holder.js";
 
 /** The one key this block spends. Named once so the row and its note cannot drift. */
 const CRASH_REPORT_KEY = "diagnostics.crashReports";

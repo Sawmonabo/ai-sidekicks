@@ -14,7 +14,7 @@ import {
   modelsFor,
   outputSpeedLevelsFor,
 } from "./driver-catalog.js";
-import { DRIVER_CATALOG_FIXTURE } from "./driver-catalog-fixtures.js";
+import { DRIVER_CATALOG_FIXTURE } from "./driver-catalog.test-support.js";
 
 describe("driver catalog — the group lists", () => {
   it("answers the driver names in the daemon's own order", () => {

@@ -5,7 +5,7 @@
 // count; the settlement announcement speaks the same read to someone who cannot see
 // any of it. Written twice they would eventually disagree about one number, and the
 // disagreement would be invisible to whichever half its author was looking at —
-// which is the `agents/definition-rows.ts` precedent (`NO_SAVED_SIDEKICKS`, held as
+// which is the `agents/definitions/definition-rows.ts` precedent (`NO_SAVED_SIDEKICKS`, held as
 // one constant "so the page and its announcement agree").
 //
 // WHAT THE SPOKEN FORM LEAVES OUT, and why. A refusal is spoken as the port's own

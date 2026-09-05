@@ -18,8 +18,8 @@
 import { createElement } from "react";
 
 import { registerSidebarSection } from "../seats/index.js";
-import { ChannelsSection } from "./ChannelsSection.js";
-import { MembersSection } from "./MembersSection.js";
+import { ChannelsSection } from "./channels/ChannelsSection.js";
+import { MembersSection } from "./members/MembersSection.js";
 import { CollaborationSessionModelHolder } from "./session-models.js";
 
 /** The owner string both sections register under. */

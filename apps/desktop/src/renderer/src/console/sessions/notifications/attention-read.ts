@@ -164,7 +164,7 @@ function attentionReadingFrom(
  * eventually would.
  *
  * The read is CONSTRUCTED in the render body and STARTED in an effect, which is the
- * split `settings/pages/WorkspaceMountsPage.tsx` already makes: constructing one
+ * split `settings/pages/mounts/WorkspaceMountsPage.tsx` already makes: constructing one
  * opens nothing and arms nothing, so a render React discards leaves no subscription
  * behind, and the subscribe-and-read that must not happen during render rides the
  * effect.
@@ -179,7 +179,7 @@ export function useAttentionProjection(
       new PushDrivenRead<AttentionProjectionRead | undefined>({
         // The scenario's frozen clock under the fixture and the real one otherwise,
         // resolved inside the construction the bridge already keys — the shape
-        // `settings/pages/WorkspaceMountsPage.tsx` takes for the same reason: this
+        // `settings/pages/mounts/WorkspaceMountsPage.tsx` takes for the same reason: this
         // read's coalescing window has to advance when a story advances everything
         // else's.
         clock: consoleClockFor(bridge),
@@ -205,7 +205,7 @@ export function useAttentionProjection(
  * Say what this read settled on, through the console's one settlement announcer.
  *
  * COMPOSES A SENTENCE AND GUARDS NOTHING, the shape
- * `agents/definition-registry-view.ts` states: the repetition rule belongs to
+ * `agents/definitions/definition-registry-view.ts` states: the repetition rule belongs to
  * `primitives/settlement-announcement.ts` and is keyed on the SENTENCE, which is the
  * only key that is correct here. This read RE-READS — every session store that moves
  * pushes it — so a flag held once for the life of the mount would speak the first

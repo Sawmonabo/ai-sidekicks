@@ -66,7 +66,7 @@ describe("bootstrap channel name — the console imports it and spells it nowher
     // below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
     expect(modules.map((module) => module.displayPath)).toContain(
-      "console/collaboration/channel-model.ts",
+      "console/collaboration/channels/channel-model.ts",
     );
   });
 
@@ -86,8 +86,8 @@ describe("bootstrap channel name — the console imports it and spells it nowher
     // family that deleted its copy and then stopped recognising the bootstrap
     // channel altogether would satisfy the assertion above.
     for (const displayPath of [
-      "console/collaboration/channel-model.ts",
-      "console/collaboration/CreateChannel.tsx",
+      "console/collaboration/channels/channel-model.ts",
+      "console/collaboration/channels/CreateChannel.tsx",
     ]) {
       expect(readConsoleSourceModule(moduleNamed(modules, displayPath))).toContain(
         'import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts"',

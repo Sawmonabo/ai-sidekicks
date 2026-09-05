@@ -129,7 +129,7 @@ export class KeybindingOverrideStore {
    * The rounds this store's overrides have moved through.
    *
    * TWO ROLES, ONE GENERATION, which is the shape `core/attempt-generation.ts`
-   * describes and `settings/pages/shell-preferences-store.ts` takes the same way: a
+   * describes and `settings/pages/shell-preferences/shell-preferences-store.ts` takes the same way: a
    * rebinding SUPERSEDES a hydration already in flight — the record that read
    * answers with is the map from before the choice, which is the rule
    * `scheme-preference.ts` states for the colour scheme — and a second hydration

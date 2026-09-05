@@ -46,8 +46,8 @@ import type { ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { isCurrentSessionSubject, type SessionSubject } from "../seats/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activity-model.js";
-import { createChannelDirectory, type ChannelDirectory } from "./channel-model.js";
-import { createPresenceRoster, type PresenceRoster } from "./presence-model.js";
+import { createChannelDirectory, type ChannelDirectory } from "./channels/channel-model.js";
+import { createPresenceRoster, type PresenceRoster } from "./members/presence-model.js";
 
 /** Everything one session's collaboration surfaces read from. */
 export interface CollaborationSessionModels {

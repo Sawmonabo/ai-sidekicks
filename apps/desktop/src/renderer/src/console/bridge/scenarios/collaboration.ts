@@ -22,10 +22,10 @@
 // than a title — a session's display name reaches the console from the session
 // read, never from the creation event. The roles are the wire's four
 // (`MembershipRole` in `packages/contracts/src/session.ts`), which is the same
-// closed set `collaboration/members-model.ts` reads.
+// closed set `collaboration/members/members-model.ts` reads.
 //
 // FOUR PEOPLE, BECAUSE THE ROSTER HAS FOUR STATES. `PresenceState` is
-// `online | idle | reconnecting | offline` and `collaboration/presence-model.ts`
+// `online | idle | reconnecting | offline` and `collaboration/members/presence-model.ts`
 // renders them in exactly that order, keeping an offline member IN the list rather
 // than dropping them. A three-person roster leaves one of those four rows — the
 // dimmed one, which is the row with a rendering of its own — unreachable, so the
@@ -167,7 +167,7 @@ type CollaborationParticipant = (typeof COLLABORATION_PARTICIPANTS)[number];
  * `ChannelListResponseChannel` is exactly `{id, name?, state, participantCount}`
  * (`packages/contracts/src/channels.ts`), so this table carries those four members
  * and nothing about audience or kind — the wire has neither, and
- * `collaboration/channel-model.ts` classifies rows from `state` and the bootstrap
+ * `collaboration/channels/channel-model.ts` classifies rows from `state` and the bootstrap
  * name alone. That name is taken from `MAIN_CHANNEL_NAME` rather than spelled here:
  * the value belongs to the producer, and a fixture that wrote the word down would
  * go on serving the old one after the wire vocabulary moved — teaching the
@@ -299,7 +299,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
         kind: "channel.archived",
         occurredAt: "2026-01-01T10:05:00.340Z",
         actorId: PARTICIPANT_YOU,
-        // One of the four kinds `collaboration/channel-model.ts` re-reads on, so
+        // One of the four kinds `collaboration/channels/channel-model.ts` re-reads on, so
         // this beat is what proves the directory refreshes from a signal rather
         // than from a timer. The census registers no payload variant for it, so the
         // payload carries the channel the event is about and invents nothing else.

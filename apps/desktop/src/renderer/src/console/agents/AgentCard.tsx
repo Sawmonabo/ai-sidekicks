@@ -24,7 +24,7 @@
 import { useId } from "react";
 
 import { Chip, WireFigure } from "../primitives/index.js";
-import { boundaryPhrase } from "./switch-settlement.js";
+import { boundaryPhrase } from "./provider-switch/switch-settlement.js";
 import { type AgentPendingSwitch, type AgentRosterEntry } from "../bridge/index.js";
 import { AGENT_STATES, isKnownMember } from "./agent-wire.js";
 import { ResolvedConfigurationEcho } from "./AgentConfigurationEcho.js";

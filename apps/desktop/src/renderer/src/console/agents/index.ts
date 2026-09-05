@@ -28,7 +28,7 @@ import type { OwnerSlotProps } from "../seats/index.js";
 // pane because the design puts a saved sidekick's configuration in settings and
 // reaches it from the in-session attach picker, and it crosses a family boundary, so
 // it leaves this family through the door rather than by a deep import.
-export { SidekickDefinitionsPage } from "./DefinitionsPage.js";
+export { SidekickDefinitionsPage } from "./definitions/DefinitionsPage.js";
 
 /** What the sidekick-definition editor is handed when its body arrives. */
 export interface SidekickDefinitionEditorProps {
@@ -65,19 +65,19 @@ export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionE
 // this family's own and are reached deeply from inside it — a barrel entry for
 // one of them would be an export nothing outside can name.
 
-export { AgentConsoleModels, useAgentConsoleModels } from "./agent-console-model.js";
+export { AgentConsoleModels, useAgentConsoleModels } from "./run-console/agent-console-model.js";
 // Straight from the module that DECLARES it. The read factories and their reading
 // types moved out of the model when lifetime and refresh became two files, and a
 // barrel that went on naming the model for this type would be re-exporting a
 // re-export — the chain this family's one door exists to avoid.
-export type { ChildRunLinkageRead } from "./agent-console-reads.js";
+export type { ChildRunLinkageRead } from "./run-console/agent-console-reads.js";
 
 // Which run is this agent's newest, for every surface that has to ask. The
 // SUBSCRIPTION is what leaves: the pure selector under it is this family's own and
 // is reached deeply from inside it, because a consumer outside that took the
 // snapshot form would have to invent its own re-derivation signal — which is the
 // defect `agent-run-linkage.ts` exists to close, arrived at from the other side.
-export { useNewestRunIdForAgent } from "./agent-run-linkage.js";
+export { useNewestRunIdForAgent } from "./run-console/agent-run-linkage.js";
 
 export type { ProviderAxis } from "./agent-wire.js";
 
@@ -86,5 +86,5 @@ export { AgentRosterEmpty } from "./AgentRosterEmpty.js";
 export { AttachSidekick } from "./AttachSidekick.js";
 export { AttachSidekickForm } from "./attach-model.js";
 export { PeerInvocation } from "./PeerInvocation.js";
-export { ProviderSwitch } from "./ProviderSwitch.js";
-export { RunLinkage } from "./RunLinkage.js";
+export { ProviderSwitch } from "./provider-switch/ProviderSwitch.js";
+export { RunLinkage } from "./run-console/RunLinkage.js";

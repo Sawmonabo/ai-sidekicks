@@ -16,7 +16,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AgentConsoleModels } from "../../agents/index.js";
-import { DRIVER_CATALOG_FIXTURE } from "../../agents/driver-catalog-fixtures.js";
+import { DRIVER_CATALOG_FIXTURE } from "../../agents/driver-catalog.test-support.js";
 import {
   fixtureBridgeWithGrowth,
   growthAnswering,

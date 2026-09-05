@@ -41,8 +41,8 @@ import {
   type PlacedSessionRow,
   type SessionListRow,
   type SessionPinTier,
-} from "./session-rows.js";
-import type { SessionPinMap } from "./session-pins.js";
+} from "./rows/session-rows.js";
+import type { SessionPinMap } from "./rows/session-pins.js";
 
 export interface SessionListProps {
   readonly rows: readonly SessionListRow[];

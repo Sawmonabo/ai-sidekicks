@@ -68,10 +68,10 @@ import {
   ActivityIndicatorRegistry,
   type ChannelActivityLabels,
 } from "../../../src/renderer/src/console/collaboration/activity-model.js";
-import { ChannelList } from "../../../src/renderer/src/console/collaboration/ChannelList.js";
-import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/presence-model.js";
-import { Roster } from "../../../src/renderer/src/console/collaboration/Roster.js";
-import { SentInvites } from "../../../src/renderer/src/console/collaboration/SentInvites.js";
+import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
+import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/members/presence-model.js";
+import { Roster } from "../../../src/renderer/src/console/collaboration/members/Roster.js";
+import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
 import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";

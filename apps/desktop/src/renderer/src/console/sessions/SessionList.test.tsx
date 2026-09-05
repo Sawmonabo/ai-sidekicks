@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { formatClockTime, formatDateTime } from "../primitives/index.js";
 import { SessionList } from "./SessionList.js";
-import type { SessionListRow } from "./session-rows.js";
+import type { SessionListRow } from "./rows/session-rows.js";
 
 /** The same wall-clock minute on two different calendar days. */
 const TOUCHED_TODAY = "2026-01-01T09:30:00.000Z";

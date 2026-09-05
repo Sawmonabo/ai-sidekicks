@@ -127,7 +127,7 @@ function isBridgeFamilyModule(module: string): boolean {
  *
  * The five are the collaboration family's rebinding — `agent-console-reads.ts`,
  * `channel-model.ts`, `mutation-coordinator.ts`, `presence-model.ts`, and
- * `settings/pages/mount-inventory.ts` — every surface in this family that reaches a
+ * `settings/pages/mounts/mount-inventory.ts` — every surface in this family that reaches a
  * method the registry binds. The count fails the moment it moves in either
  * direction, so the next family lane that binds a surface moves this constant in its
  * own PR and a reader learns from that diff which surfaces joined; and a surface
