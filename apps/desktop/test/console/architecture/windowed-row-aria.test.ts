@@ -35,6 +35,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   consoleSourceModules,
+  moduleNamed,
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
@@ -165,16 +166,3 @@ describe("windowed rows — an explicit row role carries the pair", () => {
     expect(roleTagsMissingPosition('<li className="plain">')).toStrictEqual([]);
   });
 });
-
-/** One named module, or a failure that says which name was not found. */
-function moduleNamed(
-  modules: readonly ConsoleSourceModule[],
-  displayPath: string,
-  what: string,
-): ConsoleSourceModule {
-  const found = modules.find((module) => module.displayPath === displayPath);
-  if (found === undefined) {
-    throw new Error(`the scan did not reach ${what} at ${displayPath}`);
-  }
-  return found;
-}

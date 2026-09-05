@@ -36,6 +36,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   consoleSourceModules,
+  moduleNamed,
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
@@ -70,18 +71,6 @@ const TIMER_ARMING_FORMS: readonly string[] = [
  */
 function timerArmingSignatures(source: string): readonly string[] {
   return TIMER_ARMING_FORMS.filter((form) => source.includes(form));
-}
-
-/** One named module, or a failure that says which name was not found. */
-function moduleNamed(
-  modules: readonly ConsoleSourceModule[],
-  displayPath: string,
-): ConsoleSourceModule {
-  const found = modules.find((module) => module.displayPath === displayPath);
-  if (found === undefined) {
-    throw new Error(`the scan did not reach ${displayPath}`);
-  }
-  return found;
 }
 
 describe("timer chokepoint — one seam arms every console timer", () => {

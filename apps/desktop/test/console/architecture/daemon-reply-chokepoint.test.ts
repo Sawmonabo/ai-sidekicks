@@ -41,25 +41,38 @@
 //     `console-unit` resident, so it is named here rather than added later and
 //     forgotten.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ESLint } from "eslint";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+  type ConsoleSourceModule,
+} from "../console-source-modules.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DESKTOP_PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
 const RENDERER_SOURCE_ROOT = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
 
 /**
- * The subtrees this file governs, relative to the renderer source root.
+ * The walk, done once, and shared with every other source-text gate.
  *
- * `shell/` is listed though it does not exist yet — see the header. A missing root
- * contributes no modules rather than throwing, and the vacuity guard below is what
- * keeps that from turning into a silent pass.
+ * `{ tests: true }` is this gate's one divergence from the default and the reason
+ * the walk takes the flag at all: a test outside the bridge family stands in for a
+ * surface, and a surface goes through the door. It rides as a parameter rather than
+ * as this file's own `readdirSync` — which is what it was, with an exclusion list
+ * that differed from the shared one and from the subject gate's, so the three walks
+ * disagreed about `.test-support.*` with nothing reporting it.
+ *
+ * The roots are the shared walk's default, `console/` and `shell/`; the second does
+ * not exist on this branch, contributes no modules rather than throwing, and the
+ * vacuity guard below is what keeps that from turning into a silent pass.
  */
-const GOVERNED_SUBTREES: readonly string[] = ["console", "shell"];
+const GOVERNED_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules({ tests: true });
 
 /**
  * The one production module allowed to reach the bridge's call door.
@@ -67,7 +80,7 @@ const GOVERNED_SUBTREES: readonly string[] = ["console", "shell"];
  * A path rather than a naming convention, so moving the chokepoint is an edit a
  * reviewer sees in this file.
  */
-const CHOKEPOINT_MODULE = join("console", "bridge", "daemon-reply.ts");
+const CHOKEPOINT_MODULE = "console/bridge/daemon-reply.ts";
 
 /**
  * The bridge family, which its own tests and support modules may drive directly.
@@ -79,7 +92,7 @@ const CHOKEPOINT_MODULE = join("console", "bridge", "daemon-reply.ts");
  * chokepoint. A test in any OTHER family has no such excuse: it is standing in for
  * a surface, and a surface goes through the door.
  */
-const BRIDGE_FAMILY_PREFIX = join("console", "bridge") + "/";
+const BRIDGE_FAMILY_PREFIX = "console/bridge/";
 
 /**
  * How a module shows it reached the daemon call door, in the two shapes that reach.
@@ -114,21 +127,11 @@ function daemonCallReaches(source: string): readonly string[] {
 
 /** Every governed source module, as a renderer-root-relative path. */
 function governedSourceModules(): readonly string[] {
-  return GOVERNED_SUBTREES.flatMap((subtree) => {
-    const root = join(RENDERER_SOURCE_ROOT, subtree);
-    if (!existsSync(root)) {
-      return [];
-    }
-    return readdirSync(root, { recursive: true, encoding: "utf8" })
-      .filter(
-        (entry) => (entry.endsWith(".ts") || entry.endsWith(".tsx")) && !entry.endsWith(".d.ts"),
-      )
-      .map((entry) => join(subtree, entry));
-  }).sort();
+  return GOVERNED_MODULES.map((module) => module.displayPath);
 }
 
 function readGovernedSource(module: string): string {
-  return readFileSync(join(RENDERER_SOURCE_ROOT, module), "utf8");
+  return readConsoleSourceModule(moduleNamed(GOVERNED_MODULES, module));
 }
 
 function isBridgeFamilyModule(module: string): boolean {
