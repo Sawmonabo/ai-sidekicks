@@ -61,7 +61,6 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // renders a served value or a refusal, and a surface that could reach a schema
 // would be a surface that could parse a second time, differently.
 export {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
   callDaemon,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DAEMON_REPLY_REFUSAL_ORIGIN,
