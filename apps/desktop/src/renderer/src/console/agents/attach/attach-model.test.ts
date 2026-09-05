@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PROVIDER_AXES } from "./agent-wire.js";
+import { PROVIDER_AXES } from "../agent-wire.js";
 import {
   ATTACH_FIELDS,
   AttachSidekickForm,
@@ -26,8 +26,8 @@ import {
 import {
   DRIVER_CATALOG_FIXTURE,
   OVERLAPPING_DRIVER_CATALOG_FIXTURE,
-} from "./driver-catalog.test-support.js";
-import type { DriverCatalogReading } from "./driver-catalog.js";
+} from "../driver-catalog.test-support.js";
+import type { DriverCatalogReading } from "../driver-catalog.js";
 
 const SESSION_ID = "session-9";
 

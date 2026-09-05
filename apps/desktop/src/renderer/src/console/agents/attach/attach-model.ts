@@ -62,15 +62,15 @@
 // emitter, and `apps/desktop/AGENTS.md` puts stateful logic here rather than in a
 // render.
 
-import { Emitter, type Unsubscribe } from "../core/index.js";
-import type { SidekickDefinitionSummary } from "./agent-wire.js";
+import { Emitter, type Unsubscribe } from "../../core/index.js";
+import type { SidekickDefinitionSummary } from "../agent-wire.js";
 import {
   unvouchedAxesOf,
   DEPENDENT_AXES,
   type DependentAxis,
   type ResolvedAxisChain,
-} from "./dependent-axis-chain.js";
-import type { DriverCatalogReading } from "./driver-catalog.js";
+} from "../dependent-axis-chain.js";
+import type { DriverCatalogReading } from "../driver-catalog.js";
 
 /** Which arm the caller is filling. The definition arm needs only an id. */
 export const ATTACH_ARMS = ["definition", "inline"] as const;

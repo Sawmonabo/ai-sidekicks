@@ -55,7 +55,7 @@ import {
   type DriverCatalogRead,
   type SidekickDefinitionRead,
 } from "./agent-console-reads.js";
-import type { AttachRequest } from "../attach-model.js";
+import type { AttachRequest } from "../attach/attach-model.js";
 
 /**
  * One holder's grant of a parent run's child-link read.
