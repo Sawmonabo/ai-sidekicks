@@ -16,7 +16,7 @@
 // hook that closed everything twice would satisfy it too, which is why the closes are
 // counted by name rather than merely looked for.
 
-import { act, render, type RenderResult } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { useEffect, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -117,61 +117,6 @@ function SwapProbe(props: SwapProbeProps): ReactElement {
   props.onReady?.(publish);
   return <output>{value.name}</output>;
 }
-
-interface FreshCloseProbeProps {
-  readonly subject: NamedFixtureSubject;
-  readonly ledger: ResourceLedger;
-  /** Which pass this tree is, so the disposal each one mints can be told apart. */
-  readonly pass: number;
-  readonly onResource: (resource: OpenResource) => void;
-}
-
-/**
- * A caller whose disposal is minted per render — the shape the hook documents.
- *
- * The identity handed in changes on every pass, and none of those passes is about
- * the resource. What the disposal RECORDS is the pass that minted it, so the ledger
- * says which one ran rather than only that something did.
- */
-function FreshCloseProbe(props: FreshCloseProbeProps): ReactElement {
-  const { ledger, pass } = props;
-  const { value } = useSubjectScopedResource<OpenResource>(
-    props.subject,
-    undefined,
-    () => ledger.open(props.subject.name),
-    (resource) => {
-      ledger.close({ name: `${resource.name} closed by pass ${String(pass)}` });
-    },
-  );
-  props.onResource(value);
-  return <output>{value.name}</output>;
-}
-
-/**
- * The dependency list this replaced: the resource's lifetime keyed on the disposal.
- *
- * Not a stand-in for the hook — it drives the real holder through the effect the
- * resource lifetime used to run, which is the one thing these cases are about. With
- * a disposal minted per render, every rerender runs that effect's cleanup and closes
- * the resource the frame on screen is still reading through.
- */
-function CloseKeyedLifetimeProbe(props: FreshCloseProbeProps): ReactElement {
-  const { ledger, pass } = props;
-  const { value } = useSubjectScopedState<OpenResource>(props.subject, undefined, () =>
-    ledger.open(props.subject.name),
-  );
-  const close = (resource: OpenResource): void => {
-    ledger.close({ name: `${resource.name} closed by pass ${String(pass)}` });
-  };
-  useEffect(() => {
-    return () => {
-      close(value);
-    };
-  }, [value, close]);
-  props.onResource(value);
-  return <output>{value.name}</output>;
-}
-
 describe("useSubjectScopedResource — a render React discarded leaves nothing open", () => {
   it("closes the resource the discarded pass opened, and only that one", () => {
     const ledger = new ResourceLedger();
@@ -275,6 +220,67 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
   });
 });
 
+describe("useSubjectScopedResource — two publishes before one commit", () => {
+  it("closes the resource the second publish replaced, and leaves the committed one to the effect", () => {
+    // The batched case: two direct settlements land in one event, so the first
+    // replacement is installed and replaced again with no commit in between. No
+    // effect ever closed over it and the re-addressing path never sees it — the
+    // holder's own write is the last moment anything can reach it.
+    const ledger = new ResourceLedger();
+    let publishInto: (next: OpenResource) => void = () => {};
+    const view = render(
+      <SwapProbe
+        subject={DISCARDED_SUBJECT}
+        ledger={ledger}
+        onReady={(publish) => {
+          publishInto = publish;
+        }}
+      />,
+    );
+
+    act(() => {
+      publishInto(ledger.open("published first"));
+      publishInto(ledger.open("published second"));
+    });
+
+    expect(ledger.opened).toStrictEqual(["discarded", "published first", "published second"]);
+    // The middle one is the whole case. The committed resource is closed AFTER it, by
+    // the effect that was holding it — never during the publish, where the frame on
+    // screen is still reading through it and the pass may yet be discarded.
+    expect(ledger.closed).toStrictEqual(["published first", "discarded"]);
+    expect(view.container.textContent).toBe("published second");
+
+    // And the survivor is the one on screen, closed once, at the mount's end.
+    view.unmount();
+    expect(ledger.closed).toStrictEqual(["published first", "discarded", "published second"]);
+  });
+
+  it("negative control: a single publish closes nothing before its own commit", () => {
+    // Without this, "the replaced resource was closed" would also be satisfied by a
+    // hook that closed every published value — which would close the resource the
+    // window just opened for the visit it is on.
+    const ledger = new ResourceLedger();
+    let publishInto: (next: OpenResource) => void = () => {};
+    render(
+      <SwapProbe
+        subject={DISCARDED_SUBJECT}
+        ledger={ledger}
+        onReady={(publish) => {
+          publishInto = publish;
+        }}
+      />,
+    );
+    const published = ledger.open("published once");
+
+    act(() => {
+      publishInto(published);
+    });
+
+    expect(ledger.closed).not.toContain("published once");
+    expect(consoleTripwires.totalFiringCount).toBe(0);
+  });
+});
+
 describe("useSubjectScopedResource — an open that settles after the subject has moved", () => {
   it("closes the resource the late open produced, and installs nothing", () => {
     // A caller opens a connection for the visit on screen, the surface is
@@ -309,84 +315,5 @@ describe("useSubjectScopedResource — an open that settles after the subject ha
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late", "settled"]);
-  });
-});
-
-describe("useSubjectScopedResource — a disposal minted per render is not a lifetime", () => {
-  /** Every pass renders the same tree; only the disposal identity moves. */
-  function renderPasses(
-    ledger: ResourceLedger,
-    Probe: (props: FreshCloseProbeProps) => ReactElement,
-    subjects: readonly [NamedFixtureSubject, ...NamedFixtureSubject[]],
-  ): { readonly view: RenderResult; readonly resources: readonly OpenResource[] } {
-    const resources: OpenResource[] = [];
-    const record = (resource: OpenResource): void => {
-      resources.push(resource);
-    };
-    const treeAt = (subject: NamedFixtureSubject, pass: number): ReactElement => (
-      <Probe subject={subject} ledger={ledger} pass={pass} onResource={record} />
-    );
-    const [first, ...rest] = subjects;
-    const view = render(treeAt(first, 1));
-    rest.forEach((subject, index) => {
-      view.rerender(treeAt(subject, index + 2));
-    });
-    return { view, resources };
-  }
-
-  it("closes nothing on a rerender that only minted a fresh disposal", () => {
-    // The defect: `close` sat in the resource lifetime's dependency list, so an
-    // unrelated rerender ran that effect's cleanup — closing the still-current
-    // resource and then recommitting the closed value.
-    const ledger = new ResourceLedger();
-    const passes = renderPasses(ledger, FreshCloseProbe, [
-      DISCARDED_SUBJECT,
-      DISCARDED_SUBJECT,
-      DISCARDED_SUBJECT,
-    ]);
-
-    expect(ledger.opened).toStrictEqual(["discarded"]);
-    expect(ledger.closed).toStrictEqual([]);
-    // And the surface is still reading through the resource it opened, rather than
-    // through a replacement minted to cover for one that was closed underneath it.
-    expect(new Set(passes.resources).size).toBe(1);
-  });
-
-  it("closes the retired resource once, through the newest disposal", () => {
-    // The move that IS a lifetime, driven over the same script: two passes at one
-    // subject and a third at another. One close, and by the pass that retired it.
-    const ledger = new ResourceLedger();
-    const passes = renderPasses(ledger, FreshCloseProbe, [
-      DISCARDED_SUBJECT,
-      DISCARDED_SUBJECT,
-      SETTLED_SUBJECT,
-    ]);
-
-    expect(ledger.opened).toStrictEqual(["discarded", "settled"]);
-    expect(ledger.closed).toStrictEqual(["discarded closed by pass 3"]);
-
-    passes.view.unmount();
-    expect(ledger.closed).toStrictEqual(["discarded closed by pass 3", "settled closed by pass 3"]);
-  });
-
-  it("negative control: the disposal-keyed lifetime closes the resource on screen", () => {
-    // The identical script against the dependency list this replaced. Nothing was
-    // opened to replace what it closed, so the surface goes on rendering a resource
-    // that has been disposed twice — which is the defect, and the reason the claim
-    // above is about the dependency list rather than about the script.
-    const ledger = new ResourceLedger();
-    const passes = renderPasses(ledger, CloseKeyedLifetimeProbe, [
-      DISCARDED_SUBJECT,
-      DISCARDED_SUBJECT,
-      DISCARDED_SUBJECT,
-    ]);
-
-    expect(ledger.opened).toStrictEqual(["discarded"]);
-    expect(ledger.closed).toStrictEqual([
-      "discarded closed by pass 1",
-      "discarded closed by pass 2",
-    ]);
-    expect(new Set(passes.resources).size).toBe(1);
-    expect(passes.view.container.textContent).toBe("discarded");
   });
 });

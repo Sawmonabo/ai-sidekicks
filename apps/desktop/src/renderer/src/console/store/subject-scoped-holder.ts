@@ -54,10 +54,17 @@
 // happening, so it is drivable with no renderer at all. `subject-scoped-state.ts`
 // decides when React is told, and `subject-scoped-resource.ts` adds the half about a
 // value that has to be disposed rather than dropped.
+//
+// AND WHAT BECOMES OF A VALUE THE PUBLISH PATH LETS GO OF IS `unheld-value-disposal.ts`.
+// This file answers who may write; that one answers what happens to the value the
+// write refused or replaced, and it holds both moments together because they share a
+// backstop and differ only in the sentence they report.
 
 import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 
 import { Emitter, reportTripwire, type Unsubscribe } from "../core/index.js";
+
+import { UnheldValueDisposal, type SubjectScopedHolderOptions } from "./unheld-value-disposal.js";
 
 /** What a tripwire report from this module names as the site it fired at. */
 const SITE = "console/store/subject-scoped-holder.ts";
@@ -108,28 +115,6 @@ interface HeldSubjectValue<TValue> {
 const NO_ADDRESSING = 0;
 
 /**
- * How a holder is built, for the caller whose value owns something.
- *
- * A VALUE IS DROPPED AND A RESOURCE IS DISPOSED — the split {@link
- * SubjectScopedHolder.address} already draws for a value a re-addressing replaces,
- * drawn here at the other write moment. A caller that opened a connection for a
- * visit which ended while the open was in flight has published something nothing
- * will ever hold: it is not installed, so no effect closes over it, so no cleanup
- * closes it. Handing a disposal in is what makes that refusal a close rather than a
- * leak, and a holder built without one drops what it refuses exactly as before.
- */
-export interface SubjectScopedHolderOptions<TValue> {
-  /**
-   * Dispose a direct value this holder refused to install.
-   *
-   * WHETHER THE VALUE MAY BE RELEASED STAYS THE CALLER'S QUESTION, as it is for a
-   * discarded one: this class knows a publish was refused and nothing about which
-   * render, if any, is holding what. `useSubjectScopedResource` answers it.
-   */
-  readonly disposeRejectedPublish: (rejected: TValue) => void;
-}
-
-/**
  * One value, held per `(subject, key)` and readable only about that pair.
  *
  * REACT-FREE ON PURPOSE. Every rule this class carries — when a value is discarded,
@@ -144,8 +129,8 @@ export interface SubjectScopedHolderOptions<TValue> {
  */
 export class SubjectScopedHolder<TValue> {
   readonly #changes = new Emitter<void>("subject-scoped value");
-  /** What becomes of a direct value this holder refuses, where a drop is not enough. */
-  readonly #disposeRejectedPublish: ((rejected: TValue) => void) | undefined;
+  /** What becomes of a direct value this holder lets go of, where a drop is not enough. */
+  readonly #disposal: UnheldValueDisposal<TValue>;
   /**
    * The serial every held value is stamped with. Monotonic and never reissued, so a
    * pair the holder visits twice is two addressings and a settlement can name which.
@@ -161,7 +146,7 @@ export class SubjectScopedHolder<TValue> {
    * disposal supplied beside one would be as stale as the visit it names.
    */
   public constructor(options?: SubjectScopedHolderOptions<TValue>) {
-    this.#disposeRejectedPublish = options?.disposeRejectedPublish;
+    this.#disposal = new UnheldValueDisposal<TValue>(options?.disposeUnheldValue);
   }
 
   /**
@@ -323,7 +308,7 @@ export class SubjectScopedHolder<TValue> {
         // The subject moved while this call was out — or moved away and back, which
         // is the same fact. Refusing the answer is the whole point: it is about a
         // visit nothing on screen is addressed at.
-        this.#rejectPublish(next);
+        this.#refusePublish(next);
         return;
       }
       const resolved =
@@ -333,7 +318,13 @@ export class SubjectScopedHolder<TValue> {
         // same value in one tick would otherwise render the surface twice for it.
         return;
       }
+      const replaced = held.value;
       this.#held = { ...held, value: resolved };
+      // AFTER the replacement is installed and BEFORE anybody is woken, which is the
+      // ordering `address` states for the same reason: a disposal must not see a
+      // half-written holder, and a subscriber must not be woken into a frame whose
+      // predecessor is still open.
+      this.#disposal.disposeReplaced(replaced);
       this.#changes.emit();
     };
   }
@@ -341,46 +332,18 @@ export class SubjectScopedHolder<TValue> {
   /**
    * What becomes of a publish this holder refused.
    *
-   * NOTHING AT ALL FOR A VALUE, which is correct and is the plain holder's whole
-   * answer: it was never installed and nothing holds it. A holder built with a
-   * disposal has a caller whose value owns a connection, a subscription, or a
-   * registry, and for that caller a silent drop is a leak with no path left to it.
-   *
-   * REPORTED AS WELL AS DISPOSED, on the precedent `frame/session-event-binder.ts`
-   * and `bridge/scenario-engine.ts` set for this same class — work that arrived for
-   * a target that is gone, dropped rather than delivered. One report per refusal,
-   * and it says which of the two happened, because a disposal that throws leaves the
-   * resource held by nothing and that is a different fact from a clean close.
-   *
-   * THE REPORT COMES AFTER THE DISPOSAL, and the order is load-bearing: a report
-   * THROWS in a development build, so reporting first would take the close with it
-   * on exactly the build an author is watching. The disposal is backstopped for the
-   * reason `address`'s is — a throw here escapes into whatever settled the publish,
-   * which is a caller's `.then`.
-   *
    * THE FUNCTION FORM IS REFUSED WITHOUT RUNNING, so there is nothing to dispose:
-   * the update that would have produced a value never ran.
+   * the update that would have produced a value never ran, and handing the caller
+   * its own closure back would be a disposal of a resource that does not exist.
+   * That is the whole of this method — what a disposed value costs and what it
+   * reports is `unheld-value-disposal.ts`, which owns both write moments together
+   * so the two sentences cannot drift apart.
    */
-  #rejectPublish(next: TValue | ((previous: TValue) => TValue)): void {
-    const dispose = this.#disposeRejectedPublish;
-    if (dispose === undefined || typeof next === "function") {
+  #refusePublish(next: TValue | ((previous: TValue) => TValue)): void {
+    if (typeof next === "function") {
       return;
     }
-    let disposalFailure: unknown;
-    let disposed = false;
-    try {
-      dispose(next);
-      disposed = true;
-    } catch (failure: unknown) {
-      disposalFailure = failure;
-    }
-    reportTripwire(
-      "apply-chokepoint-bypass",
-      SITE,
-      disposed
-        ? "a resource settled into a subject-scoped visit that had already ended; the holder handed it to the caller's disposal rather than installing it into a visit nothing on screen is addressed at"
-        : `a resource settled into a subject-scoped visit that had already ended and its disposal threw, so it is installed nowhere and held by nothing: ${wireRejectionToError(disposalFailure, { total: true }).message}`,
-    );
+    this.#disposal.disposeRefused(next);
   }
 
   #isHeldFor(subject: object, key: SubjectKey): boolean {

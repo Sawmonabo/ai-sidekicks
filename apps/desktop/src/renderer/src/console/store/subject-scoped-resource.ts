@@ -25,11 +25,13 @@
 //     render would tear down what the frame on screen is still reading through — and
 //     that render may itself be the one React discards.
 //
-// A RESOURCE THE HOLDER REFUSED IS THE FIRST OF THE TWO, reached by the other door.
-// An `open` that settles after the surface has been re-addressed publishes into a
-// visit that is over; the holder installs nothing, so no commit will ever see that
-// resource either. It is closed on the same terms and by the same decision — this
-// hook's — which is why the holder is handed the disposal at construction.
+// EVERY RESOURCE THE PUBLISH PATH LETS GO OF IS THE FIRST OF THE TWO, reached by the
+// other door. An `open` that settles after the surface has been re-addressed
+// publishes into a visit that is over, and the holder installs nothing. A caller that
+// publishes twice before the effect runs — two direct settlements in one batched
+// event — installs the first and replaces it, and no commit reaches it either. Both
+// are closed on the same terms and by the same decision — this hook's — which is why
+// the holder is handed the disposal at construction.
 //
 // WHICH OF THE TWO A DROPPED RESOURCE IS cannot be the holder's question. It knows a
 // value was replaced; only React knows whether the pass that replaced it went on to
@@ -66,11 +68,14 @@ class SubjectScopedResourceLifetime<TResource> {
    *
    * A bound property rather than a method, so the holder can be handed it on every
    * render without a closure being minted for a call that almost never happens. It
-   * is what the holder is handed for a REFUSED publish too, and one property serves
-   * both: a value no commit saw is closed whichever door it arrived at, and the
-   * committed check is not redundant on either — a caller may publish the resource
-   * it is already holding, and a refusal is no reason to tear down what the frame on
-   * screen is reading through.
+   * is what the holder is handed for every value the PUBLISH path lets go of too — a
+   * refused one, and one a later publish replaced — and one property serves all
+   * three: a value no commit saw is closed whichever door it arrived at, and the
+   * committed check is not redundant on any of them. A caller may publish the
+   * resource it is already holding; a refusal is no reason to tear down what the
+   * frame on screen is reading through; and a publish that replaces the COMMITTED
+   * resource hands this the value a live effect still owns, which that effect closes
+   * on its own terms when the replacement reaches it.
    *
    * The committed resource is deliberately NOT closed here: a live effect is holding
    * it, and the render doing the dropping may itself be discarded, in which case that
@@ -145,7 +150,10 @@ class SubjectScopedResourceLifetime<TResource> {
  *
  * A resource a caller PUBLISHES is disposed on the same terms, by the effect, when the
  * value it replaced retires — which is the one shape either caller uses: publishing is
- * how a window replaces a resource that has already closed itself.
+ * how a window replaces a resource that has already closed itself. A caller that
+ * publishes TWICE before the effect runs is the exception the effect cannot serve: the
+ * first replacement is installed and gone again with no commit in between, so the
+ * holder hands it here instead and it is closed on the same terms as a refused one.
  */
 export function useSubjectScopedResource<TResource>(
   subject: object,
@@ -154,12 +162,13 @@ export function useSubjectScopedResource<TResource>(
   close: (resource: TResource) => void,
 ): SubjectScopedState<TResource> {
   const [lifetime] = useState(() => new SubjectScopedResourceLifetime<TResource>(close));
-  // The holder is handed the disposal at construction, because a resource it refuses
-  // is one nothing else can reach: never installed, so no commit and no effect.
+  // The holder is handed the disposal at construction, because a resource its publish
+  // path lets go of is one nothing else can reach: never installed, or installed and
+  // replaced before any commit saw it, so no effect in either case.
   const [holder] = useState(
     () =>
       new SubjectScopedHolder<TResource>({
-        disposeRejectedPublish: lifetime.closeIfUncommitted,
+        disposeUnheldValue: lifetime.closeIfUncommitted,
       }),
   );
   // During the render and before the value is read, for the reason the holder states:
