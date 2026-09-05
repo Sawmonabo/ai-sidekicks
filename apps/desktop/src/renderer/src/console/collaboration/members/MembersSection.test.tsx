@@ -263,14 +263,22 @@ describe("a roster age with nothing else moving", () => {
       }
     });
 
-    expect(ageTextIn(mounted.container)).toContain("45 minutes ago");
+    // Forty-six rather than forty-five, and the millisecond is the reason. The row
+    // was seen 45 minutes 30 seconds before this instant, which is exactly the tie
+    // `Math.round` breaks toward positive infinity — so the deadline is armed ONE
+    // millisecond past it, and what the row shows is the figure that holds for the
+    // whole minute after the crossing rather than the one that holds at the single
+    // instant of the tie. Waking at the tie itself rendered the same phrase as the
+    // millisecond before it, which is a re-render that changed nothing and a figure
+    // a minute behind for the rest of that minute.
+    expect(ageTextIn(mounted.container)).toContain("46 minutes ago");
   });
 
   it("negative control: the figure it opens on is not already the aged one", async () => {
-    // Without this, a roster that rendered "45 minutes ago" from the first paint —
+    // Without this, a roster that rendered "46 minutes ago" from the first paint —
     // because it measured against the wrong instant — would pass the case above.
     const mounted = await rosterWithOneParticipant();
 
-    expect(ageTextIn(mounted.container)).not.toContain("45 minutes ago");
+    expect(ageTextIn(mounted.container)).not.toContain("46 minutes ago");
   });
 });

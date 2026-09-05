@@ -1,10 +1,22 @@
-// The roster's ordering, its hue attachment, and the row it must never drop.
+// The roster's ordering, its hue attachment, the row it must never drop, and the
+// instants at which a row's age stops being what it says.
+//
+// The age half is checked against `formatRelativeTime` itself rather than against a
+// list written out here: the claim `ageBoundariesOf` makes is about that function's
+// output — one deadline per change, and no deadline that changes nothing — so the
+// only honest test drives it. The wake CHAIN those boundaries arm is
+// `presence-model.wake.test.tsx`, which needs a render and so needs a `.tsx`.
 
 import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
+import {
+  FROZEN_START_ISO,
+  frozenStartMilliseconds,
+} from "../../core/frozen-instant.test-support.js";
+import { formatRelativeTime } from "../../primitives/index.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
-import { rosterRowsFrom } from "./presence-model.js";
+import { ageBoundariesOf, rosterRowsFrom } from "./presence-model.js";
 
 function participant(
   participantId: string,
@@ -13,7 +25,7 @@ function participant(
   return {
     participantId: participantId as PresenceReadResponseParticipant["participantId"],
     state,
-    lastSeen: "2026-01-01T10:00:00.000Z",
+    lastSeen: FROZEN_START_ISO,
   };
 }
 
@@ -110,5 +122,70 @@ describe("roster rows — hue and self", () => {
       undefined,
     );
     expect(rows.some((row) => row.isSelf)).toBe(false);
+  });
+});
+
+/** One participant seen at the console's frozen start, which every age case ages from. */
+const SEEN_AT_FROZEN_START: readonly PresenceReadResponseParticipant[] = [
+  participant("participant-one", "online"),
+];
+
+/**
+ * The boundaries that change nothing, and the pairs that render the same phrase.
+ *
+ * Both halves of the claim in one walk, because they are the same question asked
+ * from either side: a boundary the format does not change at is a re-render nobody
+ * asked for, and two boundaries with no change between them is the duplicate the
+ * band edges used to emit. The reading is `formatRelativeTime`'s own — this composes
+ * no phrase of its own and knows none of its bands.
+ */
+function boundariesThatChangeNothing(boundaries: readonly number[]): readonly number[] {
+  return [...boundaries]
+    .sort((earlier, later) => earlier - later)
+    .filter(
+      (boundary) =>
+        formatRelativeTime(FROZEN_START_ISO, boundary) ===
+        formatRelativeTime(FROZEN_START_ISO, boundary - 1),
+    );
+}
+
+describe("age boundaries — one deadline per rendered change", () => {
+  it("arms nothing in the first minute, where the phrase changes once a second", () => {
+    // The seconds band is sixty deadlines inside the next minute PER PARTICIPANT, and
+    // a chain re-armed at that rate is an interval poll with a different
+    // implementation. The figure under a minute old is left reading as of the read
+    // that stamped it; the read re-stamps on every presence signal.
+    const start = frozenStartMilliseconds();
+    const withinTheFirstMinute = ageBoundariesOf(SEEN_AT_FROZEN_START).filter(
+      (boundary) => boundary < start + 60_000,
+    );
+    expect(withinTheFirstMinute).toStrictEqual([]);
+  });
+
+  it("takes over each band exactly once, at the instant the band takes over", () => {
+    const start = frozenStartMilliseconds();
+    const boundaries = ageBoundariesOf(SEEN_AT_FROZEN_START);
+    expect(boundaries).toContain(start + 60_000);
+    expect(boundaries).toContain(start + 60 * 60_000);
+    expect(boundaries).toContain(start + 24 * 60 * 60_000);
+    // Sixty minute steps, twenty-four hour steps, thirty day steps — the horizon.
+    expect(boundaries).toHaveLength(60 + 24 + 30);
+    expect(new Set(boundaries).size).toBe(boundaries.length);
+  });
+
+  it("changes the phrase at every boundary it arms", () => {
+    expect(boundariesThatChangeNothing(ageBoundariesOf(SEEN_AT_FROZEN_START))).toStrictEqual([]);
+  });
+
+  it("negative control: a band enumerated from step zero arms changes that are not", () => {
+    // The shape that shipped. Each band's step 0 sits half a unit in — half a minute,
+    // half an hour, half a day — which is INSIDE the band below it, so it crossed no
+    // threshold the format renders and re-rendered the whole section anyway. Without
+    // this the case above would hold for a walk that armed nothing at all.
+    const start = frozenStartMilliseconds();
+    const fromStepZero = [30_000, 30 * 60_000, 12 * 60 * 60_000].map(
+      (offsetMilliseconds) => start + offsetMilliseconds,
+    );
+    expect(boundariesThatChangeNothing(fromStepZero)).toStrictEqual(fromStepZero);
   });
 });
