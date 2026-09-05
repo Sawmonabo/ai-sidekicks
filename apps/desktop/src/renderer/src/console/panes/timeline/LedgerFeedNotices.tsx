@@ -123,23 +123,6 @@ export function LedgerEventIdJump(props: {
   );
 }
 
-/** Matches the query found in rows the cap has taken out of this window. */
-export function LedgerMatchesOutsideWindowNotice(props: {
-  readonly count: number;
-}): React.JSX.Element | null {
-  if (props.count === 0) {
-    return null;
-  }
-  return (
-    <Nothing
-      kind="not-loaded"
-      placement="inline"
-      title="Some matches are outside this window."
-      detail={`${String(props.count)} more entr${props.count === 1 ? "y" : "ies"} match, in older rows this window no longer holds. The walk steps only through rows the feed can scroll to.`}
-    />
-  );
-}
-
 /**
  * Rows the log admitted after a walk began — an absence the walk cannot close.
  *
@@ -173,23 +156,6 @@ export function LedgerRowsAdmittedDuringReplayNotice(props: {
           Leave the replay and catch up
         </button>
       }
-    />
-  );
-}
-
-/** Matches the query found in rows the replay position has not reached yet. */
-export function LedgerMatchesNotYetReplayedNotice(props: {
-  readonly count: number;
-}): React.JSX.Element | null {
-  if (props.count === 0) {
-    return null;
-  }
-  return (
-    <Nothing
-      kind="not-loaded"
-      placement="inline"
-      title="Some matches are ahead of the replay position."
-      detail={`${String(props.count)} more entr${props.count === 1 ? "y" : "ies"} match, in rows this replay has not reached. Scrub the dock forward to walk them.`}
     />
   );
 }

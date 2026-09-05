@@ -82,12 +82,12 @@ import {
 } from "../../ledger/structure/index.js";
 import {
   LedgerEventIdJump,
-  LedgerMatchesNotYetReplayedNotice,
-  LedgerMatchesOutsideWindowNotice,
   LedgerRowsAdmittedDuringReplayNotice,
   LedgerWindowAbsences,
 } from "./LedgerFeedNotices.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
+import { matchWalkReading } from "./ledger-find-readings.js";
+import { PartialRead } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
@@ -286,8 +286,18 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         reach={findAndJump.reach}
         onJumpToRow={jumpToRow}
       />
-      <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
-      <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
+      {/* Two mounts and two subjects, because the two cuts are two facts: nothing
+          brings a pruned row back, and scrubbing the dock forward brings the
+          withheld ones back at once. One mount carrying both states would say the
+          same sentence twice over one subject. */}
+      <PartialRead
+        states={[matchWalkReading(find.result.totalMatchCount, find.beyondWindowMatchCount)]}
+        subject="this window"
+      />
+      <PartialRead
+        states={[matchWalkReading(find.result.totalMatchCount, find.notYetReplayedMatchCount)]}
+        subject="this replay's walk"
+      />
       <LedgerRowsAdmittedDuringReplayNotice
         count={replay.rowsAdmittedSinceReplayBegan}
         onEndReplay={replay.end}
