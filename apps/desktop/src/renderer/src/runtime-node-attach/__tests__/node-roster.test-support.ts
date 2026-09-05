@@ -125,12 +125,24 @@ export function createDrivenSeam(options: {
   readonly unsubscribe?: Unsubscribe | undefined;
   /** Set to drive the arm where a host has no live channel to offer. */
   readonly subscribeThrows?: Error | undefined;
+  /**
+   * How many opening attempts `subscribeThrows` covers. Unbounded when omitted.
+   *
+   * A bounded count is what drives the RECOVERY: a refusal that clears — a
+   * concurrency cap lifting, a reconnect landing — is a first attempt that throws
+   * and a second that opens, and a seam that threw forever could not tell a
+   * permanent refusal apart from a transient one.
+   */
+  readonly subscribeFailureCount?: number | undefined;
 }): DrivenSeam {
+  const subscribeFailureCount = options.subscribeFailureCount ?? Number.POSITIVE_INFINITY;
   let registeredHandler: (() => void) | undefined;
+  let subscribeAttempts = 0;
   const readRoster: RosterReadMock = vi.fn(options.readRoster);
   const subscribePresence: PresenceSubscribeMock = vi.fn(
     (_sessionId: SessionId, onPresenceChange: () => void): Unsubscribe => {
-      if (options.subscribeThrows !== undefined) {
+      subscribeAttempts += 1;
+      if (options.subscribeThrows !== undefined && subscribeAttempts <= subscribeFailureCount) {
         throw options.subscribeThrows;
       }
       registeredHandler = onPresenceChange;

@@ -133,11 +133,13 @@ export interface NodeRosterProps {
  * Renders the live roster of runtime nodes attached to a session: a loading
  * indicator while the initial snapshot is in flight, one row per node (id + slot
  * `state` + liveness `healthState`/`lastHeartbeatAt` + read-only/below-floor status)
- * once loaded, or the error envelope on failure. The roster refreshes itself as node
- * health transitions — see the read seam's own notes for the ordering.
+ * once loaded, or the error envelope on failure — with a control that opens the
+ * conversation again, which is the only path back from a subscription that never
+ * opened. The roster refreshes itself as node health transitions — see the read
+ * seam's own notes for the ordering.
  */
 export function NodeRoster({ sessionId, reads }: NodeRosterProps): React.JSX.Element {
-  const rosterViewState = useNodeRosterRead(sessionId, reads);
+  const { viewState: rosterViewState, retry } = useNodeRosterRead(sessionId, reads);
 
   if (rosterViewState.kind === "loading") {
     // `aria-busy` announces the in-flight initial snapshot to assistive tech.
@@ -196,11 +198,22 @@ export function NodeRoster({ sessionId, reads }: NodeRosterProps): React.JSX.Ele
   }
 
   // role="alert" so assistive tech announces the failure.
+  //
+  // The control beside it is the way back. A failed READ recovers on its own — the
+  // subscription that survived pushes again — but a presence subscription that could
+  // not be opened at all leaves nothing to push, and the read seam deliberately skips
+  // the snapshot in that arm rather than rendering rows behind a dead channel. So
+  // without this button the column stood on one line of error text until the session
+  // or the transport changed, and a cap that clears in thirty seconds looked exactly
+  // like a permanent refusal.
   return (
     <section aria-label="node-roster-error" role="alert">
       <p>
         {rosterViewState.error.name}: {rosterViewState.error.message}
       </p>
+      <button type="button" onClick={retry}>
+        Try again
+      </button>
     </section>
   );
 }

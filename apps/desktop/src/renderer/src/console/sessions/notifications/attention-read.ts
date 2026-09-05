@@ -34,7 +34,7 @@ import { useEffect, useMemo } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { useConsoleClock, type ConsoleBridge } from "../../bridge/index.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import type { SessionStoreRegistry } from "../../store/index.js";
@@ -174,21 +174,21 @@ export function useAttentionProjection(
   bridge: ConsoleBridge,
   sessionStoreRegistry: SessionStoreRegistry,
 ): AttentionReading {
+  // The scenario's frozen clock under the fixture and the real one otherwise, from
+  // the window's own clock hook rather than resolved inside the memo below: the live
+  // arm of `consoleClockFor` MINTS, and a memo is a hint React may discard, so a pass
+  // nothing moved on could rebuild this `dispose()`-bearing read around a new clock.
+  const clock = useConsoleClock();
   const projectionRead = useMemo(
     () =>
       new PushDrivenRead<AttentionProjectionRead | undefined>({
-        // The scenario's frozen clock under the fixture and the real one otherwise,
-        // resolved inside the construction the bridge already keys — the shape
-        // `settings/pages/mounts/WorkspaceMountsPage.tsx` takes for the same reason: this
-        // read's coalescing window has to advance when a story advances everything
-        // else's.
-        clock: consoleClockFor(bridge),
+        clock,
         origin: ATTENTION_READ_ORIGIN,
         read,
         subscribe: (onChangeSignal) =>
           subscribeToSessionProjections(sessionStoreRegistry, onChangeSignal),
       }),
-    [bridge, read, sessionStoreRegistry],
+    [clock, read, sessionStoreRegistry],
   );
   useEffect(() => {
     projectionRead.start();

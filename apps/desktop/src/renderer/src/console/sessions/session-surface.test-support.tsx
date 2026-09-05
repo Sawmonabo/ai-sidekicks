@@ -12,6 +12,8 @@ import { act, render } from "@testing-library/react";
 import { ManualClock } from "../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle as settlePasses } from "../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
+import { SidekicksBridgeProvider } from "../bridge/index.js";
+import { SessionsSurface } from "./SessionsSurface.js";
 import { openStore } from "./sessions.test-support.js";
 import { SessionStore } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
@@ -188,7 +190,15 @@ export function contextWith(options: {
 }
 
 /**
- * Mount the destination the way the frame does: under the console's one announcer.
+ * Mount the destination the way the frame does: under the bridge provider and the
+ * console's one announcer.
+ *
+ * THE CONTEXT rather than an element, because the mount now has two things to do with
+ * it — hand it to the surface and supply it to the provider — and a helper that took
+ * the composed element could reach neither. The provider is part of the shape under
+ * test: the invite shelf takes the window's clock from `useConsoleClock`, which
+ * resolves through it, and the provider's own error says every console surface renders
+ * inside one.
  *
  * THE SURFACE'S OWN ELEMENT IS RETURNED, not the render container — the
  * `settings/pages/updates/UpdatesPage.test.tsx` shape, and here it is load-bearing rather
@@ -200,13 +210,17 @@ export function contextWith(options: {
  * The announcer runs on a `ManualClock` so its hold window is frozen: whether a
  * sentence is still standing is otherwise a question about how fast the runner was.
  */
-export function renderSurface(surface: React.JSX.Element): {
+export function renderSurface(context: ConsoleSurfaceContext): {
   readonly container: HTMLElement;
   readonly politeText: () => string;
 } {
   const announcer = new LiveAnnouncer({ clock: new ManualClock() });
   const mounted = render(
-    <LiveAnnouncerProvider announcer={announcer}>{surface}</LiveAnnouncerProvider>,
+    <SidekicksBridgeProvider bridge={context.bridge}>
+      <LiveAnnouncerProvider announcer={announcer}>
+        <SessionsSurface context={context} />
+      </LiveAnnouncerProvider>
+    </SidekicksBridgeProvider>,
   ).container;
   const surfaceRoot = mounted.querySelector<HTMLElement>("section.meridian-sessions");
   if (surfaceRoot === null) {

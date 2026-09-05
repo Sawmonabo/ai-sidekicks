@@ -13,6 +13,7 @@ import {
   formatClockTime,
   formatDateTime,
 } from "../../../primitives/index.js";
+import { SidekicksBridgeProvider } from "../../../bridge/index.js";
 import type { SessionStore } from "../../../store/index.js";
 import { WorkspaceMountsPage, registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";
 import {
@@ -49,7 +50,16 @@ function contextReading(options: {
   readonly onCall?: (method: string) => void;
   /** Makes the enumerating read reject, which is the list's own refused arm. */
   readonly rejectWith?: { readonly code: string; readonly message: string };
+  /**
+   * How many daemon calls `rejectWith` covers. Unbounded when omitted.
+   *
+   * A bounded count is what drives RECOVERY: a refusal that clears is a first
+   * attempt that fails and a second that answers, and a bridge that refused forever
+   * could not tell a permanent refusal apart from a transient one.
+   */
+  readonly rejectionCount?: number;
 }): SettingsPageContext {
+  let refusedCallCount = 0;
   return {
     bridge: {
       source: "fixture",
@@ -58,7 +68,11 @@ function contextReading(options: {
         daemon: {
           call: async (method: string, request: unknown): Promise<unknown> => {
             options.onCall?.(method);
-            if (options.rejectWith !== undefined) {
+            if (
+              options.rejectWith !== undefined &&
+              refusedCallCount < (options.rejectionCount ?? Number.POSITIVE_INFINITY)
+            ) {
+              refusedCallCount += 1;
               // A wire ENVELOPE and not a bare `Error`: the call door normalizes a
               // rejection into the console's refusal shape, and only an envelope
               // carries a code of its own for it to keep. A bare message would be
@@ -109,10 +123,17 @@ async function renderSettledPage(
   // in a window. A second time base here would make "was it said again" a question
   // about the runner rather than about the read.
   const announcer = new LiveAnnouncer({ clock });
+  // Under the bridge provider, because the list below this page takes the window's
+  // clock from `useConsoleClock` — the console's one answer to which clock a window
+  // runs on, and the resolution the provider's own error message says every console
+  // surface renders inside. The supplied bridge is the context's, so nothing about
+  // what this case answers moves.
   const { container } = render(
-    <LiveAnnouncerProvider announcer={announcer}>
-      <WorkspaceMountsPage context={context} />
-    </LiveAnnouncerProvider>,
+    <SidekicksBridgeProvider bridge={context.bridge}>
+      <LiveAnnouncerProvider announcer={announcer}>
+        <WorkspaceMountsPage context={context} />
+      </LiveAnnouncerProvider>
+    </SidekicksBridgeProvider>,
   );
   const settle = async (): Promise<void> => {
     await act(async () => {
@@ -369,5 +390,66 @@ describe("the page's refresh signals", () => {
     });
 
     expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
+  });
+});
+
+describe("the mounts list — a refused read is not the end of it", () => {
+  it("re-reads the inventory when the refused arm's control is pressed", async () => {
+    // The list's three signals are the session's event stream, window focus, and
+    // nothing else — so a refusal that clears a moment later stood on screen until
+    // one of the two happened to fire. The control is the third way back, and it is
+    // the only one a person can reach on purpose.
+    const clock = new ManualClock();
+    const { page, settle } = await renderSettledPage(
+      clock,
+      contextReading({
+        clock,
+        mountIds: [MOUNT_A],
+        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
+        rejectionCount: 1,
+      }),
+    );
+    expect(page.textContent ?? "").toContain("that node is not attached");
+
+    await act(async () => {
+      page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(page.querySelectorAll(".meridian-mount-list__item")).toHaveLength(1);
+    expect(page.textContent ?? "").not.toContain("that node is not attached");
+  });
+
+  it("negative control: the list offers no such control once it has read", async () => {
+    // Without this, the case above would hold for a page that drew the control on
+    // every arm — a re-read offered beside an inventory that is already current.
+    const clock = new ManualClock();
+    const { page } = await renderSettledPage(clock, contextReading({ clock, mountIds: [MOUNT_A] }));
+
+    expect(page.querySelector(".meridian-nothing button")).toBeNull();
+  });
+
+  it("negative control: a refusal that has not cleared refuses the re-read too", async () => {
+    // Without this, the first case would hold for a control that cleared the refused
+    // arm on press whatever the daemon then said — reporting a recovery that did not
+    // happen, which is worse than the state it replaced.
+    const clock = new ManualClock();
+    const { page, settle } = await renderSettledPage(
+      clock,
+      contextReading({
+        clock,
+        mountIds: [MOUNT_A],
+        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
+      }),
+    );
+
+    await act(async () => {
+      page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(page.textContent ?? "").toContain("that node is not attached");
   });
 });

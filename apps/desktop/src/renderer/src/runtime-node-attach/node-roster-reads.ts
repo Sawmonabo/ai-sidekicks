@@ -26,7 +26,7 @@
 // pair as a prop is also what keeps the console's "no `window.sidekicks` outside the
 // bridge" rule a matter of STRUCTURE rather than of a guard that renders an absence.
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 import type {
   RuntimeNodeRosterEntry,
@@ -116,6 +116,32 @@ export type RosterViewState =
 const ROSTER_NOT_READ: RosterViewState = { kind: "loading" };
 
 /**
+ * What this view holds, and the one act it offers over it.
+ *
+ * A pair rather than the bare state, because the STREAM-OPEN failure has no path
+ * back on its own. A failed READ recovers by itself — the subscription that survived
+ * pushes again and the next refresh publishes `loaded` — but a `subscribePresence`
+ * that threw leaves no subscription to push, and the effect re-runs only when the
+ * session or the transport moves. Neither moves when a concurrency cap clears thirty
+ * seconds later, so without a caller-reachable re-open the column stood on one line
+ * of error text for the life of that pair, with a transient refusal and a permanent
+ * one indistinguishable.
+ */
+export interface NodeRosterReading {
+  readonly viewState: RosterViewState;
+  /**
+   * Tear the current attempt down and open another.
+   *
+   * Meaningful from every arm and offered only from the failed one: a re-open costs
+   * a subscribe and a read, which a column that is already listening does not need.
+   * It re-runs the effect by moving one of its dependencies, so the teardown that
+   * releases the old subscription is the effect's own cleanup rather than a second
+   * release path this hook would have to keep in step with it.
+   */
+  readonly retry: () => void;
+}
+
+/**
  * Read one session's roster through one transport, and keep it stamped with both.
  *
  * The held roster is STAMPED with the subject it was read for, rather than kept beside
@@ -132,9 +158,21 @@ const ROSTER_NOT_READ: RosterViewState = { kind: "loading" };
  * The transport is the SUBJECT and the session id is the KEY — the pair this view is
  * addressed by, written in the holder's own terms.
  */
-export function useNodeRosterRead(sessionId: SessionId, reads: NodeRosterReads): RosterViewState {
+export function useNodeRosterRead(sessionId: SessionId, reads: NodeRosterReads): NodeRosterReading {
   const { value: rosterViewState, publish: publishRosterViewState } =
     useSubjectScopedState<RosterViewState>(reads, sessionId, () => ROSTER_NOT_READ);
+  // The attempts made for THIS address, held by the same holder the roster is, so a
+  // session or transport change starts a fresh count rather than carrying a number
+  // that describes an address this view has left. Its only job is to be a dependency
+  // the effect can be moved by; nothing renders it.
+  const { value: attemptOrdinal, publish: publishAttemptOrdinal } = useSubjectScopedState<number>(
+    reads,
+    sessionId,
+    () => 0,
+  );
+  const retry = useCallback(() => {
+    publishAttemptOrdinal((held) => held + 1);
+  }, [publishAttemptOrdinal]);
 
   useEffect(() => {
     // Strict-mode-safe mount. The closure-scoped `let cancelled`, flipped in cleanup,
@@ -222,7 +260,11 @@ export function useNodeRosterRead(sessionId: SessionId, reads: NodeRosterReads):
     // reading a disposed engine with nothing on screen saying so. The publisher's
     // identity moves exactly when the ADDRESSING does, which is these same two inputs,
     // so listing it adds no re-run and states what the effect closed over.
-  }, [sessionId, reads, publishRosterViewState]);
+    //
+    // `attemptOrdinal` is the re-open. It moves only when the failed arm's control is
+    // pressed, and moving it tears this run down — releasing the subscription, if one
+    // opened — and runs the whole body again from the subscribe.
+  }, [sessionId, reads, publishRosterViewState, attemptOrdinal]);
 
-  return rosterViewState;
+  return { viewState: rosterViewState, retry };
 }

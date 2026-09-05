@@ -323,3 +323,72 @@ describe("NodeRoster reads", () => {
     });
   });
 });
+
+describe("NodeRoster — a stream that could not be opened", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("opens the conversation again when the failed arm's control is pressed", async () => {
+    // The asymmetry this case exists for. A failed READ recovers on its own: the
+    // subscription that survived pushes again and the next refresh publishes rows.
+    // A subscribe that THREW leaves nothing to push, and the seam deliberately skips
+    // the snapshot rather than rendering rows behind a dead channel — so the effect
+    // re-runs only when the session or the transport moves, and neither moves when a
+    // concurrency cap clears thirty seconds later.
+    const seam = createDrivenSeam({
+      readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+      subscribeThrows: new Error("event.subscribe refused: too many open streams"),
+      subscribeFailureCount: 1,
+    });
+
+    render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+    const failure = await screen.findByRole("alert", { name: "node-roster-error" });
+    expect(failure.textContent ?? "").toContain("too many open streams");
+    // The read really was skipped, which is what makes the stream-open arm terminal.
+    expect(seam.readRoster).not.toHaveBeenCalled();
+
+    const tryAgain = screen.getByRole("button", { name: "Try again" });
+    await act(async () => {
+      tryAgain.click();
+      await Promise.resolve();
+    });
+
+    await screen.findByText(`node id: ${AT_FLOOR_NODE_ID}`);
+    expect(seam.subscribePresence).toHaveBeenCalledTimes(2);
+    expect(screen.queryByLabelText("node-roster-error")).toBeNull();
+  });
+
+  it("negative control: the column offers no such control once it is listening", async () => {
+    // Without this, the case above would hold for a column that drew the control on
+    // every arm — a re-open offered beside rows that are already live, which costs a
+    // subscribe and a read to arrive at the state the column is already in.
+    const seam = seamServing(FIRST_SNAPSHOT);
+
+    render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+    await screen.findByText(`node id: ${AT_FLOOR_NODE_ID}`);
+
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("negative control: a refusal that has not cleared refuses the re-open too", async () => {
+    // Without this, the first case would hold for a control that cleared the failed
+    // arm on press whatever the seam then did — reporting a recovery that did not
+    // happen, which is worse than the terminal state it replaced.
+    const seam = createDrivenSeam({
+      readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+      subscribeThrows: new Error("event.subscribe refused: too many open streams"),
+    });
+
+    render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+    await screen.findByRole("alert", { name: "node-roster-error" });
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Try again" }).click();
+      await Promise.resolve();
+    });
+
+    expect(seam.subscribePresence).toHaveBeenCalledTimes(2);
+    await screen.findByRole("alert", { name: "node-roster-error" });
+  });
+});

@@ -55,7 +55,7 @@ import { useMemo, useState } from "react";
 import { useSessionDirectory } from "../frame/session-directory.js";
 import { renderAbsorbedSessionProbe } from "../frame/legacy-surfaces.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
-import { consoleClockFor, type GrowthPort } from "../bridge/index.js";
+import { useConsoleClock, type GrowthPort } from "../bridge/index.js";
 import {
   NotificationCenter,
   attentionProjectionReaderFor,
@@ -133,10 +133,16 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
 
   // The shelf arms one wake-up per outstanding invitation expiry, so it needs the
   // clock this window runs on — the scenario's frozen one under the fixture, so a
-  // screenshot's expiry thresholds are byte-stable. Resolved once off the bridge
-  // rather than on every render: a fresh instance would cancel and re-arm the
-  // shelf's timer every pass.
-  const shelfClock = useMemo(() => consoleClockFor(context.bridge), [context.bridge]);
+  // screenshot's expiry thresholds are byte-stable.
+  //
+  // Through the window's own clock hook rather than a memo of this surface's. The
+  // live arm of `consoleClockFor` MINTS, so its result is identity-unstable by
+  // construction, and a memo is a hint React is free to discard — which would hand
+  // the shelf a new clock identity on a pass the bridge never moved on, and
+  // `useDeadlineWake` takes the clock as its SUBJECT, so a re-minted one re-seeds the
+  // held instant. The hook pins the resolution in state, which is where a resource
+  // identity belongs.
+  const shelfClock = useConsoleClock();
 
   const startControl = (
     <button
