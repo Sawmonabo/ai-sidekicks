@@ -31,7 +31,9 @@
 //     Method-Name Registry (Tier 1 Ratified). The `METHOD_NAME_FORMAT`
 //     constant exported below is the single runtime source the daemon
 //     registry's `register()` check imports; it validates each name at
-//     register-time (no per-package re-declaration — BL-142).
+//     register-time (no per-package re-declaration — BL-142). Every segment,
+//     the namespace root included, starts lowercase and may carry camelCase
+//     (root widened 2026-09-05).
 //
 // What this file does NOT define (deferred to sibling tasks):
 //   * The runtime registry class implementation (`MethodRegistry implements
@@ -83,17 +85,26 @@ export type { ZodType };
  * camelCase tails — which BL-142 surfaced and closed by collapsing the
  * duplicate into this import.
  *
- * Grammar: a lowercase-rooted first segment (`[a-z][a-z0-9]*` — the namespace
- * root is deliberately lowercase-only) followed by one or more dot-delimited
- * segments that permit camelCase (`[a-z][a-zA-Z0-9]*`). At least one dot is
- * required (`namespace.method` minimum; bare `method` is rejected).
+ * Grammar: every dot-delimited segment starts lowercase and may contain
+ * camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root)
+ * included. At least one dot is required (`namespace.method` minimum; bare
+ * `method` is rejected).
+ *
+ * The root carried the narrower `[a-z][a-z0-9]*` class until 2026-09-05, when
+ * it was widened to the class the tail segments already admitted. Two reasons,
+ * both in the ratification: the cited LSP precedent roots its own names in
+ * camelCase (`textDocument.didOpen`), and the ratified ten-verb
+ * `providerAccount.*` namespace is rooted camelCase, so the narrower class made
+ * the daemon's own `register()` guard throw on a namespace the architecture
+ * contract registers.
  *
  *   * Accepts: `session.create`, `presence.subscribe`, `run.stream.notify`,
- *     `settings.effectiveRead`, `driver.listCapabilities` (camelCase tails).
- *   * Rejects: `Session.create` / `textDocument.didOpen` (camelCase root —
- *     roots stay lowercase), `sessionCreate` (no dot), `session/create`
- *     (slash), `session.` (trailing dot), `SessionCreate` (PascalCase /
- *     type-name collision).
+ *     `settings.effectiveRead`, `driver.listCapabilities` (camelCase tails),
+ *     `providerAccount.list` / `textDocument.didOpen` (camelCase roots).
+ *   * Rejects: `Session.create` (uppercase-STARTING segment — the widening
+ *     admits an uppercase letter inside a segment, never at its start),
+ *     `sessionCreate` (no dot), `session/create` (slash), `session.`
+ *     (trailing dot), `SessionCreate` (PascalCase / type-name collision).
  *
  * The capture group is non-capturing (`(?:…)`) — semantically identical to
  * the illustrative capturing form in the ratification doc, capture-free
@@ -101,7 +112,7 @@ export type { ZodType };
  * `.test()` is stateless and the shared instance is safe to reuse across
  * packages.
  */
-export const METHOD_NAME_FORMAT: RegExp = /^[a-z][a-z0-9]*(?:\.[a-z][a-zA-Z0-9]*)+$/;
+export const METHOD_NAME_FORMAT: RegExp = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)+$/;
 
 // --------------------------------------------------------------------------
 // HandlerContext

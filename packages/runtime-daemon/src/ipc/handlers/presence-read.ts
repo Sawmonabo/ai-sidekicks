@@ -51,7 +51,7 @@
 // Method-name format ratified: dotted-camelCase per
 // `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
 // The canonical regex
-// `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts `"presence.read"`. The
+// `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts `"presence.read"`. The
 // method-name TABLE there enumerates only Plan-007 Phase 3's
 // `session.*` surface; Plan-002 registers the `presence.*` namespace
 // against the same ratified FORMAT (`Plan-002 §API And Transport Changes` / CP-002-2). The
