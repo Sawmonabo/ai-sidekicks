@@ -15,97 +15,26 @@
 // window the first window's answer — and a refresh reason nobody gave, which must
 // put nothing on the wire.
 
-import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import { act, render } from "@testing-library/react";
 
-import { type ConsoleRefusal } from "../core/index.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "./fixture-bridge.test-support.js";
+import { bridgeAnswering } from "./fixture-bridge.test-support.js";
 import { settleScheduledRead } from "./scheduled-read.test-support.js";
-import { SessionStore } from "../store/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
-  DRIVER_CAPABILITY_READINGS,
-  boundDriverNameForRun,
+  CapabilityProbe,
+  answeringCapabilityReads,
+  capabilityCallCount,
+  neverRead,
+  reportFor,
+  settledRefusalOf,
+} from "./driver-capability-read.test-support.js";
+import { SessionStore } from "../store/index.js";
+import {
   declaredFlagsForDriver,
-  readingForRun,
-  useDriverCapabilities,
   useDriverCapabilityRepairRead,
-  withRunDriverBindings,
   type DriverCapabilityReadout,
 } from "./driver-capability-read.js";
-
-/** One driver's report: the named flags true, every other flag false. */
-function reportFor(driverName: string, declared: readonly DriverCapabilityFlag[]): unknown {
-  return {
-    driverName,
-    capabilities: {
-      flags: Object.fromEntries(
-        DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, declared.includes(flag)]),
-      ),
-      contractVersion: "1",
-    },
-  };
-}
-
-interface CountingBridge {
-  readonly bridge: ConsoleBridge;
-  readonly calls: readonly RecordedDaemonCall[];
-}
-
-/**
- * The shipped fixture answering the capability read, and the record of every call.
- *
- * `answers` is walked in order, so a case about a node whose drivers changed between
- * two reads says so by supplying two replies; the last one stands for every read
- * after it, which is what a node that stopped changing does.
- *
- * Over the family's own `bridgeAnswering` rather than a second one of this file's
- * own. What stood here was a private function of the same name built on an object
- * cast to `ConsoleBridge`, which answered every other seam with whatever it happened
- * to carry and had to mint a hand-made scenario engine so the scheduler had a clock —
- * a member the fixture already has, and the reason `settleScheduledRead` can now
- * settle these reads with the same call every other console suite makes.
- */
-function answeringCapabilityReads(...answers: readonly unknown[]): CountingBridge {
-  let answered = 0;
-  return bridgeAnswering(async ({ method }) => {
-    if (method !== "driver.listCapabilities") {
-      return undefined;
-    }
-    const reply = answers[Math.min(answered, answers.length - 1)];
-    answered += 1;
-    return reply;
-  });
-}
-
-/** How many times one bridge was asked for the declarations. */
-function capabilityCallCount(counted: CountingBridge): number {
-  return counted.calls.filter((call) => call.method === "driver.listCapabilities").length;
-}
-
-/** One consumer of the read, standing in for a view family that gates on it. */
-function CapabilityProbe(props: {
-  readonly bridge: ConsoleBridge;
-  readonly onReadout: (readout: DriverCapabilityReadout | undefined) => void;
-}): React.JSX.Element {
-  const readout = useDriverCapabilities(props.bridge);
-  props.onReadout(readout);
-  return <span />;
-}
-
-/** The refusal a settled reading carries, or a failure naming what was found instead. */
-function settledRefusalOf(readout: DriverCapabilityReadout | undefined): ConsoleRefusal {
-  if (readout?.readRefusal === undefined) {
-    throw new Error("the capability read settled without the refusal the case is about");
-  }
-  return readout.readRefusal;
-}
-
-/** A reading no read produces, so a probe whose callback never ran fails loudly. */
-function neverRead(): DriverCapabilityReadout {
-  return { flagsByDriverName: new Map(), driverNameByRunId: new Map(), readRefusal: undefined };
-}
 
 describe("useDriverCapabilities — one read, every consumer", () => {
   it("asks once for two consumers sharing one bridge", async () => {
@@ -393,85 +322,5 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     await settleScheduledRead(counted.bridge);
     await settleScheduledRead(counted.bridge);
     expect(capabilityCallCount(counted)).toBe(1);
-  });
-});
-
-describe("withRunDriverBindings", () => {
-  it("joins the session's bindings onto the node's declarations", () => {
-    const declarations: DriverCapabilityReadout = {
-      flagsByDriverName: new Map(),
-      driverNameByRunId: new Map(),
-      readRefusal: undefined,
-    };
-    const joined = withRunDriverBindings(declarations, new Map([["run-one", "codex"]]));
-    expect(joined?.driverNameByRunId.get("run-one")).toBe("codex");
-    // The declarations are carried through untouched: this joins a second reading
-    // onto the first and decides nothing about either.
-    expect(joined?.flagsByDriverName).toBe(declarations.flagsByDriverName);
-  });
-
-  it("returns the reading itself when there is nothing to join", () => {
-    const declarations: DriverCapabilityReadout = {
-      flagsByDriverName: new Map(),
-      driverNameByRunId: new Map(),
-      readRefusal: undefined,
-    };
-    // The same pointer, so a surface whose session named no binding re-renders no
-    // more often than one that asked for no join at all.
-    expect(withRunDriverBindings(declarations, new Map())).toBe(declarations);
-    expect(withRunDriverBindings(undefined, new Map([["run-one", "codex"]]))).toBeUndefined();
-  });
-});
-
-describe("declaredFlagsForDriver", () => {
-  it("says nothing about a driver nobody named", () => {
-    expect(declaredFlagsForDriver(undefined, "claude")).toBeUndefined();
-    expect(declaredFlagsForDriver(neverRead(), undefined)).toBeUndefined();
-  });
-});
-
-describe("readingForRun — one readout, one run, one answer for every surface", () => {
-  const CLAUDE_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-  const CODEX_RUN = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
-
-  /** One report, and no session projection to name which run is bound to it. */
-  function soleReportReadout(): DriverCapabilityReadout {
-    return {
-      flagsByDriverName: new Map([
-        [
-          "claude",
-          Object.fromEntries(
-            DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, flag === "context_compaction"]),
-          ) as Readonly<Record<DriverCapabilityFlag, boolean>>,
-        ],
-      ]),
-      driverNameByRunId: new Map(),
-      readRefusal: undefined,
-    };
-  }
-
-  it("answers the same for a run whose binding only the sole-report fallback names", () => {
-    // The state the composer's rail and the runs pane disagreed in: exactly one
-    // driver filed a report and the session projection has named no binding, so the
-    // pane resolved the driver through the fallback and offered its gated control
-    // while the rail — handed a driver name the projection had not supplied — said
-    // nobody had asked. One readout, one run, one moment, two answers.
-    const readout = soleReportReadout();
-    expect(boundDriverNameForRun(readout, CLAUDE_RUN)).toBe("claude");
-    expect(readingForRun(readout, CLAUDE_RUN, "context_compaction")).toBe("declared");
-    expect(readingForRun(readout, CODEX_RUN, "context_compaction")).toBe("declared");
-  });
-
-  it("says nobody has asked where no reading can name the binding", () => {
-    expect(readingForRun(undefined, CLAUDE_RUN, "context_compaction")).toBe("unknown");
-    expect(readingForRun(neverRead(), CLAUDE_RUN, "context_compaction")).toBe("unknown");
-  });
-
-  it("negative control: a declared absence is not the same reading as an unasked one", () => {
-    // Without this the case above would pass over a resolver that answered
-    // `unknown` for everything, which is the collapse the third state exists to stop.
-    const readout = soleReportReadout();
-    expect(readingForRun(readout, CLAUDE_RUN, "rollback")).toBe("undeclared");
-    expect(DRIVER_CAPABILITY_READINGS).toStrictEqual(["declared", "undeclared", "unknown"]);
   });
 });
