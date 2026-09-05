@@ -17,18 +17,28 @@
 // `setParentNodes` is deliberately off. Both walks descend from a node they were
 // handed, and neither asks what encloses one — turning it on would allocate a
 // parent pointer per node for a link nothing follows.
+//
+// The script kind comes from the name the caller passes, because one of the
+// callers reads the whole console corpus and most of that corpus is `.tsx`. The
+// same `<` opens a type assertion in a `.ts` file and a JSX element in a `.tsx`
+// one, so the kind is not a formality: parsing a component as `.ts` is parsing
+// it under the wrong grammar, and a parser that recovers from that quietly
+// produces a statement list nobody wrote.
 
 import ts from "typescript";
 
 /**
- * Parse `sourceText` as TypeScript.
+ * Parse `sourceText` under the grammar its `fileName` names.
  *
  * `fileName` is a label rather than a path: nothing is read from disk here, and
  * a caller that has already read a file passes its name so a diagnostic can say
- * which text this was.
+ * which text this was — and so this can tell TypeScript from TSX. A name with
+ * neither extension parses as TypeScript, which is what a label without a
+ * grammar in it should mean.
  */
 export function parseSourceText(fileName: string, sourceText: string): ts.SourceFile {
-  return ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const scriptKind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  return ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, false, scriptKind);
 }
 
 /**

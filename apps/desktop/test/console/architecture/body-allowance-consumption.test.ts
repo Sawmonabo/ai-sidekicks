@@ -108,8 +108,13 @@ function boundedWaitCalls(fileName: string, sourceText: string): readonly Bounde
 }
 
 /**
- * The two tiers' sources, through the tier's one walk (`tests: true`, because a
- * launching tier's specs ARE the subject here, not something to exclude).
+ * Every module in the launching tiers, through the tier's one walk.
+ *
+ * Not a `readdirSync` of its own: `source-walk-chokepoint.test.ts` next door
+ * fails a gate in this directory that walks a tree itself, for the reason that
+ * gate's header gives — a claim is only as good as the set it quantifies over,
+ * and per-gate walks drift silently. The tier prefix stays in `path` because a
+ * failure here names a file the way a person opens it.
  */
 function launchingTierSources(): readonly { readonly path: string; readonly text: string }[] {
   return LAUNCHING_TIER_DIRECTORIES.flatMap((tier) =>

@@ -36,9 +36,10 @@
 //         says so; it cannot wherever knip already counts the specifier referenced,
 //         which is why the retirement is stated here too.
 //
-// The rule itself is `barrel-census.ts` beside this file, so the controls below can
-// hand it corpora written to fail. The walk stays here, where the source-walk
-// chokepoint can see that it is the shared one.
+// The rule itself is `barrel-census.ts` beside this file, and the reading it judges
+// is `barrel-syntax.ts` beside that, so the controls below can hand either one
+// corpora written to fail. The walk stays here, where the source-walk chokepoint can
+// see that it is the shared one.
 
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,8 +57,8 @@ import {
   findingLines,
   isConsoleBarrel,
   starReexportingBarrels,
-  type CensusModule,
 } from "./barrel-census.js";
+import type { CensusModule } from "./barrel-syntax.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEST_CONSOLE_ROOT = resolve(HERE, "..");
@@ -77,6 +78,19 @@ const CONSOLE_PREFIX = "src/renderer/src/console";
  * that could contribute no consumer would only slow the walk.
  */
 const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT];
+
+/**
+ * The two doors that publish nothing they did not declare themselves.
+ *
+ * Both are composition sites: `scenarios/index.ts` composes the scenario list and
+ * `panes/index.ts` registers the pane board, each declaring its one export in place
+ * rather than forwarding a name from elsewhere. Named here so the per-door claim
+ * below is a quantifier rather than a predicate that could grow to admit anything.
+ */
+const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
+  `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
+  `${CONSOLE_PREFIX}/panes/index.ts`,
+];
 
 function toKey(absolutePath: string): string {
   return relative(DESKTOP_ROOT, absolutePath).split("\\").join("/");
@@ -113,6 +127,20 @@ describe("barrel census — every console re-export has a reader or a claimant",
 
   it("reads a specifier count no hand-maintained list could hold", () => {
     expect(barrelSpecifiers(modules).length).toBeGreaterThan(200);
+  });
+
+  it("censuses every door that forwards, so a clause leaving is not a shortfall", () => {
+    // The floor above bounds the TOTAL from below, so one clause dropping out of it
+    // is invisible — which is exactly what a clause body read up to the first `}` did
+    // to a door line whose comment carried a brace. Per door it is visible: a door
+    // that forwards nothing is what a dropped clause leaves behind, and the two that
+    // legitimately forward nothing are named rather than subtracted by a predicate.
+    const censused = new Set(barrelSpecifiers(modules).map((entry) => entry.barrelPath));
+    const silent = modules
+      .map((module) => module.path)
+      .filter((path) => isConsoleBarrel(path) && !censused.has(path));
+
+    expect([...silent].sort()).toStrictEqual([...DOORS_THAT_FORWARD_NOTHING].sort());
   });
 
   it("no barrel forwards a name this census cannot enumerate", () => {
@@ -258,6 +286,45 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
     expect(findingLines(censusFindings([declaringModule, multiTagged]))).toStrictEqual([
       `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
     ]);
+  });
+
+  it("reports both halves of a stale claim and the neighbour it used to exempt", () => {
+    // Where a misattributed claim lands in the RULE, and the smallest corpus a
+    // comma-flushing reader passed WHOLE: the claim moved one name down, so
+    // `RING_WIDTH_PX` read as unclaimed with a production reader and `RING_GAP_PX`
+    // read as claimed with none. Two findings in one clause, and neither reported.
+    const staleClaim = syntheticModule(
+      `${CONSOLE_PREFIX}/tokens/index.ts`,
+      'export {\n  RING_WIDTH_PX, // Consumed by T-023p-1C-2\n  RING_GAP_PX,\n} from "./palette.js";\n',
+    );
+    const doorReader = syntheticModule(
+      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
+      'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
+    );
+
+    expect(findingLines(censusFindings([declaringModule, staleClaim, doorReader]))).toStrictEqual([
+      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — claimed, and already imported in production; delete the claim`,
+      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
+    ]);
+  });
+
+  it("censuses a door line that names no module of its own", () => {
+    // A barrel republishing a name it imported writes no `from`, and a pattern that
+    // required one saw no line there. It publishes a name, so it needs a reader or a
+    // claim like any other — and the name's declaring identity is the door itself.
+    const republishingBarrel = syntheticModule(
+      `${CONSOLE_PREFIX}/tokens/index.ts`,
+      'import { RING_WIDTH_PX } from "./palette.js";\n\nexport { RING_WIDTH_PX };\n',
+    );
+    const doorReader = syntheticModule(
+      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
+      'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
+    );
+
+    expect(findingLines(censusFindings([declaringModule, republishingBarrel]))).toStrictEqual([
+      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — reached only by no importer at all`,
+    ]);
+    expect(censusFindings([declaringModule, republishingBarrel, doorReader])).toStrictEqual([]);
   });
 
   it("names a star re-export rather than censusing fewer specifiers", () => {

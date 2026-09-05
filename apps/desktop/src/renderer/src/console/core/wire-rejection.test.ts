@@ -9,24 +9,32 @@
 
 import { describe, expect, it } from "vitest";
 
+import {
+  everyTrapThrows,
+  nullPrototypeValue,
+  readableOnce,
+  revokedProxy,
+} from "../../../../shared/wire-errors.test-support.js";
 import { ConsoleRefusalError, isConsoleRefusal, refuse } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
-/** A value whose every property access throws. The worst case, built once. */
-function hostileValue(): unknown {
+/**
+ * A value whose every property access throws, and nothing else does.
+ *
+ * Stays here rather than joining the shared fixtures: it has one reader, and the
+ * shared home holds the roles more than one suite plays. It is deliberately weaker
+ * than `everyTrapThrows` below — the claim it drives is totality against a READ, and
+ * a value that also breaks `instanceof` would prove that arm and hide this one.
+ */
+function throwingGetProxy(): unknown {
   return new Proxy(
     {},
     {
-      get() {
+      get(): never {
         throw new Error("this getter is hostile");
       },
     },
   );
-}
-
-/** A null-prototype object: `String(...)` on it throws, `lossyStringify` does not. */
-function nullPrototypeValue(): unknown {
-  return Object.create(null) as unknown;
 }
 
 describe("normalizeWireRejection — the refusing side's own code survives", () => {
@@ -209,7 +217,7 @@ describe("normalizeWireRejection — total against a value that fights back", ()
   });
 
   it("answers a refusal for a value whose every property access throws", () => {
-    const value = hostileValue();
+    const value = throwingGetProxy();
     expect(() => (value as { code: unknown }).code).toThrow();
     const refusal = normalizeWireRejection("browser", value);
     expect(isConsoleRefusal(refusal)).toBe(true);
@@ -248,35 +256,18 @@ describe("normalizeWireRejection — total against a value that fights back", ()
     // Proxy throws, and the terminal arm's prototype question sits OUTSIDE the
     // backstop `try`. The first assertion is the negative control — it is the exact
     // expression this module used to evaluate on this exact value.
-    const revocable = Proxy.revocable({}, {});
-    revocable.revoke();
-    expect(() => revocable.proxy instanceof Error).toThrow();
-    const refusal = normalizeWireRejection("browser", revocable.proxy);
+    const revoked = revokedProxy();
+    expect(() => revoked instanceof Error).toThrow();
+    const refusal = normalizeWireRejection("browser", revoked);
     expect(isConsoleRefusal(refusal)).toBe(true);
     expect(refusal.code).toBe("browser-call-failed");
     expect(refusal.detail).toBe("[unrepresentable value]");
   });
 
   it("answers a refusal for a Proxy whose every trap throws, prototype included", () => {
-    const everyTrapThrows = new Proxy(
-      {},
-      {
-        get() {
-          throw new Error("hostile get");
-        },
-        getPrototypeOf() {
-          throw new Error("hostile getPrototypeOf");
-        },
-        has() {
-          throw new Error("hostile has");
-        },
-        ownKeys() {
-          throw new Error("hostile ownKeys");
-        },
-      },
-    );
-    expect(() => everyTrapThrows instanceof Error).toThrow();
-    const refusal = normalizeWireRejection("browser", everyTrapThrows);
+    const hostile = everyTrapThrows();
+    expect(() => hostile instanceof Error).toThrow();
+    const refusal = normalizeWireRejection("browser", hostile);
     expect(refusal.code).toBe("browser-call-failed");
     expect(refusal.origin).toBe("browser");
     expect(typeof refusal.detail).toBe("string");
@@ -285,37 +276,22 @@ describe("normalizeWireRejection — total against a value that fights back", ()
 
 describe("normalizeWireRejection — nothing of the rejection survives onto the answer", () => {
   /**
-   * A refusal-shaped value whose members are readable exactly once.
+   * A refusal-shaped value whose three members are each readable exactly once.
    *
    * The shape that made returning the candidate a deferred throw: the guard reads
    * three strings and says yes, and the renderer's own `refusal.code` — one layer
    * later, outside every `catch` — is the second read.
    */
-  function readableOnce(): unknown {
-    const reads = new Map<string, number>();
-    const readOnce = (key: string, value: string): string => {
-      const seen = (reads.get(key) ?? 0) + 1;
-      reads.set(key, seen);
-      if (seen > 1) {
-        throw new Error(`${key} is readable once`);
-      }
-      return value;
-    };
-    return {
-      get code(): string {
-        return readOnce("code", "persistence.quota_exceeded");
-      },
-      get detail(): string {
-        return readOnce("detail", "The store is full.");
-      },
-      get origin(): string {
-        return readOnce("origin", "persistence");
-      },
-    };
+  function readableOnceRefusal(): unknown {
+    return readableOnce({
+      code: ["persistence.quota_exceeded"],
+      detail: ["The store is full."],
+      origin: ["persistence"],
+    });
   }
 
   it("hands the renderer a refusal it can read as many times as it renders", () => {
-    const refusal = normalizeWireRejection("repos", readableOnce());
+    const refusal = normalizeWireRejection("repos", readableOnceRefusal());
     expect(refusal).toStrictEqual(
       refuse("persistence", "persistence.quota_exceeded", "The store is full."),
     );
@@ -329,7 +305,7 @@ describe("normalizeWireRejection — nothing of the rejection survives onto the 
   });
 
   it("negative control: the candidate itself is not readable twice", () => {
-    const candidate = readableOnce() as { readonly code: string };
+    const candidate = readableOnceRefusal() as { readonly code: string };
     expect(candidate.code).toBe("persistence.quota_exceeded");
     expect(() => candidate.code).toThrow();
   });
@@ -338,7 +314,7 @@ describe("normalizeWireRejection — nothing of the rejection survives onto the 
     // The `ConsoleRefusalError` arm. Reading the answer twice is the identity claim
     // spelled the only way it can be here: the candidate is unreadable a second time,
     // so an answer that reads twice is provably not the candidate.
-    const refusal = normalizeWireRejection("repos", { refusal: readableOnce() });
+    const refusal = normalizeWireRejection("repos", { refusal: readableOnceRefusal() });
     expect(refusal.code).toBe("persistence.quota_exceeded");
     expect(refusal.code).toBe("persistence.quota_exceeded");
     expect(refusal.origin).toBe("persistence");
@@ -347,15 +323,11 @@ describe("normalizeWireRejection — nothing of the rejection survives onto the 
 
 describe("normalizeWireRejection — each member is read once", () => {
   /** A flat envelope whose `code` answers one thing on the first read and another after. */
-  function envelopeAnsweringOnce(): { readonly code: string; readonly message: string } {
-    let reads = 0;
-    return {
-      get code(): string {
-        reads += 1;
-        return reads === 1 ? "session.not_found" : "session.forbidden";
-      },
-      message: "No such session.",
-    };
+  function envelopeAnsweringOnce(): unknown {
+    return readableOnce({
+      code: ["session.not_found", "session.forbidden"],
+      message: ["No such session."],
+    });
   }
 
   it("classifies a flat envelope on its first reading of the code", () => {
@@ -369,7 +341,7 @@ describe("normalizeWireRejection — each member is read once", () => {
   });
 
   it("negative control: the fixture really answers differently on a second read", () => {
-    const envelope = envelopeAnsweringOnce();
+    const envelope = envelopeAnsweringOnce() as { readonly code: string };
     expect(envelope.code).toBe("session.not_found");
     expect(envelope.code).toBe("session.forbidden");
   });
