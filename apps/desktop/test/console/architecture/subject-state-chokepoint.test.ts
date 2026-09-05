@@ -15,16 +15,29 @@
 //
 // TWO CLAIMS, DELIBERATELY DISJOINT.
 //
-//   1. NO SECOND IMPLEMENTATION. No module outside the chokepoints exports a hook or
-//      class named like one of the copies this replaced. The one module admitted
-//      beside them is a DOOR, and the check enforces exactly that: it must import the
-//      chokepoint, so "door" is a fact about its imports rather than a promise in its
-//      header.
-//   2. NO HAND-ROLLED HOLDER. No `useState` or `useRef` initialiser anywhere under the
-//      console names a bridge or a session id. That is how every one of the six copies
-//      began — four lines in a component that needed to remember something about the
-//      session it was looking at — and it is the shape that never arrives as a
-//      deliberate decision.
+//   1. NO SECOND IMPLEMENTATION. No module outside the chokepoints DECLARES a hook or
+//      class named like one of the copies this replaced — declared, not exported,
+//      because the natural shape of a seventh copy is an unexported function inside
+//      the one component that needs it, and an exported-only scan cannot see it. The
+//      modules admitted beside the chokepoints are DOORS, and the check enforces what
+//      that word means: a door must name a symbol somebody else declared, so "door" is
+//      a fact about its source rather than a promise in its header.
+//   2. NO HAND-ROLLED HOLDER. No mount-lifetime state cell anywhere under the console
+//      names a bridge or a session id. That is how every one of the six copies began —
+//      four lines in a component that needed to remember something about the session
+//      it was looking at — and it is the shape that never arrives as a deliberate
+//      decision.
+//
+// CLAIM 2 READS FOUR HOOKS, NOT TWO, and the four are the ordinary React holders:
+// `useState`, `useRef`, `useMemo`, `useReducer`. A `useMemo` with an empty dependency
+// list and a `useReducer` are mount-lifetime holders with exactly the semantics of the
+// first two, and a copy written with either was invisible to a scan that read only the
+// first two. What separates a holder from a DERIVATION is the dependency list, so that
+// is what this reads: a memo naming a bridge in its factory AND in its dependencies
+// re-derives when the bridge moves, which is correct and is not flagged; one that names
+// it in the factory alone is a value keyed on a subject it will never re-derive for,
+// which is the defect. `useState` and `useRef` have no dependency list, so every subject
+// they name is flagged.
 //
 // CLAIM 2 IS COARSE ON PURPOSE, and it offers NO EXEMPTION LIST. It flags a
 // `useState(() => new SomethingBoundTo(bridge))` even where that something disposes
@@ -34,6 +47,12 @@
 // through the holder. It is case-sensitive: `BridgeScopedLatch` in an initialiser is a
 // construction and not a captured subject, and only the lower-case identifiers a
 // component receives as props are the signature.
+//
+// WHAT IT DOES NOT REACH, said plainly rather than left to be discovered: a subject
+// read through a local alias (`const transport = bridge` and then a cell naming
+// `transport`), and a declaration nested inside a function body rather than at a
+// module's top level. Both need a parser rather than a source-text scan; the claim
+// here is the coarse one, and the alias is not the shape a copy is written in.
 //
 // THE ONE MODULE THAT IS NOT SUBJECT TO IT is `bridge/BridgeProvider.tsx`, and it is
 // named a CHOKEPOINT rather than an exemption because that is what it is: it does not
@@ -82,16 +101,31 @@ const CHOKEPOINT_DOORS: readonly string[] = [
 /**
  * The names the six replaced copies went by, as one expression.
  *
- * `Latch$` and `MutationAttempt$` are anchored because a state type named for one —
- * `MutationAttemptState` — is a caller's own vocabulary and not a second latch.
- * `AttemptGeneration` is not anchored: it was a whole class, and any name containing
- * it is that class under a prefix.
+ * Two hook shapes and one suffix family. A hook pairs a SUBJECT word with either a
+ * scoping word or a state word, which is what a copy is called whether or not it spells
+ * every word of the one it replaced — `useSubjectState` is the same object with a word
+ * dropped, and `usePaneScopedValue` is the same object at a different subject. The
+ * suffixes are the class names: `Latch$`, `Register$`, and `Generation$` are anchored
+ * because a state type named for one — `MutationAttemptState` — is a caller's own
+ * vocabulary and not a second latch. `AttemptGeneration` is not anchored: it was a
+ * whole class, and any name containing it is that class under a prefix.
+ *
+ * The subject words are deliberately not paired with `Store`: `useSessionStore` and
+ * `useSessionStoreRegistry` are reads of a store this console already has one of, and
+ * a naming rule that swept them in would be answered by renaming rather than by going
+ * through the holder.
  */
 const SECOND_IMPLEMENTATION_NAMES =
-  /use(Subject|Session|Bridge)(Scoped|Stamped)|Latch$|AttemptGeneration|MutationAttempt$/;
+  /use(?:Subject|Session|Bridge|Pane|Run|Agent)(?:Scoped|Stamped)|use(?:Subject|Session|Bridge|Pane|Run|Agent)(?:State|Value|Holder)|(?:Latch|Register|Generation)$|AttemptGeneration|MutationAttempt$/;
 
 /** What a hand-rolled holder captures: the two identities a surface is addressed by. */
 const SUBJECT_IDENTIFIERS: readonly string[] = ["bridge", "sessionId"];
+
+/** The React hooks that hold a value for the life of a mount. */
+const STATE_CELL_HOOKS = /\buse(State|Ref|Memo|Reducer)\s*(?:<[^;=]*?>)?\s*\(/g;
+
+/** Openers whose closer has to be counted before a comma can be a top-level one. */
+const ARGUMENT_GROUPINGS: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}" };
 
 /**
  * The one module that resolves the bridge rather than being addressed by one.
@@ -117,48 +151,97 @@ const SUBJECT_RESOLUTION_CONSTRUCTOR = "new ResolvedConsoleBridge(";
 export function declaredSymbolNames(source: string): readonly string[] {
   return [
     ...source.matchAll(
-      /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
+      /^(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
     ),
   ]
     .map((match) => match[1] ?? "")
     .filter((name) => name.length > 0);
 }
 
-/** Every exported name in `source`, from a declaration or a re-export specifier. */
-export function exportedSymbolNames(source: string): readonly string[] {
-  const declared = [
-    ...source.matchAll(
-      /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
-    ),
-  ].map((match) => match[1] ?? "");
-  const reExported = [...source.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)].flatMap((match) =>
-    (match[1] ?? "")
-      .split(",")
-      .map((specifier) => specifier.replace(/\/\*[\s\S]*?\*\//g, "").trim())
-      .filter((specifier) => specifier.length > 0)
-      // `A as B` exports B; a bare `A` exports A. `type` prefixes are stripped.
-      .map(
-        (specifier) =>
-          specifier
-            .split(/\s+as\s+/)
-            .at(-1)
-            ?.replace(/^type\s+/, "")
-            .trim() ?? "",
-      ),
-  );
-  return [...declared, ...reExported].filter((name) => name.length > 0);
+/** Every name `source` publishes from somewhere else, through an export specifier. */
+export function reExportedSymbolNames(source: string): readonly string[] {
+  return [...source.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)]
+    .flatMap((match) =>
+      (match[1] ?? "")
+        .split(",")
+        .map((specifier) => specifier.replace(/\/\*[\s\S]*?\*\//g, "").trim())
+        .filter((specifier) => specifier.length > 0)
+        // `A as B` exports B; a bare `A` exports A. `type` prefixes are stripped.
+        .map(
+          (specifier) =>
+            specifier
+              .split(/\s+as\s+/)
+              .at(-1)
+              ?.replace(/^type\s+/, "")
+              .trim() ?? "",
+        ),
+    )
+    .filter((name) => name.length > 0);
 }
 
 /**
- * The argument text of every `useState` / `useRef` call in `source`.
+ * Every name a module either declares or publishes, which is what claim 1 scans.
+ *
+ * Both halves, because a copy is reachable either way: written in place, or written
+ * elsewhere and re-exported into position by a barrel.
+ */
+export function moduleSymbolNames(source: string): readonly string[] {
+  return [...declaredSymbolNames(source), ...reExportedSymbolNames(source)];
+}
+
+/** One state cell: what becomes the held value, and what would re-derive it. */
+export interface StateCell {
+  /** The argument texts that produce the value the cell holds. */
+  readonly held: readonly string[];
+  /** The argument texts that decide when it is produced again. Empty where none can. */
+  readonly dependencies: readonly string[];
+}
+
+/**
+ * Split one call's argument text at its top-level commas.
+ *
+ * Grouping-aware rather than a plain split, because every interesting argument here is
+ * a function body, an object literal, or a dependency array, and each carries commas
+ * of its own. A dependency list is an argument like any other, so a scan that could not
+ * tell one argument from the next could not tell a holder from a derivation.
+ */
+export function splitTopLevelArguments(text: string): readonly string[] {
+  const argumentTexts: string[] = [];
+  const closers: string[] = [];
+  let start = 0;
+  for (let cursor = 0; cursor < text.length; cursor += 1) {
+    const character = text[cursor] ?? "";
+    const closer = ARGUMENT_GROUPINGS[character];
+    if (closer !== undefined) {
+      closers.push(closer);
+    } else if (closers.length > 0 && character === closers.at(-1)) {
+      closers.pop();
+    } else if (character === "," && closers.length === 0) {
+      argumentTexts.push(text.slice(start, cursor));
+      start = cursor + 1;
+    }
+  }
+  argumentTexts.push(text.slice(start));
+  return argumentTexts.map((argumentText) => argumentText.trim()).filter((text) => text.length > 0);
+}
+
+/**
+ * Every mount-lifetime state cell in `source`, split into what it holds and what
+ * re-derives it.
  *
  * Balanced-paren scanning rather than a single regular expression: an initialiser is
  * routinely a function body containing its own parentheses, and a lazy match would
  * stop at the first one and read a fragment.
+ *
+ * Which argument holds the value is the hook's own answer and differs per hook.
+ * `useState` and `useRef` take one and it is the seed. `useMemo` takes a factory and
+ * then the dependencies that decide when it runs again. `useReducer` takes a reducer
+ * FIRST and the initial state after it, so its held text is everything but the first
+ * argument — and it has no dependency list at all, which is exactly why it is a holder.
  */
-export function stateCellInitialisers(source: string): readonly string[] {
-  const initialisers: string[] = [];
-  for (const opening of source.matchAll(/\buse(?:State|Ref)\s*(?:<[^;=]*?>)?\s*\(/g)) {
+export function stateCells(source: string): readonly StateCell[] {
+  const cells: StateCell[] = [];
+  for (const opening of source.matchAll(STATE_CELL_HOOKS)) {
     const start = opening.index + opening[0].length;
     let depth = 1;
     let cursor = start;
@@ -171,17 +254,36 @@ export function stateCellInitialisers(source: string): readonly string[] {
       }
       cursor += 1;
     }
-    initialisers.push(source.slice(start, cursor - 1));
+    const argumentTexts = splitTopLevelArguments(source.slice(start, cursor - 1));
+    if (opening[1] === "Memo") {
+      cells.push({ held: argumentTexts.slice(0, 1), dependencies: argumentTexts.slice(1) });
+    } else if (opening[1] === "Reducer") {
+      cells.push({ held: argumentTexts.slice(1), dependencies: [] });
+    } else {
+      cells.push({ held: argumentTexts, dependencies: [] });
+    }
   }
-  return initialisers;
+  return cells;
 }
 
-/** Which subject identifiers `source` captures in a state cell, or `[]`. */
+/**
+ * Which subject identifiers `source` captures in a state cell, or `[]`.
+ *
+ * An identifier named where the cell is PRODUCED and not where it is re-derived. A
+ * memo that names the bridge in both re-derives when the bridge moves, which is the
+ * correct shape and the one the palette's command list is written in; a cell that
+ * names it only in the first is a value keyed on a subject it will never be produced
+ * for again.
+ */
 export function capturedSubjectIdentifiers(source: string): readonly string[] {
   const captured = new Set<string>();
-  for (const initialiser of stateCellInitialisers(source)) {
+  for (const cell of stateCells(source)) {
     for (const identifier of SUBJECT_IDENTIFIERS) {
-      if (new RegExp(`\\b${identifier}\\b`).test(initialiser)) {
+      const named = new RegExp(`\\b${identifier}\\b`);
+      if (
+        cell.held.some((text) => named.test(text)) &&
+        !cell.dependencies.some((text) => named.test(text))
+      ) {
         captured.add(identifier);
       }
     }
@@ -233,7 +335,7 @@ describe("subject-scoped state — one holder and one latch in the whole console
       .filter((module) => !admitted.has(module))
       .map((module) => ({
         module,
-        names: exportedSymbolNames(readModule(module)).filter((name) =>
+        names: moduleSymbolNames(readModule(module)).filter((name) =>
           SECOND_IMPLEMENTATION_NAMES.test(name),
         ),
       }))
@@ -274,7 +376,7 @@ describe("subject-scoped state — one holder and one latch in the whole console
     // The tripwire matched at least one site. Without this, a typo in the expression
     // would make the clean result above meaningless.
     const matchedNames = CHOKEPOINT_MODULES.flatMap((chokepoint) =>
-      exportedSymbolNames(readModule(chokepoint)).filter((name) =>
+      moduleSymbolNames(readModule(chokepoint)).filter((name) =>
         SECOND_IMPLEMENTATION_NAMES.test(name),
       ),
     );
@@ -282,32 +384,63 @@ describe("subject-scoped state — one holder and one latch in the whole console
     expect(matchedNames).toContain("GenerationLatch");
   });
 
-  it("negative control: the extractor reads every export form the console writes", () => {
-    expect(exportedSymbolNames("export class BridgeScopedLatch {}")).toStrictEqual([
+  it("negative control: the extractor reads every declaration and export form", () => {
+    expect(moduleSymbolNames("export class BridgeScopedLatch {}")).toStrictEqual([
       "BridgeScopedLatch",
     ]);
-    expect(exportedSymbolNames("export function useSessionScopedState() {}")).toStrictEqual([
+    expect(moduleSymbolNames("export function useSessionScopedState() {}")).toStrictEqual([
       "useSessionScopedState",
     ]);
-    expect(exportedSymbolNames('export { MutationAttempt } from "./x.js";')).toStrictEqual([
+    expect(moduleSymbolNames('export { MutationAttempt } from "./x.js";')).toStrictEqual([
       "MutationAttempt",
     ]);
-    expect(
-      exportedSymbolNames('export { Held as GoalMutationLatch } from "./x.js";'),
-    ).toStrictEqual(["GoalMutationLatch"]);
-    expect(exportedSymbolNames("export type { Attempt } from './x.js';")).toStrictEqual([
-      "Attempt",
+    expect(moduleSymbolNames('export { Held as GoalMutationLatch } from "./x.js";')).toStrictEqual([
+      "GoalMutationLatch",
     ]);
-    // The name check discriminates: a caller's own state type is not a second latch.
-    expect(SECOND_IMPLEMENTATION_NAMES.test("MutationAttemptState")).toBe(false);
-    expect(SECOND_IMPLEMENTATION_NAMES.test("AttemptGeneration")).toBe(true);
+    expect(moduleSymbolNames("export type { Attempt } from './x.js';")).toStrictEqual(["Attempt"]);
+    // A copy is written where it is needed, and the natural shape of that is a
+    // module-local function nothing exports. An exported-only scan could not see it.
+    expect(moduleSymbolNames("function useSessionScoped() {}")).toStrictEqual(["useSessionScoped"]);
+    expect(moduleSymbolNames("class GenerationRegister {}")).toStrictEqual(["GenerationRegister"]);
+  });
+
+  it("planted violation: every shape a seventh copy would be named trips the check", () => {
+    // Each of these passed the expression this replaced, and each is one word away
+    // from a name that did not. Without them the clean result above would be a claim
+    // about the six spellings already in the tree rather than about the class.
+    for (const planted of [
+      "useSubjectScopedState",
+      "useSubjectState",
+      "usePaneScopedValue",
+      "useSessionScoped",
+      "useRunHolder",
+      "GenerationRegister",
+      "GoalMutationLatch",
+      "AttemptGeneration",
+      "SendAttemptGeneration",
+      "MutationAttempt",
+    ]) {
+      expect(SECOND_IMPLEMENTATION_NAMES.test(planted), `${planted} slipped past`).toBe(true);
+    }
+    // And the names it must NOT take, because each is a read of something the console
+    // has exactly one of and a rule that swept them in would be answered by renaming.
+    for (const admitted of [
+      "MutationAttemptState",
+      "useSessionStore",
+      "useOpenSessionStore",
+      "useSessionStoreRegistry",
+      "useSessionInitialised",
+      "ConsoleEntityProjectorRegistry",
+    ]) {
+      expect(SECOND_IMPLEMENTATION_NAMES.test(admitted), `${admitted} was flagged`).toBe(false);
+    }
   });
 });
 
 describe("subject-scoped state — no state cell captures a subject by hand", () => {
   const modules = scannedModules();
 
-  it("no useState or useRef initialiser names a bridge or a session id", () => {
+  it("no mount-lifetime state cell holds a bridge or a session id by hand", () => {
     const admitted = new Set([...CHOKEPOINT_MODULES, ...CHOKEPOINT_DOORS, SUBJECT_RESOLUTION_ROOT]);
     const offenders = modules
       .filter((module) => !admitted.has(module))
@@ -385,5 +518,45 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
     expect(
       capturedSubjectIdentifiers("const held = useRef<Map<string, number>>(mapFor(sessionId));"),
     ).toStrictEqual(["sessionId"]);
+  });
+
+  it("planted violation: the two other mount-lifetime holders trip the scan too", () => {
+    // Both passed the two-hook scan this replaced. A memo with an empty dependency
+    // list holds for the life of the mount exactly as a `useState` initialiser does,
+    // and a reducer has no dependency list at all.
+    expect(
+      capturedSubjectIdentifiers("const holder = useMemo(() => new Holder(bridge), []);"),
+    ).toStrictEqual(["bridge"]);
+    expect(
+      capturedSubjectIdentifiers("const [state, dispatch] = useReducer(reduceRows, sessionId);"),
+    ).toStrictEqual(["sessionId"]);
+    expect(
+      capturedSubjectIdentifiers(
+        "const models = useMemo(() => modelsFor(sessionId), [somethingElse]);",
+      ),
+    ).toStrictEqual(["sessionId"]);
+  });
+
+  it("a derivation that re-derives on its subject is not a holder and is not flagged", () => {
+    // The other side of the same line, and the reason the scan reads the dependency
+    // list rather than the whole call. A memo naming the bridge in both places is
+    // rebuilt when the bridge moves, which is the shape the palette's command list is
+    // written in — flagging it would be answered by writing the derivation somewhere
+    // the scan cannot see.
+    expect(
+      capturedSubjectIdentifiers(
+        "const commands = useMemo(() => buildCommands(bridge, onRefusal), [bridge, onRefusal]);",
+      ),
+    ).toStrictEqual([]);
+    // And the split is grouping-aware: the commas inside the factory belong to it.
+    expect(
+      capturedSubjectIdentifiers(
+        "const rows = useMemo(() => ({ a: read(bridge, sessionId), b: 1 }), [bridge, sessionId]);",
+      ),
+    ).toStrictEqual([]);
+    // The reducer's FIRST argument is the reducer, not the held value.
+    expect(
+      capturedSubjectIdentifiers("const [state] = useReducer(reduceBridgeRows, EMPTY);"),
+    ).toStrictEqual([]);
   });
 });
