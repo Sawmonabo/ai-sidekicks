@@ -59,25 +59,14 @@ import {
   createDrivenSeam,
   seamServing,
 } from "./node-roster.test-support.js";
+import {
+  BANNED_DIRECT_IMPORT_PATTERNS,
+  runtimeNodeSourceNamed,
+} from "./runtime-node-source.test-support.js";
 
-// CP-003-3 source-text read — Vite `import.meta.glob` raw form. See the
-// MixedVersionStatus suite's header for the full rationale (`node:fs` is doubly
-// banned in renderer programs, so the source text arrives inlined at transform time
-// instead). The augmentation is scoped to this test program.
-declare global {
-  interface ImportMeta {
-    glob: (
-      pattern: string,
-      options: { query: "?raw"; import: "default"; eager: true },
-    ) => Record<string, string>;
-  }
-}
-
-const runtimeNodeViewSources = import.meta.glob("../*.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-});
+// CP-003-3 source-text read. The raw glob and the banned-import pattern table
+// live once, in `runtime-node-source.test-support.ts` — every suite in this
+// directory had a verbatim copy of both.
 
 // The drift tripwire, asserted rather than merely annotated. `toEqualTypeOf` is
 // invariant, so widening `RuntimeNodeRosterResponse` or loosening a fixture
@@ -264,51 +253,29 @@ describe("NodeRoster", () => {
     // rule today (deferred to the Plan-023 Tier 8 remainder), so for that arm this
     // tripwire is the sole operational enforcement.
     //
-    // All three patterns anchor on the IMPORT SURFACE, never on bare words: this
-    // source discusses "the local daemon" and spells "no `electron`, no `node:*`" in
-    // PROSE, which a naive substring match would false-positive.
-    const bannedModuleSource =
-      "(?:@ai-sidekicks/(?:runtime-daemon|control-plane)(?:/[^\"'`]*)?" +
-      "|[^\"'`]*packages/(?:runtime-daemon|control-plane)/[^\"'`]*" +
-      "|node:[^\"'`]+" +
-      "|(?:fs|path|os|net|child_process|process)" +
-      "|electron(?:/[^\"'`]*)?)";
-
-    const bannedDirectImportPatterns: ReadonlyArray<readonly [string, RegExp, string]> = [
-      [
-        "bannedFromImport",
-        new RegExp(`from\\s*["'\`]${bannedModuleSource}["'\`]`),
-        'import { readFile } from "node:fs/promises";',
-      ],
-      [
-        "bannedSideEffectImport",
-        new RegExp(`import\\s*["'\`]${bannedModuleSource}["'\`]`),
-        'import "@ai-sidekicks/control-plane";',
-      ],
-      [
-        "bannedDynamicImport",
-        new RegExp(`import\\s*\\(\\s*["'\`]${bannedModuleSource}["'\`]`),
-        'const daemon = await import("@ai-sidekicks/runtime-daemon");',
-      ],
-    ];
-
-    const nodeRosterSource = runtimeNodeViewSources["../NodeRoster.tsx"];
-    if (typeof nodeRosterSource !== "string") {
-      throw new Error("NodeRoster.tsx source was not loaded by import.meta.glob");
-    }
+    // The pattern table is `runtime-node-source.test-support.ts`'s. What stays here
+    // is WHICH modules the claim is about, and it is BOTH of this view's: the
+    // rendering and `node-roster-reads.ts`, where the wire calls actually live. A
+    // scan of the `.tsx` alone would have been blind to exactly the module that
+    // talks to the control plane.
+    const nodeRosterSources = ["../NodeRoster.tsx", "../node-roster-reads.ts"].map(
+      runtimeNodeSourceNamed,
+    );
 
     // Negative control: a tripwire that has never fired positive proves nothing.
-    it.each(bannedDirectImportPatterns)(
+    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
       "%s matches a synthetic violating import (negative control)",
       (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
         expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
       },
     );
 
-    it.each(bannedDirectImportPatterns)(
-      "NodeRoster.tsx source matches no %s",
+    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
+      "the roster's own modules match no %s",
       (_bannedImportPatternName, bannedImportPattern) => {
-        expect(bannedImportPattern.test(nodeRosterSource)).toBe(false);
+        for (const source of nodeRosterSources) {
+          expect(bannedImportPattern.test(source)).toBe(false);
+        }
       },
     );
   });

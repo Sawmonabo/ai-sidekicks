@@ -15,9 +15,9 @@
 //     the crash for a fallback that hides the node — an eject-by-render, from the one
 //     component whose whole job is to keep a refused node visible (I-003-1).
 //
-// Its own file rather than a fifth block in `MixedVersionStatus.test.tsx`, which is
-// about the access verdict and the three refusal arms; this one is about how many
-// times the prop is read. The fixtures come from `src/shared/wire-errors.test-support.ts`
+// Its own file rather than a fourth block in `MixedVersionStatus.refusal.test.tsx`,
+// which is about which arm a rejection lands on; this one is about how many times
+// the prop is read. The fixtures come from `src/shared/wire-errors.test-support.ts`
 // — the home the two reader suites already share — because a value that answers a
 // scripted number of readings is exactly the role they play there.
 //
