@@ -166,10 +166,15 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
       // absent-not-disabled rule applied to its own act rather than a layout choice.
       actions={
         definition === undefined ? undefined : (
-          <div className="meridian-workflow__authoring">
+          // A `<span>` because `ConsolePaneChrome` renders `actions` inside its own
+          // `<span className="meridian-pane__controls">`, which takes phrasing content
+          // only. The sheet already lays this out as `inline-flex`, so the element name
+          // is the whole of the difference — which is why neither tier caught it: axe
+          // does not check content models and the screenshot sees identical pixels.
+          <span className="meridian-workflow__authoring">
             <span className="meridian-workflow__authoring-label">Save</span>
             <InlineRefusal {...UNREACHABLE_PRIMARY_ACT} />
-          </div>
+          </span>
         )
       }
     >

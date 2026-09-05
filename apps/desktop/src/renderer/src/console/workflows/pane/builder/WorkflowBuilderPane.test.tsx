@@ -104,6 +104,24 @@ describe("workflow builder pane — with no definition to open", () => {
   });
 });
 
+/**
+ * Element names a `<span>` may not contain, as the case below reads the rule.
+ *
+ * The forbidden set rather than the permitted one: the strip legitimately holds spans,
+ * buttons and an `<svg>` glyph with whatever that element carries inside it, and an
+ * allow-list would have to enumerate SVG's own vocabulary to say so.
+ */
+const FLOW_ONLY_ELEMENTS: readonly string[] = [
+  "div",
+  "p",
+  "section",
+  "article",
+  "ol",
+  "ul",
+  "li",
+  "table",
+];
+
 describe("workflow builder pane — with a definition to open", () => {
   it("reports the definition as unread rather than as absent", () => {
     // Negative control for the browser case: it would pass over a pane that rendered
@@ -128,6 +146,17 @@ describe("workflow builder pane — with a definition to open", () => {
     expect(authoring).not.toBeNull();
     expect(authoring?.querySelector("button")).toBeNull();
     expect(section.textContent ?? "").toContain("wire-unregistered");
+  });
+
+  it("puts phrasing content in the control strip, which is all a span may hold", () => {
+    // `ConsolePaneChrome` renders `actions` inside `<span class="meridian-pane__controls">`,
+    // and this pane passed a `<div>` — invalid HTML on every builder pane, reported by
+    // neither tier: axe does not check content models, and the screenshot sees identical
+    // pixels because the wrapper is already laid out `inline-flex`.
+    const section = renderPane(paneContext(ADDRESSED));
+    const controls = section.querySelector(".meridian-pane__controls");
+    expect(controls).not.toBeNull();
+    expect(controls?.querySelector(FLOW_ONLY_ELEMENTS.join(","))).toBeNull();
   });
 });
 

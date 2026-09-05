@@ -60,6 +60,15 @@
 // an opened pane lands; `WorkflowsPaneHost.tsx` is that surface today and the deck is
 // that surface later, and neither fact reaches here.
 //
+// AND BOTH ARE HELD STILL, BECAUSE THE ROW BELOW THEM IS MEMOIZED. `WorkflowRuns`
+// memoizes its projection on the read state, so a row value is replaced when and only
+// when something in that run changed — which is what makes `RunListItem`'s `memo`
+// worth having. Minted inline, these two openers were a fresh identity on every pass,
+// so the shallow compare failed for every row and any state change anywhere above
+// re-rendered the whole list. They are therefore keyed on the opener this surface was
+// handed and on nothing else: the identity moves exactly when the destination for an
+// opened pane does.
+//
 // WHAT IT DELIBERATELY DOES NOT OPEN. It supplies no new-definition action, and that
 // is this family's own absence rule rather than an omission: `definitions/DefinitionsBrowser.tsx`
 // writes it out — an entry point appears when its caller supplies the action and not
@@ -74,6 +83,8 @@
 // because they are separate questions with separate absences — a session can have
 // definitions and no runs — and one of them refusing must not silence the other.
 
+import { useCallback } from "react";
+
 import type { GrowthPort } from "../bridge/index.js";
 import { WireFigure } from "../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
@@ -84,7 +95,9 @@ import {
   scopeSessionIdFor,
   type WorkflowsScopeState,
 } from "./destination-scope.js";
+import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 import { useReadSettlementAnnouncement } from "./read-announcement.js";
+import type { WorkflowRunListRow } from "./runs/run-list-projection.js";
 import { WorkflowRuns } from "./runs/WorkflowRuns.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
@@ -122,6 +135,25 @@ export interface WorkflowsDestinationProps {
 
 /** The workflows destination, scoped to the session it reads from. */
 export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JSX.Element {
+  const { openPane } = props;
+  const openDefinition = useCallback(
+    (definition: WorkflowDefinitionRow) => {
+      openPane({
+        kind: "workflow-builder",
+        entity: { kind: "workflow-definition", id: definition.id },
+      });
+    },
+    [openPane],
+  );
+  const openRun = useCallback(
+    (row: WorkflowRunListRow) => {
+      openPane({
+        kind: "workflow-run",
+        entity: { kind: "workflow-run", id: row.run.workflowRunId },
+      });
+    },
+    [openPane],
+  );
   // The arm is the caller's and the resolution is the model's — three arms, one
   // function, and a test that pins the arm the old fold could not express.
   const retainedSessionId = useFrameStore(props.frameStore, (state) => state.lastOpenedSessionId);
@@ -170,23 +202,9 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
       <WorkflowsBrowser
         growth={props.growth}
         sessionId={sessionId}
-        onOpenDefinition={(definition) => {
-          props.openPane({
-            kind: "workflow-builder",
-            entity: { kind: "workflow-definition", id: definition.id },
-          });
-        }}
+        onOpenDefinition={openDefinition}
       />
-      <WorkflowRuns
-        growth={props.growth}
-        sessionId={sessionId}
-        onOpenRun={(row) => {
-          props.openPane({
-            kind: "workflow-run",
-            entity: { kind: "workflow-run", id: row.run.workflowRunId },
-          });
-        }}
-      />
+      <WorkflowRuns growth={props.growth} sessionId={sessionId} onOpenRun={openRun} />
     </div>
   );
 }

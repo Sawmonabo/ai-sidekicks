@@ -81,6 +81,12 @@
 //
 
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
+// The routing key itself, from the scenario module that mints it. Restated as a
+// literal here the two would have drifted in silence: the wire-truth walk compares a
+// scenario's `call` against the port's operation id and never against this call site,
+// so a rename would have moved the constant and the reply and left this handler
+// answering a key nothing sends — which surfaces as an unexplained empty enumeration.
+import { WORKFLOWS_RUN_ENUMERATION_CALL } from "./scenarios/workflows.js";
 import { declaredWorkflowScope, requireScenarioWorkflowSubject } from "./fixture-workflow-scope.js";
 import { growthUnavailable, type GrowthPort } from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
@@ -193,7 +199,7 @@ export function fixtureWorkflowReads(
       // teaching a surface a wire fact traceable to nothing.
       return answerFromScriptedReply(
         engine,
-        "growth:workflowRunList",
+        WORKFLOWS_RUN_ENUMERATION_CALL,
         "workflowRunList",
         request,
         () => emptyEnumeration,
