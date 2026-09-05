@@ -1,11 +1,22 @@
 /*
- * The workflows family's shared chrome, and the family's single stylesheet edge.
+ * The workflows family's shared chrome, and the entry point for the sheets this
+ * directory owns.
  *
- * `workflows/index.ts` imports THIS file and nothing else, so the bundler sees one
- * edge into the family's rules and a surface can never render a chrome that arrived
- * without them. The per-surface sheets below are pulled in from here rather than from
- * their own modules for that reason: each is owned and edited by the surface it names,
- * and none of them is a second import edge.
+ * `workflows/index.ts` imports THIS file and no other sheet, so the family door is one
+ * edge into the rules every workflows surface stands in and a surface can never render
+ * a chrome that arrived without them. The sheets below are pulled in from here rather
+ * than from their own modules for that reason: each is owned and edited by the surface
+ * it names, and none of them is a second import edge into what the door already brings.
+ *
+ * PULLED IN FROM HERE MEANS FROM A DIRECTORY THIS ONE OWNS, and that is the whole of
+ * the rule. `definitions/`, `runs/` and `parks/` carry no barrel: they are this
+ * family's own sub-directories, reached from inside it and by nothing else, so a sheet
+ * of theirs entering on the family door is the family importing its own rules. A sheet
+ * belonging to a directory that has an OWNER of its own — another family, a sub-module
+ * door, a lazily-loaded chunk — is the shape that is forbidden, because it puts that
+ * surface's rules on the initial document for every session that never opens it and
+ * makes one directory the reason another is styled at all. The three doors below this
+ * one are exactly that case, and their sheets are exactly what is not here.
  *
  * WHAT IS BELOW IS WHAT THIS DIRECTORY OWNS. The two pane sheets used to be — an
  * `@import` reaching `../panes/workflow-run/` and another reaching

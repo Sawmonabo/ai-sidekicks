@@ -13,24 +13,36 @@
 // hook-order error. So this component CONSTRUCTS an element from the body and the
 // mount it is handed, and a body that is absent is an absence rather than a call
 // skipped. The five wrappers wrote that composition out five times; now they hand over
-// their body and their mount and this file does it once. The reciprocal obligation is
-// still the caller's: the body must be a stable reference, because a component
-// composed inline on each render is a new type each time and React remounts it.
+// their contract, their body and their mount and this file does it once. The
+// reciprocal obligation is still the caller's: the body must be a stable reference,
+// because a component composed inline on each render is a new type each time and
+// React remounts it.
 //
-// THE CONTRACT IS CARRIED AND NEVER RENDERED. `seat` names governance work — a task
-// id, a mount obligation, a deletion obligation — and the seat's own rule is that no
-// console surface may display one. The copy a person sees is the caller's, written for
-// a person. The contract travels anyway, because a mount that took only the body would
-// let a sixth slot appear with nobody named against it.
+// THE CONTRACT IS CARRIED AND NEVER RENDERED. `contract` names governance work — a
+// task id, a mount obligation, a deletion obligation — and the seat's own rule is that
+// no console surface may display one. The copy a person sees is the caller's, written
+// for a person. The contract travels anyway, because a mount that took only the body
+// would let a sixth slot appear with nobody named against it — and it travels as the
+// seat's OWN shape rather than as a member copied out of it: these props extend
+// `OwnerSlotProps`, so the pair a mounting family renders a plan-owned slot with is
+// declared once, in `seats/`, and read here. It used to be rebuilt into a local value
+// whose `contract` nothing then consulted, which is the second activation route
+// `owner-slots.ts` teaches against with the body member it deleted for the same
+// reason.
 
 import { Nothing } from "../primitives/index.js";
-import type { OwnerSlotContract, OwnerSlotProps } from "../seats/index.js";
+import type { OwnerSlotProps } from "../seats/index.js";
 
-export interface WorkflowSlotMountProps<TMount extends object> {
-  /** Who owns the body, what this family owes it, and where the shell dies. */
-  readonly seat: OwnerSlotContract;
-  /** The body, once there is one. Absent everywhere in this repository. */
-  readonly body: ((mount: TMount) => React.ReactNode) | undefined;
+/**
+ * What this mount is handed: the seat's own pair, plus what this family adds to it.
+ *
+ * `contract` and `body` are `OwnerSlotProps`' and are not restated — a mount that
+ * spelled them again would be a second declaration of the shape `seats/owner-slot.ts`
+ * exists to declare once, and it would go on compiling the day that one moved.
+ */
+export interface WorkflowSlotMountProps<TMount extends object> extends OwnerSlotProps<
+  (mount: TMount) => React.ReactNode
+> {
   /**
    * What the mounting surface hands the body — this slot's mount obligation.
    *
@@ -51,16 +63,12 @@ export function WorkflowSlotMount<TMount extends object>(
   props: WorkflowSlotMountProps<TMount>,
 ): React.JSX.Element {
   const { body: SlotBody, mount } = props;
-  // Composed here, which is what `OwnerSlotProps` describes — a seat plus the body a
-  // mounting family renders it with. Five wrappers built this value; one does now.
-  const slot: OwnerSlotProps<React.ReactNode> = {
-    contract: props.seat,
-    body: SlotBody === undefined || mount === undefined ? undefined : <SlotBody {...mount} />,
-  };
   return (
     <div className="meridian-workflow__slot">
-      {slot.body ?? (
+      {SlotBody === undefined || mount === undefined ? (
         <Nothing kind="empty" placement="surface" title={props.title} detail={props.detail} />
+      ) : (
+        <SlotBody {...mount} />
       )}
     </div>
   );

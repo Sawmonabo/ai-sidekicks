@@ -99,7 +99,7 @@ export function HumanFormSlot(props: HumanFormSlotProps): React.JSX.Element {
   const { phase, body } = props;
   return (
     <WorkflowSlotMount
-      seat={WORKFLOW_HUMAN_FORM_SLOT}
+      contract={WORKFLOW_HUMAN_FORM_SLOT}
       body={body}
       // No phase means no body, and never a body rendered against a placeholder: a
       // form composed against a phase nobody resolved would be answerable in

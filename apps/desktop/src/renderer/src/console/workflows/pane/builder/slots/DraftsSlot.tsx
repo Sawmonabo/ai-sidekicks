@@ -62,7 +62,7 @@ export function DraftsSlot(props: DraftsSlotProps): React.JSX.Element {
   const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      seat={WORKFLOW_DRAFT_SLOT}
+      contract={WORKFLOW_DRAFT_SLOT}
       body={body}
       mount={mount}
       title="The phase inspector is not built yet."
