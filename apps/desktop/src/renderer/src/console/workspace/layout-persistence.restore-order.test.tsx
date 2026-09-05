@@ -11,6 +11,7 @@
 // `layout-writer.test.ts` holds the writer's own claims; this file holds the pair's.
 
 import { act, render } from "@testing-library/react";
+import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "./workspace-bounds.js";
@@ -55,7 +56,11 @@ async function saveDeck(
  * — no gate to install, no timer to advance, and nothing for a later reader to
  * disbelieve about what the fixture was doing.
  */
-function mountPersistence(layout: DeckLayout, store: UiStateStore): void {
+function mountPersistence(
+  layout: DeckLayout,
+  store: UiStateStore,
+  options: { readonly underStrictMode: boolean } = { underStrictMode: false },
+): void {
   function Harness(): React.JSX.Element {
     useDeckPersistence({
       layout,
@@ -65,7 +70,15 @@ function mountPersistence(layout: DeckLayout, store: UiStateStore): void {
     });
     return <div />;
   }
-  render(<Harness />);
+  render(
+    options.underStrictMode ? (
+      <StrictMode>
+        <Harness />
+      </StrictMode>
+    ) : (
+      <Harness />
+    ),
+  );
 }
 
 /** Let the read, the restore, and the write pump settle, without advancing a timer. */
@@ -181,6 +194,45 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   it("negative control: a change made after the restore settled is written", async () => {
     // The gate opens; it does not stay shut. Without this every case above would pass
     // over a hook that had simply stopped writing.
+    const store = uiStateStore();
+    await saveDeck(store, ["timeline"]);
+    const layout = deckLayout();
+
+    mountPersistence(layout, store);
+    await drain();
+    act(() => {
+      layout.open({ kind: "runs", entity: undefined });
+    });
+    await drain();
+
+    expect(await savedPaneCount(store)).toBe(2);
+  });
+});
+
+describe("useDeckPersistence — the writer across a double-mount", () => {
+  it("keeps saving after the mount that closed its writer re-committed it", async () => {
+    // `flushAndClose` is one-way and `request` then drops every arrangement in
+    // silence, so a holder that re-committed the retired writer left the person
+    // rearranging their deck all session with nothing kept and no refusal raised.
+    // React's own double-mount is the trigger, and it arrives with a wrapper nobody
+    // re-audits this call site for.
+    const store = uiStateStore();
+    await saveDeck(store, ["timeline"]);
+    const layout = deckLayout();
+
+    mountPersistence(layout, store, { underStrictMode: true });
+    await drain();
+    act(() => {
+      layout.open({ kind: "runs", entity: undefined });
+    });
+    await drain();
+
+    expect(await savedPaneCount(store)).toBe(2);
+  });
+
+  it("negative control: the same arrangement lands under an ordinary single mount", async () => {
+    // Without this the case above would pass over a fixture whose deck reached the
+    // store on some path other than the writer being tested.
     const store = uiStateStore();
     await saveDeck(store, ["timeline"]);
     const layout = deckLayout();

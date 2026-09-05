@@ -96,6 +96,19 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
     return this.#writeCount;
   }
 
+  /**
+   * True once `flushAndClose` has run. Terminal: no request is ever taken again.
+   *
+   * Published for the holder that owns this writer's lifetime. React's double-mount
+   * runs the committed cleanup and then re-runs the effect against the value it just
+   * closed, so a holder with no way to ask would re-commit a retired writer — and
+   * every save after that is dropped at `request` with no refusal raised anywhere,
+   * which is a person rearranging their deck all session and nothing being kept.
+   */
+  public get isRetired(): boolean {
+    return this.#isRetired;
+  }
+
   /** True when nothing is in flight and nothing is waiting to go. */
   public get isIdle(): boolean {
     return !this.#inFlight && this.#pending === undefined;
@@ -163,4 +176,17 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
  */
 export function flushAndCloseWriter(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): void {
   writer.flushAndClose();
+}
+
+/**
+ * Whether a writer is past its terminal — the reading
+ * `store/subject-scoped-resource.ts` asks before it re-commits one.
+ *
+ * A module-level function beside the disposal it belongs with, for the reason that
+ * one is: both are held on the lifetime rather than read from a render's closure, so
+ * a fresh arrow per render would restart the lifetime effect on every pass. Its
+ * siblings are `isReplayEngineDisposed` and the frame's two.
+ */
+export function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): boolean {
+  return writer.isRetired;
 }
