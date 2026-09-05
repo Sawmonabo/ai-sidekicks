@@ -29,16 +29,13 @@
 // sequence counter. Retiring that component from the `workspace` slot is the
 // workspace family's own diff, not this one's.
 
-import type {
-  PresenceReadResponse,
-  PresenceReadResponseParticipant,
-} from "@ai-sidekicks/contracts";
+import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
+import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../bridge/index.js";
 import type { ParticipantHueAssignment } from "../tokens/index.js";
 import type { SessionStore } from "../store/index.js";
-import { PushDrivenRead, callDaemonMethod, subscribeDaemonEvent } from "../seats/index.js";
+import { PushDrivenRead, servedValueOrRaise, subscribeDaemonEvent } from "../seats/index.js";
 
 const PRESENCE_READ_METHOD = "presence.read";
 const PRESENCE_SUBSCRIBE_EVENT = "presence.subscribe";
@@ -123,12 +120,10 @@ export function createPresenceRoster(options: {
     clock,
     origin: PRESENCE_ROSTER_ORIGIN,
     read: async () => {
-      const response = await callDaemonMethod<{ readonly sessionId: string }, PresenceReadResponse>(
-        bridge,
-        PRESENCE_READ_METHOD,
-        { sessionId: sessionStore.sessionId },
-      );
-      return response.participants;
+      const reply = await callDaemon(bridge, PRESENCE_READ_METHOD, {
+        sessionId: heldIdAsWireId(sessionStore.sessionId),
+      });
+      return servedValueOrRaise(reply).participants;
     },
     // The payload is typed `void` and the handler takes no argument, which is the
     // "never decodes the push payload" rule made unrepresentable rather than

@@ -60,15 +60,16 @@
 // rather than a stale list nothing can correct.
 
 import type {
+  RepoMountReadRequest,
   RepoMountReadResponse,
   SessionEventType,
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock, ConsoleRefusal, Unsubscribe } from "../../core/index.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
 import { MOUNT_INVENTORY_READ_CAP } from "../../core/index.js";
-import { PushDrivenRead, callDaemonMethod, consoleRefusalFrom } from "../../seats/index.js";
+import { PushDrivenRead, servedValueOrRaise } from "../../seats/index.js";
 import { subscribeToSessionEventKinds, type SessionStore } from "../../store/index.js";
 
 /** The registered method that names which mounts a session holds. */
@@ -195,36 +196,44 @@ async function readMountInventory(
   bridge: ConsoleBridge,
   sessionId: string,
 ): Promise<MountInventory> {
-  const workspaces = await callDaemonMethod<{ readonly sessionId: string }, WorkspaceListResponse>(
-    bridge,
-    WORKSPACE_LIST_METHOD,
-    { sessionId },
+  const workspaces = servedValueOrRaise(
+    await callDaemon(bridge, WORKSPACE_LIST_METHOD, {
+      sessionId: heldIdAsWireId(sessionId),
+    }),
   );
   const mountIds = distinctMountIds(workspaces);
   const admittedMountIds = mountIds.slice(0, MOUNT_INVENTORY_READ_CAP);
-  const settled = await Promise.allSettled(
-    admittedMountIds.map(async (repoMountId) =>
-      callDaemonMethod<{ readonly repoMountId: string }, RepoMountReadResponse>(
-        bridge,
-        MOUNT_READ_METHOD,
-        { repoMountId },
-      ),
-    ),
+  // `Promise.all` and not `allSettled`, because the call door answers a refusal as a
+  // VALUE: one mount refusing no longer rejects, so there is no settled-outcome
+  // wrapper left to unwrap and no `reason` left to normalize a second time.
+  const replies = await Promise.all(
+    admittedMountIds.map(async (repoMountId) => await readOneMount(bridge, repoMountId)),
   );
-  const readings = settled.map((outcome, index): MountReading => {
+  const readings = replies.map((reply, index): MountReading => {
     // The id is taken from the request rather than from the reply, because the
     // refused arm has no reply to take it from and both arms must name the same
     // mount for a row to be stable across a refresh.
     const repoMountId = admittedMountIds[index] ?? "";
-    return outcome.status === "fulfilled"
-      ? { kind: "read", mount: outcome.value }
-      : {
-          kind: "refused",
-          repoMountId,
-          refusal: consoleRefusalFrom(outcome.reason, MOUNT_INVENTORY_ORIGIN),
-        };
+    return reply.status === "served"
+      ? { kind: "read", mount: reply.value }
+      : { kind: "refused", repoMountId, refusal: reply.refusal };
   });
   return { readings, unreadMountCount: mountIds.length - admittedMountIds.length };
+}
+
+/**
+ * One mount read, as its own function so the branded request infers in one place.
+ *
+ * The request is a NAMED local carrying the contracts type rather than an object
+ * literal in the argument position. Written inline, the widening sits inside a
+ * generic call whose own method parameter is still being inferred, the brand
+ * resolves to bare `string`, and the widening does nothing. It fails loudly — the
+ * assignment is the error above — but the fix belongs at the site rather than in a
+ * reader's memory, so the type is written where it is decided.
+ */
+async function readOneMount(bridge: ConsoleBridge, repoMountId: string) {
+  const request: RepoMountReadRequest = { repoMountId: heldIdAsWireId(repoMountId) };
+  return await callDaemon(bridge, MOUNT_READ_METHOD, request);
 }
 
 /**

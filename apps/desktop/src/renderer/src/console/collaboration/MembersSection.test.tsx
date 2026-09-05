@@ -26,7 +26,16 @@ import {
 } from "../seats/index.js";
 import { registerCollaborationSections } from "./sections.js";
 
-const SESSION_ID = "session-members-section";
+/**
+ * The session id both section reads send over the wire.
+ *
+ * A UUID rather than a readable string, because the call door parses the REQUEST
+ * against the registered schema before it sends and `sessionId` is a branded UUID
+ * scalar — a readable id is refused as `request-unsendable`, both reads settle on
+ * the refusal arm instead of the served one, and the degraded line the cases below
+ * assert lives only in the served body.
+ */
+const SESSION_ID = "019b7910-0005-7000-8000-000000000001";
 
 function bridgeForSection(): ConsoleBridge {
   return createFixtureBridge({

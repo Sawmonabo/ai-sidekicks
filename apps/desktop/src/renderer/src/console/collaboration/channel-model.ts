@@ -21,16 +21,12 @@
 // one would be the leak the filter exists to prevent.
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
-import type {
-  ChannelListResponse,
-  ChannelListResponseChannel,
-  SessionEventType,
-} from "@ai-sidekicks/contracts";
+import type { ChannelListResponseChannel, SessionEventType } from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
+import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../bridge/index.js";
 import { subscribeToSessionEventKinds, type SessionStore } from "../store/index.js";
-import { PushDrivenRead, callDaemonMethod } from "../seats/index.js";
+import { PushDrivenRead, servedValueOrRaise } from "../seats/index.js";
 
 /** The daemon method the directory reads. Named once; the family's only speller. */
 const CHANNEL_LIST_METHOD = "channel.list";
@@ -131,12 +127,10 @@ export function createChannelDirectory(options: {
     clock,
     origin: CHANNEL_DIRECTORY_ORIGIN,
     read: async () => {
-      const response = await callDaemonMethod<{ readonly sessionId: string }, ChannelListResponse>(
-        bridge,
-        CHANNEL_LIST_METHOD,
-        { sessionId: sessionStore.sessionId },
-      );
-      return response.channels;
+      const reply = await callDaemon(bridge, CHANNEL_LIST_METHOD, {
+        sessionId: heldIdAsWireId(sessionStore.sessionId),
+      });
+      return servedValueOrRaise(reply).channels;
     },
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, CHANNEL_LIFECYCLE_EVENT_KINDS, onChangeSignal),

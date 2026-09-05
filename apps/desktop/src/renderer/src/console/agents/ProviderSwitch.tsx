@@ -64,7 +64,7 @@ import {
   type AxisDraft,
 } from "./provider-switch-draft.js";
 import { SwitchSettlementLine } from "./SwitchSettlementLine.js";
-import type { AgentRosterEntry, AgentSwitchSettlement } from "./agent-wire.js";
+import type { AgentRosterEntry, AgentSwitchSettlement } from "../bridge/index.js";
 
 export interface ProviderSwitchProps {
   readonly agent: AgentRosterEntry;

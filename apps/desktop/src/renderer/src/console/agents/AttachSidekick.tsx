@@ -36,11 +36,8 @@ import {
   modelsFor,
   type DriverCatalogReading,
 } from "./driver-catalog.js";
-import type {
-  AgentAttachReading,
-  AgentResolvedConfiguration,
-  SidekickDefinitionListReading,
-} from "./agent-wire.js";
+import type { AgentAttachReading, AgentResolvedConfiguration } from "../bridge/index.js";
+import type { SidekickDefinitionListReading } from "./agent-wire.js";
 
 export interface AttachSidekickProps {
   readonly open: boolean;

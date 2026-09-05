@@ -1,5 +1,4 @@
-// One coordinator for every mutation this family offers, and one cast for the
-// method brand it has to get past.
+// One coordinator for every mutation this family offers.
 //
 // WHY IT IS ONE CLASS AND NOT ONE PER SURFACE
 //
@@ -40,25 +39,31 @@
 // would be releasing a control nobody in this session ever pressed. So a holder
 // whose subject moves calls `supersede`, and the round in flight stops being able
 // to publish anything at all. Nothing is cancelled — nothing behind the bridge is
-// cancellable — the reply simply installs nowhere. `core/attempt-generation.ts` is
+// cancellable — the reply simply installs nowhere. `store/generation-latch.ts` is
 // the console's one mechanism for that and is used here rather than re-counted.
 //
-// WHERE THE BRAND CAST IS NOT
+// WHERE THE PARSE IS NOT
 //
-// `daemon.call<M extends DaemonMethod>` takes a Plan-007 brand no string literal
-// is assignable to, so every caller in this repository casts — and this family
-// already keeps that cast in one place, `seats/wire-access.ts`. This module reaches the
-// wire through it rather than repeating it: a second copy would be a second thing
-// to change when the brand narrows, and the module whose whole subject is the cast
-// would no longer be the only one that knows about it.
+// This module holds no reading of a reply and no reading of a rejection. Both are
+// `bridge/daemon-reply.ts`, which parses the request before it goes and the reply
+// when it lands and answers one closed value either way — so what arrives here is
+// already `served` or `refused`, and there is nothing left for a coordinator to
+// narrow, cast, or catch. What it adds is the part that is genuinely its own: which
+// subject key a refusal belongs to, and the console's own rule that a second press
+// while one act is unsettled is answered rather than sent.
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import { GenerationLatch, type CurrentGenerationClaim } from "../store/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
-import { callDaemonMethod } from "../seats/index.js";
+import {
+  callDaemon,
+  type ConsoleBridge,
+  type ConsoleDaemonMethod,
+  type DaemonReply,
+  type DaemonRequestOf,
+  type DaemonResponseOf,
+} from "../bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
@@ -77,8 +82,15 @@ const MUTATION_IN_FLIGHT_CODE = "mutation-in-flight";
  *
  * A function rather than a bridge handle, so a test drives the real coordinator
  * against a stub CALL instead of standing in for the coordinator itself.
+ *
+ * It answers a {@link DaemonReply} rather than resolving or rejecting, because that
+ * is what the call door answers: a refusal is a value on the way back, never a
+ * throw, so the coordinator has no `catch` in which to invent a second reading of
+ * one. A stub written for a test answers the same closed value for the same reason.
  */
-export type WireMutation<TRequest, TResponse> = (request: TRequest) => Promise<TResponse>;
+export type WireMutation<TRequest, TResponse> = (
+  request: TRequest,
+) => Promise<DaemonReply<TResponse>>;
 
 /** What a surface renders the coordinator's state from. */
 export interface WireMutationSnapshot {
@@ -188,31 +200,27 @@ export class WireMutationCoordinator<TRequest, TResponse> {
       refusalByKey: withoutKey(this.#snapshot.refusalByKey, key),
       revision: this.#snapshot.revision + 1,
     });
-    try {
-      const response = await this.#perform(request);
-      if (!this.#isStillWanted(round)) {
-        return undefined;
-      }
+    // No `try`, because there is nothing to catch: the call door answers a refusal
+    // as a value and never as a throw, so both arms below are the same settlement
+    // read two ways rather than one path and one accident.
+    const reply = await this.#perform(request);
+    if (!this.#isStillWanted(round)) {
+      return undefined;
+    }
+    if (reply.status === "refused") {
       this.#publish({
         pendingKey: undefined,
-        refusalByKey: this.#snapshot.refusalByKey,
-        revision: this.#snapshot.revision + 1,
-      });
-      return response;
-    } catch (rejection: unknown) {
-      if (!this.#isStillWanted(round)) {
-        return undefined;
-      }
-      this.#publish({
-        pendingKey: undefined,
-        refusalByKey: {
-          ...this.#snapshot.refusalByKey,
-          [key]: this.#asRefusal(rejection),
-        },
+        refusalByKey: { ...this.#snapshot.refusalByKey, [key]: reply.refusal },
         revision: this.#snapshot.revision + 1,
       });
       return undefined;
     }
+    this.#publish({
+      pendingKey: undefined,
+      refusalByKey: this.#snapshot.refusalByKey,
+      revision: this.#snapshot.revision + 1,
+    });
+    return reply.value;
   }
 
   /**
@@ -258,15 +266,6 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   }
 
   /**
-   * Widen any rejection into the console's one refusal shape.
-   *
-   * `wireRejectionToError` puts the wire code on `Error.name` — that is the
-   * repository's single normalizer for this seam and rewriting it here would be
-   * the second copy `src/shared/wire-errors.ts` exists to prevent. `total`
-   * because a rejection crossing the preload boundary is `unknown`, and the
-   * surface whose job is to SHOW a refusal must not throw while rendering one.
-   */
-  /**
    * The refusal a press earns for arriving while another one is unsettled.
    *
    * It names the subject still running rather than saying "one at a time" and
@@ -278,15 +277,6 @@ export class WireMutationCoordinator<TRequest, TResponse> {
       COLLABORATION_REFUSAL_ORIGIN,
       MUTATION_IN_FLIGHT_CODE,
       `${this.#describeWhat} was not applied. A change to ${unsettledKey} is still being applied, and only one runs at a time — wait for it to settle, then press again.`,
-    );
-  }
-
-  #asRefusal(rejection: unknown): ConsoleRefusal {
-    const normalized = wireRejectionToError(rejection, { total: true });
-    return refuse(
-      COLLABORATION_REFUSAL_ORIGIN,
-      normalized.name,
-      `${this.#describeWhat} was not applied. ${normalized.message}`,
     );
   }
 }
@@ -304,27 +294,25 @@ export function useWireMutation<TRequest, TResponse>(
 }
 
 /**
- * One daemon method, typed to its contract shapes.
+ * One registered daemon method, as the shape a coordinator consumes.
  *
- * DAEMON-AS-GATEWAY, per the shipped `invite-accept-view.tsx`: the renderer
- * speaks one transport and the daemon proxies the control-plane `invite.*` and
- * `membership.*` methods behind it. `controlPlane.call` is deliberately not used
- * — it would open a second seam this client does not have, and the one shipped
- * caller of these wires established which side of that line they sit on.
+ * DAEMON-AS-GATEWAY, per the shipped `invite-accept-view.tsx`: the renderer speaks
+ * one transport and the daemon proxies the control-plane `invite.*` and
+ * `membership.*` methods behind it. `controlPlane.call` is deliberately not used —
+ * it would open a second seam this client does not have, and the one shipped caller
+ * of these wires established which side of that line they sit on.
  *
- * The method name stays a `string` because `DaemonMethod` is a Plan-007 brand
- * that no literal satisfies yet; the REQUEST and RESPONSE are pinned to the
- * contract types, so a caller passing the wrong payload still fails to compile.
- * Both facts belong to `seats/wire-access.ts`, which this delegates to — what is added
- * here is only the shape the coordinator consumes, a request-to-response function
- * with the bridge and the method already bound.
+ * The method is a member of the call door's own registry, so the request and the
+ * response types are READ OFF IT rather than declared here: a caller naming a method
+ * the registry does not bind does not compile, and one passing the wrong payload
+ * does not either. Everything this adds is the binding — the bridge and the method
+ * closed over — and nothing about what a reply means.
  */
-export function daemonMutation<TRequest, TResponse>(
+export function daemonMutation<MethodName extends ConsoleDaemonMethod>(
   bridge: ConsoleBridge,
-  method: string,
-): WireMutation<TRequest, TResponse> {
-  return async (request: TRequest): Promise<TResponse> =>
-    await callDaemonMethod<TRequest, TResponse>(bridge, method, request);
+  method: MethodName,
+): WireMutation<DaemonRequestOf<MethodName>, DaemonResponseOf<MethodName>> {
+  return async (request) => await callDaemon(bridge, method, request);
 }
 
 function withoutKey(

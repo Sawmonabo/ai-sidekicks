@@ -57,6 +57,7 @@ import {
   type ConsoleRefusal,
 } from "../core/index.js";
 import { isWireErrorEnvelope, wireRejectionToError } from "../../../../shared/wire-errors.js";
+import type { DaemonReply, GrowthOutcome } from "../bridge/index.js";
 import { RefreshScheduler, type RefreshReason } from "../store/index.js";
 
 /**
@@ -267,6 +268,51 @@ export function consoleRefusalFrom(
   // the very expression that exists to say that something failed, and the throw
   // lands in a `catch` that has already been left.
   return refuse(origin, fallbackCode, wireRejectionToError(error, { total: true }).message);
+}
+
+/**
+ * The value a daemon reply served, raised as a throw where it refused instead.
+ *
+ * The call door answers a closed `served | refused` value and never throws, and a
+ * read body here has to answer a VALUE or throw, because rule 1 puts the subscribe
+ * first and the failure arm this model settles into is fed by its own `catch`. So
+ * the two shapes meet in exactly one place, here, rather than in a four-line branch
+ * at each of the console's live reads.
+ *
+ * A `ConsoleRefusalError` and not a bare `Error`, so {@link consoleRefusalFrom} on
+ * the other side of that `catch` recognises it and hands the door's refusal back
+ * VERBATIM — the code the daemon wrote, the sentence it wrote, the origin that says
+ * which seam answered. Wrapping it in anything else would relabel a permission
+ * denial as `read-failed` on the way through the very mechanism that exists to stop
+ * that.
+ */
+export function servedValueOrRaise<TValue>(reply: DaemonReply<TValue>): TValue {
+  if (reply.status === "refused") {
+    throw new ConsoleRefusalError(reply.refusal);
+  }
+  return reply.value;
+}
+
+/**
+ * The value a growth operation served, raised as a throw where it refused instead.
+ *
+ * {@link servedValueOrRaise}'s twin, and two functions rather than one over both
+ * unions: the two seams discriminate on different words (`refused` against
+ * `unavailable`) because they refuse for different reasons — a registered wire that
+ * answered badly, against a wire the corpus has not registered at all — and one
+ * helper spanning them would have to accept either word, which is how a caller ends
+ * up unable to tell those apart.
+ *
+ * `GrowthUnavailable` IS a `ConsoleRefusal`, so the throw carries the port's own
+ * refusal whole: its code, its sentence, and the operation and owning document a
+ * growth refusal names. Rebuilding it would drop exactly the part that says who owes
+ * the wire.
+ */
+export function servedGrowthValueOrRaise<TValue>(outcome: GrowthOutcome<TValue>): TValue {
+  if (outcome.status === "unavailable") {
+    throw new ConsoleRefusalError(outcome);
+  }
+  return outcome.value;
 }
 
 /**

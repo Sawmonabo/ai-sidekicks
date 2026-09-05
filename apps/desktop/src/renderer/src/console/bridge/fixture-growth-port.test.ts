@@ -22,11 +22,15 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { callOperation, fixturePort } from "./fixture-growth-port.test-support.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
+import {
+  FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS,
+  FIXTURE_SERVED_GROWTH_OPERATION_IDS,
+} from "./fixture-growth-port.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import { GROWTH_OPERATIONS } from "./growth-operations.js";
 import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario } from "./scenario.js";
+import { AGENTS_SCENARIO } from "./scenarios/agents.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
@@ -64,10 +68,21 @@ function scenarioDeclaring(state: string): ConsoleScenario {
   };
 }
 
+/** The latency the agents scenario scripts on its configuration-update reply. */
+const SCRIPTED_SWITCH_LATENCY_MS = 180;
+
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
   it("answers every operation its bridge claims to serve, and refuses every other", async () => {
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-    const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
+    // The script-only writes are subtracted rather than special-cased in the loop:
+    // they ARE implemented, and this scenario scripts none of them, so they take the
+    // refusing arm here for the reason their own declaration gives — a write with no
+    // scripted answer has no honest empty state to serve. The subtraction is over the
+    // declared subset, so an operation that stopped being script-only fails here.
+    const scriptOnly = new Set<string>(FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS);
+    const served = new Set<string>(
+      FIXTURE_SERVED_GROWTH_OPERATION_IDS.filter((operationId) => !scriptOnly.has(operationId)),
+    );
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
       const outcome = await callOperation(bridge.growth, operationId);
@@ -75,6 +90,23 @@ describe("the fixture growth port — what it serves, and what it still refuses"
         served.has(operationId) ? "served" : "unavailable",
       );
     }
+  });
+
+  it("negative control: a script-only write DOES serve for the scenario that scripts it", async () => {
+    // Without this the subtraction above would hold over a port whose write arms were
+    // never implemented at all — every one of them would refuse for the right reason
+    // and the wrong cause. The agents scenario scripts a configuration update on a
+    // latency, so the frozen clock has to reach it before the answer lands.
+    const bridge = createFixtureBridge({ scenario: AGENTS_SCENARIO });
+    const settling = bridge.growth.agentConfigUpdate({
+      agentId: "agent-architect",
+      interruptAndSwitch: false,
+    });
+
+    bridge.scenarioEngine?.advance(SCRIPTED_SWITCH_LATENCY_MS);
+
+    const outcome = await settling;
+    expect(outcome.status).toBe("served");
   });
 
   it("publishes exactly the set it serves, so the synchronous decision is the true one", () => {

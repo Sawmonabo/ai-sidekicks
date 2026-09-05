@@ -101,16 +101,16 @@ describe("the growth ledger's workflow block — one registered method per opera
   });
 });
 
-describe("the growth ledger's sidekick block — four of the registry's five pairs", () => {
-  it("attributes four operations to the row, every one an RPC method", () => {
+describe("the growth ledger's sidekick block — the registry's five pairs", () => {
+  it("attributes five operations to the row, every one an RPC method", () => {
     const sidekickOperationIds = operationsServingRow(SIDEKICK_SLATE_ROW);
 
-    // Four of the registry's five. Stated rather than derived because it is the
-    // claim: the row deliberately leaves out the per-session peer-invocation
-    // opt-in, which is session state rather than a definition and which no surface
-    // on this substrate sets. A fifth operation appearing here without that
-    // decision being revisited is the drift worth failing on.
-    expect(sidekickOperationIds).toHaveLength(4);
+    // All five. Stated rather than derived because it is the claim: the row carried
+    // four while the per-session peer-invocation opt-in had no console surface to set
+    // it, and the fifth joined when the agent console's peer-invocation control
+    // landed. A sixth appearing here without that decision being revisited is the
+    // drift worth failing on.
+    expect(sidekickOperationIds).toHaveLength(5);
     for (const operationId of sidekickOperationIds) {
       expect(GROWTH_OPERATIONS[operationId].kind, operationId).toBe("method");
     }
@@ -124,7 +124,7 @@ describe("the growth ledger's sidekick block — four of the registry's five pai
     }
   });
 
-  it("names four distinct methods, so no two operations reach one wire", () => {
+  it("names five distinct methods, so no two operations reach one wire", () => {
     const methods = operationsServingRow(SIDEKICK_SLATE_ROW).map(
       (operationId) => GROWTH_OPERATIONS[operationId].expectedWireMethod,
     );
@@ -141,15 +141,17 @@ describe("the growth ledger's sidekick block — four of the registry's five pai
     expect(mispaired.expectedWireMethod).not.toBe(wireMethodFoldedFrom(mispaired.id, "sidekick"));
   });
 
-  it("does not carry the peer-invocation pair, which is the row's stated omission", () => {
-    // The omission is the decision, so it is asserted rather than left to the count
-    // above: `sidekick.peerInvocationSet` would fold from an id in exactly this
-    // shape, and its absence from the ledger is what says the row meant to leave it.
+  it("carries the peer-invocation pair, which is per-session state and not a definition", () => {
+    // Asserted by name rather than left to the count above, because WHICH fifth it is
+    // was the open question: the row's other four are definition CRUD, and this one
+    // sets a session's own grant. Its wire method folds from its id in exactly the
+    // same shape as its four siblings', which is what says it belongs to this row
+    // rather than beside it.
     const foldedIds = operationsServingRow(SIDEKICK_SLATE_ROW).map((operationId) =>
       wireMethodFoldedFrom(operationId, "sidekick"),
     );
 
-    expect(foldedIds).not.toContain("sidekick.peerInvocationSet");
+    expect(foldedIds).toContain("sidekick.peerInvocationSet");
   });
 });
 

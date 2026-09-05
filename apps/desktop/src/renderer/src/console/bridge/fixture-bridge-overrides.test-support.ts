@@ -75,6 +75,22 @@ export function growthServing<TValue>(
 }
 
 /**
+ * An operation that answers with whatever a scripted daemon hands back for it.
+ *
+ * `growthServing`'s lazy sibling: that one closes over a value decided before the
+ * surface asked, and a suite holding a call OPEN — the shape every double-press case
+ * needs — has to decide the answer at the moment of the call instead. The value is
+ * cast because the answer is the SUITE's claim about that operation's shape, exactly
+ * as a scripted `daemon.call` reply is: the growth port stands in for a wire the
+ * corpus has not registered, so there is nothing to parse it against.
+ */
+export function growthAnswering<TValue>(
+  answer: (request: unknown) => Promise<unknown>,
+): (request: unknown) => Promise<GrowthServed<TValue>> {
+  return async (request) => ({ status: "served", value: (await answer(request)) as TValue });
+}
+
+/**
  * An operation that answers with the shipped port's own refusal for it.
  *
  * The operation id is the refusal's subject as well as the method's name, which is

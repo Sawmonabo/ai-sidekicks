@@ -18,6 +18,7 @@ import {
   growthServing,
   unscriptedScenario,
 } from "../bridge/fixture-bridge-overrides.test-support.js";
+import { withDaemonCall } from "../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { formatClockTime, formatDateTime } from "../primitives/index.js";
@@ -30,11 +31,35 @@ import { SentInvites } from "./SentInvites.js";
  * The point is that it scripts NO reply: the fixture bridge then refuses every
  * `daemon.call`, which is exactly the arm the revoke control has to render.
  */
+/**
+ * The ids this file sends over the wire, and the labels they stand for.
+ *
+ * UUIDs rather than readable strings, because the call door parses the REQUEST
+ * against the registered schema before it sends: `sessionId` and `inviteId` are both
+ * branded UUID scalars, so a readable id is refused as `request-unsendable` and the
+ * revoke never reaches the daemon at all. Named here so the cases still read as
+ * "the accepted one" rather than as a hex string, and grouped rather than inlined so
+ * two rows cannot accidentally share one.
+ */
+const INVITE_1 = "019b7910-0001-7000-8000-000000000001";
+const INVITE_2 = "019b7910-0001-7000-8000-000000000002";
+const INVITE_ACCEPTED = "019b7910-0002-7000-8000-000000000001";
+const INVITE_PENDING = "019b7910-0002-7000-8000-000000000002";
+const INVITE_EXPIRED = "019b7910-0002-7000-8000-000000000003";
+const INVITE_REVOKED = "019b7910-0002-7000-8000-000000000004";
+const INVITE_ONE = "019b7910-0003-7000-8000-000000000001";
+const INVITE_TWO = "019b7910-0003-7000-8000-000000000002";
+const INVITE_FROM_A = "019b7910-0004-7000-8000-000000000001";
+const INVITE_FROM_B = "019b7910-0004-7000-8000-000000000002";
+const SESSION_ID = "019b7910-0000-7000-8000-000000000001";
+const SESSION_A = "019b7910-0000-7000-8000-00000000000a";
+const SESSION_B = "019b7910-0000-7000-8000-00000000000b";
+
 const EMPTY_SCENARIO = unscriptedScenario("collaboration-invites-test");
 
 function invite(overrides: Partial<SentInvite> = {}): SentInvite {
   return {
-    inviteId: "invite-1",
+    inviteId: INVITE_1,
     state: "pending",
     expiresAt: "2026-01-08T10:05:00.000Z",
     ...overrides,
@@ -81,7 +106,7 @@ function bridgeSettlingRevoke(invites: readonly SentInvite[]): {
 } {
   const invitesList = vi.fn(growthServing(invites));
   return {
-    bridge: fixtureBridgeWithGrowth(scenarioSettlingRevoke("invite-1"), { invitesList }),
+    bridge: fixtureBridgeWithGrowth(scenarioSettlingRevoke(INVITE_1), { invitesList }),
     invitesListCallCount: () => invitesList.mock.calls.length,
   };
 }
@@ -108,7 +133,7 @@ async function settle(): Promise<void> {
 describe("sent invites — the read", () => {
   it("renders the port's refusal verbatim rather than an empty ledger", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeRefusingInvites()} sessionId="session-1" />,
+      <SentInvites bridge={bridgeRefusingInvites()} sessionId={SESSION_ID} />,
     );
     await settle();
     expect(container.textContent ?? "").toContain("wire-unregistered");
@@ -118,7 +143,7 @@ describe("sent invites — the read", () => {
   it("negative control: a served empty list DOES say nobody was invited", async () => {
     // Without this, the case above would pass over a ledger that never rendered
     // its empty state at all.
-    const { container } = render(<SentInvites bridge={bridgeServing([])} sessionId="session-1" />);
+    const { container } = render(<SentInvites bridge={bridgeServing([])} sessionId={SESSION_ID} />);
     await settle();
     expect(container.textContent ?? "").toContain("Nobody has been invited");
     expect(container.textContent ?? "").not.toContain("wire-unregistered");
@@ -155,9 +180,9 @@ describe("sent invites — an expiry names the day it falls on", () => {
       <SentInvites
         bridge={bridgeServing([
           invite(),
-          invite({ inviteId: "invite-2", expiresAt: NEXT_DAY_SAME_MINUTE }),
+          invite({ inviteId: INVITE_2, expiresAt: NEXT_DAY_SAME_MINUTE }),
         ])}
-        sessionId="session-1"
+        sessionId={SESSION_ID}
       />,
     );
     await settle();
@@ -179,40 +204,40 @@ describe("sent invites — the ledger", () => {
     const { container } = render(
       <SentInvites
         bridge={bridgeServing([
-          invite({ inviteId: "invite-accepted", state: "accepted" }),
-          invite({ inviteId: "invite-pending" }),
-          invite({ inviteId: "invite-expired", state: "expired" }),
+          invite({ inviteId: INVITE_ACCEPTED, state: "accepted" }),
+          invite({ inviteId: INVITE_PENDING }),
+          invite({ inviteId: INVITE_EXPIRED, state: "expired" }),
         ])}
-        sessionId="session-1"
+        sessionId={SESSION_ID}
       />,
     );
     await settle();
     const fold = container.querySelector("details");
     expect(fold).not.toBeNull();
     expect(fold?.textContent ?? "").toContain("2 already settled");
-    expect(fold?.textContent ?? "").toContain("invite-accepted");
-    expect(fold?.textContent ?? "").not.toContain("invite-pending");
+    expect(fold?.textContent ?? "").toContain(INVITE_ACCEPTED);
+    expect(fold?.textContent ?? "").not.toContain(INVITE_PENDING);
   });
 
   it("offers revoke on a pending row and on no settled one", async () => {
     const { container } = render(
       <SentInvites
         bridge={bridgeServing([
-          invite({ inviteId: "invite-pending" }),
-          invite({ inviteId: "invite-revoked", state: "revoked" }),
+          invite({ inviteId: INVITE_PENDING }),
+          invite({ inviteId: INVITE_REVOKED, state: "revoked" }),
         ])}
-        sessionId="session-1"
+        sessionId={SESSION_ID}
       />,
     );
     await settle();
     const actions = container.querySelectorAll(".meridian-invites__row-action");
     expect(actions).toHaveLength(1);
-    expect(actions[0]?.getAttribute("aria-label")).toBe("Revoke invitation invite-pending");
+    expect(actions[0]?.getAttribute("aria-label")).toBe(`Revoke invitation ${INVITE_PENDING}`);
   });
 
   it("renders the daemon's refusal against the row that asked for it", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     const revoke = container.querySelector<HTMLButtonElement>(".meridian-invites__row-action");
@@ -222,14 +247,18 @@ describe("sent invites — the ledger", () => {
     });
     await settle();
     // The scenario scripts no `invite.revoke` reply, so the fixture refuses — and
-    // the refusal renders in place rather than vanishing.
+    // the refusal renders in place rather than vanishing. Both halves of the door's
+    // own refusal reach the row: the code a person pastes into a search, and the
+    // fixture's own sentence naming which call had no answer. The coordinator adds
+    // no prefix of its own to either — a refusal is rendered verbatim, and a family
+    // that re-worded one would be paraphrasing the seam that knows what happened.
     expect(container.textContent ?? "").toContain("reply-unscripted");
-    expect(container.textContent ?? "").toContain("The invitation was not applied");
+    expect(container.textContent ?? "").toContain("invite.revoke");
   });
 
   it("negative control: an untouched row carries no refusal", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     expect(container.textContent ?? "").not.toContain("reply-unscripted");
@@ -239,7 +268,7 @@ describe("sent invites — the ledger", () => {
 describe("sent invites — the controls that are not drawn", () => {
   it("draws no create control and says which read is missing", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     expect(container.textContent ?? "").toContain("cannot mint an invitation");
@@ -251,7 +280,7 @@ describe("sent invites — the controls that are not drawn", () => {
 
   it("draws no copy control, because no row carries a link or a token", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     const labels = [...container.querySelectorAll("button")].map(
@@ -262,7 +291,7 @@ describe("sent invites — the controls that are not drawn", () => {
 
   it("draws no decline column and never counts down against the pending cap", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     const text = container.textContent ?? "";
@@ -274,7 +303,7 @@ describe("sent invites — the controls that are not drawn", () => {
     // Without this, the three cases above would pass over a ledger that drew no
     // controls whatsoever.
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     expect(container.querySelector(".meridian-invites__row-action")).not.toBeNull();
@@ -284,7 +313,7 @@ describe("sent invites — the controls that are not drawn", () => {
 describe("sent invites — what a person reads", () => {
   it("says revocation is silent", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     expect(container.textContent ?? "").toContain("is told nothing");
@@ -292,7 +321,7 @@ describe("sent invites — what a person reads", () => {
 
   it("names no governance work anywhere", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
     expect(container.textContent ?? "").not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
@@ -308,11 +337,8 @@ describe("sent invites — one revoke at a time", () => {
   async function renderTwoPending(): Promise<HTMLElement> {
     const { container } = render(
       <SentInvites
-        bridge={bridgeServing([
-          invite({ inviteId: "invite-one" }),
-          invite({ inviteId: "invite-two" }),
-        ])}
-        sessionId="session-1"
+        bridge={bridgeServing([invite({ inviteId: INVITE_ONE }), invite({ inviteId: INVITE_TWO })])}
+        sessionId={SESSION_ID}
       />,
     );
     await settle();
@@ -362,7 +388,7 @@ describe("sent invites — one revoke at a time", () => {
 describe("sent invites — a revoke that settles", () => {
   it("moves the row into the settled ledger from the reply itself", async () => {
     const served = bridgeSettlingRevoke([invite()]);
-    const { container } = render(<SentInvites bridge={served.bridge} sessionId="session-1" />);
+    const { container } = render(<SentInvites bridge={served.bridge} sessionId={SESSION_ID} />);
     await settle();
     expect(container.querySelector(".meridian-invites__row-action")).not.toBeNull();
 
@@ -371,7 +397,7 @@ describe("sent invites — a revoke that settles", () => {
     // The row is in the fold now, carrying the state the daemon sent — and the
     // pending half says so rather than still offering a control on it.
     const fold = container.querySelector("details");
-    expect(fold?.textContent ?? "").toContain("invite-1");
+    expect(fold?.textContent ?? "").toContain(INVITE_1);
     expect(fold?.textContent ?? "").toContain("revoked");
     expect(container.textContent ?? "").toContain("No invitation is still waiting");
     expect(container.querySelector(".meridian-invites__row-action")).toBeNull();
@@ -379,7 +405,7 @@ describe("sent invites — a revoke that settles", () => {
 
   it("puts no second read on the wire, because the reply carried the row", async () => {
     const served = bridgeSettlingRevoke([invite()]);
-    const { container } = render(<SentInvites bridge={served.bridge} sessionId="session-1" />);
+    const { container } = render(<SentInvites bridge={served.bridge} sessionId={SESSION_ID} />);
     await settle();
     expect(served.invitesListCallCount()).toBe(1);
 
@@ -392,7 +418,7 @@ describe("sent invites — a revoke that settles", () => {
     // Without this, the two cases above would pass over a ledger that settled every
     // row it was asked about, refusal or not.
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
 
@@ -407,10 +433,6 @@ describe("sent invites — a revoke that settles", () => {
 });
 
 describe("sent invites — the session a row and a control belong to", () => {
-  /** The two sessions the members section moves between, each with its own row. */
-  const SESSION_A = "session-a";
-  const SESSION_B = "session-b";
-
   /**
    * The daemon's own revoke reply for one row.
    *
@@ -444,24 +466,28 @@ describe("sent invites — the session a row and a control belong to", () => {
     readonly revokeRequests: readonly unknown[];
     readonly settleRevoke: (reply: InviteRevokeResponse) => void;
   } {
-    const base = bridgeServingPerSession(rowsBySession);
-    const revokeRequests: unknown[] = [];
     let release: ((reply: InviteRevokeResponse) => void) | undefined;
-    const call = (async (method: string, params: unknown): Promise<unknown> => {
-      if (method !== "invite.revoke") {
-        throw new Error(`unscripted ${method}`);
-      }
-      revokeRequests.push(params);
-      return await new Promise<InviteRevokeResponse>((resolve) => {
-        release = resolve;
-      });
-    }) as unknown as ConsoleBridge["sidekicks"]["daemon"]["call"];
-    return {
-      bridge: {
-        ...base,
-        sidekicks: { ...base.sidekicks, daemon: { ...base.sidekicks.daemon, call } },
+    // Through the shared call-arm helper rather than a spread written here: it holds
+    // the record of what was asked, and a second copy of the spread would be a second
+    // place the bridge's namespace shape is restated.
+    const { bridge, calls } = withDaemonCall(
+      bridgeServingPerSession(rowsBySession),
+      async ({ method }) => {
+        if (method !== "invite.revoke") {
+          throw new Error(`unscripted ${method}`);
+        }
+        return await new Promise<InviteRevokeResponse>((resolve) => {
+          release = resolve;
+        });
       },
-      revokeRequests,
+    );
+    return {
+      bridge,
+      // A getter, because `calls` is the live record the helper pushes into: mapping
+      // it here would freeze the empty array the construction call sees.
+      get revokeRequests(): readonly unknown[] {
+        return calls.map((call) => call.params);
+      },
       settleRevoke: (reply) => {
         release?.(reply);
       },
@@ -474,36 +500,36 @@ describe("sent invites — the session a row and a control belong to", () => {
 
   it("draws no row of the session it left on the frame that names the one it entered", async () => {
     const bridge = bridgeServingPerSession({
-      [SESSION_A]: [invite({ inviteId: "invite-from-a" })],
-      [SESSION_B]: [invite({ inviteId: "invite-from-b" })],
+      [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
+      [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
     });
     const view = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
     await settle();
-    expect(view.container.textContent ?? "").toContain("invite-from-a");
+    expect(view.container.textContent ?? "").toContain(INVITE_FROM_A);
 
     // No await: this is the committed frame between the render that renames the
     // session and the effect that installs its read.
     view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} />);
 
-    expect(view.container.textContent ?? "").not.toContain("invite-from-a");
+    expect(view.container.textContent ?? "").not.toContain(INVITE_FROM_A);
     expect(view.container.textContent ?? "").toContain("Reading this session's invitations");
     // There is therefore no control to press, so no request pairing one session's
     // id with another session's row can be composed at all.
     expect(revokeControls(view.container)).toHaveLength(0);
 
     await settle();
-    expect(view.container.textContent ?? "").toContain("invite-from-b");
+    expect(view.container.textContent ?? "").toContain(INVITE_FROM_B);
   });
 
   it("negative control: the frame before the move DOES carry the row it read", async () => {
     // Without this, the case above would pass over a ledger that rendered no row at
     // any point — a different defect wearing the same green.
     const bridge = bridgeServingPerSession({
-      [SESSION_A]: [invite({ inviteId: "invite-from-a" })],
+      [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
     });
     const { container } = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
     await settle();
-    expect(container.textContent ?? "").toContain("invite-from-a");
+    expect(container.textContent ?? "").toContain(INVITE_FROM_A);
     expect(revokeControls(container)).toHaveLength(1);
   });
 
@@ -511,8 +537,8 @@ describe("sent invites — the session a row and a control belong to", () => {
     // Without this, the cases around it would pass over a ledger that stopped
     // offering a usable revoke the moment a session ever changed.
     const held = bridgeHoldingRevoke({
-      [SESSION_A]: [invite({ inviteId: "invite-from-a" })],
-      [SESSION_B]: [invite({ inviteId: "invite-from-b" })],
+      [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
+      [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
     });
     const view = render(<SentInvites bridge={held.bridge} sessionId={SESSION_A} />);
     await settle();
@@ -524,15 +550,13 @@ describe("sent invites — the session a row and a control belong to", () => {
       await Promise.resolve();
     });
 
-    expect(held.revokeRequests).toStrictEqual([
-      { sessionId: SESSION_B, inviteId: "invite-from-b" },
-    ]);
+    expect(held.revokeRequests).toStrictEqual([{ sessionId: SESSION_B, inviteId: INVITE_FROM_B }]);
   });
 
   it("leaves the entered session's controls open while the left session's revoke hangs", async () => {
     const held = bridgeHoldingRevoke({
-      [SESSION_A]: [invite({ inviteId: "invite-from-a" })],
-      [SESSION_B]: [invite({ inviteId: "invite-from-b" })],
+      [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
+      [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
     });
     const view = render(<SentInvites bridge={held.bridge} sessionId={SESSION_A} />);
     await settle();
@@ -556,8 +580,8 @@ describe("sent invites — the session a row and a control belong to", () => {
 
   it("installs nothing when the left session's revoke finally answers", async () => {
     const held = bridgeHoldingRevoke({
-      [SESSION_A]: [invite({ inviteId: "invite-from-a" })],
-      [SESSION_B]: [invite({ inviteId: "invite-from-a" })],
+      [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
+      [SESSION_B]: [invite({ inviteId: INVITE_FROM_A })],
     });
     const view = render(<SentInvites bridge={held.bridge} sessionId={SESSION_A} />);
     await settle();
@@ -571,7 +595,7 @@ describe("sent invites — the session a row and a control belong to", () => {
     // The reply names an id THIS session also holds — the worst case, and the one a
     // ledger that folded a superseded settlement would silently move.
     await act(async () => {
-      held.settleRevoke(revokedReply("invite-from-a"));
+      held.settleRevoke(revokedReply(INVITE_FROM_A));
       await Promise.resolve();
     });
     await settle();

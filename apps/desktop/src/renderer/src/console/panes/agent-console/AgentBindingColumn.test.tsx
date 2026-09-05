@@ -19,16 +19,37 @@ import { AgentConsoleModels } from "../../agents/index.js";
 import { DRIVER_CATALOG_FIXTURE } from "../../agents/driver-catalog-fixtures.js";
 import {
   fixtureBridgeWithGrowth,
+  growthAnswering,
   unscriptedScenario,
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
+import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
 
-type DaemonCall = ConsoleBridge["sidekicks"]["daemon"]["call"];
-
-/** The definition the picker offers, so the form reaches its ready state. */
-const DEFINITION = { definitionId: "definition-1", name: "Reviewer" };
+/**
+ * The definition the picker offers, so the form reaches its ready state.
+ *
+ * A whole registry row rather than an id and a label: the registry answers full
+ * records — `null` is how a stored row says "inherit", never absence — and the
+ * picker projects that row onto its own summary. A partial literal would be
+ * teaching the projection a shape the registry cannot serve.
+ */
+const DEFINITION = {
+  definitionId: "definition-1",
+  name: "Reviewer",
+  description: "",
+  driverName: "claude",
+  modelId: "claude-sonnet",
+  providerAccountId: null,
+  effort: null,
+  executionPostureMode: null,
+  instructions: "",
+  goal: null,
+  toolAllowlist: null,
+  createdAt: "2026-09-01T10:00:00.000Z",
+  updatedAt: "2026-09-01T10:00:00.000Z",
+};
 
 /**
  * A daemon that answers the picker's read and holds `agent.attach` open.
@@ -50,9 +71,9 @@ class HeldAttachDaemon {
     return this.#attachRequest;
   }
 
-  public readonly call = async (method: string, params?: unknown): Promise<unknown> => {
+  public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
     if (method === "sidekick.definitionList") {
-      return { definitions: [DEFINITION] };
+      return [DEFINITION];
     }
     if (method === "agent.attach") {
       this.#attachCallCount += 1;
@@ -84,27 +105,59 @@ class HeldAttachDaemon {
   }
 }
 
-/** What either test daemon below exposes to the bridge. */
+/**
+ * What either test daemon below exposes to the bridge.
+ *
+ * `answer` rather than `call`, and held to that name deliberately: this object is a
+ * per-method reply script, not the bridge every surface shares. A stand-in whose
+ * operation were named `call` on a holder named for the daemon would be
+ * indistinguishable in source text from a surface reaching the real call door —
+ * which is what `test/console/architecture/daemon-reply-chokepoint.test.ts` scans
+ * for, and it would flag this file.
+ */
 interface ScriptedDaemon {
-  readonly call: (method: string, params?: unknown) => Promise<unknown>;
+  readonly answer: (method: string, params?: unknown) => Promise<unknown>;
 }
 
-/** The real fixture bridge with its daemon call replaced by a scripted one. */
-function bridgeCalling(daemon: ScriptedDaemon): ConsoleBridge {
-  const fixture = fixtureBridgeWithGrowth(unscriptedScenario("agent-console-attach"), {});
-  return {
-    ...fixture,
-    sidekicks: {
-      ...fixture.sidekicks,
-      daemon: {
-        ...fixture.sidekicks.daemon,
-        // The `DaemonMethod` brand no string literal satisfies, cast once here for
-        // `seats/wire-access.ts`' reason. The method NAME is the only
-        // untyped thing; what this daemon answers with is the test's own claim.
-        call: daemon.call as unknown as DaemonCall,
-      },
-    },
-  };
+/**
+ * The real fixture bridge, answering this suite's scripted daemon on both seams.
+ *
+ * TWO seams, because the agent console reaches two. The four `agent.*` verbs and the
+ * definition list have no registered request/response pair anywhere in the corpus,
+ * so they are growth operations and a suite decides their answers by overriding the
+ * growth port. The two driver catalog reads ARE registered, so they go through the
+ * call door and reach the bridge's own call arm — through the shared
+ * `withDaemonCall`, which is where the reach lives, so this file holds no copy of
+ * the bridge's namespace shape.
+ *
+ * The scripted daemon is keyed by method name across both, which is what lets one
+ * class answer a surface that talks to two seams without knowing that it does.
+ */
+function bridgeCalling(scriptedDaemon: ScriptedDaemon): ConsoleBridge {
+  const base = fixtureBridgeWithGrowth(unscriptedScenario("agent-console-attach"), {
+    agentList: growthAnswering(
+      async (request) => await scriptedDaemon.answer("agent.list", request),
+    ),
+    agentAttach: growthAnswering(
+      async (request) => await scriptedDaemon.answer("agent.attach", request),
+    ),
+    agentConfigUpdate: growthAnswering(
+      async (request) => await scriptedDaemon.answer("agent.configUpdate", request),
+    ),
+    agentDetach: growthAnswering(
+      async (request) => await scriptedDaemon.answer("agent.detach", request),
+    ),
+    sidekickDefinitionList: growthAnswering(
+      async (request) => await scriptedDaemon.answer("sidekick.definitionList", request),
+    ),
+    orchestrationChildRunLinkRead: growthAnswering(
+      async (request) => await scriptedDaemon.answer("orchestration.childRunLinkRead", request),
+    ),
+  });
+  return withDaemonCall(
+    base,
+    async ({ method, params }) => await scriptedDaemon.answer(method, params),
+  ).bridge;
 }
 
 const openedModels: AgentConsoleModels[] = [];
@@ -193,7 +246,7 @@ class HeldConfigUpdateDaemon {
     return this.#updateCallCount;
   }
 
-  public readonly call = async (method: string): Promise<unknown> => {
+  public readonly answer = async (method: string): Promise<unknown> => {
     if (method === "agent.list") {
       return { agents: this.#roster };
     }
@@ -204,7 +257,7 @@ class HeldConfigUpdateDaemon {
       return DRIVER_CATALOG_FIXTURE.capabilities;
     }
     if (method === "sidekick.definitionList") {
-      return { definitions: [DEFINITION] };
+      return [DEFINITION];
     }
     if (method === "agent.configUpdate") {
       this.#updateCallCount += 1;
@@ -251,8 +304,8 @@ function editProviderAccount(container: HTMLElement, value: string): void {
 
 describe("agent binding column — moving one agent's binding", () => {
   it("issues one config update for a double press", async () => {
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
     );
@@ -265,12 +318,12 @@ describe("agent binding column — moving one agent's binding", () => {
       fireEvent.click(deferred as HTMLButtonElement);
     });
 
-    expect(daemon.updateCallCount).toBe(1);
+    expect(scriptedDaemon.updateCallCount).toBe(1);
   });
 
   it("disables both actions and the detach control while one is outstanding", async () => {
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
     );
@@ -291,15 +344,15 @@ describe("agent binding column — moving one agent's binding", () => {
     // Negative control for a control that goes busy and stays that way: the settled
     // attempt has to hand it back, or one press has cost the person the surface.
     await act(async () => {
-      await daemon.settle({ agentId: "agent-a" });
+      await scriptedDaemon.settle({ agentId: "agent-a" });
     });
     expect(currentSwitchActions().every((action) => action.disabled)).toBe(false);
     expect(currentSwitchActions()[0]?.getAttribute("aria-busy")).toBe("false");
   });
 
   it("shows the settled reply's own settlement", async () => {
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
     );
@@ -310,7 +363,7 @@ describe("agent binding column — moving one agent's binding", () => {
       fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
     });
     await act(async () => {
-      await daemon.settle({
+      await scriptedDaemon.settle({
         agentId: "agent-a",
         switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
       });
@@ -324,8 +377,8 @@ describe("agent binding column — moving one agent's binding", () => {
     // the models and the component type are stable and React keeps this subtree
     // mounted: without a key the axes edited for the first are submitted against the
     // second, and the first's settlement is shown under it.
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const models = modelsOver(bridge);
     const { container, rerender } = render(
       <AgentBindingColumn models={models} agentId="agent-a" />,
@@ -337,7 +390,7 @@ describe("agent binding column — moving one agent's binding", () => {
       fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
     });
     await act(async () => {
-      await daemon.settle({
+      await scriptedDaemon.settle({
         agentId: "agent-a",
         switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
       });
@@ -360,8 +413,8 @@ describe("agent binding column — moving one agent's binding", () => {
 
 describe("agent binding column — attaching a sidekick", () => {
   it("issues one request for a double click", async () => {
-    const daemon = new HeldAttachDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
     );
@@ -373,12 +426,12 @@ describe("agent binding column — attaching a sidekick", () => {
       fireEvent.click(submit);
     });
 
-    expect(daemon.attachCallCount).toBe(1);
+    expect(scriptedDaemon.attachCallCount).toBe(1);
   });
 
   it("puts the session and the typed name on the wire, not just the arm's axes", async () => {
-    const daemon = new HeldAttachDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
     );
@@ -389,7 +442,7 @@ describe("agent binding column — attaching a sidekick", () => {
       fireEvent.click(submit);
     });
 
-    expect(daemon.attachRequest).toMatchObject({
+    expect(scriptedDaemon.attachRequest).toMatchObject({
       sessionId: "session-9",
       name: "Reviewer",
       definitionId: "definition-1",
@@ -399,8 +452,8 @@ describe("agent binding column — attaching a sidekick", () => {
   it("negative control: an unnamed form never becomes submittable at all", async () => {
     // The pre-fix form was ready on the definition id alone and composed a request
     // carrying neither the session nor a name.
-    const daemon = new HeldAttachDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
     );
@@ -421,14 +474,14 @@ describe("agent binding column — attaching a sidekick", () => {
 
     expect(currentSubmitControl().disabled).toBe(true);
     expect(document.body.textContent ?? "").toContain("Still needed: a name");
-    expect(daemon.attachCallCount).toBe(0);
+    expect(scriptedDaemon.attachCallCount).toBe(0);
   });
 
   it("negative control: the control re-arms, so a press after settlement asks again", async () => {
     // Without this, the case above would pass over a column that attached exactly
     // once for the life of the mount — a different defect wearing the same green.
-    const daemon = new HeldAttachDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
     );
@@ -439,19 +492,19 @@ describe("agent binding column — attaching a sidekick", () => {
       fireEvent.click(submit);
     });
     await act(async () => {
-      await daemon.settle("agent-scout");
+      await scriptedDaemon.settle("agent-scout");
     });
     expect(document.body.textContent ?? "").toContain("agent-scout");
 
     await act(async () => {
       fireEvent.click(submit);
     });
-    expect(daemon.attachCallCount).toBe(2);
+    expect(scriptedDaemon.attachCallCount).toBe(2);
   });
 
   it("disables the control and marks it busy while one attach is outstanding", async () => {
-    const daemon = new HeldAttachDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
     );
@@ -470,7 +523,7 @@ describe("agent binding column — attaching a sidekick", () => {
     // settled attempt has to hand it back, or one refused press has cost the
     // person the form for the life of the mount.
     await act(async () => {
-      await daemon.settle("agent-scout");
+      await scriptedDaemon.settle("agent-scout");
     });
     expect(currentSubmitControl().disabled).toBe(false);
     expect(currentSubmitControl().getAttribute("aria-busy")).toBe("false");
@@ -484,8 +537,8 @@ describe("agent binding column — a reply whose subject the column has left", (
     // that was merely not being shown — and the moment the console came back to the
     // agent it was about, an answer read against a subject nobody was looking at was
     // there waiting under it.
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const models = modelsOver(bridge);
     const { container, rerender } = render(
       <AgentBindingColumn models={models} agentId="agent-a" />,
@@ -499,7 +552,7 @@ describe("agent binding column — a reply whose subject the column has left", (
 
     rerender(<AgentBindingColumn models={models} agentId="agent-b" />);
     await act(async () => {
-      await daemon.settle({
+      await scriptedDaemon.settle({
         agentId: "agent-a",
         switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
       });
@@ -514,8 +567,8 @@ describe("agent binding column — a reply whose subject the column has left", (
   it("negative control: the same reply installs where the console did not move", async () => {
     // Without this the case above would hold for a column that discarded every
     // reply — which would leave a person's accepted switch invisible forever.
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const models = modelsOver(bridge);
     const { container } = render(<AgentBindingColumn models={models} agentId="agent-a" />);
     await settleReads(bridge);
@@ -525,7 +578,7 @@ describe("agent binding column — a reply whose subject the column has left", (
       fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
     });
     await act(async () => {
-      await daemon.settle({
+      await scriptedDaemon.settle({
         agentId: "agent-a",
         switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
       });
@@ -538,8 +591,8 @@ describe("agent binding column — a reply whose subject the column has left", (
     // The generation rather than the latch. Moving sessions abandons the round in
     // flight and hands the control back, so a second attach is admitted while the
     // first call is still outstanding and the two replies may land in either order.
-    const daemon = new HeldAttachDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const firstSession = modelsOver(bridge, "session-first");
     const secondSession = modelsOver(bridge, "session-second");
     const { container, rerender } = render(
@@ -564,17 +617,17 @@ describe("agent binding column — a reply whose subject the column has left", (
     await act(async () => {
       fireEvent.click(currentSubmitControl());
     });
-    expect(daemon.attachCallCount).toBe(2);
+    expect(scriptedDaemon.attachCallCount).toBe(2);
 
     await act(async () => {
-      await daemon.settleNewest("agent-second");
+      await scriptedDaemon.settleNewest("agent-second");
     });
     expect(document.body.textContent ?? "").toContain("agent-second");
 
     // The abandoned round answers last and says something else. It must change
     // nothing: it is the answer to a question that was replaced.
     await act(async () => {
-      await daemon.settle("agent-first");
+      await scriptedDaemon.settle("agent-first");
     });
 
     expect(document.body.textContent ?? "").toContain("agent-second");
@@ -584,8 +637,8 @@ describe("agent binding column — a reply whose subject the column has left", (
 
 describe("agent binding column — what a disabled control says", () => {
   it("names why the switch actions are not taking a press", async () => {
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
     );
@@ -609,8 +662,8 @@ describe("agent binding column — what a disabled control says", () => {
   it("negative control: with nothing outstanding the actions are live and describe nothing", async () => {
     // Without this, the case above would hold for a form that is disabled and
     // explaining itself in every state, which is a control nobody can ever use.
-    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
       <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
     );

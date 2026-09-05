@@ -8,8 +8,8 @@
 // owed for either, and `growth-port.ts` refuses wires the corpus has NOT registered.
 //
 // WHY THE SEAM EXISTS AT ALL. The shipped `runtime-node-attach/NodeRoster.tsx`
-// reaches `window.sidekicks.controlPlane.call` and `window.sidekicks.daemon
-// .subscribe` directly. That works under the preload and cannot work under the
+// reaches the installed preload bridge's control-plane call and daemon subscribe
+// namespaces directly. That works under the preload and cannot work under the
 // fixture — the console resolves a `ConsoleBridge`, the shipped component reads the
 // installed one, and the two are different objects — so the roster was the one
 // settings surface with no reading in a fixture build. Putting the pair on

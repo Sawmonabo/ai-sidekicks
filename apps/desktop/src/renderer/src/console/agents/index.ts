@@ -79,7 +79,7 @@ export type { ChildRunLinkageRead } from "./agent-console-reads.js";
 // defect `agent-run-linkage.ts` exists to close, arrived at from the other side.
 export { useNewestRunIdForAgent } from "./agent-run-linkage.js";
 
-export type { AgentAttachReading, AgentSwitchSettlement, ProviderAxis } from "./agent-wire.js";
+export type { ProviderAxis } from "./agent-wire.js";
 
 export { AgentCard, AgentRosterEmpty } from "./AgentCard.js";
 export { AttachSidekick } from "./AttachSidekick.js";

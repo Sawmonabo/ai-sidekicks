@@ -51,6 +51,19 @@ import type { HydratedSessionEvent } from "@ai-sidekicks/contracts";
 
 import type { AttentionProjection } from "./attention-projection.js";
 import type { GrowthStream } from "./growth-outcome.js";
+import type {
+  AgentAttachReading,
+  AgentAttachRequest,
+  AgentConfigUpdateReading,
+  AgentConfigUpdateRequest,
+  AgentDetachRequest,
+  AgentListRequest,
+  AgentRosterReading,
+  ChildRunLinkReadRequest,
+  ChildRunLinkReading,
+  PeerInvocationReading,
+  PeerInvocationSetRequest,
+} from "./agent-plane.js";
 import type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 import type {
   GrowthArtifactDeleteReceipt,
@@ -383,10 +396,24 @@ export interface GrowthOperationSignatures {
     request: { readonly sessionId: string };
     value: readonly GrowthCallbackTool[];
   };
-  // sidekick — four of the five registered pairs, in the registry's own order. The
-  // fifth is named in the slate row's own wire text: the per-session peer-invocation
-  // opt-in is session state rather than a definition, and no surface on this
-  // substrate sets it.
+  // agent plane — the four verbs. Their shapes are `agent-plane.ts`'s, declared there
+  // rather than inline for the reason that module's header gives.
+  agentList: { request: AgentListRequest; value: AgentRosterReading };
+  agentAttach: { request: AgentAttachRequest; value: AgentAttachReading };
+  agentConfigUpdate: { request: AgentConfigUpdateRequest; value: AgentConfigUpdateReading };
+  // A detach answers with nothing. `void` rather than an invented receipt: the agent
+  // row's new state reaches every surface on `agent.detached`, so a reply member
+  // repeating it would be a second record of one fact.
+  agentDetach: { request: AgentDetachRequest; value: void };
+  // orchestration — one parent run's links plus the refusal fold, which is a single
+  // read and not two: a link row and a refused create answer the same question about
+  // the same parent, and asking twice would let the two disagree.
+  orchestrationChildRunLinkRead: {
+    request: ChildRunLinkReadRequest;
+    value: ChildRunLinkReading;
+  };
+  // sidekick — the registry's four definition pairs in its own order, and the
+  // per-session grant beside them.
   sidekickDefinitionList: {
     // Node-local and unfiltered, so the request carries no members. Named empty
     // rather than omitted, matching the registered request half — every operation in
@@ -410,6 +437,10 @@ export interface GrowthOperationSignatures {
     request: { readonly definitionId: string };
     value: { readonly deleted: true };
   };
+  // The grant reads back the post-append PROJECTED value rather than echoing the
+  // request, so a caller renders what the daemon recorded. Its own reading type and
+  // not a bare boolean: absence is a third state, never `false`.
+  sidekickPeerInvocationSet: { request: PeerInvocationSetRequest; value: PeerInvocationReading };
   // event content
   //
   // The one operation whose value is a type `packages/contracts` already exports

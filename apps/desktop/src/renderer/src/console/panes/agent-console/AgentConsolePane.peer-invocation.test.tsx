@@ -19,9 +19,9 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SIDEKICK_PEER_INVOCATION_SET_METHOD } from "../../agents/agent-wire.js";
 import {
   fixtureBridgeWithGrowth,
+  growthAnswering,
   growthRefusing,
   unscriptedScenario,
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
@@ -40,6 +40,13 @@ const OWNED_AGENT_ID = "agent-scout";
  * Holding is what makes the late-reply case possible at all: the property is what a
  * reply from the session the pane has LEFT does when it lands, and a reply that
  * settles immediately lands before anything could move.
+ *
+ * Its one operation is `answer` rather than `call`, and held to that name
+ * deliberately: this is a per-method reply script, not the bridge every surface
+ * shares. A stand-in whose operation were named `call` on a holder named for the
+ * daemon would be indistinguishable in source text from a surface reaching the real
+ * call door — which is what
+ * `test/console/architecture/daemon-reply-chokepoint.test.ts` scans for.
  */
 class PeerInvocationDaemon {
   readonly #heldReplies: ((reading: unknown) => void)[] = [];
@@ -56,8 +63,8 @@ class PeerInvocationDaemon {
     this.#holdsNextReply = true;
   }
 
-  public readonly call = async (method: string, params?: unknown): Promise<unknown> => {
-    if (method !== SIDEKICK_PEER_INVOCATION_SET_METHOD) {
+  public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
+    if (method !== "sidekick.peerInvocationSet") {
       // Every other read this pane performs refuses, exactly as the shipped fixture
       // refuses a call its scenario scripts no reply for.
       throw new Error(`this daemon scripts no reply for ${method}`);
@@ -93,23 +100,22 @@ class PeerInvocationDaemon {
   }
 }
 
-/** The real fixture bridge with its daemon call replaced by the scripted one. */
-function bridgeCalling(daemon: PeerInvocationDaemon): ConsoleBridge {
-  const fixture = fixtureBridgeWithGrowth(unscriptedScenario("agent-console-peers"), {
+/**
+ * The real fixture bridge, with the grant answered by this suite's scripted daemon.
+ *
+ * `sidekick.peerInvocationSet` has no registered request/response pair anywhere in
+ * the corpus, so it is a growth operation and the override is where a suite decides
+ * its answer. Every OTHER read this pane performs is left refusing, exactly as the
+ * shipped fixture refuses a call its scenario scripts no reply for — which is the
+ * state the pane has to draw around the one control this file is about.
+ */
+function bridgeCalling(scriptedDaemon: PeerInvocationDaemon): ConsoleBridge {
+  return fixtureBridgeWithGrowth(unscriptedScenario("agent-console-peers"), {
     sessionRead: growthRefusing("sessionRead"),
+    sidekickPeerInvocationSet: growthAnswering(
+      async (request) => await scriptedDaemon.answer("sidekick.peerInvocationSet", request),
+    ),
   });
-  return {
-    ...fixture,
-    sidekicks: {
-      ...fixture.sidekicks,
-      daemon: {
-        ...fixture.sidekicks.daemon,
-        // The `DaemonMethod` brand no string literal satisfies, cast once here for
-        // `seats/wire-access.ts`' reason.
-        call: daemon.call as unknown as ConsoleBridge["sidekicks"]["daemon"]["call"],
-      },
-    },
-  };
 }
 
 /** A store whose session projection reports the grant, so the switch is drawn. */
@@ -159,8 +165,8 @@ async function pressGrantOn(container: HTMLElement): Promise<void> {
 
 describe("agent console — the peer-invocation settlement belongs to one session", () => {
   it("shows the session it moved to, not the one it settled in", async () => {
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container, rerender } = render(pane(bridge, storeProjecting(FIRST_SESSION_ID, false)));
     await settleReads(bridge);
 
@@ -175,9 +181,9 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
   });
 
   it("drops a reply from the session it has left", async () => {
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
-    daemon.holdNextReply();
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
+    scriptedDaemon.holdNextReply();
     const { container, rerender } = render(pane(bridge, storeProjecting(FIRST_SESSION_ID, false)));
     await settleReads(bridge);
     await pressGrantOn(container);
@@ -185,7 +191,7 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
     rerender(pane(bridge, storeProjecting(SECOND_SESSION_ID, false)));
     await settleReads(bridge);
     await act(async () => {
-      await daemon.settleHeldReply(true);
+      await scriptedDaemon.settleHeldReply(true);
     });
     await settleReads(bridge);
 
@@ -197,8 +203,8 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
     // reply used to win forever, so a grant another participant turned off — or a
     // reconnect read that answered differently — never reached the switch, and the
     // control sat on a value nothing on the wire claimed any more.
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
     const { container } = render(pane(bridge, sessionStore));
     await settleReads(bridge);
@@ -227,8 +233,8 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
     // Without this the case above would pass over a control that retired every
     // settlement on the next render, which would put a person's accepted choice back
     // to the projection's older answer a frame after they made it.
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
     const { container, rerender } = render(pane(bridge, sessionStore));
     await settleReads(bridge);
@@ -246,8 +252,8 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
     // Without this, both cases above would pass over a control that ignored every
     // settlement — which would leave a person's accepted choice invisible until
     // something else re-read the projection.
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(pane(bridge, storeProjecting(FIRST_SESSION_ID, false)));
     await settleReads(bridge);
     expect(switchState(container)).toBe(false);
@@ -282,9 +288,9 @@ async function projectGrant(sessionStore: SessionStore, enabled: boolean): Promi
 
 describe("agent console — one peer-invocation change at a time", () => {
   it("takes no second change while the daemon has not answered the first", async () => {
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
-    daemon.holdNextReply();
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
+    scriptedDaemon.holdNextReply();
     const { container } = render(pane(bridge, storeProjecting(FIRST_SESSION_ID, false)));
     await settleReads(bridge);
 
@@ -295,7 +301,7 @@ describe("agent console — one peer-invocation change at a time", () => {
     // records, and their replies race to decide which settlement is shown.
     expect(grantSwitch(container).disabled).toBe(true);
     await pressGrantOn(container);
-    expect(daemon.callCount).toBe(1);
+    expect(scriptedDaemon.callCount).toBe(1);
   });
 
   it("discards a reply whose round the projection had already replaced", async () => {
@@ -303,28 +309,28 @@ describe("agent console — one peer-invocation change at a time", () => {
     // the store as a projected row BEFORE its reply comes back; the projection
     // moving retires that round and hands the switch back, so a second change is
     // admitted and the two replies may land in either order.
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
     const { container } = render(pane(bridge, sessionStore));
     await settleReads(bridge);
 
-    daemon.holdNextReply();
+    scriptedDaemon.holdNextReply();
     await pressGrantOn(container);
     await projectGrant(sessionStore, true);
     expect(grantSwitch(container).disabled).toBe(false);
 
-    daemon.holdNextReply();
+    scriptedDaemon.holdNextReply();
     await pressGrantOn(container);
     await act(async () => {
-      await daemon.settleNewestHeldReply(false);
+      await scriptedDaemon.settleNewestHeldReply(false);
     });
     await settleReads(bridge);
     expect(switchState(container)).toBe(false);
 
     // The older reply lands last and says the opposite of the settlement on screen.
     await act(async () => {
-      await daemon.settleHeldReply(true);
+      await scriptedDaemon.settleHeldReply(true);
     });
     await settleReads(bridge);
 
@@ -335,8 +341,8 @@ describe("agent console — one peer-invocation change at a time", () => {
     // Without this, the disabled case above would hold for a control that never
     // takes a press at all, which is a switch nobody can use rather than one that
     // refuses a second change.
-    const daemon = new PeerInvocationDaemon();
-    const bridge = bridgeCalling(daemon);
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(pane(bridge, storeProjecting(FIRST_SESSION_ID, false)));
     await settleReads(bridge);
 
@@ -344,7 +350,7 @@ describe("agent console — one peer-invocation change at a time", () => {
     await pressGrantOn(container);
     await settleReads(bridge);
 
-    expect(daemon.callCount).toBe(1);
+    expect(scriptedDaemon.callCount).toBe(1);
     expect(grantSwitch(container).disabled).toBe(false);
   });
 });

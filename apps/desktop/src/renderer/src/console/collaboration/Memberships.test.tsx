@@ -77,13 +77,13 @@ const OWNER_AND_COLLABORATOR: readonly ProjectedMembership[] = [
   {
     participantId: "participant-you",
     role: "owner",
-    membershipId: "membership-1",
+    membershipId: "019b7912-0001-7000-8000-000000000001",
     state: "active",
   },
   {
     participantId: "participant-priya",
     role: "collaborator",
-    membershipId: "membership-2",
+    membershipId: "019b7912-0001-7000-8000-000000000002",
     state: "suspended",
   },
 ];
@@ -113,7 +113,12 @@ describe("memberships — the facts on a row", () => {
     const { container } = render(
       <Memberships
         context={contextFor(
-          storeHolding([{ participantId: "participant-tomas", membershipId: "membership-3" }]),
+          storeHolding([
+            {
+              participantId: "participant-tomas",
+              membershipId: "019b7912-0001-7000-8000-000000000003",
+            },
+          ]),
         )}
       />,
     );
@@ -157,8 +162,16 @@ describe("memberships — the last remaining owner", () => {
       <Memberships
         context={contextFor(
           storeHolding([
-            { participantId: "participant-you", role: "owner", membershipId: "membership-1" },
-            { participantId: "participant-priya", role: "owner", membershipId: "membership-2" },
+            {
+              participantId: "participant-you",
+              role: "owner",
+              membershipId: "019b7912-0001-7000-8000-000000000001",
+            },
+            {
+              participantId: "participant-priya",
+              role: "owner",
+              membershipId: "019b7912-0001-7000-8000-000000000002",
+            },
           ]),
         )}
       />,
@@ -306,8 +319,11 @@ describe("memberships — one change at a time", () => {
     });
 
     // The scenario scripts no `membership.update` reply, so the fixture refuses —
-    // and the refusal renders in place rather than leaving the surface shut.
-    expect(container.textContent ?? "").toContain("The membership change was not applied");
+    // and the refusal renders in place rather than leaving the surface shut. Its
+    // words are the DOOR's: the coordinator installs a refusal verbatim and adds no
+    // prefix of its own, so what a person reads names the call that had no answer.
+    expect(container.textContent ?? "").toContain("membership.update");
+    expect(container.textContent ?? "").toContain("reply-unscripted");
     expect(rowControls(container).every((control) => !control.disabled)).toBe(true);
   });
 });

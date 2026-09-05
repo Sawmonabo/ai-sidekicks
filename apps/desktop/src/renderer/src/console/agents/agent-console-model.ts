@@ -31,19 +31,19 @@
 import { useEffect, useState } from "react";
 
 import { RealClock, type ConsoleClock } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
-import { callDaemonMethod, isCurrentSessionSubject, type SessionSubject } from "../seats/index.js";
-import type { SessionStore } from "../store/index.js";
+import type {
+  AgentAttachReading,
+  AgentConfigUpdateReading,
+  ConsoleBridge,
+  PeerInvocationReading,
+} from "../bridge/index.js";
 import {
-  AGENT_ATTACH_METHOD,
-  AGENT_CONFIG_UPDATE_METHOD,
-  AGENT_DETACH_METHOD,
-  SIDEKICK_PEER_INVOCATION_SET_METHOD,
-  type AgentAttachReading,
-  type AgentConfigUpdateReading,
-  type PeerInvocationReading,
-  type ProviderAxis,
-} from "./agent-wire.js";
+  isCurrentSessionSubject,
+  servedGrowthValueOrRaise,
+  type SessionSubject,
+} from "../seats/index.js";
+import type { SessionStore } from "../store/index.js";
+import { type ProviderAxis } from "./agent-wire.js";
 import {
   createAgentRoster,
   createChildRunLinkage,
@@ -137,37 +137,24 @@ export class AgentConsoleModels {
    * configuration, no run — which is the daemon's guarantee and the reason this
    * method neither pre-creates anything nor cleans anything up.
    */
-  public attach(request: AttachRequest): Promise<AgentAttachReading> {
-    return callDaemonMethod<AttachRequest, AgentAttachReading>(
-      this.subject.bridge,
-      AGENT_ATTACH_METHOD,
-      request,
-    );
+  public async attach(request: AttachRequest): Promise<AgentAttachReading> {
+    return servedGrowthValueOrRaise(await this.subject.bridge.growth.agentAttach(request));
   }
 
   /** Move provider axes on a running agent. Never a second run control. */
-  public updateConfig(
+  public async updateConfig(
     agentId: string,
     axes: Partial<Record<ProviderAxis, string>>,
     interruptAndSwitch: boolean,
   ): Promise<AgentConfigUpdateReading> {
-    return callDaemonMethod<
-      { readonly agentId: string; readonly interruptAndSwitch: boolean } & Partial<
-        Record<ProviderAxis, string>
-      >,
-      AgentConfigUpdateReading
-    >(this.subject.bridge, AGENT_CONFIG_UPDATE_METHOD, { agentId, interruptAndSwitch, ...axes });
+    return servedGrowthValueOrRaise(
+      await this.subject.bridge.growth.agentConfigUpdate({ agentId, interruptAndSwitch, ...axes }),
+    );
   }
 
   /** Move an agent to `disabled`. Reversible by re-attaching. */
-  public detach(agentId: string): Promise<void> {
-    return callDaemonMethod<{ readonly agentId: string }, void>(
-      this.subject.bridge,
-      AGENT_DETACH_METHOD,
-      {
-        agentId,
-      },
-    );
+  public async detach(agentId: string): Promise<void> {
+    servedGrowthValueOrRaise(await this.subject.bridge.growth.agentDetach({ agentId }));
   }
 
   /**
@@ -176,14 +163,13 @@ export class AgentConsoleModels {
    * The caller renders the REPLY's `enabled`, read back from the post-append
    * projected value, rather than echoing what it asked for.
    */
-  public setPeerInvocation(enabled: boolean): Promise<PeerInvocationReading> {
-    return callDaemonMethod<
-      { readonly sessionId: string; readonly enabled: boolean },
-      PeerInvocationReading
-    >(this.subject.bridge, SIDEKICK_PEER_INVOCATION_SET_METHOD, {
-      sessionId: this.sessionId,
-      enabled,
-    });
+  public async setPeerInvocation(enabled: boolean): Promise<PeerInvocationReading> {
+    return servedGrowthValueOrRaise(
+      await this.subject.bridge.growth.sidekickPeerInvocationSet({
+        sessionId: this.sessionId,
+        enabled,
+      }),
+    );
   }
 
   /** Which run the held linkage answers for, or `undefined` while none is held. */

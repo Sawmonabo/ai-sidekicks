@@ -23,13 +23,13 @@
 //     reaches no terminal event, and `replacedSwitchId` on the acknowledgment that
 //     displaced it is the whole record.
 
+import { type AgentSwitchSettlement } from "../bridge/index.js";
 import {
   SWITCH_BOUNDARIES,
   SWITCH_CONTINUITIES,
   SWITCH_FAILURE_REASONS,
   SWITCH_STATUSES,
   isKnownMember,
-  type AgentSwitchSettlement,
 } from "./agent-wire.js";
 
 /** How a settlement reads: a plain statement, or the one arm that is a caution. */

@@ -20,7 +20,7 @@
 
 import { Chip } from "../primitives/index.js";
 import { describeSwitchSettlement } from "./switch-settlement.js";
-import type { AgentSwitchSettlement } from "./agent-wire.js";
+import type { AgentSwitchSettlement } from "../bridge/index.js";
 
 export interface SwitchSettlementLineProps {
   readonly settlement: AgentSwitchSettlement;

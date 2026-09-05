@@ -45,10 +45,13 @@
 import type {
   ChannelListRequest,
   ChannelListResponse,
+  DriverReadParams,
   ExecutionModeSelectRequest,
   ExecutionModeSelectResponse,
   InterventionRequestPayload,
   InterventionRequestResponse,
+  ListCapabilitiesResult,
+  ListModelsResult,
   InviteRevoke,
   InviteRevokeResponse,
   MembershipUpdate,
@@ -81,10 +84,13 @@ import type {
 import {
   ChannelListRequestSchema,
   ChannelListResponseSchema,
+  DriverReadParamsSchema,
   ExecutionModeSelectRequestSchema,
   ExecutionModeSelectResponseSchema,
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
+  ListCapabilitiesResultSchema,
+  ListModelsResultSchema,
   InviteRevokeResponseSchema,
   InviteRevokeSchema,
   MembershipUpdateResponseSchema,
@@ -190,6 +196,19 @@ export interface ConsoleDaemonMethodContract {
   readonly "invite.revoke": {
     readonly request: InviteRevoke;
     readonly response: InviteRevokeResponse;
+  };
+
+  // driver — the two client-facing catalog reads. Both take the same empty request,
+  // which is why `DriverReadParams` appears twice rather than once per method: the
+  // contracts package publishes one params type for every driver READ, and giving
+  // each row its own alias here would invent a distinction the corpus does not make.
+  readonly "driver.listModels": {
+    readonly request: DriverReadParams;
+    readonly response: ListModelsResult;
+  };
+  readonly "driver.listCapabilities": {
+    readonly request: DriverReadParams;
+    readonly response: ListCapabilitiesResult;
   };
 
   // providerAccount — the node-local registry read. The subscription beside it is a
@@ -308,6 +327,8 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "membership.update": bindDaemonMethod(MembershipUpdateSchema, MembershipUpdateResponseSchema),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
   "invite.revoke": bindDaemonMethod(InviteRevokeSchema, InviteRevokeResponseSchema),
+  "driver.listModels": bindDaemonMethod(DriverReadParamsSchema, ListModelsResultSchema),
+  "driver.listCapabilities": bindDaemonMethod(DriverReadParamsSchema, ListCapabilitiesResultSchema),
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
     ProviderAccountListResponseSchema,

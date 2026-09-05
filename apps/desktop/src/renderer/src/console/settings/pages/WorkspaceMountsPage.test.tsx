@@ -17,10 +17,49 @@ import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { WorkspaceMountsPage, registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
 
+/**
+ * The ids this file sends over the wire.
+ *
+ * UUIDs rather than readable strings, because the call door parses the REQUEST
+ * against the registered schema before it sends: `sessionId` and `repoMountId` are
+ * both branded UUID scalars, so a readable id is refused as `request-unsendable` and
+ * the daemon is never asked at all. Named, so the cases still read as "the first
+ * mount" rather than as a hex string.
+ */
+const SESSION_ID = "019b7911-0000-7000-8000-000000000001";
+const NODE_ID = "019b7911-0003-7000-8000-000000000001";
+const MOUNT_A = "019b7911-0001-7000-8000-00000000000a";
+const MOUNT_B = "019b7911-0001-7000-8000-00000000000b";
+
+/**
+ * One workspace id, derived from its position so a list of any length is on-contract.
+ *
+ * The id is a branded UUID on the wire, so a readable `workspace-0` is refused as a
+ * REPLY the build does not register — the call door parses both directions, and a
+ * fixture that scripted a readable id would be teaching this surface a frame the
+ * daemon cannot send.
+ */
+function workspaceIdAt(index: number): WorkspaceListResponse["workspaces"][number]["id"] {
+  const suffix = String(index).padStart(12, "0");
+  return `019b7911-0002-7000-8000-${suffix}` as WorkspaceListResponse["workspaces"][number]["id"];
+}
+
+/**
+ * One mount id, derived from its position so a list of any length is on-contract.
+ *
+ * The id is a branded UUID on the wire, so a readable `mount-007` is refused as a
+ * REQUEST the daemon would not accept: the call door parses before it sends, and a
+ * generator producing readable ids would have every case in the cap block failing on
+ * the request rather than exercising the cap.
+ */
+function mountIdAt(index: number): string {
+  return `019b7911-0004-7000-8000-${String(index).padStart(12, "0")}`;
+}
+
 function workspaceListWith(mountIds: readonly string[]): WorkspaceListResponse {
   return {
     workspaces: mountIds.map((repoMountId, index) => ({
-      id: `workspace-${String(index)}` as WorkspaceListResponse["workspaces"][number]["id"],
+      id: workspaceIdAt(index),
       repoMountId: repoMountId as WorkspaceListResponse["workspaces"][number]["repoMountId"],
       executionMode: "worktree",
       state: "ready",
@@ -34,8 +73,8 @@ function mountReadFor(
 ): RepoMountReadResponse {
   return {
     id: repoMountId as RepoMountReadResponse["id"],
-    sessionId: "session-1" as RepoMountReadResponse["sessionId"],
-    nodeId: "node-1" as RepoMountReadResponse["nodeId"],
+    sessionId: SESSION_ID as RepoMountReadResponse["sessionId"],
+    nodeId: NODE_ID as RepoMountReadResponse["nodeId"],
     localPath: `/repos/${repoMountId}`,
     canonicalRoot: `/repos/${repoMountId}`,
     vcsType: "git",
@@ -66,7 +105,7 @@ function contextReading(options: {
   /** Counts what the page asked for, so a refresh can be proved rather than assumed. */
   readonly onCall?: (method: string) => void;
   /** Makes the enumerating read reject, which is the list's own refused arm. */
-  readonly rejectWith?: string;
+  readonly rejectWith?: { readonly code: string; readonly message: string };
 }): SettingsPageContext {
   return {
     bridge: {
@@ -77,7 +116,11 @@ function contextReading(options: {
           call: async (method: string, request: unknown): Promise<unknown> => {
             options.onCall?.(method);
             if (options.rejectWith !== undefined) {
-              throw new Error(options.rejectWith);
+              // A wire ENVELOPE and not a bare `Error`: the call door normalizes a
+              // rejection into the console's refusal shape, and only an envelope
+              // carries a code of its own for it to keep. A bare message would be
+              // normalized under the door's own code, which is a different assertion.
+              throw options.rejectWith;
             }
             if (method === "repo.workspaceList") {
               return workspaceListWith(options.mountIds);
@@ -89,7 +132,7 @@ function contextReading(options: {
       },
     },
     openSection: () => undefined,
-    retainedSessionId: "retainedSessionId" in options ? options.retainedSessionId : "session-1",
+    retainedSessionId: "retainedSessionId" in options ? options.retainedSessionId : SESSION_ID,
     retainedSessionStore: options.sessionStore,
   } as unknown as SettingsPageContext;
 }
@@ -151,9 +194,9 @@ describe("workspace mounts page", () => {
       clock,
       contextReading({
         clock,
-        mountIds: ["mount-a"],
+        mountIds: [MOUNT_A],
         mountOverrides: {
-          "mount-a": { health: { status: "unreachable", checkedAt: "2026-09-02T10:00:00.000Z" } },
+          [MOUNT_A]: { health: { status: "unreachable", checkedAt: "2026-09-02T10:00:00.000Z" } },
         },
       }),
     );
@@ -162,7 +205,7 @@ describe("workspace mounts page", () => {
     );
     expect(chipLabels).toContain("Attachment: attached");
     expect(chipLabels).toContain("Reachability: unreachable");
-    expect(container.textContent ?? "").toContain("/repos/mount-a");
+    expect(container.textContent ?? "").toContain(`/repos/${MOUNT_A}`);
   });
 
   it("names the day a mount was last probed, and tells two days apart apart", async () => {
@@ -176,10 +219,10 @@ describe("workspace mounts page", () => {
       clock,
       contextReading({
         clock,
-        mountIds: ["mount-a", "mount-b"],
+        mountIds: [MOUNT_A, MOUNT_B],
         mountOverrides: {
-          "mount-a": { health: { status: "healthy", checkedAt: probedToday } },
-          "mount-b": { health: { status: "healthy", checkedAt: probedLastWeek } },
+          [MOUNT_A]: { health: { status: "healthy", checkedAt: probedToday } },
+          [MOUNT_B]: { health: { status: "healthy", checkedAt: probedLastWeek } },
         },
       }),
     );
@@ -199,9 +242,9 @@ describe("workspace mounts page", () => {
       clock,
       contextReading({
         clock,
-        mountIds: ["mount-a", "mount-b"],
+        mountIds: [MOUNT_A, MOUNT_B],
         mountOverrides: {
-          "mount-b": { health: { status: "unreachable", checkedAt: "2026-09-02T10:00:00.000Z" } },
+          [MOUNT_B]: { health: { status: "unreachable", checkedAt: "2026-09-02T10:00:00.000Z" } },
         },
       }),
     );
@@ -212,7 +255,7 @@ describe("workspace mounts page", () => {
     const clock = new ManualClock();
     const { page: container } = await renderSettledPage(
       clock,
-      contextReading({ clock, mountIds: ["mount-a"], retainedSessionId: undefined }),
+      contextReading({ clock, mountIds: [MOUNT_A], retainedSessionId: undefined }),
     );
     expect(container.textContent ?? "").toContain("Mounts belong to a session");
     expect(container.querySelector(".meridian-mount-list")).toBeNull();
@@ -232,7 +275,7 @@ describe("workspace mounts page", () => {
     const clock = new ManualClock();
     const { page: container } = await renderSettledPage(
       clock,
-      contextReading({ clock, mountIds: ["mount-a"] }),
+      contextReading({ clock, mountIds: [MOUNT_A] }),
     );
     expect(container.querySelectorAll("button, input, select, textarea")).toHaveLength(0);
   });
@@ -262,16 +305,15 @@ describe("workspace mounts page — the read says it landed, once", () => {
     const clock = new ManualClock();
     const { politeText } = await renderSettledPage(
       clock,
-      contextReading({ clock, mountIds: ["mount-a", "mount-b"] }),
+      contextReading({ clock, mountIds: [MOUNT_A, MOUNT_B] }),
     );
     expect(politeText()).toBe("Mounts read for this session: 2.");
   });
 
   it("names the tail it did not open rather than reporting a smaller session", async () => {
     const clock = new ManualClock();
-    const overCap = Array.from(
-      { length: MOUNT_INVENTORY_READ_CAP + 3 },
-      (_unused, index) => `mount-${String(index).padStart(2, "0")}`,
+    const overCap = Array.from({ length: MOUNT_INVENTORY_READ_CAP + 3 }, (_unused, index) =>
+      mountIdAt(index),
     );
     const { politeText } = await renderSettledPage(
       clock,
@@ -286,7 +328,11 @@ describe("workspace mounts page — the read says it landed, once", () => {
     const clock = new ManualClock();
     const { page, politeText } = await renderSettledPage(
       clock,
-      contextReading({ clock, mountIds: ["mount-a"], rejectWith: "that node is not attached" }),
+      contextReading({
+        clock,
+        mountIds: [MOUNT_A],
+        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
+      }),
     );
     expect(politeText()).toBe("that node is not attached");
     // The card on screen carries the same words, so the announcement is the spoken
@@ -303,7 +349,7 @@ describe("workspace mounts page — the read says it landed, once", () => {
       clock,
       contextReading({
         clock,
-        mountIds: ["mount-a", "mount-b"],
+        mountIds: [MOUNT_A, MOUNT_B],
         onCall: (method) => methodsAsked.push(method),
       }),
     );
@@ -358,11 +404,11 @@ describe("the page's refresh signals", () => {
     // that dropped the member on its way through would still render, and the list
     // would go quietly stale.
     const clock = new ManualClock();
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const listMethods: string[] = [];
     const context = contextReading({
       clock,
-      mountIds: ["mount-a"],
+      mountIds: [MOUNT_A],
       sessionStore,
       onCall: (method) => {
         listMethods.push(method);
@@ -385,11 +431,11 @@ describe("the page's refresh signals", () => {
     // Without this the case above would pass over a page that re-read on any
     // render, and would prove nothing about which signal reached the read.
     const clock = new ManualClock();
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const listMethods: string[] = [];
     const context = contextReading({
       clock,
-      mountIds: ["mount-a"],
+      mountIds: [MOUNT_A],
       onCall: (method) => {
         listMethods.push(method);
       },

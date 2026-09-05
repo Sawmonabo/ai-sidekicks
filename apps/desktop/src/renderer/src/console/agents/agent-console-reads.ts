@@ -28,19 +28,20 @@
 // clock of its own.
 
 import type { ConsoleClock } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
-import { PushDrivenRead, callDaemonMethod } from "../seats/index.js";
+import {
+  callDaemon,
+  type AgentRosterReading,
+  type ChildRunLinkReading,
+  type ConsoleBridge,
+  type SidekickDefinition,
+} from "../bridge/index.js";
+import { PushDrivenRead, servedGrowthValueOrRaise, servedValueOrRaise } from "../seats/index.js";
 import { subscribeToSessionEventKinds, type SessionStore } from "../store/index.js";
 import {
   AGENT_LIFECYCLE_EVENT_KINDS,
-  AGENT_LIST_METHOD,
   CHILD_RUN_LINKAGE_EVENT_KINDS,
-  CHILD_RUN_LINK_READ_METHOD,
   DRIVER_LIST_CAPABILITIES_METHOD,
   DRIVER_LIST_MODELS_METHOD,
-  SIDEKICK_DEFINITION_LIST_METHOD,
-  type AgentRosterReading,
-  type ChildRunLinkReading,
   type SidekickDefinitionListReading,
 } from "./agent-wire.js";
 import type { DriverCatalogReading } from "./driver-catalog.js";
@@ -66,10 +67,8 @@ export function createAgentRoster(
     clock,
     origin: AGENT_ROSTER_ORIGIN,
     read: async () =>
-      callDaemonMethod<{ readonly sessionId: string }, AgentRosterReading>(
-        bridge,
-        AGENT_LIST_METHOD,
-        { sessionId: sessionStore.sessionId },
+      servedGrowthValueOrRaise(
+        await bridge.growth.agentList({ sessionId: sessionStore.sessionId }),
       ),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, AGENT_LIFECYCLE_EVENT_KINDS, onChangeSignal),
@@ -82,19 +81,14 @@ export function createDriverCatalog(bridge: ConsoleBridge, clock: ConsoleClock):
     clock,
     origin: DRIVER_CATALOG_ORIGIN,
     read: async () => {
-      const [models, capabilities] = await Promise.all([
-        callDaemonMethod<Record<string, never>, DriverCatalogReading["models"]>(
-          bridge,
-          DRIVER_LIST_MODELS_METHOD,
-          {},
-        ),
-        callDaemonMethod<Record<string, never>, DriverCatalogReading["capabilities"]>(
-          bridge,
-          DRIVER_LIST_CAPABILITIES_METHOD,
-          {},
-        ),
+      const [modelsReply, capabilitiesReply] = await Promise.all([
+        callDaemon(bridge, DRIVER_LIST_MODELS_METHOD, {}),
+        callDaemon(bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}),
       ]);
-      return { models, capabilities };
+      return {
+        models: servedValueOrRaise(modelsReply),
+        capabilities: servedValueOrRaise(capabilitiesReply),
+      };
     },
     // Nothing on the wire announces that a provider's catalog moved, so this read
     // is performed once and never re-armed. Returning a no-op unsubscribe states
@@ -119,11 +113,7 @@ export function createSidekickDefinitions(
     clock,
     origin: SIDEKICK_DEFINITION_ORIGIN,
     read: async () =>
-      callDaemonMethod<Record<string, never>, SidekickDefinitionListReading>(
-        bridge,
-        SIDEKICK_DEFINITION_LIST_METHOD,
-        {},
-      ),
+      pickerReadingFor(servedGrowthValueOrRaise(await bridge.growth.sidekickDefinitionList({}))),
     subscribe: () => () => undefined,
   });
 }
@@ -148,12 +138,37 @@ export function createChildRunLinkage(
     clock,
     origin: CHILD_RUN_LINKAGE_ORIGIN,
     read: async () =>
-      callDaemonMethod<{ readonly parentRunId: string }, ChildRunLinkReading>(
-        bridge,
-        CHILD_RUN_LINK_READ_METHOD,
-        { parentRunId },
-      ),
+      servedGrowthValueOrRaise(await bridge.growth.orchestrationChildRunLinkRead({ parentRunId })),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINKAGE_EVENT_KINDS, onChangeSignal),
   });
+}
+
+/**
+ * The picker's projection of the definition registry's own rows.
+ *
+ * The registry answers `SidekickDefinition`, whose nullable axes are `T | null`
+ * because a stored row never omits one — `null` IS how it says "inherit". The picker
+ * renders absence, which is `undefined`, so the two grammars meet here in one place
+ * rather than at each field a row is read through. It is a PROJECTION and not a
+ * second shape for the wire: nothing is dropped, nothing is defaulted, and a row that
+ * pinned nothing arrives with nothing pinned.
+ */
+function pickerReadingFor(
+  definitions: readonly SidekickDefinition[],
+): SidekickDefinitionListReading {
+  return {
+    definitions: definitions.map((definition) => ({
+      definitionId: definition.definitionId,
+      name: definition.name,
+      driverName: definition.driverName,
+      modelId: definition.modelId,
+      providerAccountId: definition.providerAccountId ?? undefined,
+      effort: definition.effort ?? undefined,
+      instructions: definition.instructions,
+      goal: definition.goal ?? undefined,
+      toolAllowlist: definition.toolAllowlist ?? undefined,
+      executionPostureMode: definition.executionPostureMode ?? undefined,
+    })),
+  };
 }

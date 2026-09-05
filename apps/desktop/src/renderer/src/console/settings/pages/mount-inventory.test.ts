@@ -10,6 +10,20 @@ import { MOUNT_INVENTORY_READ_CAP } from "../../core/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { createMountInventoryRead, distinctMountIds } from "./mount-inventory.js";
 
+/**
+ * The ids this file sends over the wire.
+ *
+ * UUIDs rather than readable strings, because the call door parses the REQUEST
+ * against the registered schema before it sends: `sessionId` and `repoMountId` are
+ * both branded UUID scalars, so a readable id is refused as `request-unsendable` and
+ * the daemon is never asked at all. Named, so the cases still read as "the first
+ * mount" rather than as a hex string.
+ */
+const SESSION_ID = "019b7911-0000-7000-8000-000000000001";
+const NODE_ID = "019b7911-0003-7000-8000-000000000001";
+const MOUNT_A = "019b7911-0001-7000-8000-00000000000a";
+const MOUNT_B = "019b7911-0001-7000-8000-00000000000b";
+
 /** An initialised store, so an appended event is admitted rather than buffered. */
 function initialisedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
@@ -48,10 +62,35 @@ async function settle(): Promise<void> {
   });
 }
 
+/**
+ * One workspace id, derived from its position so a list of any length is on-contract.
+ *
+ * The id is a branded UUID on the wire, so a readable `workspace-0` is refused as a
+ * REPLY the build does not register — the call door parses both directions, and a
+ * fixture that scripted a readable id would be teaching this surface a frame the
+ * daemon cannot send.
+ */
+function workspaceIdAt(index: number): WorkspaceListResponse["workspaces"][number]["id"] {
+  const suffix = String(index).padStart(12, "0");
+  return `019b7911-0002-7000-8000-${suffix}` as WorkspaceListResponse["workspaces"][number]["id"];
+}
+
+/**
+ * One mount id, derived from its position so a list of any length is on-contract.
+ *
+ * The id is a branded UUID on the wire, so a readable `mount-007` is refused as a
+ * REQUEST the daemon would not accept: the call door parses before it sends, and a
+ * generator producing readable ids would have every case in the cap block failing on
+ * the request rather than exercising the cap.
+ */
+function mountIdAt(index: number): string {
+  return `019b7911-0004-7000-8000-${String(index).padStart(12, "0")}`;
+}
+
 function workspaceListWith(mountIds: readonly string[]): WorkspaceListResponse {
   return {
     workspaces: mountIds.map((repoMountId, index) => ({
-      id: `workspace-${String(index)}` as WorkspaceListResponse["workspaces"][number]["id"],
+      id: workspaceIdAt(index),
       repoMountId: repoMountId as WorkspaceListResponse["workspaces"][number]["repoMountId"],
       executionMode: "worktree",
       state: "ready",
@@ -62,8 +101,8 @@ function workspaceListWith(mountIds: readonly string[]): WorkspaceListResponse {
 function mountReadFor(repoMountId: string): RepoMountReadResponse {
   return {
     id: repoMountId as RepoMountReadResponse["id"],
-    sessionId: "session-1" as RepoMountReadResponse["sessionId"],
-    nodeId: "node-1" as RepoMountReadResponse["nodeId"],
+    sessionId: SESSION_ID as RepoMountReadResponse["sessionId"],
+    nodeId: NODE_ID as RepoMountReadResponse["nodeId"],
     localPath: `/repos/${repoMountId}`,
     canonicalRoot: `/repos/${repoMountId}`,
     vcsType: "git",
@@ -110,16 +149,16 @@ function bridgeAnswering(options: {
 
 describe("distinct mount ids", () => {
   it("names each mount once, in a stable order", () => {
-    const ids = distinctMountIds(workspaceListWith(["mount-b", "mount-a", "mount-b"]));
-    expect(ids).toStrictEqual(["mount-a", "mount-b"]);
+    const ids = distinctMountIds(workspaceListWith([MOUNT_B, MOUNT_A, MOUNT_B]));
+    expect(ids).toStrictEqual([MOUNT_A, MOUNT_B]);
   });
 
   it("negative control: reply order alone would not be stable", () => {
     // The sort is the claim. Two replies listing the same mounts in different
     // orders must produce one row order, or a row moves when an unrelated
     // workspace is created.
-    const first = distinctMountIds(workspaceListWith(["mount-b", "mount-a"]));
-    const second = distinctMountIds(workspaceListWith(["mount-a", "mount-b"]));
+    const first = distinctMountIds(workspaceListWith([MOUNT_B, MOUNT_A]));
+    const second = distinctMountIds(workspaceListWith([MOUNT_A, MOUNT_B]));
     expect(first).toStrictEqual(second);
   });
 });
@@ -127,10 +166,10 @@ describe("distinct mount ids", () => {
 describe("mount inventory read", () => {
   it("reads each distinct mount once, after listing the session's workspaces", async () => {
     const clock = new ManualClock();
-    const { bridge, calls } = bridgeAnswering({ mountIds: ["mount-a", "mount-b", "mount-a"] });
+    const { bridge, calls } = bridgeAnswering({ mountIds: [MOUNT_A, MOUNT_B, MOUNT_A] });
     const read = createMountInventoryRead({
       bridge,
-      sessionId: "session-1",
+      sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
     });
@@ -147,12 +186,12 @@ describe("mount inventory read", () => {
   it("keeps a refused mount as its own row rather than failing the list", async () => {
     const clock = new ManualClock();
     const { bridge } = bridgeAnswering({
-      mountIds: ["mount-a", "mount-b"],
-      refuseMountIds: ["mount-b"],
+      mountIds: [MOUNT_A, MOUNT_B],
+      refuseMountIds: [MOUNT_B],
     });
     const read = createMountInventoryRead({
       bridge,
-      sessionId: "session-1",
+      sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
     });
@@ -188,7 +227,7 @@ describe("mount inventory read", () => {
     } as unknown as ConsoleBridge;
     const read = createMountInventoryRead({
       bridge,
-      sessionId: "session-1",
+      sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
     });
@@ -201,14 +240,13 @@ describe("mount inventory read", () => {
 
   it("stops at the cap and reports how many it did not read", async () => {
     const clock = new ManualClock();
-    const mountIds = Array.from(
-      { length: MOUNT_INVENTORY_READ_CAP + 3 },
-      (_unused, index) => `mount-${String(index).padStart(3, "0")}`,
+    const mountIds = Array.from({ length: MOUNT_INVENTORY_READ_CAP + 3 }, (_unused, index) =>
+      mountIdAt(index),
     );
     const { bridge, calls } = bridgeAnswering({ mountIds });
     const read = createMountInventoryRead({
       bridge,
-      sessionId: "session-1",
+      sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
     });
@@ -226,10 +264,10 @@ describe("mount inventory read", () => {
     // The one honest absence left: no store open means no stream to bind. What must
     // still hold is that nothing is armed behind the page once it leaves.
     const clock = new ManualClock();
-    const { bridge } = bridgeAnswering({ mountIds: ["mount-a"] });
+    const { bridge } = bridgeAnswering({ mountIds: [MOUNT_A] });
     const read = createMountInventoryRead({
       bridge,
-      sessionId: "session-1",
+      sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
     });
@@ -258,8 +296,8 @@ describe("what refreshes the inventory", () => {
     readonly listCallCount: () => number;
   }> {
     const clock = new ManualClock();
-    const { bridge, calls } = bridgeAnswering({ mountIds: ["mount-a"] });
-    const read = createMountInventoryRead({ bridge, sessionId: "session-1", clock, sessionStore });
+    const { bridge, calls } = bridgeAnswering({ mountIds: [MOUNT_A] });
+    const read = createMountInventoryRead({ bridge, sessionId: SESSION_ID, clock, sessionStore });
     read.start();
     clock.advance(500);
     await settle();
@@ -271,7 +309,7 @@ describe("what refreshes the inventory", () => {
   }
 
   it("re-reads when a run this session was executing reaches a terminal", async () => {
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
     expect(listCallCount()).toBe(1);
 
@@ -284,7 +322,7 @@ describe("what refreshes the inventory", () => {
   });
 
   it("re-reads when the mount's own attachment lifecycle moves", async () => {
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "repo.detached", 1));
@@ -296,7 +334,7 @@ describe("what refreshes the inventory", () => {
   });
 
   it("re-reads when a workspace lifecycle event changes which mounts this session names", async () => {
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "workspace.ready", 1));
@@ -310,7 +348,7 @@ describe("what refreshes the inventory", () => {
   it("costs one re-read for a burst, never one per event", async () => {
     // The coalescing claim, counted rather than assumed: three mount-affecting
     // events inside one window are one inventory read on the other side of it.
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.applyBatch([
@@ -328,7 +366,7 @@ describe("what refreshes the inventory", () => {
   it("negative control: an event outside the watched set refreshes nothing", async () => {
     // Without this the cases above would pass over a read that re-read on every
     // store transition, which is a poll wearing a subscription's clothes.
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.starting", 1));
@@ -343,7 +381,7 @@ describe("what refreshes the inventory", () => {
     // The store IS the signal. Without one the read is focus-driven, which is the
     // state this case pins so the binding above cannot be mistaken for something
     // the read does on its own.
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(undefined);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
@@ -355,7 +393,7 @@ describe("what refreshes the inventory", () => {
   });
 
   it("hears nothing more once the page has left", async () => {
-    const sessionStore = initialisedStore("session-1");
+    const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
     read.dispose();
 

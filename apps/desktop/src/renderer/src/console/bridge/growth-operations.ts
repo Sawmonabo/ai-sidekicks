@@ -431,9 +431,46 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "method",
     "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
   ),
-  // sidekick — four of the five registered pairs, in the registry's own order. The
-  // fifth, the per-session peer-invocation opt-in, is not here: it is session state
-  // rather than a definition, and no surface on this substrate sets it.
+  // agent plane — the four verbs, in the order a surface meets them.
+  agentList: op(
+    "agentList",
+    "agent-snapshot-axes",
+    "method",
+    "read every agent attached to one session, with its effective provider binding and any switch the daemon has accepted and not yet applied — the roster a cast bar and an agent console both render",
+    "agent.list",
+  ),
+  agentAttach: op(
+    "agentAttach",
+    "agent-snapshot-axes",
+    "method",
+    "put a configured sidekick into a session, by definition reference or inline, and echo back the configuration the attach resolved to — zero-residue on refusal, so nothing is pre-created and nothing is cleaned up",
+    "agent.attach",
+  ),
+  agentConfigUpdate: op(
+    "agentConfigUpdate",
+    "agent-snapshot-axes",
+    "method",
+    "move a running agent's provider axes, answering with the boundary the switch resolved to rather than with a settlement — the mutation and the application are two moments and only the immediate arm collapses them",
+    "agent.configUpdate",
+  ),
+  agentDetach: op(
+    "agentDetach",
+    "agent-snapshot-axes",
+    "method",
+    "move an agent to `disabled`, reversible by re-attaching — never a delete, so its runs stay in the session's history",
+    "agent.detach",
+  ),
+  // orchestration — the one read that makes refused work visible at all.
+  orchestrationChildRunLinkRead: op(
+    "orchestrationChildRunLinkRead",
+    "child-run-linkage",
+    "method",
+    "read one parent run's child-run links and the fold of the creates that were refused — a refusal is zero-residue, so this fold is the only path by which work that was asked for and denied is visible",
+    "orchestration.childRunLinkRead",
+  ),
+  // sidekick — the registry's own order, and now the fifth pair beside them: the
+  // per-session peer-invocation opt-in, which is session state rather than a
+  // definition and reached the ledger when the control that sets it landed.
   sidekickDefinitionList: op(
     "sidekickDefinitionList",
     "sidekick-definition-registry",
@@ -461,6 +498,13 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "method",
     "delete a definition, which never touches an agent attached from it because attach copies rather than references",
     "sidekick.definitionDelete",
+  ),
+  sidekickPeerInvocationSet: op(
+    "sidekickPeerInvocationSet",
+    "sidekick-definition-registry",
+    "method",
+    "set the session-scoped peer-invocation grant, answering with the post-append projected value so a caller renders what the daemon recorded rather than what it asked for",
+    "sidekick.peerInvocationSet",
   ),
   // The hydrated event read. It names no wire method for the same reason the two
   // identity rows above name none: the projection is built daemon-side and reaches

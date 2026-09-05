@@ -27,12 +27,11 @@ import { Chip, Nothing, WireFigure, formatCount } from "../primitives/index.js";
 import { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "../core/index.js";
 import { boundaryPhrase } from "./switch-settlement.js";
 import {
-  AGENT_STATES,
-  isKnownMember,
   type AgentPendingSwitch,
   type AgentResolvedConfiguration,
   type AgentRosterEntry,
-} from "./agent-wire.js";
+} from "../bridge/index.js";
+import { AGENT_STATES, isKnownMember } from "./agent-wire.js";
 
 export interface AgentCardProps {
   readonly agent: AgentRosterEntry;

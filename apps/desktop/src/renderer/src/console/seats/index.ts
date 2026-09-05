@@ -208,12 +208,15 @@ export type {
 export {
   PushDrivenRead,
   consoleRefusalFrom,
+  servedGrowthValueOrRaise,
+  servedValueOrRaise,
   usePushDrivenRead,
   type PushDrivenReadState,
 } from "./push-driven-read.js";
 
-// The console's single copy of the daemon-method cast, for the same reason: the
-// brand `SidekicksBridge.daemon.call` takes is `never`-shaped until Plan-007 narrows
-// it, and every caller casts. One module casts, and the day the brand narrows one
-// file changes.
-export { callDaemonMethod, subscribeDaemonEvent } from "./wire-access.js";
+// The console's single copy of the daemon-EVENT cast. The brand
+// `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
+// it, and every caller casts; one module casts, and the day the brand narrows one
+// file changes. Its call-side twin is gone — `bridge/daemon-reply.ts` names the
+// methods and parses both directions, so no seat casts a call any more.
+export { subscribeDaemonEvent } from "./wire-access.js";

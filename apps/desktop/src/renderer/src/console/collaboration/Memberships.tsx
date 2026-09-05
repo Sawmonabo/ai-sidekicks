@@ -41,7 +41,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { MembershipUpdate, MembershipUpdateResponse } from "@ai-sidekicks/contracts";
+import type { MembershipUpdate } from "@ai-sidekicks/contracts";
 
 import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../primitives/index.js";
 import { useSessionPartition } from "../store/index.js";
@@ -90,11 +90,8 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
 
   const coordinator = useMemo(
     () =>
-      new WireMutationCoordinator<MembershipUpdate, MembershipUpdateResponse>({
-        perform: daemonMutation<MembershipUpdate, MembershipUpdateResponse>(
-          bridge,
-          MEMBERSHIP_UPDATE_METHOD,
-        ),
+      new WireMutationCoordinator({
+        perform: daemonMutation(bridge, MEMBERSHIP_UPDATE_METHOD),
         describeWhat: "The membership change",
       }),
     [bridge],

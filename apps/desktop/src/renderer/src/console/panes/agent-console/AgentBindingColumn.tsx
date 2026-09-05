@@ -46,11 +46,10 @@ import {
   AttachSidekick,
   AttachSidekickForm,
   ProviderSwitch,
-  type AgentAttachReading,
   type AgentConsoleModels,
-  type AgentSwitchSettlement,
   type ProviderAxis,
 } from "../../agents/index.js";
+import type { AgentAttachReading, AgentSwitchSettlement } from "../../bridge/index.js";
 import { usePushDrivenRead } from "../../seats/index.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
 import { useSubjectScopedState } from "../../store/index.js";

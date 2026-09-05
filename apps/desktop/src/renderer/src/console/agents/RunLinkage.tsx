@@ -40,13 +40,11 @@
 import { Chip, Nothing, RefusalCard, WireFigure, formatCount } from "../primitives/index.js";
 import type { PushDrivenReadState } from "../seats/index.js";
 import {
-  CHILD_RUN_LINK_TYPES,
-  CHILD_RUN_VISIBILITIES,
-  isKnownMember,
   type ChildRunLink,
   type ChildRunLinkReading,
   type ChildRunRejection,
-} from "./agent-wire.js";
+} from "../bridge/index.js";
+import { CHILD_RUN_LINK_TYPES, CHILD_RUN_VISIBILITIES, isKnownMember } from "./agent-wire.js";
 
 const LINK_TYPE_MEANINGS: Readonly<Record<string, string>> = {
   spawn: "a helper this run started; its output returns here",

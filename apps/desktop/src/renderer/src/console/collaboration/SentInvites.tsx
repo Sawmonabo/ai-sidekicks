@@ -74,14 +74,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import type {
-  InviteId,
-  InviteRevoke,
-  InviteRevokeResponse,
-  SessionId,
-} from "@ai-sidekicks/contracts";
-
-import type { ConsoleBridge } from "../bridge/index.js";
+import { heldIdAsWireId, type ConsoleBridge } from "../bridge/index.js";
 import {
   Chip,
   InlineRefusal,
@@ -133,8 +126,8 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
 
   const revokeCoordinator = useMemo(
     () =>
-      new WireMutationCoordinator<InviteRevoke, InviteRevokeResponse>({
-        perform: daemonMutation<InviteRevoke, InviteRevokeResponse>(bridge, INVITE_REVOKE_METHOD),
+      new WireMutationCoordinator({
+        perform: daemonMutation(bridge, INVITE_REVOKE_METHOD),
         describeWhat: "The invitation",
       }),
     // Keyed on the SUBJECT and not only on the transport: the coordinator's whole
@@ -209,12 +202,8 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
           }
           void revokeCoordinator
             .run(inviteId, {
-              // The two brands are compile-time nominal typing over plain strings and
-              // the narrowing happens at this one seam, per `frame/legacy-surfaces.ts`:
-              // whether either id names a live row is the daemon's answer, and this
-              // surface renders that answer verbatim.
-              sessionId: sessionId as SessionId,
-              inviteId: inviteId as InviteId,
+              sessionId: heldIdAsWireId(sessionId),
+              inviteId: heldIdAsWireId(inviteId),
             })
             .then((settlement) => {
               // `undefined` is the refused arm — and the superseded one, where the

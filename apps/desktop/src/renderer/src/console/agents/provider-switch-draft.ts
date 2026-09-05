@@ -53,7 +53,8 @@
 
 import { useReducer } from "react";
 
-import { PROVIDER_AXES, type AgentRosterEntry, type ProviderAxis } from "./agent-wire.js";
+import { type AgentRosterEntry } from "../bridge/index.js";
+import { PROVIDER_AXES, type ProviderAxis } from "./agent-wire.js";
 import {
   unvouchedAxesOf,
   DEPENDENT_AXES,

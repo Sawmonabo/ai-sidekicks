@@ -20,7 +20,8 @@ import {
   type AxisDraft,
   type HeldAxisDraft,
 } from "./provider-switch-draft.js";
-import type { AgentRosterEntry, ProviderAxis } from "./agent-wire.js";
+import type { AgentRosterEntry } from "../bridge/index.js";
+import type { ProviderAxis } from "./agent-wire.js";
 
 const CATALOG = OVERLAPPING_DRIVER_CATALOG_FIXTURE;
 

@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../core/index.js";
 import { formatCount } from "../primitives/index.js";
 import { AgentCard, AgentRosterEmpty } from "./AgentCard.js";
-import type { AgentRosterEntry } from "./agent-wire.js";
+import type { AgentRosterEntry } from "../bridge/index.js";
 
 const RUNNING: AgentRosterEntry = {
   agentId: "agent-scout",

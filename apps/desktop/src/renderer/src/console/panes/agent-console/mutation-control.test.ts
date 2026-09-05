@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
-import type { AgentAttachReading } from "../../agents/index.js";
+import type { AgentAttachReading } from "../../bridge/index.js";
 import { AgentMutationControl, IDLE_MUTATION_ATTEMPT } from "./mutation-control.js";
 
 const ORIGIN = "mutation-control-test";

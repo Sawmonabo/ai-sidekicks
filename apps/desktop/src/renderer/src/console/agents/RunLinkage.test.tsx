@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
 import { RunLinkage } from "./RunLinkage.js";
-import type { ChildRunLinkReading, ChildRunRejection } from "./agent-wire.js";
+import type { ChildRunLinkReading, ChildRunRejection } from "../bridge/index.js";
 import type { PushDrivenReadState } from "../seats/index.js";
 
 function loaded(value: ChildRunLinkReading): PushDrivenReadState<ChildRunLinkReading> {

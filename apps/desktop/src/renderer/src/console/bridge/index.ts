@@ -78,6 +78,10 @@ export type {
   DaemonResponseOf,
 } from "./daemon-reply-registry.js";
 
+// One widening from a held id string to a registered request's branded id, beside the
+// door whose request parse is what makes it a checked widening rather than a claim.
+export { heldIdAsWireId } from "./wire-ids.js";
+
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
 // port type, the one summary shape those surfaces render, the refusal they render
@@ -105,7 +109,44 @@ export {
   type AttentionSeverity,
   type AttentionTrigger,
 } from "./attention-projection.js";
-export type { GrowthUnavailable } from "./growth-outcome.js";
+// The outcome union itself, beside the refusal arm the door already published. A
+// caller outside this family narrows on it — the seat that turns a refused growth
+// call into the throw a live read's failure arm settles from could not name what it
+// was narrowing without it.
+export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
+
+// The agent plane's reply and request shapes. Published because the agent console
+// and the cast bar RENDER them: they are declared on the substrate rather than in a
+// view family — see `agent-plane.js`'s header — so the family that draws a roster
+// card reads its shape through this door like any other cross-family import. They
+// leave through the module that declares them, never through a growth barrel, for
+// the reason the block above gives.
+// The saved definition the registry serves, published for the same reason: the
+// definition picker in the agent console projects one onto its own row shape, and a
+// projection cannot be written against a type it cannot name.
+export type { SidekickDefinition } from "./sidekick-definition.js";
+
+export type {
+  AgentAttachReading,
+  AgentAttachRequest,
+  AgentConfigUpdateReading,
+  AgentConfigUpdateRequest,
+  AgentDetachRequest,
+  AgentEffectiveBinding,
+  AgentListRequest,
+  AgentPendingAxis,
+  AgentPendingSwitch,
+  AgentResolvedConfiguration,
+  AgentRosterEntry,
+  AgentRosterReading,
+  AgentSwitchSettlement,
+  ChildRunLink,
+  ChildRunLinkReadRequest,
+  ChildRunLinkReading,
+  ChildRunRejection,
+  PeerInvocationReading,
+  PeerInvocationSetRequest,
+} from "./agent-plane.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

@@ -140,8 +140,14 @@ const OWNED_SESSION_ID = "session-9";
 const OWNED_AGENT_ID = "agent-scout";
 
 /** The real fixture bridge with the one growth operation this pane re-reads replaced. */
-function bridgeReading(sessionRead: ConsoleBridge["growth"]["sessionRead"]): ConsoleBridge {
-  return fixtureBridgeWithGrowth(unscriptedScenario("agent-console-pane"), { sessionRead });
+function bridgeReading(
+  sessionRead: ConsoleBridge["growth"]["sessionRead"],
+  alsoServing: Partial<ConsoleBridge["growth"]> = {},
+): ConsoleBridge {
+  return fixtureBridgeWithGrowth(unscriptedScenario("agent-console-pane"), {
+    sessionRead,
+    ...alsoServing,
+  });
 }
 
 /** A session read that reports the grant, which the shipped reply does not carry. */
@@ -316,9 +322,6 @@ describe("agent console — the run this agent's linkage is keyed by", () => {
 // session event. Every case below counts the child-link calls the pane's own bridge
 // received, per parent run.
 
-/** The child-link method this column reads, so the counter matches nothing else. */
-const CHILD_RUN_LINK_METHOD = "orchestration.childRunLinkRead";
-
 /** A fixture bridge whose child-link reads are counted by the run they asked about. */
 interface LinkageCountingBridge {
   readonly bridge: ConsoleBridge;
@@ -326,33 +329,29 @@ interface LinkageCountingBridge {
   readonly readsFor: (parentRunId: string) => number;
 }
 
+/**
+ * The counter sits on the GROWTH port, because that is where the read goes.
+ *
+ * `orchestration.childRunLinkRead` has no registered request/response pair anywhere
+ * in the corpus, so the column reaches it as `bridge.growth.orchestrationChildRunLinkRead`
+ * rather than through the call door. Counting the daemon's call arm would count a
+ * call nobody makes and report zero for every case here — which is the shape of the
+ * failure, not of a passing lifetime claim.
+ *
+ * The answer is the EMPTY reading rather than a refusal: what these cases measure is
+ * how many reads a mount starts and whose, and a refused read is still a read that
+ * was started. An empty one keeps the panel's rendering out of the way of the count.
+ */
 function linkageCountingBridge(): LinkageCountingBridge {
-  const fixture = bridgeReading(growthRefusing("sessionRead"));
   const readsByParentRunId = new Map<string, number>();
-  const call = fixture.sidekicks.daemon.call as unknown as (
-    method: string,
-    params: { readonly parentRunId?: string },
-  ) => Promise<unknown>;
-  const counted = (method: string, params: { readonly parentRunId?: string }): Promise<unknown> => {
-    const parentRunId = params?.parentRunId;
-    if (method === CHILD_RUN_LINK_METHOD && parentRunId !== undefined) {
+  const bridge = bridgeReading(growthRefusing("sessionRead"), {
+    orchestrationChildRunLinkRead: async (request) => {
+      const { parentRunId } = request;
       readsByParentRunId.set(parentRunId, (readsByParentRunId.get(parentRunId) ?? 0) + 1);
-    }
-    return call(method, params);
-  };
-  return {
-    bridge: {
-      ...fixture,
-      sidekicks: {
-        ...fixture.sidekicks,
-        daemon: {
-          ...fixture.sidekicks.daemon,
-          call: counted as unknown as ConsoleBridge["sidekicks"]["daemon"]["call"],
-        },
-      },
+      return { status: "served", value: { links: [], rejectedCreates: [] } };
     },
-    readsFor: (parentRunId) => readsByParentRunId.get(parentRunId) ?? 0,
-  };
+  });
+  return { bridge, readsFor: (parentRunId) => readsByParentRunId.get(parentRunId) ?? 0 };
 }
 
 /**

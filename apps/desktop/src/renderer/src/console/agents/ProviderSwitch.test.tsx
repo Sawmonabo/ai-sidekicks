@@ -13,7 +13,7 @@ import {
   DRIVER_CATALOG_FIXTURE,
   OVERLAPPING_DRIVER_CATALOG_FIXTURE,
 } from "./driver-catalog-fixtures.js";
-import type { AgentRosterEntry } from "./agent-wire.js";
+import type { AgentRosterEntry } from "../bridge/index.js";
 import type { DriverCatalogReading } from "./driver-catalog.js";
 import type { PushDrivenReadState } from "../seats/index.js";
 
