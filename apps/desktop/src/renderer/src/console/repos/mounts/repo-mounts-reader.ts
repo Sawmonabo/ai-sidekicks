@@ -42,7 +42,8 @@
 // THE ACT IS NEXT DOOR AND THE SHAPE IS BESIDE BOTH. This file had reached the size
 // `apps/desktop/AGENTS.md` calls two jobs, and the two were legible: four reads on a
 // scheduler, and one mutation with a register of its own. `execution-mode-selection.ts`
-// took the mutation and `repo-mounts-model.ts` took the reading both of them publish —
+// took the mutation, `repo-mounts-model.ts` took the reading both of them publish, and
+// `repo-mounts-binding.ts` took the hook that mounts this class —
 // the split `proposal-gate-reader.ts` / `proposal-gate-actions.ts` /
 // `proposal-gate-model.ts` already makes in this family, on the same seam and for the
 // same reason. This class is the act's host, handed the three operations
@@ -56,29 +57,19 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import { consoleClockFor, type ConsoleBridge, type DaemonReply } from "../../bridge/index.js";
+import type { ConsoleBridge, DaemonReply } from "../../bridge/index.js";
 import {
   Emitter,
   type ConsoleClock,
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
-import {
-  RefreshScheduler,
-  SessionRefreshTriggers,
-  useSubjectScopedResource,
-  type SessionStore,
-} from "../../store/index.js";
+import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
 import {
   ExecutionModeSelections,
   type ExecutionModeSelectionHost,
 } from "./execution-mode-selection.js";
-import {
-  NOTHING_READ_YET,
-  type RepoMountsReading,
-  type RepoWorkspaceRow,
-} from "./repo-mounts-model.js";
+import { NOTHING_READ_YET, retainForRoster, type RepoMountsReading } from "./repo-mounts-model.js";
 import {
   readExecutionModeCapabilities,
   readRepoMount,
@@ -381,28 +372,6 @@ export class RepoMountsReader {
   }
 }
 
-/**
- * Keep only the selection refusals whose workspace the roster still names.
- *
- * SCOPED RATHER THAN CARRIED WHOLE, because a workspace that has left the session has
- * no row to render its refusal on, and an entry with no row is a leak that grows for as
- * long as the section is mounted. The refused-roster path carries the map unscoped
- * instead: it learned no roster, so it knows of no workspace that has gone.
- */
-function retainForRoster(
-  bySelection: Readonly<Record<string, ConsoleRefusal>>,
-  workspaces: readonly RepoWorkspaceRow[],
-): Record<string, ConsoleRefusal> {
-  const retained: Record<string, ConsoleRefusal> = {};
-  for (const workspace of workspaces) {
-    const refusal = bySelection[workspace.id];
-    if (refusal !== undefined) {
-      retained[workspace.id] = refusal;
-    }
-  }
-  return retained;
-}
-
 function recordFirstRefusal(
   held: ConsoleRefusal | undefined,
   reply: DaemonReply<unknown>,
@@ -411,71 +380,4 @@ function recordFirstRefusal(
     return held;
   }
   return reply.refusal;
-}
-
-/** Close one reader. Declared once so the resource seam holds one identity for it. */
-function closeRepoMountsReader(reader: RepoMountsReader): void {
-  reader.dispose();
-}
-
-/** What the hook hands a surface: the reading, and the one mutation the picker sends. */
-export interface RepoMountsBinding {
-  readonly reading: RepoMountsReading;
-  readonly requestModeSelection: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
-}
-
-/**
- * Bind one section to its reader.
- *
- * The reader is constructed in a hook and never in a render body, subscribed through
- * `useSyncExternalStore` so a publish is a single transition, and disposed on
- * unmount — the three properties `apps/desktop/AGENTS.md` requires of anything that
- * holds state beside a component.
- *
- * THE CLOCK COMES FROM THE BRIDGE, on `clone-expiry-wake-up.ts`'s reason one file
- * over: `consoleClockFor` is the one answer to which clock a window runs on, and the
- * deadline wake-up in the clone list already reads it — so a reader stamping its
- * reading off a clock of its own would put two time bases inside one list, and the
- * wall clock would win every `Math.max`. Memoised because the real arm mints a fresh
- * `RealClock` per call, and a new object every render would re-mint the reader.
- */
-export function useRepoMounts(
-  bridge: ConsoleBridge,
-  sessionStore: SessionStore,
-): RepoMountsBinding {
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { value: reader, settle } = useSubjectScopedResource(
-    bridge,
-    sessionStore.sessionId,
-    () => new RepoMountsReader({ bridge, sessionStore, clock }),
-    closeRepoMountsReader,
-  );
-  useEffect(() => {
-    // THE RE-MINT ARM, on `useAttachmentCarrier`'s pattern and for its two reasons.
-    // Strict mode runs the seam's cleanup and then this setup again on the SAME
-    // committed reader, and `dispose` is terminal — `start()` on it returns early, so
-    // the section sat unread with nothing on screen to say why. And the seam holds one
-    // resource per `(subject, key)`, which here is `(bridge, session id)`: a store
-    // replaced under the same id retires every read taken against the old one, and the
-    // key cannot carry that axis, so the reader is asked instead. Either way the
-    // replacement is PUBLISHED through the seam, so it is closed on the seam's terms.
-    if (reader.isDisposed || !reader.isReadingFor(sessionStore)) {
-      settle()(new RepoMountsReader({ bridge, sessionStore, clock }));
-      return;
-    }
-    reader.start();
-  }, [reader, settle, bridge, sessionStore, clock]);
-  const subscribe = useCallback(
-    (onReadingChange: () => void) => reader.subscribe(onReadingChange),
-    [reader],
-  );
-  const read = useCallback(() => reader.snapshot, [reader]);
-  const reading = useSyncExternalStore(subscribe, read, read);
-  const requestModeSelection = useCallback(
-    (workspaceId: WorkspaceId, executionMode: ExecutionMode) => {
-      void reader.requestModeSelection(workspaceId, executionMode);
-    },
-    [reader],
-  );
-  return { reading, requestModeSelection };
 }

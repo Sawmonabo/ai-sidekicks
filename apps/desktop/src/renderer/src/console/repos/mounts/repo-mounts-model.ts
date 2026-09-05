@@ -77,6 +77,28 @@ export function workspaceRefusalFor(
 }
 
 /**
+ * Keep only the selection refusals whose workspace the roster still names.
+ *
+ * SCOPED RATHER THAN CARRIED WHOLE, because a workspace that has left the session has
+ * no row to render its refusal on, and an entry with no row is a leak that grows for as
+ * long as the section is mounted. The refused-roster path carries the map unscoped
+ * instead: it learned no roster, so it knows of no workspace that has gone.
+ */
+export function retainForRoster(
+  bySelection: Readonly<Record<string, ConsoleRefusal>>,
+  workspaces: readonly RepoWorkspaceRow[],
+): Record<string, ConsoleRefusal> {
+  const retained: Record<string, ConsoleRefusal> = {};
+  for (const workspace of workspaces) {
+    const refusal = bySelection[workspace.id];
+    if (refusal !== undefined) {
+      retained[workspace.id] = refusal;
+    }
+  }
+  return retained;
+}
+
+/**
  * Everything the section renders from, in one immutable value.
  *
  * `status` is the read's own position, three-valued for the three absences rule 8

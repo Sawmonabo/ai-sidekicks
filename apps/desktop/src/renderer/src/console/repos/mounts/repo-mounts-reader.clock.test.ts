@@ -24,7 +24,8 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { RealClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
-import { RepoMountsReader, useRepoMounts } from "./repo-mounts-reader.js";
+import { useRepoMounts } from "./repo-mounts-binding.js";
+import { RepoMountsReader } from "./repo-mounts-reader.js";
 import { cloneExpiryReading, type EphemeralCloneStatusRecord } from "./worktree-model.js";
 
 /** How long the wall-clock control may take to spend a real debounce interval. */
