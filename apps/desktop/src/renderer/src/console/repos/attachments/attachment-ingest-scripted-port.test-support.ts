@@ -16,6 +16,13 @@
 // client happens to send: `GrowthPort` is the mapped type over `growth-signatures.ts`, so
 // a request that dropped a registered member or invented one fails to compile here rather
 // than passing under a recorder that had been updated to match it.
+//
+// AND IT IS TEST SUPPORT BY NAME. A recorder that answers every ingest call with a
+// scripted reply is reachable from a rendering path only as a bridge that lies, so the
+// `.test-support.ts` suffix is what keeps that unreachable rather than a header asking
+// a reader not to: the shared source walk the architecture gates read excludes these
+// modules, and the layering gate admits them as roots because the only dependents it
+// leaves in the graph would be production ones.
 
 import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
 import type { ConsoleClock } from "../../core/index.js";

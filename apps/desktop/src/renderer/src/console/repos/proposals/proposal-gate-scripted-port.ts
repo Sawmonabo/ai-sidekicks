@@ -2,7 +2,7 @@
 // readers it opens, and the two drains that let a frozen clock settle.
 //
 // A SUPPORT MODULE RATHER THAN A COPY BESIDE EACH TEST, on
-// `attachment-ingest-scripted-port.ts`'s precedent in this same family. The read half
+// `attachment-ingest-scripted-port.test-support.ts`'s precedent in this same family. The read half
 // and the act half are tested beside the modules that own them, and both need the same
 // scripted answers, the same manual clock, and the same disposal discipline — written
 // twice they would drift, and two files asserting against two slightly different ports

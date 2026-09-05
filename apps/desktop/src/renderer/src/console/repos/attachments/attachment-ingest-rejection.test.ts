@@ -21,7 +21,7 @@ import {
   clientOver,
   sourceOver,
   unreadableSourceOver,
-} from "./attachment-ingest-scripted-port.js";
+} from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_STREAM_SITE } from "./attachment-ingest-stream.js";
 import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
 

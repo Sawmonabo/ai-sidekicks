@@ -16,7 +16,7 @@ import {
   clientOver,
   patternedBytes,
   sourceOver,
-} from "./attachment-ingest-scripted-port.js";
+} from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
 
 /** Whether one recorded request actually carried bytes, rather than describing them. */

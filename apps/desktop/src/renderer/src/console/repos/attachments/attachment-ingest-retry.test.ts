@@ -9,7 +9,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "../../core/tripwires.js";
-import { SMALL_SOURCE, ScriptedGrowthPort, clientOver } from "./attachment-ingest-scripted-port.js";
+import {
+  SMALL_SOURCE,
+  ScriptedGrowthPort,
+  clientOver,
+} from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_CAPACITY_EXHAUSTED_CODE, INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
 
 beforeEach(() => {

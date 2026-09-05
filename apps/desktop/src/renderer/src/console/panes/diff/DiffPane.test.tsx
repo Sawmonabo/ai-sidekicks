@@ -18,7 +18,10 @@ import {
   SMALL_DIFF_SHAPE,
   WORKSPACE_FALLBACK_ATTRIBUTION,
 } from "./diff-fixture-shapes.js";
-import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
+import {
+  DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
+  DiffLayoutFixture,
+} from "./diff-layout-fixture.test-support.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
 
 import { DiffPane, type DiffPaneProps } from "./DiffPane.js";

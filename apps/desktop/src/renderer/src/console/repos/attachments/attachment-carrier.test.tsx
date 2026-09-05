@@ -24,7 +24,10 @@ import {
   useAttachmentCarrier,
   type AttachmentCarrierBinding,
 } from "./attachment-carrier.js";
-import { ScriptedGrowthPort, patternedBytes } from "./attachment-ingest-scripted-port.js";
+import {
+  ScriptedGrowthPort,
+  patternedBytes,
+} from "./attachment-ingest-scripted-port.test-support.js";
 
 /** The instant every case starts at, so a stamp in an assertion is a real reading. */
 const START_MILLISECONDS = 1_000;
