@@ -10,20 +10,24 @@
 // about trusting what is on screen, the second about where the rest of it is and
 // whether anything brings it back.
 //
-// FOUR SENTENCES AND NOT ONE, because a person's next move differs for each. An
+// SIX SENTENCES AND NOT ONE, because a person's next move differs for each. An
 // unrecognised type is this build's limit. A dropped row is the window's cap, and
 // nothing here fetches a range of the log, so there is nothing to press. A row ahead
 // of a replay position is a control they are holding, and scrubbing forward is the
 // act. A sequence that never arrived is the stream's, and it comes back only when the
-// whole is read again. Collapsing any two tells somebody the console failed where it
-// merely stopped holding, or the reverse — and collapsing the middle two told them
-// rows they could scrub back to in one keystroke were gone for good.
+// whole is read again. A row sharing an identifier with one already drawn is the
+// producer's, and nothing on this side can tell the two apart. A row past the height
+// this window can draw is still HELD — find and the rail reach it, which is the one
+// second line here that names a way back. Collapsing any two tells somebody the
+// console failed where it merely stopped holding, or the reverse — and collapsing the
+// last one into the cap's would say rows they can still reach are gone for good.
 //
-// THREE COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
-// shortcut. A window can count the rows it dropped and the rows it is withholding;
-// what it knows about sequences it never received is that it was told of some, which
-// is a fact with no figure in it. The arm carries no count rather than carrying a
-// zero or inventing one.
+// FIVE COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
+// shortcut. A window can count the rows it dropped, the rows it is withholding, the
+// rows that arrived under an identifier it already held, and the rows past its
+// ceiling; what it knows about
+// sequences it never received is that it was told of some, which is a fact with no
+// figure in it. The arm carries no count rather than carrying a zero or inventing one.
 //
 // AND THE COUNTLESS ONE NAMES WHOSE NUMBERING IT IS. A window scoped to PART of a
 // stream — one channel of a session's entries — has a subject that is the part and a
@@ -52,15 +56,17 @@ import { type NothingKind } from "./Nothing.js";
 
 /**
  * Closed. The tuple is the declaration and the union follows from it, so a claim
- * about the SET is countable at runtime and a fifth narrowing added to a caller's
- * pipeline is a compile error here rather than a row that silently renders the
- * fourth one's sentence.
+ * about the SET is countable at runtime and a seventh narrowing added to a caller's
+ * pipeline is a compile error here rather than a row that silently renders one of the
+ * six existing sentences.
  */
 export const WINDOW_ABSENCE_KINDS = [
   "unprojectable",
   "dropped",
   "withheld-by-replay",
   "never-received",
+  "duplicate-key",
+  "past-element-ceiling",
 ] as const;
 
 export type WindowAbsenceKind = (typeof WINDOW_ABSENCE_KINDS)[number];
@@ -84,7 +90,20 @@ export type WindowAbsence =
    * module's header gives; it is omitted where the window has one producer and
    * naming it would say nothing, and the sentence then reads as it always has.
    */
-  | { readonly kind: "never-received"; readonly producer?: string };
+  | { readonly kind: "never-received"; readonly producer?: string }
+  /**
+   * Entries that arrived under an identifier another entry in this window carries.
+   *
+   * The sentence says the collision and NOT what the window did about it, because
+   * that is the window's decision and not this vocabulary's: one may drop the
+   * repeat, another may draw it under a key of its own — the ledger's does, so a
+   * detail line asserting the rows "were not drawn" was false on the only surface
+   * that renders this arm. What is true either way is that two entries claim one
+   * name and nothing on this side can tell them apart.
+   */
+  | { readonly kind: "duplicate-key"; readonly count: number }
+  /** Entries this window still holds and cannot draw, because it ran out of height. */
+  | { readonly kind: "past-element-ceiling"; readonly count: number };
 
 /** What an absence renders as: rule 8's shape, and the two lines this module writes. */
 export interface WindowAbsenceNotice {
@@ -118,8 +137,8 @@ function producerNoun(named: string | undefined): string {
  * a caller that capitalized it in one place and not another is the drift these
  * modules exist to remove.
  *
- * Total over `WindowAbsence` by construction, so a fifth kind fails to compile here
- * before it can reach a surface that renders it as one of the other four.
+ * Total over `WindowAbsence` by construction, so a seventh kind fails to compile here
+ * before it can reach a surface that renders it as one of the other six.
  */
 export function windowAbsenceNotice(absence: WindowAbsence, subject: string): WindowAbsenceNotice {
   switch (absence.kind) {
@@ -150,6 +169,21 @@ export function windowAbsenceNotice(absence: WindowAbsence, subject: string): Wi
         kind: "empty",
         title: `Some ${subject} never arrived.`,
         detail: `The ${producerNoun(absence.producer)} numbered ${subject} this window did not receive. They come back only when the whole of it is read again; no read here fetches a range.`,
+      };
+    case "duplicate-key":
+      return {
+        kind: "empty",
+        title: `Some ${subject} share an identifier.`,
+        detail: `${formatCount(absence.count)} arrived carrying the same identifier as one already in this window. Nothing here can tell them apart, so there is nothing to press.`,
+      };
+    case "past-element-ceiling":
+      return {
+        // `empty` and not `not-checked`: nothing was left unasked. The window holds
+        // these and stopped short of drawing them, which is a settled fact — and the one
+        // here whose second line names a way to the rows rather than the absence of one.
+        kind: "empty",
+        title: `Older ${subject} are past what this window can draw.`,
+        detail: `${formatCount(absence.count)} are still held and sit below the height this window can draw down to. Find and the rail reach them.`,
       };
   }
 }

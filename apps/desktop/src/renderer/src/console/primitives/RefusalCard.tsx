@@ -5,8 +5,9 @@
 // joined the session's history — a block in the feed rather than a line beside a
 // control, and no live region of its own, because the feed announces its own rows.
 
+import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 import { Glyph } from "./Glyph.js";
-import { REFUSAL_GLYPH_SIZE, type RefusalProps } from "./refusal-contract.js";
+import { type RefusalProps } from "./refusal-contract.js";
 import { WireFigure } from "./WireFigure.js";
 import { formatWireString } from "./wire-figures.js";
 
@@ -15,7 +16,7 @@ export function RefusalCard(props: RefusalProps): React.JSX.Element {
   return (
     <div className="meridian-refusal meridian-refusal--card">
       <div className="meridian-refusal__head">
-        <Glyph name="alert" size={REFUSAL_GLYPH_SIZE} />
+        <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
         <WireFigure value={props.code} />
       </div>
       <p className="meridian-refusal__message">{formatWireString(props.detail)}</p>

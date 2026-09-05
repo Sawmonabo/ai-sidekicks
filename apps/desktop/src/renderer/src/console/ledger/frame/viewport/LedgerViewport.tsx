@@ -38,11 +38,10 @@
 // two-hue rule, never by motion." A lane taking catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
-import { Nothing } from "../../../primitives/index.js";
+import { Nothing, WindowAbsences } from "../../../primitives/index.js";
 import { LedgerErrorSlot, type LedgerErrorEntry } from "../ErrorSlot.js";
 import { LedgerRowMount, type LedgerRowRenderer } from "../LedgerRowMount.js";
 import { LedgerTailAffordance } from "../LedgerTailAffordance.js";
-import { LedgerWindowNotices } from "../LedgerWindowNotices.js";
 import { type LedgerViewportBinding } from "./viewport-binding.js";
 
 /**
@@ -161,7 +160,26 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
             detail={EMPTY_LEDGER_WORDS[props.scope].detail}
           />
         ) : null}
-        <LedgerWindowNotices binding={binding} />
+        {/*
+         * The two ways this window's own DRAWING falls short of the log it holds,
+         * in the console's shared sentences rather than in a pair this family
+         * wrote. Both are residuals of what `Spec-023 §Console Libraries`'
+         * timeline-virtualization row asks of an own-built window — stable keys,
+         * and a ceiling under the height Chromium will place an element at — and
+         * both are invisible until somebody scrolls to exactly the wrong place.
+         *
+         * Here rather than beside the window model's four absences one directory
+         * up: those are facts about which rows the WINDOW holds, and these are
+         * facts about what this VIEWPORT could draw of them. A counted absence at
+         * zero is dropped by the model, so neither is guarded here.
+         */}
+        <WindowAbsences
+          absences={[
+            { kind: "duplicate-key", count: snapshot.keyProjection.duplicateKeyCount },
+            { kind: "past-element-ceiling", count: binding.rowsPastElementCeiling },
+          ]}
+          subject="entries"
+        />
       </div>
       <LedgerTailAffordance snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
     </div>

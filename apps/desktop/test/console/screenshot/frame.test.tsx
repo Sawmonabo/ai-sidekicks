@@ -18,57 +18,57 @@
 //               pass. The deliberate "I have looked at the candidate and it is
 //               correct" gesture, and the only supported way to mint a baseline.
 //
-// WHY ONE PINNED PLATFORM
+// WHO MINTS A REFERENCE, AND WHO MAY COMPARE AGAINST ONE
 //
 // References are keyed by browser AND platform, and font rasterisation differs
-// enough between platforms that one image cannot serve two. Committing a baseline
-// per platform would mean reviewing every visual change three times over images
-// nobody can regenerate locally, so this tier is pinned to ONE: `darwin`, which is
-// the platform whose references are committed, and the platform CI runs it on
-// (`.github/workflows/ci.yml`, the `console-screenshot-macos` job). On any other
-// platform the baseline comparisons SKIP with a stated reason — a captured image
-// there would compare against nothing, and a tier that quietly wrote itself a
-// reference on an ephemeral checkout would be permanently on its first run and
-// would never compare anything at all.
+// enough that one image cannot serve two — but the pin this tier needs is finer
+// than a platform, and `baseline-platform.ts` holds it. `darwin` is not one
+// machine: the committed images are what GitHub's `macos-15` runner renders, so a
+// reference minted anywhere else is one no CI run will reproduce, and a comparison
+// run anywhere else is red for reasons belonging to the host. That module's own
+// doc block carries the reasoning, the two variables, and the measured cost of the
+// pin this replaced; the tier reads its verdict and says why on both channels.
 //
-// The fail-closed guard and the missing-reference probe are NOT platform-pinned.
+// They are refreshed by dispatching
+// `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate` on
+// the branch that changes them, reading every image in the artifact it uploads,
+// and committing that tree.
+//
+// The fail-closed guard and the missing-reference probe are NOT pinned to any host.
 // They assert how this tier behaves when a reference is absent, which is a claim
-// about the runner rather than about pixels, and it holds on every platform — so
-// the tier still proves something where it cannot compare.
+// about the runner rather than about pixels, and it holds everywhere — so the tier
+// still proves something where it cannot compare.
 //
-// WHO MINTS A REFERENCE
-//
-// `darwin` is not one machine. The committed images are the ones GitHub's
-// `macos-15` runner renders, and that runner is the AUTHORITY: `ci.yml`'s
-// `console-screenshot-macos` job compares against them there, so a reference
-// minted anywhere else is one no CI run will reproduce. They are refreshed by
-// dispatching `.github/workflows/console-screenshot-baselines.yml` with
-// `mode: regenerate` on the branch that changes them, reading every image in the
-// artifact it uploads, and committing that tree.
+// WHAT AN OPTED-IN LOCAL RUN SHOWS YOU
 //
 // A developer Mac is a LATER macOS with a different system UI face — the console's
 // sans stack names IBM Plex Sans first, nothing self-hosts it yet, and the fallback
-// is whatever `system-ui` resolves to on the host. So a local run is ADVISORY, and
-// it is advisory in a specific and small way: measured 2026-09-02 on macOS 26.6.1
-// against `macos-15` references, the whole disagreement is SIX pixels — one in
-// `frame-first-run-light`, six in `palette-open-light`, none in the dark frame —
-// and every one of them is a corner of a `⌘` keycap glyph, the one character on
-// these surfaces that comes from the host's font rather than the console's.
+// is whatever `system-ui` resolves to on the host. Measured 2026-09-05 on macOS
+// 26.6.1 against the `macos-15` references this tree carries, exactly one of the
+// three comparisons disagrees: SIX pixels of `palette-open-light`, every one a
+// corner of a `⌘` keycap glyph — the one character on these surfaces that comes
+// from the host's font rather than the console's — with both frames matching
+// exactly. That is this host on this tree and not a bound: the same three
+// comparisons have disagreed by four figures on other machines and other reference
+// vintages.
 //
-// The tier allows none of them. `vitest.config.ts`'s `SCREENSHOT_TIER_MATCH_OPTIONS`
-// records why: a single changed glyph in a palette label moves only 20 pixels, so a
-// budget large enough to absorb six is close enough to twenty to hide a punctuation
-// change, and the tier would rather be red on a developer's machine than blind on
-// the runner's. So read a local red the way the numbers make it readable — a
-// handful of pixels on a keycap is the known residue; anything else is yours. A
-// one-pixel rail move is 3 690 pixels; the stale palette reference this lane found
-// (a Help group that had appeared since the capture) was 26 016.
+// The tier allows none of them. `vitest/screenshot-pins.ts`'s
+// `SCREENSHOT_TIER_MATCH_OPTIONS` records why: a single changed glyph in a palette
+// label moves only 20 pixels, so a budget large enough to absorb six is close
+// enough to twenty to hide a punctuation change, and the tier would rather be red
+// on a machine that asked for the comparison than blind on the runner's. So read an
+// opted-in red by looking at the diff the run writes into `.vitest-attachments/`
+// rather than at its pixel count — glyph corners are the host, a moved element is
+// yours. For scale: a one-pixel rail move is 3 690 pixels, and the stale palette
+// reference this lane found (a Help group that had appeared since the capture) was
+// 26 016.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TestContext } from "vitest";
 import { server } from "vitest/browser";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
+import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
 
 import {
   ConsoleRoot,
@@ -76,14 +76,6 @@ import {
 } from "../../../src/renderer/src/console/frame/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-
-/**
- * The one platform whose references are committed, and the one CI compares on.
- *
- * Stated once and read by both the skip guard and the messages it produces, so the
- * name a skipped run prints and the name the guard tests are the same string.
- */
-const PINNED_BASELINE_PLATFORM = "darwin";
 
 /**
  * A reference name nothing commits, reserved for the missing-reference probe.
@@ -97,27 +89,33 @@ const UNCOMMITTED_REFERENCE_NAME = "no-reference-is-committed-under-this-name";
 /** The run's resolved snapshot-update mode — the branch the mechanism above names. */
 const updateMode = server.config.snapshotOptions.updateSnapshot;
 
-/** Whether this host is one the committed references cannot serve. */
-const isOffPinnedPlatform = server.platform !== PINNED_BASELINE_PLATFORM;
+/**
+ * What this host declared about itself.
+ *
+ * Off `server.config.env` rather than `process.env`, which does not exist in the
+ * page: this tier runs its tests inside a real browser, and the environment
+ * reaches it as Vite's resolved env.
+ */
+const baselineHost = readBaselineHost(server.config.env);
 
-/** Why the comparisons did not run here. One sentence, carried on both channels. */
-const OFF_PLATFORM_REASON =
-  `[console-screenshot] baseline comparisons skipped: references are committed for ` +
-  `${PINNED_BASELINE_PLATFORM} and this host is ${server.platform}. This tier compares on ` +
-  `${PINNED_BASELINE_PLATFORM} only — capturing here would compare against nothing.`;
+/** Whether this host is one whose comparisons mean anything. */
+const comparesHere = comparesBaselines(baselineHost);
+
+/** Why they did not run here. One sentence, carried on both channels. */
+const SKIP_REASON = baselineSkipReason(baselineHost);
 
 /**
- * Skip a baseline comparison that has no committed reference on this host.
+ * Skip a baseline comparison on a host that cannot reproduce the references.
  *
  * A skip with a NOTE rather than `describe.skipIf`, because the reason is the
- * whole point: a reader of a green run on Linux has to be able to see that the
- * comparisons did not run and why, and a suite that is simply absent from the
- * report reads exactly like one that passed. The note reaches structured
- * reporters; the terminal one prints a bare "skipped" count, which is why the
- * suite below also says it once on the console channel that reporter forwards.
+ * whole point: a reader of a green run has to be able to see that the comparisons
+ * did not run and why, and a suite that is simply absent from the report reads
+ * exactly like one that passed. The note reaches structured reporters; the
+ * terminal one prints a bare "skipped" count, which is why the suite below also
+ * says it once on the console channel that reporter forwards.
  */
-function skipOffPinnedPlatform(context: TestContext): void {
-  context.skip(isOffPinnedPlatform, OFF_PLATFORM_REASON);
+function skipOffBaselineHost(context: TestContext): void {
+  context.skip(!comparesHere, SKIP_REASON);
 }
 
 /**
@@ -182,15 +180,15 @@ describe("screenshot — the tier gates rather than mints", () => {
 
 describe("screenshot — the frame under the first-run scenario", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
-  // Without it an off-platform run reports "3 skipped" and nothing else, which a
-  // reader cannot tell from a tier that was quietly switched off.
-  if (isOffPinnedPlatform) {
-    console.warn(OFF_PLATFORM_REASON);
+  // Without it a skipped run reports "3 skipped" and nothing else, which a reader
+  // cannot tell from a tier that was quietly switched off.
+  if (!comparesHere) {
+    console.warn(SKIP_REASON);
   }
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme`, async (context) => {
-      skipOffPinnedPlatform(context);
+      skipOffBaselineHost(context);
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
@@ -202,7 +200,7 @@ describe("screenshot — the frame under the first-run scenario", () => {
     // The palette is the one surface that exists on a first run, so it is the one
     // composition worth pinning before the families ship theirs: the scoped
     // context row, the grouped command list, and the chord hints in the footer.
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
     await pressKeys("{Control>}k{/Control}");

@@ -27,20 +27,18 @@
 // what stop this file pinning a picture of nothing. The quiet arm asserts the
 // mirror image, for the same reason in the other direction.
 //
-// The platform pin, the skip, and the reason it prints are `baseline-platform.ts`'
-// — one decision for the whole tier. The tier's fail-closed guard is asserted once,
-// in `frame.test.tsx`, and deliberately not repeated here.
+// The host pin, the skip, and the reason it prints are `baseline-platform.ts`' —
+// one decision for the whole tier, and a RUNNER rather than a platform, for the
+// reason that module's own doc block gives. The three lines below read this host's
+// declaration and ask it; the verdict is not restated here. The tier's fail-closed
+// guard is asserted once, in `frame.test.tsx`, and deliberately not repeated here.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "vitest/browser";
 import { act } from "@testing-library/react";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
-import {
-  OFF_PLATFORM_REASON,
-  isOffPinnedPlatform,
-  skipOffPinnedPlatform,
-} from "./baseline-platform.js";
+import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
 
 import {
   ConsoleRoot,
@@ -61,6 +59,19 @@ import {
   LEDGER_SCENARIO,
   LEDGER_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
+
+/**
+ * What this host declared about itself, and whether its comparisons mean anything.
+ *
+ * Off `server.config.env` rather than `process.env`, which does not exist in the
+ * page: this tier runs inside a real browser and the environment reaches it as
+ * Vite's resolved env. The verdict and the sentence both come from
+ * `baseline-platform.ts`, so a suite never decides for itself where a comparison
+ * is meaningful — it reads its host and asks.
+ */
+const baselineHost = readBaselineHost(server.config.env);
+const comparesHere = comparesBaselines(baselineHost);
+const SKIP_REASON = baselineSkipReason(baselineHost);
 
 /**
  * How many advances the whole script is walked in, and how many drain it.
@@ -242,15 +253,15 @@ afterEach(async () => {
 
 describe("screenshot — the ledger under the three-lane scenario", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
-  // Without it an off-platform run reports a skipped count and nothing else, which
-  // a reader cannot tell from a tier that was quietly switched off.
-  if (isOffPinnedPlatform) {
-    console.warn(OFF_PLATFORM_REASON);
+  // Without it a skipped run reports a count and nothing else, which a reader
+  // cannot tell from a tier that was quietly switched off.
+  if (!comparesHere) {
+    console.warn(SKIP_REASON);
   }
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme at the script's last beat`, async (context) => {
-      skipOffPinnedPlatform(context);
+      context.skip(!comparesHere, SKIP_REASON);
       await emulateSystemScheme(scheme);
       const { container, frame } = await openLedgerSession(
         LEDGER_SCENARIO_ID,
@@ -283,7 +294,7 @@ describe("screenshot — the ledger's empty state", () => {
     // both palettes are already pinned by the pair above, and what this capture
     // exists for is the copy and the shape of the absence, neither of which the
     // scheme decides.
-    skipOffPinnedPlatform(context);
+    context.skip(!comparesHere, SKIP_REASON);
     await emulateSystemScheme("light");
     const { container, frame } = await openLedgerSession(
       LEDGER_QUIET_SCENARIO_ID,

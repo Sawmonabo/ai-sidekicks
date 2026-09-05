@@ -25,13 +25,8 @@ import { type TimelinePaneContext } from "./TimelinePane.js";
 import {
   TIMELINE_PANE_SESSION_ID,
   paneContext,
-  timelinePaneRenderer,
+  renderTimelinePane,
 } from "./TimelinePaneFixtures.test-support.js";
-// The chrome this pane is composed with, named once here as the pane board names it
-// once: a suite may reach across families where the body it drives may not.
-import { PaneHeader } from "../../workspace/index.js";
-
-const renderPane = timelinePaneRenderer(PaneHeader);
 
 afterEach(() => {
   // The seat is module-scope, so a case that filled it would leak into the next.
@@ -101,7 +96,7 @@ describe("TimelinePane — a channel address is the pane's scope", () => {
   ): HTMLElement {
     withLaidOutViewport();
     registerTimelineRowRenderer("timeline-pane-channel-scope", () => null);
-    return renderPane({
+    return renderTimelinePane({
       context: paneContext({
         sessionStore: openSessionStoreWithTwoChannels(extraEvents),
         ...(channelId === undefined ? {} : { entity: { kind: "channel", id: channelId } }),

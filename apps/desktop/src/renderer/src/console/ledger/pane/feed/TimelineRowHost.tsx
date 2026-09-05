@@ -4,6 +4,11 @@
 // where a reader looks for it: the pane above decides the chrome and the address, and
 // this decides what stands in the body while the seat, the session, or the rows are
 // not there.
+//
+// NOTHING HERE DRAWS THE BODY BOX. `seats/ConsolePaneChrome` renders
+// `.meridian-pane__body` around whatever a pane hands it, so a wrapper here would be
+// a second box inside the first — and the flex chain the feed's scroll container
+// depends on would run through two elements only one of which is sized.
 
 import { Nothing } from "../../../primitives/index.js";
 import { type SessionStore } from "../../../store/index.js";
@@ -33,39 +38,33 @@ export function TimelineRowHost(props: TimelineRowHostProps): React.JSX.Element 
   const body = props.body;
   if (body === undefined) {
     return (
-      <div className="meridian-pane__body">
-        <Nothing
-          kind="empty"
-          placement="surface"
-          title="The timeline rows have not been built yet."
-          detail="The pane is reserved for them — nothing here failed, and nothing is missing from this session."
-        />
-      </div>
+      <Nothing
+        kind="empty"
+        placement="surface"
+        title="The timeline rows have not been built yet."
+        detail="The pane is reserved for them — nothing here failed, and nothing is missing from this session."
+      />
     );
   }
   if (props.sessionStore === undefined) {
     return (
-      <div className="meridian-pane__body">
-        <Nothing
-          kind="not-loaded"
-          placement="surface"
-          title="No session is open in this pane."
-          detail="Open a session and its log appears here."
-        />
-      </div>
+      <Nothing
+        kind="not-loaded"
+        placement="surface"
+        title="No session is open in this pane."
+        detail="Open a session and its log appears here."
+      />
     );
   }
   return (
-    <div className="meridian-pane__body">
-      <LedgerFeed
-        sessionStore={props.sessionStore}
-        renderTimelineRow={body}
-        // Named for what the feed is a log of, because the label is what a screen
-        // reader announces when it enters the box — and "Session timeline" over a
-        // channel-scoped window says the log is the session's when it is not.
-        feedLabel={props.channelId === undefined ? "Session timeline" : "Channel timeline"}
-        {...(props.channelId === undefined ? {} : { channelId: props.channelId })}
-      />
-    </div>
+    <LedgerFeed
+      sessionStore={props.sessionStore}
+      renderTimelineRow={body}
+      // Named for what the feed is a log of, because the label is what a screen
+      // reader announces when it enters the box — and "Session timeline" over a
+      // channel-scoped window says the log is the session's when it is not.
+      feedLabel={props.channelId === undefined ? "Session timeline" : "Channel timeline"}
+      {...(props.channelId === undefined ? {} : { channelId: props.channelId })}
+    />
   );
 }

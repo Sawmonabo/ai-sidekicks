@@ -17,6 +17,7 @@ import {
   BROWSER_MODE_OPTIMIZE_DEPS,
   WORKSPACE_SOURCE_CONDITIONS,
 } from "./browser-mode.js";
+import { BROWSER_VISIBLE_ENV_PREFIX } from "../test/console/screenshot/baseline-platform.js";
 import {
   SCREENSHOT_TIER_MATCH_OPTIONS,
   SCREENSHOT_TIER_PROVIDER_OPTIONS,
@@ -66,6 +67,15 @@ export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
     define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+    // Browser mode runs the tests inside a page, and a page sees only what Vite
+    // hands it: an unprefixed environment variable reaches `process.env` on the
+    // server and NOTHING on the client, so the tier's baseline guard
+    // (`test/console/screenshot/baseline-platform.ts`) could not read a variable
+    // named the way a developer types it. This second prefix is exactly as wide as
+    // the two variables that guard reads and no wider — Vite's own warning about
+    // `envPrefix` is that a loose one publishes the machine's environment into the
+    // bundle, and `SIDEKICKS_` alone would carry every daemon setting with it.
+    envPrefix: ["VITE_", BROWSER_VISIBLE_ENV_PREFIX],
     test: {
       name: "console-screenshot",
       include: ["test/console/screenshot/**/*.test.{ts,tsx}"],

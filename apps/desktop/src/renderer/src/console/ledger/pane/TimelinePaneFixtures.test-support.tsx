@@ -11,17 +11,11 @@
 // each suite states it beside its own cases.
 
 import { render } from "@testing-library/react";
-import { type ComponentType } from "react";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
-import {
-  TimelinePane,
-  type LedgerPaneHeaderProps,
-  type TimelinePaneContext,
-  type TimelinePaneProps,
-} from "./TimelinePane.js";
+import { TimelinePane, type TimelinePaneContext, type TimelinePaneProps } from "./TimelinePane.js";
 
 export const TIMELINE_PANE_SESSION_ID = "session-ledger";
 
@@ -57,35 +51,28 @@ export function paneContext(
 }
 
 /**
- * Bind the pane's chrome once, and render mounts of it under a bridge.
+ * Render one mount of the pane under a bridge, and answer the pane element.
  *
- * A FACTORY BECAUSE THE CHROME IS A COMPOSITION ARGUMENT. The header is `workspace/`'s
- * one implementation and this family may not import a sibling family — a rule that
- * governs this file too, because the layering cruise excludes `*.test.*` and a
- * `.test-support` module is not one. So each suite names the component it composes with
- * exactly once, the way the pane board names it exactly once, and every mount below
- * that goes through the returned function.
+ * NO CHROME ARGUMENT ANY MORE. The frame is `seats/ConsolePaneChrome`, which the pane
+ * imports downward through the seat door, so there is nothing left for a suite to
+ * compose it with and the factory that existed to bind one is gone.
  *
  * The quiet scenario rather than a richer one: what these suites need from a bridge is
  * the frozen clock the viewport's scheduler runs on, and every row they assert on comes
  * from a store they build, so a scenario that delivered its own would make the setup
  * the subject.
  */
-export function timelinePaneRenderer(
-  paneHeader: ComponentType<LedgerPaneHeaderProps>,
-): (props: Omit<TimelinePaneProps, "paneHeader">) => HTMLElement {
-  return (props) => {
-    const { container } = render(
-      <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
-        <TimelinePane {...props} paneHeader={paneHeader} />
-      </SidekicksBridgeProvider>,
-    );
-    const pane = container.querySelector(".meridian-pane");
-    if (!(pane instanceof HTMLElement)) {
-      throw new Error("TimelinePane rendered no pane element");
-    }
-    return pane;
-  };
+export function renderTimelinePane(props: TimelinePaneProps): HTMLElement {
+  const { container } = render(
+    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+      <TimelinePane {...props} />
+    </SidekicksBridgeProvider>,
+  );
+  const pane = container.querySelector(".meridian-pane");
+  if (!(pane instanceof HTMLElement)) {
+    throw new Error("TimelinePane rendered no pane element");
+  }
+  return pane;
 }
 
 /**

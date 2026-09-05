@@ -12,23 +12,14 @@ import { act, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "../core/index.js";
-import { earliestFutureDeadline, useDeadlineWake } from "./deadline-wake.js";
-
-/**
- * The real clock, instrumented — not a stand-in for it.
- *
- * A local fake would prove the test's own arithmetic; this subclasses the module the
- * console actually runs on and counts the one call the claims are about.
- */
-class CountingManualClock extends ManualClock {
-  public armCount = 0;
-
-  public override scheduleTimeout(callback: () => void, delayMs: number): ScheduledHandle {
-    this.armCount += 1;
-    return super.scheduleTimeout(callback, delayMs);
-  }
-}
+import { RealClock, type ConsoleClock, type ScheduledHandle } from "../core/index.js";
+import { earliestFutureDeadline } from "./deadline-wake.js";
+import {
+  CountingManualClock,
+  MOUNTED_AT,
+  WakingSurface,
+  renderWake,
+} from "./deadline-wake.test-support.js";
 
 /**
  * The real clock, instrumented the same way — and the reason this file drives two.
@@ -47,20 +38,10 @@ class RecordingRealClock extends RealClock {
   }
 }
 
-const MOUNTED_AT = 1_000;
-
 /** What `setTimeout` holds: anything above it fires on the next tick, not late. */
 const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 
 const SIXTY_DAYS_MILLISECONDS = 60 * 24 * 60 * 60 * 1_000;
-
-function WakingSurface(props: {
-  readonly clock: ConsoleClock;
-  readonly deadlines: readonly number[];
-}): React.JSX.Element {
-  const nowMilliseconds = useDeadlineWake(props.clock, props.deadlines);
-  return <output>{String(nowMilliseconds)}</output>;
-}
 
 /**
  * The shape this hook shipped: one reading, taken at mount and never re-taken.
@@ -80,31 +61,6 @@ function MountLifetimeInstantSurface(props: {
 
 /** What a surface with no deadline still ahead of its instant has to arm for. */
 const NOTHING_OUTSTANDING = "nothing outstanding";
-
-interface MountedWake {
-  readonly instant: () => number;
-  readonly setDeadlines: (next: readonly number[]) => void;
-  readonly setClock: (next: ConsoleClock) => void;
-}
-
-function renderWake(clock: ConsoleClock, deadlines: readonly number[]): MountedWake {
-  const { container, rerender } = render(<WakingSurface clock={clock} deadlines={deadlines} />);
-  const showing = { clock, deadlines };
-  const show = (): void => {
-    rerender(<WakingSurface clock={showing.clock} deadlines={showing.deadlines} />);
-  };
-  return {
-    instant: () => Number(container.textContent),
-    setDeadlines: (next) => {
-      showing.deadlines = next;
-      show();
-    },
-    setClock: (next) => {
-      showing.clock = next;
-      show();
-    },
-  };
-}
 
 describe("earliestFutureDeadline — what is armed for", () => {
   it("takes the soonest deadline still ahead", () => {

@@ -32,8 +32,6 @@ import "./cast-bar.css";
 import "./deck.css";
 import "./sidebar.css";
 
-export { PaneHeader } from "./deck/PaneHeader.js";
-
 // "+ New" is a control on the all-sessions list rather than inside a session, so it
 // leaves the family through the same door the workspace itself does. `families.ts`
 // names it and the frame's sessions descriptor mounts it: the frame sits BELOW this

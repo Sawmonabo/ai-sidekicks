@@ -121,13 +121,60 @@ describe("the measurement ledger — degrading rather than discarding", () => {
 });
 
 describe("the measurement ledger — the element ceiling", () => {
-  it("reports a total past the tallest box a browser will place", () => {
-    const ledger = new RowMeasurementLedger();
-    expect(ledger.isPastElementCeiling(LEDGER_MAX_ELEMENT_HEIGHT_PX + 1)).toBe(true);
+  /**
+   * A ledger holding `rowCount` rows of `heightPx` each, and the total that implies.
+   *
+   * The total is computed here from the same two numbers the ledger was told, rather
+   * than passed in as a third: the virtualizer's sum and this ledger's walk are the
+   * same arithmetic over the same measurements, and a case that fed them different
+   * figures would be measuring its own setup.
+   */
+  function ledgerOfRows(
+    rowCount: number,
+    heightPx: number,
+  ): {
+    readonly ledger: RowMeasurementLedger;
+    readonly rowKeys: readonly string[];
+    readonly totalHeightPx: number;
+  } {
+    const ledger = new RowMeasurementLedger({ measurementCap: rowCount });
+    const rowKeys = keys(rowCount);
+    for (const rowKey of rowKeys) {
+      ledger.acceptedHeight(rowKey, heightPx);
+    }
+    return { ledger, rowKeys, totalHeightPx: rowCount * heightPx };
+  }
+
+  it("counts the rows whose own top sits past the tallest box a browser places", () => {
+    // Four rows, each a third of the ceiling: the first three tops are inside it and
+    // the fourth is not, so exactly one row is unreachable however far a person
+    // scrolls. The total is past the ceiling, which is what makes the count worth
+    // taking at all.
+    const third = Math.ceil(LEDGER_MAX_ELEMENT_HEIGHT_PX / 3);
+    const { ledger, rowKeys, totalHeightPx } = ledgerOfRows(4, third);
+    expect(totalHeightPx).toBeGreaterThan(LEDGER_MAX_ELEMENT_HEIGHT_PX);
+    expect(ledger.rowsPastElementCeiling(rowKeys, totalHeightPx)).toBe(1);
   });
 
-  it("negative control: a total inside the ceiling is not reported", () => {
-    const ledger = new RowMeasurementLedger();
-    expect(ledger.isPastElementCeiling(LEDGER_MAX_ELEMENT_HEIGHT_PX)).toBe(false);
+  it("counts every row below the first one past it, not only that row", () => {
+    const third = Math.ceil(LEDGER_MAX_ELEMENT_HEIGHT_PX / 3);
+    const { ledger, rowKeys, totalHeightPx } = ledgerOfRows(9, third);
+    expect(ledger.rowsPastElementCeiling(rowKeys, totalHeightPx)).toBe(6);
+  });
+
+  it("negative control: a window inside the ceiling has lost nothing", () => {
+    const { ledger, rowKeys, totalHeightPx } = ledgerOfRows(4, LEDGER_ROW_HEIGHT_ESTIMATE_PX);
+    expect(totalHeightPx).toBeLessThan(LEDGER_MAX_ELEMENT_HEIGHT_PX);
+    expect(ledger.rowsPastElementCeiling(rowKeys, totalHeightPx)).toBe(0);
+  });
+
+  it("counts nothing for a row that merely straddles the ceiling", () => {
+    // The narrower claim, and the true one: a row whose top is inside the ceiling is
+    // drawn from that top down and is still reachable, so reporting it lost would
+    // name a loss nobody has. Two rows, the second starting just inside.
+    const justInside = Math.floor(LEDGER_MAX_ELEMENT_HEIGHT_PX / 2);
+    const { ledger, rowKeys, totalHeightPx } = ledgerOfRows(2, justInside + 2);
+    expect(totalHeightPx).toBeGreaterThan(LEDGER_MAX_ELEMENT_HEIGHT_PX);
+    expect(ledger.rowsPastElementCeiling(rowKeys, totalHeightPx)).toBe(0);
   });
 });

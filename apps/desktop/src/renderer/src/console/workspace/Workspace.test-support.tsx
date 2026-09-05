@@ -8,6 +8,7 @@
 // in this module asserts.
 
 import { render } from "@testing-library/react";
+import { useContext } from "react";
 import { expect } from "vitest";
 
 import {
@@ -22,11 +23,10 @@ import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { DECK_RESTORED_PANE_CAP } from "./workspace-bounds.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { FrameStore, SessionStore } from "../store/index.js";
-import { ConsolePaneRegistry } from "../seats/index.js";
+import { ConsolePaneRegistry, PaneControlsContext } from "../seats/index.js";
 import { DeckLayout } from "./deck/deck-layout.js";
 import { DECK_LAYOUT_RECORD_KEY } from "./layout-persistence.js";
 import { Workspace } from "./Workspace.js";
-import { usePaneControls } from "./deck/pane-controls.js";
 
 export const SESSION_ID = "session-workspace";
 
@@ -44,12 +44,16 @@ export const SCENARIO: ConsoleScenario = {
 /**
  * A body that says which kind it is, and offers the host's own detach control.
  *
- * The control is read off `usePaneControls`, which is the seam a real pane header
- * reads it from — so a case that presses it drives the workspace through the same
- * path a person does, rather than through a callback the test invented.
+ * The control is read off `PaneControlsContext`, which is the seam
+ * `seats/ConsolePaneChrome` reads it from — so a case that presses it drives the
+ * workspace through the same path a person does, rather than through a callback the
+ * test invented. Through the context itself rather than the `usePaneControls` hook
+ * beside it, because the hook is not a door line and a deep cross-family import is
+ * one this file is not exempt from: the layering cruise excludes `*.test.*` and a
+ * `.test-support` module is not one.
  */
 function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
-  const controls = usePaneControls();
+  const controls = useContext(PaneControlsContext);
   return (
     <p data-body={props.kind}>
       {props.kind} body

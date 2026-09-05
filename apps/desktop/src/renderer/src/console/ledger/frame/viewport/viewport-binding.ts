@@ -55,8 +55,8 @@ export interface LedgerViewportBinding {
    * geometry — putting it there would notify React on every scrolled pixel.
    */
   readonly visibleRange: LedgerVisibleRowRange | undefined;
-  /** True when the log has outgrown the tallest box a browser will place. */
-  readonly isPastElementCeiling: boolean;
+  /** Rows this window holds and cannot draw, because it ran out of height. */
+  readonly rowsPastElementCeiling: number;
   readonly attachSurface: (element: HTMLElement | null) => void;
   /** The size container the virtualizer writes the total height onto. */
   readonly attachSizer: (element: HTMLElement | null) => void;
@@ -252,7 +252,8 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
   const [leaseRevision, setLeaseRevision] = useState(0);
 
   const virtualItems = virtualizer.getVirtualItems();
-  const isPastElementCeiling = controller.measurements.isPastElementCeiling(
+  const rowsPastElementCeiling = controller.measurements.rowsPastElementCeiling(
+    snapshot.keyProjection.virtualKeys,
     virtualizer.getTotalSize(),
   );
 
@@ -264,7 +265,7 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     // size, and `null` is the honest "nothing measured yet" answer rather than a
     // range starting at zero.
     visibleRange: virtualizer.range ?? undefined,
-    isPastElementCeiling,
+    rowsPastElementCeiling,
     attachSurface: useCallback(
       (element: HTMLElement | null) => {
         surfaceElementRef.current = element;

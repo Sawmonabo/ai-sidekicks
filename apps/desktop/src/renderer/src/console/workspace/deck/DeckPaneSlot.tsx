@@ -15,9 +15,11 @@ import { Panel } from "react-resizable-panels";
 
 import { type ConsoleRefusal } from "../../core/index.js";
 import {
+  PaneControlsContext,
   isDetachablePaneKind,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
+  type PaneControls,
 } from "../../seats/index.js";
 import { DetachedPaneBody } from "./DetachedPaneBody.js";
 import { LostWindowNotice } from "./LostWindowNotice.js";
@@ -32,7 +34,6 @@ import {
   type DeckDragCoordinator,
   type PaneDropIndicator,
 } from "./pane-drag.js";
-import { PaneControlsContext, type PaneControls } from "./pane-controls.js";
 
 export interface DeckPaneSlotProps {
   readonly pane: DeckPane;

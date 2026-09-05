@@ -159,11 +159,11 @@
  * a tighter deck sets its chrome tighter, so the extra pane a person bought is
  * spent on content rather than on padding.
  */
-.meridian-deck[data-density="comfortable"] .meridian-pane__header {
+.meridian-deck[data-density="comfortable"] .meridian-pane__head {
   padding-block: var(--meridian-space-3);
 }
 
-.meridian-deck[data-density="compact"] .meridian-pane__header {
+.meridian-deck[data-density="compact"] .meridian-pane__head {
   padding-block: var(--meridian-space-1);
   font-size: var(--meridian-text-xs);
 }

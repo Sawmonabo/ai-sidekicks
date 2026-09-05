@@ -1,61 +1,112 @@
-// Which platform the screenshot tier's references belong to, and what every file
-// in the tier does on any other one.
+// Which hosts this tier compares references on, and why it is not a platform.
 //
-// Not a test file — no `include` glob reaches it. It is imported by the tier's
-// test files so all of them make the SAME decision about where a comparison is
-// meaningful, for the reason `Spec-023 §Console Test Tiers` gives the tier at all:
-// references are keyed by browser AND platform, font rasterisation differs enough
-// between platforms that one image cannot serve two, and committing a baseline per
-// platform would mean reviewing every visual change three times over images nobody
-// can regenerate locally. So the tier is pinned to ONE platform, and a per-file
-// copy of that pin would be N chances to pin a different one and then compare
-// results as if they were comparable.
+// WHAT THE PIN USED TO BE, AND WHY IT WAS WRONG. The tier skipped its baseline
+// comparisons unless `server.platform === "darwin"`, three lines above a doc block
+// that already said the authority is GitHub's `macos-15` runner and that "a
+// reference minted anywhere else is one no CI run will reproduce". Those two
+// sentences do not agree: a developer's Mac IS `darwin`, so the guard let the
+// comparison run against images that host cannot reproduce, and the tier was red on
+// every branch for reasons belonging to the machine rather than to the diff.
+// Measured here on 2026-09-05, one of the three references disagrees — six pixels
+// of `palette-open-light`, every one a corner of a `⌘` keycap — and the two frames
+// agree exactly; other hosts and other reference vintages have shown disagreements
+// three orders of magnitude larger. Which is the point: the size of the residue is
+// a property of the machine and the tree, so the pin cannot be "the residue is
+// small". A gate that is red for a reason the reader must know to discount is a
+// gate the reader stops reading.
 //
-// WHAT IS DELIBERATELY NOT HERE. The tier's fail-closed guard — the assertion that
-// the run did not resolve the `new` snapshot-update mode, and the probe that a
-// reference nobody committed FAILS rather than being written — is a claim about the
-// runner rather than about pixels, it holds on every platform, and it is asserted
-// once for the whole tier by `frame.test.tsx`. A second file asserting it would be
-// the same claim counted twice, and the second copy would be the one that goes
-// stale.
-
-import type { TestContext } from "vitest";
-import { server } from "vitest/browser";
+// SO THE PIN IS THE RUNNER. `SIDEKICKS_SCREENSHOT_BASELINE_RUNNER` is set by the two
+// workflow jobs that run on `macos-15` — `ci.yml`'s `console-screenshot-macos`, which
+// compares, and `console-screenshot-baselines.yml`'s `baselines`, which compares
+// under `verify` and mints under `regenerate` — and by nothing else. It is checked by
+// VALUE and not by presence, so a job that copies the setup onto another runner class
+// and forgets to remove the line skips rather than comparing against images that
+// runner did not render.
+//
+// AND A DEVELOPER CAN STILL ASK. `SIDEKICKS_SCREENSHOT_COMPARE=1` runs the
+// comparisons anywhere, deliberately and unconditionally: the host that most wants it
+// is the Mac whose local red this pin exists to stop being automatic, and a person who
+// types that variable has said they know what they are looking at. It is not
+// platform-conditioned either — a Linux host that opts in gets a wall of red against
+// darwin references, which is the correct answer to that request rather than a reason
+// to refuse it.
+//
+// WHY BOTH VARIABLES ARE READ OUT OF A RECORD rather than off `process.env` here:
+// this module is imported by a BROWSER-MODE tier, where there is no `process` at all
+// (measured — `typeof process` is `"undefined"` in the page). The environment reaches
+// the page as Vite's resolved env, which the tier reads off `server.config.env` and
+// hands in, and which carries only prefixed names — `vitest/console-projects.ts`
+// widens `envPrefix` by exactly the prefix these two share. Taking the record as an
+// argument is also what lets the cases below drive the real predicate over all three
+// states instead of the one the machine running them happens to be in.
 
 /**
- * The one platform whose references are committed, and the one CI compares on.
+ * The prefix both variables below share, and the reason they share it.
  *
- * Stated once and read by both the skip guard and the message it produces, so the
- * name a skipped run prints and the name the guard tests are the same string.
- *
- * `darwin` is not one machine either: the committed images are the ones GitHub's
- * `macos-15` runner renders, which is the authority `ci.yml`'s
- * `console-screenshot-macos` job compares against. A reference minted anywhere else
- * is one no CI run will reproduce; they are refreshed by dispatching
- * `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate` on
- * the branch that changes them and committing the artifact it uploads.
+ * Vite publishes into the page only what its `envPrefix` admits, so a variable
+ * named off this prefix is invisible to a browser-mode tier — every comparison
+ * would skip and the required check would go green having compared nothing.
+ * `vitest/console-projects.ts` IMPORTS this constant rather than repeating the
+ * string, so the widening and the names cannot drift apart, and the cases beside
+ * this module assert both names still begin with it.
  */
-const PINNED_BASELINE_PLATFORM = "darwin";
-
-/** Whether this host is one the committed references cannot serve. */
-export const isOffPinnedPlatform: boolean = server.platform !== PINNED_BASELINE_PLATFORM;
-
-/** Why the comparisons did not run here. One sentence, carried on both channels. */
-export const OFF_PLATFORM_REASON: string =
-  `[console-screenshot] baseline comparisons skipped: references are committed for ` +
-  `${PINNED_BASELINE_PLATFORM} and this host is ${server.platform}. This tier compares on ` +
-  `${PINNED_BASELINE_PLATFORM} only — capturing here would compare against nothing.`;
+export const BROWSER_VISIBLE_ENV_PREFIX = "SIDEKICKS_SCREENSHOT_";
 
 /**
- * Skip a baseline comparison that has no committed reference on this host.
+ * The runner whose renderings the committed references are.
  *
- * A skip with a NOTE rather than `describe.skipIf`, because the reason is the
- * whole point: a reader of a green run on Linux has to be able to see that the
- * comparisons did not run and why, and a suite that is simply absent from the
- * report reads exactly like one that passed. The note reaches structured
- * reporters; the terminal one prints a bare "skipped" count, which is why each
- * suite also says it once on the console channel that reporter forwards.
+ * Not a platform. `darwin` is a family of machines with different system UI faces,
+ * and the console's sans stack falls through to whichever one the host resolves.
  */
-export function skipOffPinnedPlatform(context: TestContext): void {
-  context.skip(isOffPinnedPlatform, OFF_PLATFORM_REASON);
+export const PINNED_BASELINE_RUNNER = "macos-15";
+
+/** Set by the two jobs that run on that runner, and deliberately nowhere else. */
+export const BASELINE_RUNNER_VARIABLE = "SIDEKICKS_SCREENSHOT_BASELINE_RUNNER";
+
+/** The developer's deliberate "compare anyway — I know what I am looking at". */
+export const LOCAL_COMPARISON_VARIABLE = "SIDEKICKS_SCREENSHOT_COMPARE";
+
+/**
+ * The one value that opts in.
+ *
+ * Exact rather than truthy: `SIDEKICKS_SCREENSHOT_COMPARE=0` and
+ * `SIDEKICKS_SCREENSHOT_COMPARE=false` are both things a person types meaning the
+ * opposite, and both are non-empty strings.
+ */
+export const LOCAL_COMPARISON_OPT_IN = "1";
+
+/** What this host says about itself, as the two variables report it. */
+export interface BaselineHost {
+  /** The runner the tier is running on, as its job declared it. */
+  readonly runner: string | undefined;
+  /** The local opt-in, verbatim. */
+  readonly localOptIn: string | undefined;
+}
+
+/** Reads the two variables out of an environment record, and nothing else from it. */
+export function readBaselineHost(env: Readonly<Record<string, string | undefined>>): BaselineHost {
+  return { runner: env[BASELINE_RUNNER_VARIABLE], localOptIn: env[LOCAL_COMPARISON_VARIABLE] };
+}
+
+/** Whether `host` is one whose comparisons mean something. */
+export function comparesBaselines(host: BaselineHost): boolean {
+  return host.runner === PINNED_BASELINE_RUNNER || host.localOptIn === LOCAL_COMPARISON_OPT_IN;
+}
+
+/**
+ * Why the comparisons did not run here. One sentence, carried on both channels.
+ *
+ * It names the opt-in, because the reader of a skipped run is usually the developer
+ * who wanted the comparison and a skip that does not say how to ask for it reads as
+ * a tier that was switched off.
+ */
+export function baselineSkipReason(host: BaselineHost): string {
+  const declared = host.runner === undefined ? "no runner" : `"${host.runner}"`;
+  return (
+    `[console-screenshot] baseline comparisons skipped: the committed references are what ` +
+    `GitHub's ${PINNED_BASELINE_RUNNER} runner renders, and this host declared ${declared}. ` +
+    `Run them anyway with ${LOCAL_COMPARISON_VARIABLE}=${LOCAL_COMPARISON_OPT_IN} — a local ` +
+    `Mac renders the console's fallback face rather than the runner's, so read a small ` +
+    `keycap-glyph diff as the host and anything larger as yours.`
+  );
 }

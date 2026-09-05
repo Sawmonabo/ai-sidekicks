@@ -1,4 +1,4 @@
-// The ledger's pane door — the body the deck mounts, and the chrome contract it asks for.
+// The ledger's pane door — the body the deck mounts.
 //
 // WHY THIS DIRECTORY IS INSIDE THE FAMILY. The pane body is ledger view code: the
 // feed, the window derivations, the find and replay acts, the row host. It lived under
@@ -23,4 +23,4 @@
 // by their siblings inside this directory, deeply, which is what an intra-family
 // import is for. A door is the list of names that LEAVE.
 
-export { TimelinePane, type LedgerPaneHeaderProps } from "./TimelinePane.js";
+export { TimelinePane } from "./TimelinePane.js";

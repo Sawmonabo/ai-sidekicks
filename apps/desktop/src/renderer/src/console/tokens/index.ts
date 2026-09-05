@@ -52,6 +52,7 @@ export {
 
 export { formatOklch } from "./color.js";
 
+export { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME } from "./glyphs.js";
 export type { GlyphName } from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";

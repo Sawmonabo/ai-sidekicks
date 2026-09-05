@@ -1,18 +1,24 @@
-// The timeline pane's chrome, and the hole in the middle of it.
+// What this pane hands its chrome, and the hole in the middle of it.
 //
-// Four claims, and each of them fails in a way a screenshot would not catch:
+// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `seats/ConsolePaneChrome`'s:
+// which controls it draws and when, that a pane is named by its whole trail, that an
+// unattributed pane borrows nobody's hue, and that a mismatched address is refused
+// rather than thrown are all claims about that component, asserted once beside it.
+// Repeating them here would be a second copy that agrees until one of them is edited,
+// and it would make this suite red for a defect in another family's module.
 //
-//   • The two host-supplied controls are ABSENT rather than disabled when nobody
-//     can perform their act. A disabled button reads as "not now"; the truth is
-//     that the deck has not shipped, and a control drawn either way looks the same
-//     in a capture.
+// What is left is this family's half, and each of these fails in a way a screenshot
+// would not catch:
+//
+//   • The pane mounts at its own KIND and hands over its own ADDRESS — the session
+//     the route names and the channel its context carries. A pane that passed the
+//     wrong kind draws the wrong glyph and the wrong name; one that dropped the
+//     entity draws a head that says the whole session over a channel's rows.
 //   • The row slot reads the real seat. A host that held its own idea of whether
 //     rows exist would be a second source of truth for a decision another plan
 //     owns, and would keep rendering the reserved state after `renderer/src/timeline/` landed.
 //   • The two absences are different absences. Both are quiet grey lines; only the
 //     copy tells "the console cannot draw this" from "your session is empty".
-//   • The focus ring falls back to the neutral boundary rather than to a
-//     participant's colour, which is the fail-closed arm of rule 2.
 //
 // What a CHANNEL ADDRESS narrows is `TimelinePaneScope.test.tsx`': the two suites
 // mount the same pane and ask different things of it, and the fixtures they share
@@ -34,13 +40,15 @@ import {
   TIMELINE_PANE_SESSION_ID,
   openSessionStoreWithLog,
   paneContext,
-  timelinePaneRenderer,
+  renderTimelinePane as renderPane,
 } from "./TimelinePaneFixtures.test-support.js";
-// The chrome this pane is composed with, named once here as the pane board names it
-// once: a suite may reach across families where the body it drives may not.
-import { PaneHeader } from "../../workspace/index.js";
 
-const renderPane = timelinePaneRenderer(PaneHeader);
+/** Every crumb the address contributed, without the pane's own name at the end. */
+function addressCrumbs(pane: HTMLElement): readonly (string | null)[] {
+  return [...pane.querySelectorAll(".meridian-pane__crumb:not(.meridian-pane__heading)")].map(
+    (crumb) => crumb.textContent,
+  );
+}
 
 /**
  * Every shape a governance id takes in this corpus.
@@ -57,68 +65,49 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("TimelinePane — the chrome", () => {
-  it("names itself, and carries the kind glyph beside the name", () => {
+describe("TimelinePane — what it hands the chrome", () => {
+  it("mounts at its own kind, so the head wears the timeline glyph and name", () => {
     const pane = renderPane({ context: paneContext() });
-    const heading = pane.querySelector(".meridian-pane__heading");
-    // `aria-labelledby` rather than a literal id: `useId` mints one per mount, and
-    // the claim is that the pane's accessible name IS this element's text.
-    expect(heading?.id).toBe(pane.getAttribute("aria-labelledby"));
-    expect(heading?.textContent).toBe("Timeline");
+    // The chrome derives both from the kind, so the kind is what this asserts: a
+    // pane that passed another kind's string would draw that kind's mark and title
+    // and nothing else on screen would say otherwise.
+    expect(pane.classList.contains("meridian-pane--timeline")).toBe(true);
+    expect(pane.querySelector(".meridian-pane__heading")?.textContent).toBe("Timeline");
     expect(pane.querySelector(".meridian-pane__kind svg")).not.toBeNull();
   });
 
-  it("renders the address as breadcrumb crumbs, wire-verbatim", () => {
+  it("hands over the session the route names and the channel it is scoped to", () => {
     const pane = renderPane({
       // A CHANNEL, because that is the only entity a timeline is a view of: the
       // address union scopes each pane kind to its own entity kinds, so a run
       // reference here does not compile — which is the guard, not an inconvenience.
       context: paneContext({ entity: { kind: "channel", id: "channel-01" } }),
     });
-    const crumbs = [...pane.querySelectorAll(".meridian-pane__crumb")].map(
-      (crumb) => crumb.textContent,
-    );
-    expect(crumbs).toStrictEqual([TIMELINE_PANE_SESSION_ID, "channel-01"]);
+    expect(addressCrumbs(pane)).toStrictEqual([TIMELINE_PANE_SESSION_ID, "channel-01"]);
   });
 
-  it("says the address names no session rather than rendering an empty strip", () => {
+  it("hands over no session at all rather than one the route does not name", () => {
     // Reachable: the auxiliary timeline window opens on a bare route and the frame
     // resolves its subject through the context picker before this pane sees one.
+    // What the chrome then draws is its own business; what this pane owes is the
+    // honest absence rather than a placeholder it invented.
     const pane = renderPane({ context: paneContext({}, null) });
-    expect(pane.querySelectorAll(".meridian-pane__crumb")).toHaveLength(0);
-    expect(pane.querySelector(".meridian-pane__crumb-absent")?.textContent).toBe("No session");
+    expect(addressCrumbs(pane)).toStrictEqual([]);
   });
 
-  it("offers no close and no open-in-window when no host can perform either", () => {
-    const pane = renderPane({ context: paneContext() });
-    expect(pane.querySelectorAll(".meridian-pane__control")).toHaveLength(0);
-  });
-
-  it("negative control: a host that supplies them gets both, each labelled", () => {
-    // Without this, the case above would pass over a pane that rendered no controls
-    // under any circumstances — which is a different and permanently broken pane.
-    const pane = renderPane({
-      context: paneContext(),
-      onClose: () => undefined,
-      onOpenInWindow: () => undefined,
-    });
-    const labels = [...pane.querySelectorAll(".meridian-pane__control")].map((control) =>
-      control.getAttribute("aria-label"),
-    );
-    expect(labels).toStrictEqual(["Open this timeline in its own window", "Close this pane"]);
-  });
-
-  it("takes the neutral boundary when the pane is attributed to nobody", () => {
-    // Fail-closed, rule 2: an unattributed pane takes the control boundary rather
-    // than step zero of the wheel, which belongs to somebody.
-    const pane = renderPane({ context: paneContext() });
-    expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(tokenReference("edge-strong"));
-  });
-
-  it("negative control: an attributed pane takes the actor's hue", () => {
+  it("hands over the hue the deck attributed the pane to, untouched", () => {
     const actorHue = tokenReference(participantHueTokenName(3));
     const pane = renderPane({ context: paneContext({ focusHue: actorHue }) });
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(actorHue);
+  });
+
+  it("negative control: an unattributed pane has no hue written on it", () => {
+    // Fail-closed, rule 2, and the half this pane owns: it passes `undefined`
+    // through rather than defaulting to a token of its own. The neutral boundary
+    // the ring then takes is `seats/pane-chrome.css`' fallback, which is one answer
+    // rather than a default written here and a fallback written there.
+    const pane = renderPane({ context: paneContext() });
+    expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe("");
   });
 });
 
