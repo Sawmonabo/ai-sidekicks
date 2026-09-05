@@ -46,7 +46,7 @@
 // this tier exists to pin. Building that reading here would pin a state the fixture
 // could stop producing without either tier noticing.
 
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 
 import { renderSettled } from "./console-harness.js";
 
@@ -150,6 +150,16 @@ function paneBinding(reached: {
 }
 
 /** A bridge and a store both drawn from the repos scenario, which is the family's own. */
+/**
+ * How far a mount moves the scenario clock to let a scheduled read land.
+ *
+ * Comfortably past `REFRESH_MAX_WAIT_MS`, and stated as one number rather than tuned
+ * per subject: the claim is "every deadline a mounted surface armed has passed", and a
+ * value that only just cleared the current one would turn a scheduler retune into a
+ * flake in an unrelated tier.
+ */
+const SCENARIO_SETTLE_ADVANCE_MS = 1000;
+
 function scenarioCollaborators(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
   return {
     bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
@@ -342,6 +352,20 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   );
   const region = requireLabelledRegion(container, "Artifact");
   await waitForWithin(region, ".meridian-artifacts");
+  // THE PANE'S FIRST READ IS ON THE WINDOW'S CLOCK, so under a scenario bridge it is
+  // on FROZEN time and nothing here was moving it. The reader's refresh scheduler is
+  // trailing-edge — `start()` asks for a read and the read happens a debounce interval
+  // later — and `consoleClockFor` hands a pane under the fixture the scenario engine's
+  // clock, which is the rule `Spec-023 §The fixture bridge` states and the whole point
+  // of the seam. So the interval never elapsed, the list never resolved, and the
+  // refusal this subject is named for never arrived. Advancing past the scheduler's
+  // absolute deadline is what a scenario beat would have done anyway; a bare
+  // `runToCompletion()` would not, because it plays the script's beats rather than
+  // moving time past a deadline no beat is scheduled at.
+  await act(async () => {
+    bridge.scenarioEngine?.advance(SCENARIO_SETTLE_ADVANCE_MS);
+    await Promise.resolve();
+  });
   await waitForWithin(region, ".meridian-refusal--card");
   return { element: region, bridge };
 }
