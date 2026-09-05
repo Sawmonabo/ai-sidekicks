@@ -11,11 +11,23 @@
 //
 // WHAT A FAMILY DOES
 //
-// A family exports `register<Family>(registry: ConsoleSurfaceRegistry): void` from
-// its own `index.ts`, claims its slots inside that function, and adds the import
-// plus one call DIRECTLY BENEATH its own reserved line. The reserved line stays, so
-// the seat order is legible whether or not a seat is filled. That is the whole
-// contract.
+// A family exports a `register<Family>` entry point, claims its slots inside that
+// function, and adds the import plus one call DIRECTLY BENEATH its own reserved line.
+// The reserved line stays, so the seat order is legible whether or not a seat is
+// filled.
+//
+// IT TAKES THE BOARDS IT CLAIMS INTO, AND NO OTHERS. The signature is the family's
+// own: `registerCollaborationFamily(registry: ConsoleSurfaceRegistry)` takes the
+// surface registry because surface slots are all it claims here. A family that also
+// claimed a pane kind or an event fold would take those boards too — the three this
+// function is handed are what a composition OWNS, not what every seat receives.
+//
+// ITS HOME IS ITS OWN `index.ts`, OR A COMPOSITION ROOT MODULE. A family that is one
+// directory registers from that directory's door. A family that is several — the
+// collaboration family is four subtrees, and a view family may name no other — cannot,
+// so its registrar lives in a module at the console root and that module's name joins
+// the enumeration in `.dependency-cruiser.mjs`'s `COMPOSITION_ROOT_FILES`. Those are
+// the two admissible homes; there is no third.
 //
 // WHAT A FAMILY DOES NOT DO
 //
@@ -95,9 +107,10 @@ export function registerConsoleFamilies(
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
   registerRunLifecycleProjectors(projectorRegistry);
-  // Each seat below receives all three boards. A family claims a surface slot, a
-  // pane kind, and the event kinds whose fold it owns — through its own
-  // `register<Family>` entry point, never by editing a shared spine.
+  // Each seat below is filled by one `register<Family>` call taking the boards that
+  // family claims into — never by editing a shared spine. A PANE body is not among
+  // them: pane kinds are claimed on the deck's own seat board, so a family's pane
+  // registrar reaches the deck through `panes/index.ts` above and not from here.
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
