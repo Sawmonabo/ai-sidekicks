@@ -20,12 +20,12 @@ import {
   MOUNT_B,
   SESSION_ID,
   eventOfKind,
-  initialisedStore,
   mountIdAt,
   mountReadFor,
   workspaceListWith,
 } from "./mounts.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
+import { initialisedStore } from "../../../store/session-store-registry.test-support.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 
 /**

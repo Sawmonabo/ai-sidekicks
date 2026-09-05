@@ -29,7 +29,7 @@
 //     state whose subject can change under them — a session for the grant, a parent
 //     run for the linkage — and that rule is what each module's header is about.
 
-import { useAgentConsoleModels } from "../../agents/index.js";
+import { useAgentConsoleModels } from "../run-console/agent-console-model.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing, WireFigure } from "../../primitives/index.js";

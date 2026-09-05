@@ -15,7 +15,8 @@ import { describe, expect, it } from "vitest";
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { createChildRunLinkage, createDriverCatalog } from "./agent-console-reads.js";
-import { eventOfKind, initialisedStore, unscriptedBridge } from "./run-console.test-support.js";
+import { initialisedStore } from "../../store/session-store-registry.test-support.js";
+import { eventOfKind, unscriptedBridge } from "./run-console.test-support.js";
 
 const PARENT_RUN_ID = "run-7";
 

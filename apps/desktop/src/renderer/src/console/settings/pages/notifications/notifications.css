@@ -1,7 +1,7 @@
 /* The notifications page's own styles: the stored preference set, under its own names.
  *
  * A page-local sheet rather than an addition to the settings family's, on the
- * `panes/agent-console/agent-console.css` precedent: these rules serve one page and a
+ * `agents/agent-console/agent-console.css` precedent: these rules serve one page and a
  * family-wide sheet is the file every page lane edits at once.
  *
  * ONE RULE HERE REACHES INTO A SHARED ROW, AND ONLY ONE. A stored member's label is a

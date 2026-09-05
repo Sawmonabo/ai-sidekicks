@@ -26,19 +26,6 @@ export const SHELF_SUBJECT = "your invitations";
  */
 export type InviteShelfReader = () => Promise<readonly InvitesListOutcome[]>;
 
-/**
- * One fan-out's answer, and the reader it was asked of.
- *
- * The reader is the identity because it IS the session set: the surface above builds
- * it from the sessions this console holds, so a set that gained or lost one is a
- * different function asking a different question. Compared by reference and not
- * reduced to a count — two sets of the same size are not the same set.
- */
-export interface StampedShelfOutcomes {
-  readonly reader: InviteShelfReader;
-  readonly outcomes: readonly InvitesListOutcome[];
-}
-
 /** The invitations worth showing, and what the sessions that were asked answered. */
 export interface ShelfReading {
   readonly pending: readonly ServedInvite[];

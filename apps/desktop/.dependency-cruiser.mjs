@@ -41,13 +41,43 @@ const SEATS = `${CONSOLE}/seats/`;
 const PALETTE = `${CONSOLE}/palette/`;
 const FRAME = `${CONSOLE}/frame/`;
 
-// The composition sites. `families.ts` and `panes/index.ts` are the two files whose whole
-// job is to name every view family, so they are the one place a downward-only ladder
-// cannot apply: they sit above every family by construction. They are named here so the
-// view-family rule below can subtract them rather than report the console's own entry
-// wiring as a violation.
-const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
-const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
+// The composition sites: the root modules enumerated below, plus `panes/index.ts`.
+// Their whole job is to name every view family, so they are the one place a
+// downward-only ladder cannot apply — they sit above every family by construction. They
+// are named here so the view-family rule below can subtract them rather than report the
+// console's own entry wiring as a violation.
+//
+// ENUMERATED RATHER THAN `[^/]+$`, which is what this pattern was and what made the
+// exemption one `git mv` wide. A family that `console-view-family-isolation` stopped
+// from importing a sibling could import both families from a NEW file at the console
+// root and the gate stayed green, because the wildcard admitted any root file as a
+// composition site — subtracted from the view-family set and from both endpoints of the
+// isolation rule at once. The enumeration makes a fourth root module a gate failure that
+// names itself.
+//
+// A FAMILY THAT LANDS ITS OWN ROOT REGISTRAR ADDS ONE ALTERNATIVE HERE and rewrites no
+// prose anywhere: this comment, `apps/desktop/AGENTS.md`, and the isolation rule below
+// all say "the enumerated root modules" rather than a count, so the six concurrent
+// family branches each produce a one-line, self-naming diff at this list.
+//
+// `console-env.d.ts` is the console root's fourth resident and is deliberately absent.
+// It declares ambient types: no module imports it and it imports none, so it is an
+// endpoint of no edge any rule here judges, and `no-orphans` exempts declaration files
+// by extension already. Co-located tests are absent for the stronger reason that
+// `options.exclude` removes them from the graph before any rule runs.
+const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|collaboration-family|sidekicks-settings-page)\\.ts$`;
+// `panes/` is FLAT, and the pattern says so: the board, the chrome the deck draws
+// around a pane, and their tests — one segment, no subdirectory. It used to read
+// `${CONSOLE}/panes/`, which subtracted a whole subtree from the view-family set, so a
+// pane BODY parked at `panes/<kind>/` was neither a view family nor a valid source for
+// the isolation rule and could import every family in the console. Narrowed, a module
+// under `panes/<kind>/` is an ordinary view family again — and the rule below refuses
+// the subdirectory outright, so the escape hatch is closed at the shape rather than
+// per edge.
+const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
+
+/** Anything one level deeper than the flat board — the shape the rule below forbids. */
+const PANES_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
  * Every barrel under `console/` — a family door and a sub-module door alike.
@@ -59,6 +89,18 @@ const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
  * expression. Bailing out."
  */
 const CONSOLE_BARRELS = [`${CONSOLE}/index\\.ts$`, `${CONSOLE}/.+/index\\.ts$`];
+
+/**
+ * The doors a renderer subtree OUTSIDE the console may reach, and no others.
+ *
+ * Narrower than {@link CONSOLE_BARRELS} by one alternative, and the difference is the
+ * claim: a sub-module door (`bridge/growth-values/index.ts`) publishes its directory
+ * to the family around it, and a consumer outside the console has no standing to know
+ * that directory exists. What it may name is the family door — the same door an
+ * intra-console family crosses to — so the set is `console/index.ts` and
+ * `console/<family>/index.ts`, both spellings, and nothing deeper.
+ */
+const CONSOLE_FAMILY_DOORS = [`${CONSOLE}/index\\.ts$`, `${CONSOLE}/[^/]+/index\\.ts$`];
 
 /** Every layer family, low to high — the closed set the DAG orders. */
 const LAYER_FAMILIES = [CORE, TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
@@ -191,6 +233,22 @@ export default {
           "sidekick-definitions|mcp-governance)/",
       },
     },
+    {
+      name: "renderer-reaches-console-through-doors",
+      comment:
+        "A renderer subtree OUTSIDE the console deep-imported a console module. Every layering " +
+        "rule here is `from`-scoped to `console/`, so an importer that lives beside the console " +
+        "rather than inside it matches none of them — which is how a Tier-1 subtree came to hold " +
+        "`console/store/subject-scoped-state.js` while three gates reported clean and the door " +
+        "the symbol is published from could have been deleted without one of them noticing. " +
+        "Import the family door instead (`console/store/index.js` publishes the subject-scoped " +
+        "holder for exactly this reason). A symbol no door publishes is a symbol the console has " +
+        "not offered, and reaching around the door inverts that decision rather than respecting " +
+        "it.",
+      severity: "error",
+      from: { path: "^src/renderer/src/(?!console/)" },
+      to: { path: `${CONSOLE}/`, pathNot: CONSOLE_FAMILY_DOORS },
+    },
     upwardEdge("core", CORE, ABOVE_CORE),
     upwardEdge("tokens", TOKENS, ABOVE_TOKENS),
     upwardEdge("routing", ROUTING, ABOVE_ROUTING),
@@ -232,6 +290,42 @@ export default {
       // the ones `$1` removes.
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
+      name: "console-panes-board-is-flat",
+      comment:
+        "A module landed in a `console/panes/<kind>/` subdirectory. `panes/` is the deck's seat " +
+        "board and the chrome around a pane, and nothing else: a pane BODY renders one family's " +
+        "vocabulary, so it lives in that family (`agents/agent-console/` for the agent console) " +
+        "and reaches this directory as a registrar through that family's door. A body parked " +
+        "here makes `panes/` a seventh view family with a seat board inside it, and turns every " +
+        "reach from the body into its own family into a cross-family import. Stated on the " +
+        "SOURCE side so the error names the module that should not exist; the other direction " +
+        "needs no rule, because a body that imports nothing renders nothing.",
+      severity: "error",
+      from: { path: PANES_SUBDIRECTORY },
+      to: {},
+    },
+    {
+      name: "console-root-is-composition-only",
+      comment:
+        "A module at the console ROOT that is not one of the enumerated composition sites " +
+        "imported a console module. The root is where a composition lives because a composition " +
+        "is the one thing that may name more than one view family — so a file that lands there " +
+        "and is not on the list is a family importing a sibling with the isolation rule stepped " +
+        "around, which is one `git mv` of work. `console-view-family-isolation` cannot see it: " +
+        "its `from` captures the owning DIRECTORY (`console/<family>/`) so it can subtract that " +
+        "family from its own target set, and a root file has no directory to capture. This rule " +
+        "is that complement, so the console root is closed from the SOURCE side and the " +
+        "enumeration closes it from the target side. A family whose registrar belongs at the " +
+        "root adds one alternative to `COMPOSITION_ROOT_FILES` and names itself doing it.",
+      severity: "error",
+      // Declaration files are subtracted for the reason `no-orphans` subtracts them: they
+      // declare ambient types rather than participate in the graph. `console-env.d.ts`
+      // imports nothing today, so it is an edge source in no cruise — the entry states the
+      // disposition rather than waiting for one that does.
+      from: { path: `${CONSOLE}/[^/]+$`, pathNot: [COMPOSITION_ROOT_FILES, "\\.d\\.ts$"] },
+      to: { path: `${CONSOLE}/` },
     },
     {
       name: "console-no-barrel-chain",

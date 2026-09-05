@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { PeerInvocation, type AgentConsoleModels } from "../../agents/index.js";
+import { PeerInvocation } from "../PeerInvocation.js";
+import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { useSubjectScopedState, type SessionStore } from "../../store/index.js";
 import { AgentMutationControl, useAgentMutationControl } from "./mutation-control.js";

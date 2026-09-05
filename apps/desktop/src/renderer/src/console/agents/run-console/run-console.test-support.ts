@@ -23,13 +23,6 @@ export function unscriptedBridge(id: string): ConsoleBridge {
   return fixtureBridgeWithGrowth(unscriptedScenario(id), {});
 }
 
-/** An initialised store, so an appended event is admitted rather than buffered. */
-export function initialisedStore(sessionId: string): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-  return sessionStore;
-}
-
 /** One admitted event of the given kind, numbered so the cursor moves. */
 export function eventOfKind(
   sessionStore: SessionStore,

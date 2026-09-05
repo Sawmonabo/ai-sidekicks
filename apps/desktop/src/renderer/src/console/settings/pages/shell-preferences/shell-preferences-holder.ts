@@ -125,7 +125,7 @@ export const consoleShellPreferences: ShellPreferenceStoreHolder = new ShellPref
  * disposed store while the holder held one that was never committed. Every other
  * bridge-bound holder in this console already acquires from an effect and renders
  * the absence until it settles — `agents/run-console/agent-console-model.ts` and
- * `panes/agent-console/session-projection.ts` are both that shape — and this is the
+ * `agents/agent-console/session-projection.ts` are both that shape — and this is the
  * same shape rather than a second lifecycle beside them.
  *
  * THE EFFECT STILL HAS NO TEARDOWN. This store's lifetime is the WINDOW's and a

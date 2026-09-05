@@ -3,7 +3,8 @@
 // T5.3 MixedVersionStatus; T5.4 is the manual smoke and adds no files).
 // Mirrors the minimal `session-bootstrap/index.ts` idiom (re-export via a
 // `.js` specifier) and additionally re-exports each view's consumer-facing
-// props type — plus the `RuntimeNodeAttachDraft` request-draft alias — which
+// props type — plus the `RuntimeNodeAttachDraft` request-draft alias, taken
+// from `attach-request.ts`, which declares it — which
 // the prop-less `SessionBootstrap` has no need for: these are the prop
 // contracts a future Plan-023 router/deep-link needs to render the views. The
 // `.js` extension matches the shipped barrel; TypeScript's extension
@@ -21,7 +22,9 @@
 // views because a gate called them unused.
 
 /** @public Plan-003 T5.2; mounted by a later Plan-023 console surface. */
-export { AttachFlow, type AttachFlowProps, type RuntimeNodeAttachDraft } from "./AttachFlow.js";
+export { AttachFlow, type AttachFlowProps } from "./AttachFlow.js";
+/** @public Plan-003 T5.2; the request draft, declared beside the request it composes. */
+export { type RuntimeNodeAttachDraft } from "./attach-request.js";
 /** @public Plan-003 T5.2; mounted by a later Plan-023 console surface. */
 export { CapabilityDeclaration, type CapabilityDeclarationProps } from "./CapabilityDeclaration.js";
 /** @public Plan-003 T5.3; mounted by a later Plan-023 console surface. */

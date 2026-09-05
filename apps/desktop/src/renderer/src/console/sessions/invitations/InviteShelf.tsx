@@ -16,16 +16,20 @@
 // a session opening or closing hands this component a new one, which starts a fresh
 // fan-out over the sessions the console holds now. The outcomes from the previous
 // set keep describing the previous set until that fan-out settles — and if the
-// replacement read stalls, indefinitely — so an unstamped shelf shows a definitive
-// empty inbox, or another session set's invitations, for a question this console has
-// already replaced. So the outcomes are held WITH the reader they were asked of and
-// rendered only while it is still the reader: the first render under a new one is
-// the `not-loaded` absence, which is the honest reading of a set nothing has been
-// read for yet. `collaboration/invites/SentInvites.tsx` stamps its own answer with the
-// subject it was asked of for the same reason, and reads the stamp at RENDER time
-// rather than trusting the effect that installed it — an effect's state lands one
-// committed frame after the render that renamed its inputs, and that frame is the
-// one this has to get right.
+// replacement read stalls, indefinitely — so an unheld shelf shows a definitive empty
+// inbox, or another session set's invitations, for a question this console has
+// already replaced. So the outcomes are held PER READER, and the first render under a
+// new one reads that reader's own seed: the `not-loaded` absence, which is the honest
+// reading of a set nothing has been read for yet.
+//
+// THROUGH THE FAMILY'S ONE HOLDER, on `collaboration/invites/SentInvites.tsx`'s
+// terms. This component held the answer in a `useState` beside a copy of the reader
+// and compared the two in the render body, which is the subject-scoped holder written
+// again by hand — and written slightly wrong: identity comparison is EQUAL on the
+// first and third visit of a set that was replaced and then restored, so the round
+// trip renders the first visit's answer as the third's, and the `isAttached` flag
+// that was carrying the rest of the correctness is a per-effect-run fact rather than
+// a property of the addressing. `store/subject-scoped-state.ts` owns both, once.
 //
 // WHAT IT OFFERS, AND WHAT IT CANNOT. **Not now** is a local hide: `InviteState`
 // on the wire is exactly `pending | accepted | revoked | expired` and its contract
@@ -36,12 +40,13 @@
 // console has no read that hands it a token, so an accept control here would be a
 // button with nothing to pass.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
+import type { InvitesListOutcome } from "../../bridge/index.js";
 import type { ConsoleClock } from "../../core/index.js";
 import { InlineRefusal, formatCount } from "../../primitives/index.js";
 import type { UiStateStore } from "../../persistence/index.js";
-import { useDeadlineWake } from "../../store/index.js";
+import { useDeadlineWake, useSubjectScopedState } from "../../store/index.js";
 import { useHiddenInvites } from "./hidden-invites.js";
 import {
   expiryDeadlinesOf,
@@ -49,7 +54,6 @@ import {
   readShelf,
   stillWaitingAt,
   type InviteShelfReader,
-  type StampedShelfOutcomes,
 } from "./invite-shelf-reading.js";
 import { ShelfBody } from "./ShelfBody.js";
 import { InviteRow } from "./InviteRow.js";
@@ -74,7 +78,12 @@ export interface InviteShelfProps {
 
 export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
   const { read } = props;
-  const [stamped, setStamped] = useState<StampedShelfOutcomes | undefined>(undefined);
+  // The READER is the subject, because it is the session set: a set that gained or
+  // lost a session is a different function asking a different question, and the key
+  // is `undefined` because there is nothing finer to name inside one.
+  const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
+    readonly InvitesListOutcome[] | undefined
+  >(read, undefined, () => undefined);
   const hidden = useHiddenInvites(props.uiStateStore);
   const { pruneAgainst } = hidden;
 
@@ -82,18 +91,14 @@ export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
     // One read per reader. No interval and no scheduler: the wire behind this seam
     // refuses today, so a repeat would re-ask a question with no answer, and the
     // console's one refresh chokepoint is where a real re-read will go.
-    let isAttached = true;
-    void read().then((result) => {
-      if (isAttached) {
-        setStamped({ reader: read, outcomes: result });
-      }
-    });
-    return () => {
-      isAttached = false;
-    };
-  }, [read]);
-
-  const outcomes = stamped !== undefined && stamped.reader === read ? stamped.outcomes : undefined;
+    //
+    // The publisher was captured during this render, so it names the reader that
+    // asked. A fan-out settling after the shelf has been re-addressed publishes
+    // nowhere — including on the round trip back to a set this shelf has already
+    // been on, which is the case an `isAttached` flag and an identity comparison
+    // both read as current.
+    void read().then(publishOutcomes);
+  }, [read, publishOutcomes]);
 
   const reading = useMemo(
     () => (outcomes === undefined ? undefined : readShelf(outcomes)),

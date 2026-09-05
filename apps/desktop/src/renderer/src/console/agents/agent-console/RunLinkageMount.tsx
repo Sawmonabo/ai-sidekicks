@@ -1,4 +1,5 @@
-import { RunLinkage, type AgentConsoleModels } from "../../agents/index.js";
+import { RunLinkage } from "../run-console/RunLinkage.js";
+import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
 import type { SessionStore } from "../../store/index.js";
 import { SubscribedRunLinkage } from "./SubscribedRunLinkage.js";
 

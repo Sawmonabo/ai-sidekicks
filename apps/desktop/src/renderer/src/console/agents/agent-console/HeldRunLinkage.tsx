@@ -1,4 +1,5 @@
-import { RunLinkage, type ChildRunLinkageRead } from "../../agents/index.js";
+import { RunLinkage } from "../run-console/RunLinkage.js";
+import { type ChildRunLinkageRead } from "../run-console/agent-console-reads.js";
 import { usePushDrivenRead } from "../../seats/index.js";
 
 /** The arm where a read is held, so the hook that reads it may be called. */

@@ -15,7 +15,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ChildRunLinkageRead } from "../../agents/index.js";
+import type { ChildRunLinkageRead } from "../run-console/agent-console-reads.js";
 import { RunLinkageMount } from "./RunLinkageMount.js";
 import { linkageReadFor, type AcquiredLinkage } from "./ResolvedRunLinkage.js";
 

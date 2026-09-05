@@ -1,7 +1,7 @@
 /* The cost receipt's own styles: one figure, and the three tables that account for it.
  *
  * A page-local sheet rather than an addition to the settings family's, on the
- * `panes/agent-console/agent-console.css` precedent: these rules serve one page and
+ * `agents/agent-console/agent-console.css` precedent: these rules serve one page and
  * a family-wide sheet is the file every page lane edits at once.
  *
  * Every colour is a Meridian custom property and every space a step on the scale.
