@@ -218,7 +218,7 @@ describe("the context ledger, through the adapter", () => {
     //
     // The other arm — a teardown of a terminal that really is holding one, which
     // releases and does not reclaim — needs a renderer that activates, so it lives
-    // in `webgl-context-loss.test.tsx` where one does.
+    // in `renderer-pool.context-loss.test.ts` where one does.
     expect(pool.releasedTerminalIds).toStrictEqual([]);
     expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
   });
