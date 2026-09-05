@@ -28,7 +28,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isWireErrorEnvelope, type WireErrorEnvelope } from "../../../../shared/wire-errors.js";
+import { readWireErrorEnvelope, type WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { callOperation, fixturePort } from "./fixture-growth-port.test-support.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
@@ -66,8 +66,9 @@ async function refusalFrom(read: Promise<unknown>): Promise<WireErrorEnvelope> {
   try {
     await read;
   } catch (rejection) {
-    if (isWireErrorEnvelope(rejection)) {
-      return rejection;
+    const envelope = readWireErrorEnvelope(rejection);
+    if (envelope !== undefined) {
+      return envelope;
     }
     throw rejection;
   }
