@@ -114,6 +114,23 @@
   outline-offset: 1px;
 }
 
+/* The three bands inside the chrome's body box: the attribution strip, the toolbar,
+   and the list-and-rows pair that takes the rest of the height. The chrome's `__body`
+   carries no padding and no direction of its own, so both are stated here. */
+.meridian-diff-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+/* The arm with no diff in it. It is prose rather than a grid, so it takes the inset
+   the bands above deliberately do not. */
+.meridian-diff-pane__absence {
+  padding: var(--meridian-space-4);
+}
+
 .meridian-diff-pane__content {
   display: flex;
   flex: 1 1 auto;

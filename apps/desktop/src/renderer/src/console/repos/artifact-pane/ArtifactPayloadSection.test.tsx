@@ -37,6 +37,7 @@ import {
   renderPane,
   type ArtifactPaneContext,
 } from "./artifact-pane-mount.test-support.js";
+import { paneSubjectCrumb } from "../pane-chrome.test-support.js";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -322,9 +323,7 @@ describe("artifact pane — the reader is stamped to its subject", () => {
     renderReAddressed(context, rerender);
     await readThrough();
 
-    expect(container.querySelector(".meridian-repos-pane__subject")?.textContent).toBe(
-      OTHER_ARTIFACT_ENTITY.id,
-    );
+    expect(paneSubjectCrumb(container)).toBe(OTHER_ARTIFACT_ENTITY.id);
     // `not-checked` renders no payload section at all, which is the honest absence
     // for a subject nobody has asked about — not an empty preview.
     expect(container.querySelector(".meridian-artifact-payload")).toBeNull();

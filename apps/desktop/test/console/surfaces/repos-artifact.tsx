@@ -71,7 +71,7 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
       })}
     </LiveAnnouncerProvider>,
   );
-  const region = requireLabelledRegion(container, "Artifact");
+  const region = requireLabelledRegion(container, /Artifact$/u);
   await waitForWithin(region, ".meridian-artifacts");
   // THE PANE'S FIRST READ IS ON THE WINDOW'S CLOCK, so under a scenario bridge it is
   // on FROZEN time and nothing here was moving it. The reader's refresh scheduler is
@@ -145,7 +145,7 @@ async function mountArtifactPanePayload(
       })}
     </LiveAnnouncerProvider>,
   );
-  const region = requireLabelledRegion(container, "Artifact");
+  const region = requireLabelledRegion(container, /Artifact$/u);
   await act(async () => {
     bridge.scenarioEngine?.advance(SCENARIO_SETTLE_ADVANCE_MS);
     await Promise.resolve();

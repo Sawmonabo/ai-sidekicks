@@ -1,6 +1,6 @@
 /*
- * What the repos family owns at its root: the pane chrome, and the rules two of its
- * sub-modules share.
+ * What the repos family owns at its root: the artifact cards, and the rules two of
+ * its sub-modules share.
  *
  * ONE DOOR FOR SEVEN SUB-MODULES. `repos/` is one family (`repos/index.ts` says why),
  * and this is the sheet that family's door imports first — followed by the five
@@ -9,14 +9,19 @@
  * nowhere else, which is what the stylesheet-edges gate asserts.
  *
  * WHAT STAYED HERE, AND WHY IT IS NOT AN EIGHTH SUB-MODULE SHEET. Two kinds of rule:
- *   • the chrome BOTH panes are read inside (`.meridian-repos-pane*`) and the cards
- *     `repos/artifact-pane/` draws alone, since a sheet in `repos/` may not claim rules for
- *     a directory it does not own;
+ *   • the cards `repos/artifact-pane/` draws alone, since a sheet in `repos/` may not
+ *     claim rules for a directory it does not own;
  *   • rules whose selector list spans two sub-modules — a pair grid shared by a
  *     root card and an artifact row, a focus ring shared by the gate and the restore
  *     disclosure. Splitting one of those would duplicate a declaration into two files
  *     and make the pair drift; keeping it here keeps it stated once, in the sheet both
  *     halves are loaded beside.
+ *
+ * WHAT LEFT, AND WHERE IT WENT. Both panes used to be read inside a frame this sheet
+ * drew (`.meridian-repos-pane*`): a section, a header, a heading, a subject line, a
+ * control, and a body box. `seats/pane-chrome.css` draws that frame for every pane
+ * kind in the console now, so those six rules are gone rather than kept beside it —
+ * two sheets styling one head is the drift a single chrome exists to remove.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every colour is read back out of a custom property — the rule
@@ -24,64 +29,10 @@
  *
  * `Spec-023 §Console Design (Meridian)`:
  *   • rule 4 — mono is the signature that a figure came from the wire, which is
- *              what the pane subject is: an entity id, rendered verbatim.
+ *              what an artifact id and a media type are: rendered verbatim.
  *   • rule 7 — density: the chrome is quiet so the content is not.
  *   • rule 8 — the absences render themselves; nothing here restyles them.
  */
-
-/* ------------------------------------------------------------- pane chrome */
-
-.meridian-repos-pane {
-  display: flex;
-  flex-direction: column;
-  block-size: 100%;
-  min-block-size: 0;
-  background: var(--meridian-surface);
-  color: var(--meridian-text);
-}
-
-.meridian-repos-pane__header {
-  display: flex;
-  align-items: baseline;
-  gap: var(--meridian-space-3);
-  padding: var(--meridian-space-3) var(--meridian-space-4);
-  border-block-end: 1px solid var(--meridian-edge);
-}
-
-.meridian-repos-pane__heading {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-sm);
-  font-weight: 600;
-  color: var(--meridian-text);
-}
-
-/*
- * The entity the pane is a view of. Mono because it is a wire value, and truncated
- * at the measure rather than shortened in the string: the full id stays in the
- * element's title, so a reader can always recover it and two ids that differ only
- * in their tail never render identically without a way to tell them apart.
- */
-.meridian-repos-pane__subject {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-repos-pane__body {
-  flex: 1 1 auto;
-  min-block-size: 0;
-  overflow: auto;
-  padding: var(--meridian-space-4);
-}
 
 /* The pair is a grid subgrid row: label in the first column, value in the second. */
 .meridian-root-card__pair,
@@ -119,19 +70,6 @@
 
 /* --- Attachments and the artifact pane's cards -------------------------------
    Appended, never reordered: this sheet is one family's and six lanes grow it. */
-
-/* The pane's own re-read control. Quiet chrome — one primary action per surface
-   is the panel's fetch, so this sits in the header at text weight. */
-.meridian-repos-pane__control {
-  margin-inline-start: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--meridian-accent-text);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-xs);
-  cursor: pointer;
-}
 
 /* The ledger seat's wrapper. It owns the card's outer spacing so the attachment
    surface and the timeline row can space it differently without two cards. */

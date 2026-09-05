@@ -44,8 +44,17 @@ export const SCENARIO_SETTLE_ADVANCE_MS = 1000;
  * changed. `getByRole` rather than a selector for the same reason: it resolves the
  * name the way the accessibility tree does, through `aria-labelledby` and the
  * heading it points at.
+ *
+ * A PATTERN AS WELL AS A STRING, because a pane's name is now its whole address
+ * trail: `seats/ConsolePaneChrome` names a pane "session-1 artifact-01 Artifact" so
+ * two panes of one kind are told apart by what they are views of. A caller that wants
+ * to say "the artifact pane, whichever subject it is over" anchors a pattern at the
+ * kind; a caller naming a surface whose name is fixed still passes the string.
  */
-export function requireLabelledRegion(container: HTMLElement, accessibleName: string): HTMLElement {
+export function requireLabelledRegion(
+  container: HTMLElement,
+  accessibleName: string | RegExp,
+): HTMLElement {
   return within(container).getByRole("region", { name: accessibleName });
 }
 

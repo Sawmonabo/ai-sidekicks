@@ -35,6 +35,7 @@ import {
   paneTree,
   renderPane,
 } from "./artifact-pane-mount.test-support.js";
+import { paneSubjectCrumb, paneTrailCrumbs } from "../pane-chrome.test-support.js";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -44,27 +45,40 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("artifact pane — chrome", () => {
-  it("names itself as a region", () => {
-    const { getByRole } = renderPane(contextFor(ARTIFACT_ENTITY));
-    expect(getByRole("region", { name: "Artifact" })).toBeDefined();
+describe("artifact pane — the chrome it wears", () => {
+  it("is named by the whole trail, not by the word Artifact", () => {
+    // The claim the binding exists for. A body drawing its own header named every
+    // artifact pane in a deck "Artifact"; the chrome names it by where it is, so two
+    // panes of one kind are told apart by the subjects they are views of. The name
+    // ENDS in the kind and is longer than it, which a pre-binding pane fails on both
+    // counts.
+    const { getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, { sessionId: "session-artifact-chrome" }),
+    );
+    const region = getByRole("region", { name: /Artifact$/u });
+    const accessibleName = region.getAttribute("aria-labelledby");
+    expect(accessibleName).not.toBeNull();
+    expect(region.textContent).toContain(ARTIFACT_ENTITY.id);
+    expect(() => getByRole("region", { name: "Artifact" })).toThrow();
   });
 
-  it("renders the subject verbatim, with the full string recoverable", () => {
-    const { container } = renderPane(contextFor(ARTIFACT_ENTITY));
-    const subject = container.querySelector(".meridian-repos-pane__subject");
-    expect(subject?.textContent).toBe(ARTIFACT_ENTITY.id);
-    expect(subject?.getAttribute("title")).toBe(ARTIFACT_ENTITY.id);
+  it("puts the session and the subject in the trail, in that order", () => {
+    const { container } = renderPane(
+      contextFor(ARTIFACT_ENTITY, { sessionId: "session-artifact-chrome" }),
+    );
+    expect(paneTrailCrumbs(container)).toStrictEqual([
+      "session-artifact-chrome",
+      ARTIFACT_ENTITY.id,
+      "Artifact",
+    ]);
   });
 
-  it("negative control: the subject is read from the address, not fixed", () => {
-    // Without this, the case above would pass over a chrome that rendered a constant.
+  it("negative control: the subject crumb is read from the address, not fixed", () => {
+    // Without this, the cases above would pass over a chrome that rendered a constant.
     // An artifact address always carries its artifact — the arm has no shape in which
     // it is absent — so the honest control is a second subject rather than none.
     const { container } = renderPane(contextFor(OTHER_ARTIFACT_ENTITY));
-    const subject = container.querySelector(".meridian-repos-pane__subject");
-    expect(subject?.textContent).toBe(OTHER_ARTIFACT_ENTITY.id);
-    expect(subject?.getAttribute("title")).toBe(OTHER_ARTIFACT_ENTITY.id);
+    expect(paneSubjectCrumb(container)).toBe(OTHER_ARTIFACT_ENTITY.id);
   });
 
   it("offers one re-read control, keyboard-reachable and named", () => {
@@ -73,7 +87,7 @@ describe("artifact pane — chrome", () => {
   });
 
   it("names the reply members a payload fetch is waiting on", () => {
-    // The read serves a manifest. Saying so beside the control is what keeps a
+    // The read serves a manifest. Saying so at the top of the body is what keeps a
     // participant from waiting for a download that no registered reply carries.
     const { container } = renderPane(contextFor(ARTIFACT_ENTITY));
     const note = container.querySelector(".meridian-artifact-pane__read-scope-note");

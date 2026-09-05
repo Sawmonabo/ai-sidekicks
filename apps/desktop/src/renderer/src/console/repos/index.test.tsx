@@ -32,15 +32,20 @@ import { registerRepos, registerReposPanes } from "./index.js";
 const REPOS_PANE_KINDS = ["diff", "artifact"] as const;
 
 /**
- * The accessible name each pane's own region carries — its kind's noun.
+ * How each pane's own region is named — the trail's last crumb, which is its kind.
+ *
+ * A PATTERN AND NOT THE WHOLE NAME, because `seats/ConsolePaneChrome` names a pane by
+ * its address trail: the region below is called "session-… workspace-… Diff", and the
+ * kind is the crumb the trail is on. Anchoring at the end is what makes this a claim
+ * about the body reaching the chrome rather than a transcription of the fixture's ids.
  *
  * Named rather than positional because a pane may MOUNT further regions inside itself:
  * the artifact pane composes the artifacts panel, which is a labelled region of its
  * own, so a bare role query finds two and fails for a reason unrelated to the claim.
  */
-const PANE_REGION_NAME_BY_KIND: Readonly<Record<(typeof REPOS_PANE_KINDS)[number], string>> = {
-  diff: "Diff",
-  artifact: "Artifact",
+const PANE_REGION_NAME_BY_KIND: Readonly<Record<(typeof REPOS_PANE_KINDS)[number], RegExp>> = {
+  diff: /Diff$/u,
+  artifact: /Artifact$/u,
 };
 
 /**
@@ -228,9 +233,13 @@ describe("repos family — the deck's pane kinds", () => {
           {descriptor?.render(paneContext(kind))}
         </LiveAnnouncerProvider>,
       );
-      expect(
-        within(container).getByRole("region", { name: PANE_REGION_NAME_BY_KIND[kind] }),
-      ).toBeDefined();
+      const region = within(container).getByRole("region", {
+        name: PANE_REGION_NAME_BY_KIND[kind],
+      });
+      // And the trail really is a trail: the subject the descriptor was handed is in
+      // the name, so a body that stopped passing its address to the chrome fails here
+      // rather than passing on the kind noun alone.
+      expect(region.textContent).toContain(PANE_SUBJECT_BY_KIND[kind].id);
     }
   });
 });

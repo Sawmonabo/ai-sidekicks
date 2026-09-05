@@ -1,6 +1,12 @@
 // The artifact pane: what this session produced, whether its bytes are reachable, and
 // what a participant may attempt on one.
 //
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// the kind glyph, the breadcrumb, the control strip, and the body box for every pane
+// kind in the console; what this file returns is the BODY that goes inside it, plus the
+// two acts it hands the chrome's `actions` slot. The section, its tab stop, its
+// accessible name, and the actor's hue all arrive from there.
+//
 // THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
 // Design (Meridian)` puts a surface's composition — what it renders, offers, refuses,
 // and folds — in the console's code. The pane is the DECK's view of the artifact
@@ -51,7 +57,7 @@
 // are the artifact plane's rules and a participant who has just been refused for an
 // unsupported type needs somewhere to read what IS supported.
 
-import { useCallback, useId } from "react";
+import { useCallback } from "react";
 
 import {
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
@@ -60,14 +66,13 @@ import {
 import {
   Chip,
   DerivedFigure,
-  Glyph,
   WireFigure,
   formatByteQuantity,
   useAnnounce,
 } from "../../primitives/index.js";
 import type { ArtifactManifestRow } from "../artifacts/artifact-model.js";
 import { ArtifactsPanel } from "../artifacts/ArtifactsPanel.js";
-import { type ConsolePaneContext } from "../../seats/index.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import {
   MANIFEST_RE_READ_ANNOUNCEMENT,
   PAYLOAD_ANNOUNCEMENT_BY_STATUS,
@@ -80,13 +85,14 @@ import { useArtifactPaneReading } from "./use-artifact-reading.js";
 /**
  * This body's own address arm, narrowed off the union the deck hands every pane.
  *
- * `ConsolePaneContext` is a discriminated union over the pane kind, so a body typed on
- * the whole union can read an entity of a kind it cannot render — a run reference, say,
- * looked up in a partition that has never held one. Narrowing here is what makes
- * `entity` required and its kind `artifact`, by the compiler rather than by this file
- * remembering.
+ * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
+ * here: one registry holds every kind and a body does not, so the narrowing is stated
+ * once where the chrome states it. It is what makes `entity` required and its kind
+ * `artifact`, by the compiler rather than by this file remembering — a body typed on
+ * the whole union could read a run reference looked up in a partition that has never
+ * held one.
  */
-type ArtifactPaneContext = Extract<ConsolePaneContext, { readonly kind: "artifact" }>;
+type ArtifactPaneContext = PaneContextOf<"artifact">;
 
 export interface ArtifactPaneProps {
   readonly context: ArtifactPaneContext;
@@ -94,7 +100,6 @@ export interface ArtifactPaneProps {
 
 export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   const { context } = props;
-  const headingId = useId();
   const announce = useAnnounce();
   const { reading, refresh, readManifest, fetchPayload, deleteArtifact } = useArtifactPaneReading(
     context.bridge,
@@ -172,61 +177,60 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   }, [announceOutcome, context.entity.id, fetchPayload]);
 
   return (
-    <section
-      className="meridian-repos-pane meridian-repos-pane--artifact"
-      aria-labelledby={headingId}
-      data-pane-id={context.paneId}
-    >
-      <header className="meridian-repos-pane__header">
-        <h2 className="meridian-repos-pane__heading" id={headingId}>
-          <Glyph name="artifact" />
-          Artifact
-        </h2>
-        {/*
-          Unconditional: an artifact address carries its artifact, so the arm this body
-          is narrowed to has no shape in which the subject is absent.
-        */}
-        <span
-          className="meridian-repos-pane__subject"
-          title={context.entity.id}
-          aria-label={`Subject: ${context.entity.kind} ${context.entity.id}`}
-        >
-          {context.entity.id}
+    // THE FRAME IS THE CHROME'S AND THE BODY IS THIS FILE'S. `seats/ConsolePaneChrome`
+    // draws the section, its tab stop, the kind glyph, the breadcrumb that names the
+    // pane, the control strip, and the body box — so none of them is written here and
+    // the pane is named by its whole address trail rather than by the word "Artifact".
+    // The two acts ride the chrome's `actions` slot, which is where a kind's own
+    // controls sit; the host's close and detach arrive after them, from the deck's
+    // context, and neither renders where no deck provides one.
+    <ConsolePaneChrome
+      kind="artifact"
+      sessionId={context.sessionStore?.sessionId}
+      // Unconditional: an artifact address carries its artifact, so the arm this body
+      // is narrowed to has no shape in which the subject is absent. The trail renders
+      // the id, which is what the pane's own subject line used to say.
+      entity={context.entity}
+      // Straight through, including the absent arm: an unattributed pane sets no hue
+      // and the chrome's neutral fallback applies.
+      focusHue={context.focusHue}
+      actions={
+        // Their own group inside the strip, because a control with a neighbour has to
+        // be at least a 24 px target and separated from it — the sizing the family's
+        // own sheet gives them, since every other pane draws icon controls at the
+        // chrome's size and would gain the padding for nothing.
+        <span className="meridian-artifact-pane__acts">
+          <button type="button" className="meridian-artifact-pane__act" onClick={refresh}>
+            Read again
+          </button>
+          <button
+            type="button"
+            className="meridian-artifact-pane__act"
+            onClick={fetchSubjectPayload}
+            // HELD WHILE A FETCH IS OUTSTANDING, and the arm the reading is on is
+            // what holds it — there is no second flag to keep in step. A payload is
+            // bounded only by the ingest cap, so a second press before the first
+            // settles is a second download of the same bytes; the reader refuses it
+            // in words, and this is what keeps a participant from meeting that
+            // refusal by pressing a control the pane was offering.
+            disabled={reading.payload.status === "fetching"}
+          >
+            Fetch payload
+          </button>
         </span>
-        <div className="meridian-artifact-pane__read-scope">
-          {/*
-            The two controls share a row of their own. Side by side they are two
-            adjacent pointer targets, so the row is what gives them the size and the
-            separation the accessibility tier requires of any target that has a
-            neighbour — which a single control never had.
-          */}
-          <div className="meridian-artifact-pane__read-actions">
-            <button type="button" className="meridian-repos-pane__control" onClick={refresh}>
-              Read again
-            </button>
-            <button
-              type="button"
-              className="meridian-repos-pane__control"
-              onClick={fetchSubjectPayload}
-              // HELD WHILE A FETCH IS OUTSTANDING, and the arm the reading is on is
-              // what holds it — there is no second flag to keep in step. A payload is
-              // bounded only by the ingest cap, so a second press before the first
-              // settles is a second download of the same bytes; the reader refuses it
-              // in words, and this is what keeps a participant from meeting that
-              // refusal by pressing a control the pane was offering.
-              disabled={reading.payload.status === "fetching"}
-            >
-              Fetch payload
-            </button>
-          </div>
-          <p className="meridian-artifact-pane__read-scope-note">
-            Reading serves the manifest. Fetching asks the same read for this artifact&rsquo;s{" "}
-            <WireFigure value="payload" /> as well, which a payload large enough is answered with a{" "}
-            <WireFigure value="payloadHandle" /> instead.
-          </p>
-        </div>
-      </header>
-      <div className="meridian-repos-pane__body">
+      }
+    >
+      <div className="meridian-artifact-pane">
+        {/*
+          What the two acts ask for, said at the top of the body rather than under
+          them. The chrome's control strip is one line of controls and takes no prose,
+          so the sentence sits where the reply it describes will land.
+        */}
+        <p className="meridian-artifact-pane__read-scope-note">
+          Reading serves the manifest. Fetching asks the same read for this artifact&rsquo;s{" "}
+          <WireFigure value="payload" /> as well, which a payload large enough is answered with a{" "}
+          <WireFigure value="payloadHandle" /> instead.
+        </p>
         <ArtifactPayloadSection payload={reading.payload} />
         <ArtifactsPanel
           state={reading.artifacts}
@@ -243,7 +247,7 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
         />
         {renderIngestBounds(reading.allowlist)}
       </div>
-    </section>
+    </ConsolePaneChrome>
   );
 }
 /**
