@@ -21,9 +21,7 @@
 // text colour and looks like a token the grammar failed to classify. The enumeration and
 // the stylesheet are the two halves, and this is where they are held together.
 
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -31,9 +29,12 @@ import {
   CODE_TOKEN_FAMILIES,
   codeTokenVariableName,
 } from "../../../src/renderer/src/console/ledger/cards/markdown/meridian-code-theme.js";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src", "console");
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
 
 /**
  * The one module allowed to hand React a markup string.
@@ -41,7 +42,10 @@ const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "sr
  * A path rather than a naming convention, for `wire-figure-chokepoint.test.ts`' reason:
  * moving the chokepoint should be an edit a reviewer sees in the diff.
  */
-const MARKUP_CHOKEPOINT_MODULE = join("ledger", "cards", "markdown", "MathBlock.tsx");
+const MARKUP_CHOKEPOINT_MODULE = "console/ledger/cards/markdown/MathBlock.tsx";
+
+/** The module a second markup site would most plausibly appear in. */
+const MARKDOWN_MAPPER_MODULE = "console/ledger/cards/markdown/MarkdownNodes.tsx";
 
 /**
  * The React prop that hands a string to the parser, in the only position that reaches
@@ -68,27 +72,16 @@ function usesMarkupEscapeHatch(source: string): boolean {
   return source.includes(MARKUP_ESCAPE_HATCH);
 }
 
-/** Every console source module, test files and declarations excluded. */
-function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" }).filter(
-    (entry) =>
-      (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-      !entry.endsWith(".test.ts") &&
-      !entry.endsWith(".test.tsx") &&
-      !entry.endsWith(".d.ts"),
-  );
-}
-
 describe("the markup escape hatch", () => {
   it("is reached by exactly one console module", () => {
-    const modules = consoleSourceModules();
+    const modules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
     // A tripwire that matched nothing would pass silently, so the sweep asserts it read
     // a tree rather than an empty directory.
     expect(modules.length).toBeGreaterThan(20);
 
-    const reachingModules = modules.filter((entry) =>
-      usesMarkupEscapeHatch(readFileSync(join(CONSOLE_DIRECTORY, entry), "utf8")),
-    );
+    const reachingModules = modules
+      .filter((module) => usesMarkupEscapeHatch(readConsoleSourceModule(module)))
+      .map((module) => module.displayPath);
     expect(reachingModules).toStrictEqual([MARKUP_CHOKEPOINT_MODULE]);
   });
 
@@ -106,16 +99,19 @@ describe("the markup escape hatch", () => {
   it("is the only markup-string prop the markdown mapper could have used", () => {
     // The mapper is the module a second site would most plausibly appear in, because it
     // is the one holding an `html` node's own text. It renders that text as text.
-    const mapper = readFileSync(
-      join(CONSOLE_DIRECTORY, "ledger", "cards", "markdown", "MarkdownNodes.tsx"),
-      "utf8",
+    const mapper = moduleNamed(
+      consoleSourceModules({ roots: [CONSOLE_DIRECTORY] }),
+      MARKDOWN_MAPPER_MODULE,
+      "the markdown node mapper",
     );
-    expect(usesMarkupEscapeHatch(mapper)).toBe(false);
+    expect(usesMarkupEscapeHatch(readConsoleSourceModule(mapper))).toBe(false);
   });
 });
 
 describe("the code token palette", () => {
-  const stylesheet = readFileSync(join(CONSOLE_DIRECTORY, "ledger", "ledger.css"), "utf8");
+  // A stylesheet, not a source module, so it is read by path off the walk's own
+  // root rather than through a walk that answers `.ts` and `.tsx` only.
+  const stylesheet = readFileSync(`${CONSOLE_DIRECTORY}/ledger/ledger.css`, "utf8");
 
   it("declares a colour for every family the theme emits", () => {
     const undeclared = CODE_TOKEN_FAMILIES.filter(

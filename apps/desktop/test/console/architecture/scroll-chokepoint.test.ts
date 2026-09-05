@@ -25,14 +25,14 @@
 // drives the chokepoint has to write the very token the rule is about, and a scan
 // that forbade it would forbid testing the chokepoint at all.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src", "console");
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
 
 /**
  * The one module allowed to write a scroll offset.
@@ -40,7 +40,7 @@ const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "sr
  * A path rather than a naming convention, so moving the chokepoint is an edit a
  * reviewer sees rather than a rename that quietly re-points the rule.
  */
-const CHOKEPOINT_MODULE = join("ledger", "frame", "scroll-chokepoint.ts");
+const CHOKEPOINT_MODULE = "console/ledger/frame/scroll-chokepoint.ts";
 
 /** Every way a module can be seen assigning a scroll offset. */
 const SCROLL_WRITE_FORMS: readonly string[] = [
@@ -74,56 +74,47 @@ function unnamedScrollApiSignatures(source: string): readonly string[] {
   return UNNAMED_SCROLL_APIS.filter((form) => source.includes(form));
 }
 
-function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx") &&
-        !entry.endsWith(".d.ts"),
-    )
-    .sort();
-}
-
-function readConsoleSource(module: string): string {
-  return readFileSync(join(CONSOLE_DIRECTORY, module), "utf8");
-}
-
 describe("the scroll chokepoint — one writer, tree-wide", () => {
-  const modules = consoleSourceModules();
+  const modules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
 
   it("finds a console tree to scan, and the chokepoint inside it", () => {
     // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
-    expect(modules).toContain(CHOKEPOINT_MODULE);
+    expect(modules.map((module) => module.displayPath)).toContain(CHOKEPOINT_MODULE);
   });
 
   it("no other module assigns a scroll offset", () => {
     const offenders = modules
-      .filter((module) => module !== CHOKEPOINT_MODULE)
-      .map((module) => ({ module, signatures: scrollWriteSignatures(readConsoleSource(module)) }))
+      .filter((module) => module.displayPath !== CHOKEPOINT_MODULE)
+      .map((module) => ({
+        module: module.displayPath,
+        signatures: scrollWriteSignatures(readConsoleSourceModule(module)),
+      }))
       .filter((entry) => entry.signatures.length > 0)
-      .map((entry) => `${relative(".", entry.module)}: ${entry.signatures.join(", ")}`);
+      .map((entry) => `${entry.module}: ${entry.signatures.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
   it("no module anywhere reaches for an unnamed scroll call", () => {
     const offenders = modules
       .map((module) => ({
-        module,
-        signatures: unnamedScrollApiSignatures(readConsoleSource(module)),
+        module: module.displayPath,
+        signatures: unnamedScrollApiSignatures(readConsoleSourceModule(module)),
       }))
       .filter((entry) => entry.signatures.length > 0)
-      .map((entry) => `${relative(".", entry.module)}: ${entry.signatures.join(", ")}`);
+      .map((entry) => `${entry.module}: ${entry.signatures.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
   it("negative control: the chokepoint itself trips the write signature", () => {
     // The checker reads real files and the needles match real code. Without this, a
     // typo in a needle would make both clean results above meaningless.
-    expect(scrollWriteSignatures(readConsoleSource(CHOKEPOINT_MODULE))).toContain("scrollTop =");
+    expect(
+      scrollWriteSignatures(
+        readConsoleSourceModule(moduleNamed(modules, CHOKEPOINT_MODULE, "the scroll chokepoint")),
+      ),
+    ).toContain("scrollTop =");
   });
 
   it("negative control: a virtualizer callback that wrote the offset would be caught", () => {
