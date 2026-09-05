@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { FixtureBridgeError } from "./fixture-bridge.js";
+import { FixtureBridgeError } from "./fixture-refusal.js";
 import {
   DELAYED_CALL,
   DELAYED_RESULT,
