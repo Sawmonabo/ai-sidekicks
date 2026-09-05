@@ -20,7 +20,19 @@
 // second home the invariant forbids and the only shape a cap audit misses.
 //
 // Test files are excluded: a case that plants a would-be offender has to write one.
+//
+// A NAME IS A DECLARATION QUESTION, SO THE PARSER ANSWERS IT. This scanned for
+// `/^export const ([A-Z0-9_]+(?:_CAP|_THRESHOLD|_LIMIT))\b/gmu`, and four shapes each
+// shipped a second bounds home past it with the gate green: `const X = 12;` followed
+// by `export { X };`, which never writes `export const`; `export const { X } = BOUNDS;`,
+// where the binding is a pattern and not an identifier; a declaration Prettier wraps
+// after `export const`, where the name is on the next line; and any bound spelled
+// with a suffix the alternation did not carry. The first three are declaration-boundary
+// misreadings of exactly the class `test/console/typescript-source.ts` exists to end,
+// and the fourth is why the vocabulary is now one exported tuple in
+// `bound-suffixes.ts` rather than an alternation inside a pattern inside this file.
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -29,6 +41,8 @@ import {
   moduleNamed,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
+import { parseSourceText } from "../typescript-source.js";
+import { BOUND_NAME_SUFFIXES } from "./bound-suffixes.js";
 
 /**
  * The one module allowed to declare a bound.
@@ -39,24 +53,77 @@ import {
 const BOUNDS_MODULE = ["console", "core", "constants.ts"].join("/");
 
 /**
- * How this tree spells a bound in an identifier.
+ * Whether one binding name is a bound, by the vocabulary and the casing together.
  *
- * Anchored at the end of the name: `PERSISTENCE_RECORD_BYTE_CAP` is a bound and
- * `DRIVER_LIST_CAPABILITIES_METHOD` is a method string that happens to contain the
- * letters. `CAP` also has to end the name rather than merely appear in it, which is
- * what keeps `CAPABILITY` out of the result.
+ * The casing half is what separates a constant from a local: a `capThreshold` inside
+ * a function body ends in the letters and is not a declaration of a bound.
  */
-const BOUND_DECLARATION = /^export const ([A-Z0-9_]+(?:_CAP|_THRESHOLD|_LIMIT))\b/gmu;
+function isBoundName(name: string): boolean {
+  return (
+    /^[A-Z][A-Z0-9_]*$/u.test(name) && BOUND_NAME_SUFFIXES.some((suffix) => name.endsWith(suffix))
+  );
+}
+
+/** Every name one variable declaration binds, destructuring patterns included. */
+function boundNamesOf(name: ts.BindingName, into: string[]): void {
+  if (ts.isIdentifier(name)) {
+    into.push(name.text);
+    return;
+  }
+  for (const element of name.elements) {
+    if (ts.isBindingElement(element)) {
+      boundNamesOf(element.name, into);
+    }
+  }
+}
 
 /**
- * Every bound `source` declares, or `[]`.
+ * Every bound `source` declares AND exports, in declaration order, or `[]`.
  *
  * A pure function over text rather than a loop inside a test, so the negative
  * controls below can drive it with a module body whose verdict is known and prove
  * the checker bites without perturbing a real module.
+ *
+ * TWO WAYS TO EXPORT ONE DECLARATION, and both are the same claim about the module:
+ * the `export` modifier on the statement, and a later local `export { … }` clause
+ * naming it. A clause carrying a module specifier is skipped — that republishes
+ * another module's name and declares nothing — and a name a clause exports that this
+ * module does not DECLARE as a variable is skipped with it, because an
+ * `import`-then-`export` pair is a re-export of the home's own bound rather than a
+ * second home for it.
  */
-function declaredBoundNames(source: string): readonly string[] {
-  return [...source.matchAll(BOUND_DECLARATION)].map((match) => match[1] ?? "");
+function declaredBoundNames(fileName: string, source: string): readonly string[] {
+  const parsed = parseSourceText(fileName, source);
+  const exportedByModifier = new Map<string, boolean>();
+  const exportedByClause = new Set<string>();
+  for (const statement of parsed.statements) {
+    if (ts.isVariableStatement(statement)) {
+      const exported = (ts.getModifiers(statement) ?? []).some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+      );
+      const names: string[] = [];
+      for (const declaration of statement.declarationList.declarations) {
+        boundNamesOf(declaration.name, names);
+      }
+      for (const name of names) {
+        exportedByModifier.set(name, (exportedByModifier.get(name) ?? false) || exported);
+      }
+      continue;
+    }
+    if (!ts.isExportDeclaration(statement) || statement.moduleSpecifier !== undefined) {
+      continue;
+    }
+    const { exportClause } = statement;
+    if (exportClause !== undefined && ts.isNamedExports(exportClause)) {
+      for (const element of exportClause.elements) {
+        exportedByClause.add(element.propertyName?.text ?? element.name.text);
+      }
+    }
+  }
+  return [...exportedByModifier]
+    .filter(([name, exported]) => exported || exportedByClause.has(name))
+    .map(([name]) => name)
+    .filter(isBoundName);
 }
 
 describe("console bounds — every cap is declared in one module", () => {
@@ -77,7 +144,7 @@ describe("console bounds — every cap is declared in one module", () => {
       .filter((module) => module.displayPath !== BOUNDS_MODULE)
       .map((module) => ({
         module,
-        names: declaredBoundNames(readConsoleSourceModule(module)),
+        names: declaredBoundNames(module.displayPath, readConsoleSourceModule(module)),
       }))
       .filter((entry) => entry.names.length > 0)
       .map((entry) => `${entry.module.displayPath}: ${entry.names.join(", ")}`);
@@ -88,9 +155,8 @@ describe("console bounds — every cap is declared in one module", () => {
     // The checker reads real files and the pattern matches real declarations.
     // Without this, a typo in the pattern would make the clean result above mean
     // nothing at all.
-    const declared = declaredBoundNames(
-      readConsoleSourceModule(moduleNamed(modules, BOUNDS_MODULE, "the console's bounds module")),
-    );
+    const home = moduleNamed(modules, BOUNDS_MODULE, "the console's bounds module");
+    const declared = declaredBoundNames(home.displayPath, readConsoleSourceModule(home));
     expect(declared.length).toBeGreaterThan(10);
     expect(declared).toContain("PALETTE_RESULT_CAP");
   });
@@ -103,7 +169,33 @@ describe("console bounds — every cap is declared in one module", () => {
       "/** Child-run refusal rows rendered before the group scrolls. */",
       "export const CHILD_RUN_REFUSAL_VISIBLE_CAP = 12;",
     ].join("\n");
-    expect(declaredBoundNames(familyBoundsModule)).toStrictEqual(["CHILD_RUN_REFUSAL_VISIBLE_CAP"]);
+    expect(declaredBoundNames("family/bounds.ts", familyBoundsModule)).toStrictEqual([
+      "CHILD_RUN_REFUSAL_VISIBLE_CAP",
+    ]);
+  });
+
+  it("negative control: it catches the three shapes the pattern read past", () => {
+    // Each of these declares and exports a bound; each of them the regular expression
+    // reported as no bound at all, because none of them writes `export const <NAME>`
+    // on one line. They are the whole reason the reader is a parse.
+    expect(
+      declaredBoundNames(
+        "clause.ts",
+        [
+          "const CHILD_RUN_REFUSAL_VISIBLE_CAP = 12;",
+          "export { CHILD_RUN_REFUSAL_VISIBLE_CAP };",
+        ].join("\n"),
+      ),
+    ).toStrictEqual(["CHILD_RUN_REFUSAL_VISIBLE_CAP"]);
+    expect(
+      declaredBoundNames("pattern.ts", "export const { SETTLED_INVITE_VISIBLE_CAP } = BOUNDS;"),
+    ).toStrictEqual(["SETTLED_INVITE_VISIBLE_CAP"]);
+    expect(
+      declaredBoundNames(
+        "wrapped.ts",
+        ["export const", "  ATTENTION_ROWS_MAX: number =", "  computeRowBudget();"].join("\n"),
+      ),
+    ).toStrictEqual(["ATTENTION_ROWS_MAX"]);
   });
 
   it("negative control: it passes what is not a bound", () => {
@@ -111,11 +203,25 @@ describe("console bounds — every cap is declared in one module", () => {
     // letters, and a spend of a bound the home declares, are both legal anywhere.
     expect(
       declaredBoundNames(
+        "method.ts",
         'export const DRIVER_LIST_CAPABILITIES_METHOD = "driver.listCapabilities";',
       ),
     ).toStrictEqual([]);
-    expect(declaredBoundNames("const visible = rows.slice(0, PALETTE_RESULT_CAP);")).toStrictEqual(
-      [],
-    );
+    expect(
+      declaredBoundNames("spend.ts", "const visible = rows.slice(0, PALETTE_RESULT_CAP);"),
+    ).toStrictEqual([]);
+    // A module-private bound is this rule's own exemption and always was: what the
+    // invariant governs is a SECOND HOME, which is a bound a second module publishes.
+    expect(declaredBoundNames("private.ts", "const LOCAL_ROW_CAP = 3;")).toStrictEqual([]);
+    // And a re-export of the home's own bound is not a declaration of one.
+    expect(
+      declaredBoundNames(
+        "reexport.ts",
+        [
+          'import { PALETTE_RESULT_CAP } from "../core/constants.js";',
+          "export { PALETTE_RESULT_CAP };",
+        ].join("\n"),
+      ),
+    ).toStrictEqual([]);
   });
 });
