@@ -55,10 +55,12 @@ const FIRST_LOG_POSITION = BASE_STATE_CURSOR + 1;
  * after it. That is a fact about the base state rather than a convention, which is
  * why the constant above carries the module that establishes it.
  *
- * NO INTENT MARKER IS DECLARED, and that is a finding rather than an omission: the
- * two shipped scenarios run 1..8 and 1..1, so nothing in the tree scripts a gap, a
- * regression, or a late opening on purpose and a marker minted here would be a field
- * ahead of its only reader. A family branch whose repair or degradation scenario
+ * NO INTENT MARKER IS DECLARED, and that is a finding rather than an omission: every
+ * shipped scenario runs a contiguous range opening at the first position — which this
+ * walk is what establishes, so the claim rests on the gate rather than on a census of
+ * the scenarios that rots at the next family merge — so nothing in the tree scripts a
+ * gap, a regression, or a late opening on purpose and a marker minted here would be a
+ * field ahead of its only reader. A family branch whose repair or degradation scenario
  * needs one adds it in the swap that needs it, as a declared per-scenario field this
  * walk reads — never as a silent pass.
  */
