@@ -1,7 +1,8 @@
 // The terminal pane's descriptor — what the deck mounts, and on what terms.
 //
-// Split from the component beside it for `panes/browser/index.ts`'s reason: the
-// registration terms are assertable without rendering anything.
+// Split from the component beside it for `browser/pane/pane-descriptor.ts`'s reason:
+// the registration terms are assertable without rendering anything, and a module
+// rather than a sub-module door for that file's reason too.
 
 import type { ConsolePaneDescriptor } from "../../seats/index.js";
 import { TerminalPane } from "./TerminalPane.js";

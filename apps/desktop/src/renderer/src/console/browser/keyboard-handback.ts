@@ -73,7 +73,7 @@
 // comparison written next to the strip is how the two answers start to disagree.
 //
 // WHAT IS BUILT AHEAD OF ITS WIRE, AND WHY IT SAYS SO. The close-tab half already has a
-// caller: `panes/browser/BrowserPane.tsx` reads a descriptor off a real event and asks
+// caller: `browser/pane/BrowserPane.tsx` reads a descriptor off a real event and asks
 // this module whether it is the chord. The CLAIM half does not, and cannot until the
 // browser bridge namespace exists to carry a mirror between the main process and the
 // renderer — so `KeyboardHandback`, `projectClaimableChords`,

@@ -29,21 +29,21 @@
 
 import { useCallback, useId } from "react";
 
-import { BudgetMeter } from "../../browser/BudgetMeter.js";
-import type { PaneGeometryOutcome } from "../../browser/geometry-publisher.js";
+import { BudgetMeter } from "../BudgetMeter.js";
+import type { PaneGeometryOutcome } from "../geometry-publisher.js";
 import {
   addressFieldSubmission,
   addressFieldValue,
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
-} from "../../browser/address-field-model.js";
-import { describeChordEvent, isCloseTabChord } from "../../browser/keyboard-handback.js";
+} from "../address-field-model.js";
+import { describeChordEvent, isCloseTabChord } from "../keyboard-handback.js";
 import {
   isFilesystemDestination,
   useReportedNavigation,
   type NavigationActOutcome,
   type NavigationReading,
-} from "../../browser/navigation-state.js";
+} from "../navigation-state.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { tokenReference } from "../../tokens/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";

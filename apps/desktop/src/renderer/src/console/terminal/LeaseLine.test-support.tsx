@@ -17,7 +17,7 @@
 // The lease STATE is a value here, built directly rather than folded from a
 // scenario, because `lease-model.test.ts` already holds the fold to the wire and
 // these suites' subject is what each state RENDERS. The VIEWER's identity is a value
-// for the same reason: `panes/terminal/TerminalPane.test.tsx` drives the read that
+// for the same reason: `terminal/pane/TerminalPane.test.tsx` drives the read that
 // produces one, against the real port, and every case renders under a settled one so
 // that the state it names is what it is about.
 

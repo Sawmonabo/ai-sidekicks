@@ -19,12 +19,12 @@
 // pair when the module was written — the navigation reading, the address field, and
 // the geometry binding — and the first two have since moved onto the substrate's
 // `useSubjectScopedState`, which addresses a holder rather than comparing a pair. So
-// `panes/browser/geometry-binding.ts` is the one importer left, and it is the one
+// `browser/pane/geometry-binding.ts` is the one importer left, and it is the one
 // that has not moved because its value is a RESOURCE with a terminal disposal rather
 // than a value a drop releases. A reader taking a three-consumer quantifier at face
 // value goes looking for two that are not there, which is the second thing a stale
 // hoist claim costs after the hoist itself. It lives in `browser/` rather than in
-// `panes/browser/` because the browser family is the lower of the two and the pane
+// `browser/pane/` because the browser family is the lower of the two and the pane
 // directory imports it, never the reverse.
 
 import type { ConsoleBridge } from "../bridge/index.js";

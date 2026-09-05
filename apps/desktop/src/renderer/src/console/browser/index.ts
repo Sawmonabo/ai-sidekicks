@@ -7,11 +7,13 @@
 // embedded-browser Type-2 ADR lands, and the shell it is built into is registered
 // here so that arrival is an edit to a mounted pane rather than a new mount.
 //
-// WHY THE FAMILY REGISTERS AND THE PANE DIRECTORY DOES NOT. `console/panes/<kind>/`
-// holds a pane BODY; `console/<family>/` is what the seat board composes. Keeping
-// the registration here means the seat board names families rather than reaching
-// into a body's directory, and it means the day this family grows a second pane or
-// a settings surface, the seat board does not change at all.
+// WHY THE FAMILY REGISTERS, AND WHY THE BODY LIVES HERE TOO. `console/panes/` is a
+// COMPOSITION site: it names every family and holds no body. A pane body is family
+// code — it renders this family's surfaces and reads this family's models — so it
+// lives in `browser/pane/` beside them, and the registration is the family's own.
+// Parking it under `panes/` put ~950 lines outside the DAG both view-family layering
+// rules subtract that path from, so a terminal body importing this family's registry
+// was a green build. Here the isolation rules govern it like any other family module.
 //
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
@@ -33,7 +35,7 @@ import "./styles/browser-pane.css";
 import "./styles/browser-bounds.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { BROWSER_PANE_DESCRIPTOR } from "../panes/browser/index.js";
+import { BROWSER_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
 
 /**
  * Claim the browser family's pane kinds.

@@ -25,7 +25,7 @@
 // an older one still on screen rather than the one that churned.
 //
 // AND THE ALLOCATION IS PER CONTEXT, NOT PER TERMINAL. A terminal id is the
-// SESSION's id (`panes/terminal/TerminalPane.tsx` binds the emulator to
+// SESSION's id (`terminal/pane/TerminalPane.tsx` binds the emulator to
 // `sessionStore.sessionId`), and more than one pane can be open on one session —
 // the fixture pane harness mounts exactly that, deliberately, because the
 // per-instance slope the `terminal-instance-memory` budget reads depends on it.

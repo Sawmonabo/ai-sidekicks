@@ -18,7 +18,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
-import { BudgetMeter } from "../../browser/BudgetMeter.js";
+import { BudgetMeter } from "../BudgetMeter.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { HOST_CHORD_PLATFORM } from "../../primitives/index.js";
 import {

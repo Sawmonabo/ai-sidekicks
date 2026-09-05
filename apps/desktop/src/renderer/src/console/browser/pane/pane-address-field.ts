@@ -11,10 +11,7 @@
 // instance gets wrong.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import {
-  FOLLOWING_ADDRESS_FIELD,
-  type AddressFieldState,
-} from "../../browser/address-field-model.js";
+import { FOLLOWING_ADDRESS_FIELD, type AddressFieldState } from "../address-field-model.js";
 import { useSubjectScopedState } from "../../store/index.js";
 
 /** The field's state and its writer, for the pane this render is for. */

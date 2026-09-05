@@ -50,13 +50,13 @@ import {
   type SessionStore,
   type SessionStoreState,
 } from "../../store/index.js";
-import { LeaseLine } from "../../terminal/LeaseLine.js";
-import type { TerminalParticipantMark } from "../../terminal/participant-mark.js";
-import { XtermHost } from "../../terminal/XtermHost.js";
-import { projectTerminalLease, type TerminalLeaseState } from "../../terminal/lease-model.js";
-import { projectNodePresence, resolveSoleHoldingNode } from "../../terminal/node-presence-model.js";
-import { useTerminalOutputStream } from "../../terminal/output-stream.js";
-import { useTerminalViewerIdentity } from "../../terminal/viewer-identity.js";
+import { LeaseLine } from "../LeaseLine.js";
+import type { TerminalParticipantMark } from "../participant-mark.js";
+import { XtermHost } from "../XtermHost.js";
+import { projectTerminalLease, type TerminalLeaseState } from "../lease-model.js";
+import { projectNodePresence, resolveSoleHoldingNode } from "../node-presence-model.js";
+import { useTerminalOutputStream } from "../output-stream.js";
+import { useTerminalViewerIdentity } from "../viewer-identity.js";
 import { TERMINAL_OUTPUT_LABEL } from "./terminal-pane-labels.js";
 
 export interface BoundTerminalPaneProps {

@@ -35,7 +35,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../src/renderer/src/console/bridge/index.js";
-import { releaseQueuedPaneFrames } from "../../src/renderer/src/console/panes/browser/BrowserPane.test-support.js";
+import { releaseQueuedPaneFrames } from "../../src/renderer/src/console/browser/pane/BrowserPane.test-support.js";
 import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,

@@ -4,6 +4,13 @@
 // and change at different times: the component is what renders, the descriptor is
 // what the deck is allowed to do with it. Splitting them is what lets the
 // registration terms below be asserted without rendering anything.
+//
+// A MODULE AND NOT A SUB-MODULE DOOR. It was a pane-directory barrel until the
+// pane body came home to the family that owns it, and an `index.ts` here would be a
+// second door inside one family: `console/browser/index.ts` would then reach a name
+// it never declared through a barrel, which `console-no-barrel-chain` forbids and
+// `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
+// outside itself. The family door imports this module by name instead.
 
 import type { ConsolePaneDescriptor } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";

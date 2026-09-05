@@ -13,8 +13,8 @@
 //
 // WHY IT RESOLVES THROUGH THE REGISTRY AND NEVER IMPORTS A PANE. The thing being
 // measured is what the DECK would mount, which is the descriptor a family
-// registered — `panes/terminal/index.ts`'s `TERMINAL_PANE_DESCRIPTOR`, reached by
-// `ConsolePaneRegistry.descriptorFor`. A harness that imported `TerminalPane`
+// registered — `terminal/pane/pane-descriptor.ts`'s `TERMINAL_PANE_DESCRIPTOR`,
+// reached by `ConsolePaneRegistry.descriptorFor`. A harness that imported `TerminalPane`
 // directly would measure a component that happens to sit beside the registration,
 // and would keep measuring it on the day the registration changed.
 //

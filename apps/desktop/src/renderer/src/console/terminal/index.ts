@@ -8,9 +8,10 @@
 // to show and says so, and the row's arrival is a drain into a surface that is
 // already there rather than a new mount.
 //
-// The registration lives in the family rather than in `console/panes/terminal/`
-// for `console/browser/index.ts`'s reason: the seat board composes families, not
-// bodies.
+// The registration lives here, and so does the pane BODY (`terminal/pane/`), for
+// `console/browser/index.ts`'s reason: the seat board composes families, not bodies,
+// and a body parked under `console/panes/` is subtracted from both view-family
+// layering rules.
 //
 // WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7: the emulator wrapper
 // (`xterm-adapter.ts`) with the three modules
@@ -47,7 +48,7 @@
 import "./terminal.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { TERMINAL_PANE_DESCRIPTOR } from "../panes/terminal/index.js";
+import { TERMINAL_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
 
 /**
  * Claim the terminal family's pane kinds.

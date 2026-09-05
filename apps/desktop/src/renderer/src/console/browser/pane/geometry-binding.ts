@@ -12,13 +12,10 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import {
-  PaneGeometryPublisher,
-  type PaneGeometryOutcome,
-} from "../../browser/geometry-publisher.js";
-import { consoleOcclusionRegistryFor } from "../../browser/occlusion-registry.js";
-import { isCurrentPaneSubject, type PaneSubject } from "../../browser/pane-subject.js";
-import { resolvePaneViewHost, type PaneViewHost } from "../../browser/view-host.js";
+import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry-publisher.js";
+import { consoleOcclusionRegistryFor } from "../occlusion-registry.js";
+import { isCurrentPaneSubject, type PaneSubject } from "../pane-subject.js";
+import { resolvePaneViewHost, type PaneViewHost } from "../view-host.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 
 /**
