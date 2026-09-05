@@ -13,6 +13,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowPhaseState } from "../../bridge/index.js";
+import * as runListProjection from "./run-list-projection.js";
+import * as runListRows from "./run-list-rows.js";
 import { parkSchedule, phasePark, workflowInstant } from "./run-list-rows.js";
 import { phase } from "./run-list-projection.test-support.js";
 
@@ -220,5 +222,37 @@ describe("a calendar and a clock, not four groups of digits", () => {
     // What the host parser makes of each — the first of March, and a number either way
     // — is asserted in `core/instant.test.ts`, where the ban is lifted to show it.
     expect(workflowInstant("2027-02-29T00:00:00Z").kind).toBe("malformed");
+  });
+});
+
+/*
+ * WHERE A ROW'S SHAPES ARE DECLARED, asserted as the module boundary and not as prose.
+ *
+ * `run-list-projection.ts` used to re-export `parkAwaitsPerson`, `parkSchedule`, and
+ * `phasePark` beside six types it does not declare, so the park badge, the phase
+ * graph, and the pane's cards all named the projection for a fact this module owns. A
+ * reader who followed one of those imports arrived at a module whose whole subject is
+ * the run LIST and found the declaration another hop away.
+ *
+ * The exact set is the assertion rather than three absences: an exact set fails on a
+ * forward re-appearing AND on the projection quietly growing an export nobody decided
+ * to publish, which is how the forwarding block got there in the first place.
+ */
+describe("the two run modules' published surfaces", () => {
+  const ROW_SYMBOLS = ["parkAwaitsPerson", "parkSchedule", "phasePark", "workflowInstant"];
+
+  it("declares the row vocabulary here and forwards none of it from the projection", () => {
+    expect(Object.keys(runListRows).toSorted()).toStrictEqual(ROW_SYMBOLS.toSorted());
+    expect(Object.keys(runListProjection).toSorted()).toStrictEqual(
+      ["RunListProjection", "WORKFLOW_RUN_ATTENTION_BANDS", "projectParkedPhases"].toSorted(),
+    );
+  });
+
+  it("negative control: the two sets are disjoint rather than trivially empty", () => {
+    // Without this the case above would be satisfied by a pair of modules that had
+    // stopped exporting anything at all, which is a green run and an empty family.
+    const rowNames = new Set(Object.keys(runListRows));
+    expect(rowNames.size).toBeGreaterThan(0);
+    expect(Object.keys(runListProjection).filter((name) => rowNames.has(name))).toStrictEqual([]);
   });
 });

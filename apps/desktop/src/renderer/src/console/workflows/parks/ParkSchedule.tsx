@@ -11,7 +11,7 @@
 // it in another is a closed set split across two files.
 
 import { WireFigure, formatDateTime } from "../../primitives/index.js";
-import type { WorkflowParkReason, WorkflowParkSchedule } from "../runs/run-list-projection.js";
+import type { WorkflowParkReason, WorkflowParkSchedule } from "../runs/run-list-rows.js";
 
 /**
  * What ends the wait, when nothing is scheduled to.

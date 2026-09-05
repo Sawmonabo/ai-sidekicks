@@ -29,7 +29,8 @@ import { memo } from "react";
 import type { InstantReading } from "../../core/index.js";
 import { Chip, WireFigure, formatDateTime } from "../../primitives/index.js";
 import { ParkBadge } from "../parks/ParkBadge.js";
-import type { OpenRun, WorkflowRunListRow, WorkflowRunState } from "./run-list-projection.js";
+import type { OpenRun, WorkflowRunListRow } from "./run-list-projection.js";
+import type { WorkflowRunState } from "./run-list-rows.js";
 
 /**
  * What this row prints where the start is a value the plane refused.

@@ -69,10 +69,13 @@
 // the statuses and park reasons are declared; this module holds the reading — bands,
 // order, and the counts a header shows — and declares exactly one closed set of its
 // own, the attention band, because a band is a reading of a status rather than a
-// status. The row symbols below are re-exported because their readers — the park
-// badge, the run list, and the run pane — read a run ROW through the module that
-// projects a run LIST, and a second import edge into the family for the same fact is
-// the thing that drifts.
+// status. It re-exports none of those shapes: this module used to forward
+// `parkAwaitsPerson`, `parkSchedule`, `phasePark`, and six types it does not declare,
+// so a reader who followed the park badge's import arrived at a module whose whole
+// subject is the run LIST and found nothing there — the declaration was one more hop
+// away, and the forwarding line was the only thing that said so. Every consumer names
+// the declaring module directly, which is the same rule the family door obeys one
+// level up.
 
 import { compareInstants, type InstantReading } from "../../core/index.js";
 import {
@@ -83,16 +86,6 @@ import {
   type WorkflowPhaseStateRow,
   type WorkflowRunSnapshot,
   type WorkflowRunState,
-} from "./run-list-rows.js";
-
-export { parkAwaitsPerson, parkSchedule, phasePark } from "./run-list-rows.js";
-export type {
-  WorkflowParkedPhase,
-  WorkflowParkReason,
-  WorkflowParkSchedule,
-  WorkflowPhasePark,
-  WorkflowRunSnapshot,
-  WorkflowRunState,
 } from "./run-list-rows.js";
 
 /**

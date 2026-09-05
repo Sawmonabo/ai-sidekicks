@@ -12,8 +12,11 @@ import { describe, expect, it } from "vitest";
 
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { ParkBadge } from "./ParkBadge.js";
-import { parkSchedule } from "../runs/run-list-rows.js";
-import type { WorkflowParkedPhase, WorkflowPhasePark } from "../runs/run-list-projection.js";
+import {
+  parkSchedule,
+  type WorkflowParkedPhase,
+  type WorkflowPhasePark,
+} from "../runs/run-list-rows.js";
 
 const WAITING_ON_A_PERSON: WorkflowPhasePark = {
   parkReason: "waiting-human",

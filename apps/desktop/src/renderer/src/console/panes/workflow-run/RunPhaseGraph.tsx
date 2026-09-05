@@ -13,9 +13,8 @@
 // obeys that through the projection's own `phasePark`, and re-derives nothing.
 
 import type { WorkflowPhaseState } from "../../bridge/index.js";
-import { parkAwaitsPerson } from "../../workflows/runs/run-list-projection.js";
-import type { WorkflowParkedPhase } from "../../workflows/runs/run-list-projection.js";
 import { projectParkedPhases } from "../../workflows/runs/run-list-projection.js";
+import { parkAwaitsPerson, type WorkflowParkedPhase } from "../../workflows/runs/run-list-rows.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
 import type { PhaseGraphNode, PhaseParkAttention } from "./phase-graph/phase-topology.js";
 

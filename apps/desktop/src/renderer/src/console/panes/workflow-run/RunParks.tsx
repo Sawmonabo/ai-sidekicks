@@ -20,7 +20,7 @@ import { Nothing } from "../../primitives/index.js";
 import { ParkBadge } from "../../workflows/parks/ParkBadge.js";
 import type { WorkflowParkFormRoute } from "../../workflows/parks/ParkFormRoute.js";
 import { projectParkedPhases } from "../../workflows/runs/run-list-projection.js";
-import type { WorkflowParkedPhase } from "../../workflows/runs/run-list-projection.js";
+import type { WorkflowParkedPhase } from "../../workflows/runs/run-list-rows.js";
 import {
   UNADDRESSABLE_HUMAN_WAIT_DETAIL,
   humanFormMountFor,
