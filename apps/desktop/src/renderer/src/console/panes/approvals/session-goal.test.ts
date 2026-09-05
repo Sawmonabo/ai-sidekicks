@@ -12,7 +12,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_GOAL_MIN_LENGTH } from "../../bridge/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   SESSION_GOAL_CLEAR_METHOD,
@@ -93,9 +92,6 @@ describe("two operations, never one", () => {
   it("names a distinct method for setting and for clearing", () => {
     expect(SESSION_GOAL_UPDATE_METHOD).toBe("session.goalUpdate");
     expect(SESSION_GOAL_CLEAR_METHOD).toBe("session.goalClear");
-    // The whole reason the sendable floor is one character rather than zero: an
-    // update with no goal is malformed, and clearing has its own verb.
-    expect(SESSION_GOAL_MIN_LENGTH).toBe(1);
     expect(SESSION_GOAL_UPDATE_METHOD).not.toBe(SESSION_GOAL_CLEAR_METHOD);
   });
 

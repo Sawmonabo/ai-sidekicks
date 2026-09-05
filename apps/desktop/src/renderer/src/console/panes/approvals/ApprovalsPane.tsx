@@ -35,6 +35,7 @@ import { consoleClockFor } from "../../bridge/index.js";
 import {
   useSessionPartition,
   useSessionStore,
+  useSubjectScopedState,
   type ConsoleEntity,
   type SessionStore,
   type SessionStoreState,
@@ -104,14 +105,17 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   // one pretending to hold the whole request.
   const approvalEntities = useSessionPartition(props.sessionStore, "approval");
   const askByApprovalId = useMemo(() => providerAsksIn(approvalEntities), [approvalEntities]);
-  // One clock, resolved once and read once per render. `consoleClockFor` is the
-  // console's single answer to which clock a window reads — the fixture's frozen one
-  // wherever a scenario is playing — and it is pinned in `useState` because its real
-  // arm mints a fresh instance per call, exactly as `useConsoleClock` pins the same
-  // resolution for callers that take their bridge from React context rather than, as
-  // a pane does, from the seat it was mounted in. The deadline is shown as the
-  // instant the daemon sent plus a reading of it against this; nothing here ticks.
-  const [clock] = useState(() => consoleClockFor(bridge));
+  // One clock, resolved once per bridge and read once per render. `consoleClockFor`
+  // is the console's single answer to which clock a window reads — the fixture's
+  // frozen one wherever a scenario is playing — and its real arm mints a fresh
+  // instance per call, which is why the resolution is held rather than recomputed.
+  // Held under the BRIDGE and not the mount: a `useState` seed runs once for the life
+  // of the component, so a pane that outlived a scenario switch went on reading the
+  // retired resolution's clock. `useConsoleClock` pins the same resolution for callers
+  // that take their bridge from React context rather than, as a pane does, from the
+  // seat it was mounted in. The deadline is shown as the instant the daemon sent plus
+  // a reading of it against this; nothing here ticks.
+  const { value: clock } = useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge));
   const nowMilliseconds = clock.now();
 
   const paneRootRef = useRef<HTMLDivElement>(null);

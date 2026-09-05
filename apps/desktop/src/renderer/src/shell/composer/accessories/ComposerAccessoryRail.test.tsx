@@ -889,6 +889,13 @@ describe("ComposerAccessoryRail — the quota chips come off the account plane",
   it("says the registry could not be read rather than looking like a healthy node", async () => {
     // A chip's absence is not a health reading. A read that failed and a node whose
     // quotas are all fine render identically unless the refusal is on screen.
+    //
+    // THE CODE IS THE FIXTURE'S AND NO LONGER THE SURFACE'S. A scenario cannot hand a
+    // surface a reply the corpus does not register for that method any more: the
+    // fixture refuses the SCRIPT with `reply-off-contract` before the rail sees it, so
+    // what this asserts is that a refusal reaches the meters carrying the code it was
+    // given — which is the property the case is about — rather than which of the two
+    // refusals upstream produced it.
     let container: HTMLElement = document.createElement("div");
     await act(async () => {
       container = mountRail([], { bridge: bridgeAnswering({ accounts: "not a list" }) });
@@ -896,7 +903,7 @@ describe("ComposerAccessoryRail — the quota chips come off the account plane",
 
     const refusal = container.querySelector(".meridian-composer__meters .meridian-refusal");
     expect(refusal).not.toBeNull();
-    expect(refusal?.textContent).toContain("reply-unreadable");
+    expect(refusal?.textContent).toContain("reply-off-contract");
   });
 });
 

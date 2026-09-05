@@ -52,7 +52,6 @@ export { runStateForTransitionKind } from "./session-event-streams.js";
 // `daemon-calls.ts` records the whole reasoning.
 export {
   COMPACT_CONTEXT_METHOD,
-  DAEMON_STREAM_REFUSAL_ORIGIN,
   DRIVER_LIST_CAPABILITIES_METHOD,
   LIST_PROVIDER_COMMANDS_METHOD,
   PROVIDER_ACCOUNT_LIST_METHOD,
@@ -68,7 +67,6 @@ export {
   subscribeDaemon,
   subscribeNodeDaemon,
 } from "./daemon-calls.js";
-export type { DaemonStreamOpen } from "./daemon-calls.js";
 
 // The goal payload readings and the two bounds a goal is refused against. Through
 // this door because the approvals surface is a view family and may hold no
@@ -76,12 +74,10 @@ export type { DaemonStreamOpen } from "./daemon-calls.js";
 // — and never the schema that produced one.
 export {
   SESSION_GOAL_MAX_LENGTH,
-  SESSION_GOAL_MIN_LENGTH,
   isSendableGoalText,
   readGoalOriginKeys,
   readGoalPayloadText,
 } from "./session-goal-payloads.js";
-export type { GoalOriginKeys } from "./session-goal-payloads.js";
 
 // The declared-capability read, and the two shapes its consumers resolve against.
 // Here rather than beside either consumer because two view families gate controls on
@@ -93,13 +89,9 @@ export {
   useDriverCapabilityRepairRead,
   withRunDriverBindings,
 } from "./driver-capability-read.js";
-export {
-  foldRunDriverBindings,
-  selectSessionTimeline,
-  useRunDriverBindings,
-} from "./run-driver-binding.js";
+export { useRunDriverBindings } from "./run-driver-binding.js";
 export { SessionRepairWatcher } from "./session-repair-watcher.js";
-export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-read.js";
+export type { DriverCapabilityReadout } from "./driver-capability-read.js";
 
 // The session's one queue reading. Here for the same reason the capability read is:
 // the runs pane and the composer's shelf ask two questions of one list, and each
@@ -120,8 +112,7 @@ export type { QueueFeed, QueueReadPhase } from "./queue-reading.js";
 // for it, `provider-account-quota.ts` owns the wire that feeds it, and
 // `provider-quota-feed.ts` owns how many readings there are and how long each lives.
 export { useProviderQuotas } from "./provider-quota-feed.js";
-export type { ProviderQuotaReadPhase, ProviderQuotaReadout } from "./provider-account-quota.js";
-export { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-account-quota.js";
+export type { ProviderQuotaReadout } from "./provider-account-quota.js";
 export { remainingPercentOf } from "./provider-quota-fold.js";
 export type { ProviderQuotaReading } from "./provider-quota-fold.js";
 

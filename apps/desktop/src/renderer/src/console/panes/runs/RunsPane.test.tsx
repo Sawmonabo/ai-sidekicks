@@ -15,7 +15,9 @@ import {
   type RunState,
 } from "@ai-sidekicks/contracts";
 
-import { ConsolePaneRegistry, isDetachablePaneKind } from "../../seats/index.js";
+import { ConsolePaneRegistry } from "../../seats/index.js";
+// The declaring module rather than the door: the predicate is read only from suites.
+import { isDetachablePaneKind } from "../../seats/pane-kinds.js";
 import { type PaneContextOf } from "../pane-chrome.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";

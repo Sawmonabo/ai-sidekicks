@@ -25,7 +25,7 @@ import { SessionStore } from "../../store/index.js";
 import {
   RUN_STATE_REFUSAL_ORIGIN,
   RunStateProjection,
-  useRunStateFeed,
+  useRunFeed,
   type RunStateFeed,
 } from "./run-state-feed.js";
 
@@ -204,7 +204,7 @@ async function mountStateFeed(
 ): Promise<() => RunStateFeed> {
   let held: RunStateFeed | undefined;
   function StateFeedProbe(): null {
-    const feed = useRunStateFeed(bridge, sessionStore);
+    const feed = useRunFeed(bridge, sessionStore);
     useEffect(() => {
       held = feed;
     }, [feed]);
@@ -439,7 +439,7 @@ function mountRebindableFeed(
 } {
   const renderedFeeds: RunStateFeed[] = [];
   function StateFeedProbe(props: { readonly store: SessionStore }): null {
-    renderedFeeds.push(useRunStateFeed(bridge, props.store));
+    renderedFeeds.push(useRunFeed(bridge, props.store));
     return null;
   }
   const view = render(createElement(StateFeedProbe, { store: sessionStore }));

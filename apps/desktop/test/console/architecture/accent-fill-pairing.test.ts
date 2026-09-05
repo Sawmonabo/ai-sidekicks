@@ -21,20 +21,29 @@
 // composer styles written against the same tokens, and a rule the console would
 // refuse is not made acceptable by living one directory up.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
+
+import {
+  consoleStylesheets,
+  readConsoleSourceModule,
+  type ConsoleSourceModule,
+} from "../console-source-modules.js";
 
 // The leaf rather than the family door: the door imports the stylesheet and every
 // component behind it, and this tier runs under `node` with no DOM to render them
 // into. The constant is the whole subject here.
 import { ACCENT_FILL_CLASS } from "../../../src/renderer/src/console/primitives/accent-fill.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const RENDERER_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src");
-const PRIMITIVES_SHEET = join("console", "primitives", "primitives.css");
+/**
+ * The primitive sheet that declares the fill.
+ *
+ * Named rather than derived: this gate's second claim is that the class the export
+ * names is DEFINED, and a claim that searches every sheet for it would pass on any
+ * sheet that happened to mention it. `primitives.css` was one file when this was
+ * written and is now ten, so the name moved with the rule rather than the rule
+ * widening to cover wherever it went.
+ */
+const ACCENT_FILL_SHEET = "console/primitives/accent-fill.css";
 
 /** One declaration block: what it selects, and what it declares. */
 interface StyleRule {
@@ -90,35 +99,44 @@ function accentTextOnAccentFill(sheet: string): readonly string[] {
     .map((rule) => rule.selector);
 }
 
-function rendererStylesheets(): readonly string[] {
-  return readdirSync(RENDERER_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter((entry) => entry.endsWith(".css"))
-    .sort();
-}
-
-function readStylesheet(sheet: string): string {
-  return readFileSync(join(RENDERER_DIRECTORY, sheet), "utf8");
+/** The one sheet a claim names, or a failure saying which name was not found. */
+function stylesheetNamed(
+  sheets: readonly ConsoleSourceModule[],
+  displayPath: string,
+): ConsoleSourceModule {
+  const found = sheets.find((sheet) => sheet.displayPath === displayPath);
+  if (found === undefined) {
+    throw new Error(
+      `${displayPath} is not under the console stylesheet walk; the sheets found are ${sheets
+        .map((sheet) => sheet.displayPath)
+        .join(", ")}`,
+    );
+  }
+  return found;
 }
 
 describe("accent-fill — the one filled-accent face, and the pairing it replaces", () => {
-  const stylesheets = rendererStylesheets();
+  const stylesheets = consoleStylesheets();
 
   it("finds a renderer stylesheet tree to scan at all", () => {
-    // Without this, a wrong RENDERER_DIRECTORY would scan nothing and the clean
-    // result below would be a claim about the empty set.
+    // Without this, a walk that found nothing would make the clean result below a
+    // claim about the empty set.
     expect(stylesheets.length).toBeGreaterThan(5);
-    expect(stylesheets).toContain(PRIMITIVES_SHEET);
+    expect(stylesheets.map((sheet) => sheet.displayPath)).toContain(ACCENT_FILL_SHEET);
   });
 
   it("defines the class the primitives export names", () => {
-    const selectors = styleRules(readStylesheet(PRIMITIVES_SHEET)).map((rule) => rule.selector);
+    const sheet = readConsoleSourceModule(stylesheetNamed(stylesheets, ACCENT_FILL_SHEET));
+    const selectors = styleRules(sheet).map((rule) => rule.selector);
     expect(selectors.some((selector) => selector.includes(`.${ACCENT_FILL_CLASS}`))).toBe(true);
   });
 
   it("no stylesheet paints accent-text on the accent fill", () => {
     const offenders = stylesheets
       .flatMap((sheet) =>
-        accentTextOnAccentFill(readStylesheet(sheet)).map((selector) => `${sheet}: ${selector}`),
+        accentTextOnAccentFill(readConsoleSourceModule(sheet)).map(
+          (selector) => `${sheet.displayPath}: ${selector}`,
+        ),
       )
       .sort();
     expect(offenders).toStrictEqual([]);

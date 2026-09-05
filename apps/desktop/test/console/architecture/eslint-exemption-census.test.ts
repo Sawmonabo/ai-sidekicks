@@ -118,8 +118,6 @@ export function suppressedGuardedRules(source: string): readonly string[] {
  * directive form is already in this tree, so the clean result above is a finding about
  * which rules are suppressed rather than about whether any directive exists to find.
  */
-const MODULE_CARRYING_A_DIRECTIVE = "console/panes/index.ts";
-
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
   const resolved = await linter.calculateConfigForFile(absolutePath);
@@ -230,14 +228,15 @@ describe("eslint exemption census — every excused file trips something", () =>
     expect(offenders).toStrictEqual([]);
   });
 
-  it("negative control: the needle reads the directive this tree already carries", () => {
-    // Both halves. The real one proves a directive is findable at all; the planted rows
-    // prove the rule list is read rather than the word `eslint-disable` alone.
-    const carrier = readConsoleSourceModule(
-      moduleNamed(modules, MODULE_CARRYING_A_DIRECTIVE, "the module carrying a directive"),
-    );
-    expect(inlineDirectives(carrier).length).toBeGreaterThan(0);
-    expect(suppressedGuardedRules(carrier)).toStrictEqual([]);
+  it("negative control: the needle reads a directive, and reads which rule it names", () => {
+    // Both halves, both planted, and the first one planted on purpose. This tree now
+    // carries no inline directive at all — which the claim above is exactly about, so
+    // reading the needle against a real carrier would mean keeping one alive to be
+    // read. The benign row is what the real carrier used to prove: a directive is
+    // findable, and naming an unguarded rule is not a suppression of a guarded one.
+    const benign = "// eslint-disable-next-line @typescript-eslint/no-unused-vars\nconst a = 1;\n";
+    expect(inlineDirectives(benign).length).toBeGreaterThan(0);
+    expect(suppressedGuardedRules(benign)).toStrictEqual([]);
     for (const planted of [
       "/* eslint-disable no-restricted-syntax */\nexport const at = Date.parse(iso);\n",
       "// eslint-disable-next-line no-restricted-syntax -- a reason\nexport const at = Date.parse(iso);\n",
@@ -246,9 +245,6 @@ describe("eslint exemption census — every excused file trips something", () =>
     ]) {
       expect(suppressedGuardedRules(planted), planted).not.toStrictEqual([]);
     }
-    expect(
-      suppressedGuardedRules("// eslint-disable-next-line @typescript-eslint/no-unused-vars\n"),
-    ).toStrictEqual([]);
   });
 });
 

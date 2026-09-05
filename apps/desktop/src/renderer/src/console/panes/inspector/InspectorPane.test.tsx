@@ -12,7 +12,9 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
-import { ConsolePaneRegistry, isDetachablePaneKind } from "../../seats/index.js";
+import { ConsolePaneRegistry } from "../../seats/index.js";
+// The declaring module rather than the door: the predicate is read only from suites.
+import { isDetachablePaneKind } from "../../seats/pane-kinds.js";
 import { type PaneContextOf } from "../pane-chrome.js";
 import { registerInspectorPane } from "./index.js";
 import { InspectorPane } from "./InspectorPane.js";

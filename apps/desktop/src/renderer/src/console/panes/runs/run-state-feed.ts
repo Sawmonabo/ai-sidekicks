@@ -36,7 +36,7 @@
 // timer of any kind: elapsed is measured between two instants the WIRE supplied, so
 // the pane never needs to know what time it is now.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import {
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
@@ -320,10 +320,13 @@ export function runElapsedMilliseconds(run: RunProjection): number | undefined {
 /**
  * Open the run-state subscription for one session.
  *
- * The projection instance lives in a ref so a re-render does not restart the fold,
- * and the rendered snapshot is state so a delivery re-renders. Deliveries after
- * unmount are dropped rather than written into a torn-down component, which is the
- * same close-race posture the session binder takes one layer down.
+ * The projection instance lives inside the subscribing effect, which is the only
+ * thing that folds into it — a re-render does not restart the fold because it does
+ * not re-run the effect, and a mount-lifetime cell holding it beside the effect was a
+ * second, longer-lived reference to the same object that nothing read. The rendered
+ * snapshot is state so a delivery re-renders. Deliveries after unmount are dropped
+ * rather than written into a torn-down component, which is the same close-race
+ * posture the session binder takes one layer down.
  *
  * THE FEED IS STAMPED WITH ITS SUBJECT, so a pane rebound from one session to
  * another never renders the previous session's runs. Clearing the feed in the
@@ -338,10 +341,13 @@ export function runElapsedMilliseconds(run: RunProjection): number | undefined {
  * the store's snapshot answers "has the read that says which runs exist landed", and
  * only the second can ever say "there are none" — see `RunStateFeed.hasRead`.
  */
-export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStore): RunStateFeed {
+// NAMED FOR THE FEED AND NOT FOR THE STATE IT CARRIES. `use<Subject>...State...` is
+// the shape the console reserves for a subject-scoped holder, and this is not one: it
+// opens a subscription and folds deliveries into a reading held by the one holder the
+// store publishes.
+export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): RunStateFeed {
   const sessionId = sessionStore.sessionId;
   const hasReadSnapshot = useSessionInitialised(sessionStore);
-  const projection = useRef<RunStateProjection>(new RunStateProjection());
   const { value: feed, publish: setFeed } = useSessionScopedState<RunStateFeed>(
     bridge,
     sessionId,
@@ -350,7 +356,6 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
 
   useEffect(() => {
     const fold = new RunStateProjection();
-    projection.current = fold;
     let isMounted = true;
 
     // The stream's own registered request, parsed here rather than assembled at

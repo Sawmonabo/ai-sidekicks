@@ -9,12 +9,11 @@
 import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import {
-  foldRunDriverBindings,
-  withRunDriverBindings,
-  type DeclaredDriverFlags,
-  type DriverCapabilityReadout,
-} from "../../bridge/index.js";
+import { withRunDriverBindings, type DriverCapabilityReadout } from "../../bridge/index.js";
+// The declaring modules rather than the door: both names are read only from this
+// suite, and a door line no production module imports is a dead export.
+import { foldRunDriverBindings } from "../../bridge/run-driver-binding.js";
+import type { DeclaredDriverFlags } from "../../bridge/driver-capability-read.js";
 import type { ConsoleEntity, ConsoleSessionEvent } from "../../store/index.js";
 import {
   boundDriverNameForRun,

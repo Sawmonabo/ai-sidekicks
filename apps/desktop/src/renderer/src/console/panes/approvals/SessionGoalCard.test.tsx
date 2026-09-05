@@ -174,7 +174,7 @@ describe("the field refuses on the daemon's own rule", () => {
     expect((save as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(save);
     expect(onUpdate).not.toHaveBeenCalled();
-    expect(screen.getByText("A goal cannot be blank.")).not.toBeNull();
+    expect(screen.getByText("This goal cannot be sent as written.")).not.toBeNull();
   });
 
   it("negative control: valid text enables the save and carries no complaint", () => {
@@ -184,7 +184,7 @@ describe("the field refuses on the daemon's own rule", () => {
     expect((screen.getByRole("button", { name: "Save goal" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
-    expect(screen.queryByText("A goal cannot be blank.")).toBeNull();
+    expect(screen.queryByText("This goal cannot be sent as written.")).toBeNull();
   });
 });
 

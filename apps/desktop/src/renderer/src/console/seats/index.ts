@@ -60,7 +60,6 @@ export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
   PANE_KINDS,
-  isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
   type PaneKind,
@@ -159,12 +158,7 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotContract,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotProps,
-} from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 
 // The session vocabulary, straight from the module that DECLARES it rather than
 // through `store/index.js`, which would be a barrel chain. Without these four lines
@@ -180,6 +174,7 @@ export {
   useSessionScopedState,
 } from "./session-subject.js";
 export type {
+  /** @consumedBy T-023p-1C-3 */
   SessionScopedKey,
   /** @consumedBy T-023p-1C-4 */
   SessionSubject,

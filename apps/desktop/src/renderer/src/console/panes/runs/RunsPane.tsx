@@ -65,7 +65,7 @@ import { RunInterventionComposer, type ComposedControl } from "./RunIntervention
 import { RunRow } from "./RunRow.js";
 import { seatRuns } from "./run-seating.js";
 import { useRunControlSurface } from "./run-control-surface.js";
-import { useRunStateFeed } from "./run-state-feed.js";
+import { useRunFeed } from "./run-state-feed.js";
 
 /** Which run is being composed against, and with which of the two body controls. */
 interface ComposerTarget {
@@ -102,7 +102,7 @@ function RunsPaneBody(props: {
   readonly sessionStore: SessionStore;
 }): React.JSX.Element {
   const { context, sessionStore } = props;
-  const stateFeed = useRunStateFeed(context.bridge, sessionStore);
+  const stateFeed = useRunFeed(context.bridge, sessionStore);
   const queueFeed = useQueueFeed(context.bridge, sessionStore.sessionId);
   // Which runs the session HAS, as its snapshot established them and its log has
   // gone on folding. The stream describes what has happened to a run and says
