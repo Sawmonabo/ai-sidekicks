@@ -3,7 +3,7 @@
 //
 // THE READ HALF ONLY. What an act sends and what its answer leaves standing is
 // `proposal-gate-actions.test.ts`, beside the module that owns it; the scripted port
-// both files drive is `proposal-gate-scripted-port.ts`, which is where the fixture
+// both files drive is `proposal-gate-scripted-port.test-support.ts`, which is where the fixture
 // choice and the drain discipline are recorded.
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -24,7 +24,7 @@ import {
   servedContext,
   settle,
   settleAct,
-} from "./proposal-gate-scripted-port.js";
+} from "./proposal-gate-scripted-port.test-support.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";
 import { offeredProposalActions } from "./proposal-actions.js";
 

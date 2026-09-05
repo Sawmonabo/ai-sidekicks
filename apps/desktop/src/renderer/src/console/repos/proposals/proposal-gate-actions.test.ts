@@ -2,7 +2,7 @@
 //
 // THE ACT HALF ONLY. Which arm a read publishes is `proposal-gate-reader.test.ts`,
 // beside the module that owns it; the scripted port every file here drives is
-// `proposal-gate-scripted-port.ts`, which is where the fixture choice and the drain
+// `proposal-gate-scripted-port.test-support.ts`, which is where the fixture choice and the drain
 // discipline are recorded.
 //
 // WHAT A REFUSAL LEAVES STANDING IS NEXT DOOR, in `proposal-gate-refusals.test.ts`,
@@ -33,7 +33,7 @@ import {
   recordingPort,
   settleAct,
   settle,
-} from "./proposal-gate-scripted-port.js";
+} from "./proposal-gate-scripted-port.test-support.js";
 
 const readers = new OpenReaders();
 
