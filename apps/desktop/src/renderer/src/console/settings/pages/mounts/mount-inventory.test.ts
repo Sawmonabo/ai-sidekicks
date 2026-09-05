@@ -18,6 +18,7 @@ import {
   mountReadFor,
   workspaceListWith,
 } from "./mounts.test-support.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 
 /**
  * Let the scheduler's in-flight read settle without advancing the clock.
@@ -96,7 +97,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     expect(calls[0]?.method).toBe("repo.workspaceList");
     expect(calls.filter((call) => call.method === "repo.mountRead")).toHaveLength(2);
@@ -118,7 +119,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     const state = read.state;
     expect(state.kind).toBe("loaded");
@@ -154,7 +155,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     expect(read.state.kind).toBe("failed");
     read.dispose();
@@ -173,7 +174,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     const state = read.state;
     expect(calls.filter((call) => call.method === "repo.mountRead")).toHaveLength(
@@ -194,7 +195,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     expect(read.isSubscribed).toBe(true);
     read.dispose();
@@ -221,7 +222,7 @@ describe("what refreshes the inventory", () => {
     const { bridge, calls } = bridgeAnswering({ mountIds: [MOUNT_A] });
     const read = createMountInventoryRead({ bridge, sessionId: SESSION_ID, clock, sessionStore });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     return {
       clock,
@@ -236,7 +237,7 @@ describe("what refreshes the inventory", () => {
     expect(listCallCount()).toBe(1);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -248,7 +249,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "repo.detached", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -260,7 +261,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "workspace.ready", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -278,7 +279,7 @@ describe("what refreshes the inventory", () => {
       eventOfKind(sessionStore, "repo.attached", 2),
       eventOfKind(sessionStore, "workspace.ready", 3),
     ]);
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -292,7 +293,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.starting", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(1);
@@ -307,7 +308,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(undefined);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(1);
@@ -320,7 +321,7 @@ describe("what refreshes the inventory", () => {
     read.dispose();
 
     sessionStore.apply(eventOfKind(sessionStore, "run.failed", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(1);

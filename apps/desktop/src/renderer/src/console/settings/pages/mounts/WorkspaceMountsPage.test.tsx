@@ -25,6 +25,7 @@ import {
   mountReadFor,
   workspaceListWith,
 } from "./mounts.test-support.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 
 /**
@@ -115,7 +116,7 @@ async function renderSettledPage(
   );
   const settle = async (): Promise<void> => {
     await act(async () => {
-      clock.advance(500);
+      clock.advance(PAST_REFRESH_DEBOUNCE_MS);
       await new Promise((resolve) => {
         setTimeout(resolve, 0);
       });
@@ -339,7 +340,7 @@ describe("the page's refresh signals", () => {
 
     await act(async () => {
       sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
-      clock.advance(500);
+      clock.advance(PAST_REFRESH_DEBOUNCE_MS);
       await settle();
     });
 
@@ -363,7 +364,7 @@ describe("the page's refresh signals", () => {
 
     await act(async () => {
       sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
-      clock.advance(500);
+      clock.advance(PAST_REFRESH_DEBOUNCE_MS);
       await settle();
     });
 

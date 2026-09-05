@@ -25,6 +25,7 @@ import {
   type SidebarSectionId,
 } from "../../seats/index.js";
 import { registerCollaborationSections } from "../sections.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 
 /**
  * The session id both section reads send over the wire.
@@ -135,7 +136,7 @@ const DEGRADED_LINE_SELECTOR: Readonly<Record<string, string>> = {
 async function sectionWithItsReadSettled(id: SidebarSectionId): Promise<MountedSection> {
   const mounted = renderSection(id);
   await act(async () => {
-    mounted.bridge.scenarioEngine?.advance(500);
+    mounted.bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
     for (let pass = 0; pass < 4; pass += 1) {
       await Promise.resolve();
     }
