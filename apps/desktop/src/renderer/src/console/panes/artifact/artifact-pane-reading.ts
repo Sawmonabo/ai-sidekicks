@@ -16,6 +16,7 @@ import type { GrowthUnavailable } from "../../bridge/index.js";
 import {
   ATTACHMENT_BYTE_CAP_DEFAULT,
   isConsoleRefusal,
+  normalizeWireRejection,
   refuse,
   type ConsoleRefusal,
 } from "../../core/index.js";
@@ -148,16 +149,30 @@ export const ARTIFACT_REPLY_UNREADABLE_CODE = "reply-unreadable";
  *
  * A thrown value is not a refusal until something makes it one, and the alternative —
  * letting it reject inside a timer callback — leaves the pane on the in-flight absence
- * for the rest of its life. The message is carried; the thrown value is not.
+ * for the rest of its life.
+ *
+ * A DELEGATION, NOT A NORMALIZER, on `repos/repo-reads.ts:repoCallRefusal`'s shape.
+ * The three-arm reading this replaces flattened everything to one code and one
+ * sentence: a JSON-RPC envelope carrying `data.type` arrived as `read-threw` with the
+ * daemon's dotted code and its own words discarded, a rate-limit envelope lost its
+ * retry hint, a `ConsoleRefusal` thrown across the bridge lost the origin its author
+ * named, and `error instanceof Error` answered false for an `Error` minted in the
+ * preload realm — which is the realm every bridge rejection crosses — so that value
+ * took the not-an-error arm and its message went with it. `core/wire-rejection.ts`
+ * owns all four of those readings and a terminal that never throws, and the two
+ * things left here are this pane's own: the origin, and the sentence for a rejection
+ * that said nothing machine-readable.
+ *
+ * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
+ * there — a rejection off the wire can carry participant content as readily as a
+ * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
+ * sets and which the copy this replaces broke by interpolating the message into it.
  */
 export function readFailureRefusal(error: unknown): ConsoleRefusal {
-  const cause =
-    error instanceof Error ? error.message : "the read threw a value that is not an error.";
-  return refuse(
-    ARTIFACT_READER_REFUSAL_ORIGIN,
-    ARTIFACT_READ_THREW_CODE,
-    `The artifact read failed before it could answer: ${cause}`,
-  );
+  return normalizeWireRejection(ARTIFACT_READER_REFUSAL_ORIGIN, error, {
+    code: ARTIFACT_READ_THREW_CODE,
+    detail: "The artifact read failed before it could answer.",
+  });
 }
 
 /**

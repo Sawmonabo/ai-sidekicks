@@ -91,19 +91,52 @@ describe("artifact pane reading — what a row's last act answered", () => {
 });
 
 describe("artifact pane reading — a read that threw", () => {
-  it("carries the failure's own sentence and names this reader as its origin", () => {
-    const refusal = readFailureRefusal(new Error("the socket closed"));
+  it("names this reader as the origin and never quotes the rejected value", () => {
+    // The sentence names the leg and stops there: a rejection off the wire can carry
+    // participant content as readily as a schema failure can. The copy this replaces
+    // interpolated `error.message` into it.
+    const refusal = readFailureRefusal(new Error("/Users/someone/secret-branch"));
     expect(refusal.code).toBe("read-threw");
     expect(refusal.origin).toBe("artifact-pane-reader");
-    expect(refusal.detail).toContain("the socket closed");
+    expect(refusal.detail).not.toContain("secret-branch");
   });
 
-  it("negative control: a thrown non-error is not rendered as its own text", () => {
-    // A thrown value can be anything, including participant content. The sentence
-    // says a value was thrown; it never puts the value on screen.
-    const refusal = readFailureRefusal({ secret: "do not render me" });
-    expect(refusal.detail).not.toContain("do not render me");
-    expect(refusal.detail).toContain("not an error");
+  it("keeps a daemon envelope's dotted code, its own words, and its retry hint", () => {
+    // The arm the three-arm copy did not have: everything arrived as `read-threw`
+    // with the daemon's code and sentence discarded, so a 403 and a rate limit read
+    // the same and neither said what to do next.
+    const refusal = readFailureRefusal({
+      message: "Deleting this artifact is not permitted.",
+      data: { type: "artifact.delete_forbidden", fields: { retryAfter: 30 } },
+    });
+    expect(refusal.code).toBe("artifact.delete_forbidden");
+    expect(refusal.detail).toBe("Deleting this artifact is not permitted.");
+    expect(refusal.retry?.afterSeconds).toBe(30);
+  });
+
+  it("keeps the origin a refusal thrown across the bridge already named", () => {
+    // Structural rather than `instanceof`: the value crossed a realm, so its
+    // prototype chain is gone and an `instanceof` reading would silently replace the
+    // author's origin with this pane's.
+    const refusal = readFailureRefusal({
+      refusal: { origin: "growth-port", code: "wire-unregistered", detail: "Not checked." },
+    });
+    expect(refusal.origin).toBe("growth-port");
+    expect(refusal.code).toBe("wire-unregistered");
+  });
+
+  it("negative control: a value whose `message` getter throws does not escape", () => {
+    // This function runs inside the scheduler's `onError`, which is the one handler
+    // that exists so a failure is never swallowed. A throw from here would be a
+    // second failure raised while reporting the first, outside every `catch`.
+    const hostile = {
+      get message(): string {
+        throw new Error("read me and see");
+      },
+    };
+    const refusal = readFailureRefusal(hostile);
+    expect(refusal.origin).toBe("artifact-pane-reader");
+    expect(refusal.detail.length).toBeGreaterThan(0);
   });
 });
 
