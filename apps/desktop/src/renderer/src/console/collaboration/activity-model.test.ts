@@ -7,12 +7,13 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../core/index.js";
+import { frozenStartMilliseconds } from "./frozen-start.test-support.js";
 import { ActivityIndicatorRegistry } from "./activity-model.js";
 import { COMPOSING_RECEIVED_STALE_MS } from "../core/index.js";
 
 describe("activity indicators — a human's is timed", () => {
   it("clears a composing indicator once the receive bound passes", () => {
-    const clock = new ManualClock(Date.parse("2026-01-01T10:00:00.000Z"));
+    const clock = new ManualClock(frozenStartMilliseconds());
     const registry = new ActivityIndicatorRegistry(clock);
     registry.noteComposing({
       participantId: "participant-one",
@@ -25,7 +26,7 @@ describe("activity indicators — a human's is timed", () => {
   });
 
   it("negative control: it is still there one millisecond before the bound", () => {
-    const clock = new ManualClock(Date.parse("2026-01-01T10:00:00.000Z"));
+    const clock = new ManualClock(frozenStartMilliseconds());
     const registry = new ActivityIndicatorRegistry(clock);
     registry.noteComposing({
       participantId: "participant-one",
@@ -39,7 +40,7 @@ describe("activity indicators — a human's is timed", () => {
   it("measures the deadline from the note and never from the publisher's `since`", () => {
     // `since` is an hour old. If it were an expiry input the entry would already be
     // gone; the deadline is the console's own clock at the moment it was noted.
-    const clock = new ManualClock(Date.parse("2026-01-01T10:00:00.000Z"));
+    const clock = new ManualClock(frozenStartMilliseconds());
     const registry = new ActivityIndicatorRegistry(clock);
     registry.noteComposing({
       participantId: "participant-one",

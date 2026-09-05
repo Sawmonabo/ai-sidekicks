@@ -52,11 +52,11 @@ import {
   ConsoleRefusalError,
   Emitter,
   isConsoleRefusal,
-  refuse,
+  normalizeWireRejection,
   type ConsoleClock,
   type ConsoleRefusal,
 } from "../core/index.js";
-import { isWireErrorEnvelope, wireRejectionToError } from "../../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import type { DaemonReply, GrowthOutcome } from "../bridge/index.js";
 import { RefreshScheduler, type RefreshReason } from "../store/index.js";
 
@@ -225,34 +225,38 @@ export class PushDrivenRead<TValue> {
 }
 
 /**
- * The daemon's own refusal where there is one, and a named one where there is not.
+ * The refusal a rejection is, in the console's one refusal shape.
  *
- * A `ConsoleRefusalError` already carries a code and a message the daemon or the
- * fixture wrote, and rule 9 says the console renders those verbatim rather than
- * paraphrasing. Anything else becomes a refusal naming the caller, with the thrown
- * message as its detail — still the author's words, never the console's guess at
- * what went wrong.
+ * TWO ARMS, and the first is the whole reason this function still exists beside
+ * `core/wire-rejection.ts`. A refusal this console already built and threw is handed
+ * back BY REFERENCE: a `GrowthUnavailable` carries `operationId`, `slateRow`, and
+ * `owningDocument` beside the three members every refusal has, and the normalizer
+ * REBUILDS from the three it reads — deliberately, so nothing of a hostile rejection
+ * survives onto the answer — which would drop exactly the part that says who owes
+ * the wire. So a value that is already a `ConsoleRefusal` is not renormalized.
+ *
+ * Everything else goes to `normalizeWireRejection`, which is total and owns every
+ * other reading: a daemon envelope keeps its own code (folding those into
+ * `read-failed` rendered one generic code for a permission denial, a missing
+ * session, and a broken transport), a tRPC-shaped rejection keeps its dotted type,
+ * and a value whose own property access throws still answers a refusal.
  *
  * A free function rather than a private method because a MUTATION's rejection needs
  * exactly this translation and has no read to route through: a second copy of these
  * lines is the duplicate refusal constructor `apps/desktop/AGENTS.md` forbids.
  *
- * A DAEMON ENVELOPE KEEPS ITS OWN CODE, and that arm is not a nicety. Most of this
- * console's rejections arrive as `{ code, message }` off the bridge rather than as
- * a `ConsoleRefusalError`, and folding them into `read-failed` threw away the one
- * thing a person needs — WHICH refusal it was — while rendering the same generic
- * code for a permission denial, a missing session, and a broken transport. The
- * check is structural, so an SDK error subclass carrying a wire code matches too.
- *
- * `fallbackCode` names WHICH of this module's two failures produced it, for a
- * rejection that carried no code of its own. The read failing and the subscription
- * never opening are acted on differently — one is retried, the other means the
- * surface will never hear again — and a single code would tell a reader neither.
+ * `fallbackCode` names WHICH failure produced it, for a rejection that carried no
+ * code of its own — and it is the CALLER's word rather than this module's set,
+ * because a preference write that rejected is neither of the two a push-driven read
+ * has, and reporting it as `read-failed` would tell a reader the wrong thing about
+ * an act that changed something. The DETAIL that travels with it is the thrower's
+ * own message, read through the repository's total stringifier, so a refusal this
+ * console synthesizes still carries the author's words rather than a guess.
  */
 export function consoleRefusalFrom(
   error: unknown,
   origin: string,
-  fallbackCode: PushDrivenReadFailureCode = "read-failed",
+  fallbackCode: string = "read-failed",
 ): ConsoleRefusal {
   if (error instanceof ConsoleRefusalError) {
     return error.refusal;
@@ -260,14 +264,10 @@ export function consoleRefusalFrom(
   if (isConsoleRefusal(error)) {
     return error;
   }
-  if (isWireErrorEnvelope(error)) {
-    return refuse(origin, error.code, error.message);
-  }
-  // Through the repository's one rejection normalizer rather than `String(error)`,
-  // which is not total: a null-prototype value carrying no `toString` throws inside
-  // the very expression that exists to say that something failed, and the throw
-  // lands in a `catch` that has already been left.
-  return refuse(origin, fallbackCode, wireRejectionToError(error, { total: true }).message);
+  return normalizeWireRejection(origin, error, {
+    code: fallbackCode,
+    detail: wireRejectionToError(error, { total: true }).message,
+  });
 }
 
 /**

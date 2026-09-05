@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { parseInstant } from "../../core/index.js";
 import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/presence-model.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import type { ScenarioReply, ScenarioResolvingReply } from "../scenario.js";
@@ -56,7 +57,10 @@ describe("the collaboration scenario", () => {
     expect(pending).toHaveLength(1);
     const [onlyPendingInvite] = pending;
     expect(onlyPendingInvite).toBeDefined();
-    expect(Number.isNaN(Date.parse(onlyPendingInvite?.expiresAt ?? ""))).toBe(false);
+    // Through the console's own reader rather than a `NaN` check: that check passes
+    // for a day that does not exist, which normalizes into the next one instead of
+    // refusing, so it never asserted what this line claims.
+    expect(parseInstant(onlyPendingInvite?.expiresAt ?? "").kind).toBe("instant");
   });
 
   it("scripts no reply for a call it does not make", () => {

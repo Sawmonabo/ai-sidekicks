@@ -33,17 +33,17 @@
 // so a held value lives for this window's lifetime and every consumer renders the
 // note rather than implying a durable write nothing performed.
 
-import {
-  ConsoleRefusalError,
-  Emitter,
-  isConsoleRefusal,
-  refuse,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
+// The console's ONE rejection-to-refusal converter. This module held a second copy
+// of it — the same two verbatim arms over a different fallback code — and a second
+// copy is what `apps/desktop/AGENTS.md` calls a duplicate refusal constructor. The
+// fallback code is still this store's own word, which is all that was ever local
+// about it; a carrier that named its own code now KEEPS it, reversing the note this
+// replaces, on the console-wide rule that folding a wire code into a generic one
+// throws away the one thing a person needs — which refusal it was.
+import { consoleRefusalFrom } from "../../seats/index.js";
 
 /** What one carrier read answers. Derived off the port rather than restated. */
 type ShellConfigReadOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["shellConfigRead"]>>;
@@ -133,6 +133,14 @@ export const NOTHING_CHOSEN: ShellPreferenceSnapshot = {
 
 /** The subsystem name every refusal this module raises carries. */
 export const SHELL_PREFERENCE_REFUSAL_ORIGIN = "shell-preferences";
+
+/**
+ * What this store calls a rejection that named no code of its own.
+ *
+ * Declared once because both the write path and the opening read reach it, and a
+ * second spelling in either place is a rename waiting to go half-applied.
+ */
+const PREFERENCE_WRITE_FAILED = "preference-write-failed";
 
 /**
  * The shell preference set for one window.
@@ -264,7 +272,14 @@ export class ShellPreferenceStore {
       this.#publish({
         ...this.#snapshot,
         pendingKeys: this.#pendingKeys(),
-        refusalByKey: { ...this.#snapshot.refusalByKey, [key]: asRefusal(rejection) },
+        refusalByKey: {
+          ...this.#snapshot.refusalByKey,
+          [key]: consoleRefusalFrom(
+            rejection,
+            SHELL_PREFERENCE_REFUSAL_ORIGIN,
+            PREFERENCE_WRITE_FAILED,
+          ),
+        },
         revision: this.#snapshot.revision + 1,
       });
     }
@@ -328,7 +343,14 @@ export class ShellPreferenceStore {
       opening.settle(() => {
         this.#publish({
           ...this.#snapshot,
-          reading: { kind: "unavailable", refusal: asRefusal(rejection) },
+          reading: {
+            kind: "unavailable",
+            refusal: consoleRefusalFrom(
+              rejection,
+              SHELL_PREFERENCE_REFUSAL_ORIGIN,
+              PREFERENCE_WRITE_FAILED,
+            ),
+          },
           revision: this.#snapshot.revision + 1,
         });
       });
@@ -388,38 +410,6 @@ function appliedReading(
   return reading.kind === "read"
     ? { kind: "read", values: { ...reading.values, [key]: enabled } }
     : { kind: "read", values: { [key]: enabled } };
-}
-
-/**
- * Widen any rejection into the console's one refusal shape.
- *
- * A refusal the port already built is passed through verbatim, because rule 9 renders
- * the author's words rather than paraphrasing them; anything else becomes a refusal
- * naming this module with the rejection's own message as its detail.
- *
- * THE SENTENCE IS COMPOSED THROUGH THE REPOSITORY'S TOTAL NORMALIZER, and it has to
- * be a total one. This was an `instanceof Error` ladder ending in bare `String(...)`,
- * which is not total: `String` runs ToPrimitive, and a null-prototype object — or a
- * hostile `toString` — throws there. That throw happened INSIDE the catch that exists
- * to publish the failure, so `choose` rejected without clearing its pending key and
- * the toggle stayed busy for the life of the window, on the one path whose whole job
- * is to say that something went wrong. `wireRejectionToError` also puts a wire code
- * on `Error.name`, so an envelope rejection renders its own message instead of
- * `[object Object]`; the refusal's `code` stays this module's, because what the wire
- * calls the failure is the carrier's word and not this store's.
- */
-function asRefusal(rejection: unknown): ConsoleRefusal {
-  if (rejection instanceof ConsoleRefusalError) {
-    return rejection.refusal;
-  }
-  if (isConsoleRefusal(rejection)) {
-    return rejection;
-  }
-  return refuse(
-    SHELL_PREFERENCE_REFUSAL_ORIGIN,
-    "preference-write-failed",
-    wireRejectionToError(rejection, { total: true }).message,
-  );
 }
 
 function withoutKey<TValue>(

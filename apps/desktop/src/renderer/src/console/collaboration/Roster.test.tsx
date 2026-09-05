@@ -5,13 +5,14 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
+import { frozenStartMilliseconds } from "./frozen-start.test-support.js";
 import { ParticipantHueAllocator } from "../tokens/index.js";
 import type { ChannelActivityLabels } from "./activity-model.js";
 import { rosterRowsFrom, type RosterRow } from "./presence-model.js";
 import type { PushDrivenReadState } from "../seats/index.js";
 import { Roster } from "./Roster.js";
 
-const NOW_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");
+const NOW_MILLISECONDS = frozenStartMilliseconds();
 
 const LABELS: ChannelActivityLabels = {
   participantLabel: (participantId) => participantId.replace("participant-", ""),
