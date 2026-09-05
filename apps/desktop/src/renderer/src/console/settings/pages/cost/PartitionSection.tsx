@@ -1,7 +1,7 @@
 // The one table all three of a cost receipt's splits are drawn as.
 //
 // Its own module because a component is one subject: the column sets it renders are
-// `run-columns.tsx` and its two siblings, and the money figure their amount column uses is
+// `RunColumns.tsx` and its two siblings, and the money figure their amount column uses is
 // `MoneyFigure.tsx`. Every value here is a prop, so a case can drive all three
 // splits — and the failed-verification arm — with no bridge at all.
 

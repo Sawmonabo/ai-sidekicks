@@ -1,7 +1,8 @@
 // The per-paying-account split's columns.
 //
 // One of three column sets the session cost receipt's splits are drawn with — see
-// `run-columns.tsx` for why each is its own module and why the name is kebab.
+// `RunColumns.tsx` for why each is its own module and how the naming rule reaches a
+// `.tsx` module whose one declaration is a table.
 
 import { WireFigure } from "../../../primitives/index.js";
 import { BILLING_MODE_CLAUSES, type CostReceiptAccountRow } from "./cost-receipt-model.js";
