@@ -10,20 +10,32 @@
 // about trusting what is on screen, the second about where the rest of it is and
 // whether anything brings it back.
 //
-// FOUR SENTENCES AND NOT ONE, because a person's next move differs for each. An
+// SIX SENTENCES AND NOT ONE, because a person's next move differs for each. An
 // unrecognised type is this build's limit. A dropped row is the window's cap, and
 // nothing here fetches a range of the log, so there is nothing to press. A row ahead
 // of a replay position is a control they are holding, and scrubbing forward is the
 // act. A sequence that never arrived is the stream's, and it comes back only when the
-// whole is read again. Collapsing any two tells somebody the console failed where it
-// merely stopped holding, or the reverse — and collapsing the middle two told them
-// rows they could scrub back to in one keystroke were gone for good.
+// whole is read again. A row sharing an identifier with one already drawn is the
+// producer's, and nothing on this side can tell the two apart. A row past the height
+// this window can draw is still HELD — find and the rail reach it, which is the one
+// second line here that names a way back. Collapsing any two tells somebody the
+// console failed where it merely stopped holding, or the reverse — and collapsing the
+// last one into the cap's would say rows they can still reach are gone for good.
 //
-// THREE COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
-// shortcut. A window can count the rows it dropped and the rows it is withholding;
-// what it knows about sequences it never received is that it was told of some, which
-// is a fact with no figure in it. The arm carries no count rather than carrying a
-// zero or inventing one.
+// FIVE COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
+// shortcut. A window can count the rows it dropped, the rows it is withholding, the
+// rows it refused to draw twice, and the rows past its ceiling; what it knows about
+// sequences it never received is that it was told of some, which is a fact with no
+// figure in it. The arm carries no count rather than carrying a zero or inventing one.
+//
+// AND THE COUNTLESS ONE NAMES WHOSE NUMBERING IT IS. A window scoped to PART of a
+// stream — one channel of a session's entries — has a subject that is the part and a
+// sequence that belongs to the whole, so a sentence built from the subject alone
+// attributes the gap to the wrong stream and tells somebody this channel lost rows
+// when the session's numbering is what has a hole in it. The arm takes an optional
+// producer noun for exactly that, and the sentence is the same shape with it and
+// without: naming the producer REPLACES the generic word rather than adding a clause,
+// which is why one arm serves both callers instead of two arms drifting apart.
 //
 // THE SHAPES ARE RULE 8'S ABSENCES, AND NONE OF THESE IS A READ IN FLIGHT. That
 // matters because `not-loaded` is a skeleton: it announces its title rather than
@@ -43,15 +55,17 @@ import { type NothingKind } from "./Nothing.js";
 
 /**
  * Closed. The tuple is the declaration and the union follows from it, so a claim
- * about the SET is countable at runtime and a fifth narrowing added to a caller's
- * pipeline is a compile error here rather than a row that silently renders the
- * fourth one's sentence.
+ * about the SET is countable at runtime and a seventh narrowing added to a caller's
+ * pipeline is a compile error here rather than a row that silently renders one of the
+ * six existing sentences.
  */
 export const WINDOW_ABSENCE_KINDS = [
   "unprojectable",
   "dropped",
   "withheld-by-replay",
   "never-received",
+  "duplicate-key",
+  "past-element-ceiling",
 ] as const;
 
 export type WindowAbsenceKind = (typeof WINDOW_ABSENCE_KINDS)[number];
@@ -69,14 +83,39 @@ export type WindowAbsence =
    *
    * No count: a gap in a sequence says that something is missing and not how much,
    * and a figure here would be one the console made up.
+   *
+   * `producer` names WHOSE numbering the gap is in, as a lowercase SINGULAR noun —
+   * "session", "relay". A window onto part of a stream needs it, for the reason this
+   * module's header gives; it is omitted where the window has one producer and
+   * naming it would say nothing, and the sentence then reads as it always has.
    */
-  | { readonly kind: "never-received" };
+  | { readonly kind: "never-received"; readonly producer?: string }
+  /** Entries this window would not draw twice under one identifier. */
+  | { readonly kind: "duplicate-key"; readonly count: number }
+  /** Entries this window still holds and cannot draw, because it ran out of height. */
+  | { readonly kind: "past-element-ceiling"; readonly count: number };
 
 /** What an absence renders as: rule 8's shape, and the two lines this module writes. */
 export interface WindowAbsenceNotice {
   readonly kind: NothingKind;
   readonly title: string;
   readonly detail: string;
+}
+
+/** What the sentence calls a producer the caller did not name. */
+const UNNAMED_PRODUCER = "producer";
+
+/**
+ * The noun the never-received sentence opens with.
+ *
+ * A blank name is not a name: an unnamed producer and one named `"   "` are the same
+ * fact, and rendering the second would leave "The  numbered entries" on screen. So
+ * an empty name falls back to the generic noun rather than to a broken sentence —
+ * the posture `core/refusal.ts` takes for every other caller-supplied identifier.
+ */
+function producerNoun(named: string | undefined): string {
+  const trimmed = named?.trim() ?? "";
+  return trimmed.length === 0 ? UNNAMED_PRODUCER : trimmed;
 }
 
 /**
@@ -88,8 +127,8 @@ export interface WindowAbsenceNotice {
  * a caller that capitalized it in one place and not another is the drift these
  * modules exist to remove.
  *
- * Total over `WindowAbsence` by construction, so a fifth kind fails to compile here
- * before it can reach a surface that renders it as one of the other four.
+ * Total over `WindowAbsence` by construction, so a seventh kind fails to compile here
+ * before it can reach a surface that renders it as one of the other six.
  */
 export function windowAbsenceNotice(absence: WindowAbsence, subject: string): WindowAbsenceNotice {
   switch (absence.kind) {
@@ -119,7 +158,22 @@ export function windowAbsenceNotice(absence: WindowAbsence, subject: string): Wi
       return {
         kind: "empty",
         title: `Some ${subject} never arrived.`,
-        detail: `The producer numbered ${subject} this window did not receive. They come back only when the whole of it is read again; no read here fetches a range.`,
+        detail: `The ${producerNoun(absence.producer)} numbered ${subject} this window did not receive. They come back only when the whole of it is read again; no read here fetches a range.`,
+      };
+    case "duplicate-key":
+      return {
+        kind: "empty",
+        title: `Some ${subject} share an identifier.`,
+        detail: `${formatCount(absence.count)} were not drawn, because one already in this window carries the same identifier. Nothing here can tell two of them apart, so there is nothing to press.`,
+      };
+    case "past-element-ceiling":
+      return {
+        // `empty` and not `not-checked`: nothing was left unasked. The window holds
+        // these and stopped short of drawing them, which is a settled fact — and the one
+        // here whose second line names a way to the rows rather than the absence of one.
+        kind: "empty",
+        title: `Older ${subject} are past what this window can draw.`,
+        detail: `${formatCount(absence.count)} are still held and sit below the height this window can draw down to. Find and the rail reach them.`,
       };
   }
 }

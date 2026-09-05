@@ -19,12 +19,20 @@
 // method with the root folded into camelCase, so the method can be derived from the
 // id and compared. That derivation is this file's, not production's — there is no
 // production rule to reimplement, and the entry's own literal is what it checks.
+//
+// AND ONE PROPERTY THE SPLIT COSTS, BOUGHT BACK BY COUNTING. The table is composed
+// from eleven plane modules, so a key that appears in two of them is a silent override
+// by the later spread rather than the compile error a duplicate inside one object
+// literal used to be. The last block below asserts the planes' key sets are pairwise
+// disjoint and that their sizes sum to the composed table's — against
+// `GROWTH_OPERATION_PLANES`, the list `index.ts` itself spreads, so the check cannot
+// drift from the composition by holding its own copy of it.
 
 import { describe, expect, it } from "vitest";
 
-import type { GrowthOperationId } from "./growth-entry.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
-import type { GrowthSlateRowId } from "./growth-slate.js";
+import type { GrowthOperationId } from "../growth-entry.js";
+import { GROWTH_OPERATION_PLANES, GROWTH_OPERATIONS } from "./index.js";
+import type { GrowthSlateRowId } from "../growth-slate.js";
 
 const WORKFLOW_SLATE_ROW: GrowthSlateRowId = "workflow-run-control";
 const SIDEKICK_SLATE_ROW: GrowthSlateRowId = "sidekick-definition-registry";
@@ -226,6 +234,63 @@ describe("the growth ledger's two identity-and-registry rows — no method to na
         expect(GROWTH_OPERATIONS[operationId].expectedWireMethod, operationId).toBeUndefined();
         expect(GROWTH_OPERATIONS[operationId].kind, operationId).toBe("method");
       }
+    }
+  });
+});
+
+describe("the composed ledger — eleven planes, one key space", () => {
+  /** Every key that appears in more than one plane, in the order planes are spread. */
+  function keysCarriedByTwoPlanes(
+    planes: readonly Readonly<Record<string, unknown>>[],
+  ): readonly string[] {
+    const seen = new Set<string>();
+    const duplicated: string[] = [];
+    for (const plane of planes) {
+      for (const key of Object.keys(plane)) {
+        if (seen.has(key)) {
+          duplicated.push(key);
+        }
+        seen.add(key);
+      }
+    }
+    return duplicated;
+  }
+
+  it("carries every id in exactly one plane", () => {
+    expect(keysCarriedByTwoPlanes(GROWTH_OPERATION_PLANES)).toStrictEqual([]);
+  });
+
+  it("negative control: the same walk names a row copied into a second plane", () => {
+    // Without this the case above would pass for a walk that never reported
+    // anything, and the property it is here for is precisely one the compiler
+    // stopped catching when the single object literal became a spread of planes.
+    expect(
+      keysCarriedByTwoPlanes([
+        { sessionRead: GROWTH_OPERATIONS.sessionRead },
+        { sessionSearch: GROWTH_OPERATIONS.sessionSearch },
+        { sessionRead: GROWTH_OPERATIONS.sessionRead },
+      ]),
+    ).toStrictEqual(["sessionRead"]);
+  });
+
+  it("loses no row in the spread: the planes' sizes sum to the table's", () => {
+    // The other half of the same property. Disjointness alone would hold for a plane
+    // the composition forgot to spread; this fails if one is missing from either
+    // list, and the two together pin the composition to the planes exactly.
+    const planeRowCount = GROWTH_OPERATION_PLANES.reduce(
+      (total, plane) => total + Object.keys(plane).length,
+      0,
+    );
+
+    expect(planeRowCount).toBe(Object.keys(GROWTH_OPERATIONS).length);
+  });
+
+  it("names each entry with the key it is filed under, across every plane", () => {
+    // The row constructor takes the id as an argument, so a row copied to start a
+    // new one can carry its source's id under a new key — which every structural
+    // check above reads through and none of them contradicts.
+    for (const [operationId, entry] of Object.entries(GROWTH_OPERATIONS)) {
+      expect(entry.id, operationId).toBe(operationId);
     }
   });
 });

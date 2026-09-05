@@ -13,6 +13,14 @@
 // name, and it decides which of them fail. The two jobs fail in two ways — a reading
 // defect drops a clause out of the universe, a rule defect judges the universe
 // wrongly — and neither module can hide the other's.
+//
+// FOUR QUESTIONS, ONE PARSE. Each question below used to ask `barrel-syntax.ts` for
+// its own reading of the same module set, so a caller asking all four paid four
+// parses of the console: measured 2 756 ms for one and 8 680 ms for the four over 486
+// modules. `readCensus` answers all four off a single reading, and every entry point
+// beside it is the same private answer over its own. The single-parse property is
+// therefore STRUCTURAL — there is one `readModuleSyntax` call in the function that
+// has to be fast — rather than a cache someone has to remember to invalidate.
 
 import { posix } from "node:path";
 
@@ -63,6 +71,8 @@ interface ImportEdge {
   readonly targetPath: string;
   /** The names taken, or `"namespace"` for `import * as`. */
   readonly names: readonly string[] | "namespace";
+  /** Whether the edge republishes the names rather than using them. */
+  readonly forwarded: boolean;
 }
 
 /** How many doors a symbol may travel through before the resolver calls it a cycle. */
@@ -73,9 +83,76 @@ export function isConsoleBarrel(path: string): boolean {
   return path.includes("/console/") && path.endsWith("/index.ts");
 }
 
+/** Everything the gate next door asks, answered off ONE reading of the module set. */
+export interface CensusReading {
+  /** Every door line the set publishes, in walk order. */
+  readonly specifiers: readonly BarrelSpecifier[];
+  /** Every console door that publishes nothing it did not declare itself. */
+  readonly doorsForwardingNothing: readonly string[];
+  /** Every barrel forwarding a set its own text does not name. */
+  readonly unenumerableForwarders: readonly string[];
+  /** Every specifier the rule fails, in walk order. */
+  readonly findings: readonly CensusFinding[];
+}
+
+/**
+ * The whole census of `modules`, off one parse.
+ *
+ * For the caller asking more than one of the questions below — which the gate does,
+ * and which is where the cost is. The four exports beside it stay because the rule's
+ * controls ask one question at a time of corpora written by hand to fail, and a
+ * control that had to name three answers it does not judge would read as though it
+ * judged them.
+ */
+export function readCensus(modules: readonly CensusModule[]): CensusReading {
+  const syntax = readModuleSyntax(modules);
+  return {
+    specifiers: specifiersOf(syntax),
+    doorsForwardingNothing: doorsForwardingNothingIn(syntax),
+    unenumerableForwarders: starReexportingIn(syntax),
+    findings: findingsIn(syntax),
+  };
+}
+
 /** Every barrel specifier in the module set, in walk order. */
 export function barrelSpecifiers(modules: readonly CensusModule[]): readonly BarrelSpecifier[] {
   return specifiersOf(readModuleSyntax(modules));
+}
+
+/**
+ * Every console door that publishes nothing it did not declare itself.
+ *
+ * DERIVED FROM THE PARSED DOOR, and it was a hand-maintained list of two until this
+ * became one. Every view family's door is a composition site — it registers a surface
+ * or a pane against a registry it is handed, which is a CALL — so every family
+ * landing appended its own path to that list, in its own branch, in the same three
+ * lines. Four branches editing one list is a conflict by construction, and the list
+ * was the only thing standing between the census's per-door claim and a quantifier.
+ *
+ * The reading is the door's own text: a door forwards if it carries a re-export — an
+ * `export … from` line, or a set its text does not enumerate — and forwards nothing
+ * if every name it publishes is declared in place. That is a DIFFERENT reading from
+ * the specifier census next to it, which is what makes the claim that compares them
+ * worth making: the defect it was written for is a clause reader that drops a door
+ * line, and a dropped clause still leaves the statement this reads.
+ */
+export function doorsThatForwardNothing(modules: readonly CensusModule[]): readonly string[] {
+  return doorsForwardingNothingIn(readModuleSyntax(modules));
+}
+
+function doorsForwardingNothingIn(modules: readonly ModuleSyntax[]): readonly string[] {
+  return modules
+    .filter((module) => isConsoleBarrel(module.path) && !forwardsAnything(module))
+    .map((module) => module.path)
+    .sort();
+}
+
+/** Whether a module republishes any name it did not declare. */
+function forwardsAnything(module: ModuleSyntax): boolean {
+  return (
+    module.forwardsUnnamedSet ||
+    module.reaches.some((reach) => reach.forwarded && reach.moduleSpecifier !== undefined)
+  );
 }
 
 /**
@@ -85,14 +162,21 @@ export function barrelSpecifiers(modules: readonly CensusModule[]): readonly Bar
  * clean census means less than it says wherever one appears.
  */
 export function starReexportingBarrels(modules: readonly CensusModule[]): readonly string[] {
-  return readModuleSyntax(modules)
+  return starReexportingIn(readModuleSyntax(modules));
+}
+
+function starReexportingIn(modules: readonly ModuleSyntax[]): readonly string[] {
+  return modules
     .filter((module) => isConsoleBarrel(module.path) && module.forwardsUnnamedSet)
     .map((module) => module.path);
 }
 
 /** Every specifier the gate's rule fails, in walk order. */
 export function censusFindings(modules: readonly CensusModule[]): readonly CensusFinding[] {
-  const syntax = readModuleSyntax(modules);
+  return findingsIn(readModuleSyntax(modules));
+}
+
+function findingsIn(syntax: readonly ModuleSyntax[]): readonly CensusFinding[] {
   const specifiers = specifiersOf(syntax);
   const specifiersByModule = new Map<string, BarrelSpecifier[]>();
   for (const entry of specifiers) {
@@ -119,7 +203,7 @@ export function censusFindings(modules: readonly CensusModule[]): readonly Censu
           importers.add(edge.importerPath);
           testImportersBySpecifier.set(key, importers);
         }
-      } else if (!isConsoleBarrel(edge.importerPath)) {
+      } else if (!edge.forwarded) {
         productionIdentities.add(declaringIdentity(edge.targetPath, name, specifiersByModule));
         if (isConsoleBarrel(edge.targetPath)) {
           productionDoorReads.add(`${edge.targetPath}#${name}`);
@@ -139,6 +223,14 @@ export function censusFindings(modules: readonly CensusModule[]): readonly Censu
     // and a claim standing after its consumer landed is the rot the tag's own hint
     // exists to prevent — a hint the dead-code gate cannot raise wherever it already
     // counts the specifier as referenced.
+    //
+    // A READER IS DECIDED BY WHAT THE EDGE DOES, NOT BY WHERE IT STARTS. A door that
+    // writes `export { X } from` moves `X` and consumes nothing; a door that writes
+    // `import { X }` and builds a table out of it is a consumer like any other module.
+    // The rule asked only whether the importer was a barrel, which called both of them
+    // forwarding — so `ConsolePaneDescriptor`, whose one production consumer is each
+    // family's own door, stayed claimed with no reachable retiring event while knip,
+    // counting the reference either way, failed the run on the unretirable tag.
     const failing = entry.claimed
       ? productionDoorReads.has(specifierKey)
       : !productionIdentities.has(identity);
@@ -208,6 +300,7 @@ function importEdges(modules: readonly ModuleSyntax[]): readonly ImportEdge[] {
           isTest: module.isTest,
           targetPath,
           names: reach.names,
+          forwarded: reach.forwarded,
         });
       }
     }

@@ -1083,6 +1083,20 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: read
+    # The tier compares its committed references only where this says so, and this
+    # is one of exactly two places that says so (the other is
+    # `console-screenshot-baselines.yml`, which mints them). It is checked by VALUE
+    # in `apps/desktop/test/console/screenshot/baseline-platform.ts`, so copying
+    # this job onto another runner class and keeping the line skips the comparisons
+    # rather than measuring that runner's font stack against this one's images.
+    #
+    # It is read inside a browser page, so it carries the prefix Vite publishes to
+    # one — `vitest/console-projects.ts` widens `envPrefix` by exactly it, from the
+    # same constant that module exports. Renaming it here alone makes it invisible
+    # and every comparison SKIP, which is why that name is asserted rather than
+    # trusted.
+    env:
+      SIDEKICKS_SCREENSHOT_BASELINE_RUNNER: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v5

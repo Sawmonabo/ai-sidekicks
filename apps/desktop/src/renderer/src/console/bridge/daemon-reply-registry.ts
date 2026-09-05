@@ -42,73 +42,30 @@
 // table, and duplicating those names here would be a second answer to a question
 // that already has one.
 
-import type {
-  ChannelListRequest,
-  ChannelListResponse,
-  CompactContextRequest,
-  DriverAckResult,
-  DriverCompactionResult,
-  DriverReadParams,
-  ExecutionModeSelectRequest,
-  ExecutionModeSelectResponse,
-  InterruptRunParams,
-  InterventionRequestPayload,
-  InterventionRequestResponse,
-  InviteRevoke,
-  InviteRevokeResponse,
-  ListCapabilitiesResult,
-  ListProviderCommandsRequest,
-  MembershipUpdate,
-  MembershipUpdateResponse,
-  PresenceReadRequest,
-  PresenceReadResponse,
-  ProviderAccountListRequest,
-  ProviderAccountListResponse,
-  ProviderCommandListResult,
-  QueueItemCancelRequest,
-  QueueItemCancelResponse,
-  QueueItemCreateRequest,
-  QueueItemCreateResponse,
-  QueueItemListRequest,
-  QueueItemListResponse,
-  RepoMountReadRequest,
-  RepoMountReadResponse,
-  RunControlAck,
-  RunPauseRequest,
-  RunResumeRequest,
-  SessionCreateRequest,
-  SessionCreateResponse,
-  WorkspaceExecutionModeCapabilitiesReadRequest,
-  WorkspaceExecutionModeCapabilitiesReadResponse,
-  WorkspaceListRequest,
-  WorkspaceListResponse,
-  WorktreeStatusReadRequest,
-  WorktreeStatusReadResponse,
-  ZodType,
-} from "@ai-sidekicks/contracts";
 import {
-  ChannelListRequestSchema,
-  ChannelListResponseSchema,
-  CompactContextRequestSchema,
   DriverAckResultSchema,
   DriverCompactionResultSchema,
   DriverReadParamsSchema,
+  InterruptRunParamsSchema,
+  ListCapabilitiesResultSchema,
+  ListModelsResultSchema,
+  ListProviderCommandsRequestSchema,
+  ProviderCommandListResultSchema,
+  CompactContextRequestSchema,
+  ChannelListRequestSchema,
+  ChannelListResponseSchema,
   ExecutionModeSelectRequestSchema,
   ExecutionModeSelectResponseSchema,
-  InterruptRunParamsSchema,
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
   InviteRevokeResponseSchema,
   InviteRevokeSchema,
-  ListCapabilitiesResultSchema,
-  ListProviderCommandsRequestSchema,
   MembershipUpdateResponseSchema,
   MembershipUpdateSchema,
   PresenceReadRequestSchema,
   PresenceReadResponseSchema,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
-  ProviderCommandListResultSchema,
   QueueItemCancelRequestSchema,
   QueueItemCancelResponseSchema,
   QueueItemCreateRequestSchema,
@@ -130,156 +87,9 @@ import {
   WorktreeStatusReadResponseSchema,
 } from "@ai-sidekicks/contracts";
 
-/**
- * Every registered daemon method a console surface calls, bound to the request it
- * sends and the response the corpus registers for it.
- *
- * Keyed by the method STRING rather than by a symbolic name, so a call site spells
- * the wire's own word and `ConsoleDaemonMethodContract[MethodName]` resolves for a
- * generic parameter. The method strings are quoted verbatim from
- * `docs/architecture/contracts/api-payload-contracts.md`; nothing here invents one.
- *
- * Grouped by namespace, and within a namespace in the registry table's own row
- * order, so a reader comparing the two reads them top to bottom.
- */
-export interface ConsoleDaemonMethodContract {
-  // run — the queue and the five run controls that reach the wire as calls.
-  readonly "run.queueCreate": {
-    readonly request: QueueItemCreateRequest;
-    readonly response: QueueItemCreateResponse;
-  };
-  readonly "run.queueList": {
-    readonly request: QueueItemListRequest;
-    readonly response: QueueItemListResponse;
-  };
-  readonly "run.queueCancel": {
-    readonly request: QueueItemCancelRequest;
-    readonly response: QueueItemCancelResponse;
-  };
-  readonly "run.pause": { readonly request: RunPauseRequest; readonly response: RunControlAck };
-  readonly "run.resume": { readonly request: RunResumeRequest; readonly response: RunControlAck };
-  /** Steer, interrupt, cancel, rollback: one method, four arms of one payload union. */
-  readonly "run.intervene": {
-    readonly request: InterventionRequestPayload;
-    readonly response: InterventionRequestResponse;
-  };
+import type { ZodType } from "@ai-sidekicks/contracts";
 
-  // driver — the four client-facing verbs a composer or a run control reaches.
-  /**
-   * Stop the addressed run. Answered with `DriverAckResult`, the empty object.
-   *
-   * Registered rather than settled by fulfilment alone: the empty object is a SHAPE
-   * the corpus publishes, and a reply carrying members is a protocol mismatch this
-   * console would otherwise read as a successful stop. The parse costs nothing and
-   * the row is what puts the method under the one door.
-   */
-  readonly "driver.interruptRun": {
-    readonly request: InterruptRunParams;
-    readonly response: DriverAckResult;
-  };
-  /**
-   * Participant-triggered context compaction.
-   *
-   * Run-addressed within the session; the daemon resolves the binding itself, which
-   * is why the request carries no binding member for the console to supply. The reply
-   * is a discriminated union whose `refused` and `failed` arms are DATA a surface
-   * branches on rather than rejections it catches.
-   */
-  readonly "driver.compactContext": {
-    readonly request: CompactContextRequest;
-    readonly response: DriverCompactionResult;
-  };
-  /**
-   * The bound provider's own command and skill enumeration.
-   *
-   * Agent-addressed, because one agent can hold several live bindings at once and the
-   * daemon fans out across them — the reply's group list carries the
-   * `(driverName, providerAccountId)` each entry was read under. A LIVE READ held for
-   * the composer's current target and nothing longer; there is no registry behind it.
-   */
-  readonly "driver.listProviderCommands": {
-    readonly request: ListProviderCommandsRequest;
-    readonly response: ProviderCommandListResult;
-  };
-  /**
-   * Which capabilities each bound driver declares.
-   *
-   * `DriverReadParams` is the empty object the corpus registers for the three no-arg
-   * driver reads — a published shape and not this module's invention, which is what
-   * admits the row under the second conjunct.
-   */
-  readonly "driver.listCapabilities": {
-    readonly request: DriverReadParams;
-    readonly response: ListCapabilitiesResult;
-  };
-
-  // repo — the mounts, workspaces, and execution roots the repos section reads.
-  readonly "repo.mountRead": {
-    readonly request: RepoMountReadRequest;
-    readonly response: RepoMountReadResponse;
-  };
-  readonly "repo.workspaceList": {
-    readonly request: WorkspaceListRequest;
-    readonly response: WorkspaceListResponse;
-  };
-  readonly "repo.executionModeCapabilitiesRead": {
-    readonly request: WorkspaceExecutionModeCapabilitiesReadRequest;
-    readonly response: WorkspaceExecutionModeCapabilitiesReadResponse;
-  };
-  readonly "repo.executionModeSelect": {
-    readonly request: ExecutionModeSelectRequest;
-    readonly response: ExecutionModeSelectResponse;
-  };
-  readonly "repo.worktreeStatusRead": {
-    readonly request: WorktreeStatusReadRequest;
-    readonly response: WorktreeStatusReadResponse;
-  };
-
-  // session, channels, membership, presence, invites — the collaboration plane.
-  readonly "session.create": {
-    readonly request: SessionCreateRequest;
-    readonly response: SessionCreateResponse;
-  };
-  readonly "channel.list": {
-    readonly request: ChannelListRequest;
-    readonly response: ChannelListResponse;
-  };
-  readonly "membership.update": {
-    readonly request: MembershipUpdate;
-    readonly response: MembershipUpdateResponse;
-  };
-  readonly "presence.read": {
-    readonly request: PresenceReadRequest;
-    readonly response: PresenceReadResponse;
-  };
-  readonly "invite.revoke": {
-    readonly request: InviteRevoke;
-    readonly response: InviteRevokeResponse;
-  };
-
-  // providerAccount — the node-local registry read. The subscription beside it is a
-  // stream and so is not here; see this module's header.
-  /**
-   * @consumedBy T-023p-1C-3
-   *
-   * Bound ahead of its caller, and marked so the row does not read as live: nothing
-   * under `console/` calls it on this branch, and the surface that will is the
-   * run-start account selector
-   * `Spec-023 §Provider Accounts And Cost View (→ Plan-029 Provider Accounts And Credential Homes)`
-   * puts on the composer, pre-set to the provider's default account.
-   *
-   * It is also the one row whose method string diverges from the corpus's own
-   * `METHOD_NAME_FORMAT`, which the daemon's `register()` guard evaluates and throws
-   * on — so until that is settled the row can only produce a refusal at run time.
-   * `daemon-reply-registry.test.ts` records the divergence and makes it expire; it
-   * carries the whole reading, and which of the two moves — the namespace root or
-   * the regex — is a corpus question rather than this module's to answer.
-   */
-  readonly "providerAccount.list": {
-    readonly request: ProviderAccountListRequest;
-    readonly response: ProviderAccountListResponse;
-  };
-}
+import type { ConsoleDaemonMethodContract } from "./daemon-method-contract.js";
 
 /** One registered daemon method the console calls. The console's whole call set. */
 export type ConsoleDaemonMethod = keyof ConsoleDaemonMethodContract;
@@ -364,6 +174,7 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
     ProviderCommandListResultSchema,
   ),
   "driver.listCapabilities": bindDaemonMethod(DriverReadParamsSchema, ListCapabilitiesResultSchema),
+  "driver.listModels": bindDaemonMethod(DriverReadParamsSchema, ListModelsResultSchema),
   "repo.mountRead": bindDaemonMethod(RepoMountReadRequestSchema, RepoMountReadResponseSchema),
   "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceListResponseSchema),
   "repo.executionModeCapabilitiesRead": bindDaemonMethod(

@@ -57,5 +57,7 @@ export interface RefusalProps extends Pick<ConsoleRefusal, "code" | "detail"> {
   readonly action?: React.ReactNode;
 }
 
-/** The alert glyph every shape leads with, at one size so the three read as one grammar. */
-export const REFUSAL_GLYPH_SIZE = 14;
+// NO GLYPH SIZE IS DECLARED HERE. The alert every shape leads with is chrome inside
+// a frame, so the three read as one grammar by taking `GLYPH_SIZE_CHROME` from
+// `tokens/glyphs.ts` — the console's one home for that size — rather than by this
+// module holding a copy the pane chrome would then have to agree with.
