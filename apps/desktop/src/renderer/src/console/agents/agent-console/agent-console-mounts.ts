@@ -1,14 +1,14 @@
 // The agent console's two mounts: the deck's pane kind and the frame's surface slot.
 //
 // NOT A DOOR, AND THE DIRECTORY IT SITS IN HAS NONE. `console/panes/` is composition
-// only — the seat board and its chrome — so a pane BODY lives in the family that owns
-// its vocabulary, and this body's vocabulary is the agents family's: the card, the two
-// forms that move a binding, the settlement projection, the run linkage. The family
-// door publishes the two registrars below, `panes/index.ts` calls the pane one from
-// its own reserved line, and `collaboration-family.ts` calls the surface one. A door
-// of this directory's own would be a barrel the family door forwards through, which
-// `console-no-barrel-chain` fails and which would make this module's symbols reachable
-// by two paths.
+// only — the seat board, one reserved line per family — so a pane BODY lives in the
+// family that owns its vocabulary, and this body's vocabulary is the agents family's:
+// the card, the two forms that move a binding, the settlement projection, the run
+// linkage. The family door publishes the two registrars below, `panes/index.ts` calls
+// the pane one from its own reserved line, and `collaboration-family.ts` calls the
+// surface one. A door of this directory's own would be a barrel the family door
+// forwards through, which `console-no-barrel-chain` fails and which would make this
+// module's symbols reachable by two paths.
 //
 // WHY ONE FILE CLAIMS BOTH A PANE KIND AND A SURFACE SLOT
 //
