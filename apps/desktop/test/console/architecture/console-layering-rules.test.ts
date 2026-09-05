@@ -20,6 +20,18 @@
 // would be visible to a concurrently building sibling; and a crash between the
 // write and the delete would leave a violation in the tree that the next
 // `structure` run reports as real.
+//
+// ONE CRUISE PER TREE, AND THE TIMEOUT IS DERIVED FROM THAT. A cruise is the
+// expensive thing here, and the file used to run six for four cases: three cases
+// cruised their own tree and the fourth re-cruised all three to assert a negative
+// over the same outputs. Six cruises against vitest's 5 000 ms default passed alone
+// and timed out under aggregate tier load, and the case that timed out was the one
+// asserting the negative — the one that had computed nothing new. So a tree is
+// cruised at most ONCE for the whole file and every case reads that result, which
+// makes an aggregate case free and leaves each case with at most one cruise to pay
+// for. The timeout then follows the shape `tierTimeoutFor()` uses next door — the
+// slices a case can spend, plus the settlement residual that module already owns —
+// rather than a literal chosen to be comfortable.
 
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,7 +40,9 @@ import { fileURLToPath } from "node:url";
 
 import { cruise } from "dependency-cruiser";
 import extractDepcruiseConfig from "dependency-cruiser/config-utl/extract-depcruise-config";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+
+import { MINIMUM_SETTLEMENT_RESIDUAL_MS } from "../launch-deadline.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
@@ -77,27 +91,85 @@ const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
   "collaboration/SentInvites.ts": `import type { RepoRefusal } from "../repos/RepoList.js";\n\nexport type InviteRefusal = RepoRefusal;\n`,
 };
 
-let plantRoot = "";
+/**
+ * What one cruise of a planted tree may cost, in milliseconds.
+ *
+ * A CEILING FOR A WEDGED CRUISE, not an expectation, on the same posture the launch
+ * budgets take: what it guards is a cruise that never settles, so what matters is
+ * that some finite figure is enforced and that a case which overruns it says which
+ * cruise it was rather than taking vitest's undiagnosable kill.
+ *
+ * Measured rather than chosen. On an idle eight-core Apple-silicon host each of the
+ * three cruises settles in 65-110 ms and the whole file in 262 ms of test time. Ten
+ * seconds is two orders of magnitude over that, which is the margin the tier needs:
+ * the failure this replaces was not a slow cruise but a cruise queued behind
+ * twenty-eight other architecture files under the pool's default parallelism, where
+ * what a case waits out is contention rather than work.
+ *
+ * It is a constant here rather than a `budgets.json` row for the reason that registry
+ * states about `MINIMUM_SETTLEMENT_RESIDUAL_MS`: the rows there are the slices of the
+ * ONE launch-tier timeout, a set claim their derivation makes explicitly, and this
+ * tier launches nothing.
+ */
+const CRUISE_ALLOWANCE_MS = 10_000;
 
-beforeEach(async () => {
+/** What a case may spend, given how many cruises it can be the first to reach. */
+function layeringTimeoutFor(cruises: number): number {
+  return cruises * CRUISE_ALLOWANCE_MS + MINIMUM_SETTLEMENT_RESIDUAL_MS;
+}
+
+/** What a case naming ONE tree may spend. */
+const ONE_TREE_MS = layeringTimeoutFor(1);
+
+/**
+ * What the aggregate case may spend: one allowance per tree it NAMES.
+ *
+ * Not per tree it cruises, which in practice is none — every tree it names has been
+ * answered by the case above it. Budgeting the names rather than the cruises makes
+ * the figure independent of the order the cases run in, which a budget that assumed
+ * a warm memo would not be.
+ */
+const EVERY_TREE_MS = layeringTimeoutFor(3);
+
+const plantRoots: string[] = [];
+const cruisedTrees = new Map<PlantedTree, Promise<readonly string[]>>();
+
+afterAll(async () => {
+  await Promise.all(plantRoots.map((root) => rm(root, { recursive: true, force: true })));
+});
+
+async function plant(tree: PlantedTree): Promise<string> {
   // `realpath` is load-bearing on macOS, where `tmpdir()` is `/var/folders/…`, a symlink
   // to `/private/var/…`: dependency-cruiser resolves modules to their real paths, so a
   // `baseDir` on the symlinked side leaves every module absolute and outside it, and every
   // path-anchored rule silently matches nothing. Measured — without it all four cases
   // report zero violations, including the two that must fail.
-  plantRoot = await realpath(await mkdtemp(join(tmpdir(), "console-layering-")));
-});
-
-afterEach(async () => {
-  await rm(plantRoot, { recursive: true, force: true });
-});
-
-async function plant(tree: PlantedTree): Promise<void> {
+  const plantRoot = await realpath(await mkdtemp(join(tmpdir(), "console-layering-")));
+  plantRoots.push(plantRoot);
   for (const [relativePath, contents] of Object.entries(tree)) {
     const absolutePath = join(plantRoot, CONSOLE_ROOT, relativePath);
     await mkdir(dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, contents, "utf8");
   }
+  return plantRoot;
+}
+
+/**
+ * Which rules fired on `tree`, on which edge — cruised once and remembered.
+ *
+ * Keyed on the tree OBJECT rather than on its contents: every tree is a module-level
+ * constant, so identity is exactly the right key and no hashing of file contents has
+ * to agree with it. A case that asks for the same tree twice is answered from the
+ * pending promise, so two cases racing for one tree still cruise it once.
+ */
+function violationsFor(tree: PlantedTree): Promise<readonly string[]> {
+  const already = cruisedTrees.get(tree);
+  if (already !== undefined) {
+    return already;
+  }
+  const cruising = cruiseOnce(tree);
+  cruisedTrees.set(tree, cruising);
+  return cruising;
 }
 
 /**
@@ -107,8 +179,8 @@ async function plant(tree: PlantedTree): Promise<void> {
  * forbidden set, the resolver extensions, and the test-file exclusion all come out of
  * the config file itself.
  */
-async function violationsFor(tree: PlantedTree): Promise<readonly string[]> {
-  await plant(tree);
+async function cruiseOnce(tree: PlantedTree): Promise<readonly string[]> {
+  const plantRoot = await plant(tree);
   const configuration = await extractDepcruiseConfig(CONFIG_PATH);
   const { forbidden } = configuration;
   if (forbidden === undefined) {
@@ -135,32 +207,61 @@ async function violationsFor(tree: PlantedTree): Promise<readonly string[]> {
 }
 
 describe("console layering rules", () => {
-  it("passes the shape the console ships", async () => {
-    expect(await violationsFor(CLEAN_TREE)).toEqual([]);
-  });
+  it(
+    "passes the shape the console ships",
+    async () => {
+      expect(await violationsFor(CLEAN_TREE)).toEqual([]);
+    },
+    ONE_TREE_MS,
+  );
 
-  it("fails a family door that re-exports through a sub-module door", async () => {
-    expect(await violationsFor(BARREL_CHAIN_TREE)).toEqual([
-      `${BARREL_CHAIN_RULE}: ${join(CONSOLE_ROOT, "bridge/index.ts")} → ${join(CONSOLE_ROOT, "bridge/growth-values/index.ts")}`,
-    ]);
-  });
+  it(
+    "fails a family door that re-exports through a sub-module door",
+    async () => {
+      expect(await violationsFor(BARREL_CHAIN_TREE)).toEqual([
+        `${BARREL_CHAIN_RULE}: ${join(CONSOLE_ROOT, "bridge/index.ts")} → ${join(CONSOLE_ROOT, "bridge/growth-values/index.ts")}`,
+      ]);
+    },
+    ONE_TREE_MS,
+  );
 
-  it("fails one view family importing another", async () => {
-    expect(await violationsFor(VIEW_FAMILY_EDGE_TREE)).toEqual([
-      `${VIEW_FAMILY_ISOLATION_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "repos/RepoList.ts")}`,
-    ]);
-  });
+  it(
+    "fails one view family importing another",
+    async () => {
+      expect(await violationsFor(VIEW_FAMILY_EDGE_TREE)).toEqual([
+        `${VIEW_FAMILY_ISOLATION_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "repos/RepoList.ts")}`,
+      ]);
+    },
+    ONE_TREE_MS,
+  );
 
-  it("leaves the composition site's import of a family door alone", async () => {
-    // `panes/index.ts` is in every tree above and never appears in a violation. Stated as
-    // its own case because it is the one edge the barrel-chain rule would catch if it
-    // matched on the module pair rather than on the `export … from` dependency type, and
-    // a rule that reported it would make the pane board unwritable.
-    const everyViolation = [
-      ...(await violationsFor(CLEAN_TREE)),
-      ...(await violationsFor(BARREL_CHAIN_TREE)),
-      ...(await violationsFor(VIEW_FAMILY_EDGE_TREE)),
-    ];
-    expect(everyViolation.filter((line) => line.includes("panes/index.ts"))).toEqual([]);
-  });
+  it(
+    "leaves the composition site's import of a family door alone",
+    async () => {
+      // `panes/index.ts` is in every tree above and never appears in a violation. Stated as
+      // its own case because it is the one edge the barrel-chain rule would catch if it
+      // matched on the module pair rather than on the `export … from` dependency type, and
+      // a rule that reported it would make the pane board unwritable.
+      const everyViolation = [
+        ...(await violationsFor(CLEAN_TREE)),
+        ...(await violationsFor(BARREL_CHAIN_TREE)),
+        ...(await violationsFor(VIEW_FAMILY_EDGE_TREE)),
+      ];
+      expect(everyViolation.filter((line) => line.includes("panes/index.ts"))).toEqual([]);
+    },
+    EVERY_TREE_MS,
+  );
+
+  it(
+    "control: a tree is cruised once, however many cases name it",
+    async () => {
+      // Without this the memo is invisible: the file would still pass with a cruise per
+      // call, at the six-cruise cost that made the aggregate case time out. Identity
+      // rather than equality, because what is asserted is that no second cruise ran.
+      const first = violationsFor(CLEAN_TREE);
+      expect(violationsFor(CLEAN_TREE)).toBe(first);
+      expect(cruisedTrees.size).toBeLessThanOrEqual(3);
+    },
+    ONE_TREE_MS,
+  );
 });
