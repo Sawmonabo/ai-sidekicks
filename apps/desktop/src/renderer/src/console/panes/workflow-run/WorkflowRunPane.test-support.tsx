@@ -87,3 +87,23 @@ export function renderPane(context: ConsolePaneContext): HTMLElement {
   }
   return section;
 }
+
+/**
+ * How long a wait for the graph's own DOM is given.
+ *
+ * The phase graph is a lazily-loaded chunk — `phase-graph/index.ts` is reached by an
+ * `import()` and by nothing else — so every node, every `data-park` attribute, and
+ * the caption appear only once that import has resolved. Testing Library's `waitFor`
+ * default is one second, and the chunk's own load is measured longer than that under
+ * aggregate tier load (1898 ms for the read-in-flight case in the same run that
+ * failed a one-second wait here), so a suite asserting post-chunk DOM under the
+ * default is bounding a LATENCY it never meant to bound and reads as a DOM failure
+ * when it trips.
+ *
+ * The number bounds the chunk and weakens no claim: every assertion inside these
+ * waits still fails on the wrong DOM, only later. It stays under the tier's own
+ * five-second per-test budget (`console-unit` sets no `testTimeout`, so Vitest's
+ * default applies) so an exhausted wait reports the DOM it actually found rather
+ * than being cut off by the generic test kill first.
+ */
+export const GRAPH_CHUNK_WAIT = { timeout: 4000 } as const;

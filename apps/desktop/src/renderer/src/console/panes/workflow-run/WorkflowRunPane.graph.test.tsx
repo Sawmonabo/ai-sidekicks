@@ -15,6 +15,7 @@ import {
   phasePark,
 } from "../../workflows/runs/run-list-projection.js";
 import {
+  GRAPH_CHUNK_WAIT,
   PARKED,
   answeringBridge,
   paneContext,
@@ -66,7 +67,7 @@ describe("workflow run pane — what the graph says a park is waiting for", () =
       expect(section.querySelectorAll(".meridian-phase-node")).toHaveLength(
         WORKFLOWS_PARKED_RUN.phaseStates.length,
       );
-    });
+    }, GRAPH_CHUNK_WAIT);
 
     expect(drawnParkAttentionByPhase(section)).toStrictEqual(expectedParkAttentionByPhase());
     // The fixture carries both kinds at once, so the map above is a claim about two
@@ -94,7 +95,7 @@ describe("workflow run pane — what the graph says a park is waiting for", () =
       expect(section.querySelectorAll(".meridian-phase-node")).toHaveLength(
         WORKFLOWS_PARKED_RUN.phaseStates.length,
       );
-    });
+    }, GRAPH_CHUNK_WAIT);
 
     const amberNodes = section.querySelectorAll(
       '.meridian-phase-node[data-park="awaiting-person"]',

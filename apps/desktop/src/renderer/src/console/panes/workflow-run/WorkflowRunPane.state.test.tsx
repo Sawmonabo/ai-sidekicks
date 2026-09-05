@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
 import {
+  GRAPH_CHUNK_WAIT,
   PARKED,
   answeringBridge,
   paneContext,
@@ -116,7 +117,7 @@ describe("workflow run pane — the arms and what each offers", () => {
       expect(section.querySelectorAll(".meridian-phase-node__id").length).toBe(
         WORKFLOWS_PARKED_RUN.phaseStates.length,
       );
-    });
+    }, GRAPH_CHUNK_WAIT);
     const nodeIdentifiers = new Set(
       [...section.querySelectorAll(".meridian-phase-node__id .meridian-figure--wire")].map(
         (element) => element.textContent,
@@ -143,7 +144,7 @@ describe("workflow run pane — the arms and what each offers", () => {
 
     await waitFor(() => {
       expect(section.querySelector(".meridian-phase-graph__caption")).not.toBeNull();
-    });
+    }, GRAPH_CHUNK_WAIT);
     expect(section.querySelector(".meridian-phase-graph__caption")?.textContent ?? "").toContain(
       "has not been read here",
     );
