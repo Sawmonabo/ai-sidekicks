@@ -15,7 +15,7 @@
 //     refs, and widths, which is the `layout` value class and nothing beyond it.
 //   • **Saves are coalesced by the write itself.** Dragging a separator produces a
 //     transition per frame, and one durable write per frame would spend the store's
-//     whole budget on a gesture. `deck/layout-persistence.ts` holds one write in
+//     whole budget on a gesture. `layout-writer.ts` holds one write in
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
 //   • **An empty deck opens the ledger.** This surface's own empty state, because no

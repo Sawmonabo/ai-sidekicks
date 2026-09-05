@@ -8,7 +8,7 @@
 //
 // Every case drives the real hook against a real `DeckLayout` and a real store, because
 // the failure is in how the two effects interleave and neither half shows it alone.
-// `layout-persistence.test.ts` holds the writer's own claims; this file holds the pair's.
+// `layout-writer.test.ts` holds the writer's own claims; this file holds the pair's.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

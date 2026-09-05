@@ -40,7 +40,7 @@ import {
   type SidebarSectionDescriptor,
   type SidebarSectionId,
 } from "../../seats/index.js";
-import { type PersistedLayoutRecord } from "../layout-persistence.js";
+import { type PersistedLayoutRecord } from "../layout-writer.js";
 
 /**
  * What a section reports when it is calling for somebody.

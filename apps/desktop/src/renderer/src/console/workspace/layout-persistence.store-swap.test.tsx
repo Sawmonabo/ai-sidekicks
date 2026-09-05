@@ -16,11 +16,8 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "../persistence/index.js";
-import {
-  CoalescingLayoutWriter,
-  DECK_LAYOUT_RECORD_KEY,
-  type PersistedLayoutRecord,
-} from "./layout-persistence.js";
+import { DECK_LAYOUT_RECORD_KEY } from "./layout-persistence.js";
+import { CoalescingLayoutWriter, type PersistedLayoutRecord } from "./layout-writer.js";
 import {
   GatedPersistenceAdapter,
   SESSION_ID,
