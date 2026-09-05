@@ -41,13 +41,13 @@ import {
   TwoQueueSurfaces,
   methodsOf,
   openFeed,
-  stubBridge,
+  queueFeedBridge,
 } from "./queue-feed.test-support.js";
 import { drainMicrotasks } from "./fixture-bridge.test-support.js";
 
 describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
-    const { bridge, openedStreams, calls } = stubBridge();
+    const { bridge, openedStreams, calls } = queueFeedBridge();
     render(
       <TwoQueueSurfaces bridge={bridge} firstSessionId={SESSION_ID} secondSessionId={SESSION_ID} />,
     );
@@ -57,7 +57,7 @@ describe("one session's queue is read once for every surface", () => {
   });
 
   it("negative control: two sessions on one bridge are two readings", async () => {
-    const { bridge, openedStreams, calls } = stubBridge();
+    const { bridge, openedStreams, calls } = queueFeedBridge();
     render(
       <TwoQueueSurfaces
         bridge={bridge}
@@ -73,8 +73,8 @@ describe("one session's queue is read once for every surface", () => {
   it("negative control: two bridges are two readings of the same session", async () => {
     // The key is the pair. One window's reading is never handed to another's bridge,
     // which is what would happen if the readings were keyed on the session alone.
-    const first = stubBridge();
-    const second = stubBridge();
+    const first = queueFeedBridge();
+    const second = queueFeedBridge();
     render(
       <>
         <QueueFeedProbe bridge={first.bridge} sessionId={SESSION_ID} onFeed={() => undefined} />
@@ -94,7 +94,7 @@ describe("one session's queue is read once for every surface", () => {
     // subscribed through the reading it captured at render revived that one — live,
     // open, and outside the registry — and the next surface then minted a second,
     // so one session carried two snapshot reads and two tails.
-    const { bridge, openedStreams, calls } = stubBridge();
+    const { bridge, openedStreams, calls } = queueFeedBridge();
     const view = render(
       <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
@@ -120,7 +120,7 @@ describe("one session's queue is read once for every surface", () => {
     // unconditional `delete(sessionId)` evicted whatever was under that key by the
     // time the last watcher left — a SUCCESSOR with watchers of its own. A retiring
     // reading may only remove itself.
-    const { bridge, openedStreams } = stubBridge();
+    const { bridge, openedStreams } = queueFeedBridge();
     const swapped = render(
       <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
@@ -148,7 +148,7 @@ describe("one session's queue is read once for every surface", () => {
   });
 
   it("reads afresh once the last surface has left, rather than serving a stale list", async () => {
-    const { bridge, openedStreams } = stubBridge();
+    const { bridge, openedStreams } = queueFeedBridge();
     const mounted = render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );

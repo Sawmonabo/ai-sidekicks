@@ -16,7 +16,7 @@ import {
   bodyValue,
   renderComposer,
   runAt,
-  stubBridge,
+  interventionDispatchBridge,
   submit,
   type ScriptedAnswer,
   typeInto,
@@ -65,7 +65,7 @@ describe("the form is keyed by what it is composing against", () => {
     readonly answer: ScriptedAnswer;
     readonly onCommit?: (committed: { body: string; isConfirmDisabled: boolean }) => void;
   }): React.JSX.Element {
-    const [bridge] = useState(() => stubBridge([], props.answer));
+    const [bridge] = useState(() => interventionDispatchBridge([], props.answer));
     const surface = useRunControlSurface(bridge);
     const identity = `${props.runId}:${props.control}`;
     const { onCommit } = props;
@@ -219,7 +219,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
     readonly answer: ScriptedAnswer;
     readonly onDismiss: () => void;
   }): React.JSX.Element {
-    const [bridge] = useState(() => stubBridge([], props.answer));
+    const [bridge] = useState(() => interventionDispatchBridge([], props.answer));
     const surface = useRunControlSurface(bridge);
     return (
       <RunInterventionComposer

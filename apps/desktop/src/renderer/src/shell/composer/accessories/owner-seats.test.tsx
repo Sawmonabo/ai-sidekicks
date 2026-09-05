@@ -1,12 +1,14 @@
 // The rail's plan-owned seats: what they reserve, what they hand over, and what
 // they never say out loud.
 //
-// ONE FILE FOR THREE MODULES, deliberately. `ContextMeterSlot`, `RateLimitSlot`, and
-// `CompactionSlot` are three instances of ONE arrangement — a contract, a body, and
-// a fixture shell behind it — and the claims worth a unit are claims about the
-// arrangement rather than about any one seat. Three near-identical files would drift
-// apart at the first edit, and the case that matters most below is a sweep across
-// all of them.
+// ONE FILE FOR ONE ARRANGEMENT, deliberately. `ContextMeterSlot`, `RateLimitSlot`,
+// `CompactionSlot`, and `EditResendSlot` are instances of ONE arrangement — a
+// contract, a body, and a fixture shell behind it — and the claims worth a unit are
+// claims about the arrangement rather than about any one seat. A file per seat would
+// drift apart at the first edit, and the case that matters most below is a sweep
+// across all of them. The count is deliberately not written: the fifth seat a plan
+// fills is mounted here, and a figure in this sentence would be the one thing that
+// edit forgot.
 //
 // The three claims: the shell renders while nobody has filled the seat, the mounted
 // body replaces it when someone has, and no member of any contract reaches the DOM.

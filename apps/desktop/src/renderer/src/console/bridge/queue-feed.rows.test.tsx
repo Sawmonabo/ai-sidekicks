@@ -20,13 +20,13 @@ import {
   REGISTERED_ROW_DELIVERY,
   SESSION_ID,
   methodsOf,
-  stubBridge,
+  queueFeedBridge,
 } from "./queue-feed.test-support.js";
 import { drainMicrotasks } from "./fixture-bridge.test-support.js";
 
 describe("a queued item is cancelled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {
-    const { bridge, calls } = stubBridge();
+    const { bridge, calls } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -51,7 +51,7 @@ describe("a queued item is cancelled once", () => {
     // Without this the case above would pass over a chokepoint that dispatched
     // NOTHING, which is a different defect with the same count. The latch is per id,
     // and this is the case that says so.
-    const { bridge, calls } = stubBridge();
+    const { bridge, calls } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -67,7 +67,7 @@ describe("a queued item is cancelled once", () => {
   });
 
   it("takes the row's cancel again once the first has settled", async () => {
-    const { bridge, calls } = stubBridge();
+    const { bridge, calls } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -87,7 +87,7 @@ describe("a queued item is cancelled once", () => {
   });
 
   it("holds one row's cancel without holding another's", async () => {
-    const { bridge } = stubBridge();
+    const { bridge } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -108,7 +108,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
   const UNREADABLE_DELIVERY = { id: QUEUE_ITEM_A, status: "waiting", rank: 3 };
 
   it("counts the delivery, keeps the rows it has, and says the reading may be behind", async () => {
-    const { bridge, deliver } = stubBridge();
+    const { bridge, deliver } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -129,7 +129,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
   });
 
   it("carries the delivery's own parse refusal, naming the members that failed", async () => {
-    const { bridge, deliver } = stubBridge();
+    const { bridge, deliver } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -152,7 +152,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
     // delivery missed before the list was restated is no longer missing. The window
     // is now the scheduler's rather than a microtask's, which is what lets the case
     // place the delivery inside it deliberately instead of relying on a race.
-    const { bridge, deliver } = stubBridge([REGISTERED_ROW_DELIVERY]);
+    const { bridge, deliver } = queueFeedBridge([REGISTERED_ROW_DELIVERY]);
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -169,7 +169,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
   it("negative control: a reading whose every delivery parsed claims nothing is missing", async () => {
     // Without this the cases above would pass over a feed that reported every
     // reading as partial, which would make the warning meaningless.
-    const { bridge, deliver } = stubBridge();
+    const { bridge, deliver } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -196,7 +196,7 @@ describe("the ordering rule holds through the hook", () => {
     // opened synchronously inside the effect and the snapshot is taken when the
     // scheduler's window elapses, so a delivery made before that is one that arrived
     // first.
-    const { bridge, deliver } = stubBridge([
+    const { bridge, deliver } = queueFeedBridge([
       row(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z"),
       row(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z"),
     ]);

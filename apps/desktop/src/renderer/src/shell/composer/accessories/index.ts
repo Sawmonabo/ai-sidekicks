@@ -1,6 +1,6 @@
 // The accessory rail's door.
 //
-// One of the composer's three zones: the context meter, the quota chips, the
+// One of the composer's zones: the context meter, the quota chips, the
 // compaction control, the queue shelf, the `+` menu with the attachment picker
 // inside it, and the two seats other plans fill. Behind its own barrel so the lane
 // that fills it edits a directory no sibling lane touches.
