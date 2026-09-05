@@ -137,6 +137,22 @@ function sequentialTabStops(container: HTMLElement): readonly HTMLElement[] {
   });
 }
 
+/** The list element, or a failure that names what did not render. */
+function listOf(container: HTMLElement): HTMLElement {
+  const list = container.querySelector("ul");
+  if (list === null) {
+    throw new Error("the list did not render");
+  }
+  return list;
+}
+
+/** Press `End`, and let every effect the press schedules run. */
+async function pressEnd(list: HTMLElement): Promise<void> {
+  await act(async () => {
+    list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+  });
+}
+
 describe("useWindowedRovingIndex — one tab stop that survives a shrinking set", () => {
   it("keeps exactly one row tabbable after the set narrows under a remembered move", async () => {
     const { container, rerender } = render(
@@ -239,21 +255,6 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
 });
 
 describe("useWindowedRovingIndex — a pending move is spent once, never left standing", () => {
-  /** Press `End`, on a window that has not mounted the last row. */
-  async function pressEnd(list: HTMLElement): Promise<void> {
-    await act(async () => {
-      list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    });
-  }
-
-  function listOf(container: HTMLElement): HTMLElement {
-    const list = container.querySelector("ul");
-    if (list === null) {
-      throw new Error("the list did not render");
-    }
-    return list;
-  }
-
   it("does not steal focus on a later window change once the move has expired", async () => {
     // The defect in terms: the reader presses End, the window never mounts row 39,
     // they tab away and start typing — and an unrelated store update re-runs the
@@ -314,14 +315,6 @@ describe("useWindowedRovingIndex — a pending move is spent once, never left st
 });
 
 describe("useWindowedRovingIndex — the roving index controls the real target", () => {
-  function listOf(container: HTMLElement): HTMLElement {
-    const list = container.querySelector("ul");
-    if (list === null) {
-      throw new Error("the list did not render");
-    }
-    return list;
-  }
-
   it("puts one tab stop in the whole list, whatever the window mounted", () => {
     // The defect in terms: the roving index went on the `<li>` and every row's button
     // kept its native stop, so a window of four rows put five stops in the page's tab
@@ -384,5 +377,92 @@ describe("useWindowedRovingIndex — the roving index controls the real target",
       "LI",
       "BUTTON",
     ]);
+  });
+});
+
+/**
+ * The list with something else on the page to tab to.
+ *
+ * The steal this block is about is only observable against a second focus target:
+ * "focus did not move" is a claim about where it stayed, and the body is where focus
+ * goes when nothing holds it, which is also where a dropped claim leaves it.
+ */
+function ListWithNeighbour(props: {
+  readonly rowCount: number;
+  readonly windowStart: number;
+  readonly windowLength: number;
+}): React.JSX.Element {
+  return (
+    <>
+      <RovingList
+        rowCount={props.rowCount}
+        windowStart={props.windowStart}
+        windowLength={props.windowLength}
+        onReveal={() => undefined}
+      />
+      <button type="button" data-neighbour="">
+        elsewhere
+      </button>
+    </>
+  );
+}
+
+/** The element the reader tabbed to, read back from the tree that rendered it. */
+function neighbourOf(container: HTMLElement): HTMLElement {
+  const neighbour = container.querySelector<HTMLElement>("[data-neighbour]");
+  if (neighbour === null) {
+    throw new Error("the neighbour did not render");
+  }
+  return neighbour;
+}
+
+describe("useWindowedRovingIndex — a move to the row the keyboard is on arms nothing", () => {
+  it("leaves focus where the reader put it when End is pressed at the end", async () => {
+    // The defect in terms: `End` on the last row stores a claim for a row that is
+    // ALREADY active, so `setMovedToIndex` writes the value it holds, React schedules
+    // no render, and nothing spends the claim. The reader tabs away and types; an
+    // unrelated window revision later runs the effect with row 39 mounted and pulls
+    // focus back out of what they were typing in.
+    const { container, rerender } = render(
+      <ListWithNeighbour rowCount={40} windowStart={0} windowLength={40} />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+    expect(document.activeElement?.textContent).toBe("row 39");
+
+    await pressEnd(list);
+    const neighbour = neighbourOf(container);
+    neighbour.focus();
+    rerender(<ListWithNeighbour rowCount={40} windowStart={0} windowLength={40} />);
+    expect(document.activeElement).toBe(neighbour);
+  });
+
+  it("still moves for a key whose landing place is a different row", async () => {
+    // The other half: the guard is on the INDEX being unchanged, not on the key, so
+    // `End` from anywhere but the end still arms, still reveals, and still lands.
+    const { container } = render(
+      <ListWithNeighbour rowCount={40} windowStart={0} windowLength={40} />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+    expect(document.activeElement?.textContent).toBe("row 39");
+    expect(tabbableIndexes(list)).toStrictEqual(["39"]);
+  });
+
+  it("negative control: a claim that WAS armed does take focus on the same revision", async () => {
+    // Without this, the first case would also pass against a harness whose rerender
+    // never re-runs the effect, or against a hook that had stopped moving focus at
+    // all. Same shape, same rerender, one difference — the move goes somewhere — and
+    // focus is taken off the neighbour, which is the steal the first case denies.
+    const { container, rerender } = render(
+      <ListWithNeighbour rowCount={40} windowStart={0} windowLength={4} />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+    const neighbour = neighbourOf(container);
+    neighbour.focus();
+    rerender(<ListWithNeighbour rowCount={40} windowStart={36} windowLength={4} />);
+    expect(document.activeElement).not.toBe(neighbour);
+    expect(document.activeElement?.textContent).toBe("row 39");
   });
 });

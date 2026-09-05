@@ -58,6 +58,20 @@
 // it is dropped once the budget is spent — one retry, which is what an asynchronous
 // `revealIndex` needs, and not a standing claim on the page's focus.
 //
+// AND A MOVE THAT GOES NOWHERE ARMS NOTHING. `End` on the last row, `Home` on the
+// first, `ArrowDown` at the bottom: each is a key this list consumes whose landing
+// place is the row the keyboard is already on. Arming a claim there is the delayed
+// focus steal in its purest form — `setMovedToIndex` stores the value it already
+// holds, so React schedules no render, so no effect run exists to spend the claim,
+// and it sits in the ref until some unrelated store update runs the effect with the
+// row mounted and pulls focus back out of whatever the reader had tabbed to. The
+// claim is therefore MINTED ONLY WHERE FOCUS HAS SOMEWHERE TO GO, rather than minted
+// and consumed in the same tick: consuming it would mean calling `focus()` on the
+// element that already has it, which is a real DOM event (`focus` does not fire
+// again, but scroll anchoring and `:focus-visible` do move) for a key press that
+// asked for nothing. The list still consumes the key and still asks the window for
+// the row, because a reader pressing `End` at the end is asking to SEE the end.
+//
 // AND THE BUDGET COUNTS RUNS RATHER THAN COMPARING THE WINDOW. The claim used to hold
 // the `windowRevision` it was armed against and expire when that value changed, which
 // reads as the more precise rule and is defeated by the value a virtualizer actually
@@ -272,7 +286,13 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       }
       keyEvent.preventDefault();
       const moved = movedRowIndex(move, activeIndex, rowCount);
-      pendingFocus.current = { rowIndex: moved, retriesRemaining: PENDING_FOCUS_RETRIES };
+      if (moved !== activeIndex) {
+        // See the header: a boundary key pressed at that boundary lands on the row
+        // the keyboard is already on, and a claim armed for it has no render to
+        // spend it on. The reveal and the state write below still run — the key was
+        // consumed, and the reader asked to see that end of the list.
+        pendingFocus.current = { rowIndex: moved, retriesRemaining: PENDING_FOCUS_RETRIES };
+      }
       setMovedToIndex(moved);
       revealIndex(moved);
     },
