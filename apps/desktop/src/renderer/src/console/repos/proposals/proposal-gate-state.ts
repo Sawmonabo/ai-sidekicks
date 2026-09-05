@@ -7,6 +7,18 @@
 // them. The values they carry are `prepared-proposal.ts`'s, `hosting-status.ts`'s, and
 // `branch-context-model.ts`'s; nothing here re-declares any of them.
 
+// WHAT NO READ CAN PUBLISH, AND WHY EACH IS A WIRE FACT RATHER THAN A GAP IN A READER
+//
+//   • `hosting-unavailable`, for the reason recorded on the arm itself below: no
+//     registered reply names a bundle or an outage, so there is no honest route to it,
+//     and it stays drawable for a caller that CAN state it.
+//   • A `status` reading. The three trichotomies are facts about a proposal that exists
+//     ON A HOST, and nothing in this console has talked to one — the preparation call is
+//     explicitly the step before any remote mutation.
+//   • `detectedHost`, `title`, `body`, `trailers`, `changedPaths`. Each is optional on
+//     the shape it belongs to for the reason recorded there, and a reader supplies
+//     exactly the ones a reply named.
+
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import type { ProposalStatusReading } from "../mounts/hosting-status.js";
 import type { PreparedProposal } from "./prepared-proposal.js";

@@ -69,68 +69,32 @@
 // recorded BEFORE the register is released. `request` settles and never rejects.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
   type GenerationClaim,
 } from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
-import { proposalContextKeysMatch, type PreparedProposal } from "./prepared-proposal.js";
+import { proposalContextKeysMatch } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
 import { repoCallRefusal } from "../repo-reads.js";
 import {
   PROPOSAL_ACTION_HEAD_EFFECT,
-  PROPOSAL_ACTION_PRESENTATION,
+  proposalActionWire,
   reachesGitAction,
   type GitActionProposalAction,
   type ProposalAction,
 } from "./proposal-actions.js";
 import {
-  GATE_SETTLEMENT_COPY,
-  PROPOSAL_GATE_REFUSAL_ORIGIN,
-  type ProposalGateReading,
-  type ProposalGateRefusalCode,
-} from "./proposal-gate-model.js";
-
-/**
- * What an act needs from the half of the gate that reads.
- *
- * DECLARED ONCE AND IMPLEMENTED BY THE READER, so the two halves share a contract
- * rather than a field. Every member here writes or reads state the reader owns, which
- * is why they are named as the operations they are rather than exposed as the fields
- * they touch: `holdPreparedProposal` takes the context a proposal was prepared
- * AGAINST and the reader derives the pairing key from it, so an act cannot mint a key
- * of its own and cannot hold a proposal without saying what it was built for.
- */
-export interface ProposalGateActionHost {
-  /** The reading standing right now. Every publish below spreads forward from it. */
-  currentReading(): ProposalGateReading;
-  /**
-   * The context a served read is holding, or `undefined` where none has been served.
-   *
-   * Read through the host rather than off the arm, because only the `prepared` arm
-   * carries one and an act must not have to narrow an arm to find the id it was given.
-   */
-  servedContext(): BranchContextReading | undefined;
-  /**
-   * Which participant this window is, or `undefined` where the read did not answer.
-   *
-   * A PROMISE RATHER THAN A SETTLED VALUE, because the identity read and the
-   * branch-context read are issued together and neither waits on the other: an act
-   * pressed the instant a context lands would otherwise send no causation for the
-   * ordinary reason that one read finished first. The reading half performs it once and
-   * every act awaits that same answer.
-   */
-  callerParticipantId(): Promise<string | undefined>;
-  publish(reading: ProposalGateReading): void;
-  /** Hold a prepared proposal, keyed by the context it was prepared against. */
-  holdPreparedProposal(proposal: PreparedProposal, preparedFor: BranchContextReading): void;
-  /** Drop the held proposal and the context it was prepared for, which are one fact. */
-  discardProposal(): void;
-  /** Ask for the read that follows an act the daemon accepted. */
-  requestRefreshAfterAct(): void;
-}
+  actionInFlightRefusal,
+  actionNotAcceptedRefusal,
+  clearActionRefusal,
+  contextSupersededRefusal,
+  noServedContextRefusal,
+  recordActionRefusal,
+} from "./proposal-gate-refusals.js";
+import { GATE_SETTLEMENT_COPY } from "./proposal-gate-model.js";
+import type { ProposalGateActionHost } from "./proposal-gate-action-host.js";
 
 /**
  * The one key an act takes.
@@ -187,14 +151,7 @@ export class ProposalGateActions {
       // gate's own arm carries it — `#holdFor` publishes it in the tick the key is
       // taken — so there is no second copy to disagree with what the gate is showing.
       const pending = this.#host.currentReading().inFlightAction ?? action;
-      this.#recordActionRefusal(
-        action,
-        refuse(
-          PROPOSAL_GATE_REFUSAL_ORIGIN,
-          "action-in-flight" satisfies ProposalGateRefusalCode,
-          `${PROPOSAL_ACTION_PRESENTATION[pending].label} has been sent and the daemon has not answered yet. Nothing else is sent until it settles.`,
-        ),
-      );
+      recordActionRefusal(this.#host, action, actionInFlightRefusal(pending));
       return;
     }
     // WHAT THE LAST PRESS PRODUCED IS CLEARED WHEN THE NEXT ONE IS ISSUED, not when it
@@ -203,7 +160,7 @@ export class ProposalGateActions {
     // succeeded. One write here covers both accepted paths and leaves an in-flight
     // retry showing no stale failure; a refused retry re-records its own below. Every
     // OTHER act's entry survives — a failed commit is still a fact after a push worked.
-    this.#clearActionRefusal(action);
+    clearActionRefusal(this.#host, action);
     const context = this.#host.servedContext();
     if (context === undefined) {
       // Structurally unreachable from the gate, which offers acts only on the
@@ -211,14 +168,7 @@ export class ProposalGateActions {
       // key is given back bare: nothing was published against it, so there is no
       // control to hand back with it.
       round.release();
-      this.#recordActionRefusal(
-        action,
-        refuse(
-          PROPOSAL_GATE_REFUSAL_ORIGIN,
-          "no-served-context" satisfies ProposalGateRefusalCode,
-          "This gate has read no branch context, so there is nothing to act on.",
-        ),
-      );
+      recordActionRefusal(this.#host, action, noServedContextRefusal());
       return;
     }
     this.#holdFor(action);
@@ -235,7 +185,11 @@ export class ProposalGateActions {
       // The check the settle paths make, for their reason: a rejection on a round the
       // register has moved past describes an act a later press superseded.
       if (round.isCurrent) {
-        this.#recordActionRefusal(action, repoCallRefusal(proposalActionWire(action), rejection));
+        recordActionRefusal(
+          this.#host,
+          action,
+          repoCallRefusal(proposalActionWire(action), rejection),
+        );
       }
     } finally {
       this.#releaseHeld(round);
@@ -295,7 +249,7 @@ export class ProposalGateActions {
       return;
     }
     if (outcome.status === "unavailable") {
-      this.#recordActionRefusal("prepare-proposal", outcome);
+      recordActionRefusal(this.#host, "prepare-proposal", outcome);
       return;
     }
     this.#host.holdPreparedProposal(
@@ -338,14 +292,7 @@ export class ProposalGateActions {
       // that reaches the register, and adding one would let the reader decide an act's
       // fate. The comparison is the pairing rule's own three members, so "still the
       // context I was pressed against" is one decision in this family rather than two.
-      this.#recordActionRefusal(
-        action,
-        refuse(
-          PROPOSAL_GATE_REFUSAL_ORIGIN,
-          "context-superseded" satisfies ProposalGateRefusalCode,
-          `${PROPOSAL_ACTION_PRESENTATION[action].label} was pressed against a branch context this gate has since read again, so nothing was sent against it.`,
-        ),
-      );
+      recordActionRefusal(this.#host, action, contextSupersededRefusal(action));
       return;
     }
     const outcome = await this.#bridge.growth.gitActionExecute(
@@ -358,7 +305,7 @@ export class ProposalGateActions {
       return;
     }
     if (outcome.status === "unavailable") {
-      this.#recordActionRefusal(action, outcome);
+      recordActionRefusal(this.#host, action, outcome);
       return;
     }
     if (!outcome.value.success) {
@@ -367,14 +314,10 @@ export class ProposalGateActions {
       // verbatim, because rule 9 forbids paraphrasing a refusal the console did not
       // author. The console's sentence is the fallback for a reply that failed and said
       // why nowhere, and it claims nothing about the reason.
-      this.#recordActionRefusal(
+      recordActionRefusal(
+        this.#host,
         action,
-        refuse(
-          PROPOSAL_GATE_REFUSAL_ORIGIN,
-          "action-not-accepted" satisfies ProposalGateRefusalCode,
-          outcome.value.error ??
-            `The daemon answered this action without taking it, and named no reason. Nothing was ${action === "commit" ? "recorded" : "sent"}.`,
-        ),
+        actionNotAcceptedRefusal(action, outcome.value.error),
       );
       return;
     }
@@ -413,34 +356,4 @@ export class ProposalGateActions {
       settlement: GATE_SETTLEMENT_COPY.prepared,
     });
   }
-
-  /** Drop one act's standing failure. A publish only where there was one to drop. */
-  #clearActionRefusal(action: ProposalAction): void {
-    const reading = this.#host.currentReading();
-    if (!reading.actionRefusals.has(action)) {
-      return;
-    }
-    const actionRefusals = new Map(reading.actionRefusals);
-    actionRefusals.delete(action);
-    this.#host.publish({ ...reading, actionRefusals });
-  }
-
-  #recordActionRefusal(action: ProposalAction, refusal: ConsoleRefusal): void {
-    const reading = this.#host.currentReading();
-    const actionRefusals = new Map(reading.actionRefusals);
-    actionRefusals.set(action, refusal);
-    this.#host.publish({ ...reading, actionRefusals });
-  }
-}
-
-/**
- * Which growth-port operation an act's press puts on the wire.
- *
- * Read off the SAME predicate the dispatch routes on rather than from a table of its
- * own, so the wire a refusal names and the wire the act was sent on are one decision:
- * a second routing could disagree with the first for a fourth act, and the sentence a
- * participant reads would then name a call the console never made.
- */
-function proposalActionWire(action: ProposalAction): string {
-  return reachesGitAction(action) ? "gitActionExecute" : "gitflowPrPrepare";
 }

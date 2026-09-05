@@ -45,6 +45,22 @@ type ServedBranchContext = Extract<
 >["value"];
 
 /** The subsystem every refusal the gate reader mints names as its author. */
+/**
+ * The reading a gate carries before anything has been asked.
+ *
+ * Beside the type it fills rather than in the reader that publishes it first: rule 8
+ * separates "nobody asked" from every answer, and the value that states it is part of
+ * the shape's own vocabulary — a second reader spelling its own would be a second
+ * opinion about what an unasked gate says.
+ */
+export const NOTHING_ASKED_GATE_READING: ProposalGateReading = {
+  state: { kind: "not-checked" },
+  refusal: undefined,
+  actionRefusals: new Map(),
+  inFlightAction: undefined,
+  settlement: undefined,
+};
+
 export const PROPOSAL_GATE_REFUSAL_ORIGIN = "proposal-gate";
 
 /**

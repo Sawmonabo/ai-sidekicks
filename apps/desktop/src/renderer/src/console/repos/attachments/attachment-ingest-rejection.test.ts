@@ -22,7 +22,7 @@ import {
   sourceOver,
   unreadableSourceOver,
 } from "./attachment-ingest-scripted-port.js";
-import { INGEST_MACHINE_SITE } from "./attachment-ingest-machine.js";
+import { INGEST_STREAM_SITE } from "./attachment-ingest-stream.js";
 import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
 
 /** The console-side code a rejection carrying nothing machine-readable becomes. */
@@ -237,7 +237,7 @@ describe("ingest client — the drive promise settles rather than escaping", () 
 
     expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
     const [report] = consoleTripwires.reports();
-    expect(report?.site).toBe(INGEST_MACHINE_SITE);
+    expect(report?.site).toBe(INGEST_STREAM_SITE);
     expect(report?.detail).toContain("attachment-1");
     // The write landed before the fan-out failed, which is why this reports rather
     // than writing again: the entry moved and the subscriber did not hear it.

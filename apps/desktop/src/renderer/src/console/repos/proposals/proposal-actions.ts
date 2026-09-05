@@ -261,3 +261,16 @@ export function withheldRemoteActionCopy(state: ProposalGateState): string | und
  */
 export const PROPOSAL_NOT_SENDABLE_COPY =
   "This proposal is not ready to send yet, so the act that reaches the host is not offered. Preparing it again is what moves it on.";
+
+/**
+ * Which growth-port operation an act's press puts on the wire.
+ *
+ * Read off the SAME predicate the dispatch routes on rather than from a table of its
+ * own, so the wire a refusal names and the wire the act was sent on are one decision: a
+ * second routing could disagree with the first for a fourth act, and the sentence a
+ * participant reads would then name a call the console never made. Beside that
+ * predicate rather than beside the dispatch, so the two cannot be separated.
+ */
+export function proposalActionWire(action: ProposalAction): string {
+  return reachesGitAction(action) ? "gitActionExecute" : "gitflowPrPrepare";
+}

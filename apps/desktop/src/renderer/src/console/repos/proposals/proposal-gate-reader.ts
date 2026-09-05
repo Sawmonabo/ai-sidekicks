@@ -14,10 +14,10 @@
 // accepted act asks for. So an act cannot start a read and this class cannot decide
 // what an act sends.
 //
-// THE CALLER-IDENTITY READ IS THIS CLASS'S BECAUSE IT IS A READ. An act carries the
-// participant who pressed it as the registered request's `causationParticipantId`, and
-// which participant this window is comes off `callerParticipantRead` — so it belongs to
-// the half that reads, held as one settled answer per gate rather than one per press.
+// THE CALLER-IDENTITY READ IS `caller-participant-read.ts`, HELD HERE. An act carries
+// the participant who pressed it as the registered request's `causationParticipantId`,
+// which is a read — but a lazy, unscheduled, unpublished one, so it is that module's and
+// this class holds one of them and hands its answer through the act seam.
 //
 // EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
 // TRIGGER CLASS. `Spec-023 §Rules every console surface obeys` fixes the policy —
@@ -57,19 +57,11 @@
 // used to publish whenever an envelope member was absent, which a contract-shaped
 // reply made true on every single read.
 //
-// WHAT THIS READER DELIBERATELY CANNOT PUBLISH, AND WHY IT IS A WIRE FACT
-//
-//   • `hosting-unavailable`, for the reason `proposal-gate-state.ts` records on the arm
-//     itself: no registered reply names a bundle or an outage, so there is no honest
-//     route to it, and it stays drawable for a caller that CAN state it.
-//   • A `status` reading. The three trichotomies are facts about a proposal that
-//     exists ON A HOST, and nothing in this console has talked to one — the
-//     preparation call is explicitly the step before any remote mutation.
-//   • `detectedHost`, `title`, `body`, `trailers`, `changedPaths`. Each is optional on
-//     the shape it belongs to for the reason recorded there, and this reader supplies
-//     exactly the ones a reply named.
+// WHAT NO READ CAN PUBLISH is recorded on the arms themselves, in
+// `proposal-gate-state.ts`: three things a registered reply names nowhere.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { CallerParticipantRead } from "./caller-participant-read.js";
 import {
   Emitter,
   RealClock,
@@ -79,9 +71,11 @@ import {
 } from "../../core/index.js";
 import { RefreshScheduler, type SessionStore } from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
-import { ProposalGateActions, type ProposalGateActionHost } from "./proposal-gate-actions.js";
+import { ProposalGateActions } from "./proposal-gate-actions.js";
+import type { ProposalGateActionHost } from "./proposal-gate-action-host.js";
 import {
   GATE_SETTLEMENT_COPY,
+  NOTHING_ASKED_GATE_READING,
   PROPOSAL_GATE_REFUSAL_ORIGIN,
   SUBJECT_NOT_ADDRESSABLE,
   branchContextReadPlanFor,
@@ -113,14 +107,6 @@ export type { ProposalGateReading };
 /** The wire this reader asks on, named once so a refusal can say which call failed. */
 const BRANCH_CONTEXT_READ_CALL = "gitflow.branchContextRead";
 
-const NOTHING_ASKED: ProposalGateReading = {
-  state: { kind: "not-checked" },
-  refusal: undefined,
-  actionRefusals: new Map(),
-  inFlightAction: undefined,
-  settlement: undefined,
-};
-
 export interface ProposalGateReaderOptions {
   readonly bridge: ConsoleBridge;
   readonly subject: ProposalGateSubject;
@@ -134,15 +120,15 @@ export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
   /** The session the caller-identity read is asked under. The store's own, never minted. */
-  readonly #sessionId: string;
   /** Resolved once: whether this root can be asked about, and with what. */
   readonly #readPlan: BranchContextReadPlan;
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: RepoRefreshTriggers;
   readonly #actions: ProposalGateActions;
+  readonly #callerParticipant: CallerParticipantRead;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
 
-  #reading: ProposalGateReading = NOTHING_ASKED;
+  #reading: ProposalGateReading = NOTHING_ASKED_GATE_READING;
   /**
    * The served context, held so an act can name the id and the branch it targets.
    *
@@ -151,23 +137,6 @@ export class ProposalGateReader {
    * id it was given.
    */
   #context: BranchContextReading | undefined;
-  /**
-   * The caller-identity read, in flight or settled — one per reader, never one per act.
-   *
-   * A PROMISE HELD RATHER THAN A VALUE: the read answers which participant this window
-   * is, which does not change while a gate is mounted, so a second act reuses the first
-   * act's answer rather than putting the same question on the wire again. Held from the
-   * first act that needs it rather than started at `start()`, because a gate a
-   * participant never acts on should not spend a call on an identity nothing is going
-   * to attribute.
-   *
-   * AN ANSWER IS WHAT IS HELD, AND A NON-ANSWER IS NOT ONE. This field used to keep
-   * whatever the first act got, so an identity read refused or rejected during a
-   * transient disconnect made every later Commit and Push on that gate omit its
-   * causation for the rest of the gate's life — long after the read would have
-   * succeeded. Cleared on a non-answer, so the next act asks again.
-   */
-  #callerParticipantIdRead: Promise<string | undefined> | undefined;
   #proposal: PreparedProposal | undefined;
   /** The context the held proposal was prepared AGAINST. `prepared-proposal.ts` says why. */
   #proposalPreparedFor: ProposalContextKey | undefined;
@@ -209,7 +178,10 @@ export class ProposalGateReader {
       scheduler: this.#scheduler,
       sessionStore: options.sessionStore,
     });
-    this.#sessionId = options.sessionStore.sessionId;
+    this.#callerParticipant = new CallerParticipantRead({
+      bridge: options.bridge,
+      sessionId: options.sessionStore.sessionId,
+    });
     this.#actions = new ProposalGateActions({
       bridge: options.bridge,
       // The mount, because that is the one identity the registered git-action request
@@ -296,7 +268,7 @@ export class ProposalGateReader {
     return {
       currentReading: () => this.#reading,
       servedContext: () => this.#context,
-      callerParticipantId: async () => await this.#readCallerParticipantId(),
+      callerParticipantId: async () => await this.#callerParticipant.read(),
       publish: (reading: ProposalGateReading) => {
         this.#publish(reading);
       },
@@ -311,51 +283,6 @@ export class ProposalGateReader {
         this.#scheduler.request("terminal-event");
       },
     };
-  }
-
-  /**
-   * Which participant this window is, for an act's causation — or the honest absence.
-   *
-   * THE REFUSAL IS ABSORBED HERE AND ON PURPOSE. `causationParticipantId` is optional
-   * on the registered request and is attribution rather than authority: the daemon
-   * resolves the principal an act runs under from the transport, so an unreadable
-   * identity is a member this console cannot fill and not a reason to refuse a press.
-   * Absorbing it into `undefined` is therefore the whole handling — there is no arm to
-   * publish and nothing for a participant to do about it — and it is deliberately NOT
-   * turned into a placeholder, which would be a claim about who acted.
-   *
-   * A rejection is caught for the same reason a served refusal is: the growth port
-   * answers with an outcome, but a live bridge whose IPC never reaches the daemon
-   * rejects instead, and an unhandled rejection here would take down an act that had
-   * already been admitted.
-   *
-   * WHAT IS ABSORBED IS NOT WHAT IS REMEMBERED. Absence is the honest answer for the
-   * act that asked, and it is not an identity to hold: a refusal and a rejection are
-   * both states of the wire at one moment, and a reader that cached either would go on
-   * omitting the causation from every later act on a connection that had come back.
-   * Only a served identity is kept; anything else clears the field so the next act
-   * puts the question again. Cleared under the identity check the settle paths make,
-   * so a slow non-answer cannot drop the answer a later read has already installed.
-   */
-  async #readCallerParticipantId(): Promise<string | undefined> {
-    const pending = (this.#callerParticipantIdRead ??= this.#askWhichParticipantThisIs());
-    const participantId = await pending;
-    if (participantId === undefined && this.#callerParticipantIdRead === pending) {
-      this.#callerParticipantIdRead = undefined;
-    }
-    return participantId;
-  }
-
-  /** Put the identity question on the wire once, answering absence for a non-answer. */
-  async #askWhichParticipantThisIs(): Promise<string | undefined> {
-    try {
-      const outcome = await this.#bridge.growth.callerParticipantRead({
-        sessionId: this.#sessionId,
-      });
-      return outcome.status === "served" ? outcome.value.participantId : undefined;
-    } catch {
-      return undefined;
-    }
   }
 
   async #performRead(): Promise<void> {
