@@ -114,3 +114,41 @@ describe("Workspace — the arrangement follows the store on screen", () => {
     expect(liveAdapter.asked).toHaveLength(0);
   });
 });
+
+describe("Workspace — the restore runs once for the session on screen", () => {
+  it("does not read the record again when the store is replaced under it", async () => {
+    // `DeckLayout.restore` replaces wholesale, which is right at a mount against an
+    // empty deck and wrong against one somebody has been arranging: the two records
+    // below deliberately disagree, so a second restore is visible as the deck losing a
+    // pane rather than as nothing at all.
+    const firstStore = storeOver(new GatedPersistenceAdapter());
+    await saveLayout(firstStore, SESSION_ID, ["timeline", "runs"]);
+    const secondStore = storeOver(new GatedPersistenceAdapter());
+    await saveLayout(secondStore, SESSION_ID, ["timeline"]);
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+
+    const { container, rerender } = render(workspaceFor(session, firstStore, false));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    });
+
+    rerender(workspaceFor(session, secondStore, false));
+    await drainMicrotasks();
+    await drainMicrotasks();
+
+    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+  });
+
+  it("negative control: the second store's record really is a one-pane deck", async () => {
+    // Without this, the case above would pass over two records that said the same
+    // thing, and the assertion would be about nothing.
+    const secondStore = storeOver(new GatedPersistenceAdapter());
+    await saveLayout(secondStore, SESSION_ID, ["timeline"]);
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+
+    const { container } = render(workspaceFor(session, secondStore, false));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+  });
+});

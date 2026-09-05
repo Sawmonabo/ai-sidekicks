@@ -20,9 +20,10 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { type SidebarSectionId } from "../../seats/index.js";
-import { useSubjectScopedResource } from "../../store/index.js";
+import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
 import {
   CoalescingLayoutWriter,
+  RestoreProgress,
   flushAndCloseWriter,
   refuseWorkspace,
   type PersistedLayoutRecord,
@@ -170,16 +171,24 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
     flushAndCloseWriter,
   );
 
+  // Once per `(sidebar, session)`, for the reason `layout-persistence.ts` states: the
+  // store is replaced under a live surface and `adopt` replaces the width, the collapse
+  // and the open section wholesale, so a gate re-armed by that replacement would put the
+  // saved arrangement back over the one the person is looking at.
+  const { value: restore } = useSubjectScopedState(layout, sessionId, () => new RestoreProgress());
+
   useEffect(() => {
-    if (sessionId === undefined) {
+    if (sessionId === undefined || !restore.isUnstarted) {
       return;
     }
+    restore.start();
     let superseded = false;
     void (async () => {
       const record = await uiStateStore.read(sessionId, SIDEBAR_LAYOUT_RECORD_KEY);
       if (superseded) {
         return;
       }
+      restore.settle();
       if (record === undefined) {
         layout.adopt(INITIAL_SIDEBAR_LAYOUT_STATE, []);
         return;
@@ -189,8 +198,9 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
     })();
     return () => {
       superseded = true;
+      restore.abandon();
     };
-  }, [layout, sessionId, uiStateStore]);
+  }, [layout, restore, sessionId, uiStateStore]);
 
   useEffect(() => {
     if (sessionId === undefined) {
