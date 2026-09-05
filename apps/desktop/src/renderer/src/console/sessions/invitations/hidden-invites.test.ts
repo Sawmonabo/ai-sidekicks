@@ -7,13 +7,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
-import { PERSISTENCE_GLOBAL_PARTITION, UiStateStore } from "../../persistence/index.js";
+import { PERSISTENCE_GLOBAL_PARTITION } from "../../persistence/index.js";
+import { openStore } from "../sessions.test-support.js";
 import { HIDDEN_INVITES_KEY, HiddenInviteStore, narrowHiddenInviteIds } from "./hidden-invites.js";
-
-function openStore(): UiStateStore {
-  return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
-}
 
 describe("the set-aside set", () => {
   it("writes through the chokepoint under the expansion class", async () => {

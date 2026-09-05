@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 
 import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
 import { UiStateStore } from "../../persistence/index.js";
+import { openStore } from "../sessions.test-support.js";
 import { DurableViewState } from "./durable-view-state.js";
 
 /** The record these cases read and write. Any global key would do; this one is theirs. */
@@ -46,14 +47,6 @@ function narrowIdList(raw: unknown): readonly string[] | undefined {
   return Array.isArray(raw)
     ? raw.filter((member): member is string => typeof member === "string")
     : undefined;
-}
-
-function openStore(options: { readonly capacityBytes?: number } = {}): UiStateStore {
-  return new UiStateStore({
-    adapter: new MemoryPersistenceAdapter(
-      options.capacityBytes === undefined ? {} : { capacityBytes: options.capacityBytes },
-    ),
-  });
 }
 
 /**

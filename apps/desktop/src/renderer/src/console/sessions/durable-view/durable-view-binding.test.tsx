@@ -16,22 +16,16 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
-import { UiStateStore } from "../../persistence/index.js";
+import type { UiStateStore } from "../../persistence/index.js";
+import { openStoreOver } from "../sessions.test-support.js";
 import { DurableViewBindingHolder, type DurableViewBinding } from "./durable-view-binding.js";
 import { HIDDEN_INVITES_KEY, useHiddenInvites } from "../invitations/hidden-invites.js";
 import { SESSION_PIN_TIERS_KEY, useSessionPins, type SessionPinMap } from "../rows/session-pins.js";
-
-function openStore(adapter: MemoryPersistenceAdapter): UiStateStore {
-  return new UiStateStore({ adapter });
-}
+import { settle as settlePasses } from "../../core/settle.test-support.js";
 
 /** Let a durable read or write settle. Both are promises the acts do not await. */
 async function settle(): Promise<void> {
-  for (let pass = 0; pass < 4; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+  await settlePasses(4);
 }
 
 /**
@@ -62,7 +56,7 @@ class RecordingBinding implements DurableViewBinding {
 describe("the holder that keys a binding on its store", () => {
   it("hands the same binding back while the store is the same", () => {
     const adapter = new MemoryPersistenceAdapter();
-    const store = openStore(adapter);
+    const store = openStoreOver(adapter);
     const holder = new DurableViewBindingHolder(() => new RecordingBinding());
     expect(holder.acquire(store)).toBe(holder.acquire(store));
   });
@@ -70,8 +64,8 @@ describe("the holder that keys a binding on its store", () => {
   it("disposes the binding a different store supersedes, exactly once", () => {
     const adapter = new MemoryPersistenceAdapter();
     const holder = new DurableViewBindingHolder(() => new RecordingBinding());
-    const first = holder.acquire(openStore(adapter));
-    const replacement = openStore(adapter);
+    const first = holder.acquire(openStoreOver(adapter));
+    const replacement = openStoreOver(adapter);
     const second = holder.acquire(replacement);
     holder.acquire(replacement);
 
@@ -85,11 +79,11 @@ describe("the holder that keys a binding on its store", () => {
     // also acquired — which is what makes a discarded render dispose the binding
     // the committed tree is subscribed to.
     const adapter = new MemoryPersistenceAdapter();
-    const store = openStore(adapter);
+    const store = openStoreOver(adapter);
     const holder = new DurableViewBindingHolder(() => new RecordingBinding());
     expect(holder.bindingIfCurrent(store)).toBeUndefined();
     const acquired = holder.acquire(store);
-    expect(holder.bindingIfCurrent(openStore(adapter))).toBeUndefined();
+    expect(holder.bindingIfCurrent(openStoreOver(adapter))).toBeUndefined();
     expect(acquired.disposeCount).toBe(0);
   });
 });
@@ -116,7 +110,7 @@ function renderedTiers(container: HTMLElement): SessionPinMap {
 
 describe("the pin binding when the window replaces its durable store", () => {
   it("rebinds to the replacement rather than leaking the old map into it", async () => {
-    const view = render(<PinProbe store={openStore(new MemoryPersistenceAdapter())} />);
+    const view = render(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
     act(() => {
       view.container.querySelector("button")?.click();
@@ -126,7 +120,7 @@ describe("the pin binding when the window replaces its durable store", () => {
 
     // A fresh adapter, the way a scenario swap arrives: the replacement store has
     // never seen this window's writes.
-    view.rerender(<PinProbe store={openStore(new MemoryPersistenceAdapter())} />);
+    view.rerender(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
 
     // The previous scenario's map is gone rather than leaking into the new one.
@@ -137,9 +131,9 @@ describe("the pin binding when the window replaces its durable store", () => {
     // The half of the defect nobody sees: the map on screen could be right and every
     // write still land in the closed database.
     const replacementAdapter = new MemoryPersistenceAdapter();
-    const view = render(<PinProbe store={openStore(new MemoryPersistenceAdapter())} />);
+    const view = render(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
-    view.rerender(<PinProbe store={openStore(replacementAdapter)} />);
+    view.rerender(<PinProbe store={openStoreOver(replacementAdapter)} />);
     await settle();
 
     act(() => {
@@ -150,18 +144,18 @@ describe("the pin binding when the window replaces its durable store", () => {
     expect(renderedTiers(view.container)).toStrictEqual({ "session-a": "front" });
     // Read back through a fresh store over the replacement's own adapter, so the
     // assertion is about what was persisted rather than about what is on screen.
-    const readBack = await openStore(replacementAdapter).readGlobal(SESSION_PIN_TIERS_KEY);
+    const readBack = await openStoreOver(replacementAdapter).readGlobal(SESSION_PIN_TIERS_KEY);
     expect(readBack?.value).toStrictEqual({ "session-a": "front" });
   });
 
   it("hydrates the replacement from what that store already holds", async () => {
     const replacementAdapter = new MemoryPersistenceAdapter();
-    const seeding = openStore(replacementAdapter);
+    const seeding = openStoreOver(replacementAdapter);
     await seeding.writeGlobal(SESSION_PIN_TIERS_KEY, "pin", { "session-b": "front" });
 
-    const view = render(<PinProbe store={openStore(new MemoryPersistenceAdapter())} />);
+    const view = render(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
-    view.rerender(<PinProbe store={openStore(replacementAdapter)} />);
+    view.rerender(<PinProbe store={openStoreOver(replacementAdapter)} />);
     await settle();
 
     expect(renderedTiers(view.container)).toStrictEqual({ "session-b": "front" });
@@ -171,7 +165,7 @@ describe("the pin binding when the window replaces its durable store", () => {
     // Without this, every case above would pass over a hook that re-minted on every
     // render — which would re-read the record after each local act and put a pin
     // back the way a person had just changed it.
-    const store = openStore(new MemoryPersistenceAdapter());
+    const store = openStoreOver(new MemoryPersistenceAdapter());
     const view = render(<PinProbe store={store} />);
     await settle();
     act(() => {
@@ -203,7 +197,9 @@ function HiddenInviteProbe(props: { readonly store: UiStateStore }): React.JSX.E
 
 describe("the hide-set binding when the window replaces its durable store", () => {
   it("rebinds to the replacement rather than leaking the set into it", async () => {
-    const view = render(<HiddenInviteProbe store={openStore(new MemoryPersistenceAdapter())} />);
+    const view = render(
+      <HiddenInviteProbe store={openStoreOver(new MemoryPersistenceAdapter())} />,
+    );
     await settle();
     act(() => {
       view.container.querySelector("button")?.click();
@@ -211,7 +207,7 @@ describe("the hide-set binding when the window replaces its durable store", () =
     await settle();
     expect(view.container.textContent).toBe(JSON.stringify(["invite-1"]));
 
-    view.rerender(<HiddenInviteProbe store={openStore(new MemoryPersistenceAdapter())} />);
+    view.rerender(<HiddenInviteProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
 
     expect(view.container.textContent).toBe(JSON.stringify([]));
@@ -219,9 +215,11 @@ describe("the hide-set binding when the window replaces its durable store", () =
 
   it("sends a hide made after the replacement to the replacement", async () => {
     const replacementAdapter = new MemoryPersistenceAdapter();
-    const view = render(<HiddenInviteProbe store={openStore(new MemoryPersistenceAdapter())} />);
+    const view = render(
+      <HiddenInviteProbe store={openStoreOver(new MemoryPersistenceAdapter())} />,
+    );
     await settle();
-    view.rerender(<HiddenInviteProbe store={openStore(replacementAdapter)} />);
+    view.rerender(<HiddenInviteProbe store={openStoreOver(replacementAdapter)} />);
     await settle();
 
     act(() => {
@@ -229,7 +227,7 @@ describe("the hide-set binding when the window replaces its durable store", () =
     });
     await settle();
 
-    const readBack = await openStore(replacementAdapter).readGlobal(HIDDEN_INVITES_KEY);
+    const readBack = await openStoreOver(replacementAdapter).readGlobal(HIDDEN_INVITES_KEY);
     expect(readBack?.value).toStrictEqual(["invite-1"]);
   });
 });

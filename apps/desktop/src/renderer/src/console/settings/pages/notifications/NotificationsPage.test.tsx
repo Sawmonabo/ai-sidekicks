@@ -23,6 +23,7 @@ import type {
   CallerParticipantOutcome,
 } from "./attention-preference-model.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
+import { settle as settlePasses } from "../../../core/settle.test-support.js";
 
 const SESSION_ID = "session-notifications";
 const PARTICIPANT_ID = "participant-ana";
@@ -61,11 +62,7 @@ function contextWith(bridge: ConsoleBridge, retainedSessionId: string | undefine
 
 /** Let the chained reads, the write, and the re-read all land. */
 async function settle(): Promise<void> {
-  for (let pass = 0; pass < 8; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+  await settlePasses(8);
 }
 
 /**

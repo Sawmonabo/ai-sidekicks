@@ -24,6 +24,7 @@ import type { ConsoleScenario } from "../../bridge/scenario.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import type { SentInvite } from "./invite-ledger.js";
 import { SentInvites } from "./SentInvites.js";
+import { settle as settlePasses } from "../../core/settle.test-support.js";
 
 /**
  * A scenario with nothing scripted.
@@ -123,11 +124,7 @@ async function pressRevoke(container: HTMLElement): Promise<void> {
 
 /** Let the one-shot read and the effects it schedules land. */
 async function settle(): Promise<void> {
-  for (let pass = 0; pass < 3; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+  await settlePasses(3);
 }
 
 describe("sent invites — the read", () => {

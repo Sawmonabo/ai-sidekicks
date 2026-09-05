@@ -19,6 +19,7 @@ import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { CostReceiptPage, registerCostReceiptPage } from "./CostReceiptPage.js";
 import type { CostReceipt, CostReceiptOutcome } from "./cost-receipt-model.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
+import { settle as settlePasses } from "../../../core/settle.test-support.js";
 
 type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
 
@@ -124,11 +125,7 @@ function bridgeServing(receipt: CostReceipt): ConsoleBridge {
 
 /** Let the one-shot read and the effects it schedules land. */
 async function settle(): Promise<void> {
-  for (let pass = 0; pass < 3; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+  await settlePasses(3);
 }
 
 function renderPage(bridge: ConsoleBridge, retainedSessionId: string | undefined): HTMLElement {

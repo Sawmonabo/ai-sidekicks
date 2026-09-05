@@ -12,9 +12,11 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "../../core/index.js";
 import { frozenStartMilliseconds } from "../../core/frozen-instant.test-support.js";
 import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
-import { UiStateStore } from "../../persistence/index.js";
+import type { UiStateStore } from "../../persistence/index.js";
+import { openStore, openStoreOver } from "../sessions.test-support.js";
 import { InviteShelf, type InviteShelfReader, type ReceivedInvite } from "./InviteShelf.js";
 import { HIDDEN_INVITES_KEY } from "./hidden-invites.js";
+import { settle as settlePasses } from "../../core/settle.test-support.js";
 
 type ShelfOutcome = Awaited<ReturnType<InviteShelfReader>>[number];
 
@@ -50,15 +52,7 @@ const REFUSED: ShelfOutcome = {
  * number picked to make a test pass.
  */
 async function settle(): Promise<void> {
-  for (let pass = 0; pass < 4; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-}
-
-function openUiStateStore(): UiStateStore {
-  return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
+  await settlePasses(4);
 }
 
 /** The gap between the frozen start and the fixture invitation's own expiry. */
@@ -79,7 +73,7 @@ function frozenClock(): ManualClock {
 /** Render the shelf and let its one-shot read and its hydrate settle. */
 async function renderShelf(
   outcomes: readonly ShelfOutcome[],
-  uiStateStore: UiStateStore = openUiStateStore(),
+  uiStateStore: UiStateStore = openStore(),
 ): Promise<ReturnType<typeof render>> {
   const view = render(
     <InviteShelf
@@ -207,7 +201,7 @@ describe("an invitation that lapses while the console holds it", () => {
     // read, so an invitation that expired while the window stayed open went on being
     // offered — and **Not now** stayed the only thing a person could do with it.
     const clock = frozenClock();
-    const uiStateStore = openUiStateStore();
+    const uiStateStore = openStore();
     const { container } = render(
       <InviteShelf
         read={() => Promise.resolve([served([invite()])])}
@@ -237,7 +231,7 @@ describe("an invitation that lapses while the console holds it", () => {
     const { container } = render(
       <InviteShelf
         read={() => Promise.resolve([served([invite()])])}
-        uiStateStore={openUiStateStore()}
+        uiStateStore={openStore()}
         clock={clock}
       />,
     );
@@ -272,7 +266,7 @@ describe("Not now", () => {
   });
 
   it("sets the invitation aside and writes the hide through the durable store", async () => {
-    const uiStateStore = openUiStateStore();
+    const uiStateStore = openStore();
     const { container } = await renderShelf([served([invite()])], uiStateStore);
 
     act(() => {
@@ -306,10 +300,10 @@ describe("Not now", () => {
 describe("what a refusal must not do to a person's hides", () => {
   it("leaves the set-aside invitations alone when the read refused", async () => {
     const adapter = new MemoryPersistenceAdapter();
-    const seeded = new UiStateStore({ adapter });
+    const seeded = openStoreOver(adapter);
     await seeded.writeGlobal(HIDDEN_INVITES_KEY, "expansion", ["invite-1"]);
 
-    await renderShelf([REFUSED], new UiStateStore({ adapter }));
+    await renderShelf([REFUSED], openStoreOver(adapter));
 
     const record = await seeded.readGlobal(HIDDEN_INVITES_KEY);
     expect(record?.value).toStrictEqual(["invite-1"]);
@@ -320,10 +314,10 @@ describe("what a refusal must not do to a person's hides", () => {
     // is still not evidence an invitation is gone: the session that refused may
     // hold the very one the pending list does not name.
     const adapter = new MemoryPersistenceAdapter();
-    const seeded = new UiStateStore({ adapter });
+    const seeded = openStoreOver(adapter);
     await seeded.writeGlobal(HIDDEN_INVITES_KEY, "expansion", ["invite-1"]);
 
-    await renderShelf([served([]), REFUSED], new UiStateStore({ adapter }));
+    await renderShelf([served([]), REFUSED], openStoreOver(adapter));
 
     const record = await seeded.readGlobal(HIDDEN_INVITES_KEY);
     expect(record?.value).toStrictEqual(["invite-1"]);
@@ -333,10 +327,10 @@ describe("what a refusal must not do to a person's hides", () => {
     // Without this, the cases above would pass over a shelf that never pruned at
     // all, which is a different defect wearing the same green tick.
     const adapter = new MemoryPersistenceAdapter();
-    const seeded = new UiStateStore({ adapter });
+    const seeded = openStoreOver(adapter);
     await seeded.writeGlobal(HIDDEN_INVITES_KEY, "expansion", ["invite-1"]);
 
-    await renderShelf([served([])], new UiStateStore({ adapter }));
+    await renderShelf([served([])], openStoreOver(adapter));
 
     const record = await seeded.readGlobal(HIDDEN_INVITES_KEY);
     expect(record?.value).toStrictEqual([]);
@@ -360,7 +354,7 @@ describe("an answer that belongs to the session set it was asked of", () => {
     // The defect: the outcomes went on describing the previous session set until the
     // replacement fan-out settled, and if it stalls that is forever — so the shelf
     // offered **Not now** on an invitation read for a set this console has replaced.
-    const uiStateStore = openUiStateStore();
+    const uiStateStore = openStore();
     const view = render(
       <InviteShelf
         read={() => Promise.resolve([served([invite()])])}
@@ -386,7 +380,7 @@ describe("an answer that belongs to the session set it was asked of", () => {
     // The other half of the same fact, and the one a person cannot tell from the
     // truth: an empty shelf under a stalled replacement read says "nothing is
     // waiting for you", which is a claim about a set nobody has answered for.
-    const uiStateStore = openUiStateStore();
+    const uiStateStore = openStore();
     const view = render(
       <InviteShelf
         read={() => Promise.resolve([served([])])}
@@ -411,7 +405,7 @@ describe("an answer that belongs to the session set it was asked of", () => {
   it("drops the previous set's answer when it lands after the reader changed", async () => {
     // The read this console has left is not cancellable, so it settles whenever it
     // settles. What it may not do is install itself over the set now being read for.
-    const uiStateStore = openUiStateStore();
+    const uiStateStore = openStore();
     const abandoned = heldReader();
     const view = render(
       <InviteShelf read={abandoned.read} uiStateStore={uiStateStore} clock={frozenClock()} />,
@@ -436,7 +430,7 @@ describe("an answer that belongs to the session set it was asked of", () => {
     // Without this, the cases above would pass over a shelf that had stopped
     // rendering answers altogether — which would leave every session set reading
     // forever.
-    const uiStateStore = openUiStateStore();
+    const uiStateStore = openStore();
     const view = render(
       <InviteShelf
         read={() => Promise.resolve([served([])])}
