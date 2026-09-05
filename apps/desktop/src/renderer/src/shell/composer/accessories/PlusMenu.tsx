@@ -37,6 +37,13 @@ export const WORKFLOW_START_SLOT_CONTRACT: OwnerSlotContract = {
   deleteShellIn: "the PR that mounts the workflow definition picker into this seat",
 };
 
+// The chrome glyph size, and the one number in this file that is a TOKEN IN WAITING.
+// `tokens/glyphs.ts` publishes `GLYPH_DEFAULT_SIZE` for a glyph that names no size of
+// its own, and the smaller scale composer chrome draws at arrives with the pane-chrome
+// substrate as `GLYPH_SIZE_CHROME`. Rebinding to the default here would draw this
+// glyph larger than the rail it sits in, and minting the chrome token here would be a
+// second declaration of one scale — which is what a token exists to prevent — so the
+// literal stands until the token that owns it is in the tree.
 const PLUS_GLYPH_SIZE = 14;
 
 export interface PlusMenuProps {

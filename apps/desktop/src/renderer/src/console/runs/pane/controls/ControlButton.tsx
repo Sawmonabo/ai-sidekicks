@@ -24,13 +24,13 @@ const CONTROL_PRESENTATION: Readonly<Record<RunControl, { label: string; glyph: 
   rollback: { label: "Rewind", glyph: "external" },
 };
 
-/** One control. Named, focusable, and busy while its dispatch is in flight. */
 /**
  * The glyph size every run control draws at, including the overflow button the
  * group itself renders — one number, so the row cannot end up with two heights.
  */
 export const CONTROL_GLYPH_SIZE = 12;
 
+/** One control. Named, focusable, and busy while its dispatch is in flight. */
 export function ControlButton(props: {
   readonly control: RunControl;
   readonly isBusy: boolean;

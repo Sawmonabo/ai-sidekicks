@@ -111,13 +111,6 @@ export function suppressedGuardedRules(source: string): readonly string[] {
   });
 }
 
-/**
- * The module that proves the needle reads a real directive rather than nothing.
- *
- * It suppresses a DIFFERENT rule, which is what makes it the honest control: the
- * directive form is already in this tree, so the clean result above is a finding about
- * which rules are suppressed rather than about whether any directive exists to find.
- */
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
   const resolved = await linter.calculateConfigForFile(absolutePath);

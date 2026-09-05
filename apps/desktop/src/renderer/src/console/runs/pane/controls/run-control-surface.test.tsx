@@ -46,18 +46,18 @@ function answeringNothing(): ConsoleBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
 
-/**
- * A settlement the surface can record without the wire being involved.
- *
- * Parsed through the registered acknowledgment schema rather than cast, so the canned
- * answer is one the daemon could have sent.
- */
 /** The branded identifier the registered acknowledgment carries, read once. */
 const ACKNOWLEDGED_RUN_ID = readRunId(RUN_ID);
 if (ACKNOWLEDGED_RUN_ID === undefined) {
   throw new Error("the acknowledgment fixture names a run identifier the wire refuses");
 }
 
+/**
+ * A settlement the surface can record without the wire being involved.
+ *
+ * Parsed through the registered acknowledgment schema rather than cast, so the canned
+ * answer is one the daemon could have sent.
+ */
 const ACKNOWLEDGED: RunControlOutcome = {
   kind: "acknowledged",
   control: "interrupt",

@@ -14,7 +14,7 @@
 // only subscribed would show nothing until the next probe or run happened to produce
 // an update — and the tail is what keeps them current.
 //
-// THIS MODULE IS ONE OF FIVE, AND THE SPLIT FOLLOWS THE QUEUE READING'S.
+// THIS MODULE IS ONE OF A FAMILY, AND THE SPLIT FOLLOWS THE QUEUE READING'S.
 // `provider-quota-fold.ts` owns which reading is current for each
 // `(accountId, limitId)` and what a surface renders for it — pure, so the
 // supersession rules are drivable with no bridge and no React.

@@ -36,6 +36,13 @@
 //         says so; it cannot wherever knip already counts the specifier referenced,
 //         which is why the retirement is stated here too.
 //
+// ONE WALK, AND A BUDGET PER FILE. The corpus is read once at `describe` scope and
+// every case works over the same in-memory modules; a walk per case would multiply the
+// whole file read by the case count for one answer. Measured on this tree 2026-09-05:
+// 782 modules, 1.45 s of test time over seventeen cases — about 1.9 ms per module for
+// the file, walk and parse included. A case that pushes it past about 5 ms per module
+// is doing its own IO, which is the shape this budget exists to catch.
+//
 // The rule itself is `barrel-census.ts` beside this file, and the reading it judges
 // is `barrel-syntax.ts` beside that, so the controls below can hand either one
 // corpora written to fail. The walk stays here, where the source-walk chokepoint can

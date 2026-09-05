@@ -28,13 +28,6 @@ describe("the form is keyed by what it is composing against", () => {
   const NEVER_SETTLES: ScriptedAnswer = () => new Promise(() => undefined);
 
   /**
-   * The composer over a target the case can change, with or without the key.
-   *
-   * Both arms matter: the keyed one is the pane's own shape, and the unkeyed one is
-   * what a later caller that drops the key would render — the arm the component's
-   * own reset has to hold on its own.
-   */
-  /**
    * What the DOM held at COMMIT time, before any passive effect could correct it.
    *
    * A layout effect, which is the only moment that answers this question: React has
@@ -57,6 +50,13 @@ describe("the form is keyed by what it is composing against", () => {
     return null;
   }
 
+  /**
+   * The composer over a target the case can change, with or without the key.
+   *
+   * Both arms matter: the keyed one is the pane's own shape, and the unkeyed one is
+   * what a later caller that drops the key would render — the arm the component's
+   * own reset has to hold on its own.
+   */
   function TargetSwitchHarness(props: {
     readonly runId: string;
     readonly control: ComposedControl;
