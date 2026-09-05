@@ -1,4 +1,4 @@
-// The three acts a row offers, driven through the reader that hosts them.
+// The two acts that write to a row, driven through the reader that hosts them.
 //
 // THROUGH THE READER AND NEVER BESIDE IT. `ArtifactPaneActions` is handed an
 // `ArtifactActionHost`, and the only implementation of that port is the reader's own
@@ -8,16 +8,18 @@
 //
 // TWO LOAD-BEARING BLOCKS. The delete block is the reconciliation one: a served delete
 // establishes that a row is GONE, which no in-flight list read can discover, so it
-// applies and re-reads even when a refresh moved the stamp under it. The payload block
-// is the single-flight one: the reading holds ONE payload, and two fetches racing put
-// one artifact's bytes under another's name — so the second press is refused in words,
-// a settlement the register has moved past is dropped, and a list refresh landing
-// under a fetch neither cancels it nor loses its answer.
+// applies and re-reads even when a refresh moved the stamp under it. The re-read block
+// is the register one: each row's manifest re-read is single-flight BY ROW, so a
+// second press on one row is refused while a press on another row is admitted, and a
+// settlement the register has moved past is dropped.
+//
+// A CALL THAT REJECTED rather than answering is `artifact-actions.rejection.test.ts`,
+// which drives all three acts because the claim there is about the door they share.
 
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
+import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
@@ -30,8 +32,6 @@ import {
   listedRowIds,
   readThrough,
   readerRacingADelete,
-  readerWithHeldPayloadFetch,
-  servedPayload,
   settle,
 } from "./artifact-pane.test-support.js";
 
@@ -101,153 +101,6 @@ describe("artifact pane actions — a served delete reconciles, superseded or no
     expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
     await readThrough(clock);
     expect(reader.performCount).toBe(1);
-  });
-});
-
-/**
- * A reader whose port REJECTS instead of answering.
- *
- * The live bridge is one process boundary away, so an IPC disconnect makes the call
- * throw rather than return the port's typed refusal — the one failure `GrowthOutcome`
- * cannot express and therefore the one `growthAnswerReading` never sees.
- */
-function readerWithRejectingBridge(
-  clock: ManualClock,
-  rejection: unknown,
-): {
-  readonly reader: ArtifactPaneReader;
-  readonly artifactRead: ReturnType<typeof vi.fn>;
-} {
-  const artifactRead = vi.fn(() => Promise.reject(rejection));
-  const reader = new ArtifactPaneReader({
-    bridge: {
-      growth: {
-        artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-        artifactAllowlistRead: async () => REFUSAL,
-        artifactRead,
-        artifactDelete: () => Promise.reject(rejection),
-      },
-    } as unknown as ConsoleBridge,
-    sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-    clock,
-  });
-  return { reader, artifactRead };
-}
-
-describe("artifact pane actions — a rejected call is an answer, not a stuck pane", () => {
-  it("publishes the refused payload arm and gives the control back", async () => {
-    // The bug, exercised: the thrown rejection propagated out of the await, so
-    // `growthAnswerReading` was never reached, `finally` released the register, and
-    // the reading kept `{ status: "fetching" }` — the arm the pane holds its Fetch
-    // control by and the arm every scheduled list read carries forward. Nothing was
-    // ever going to settle it short of a remount.
-    const clock = new ManualClock();
-    const { reader, artifactRead } = readerWithRejectingBridge(
-      clock,
-      new Error("the daemon channel closed"),
-    );
-    reader.start();
-    await readThrough(clock);
-
-    const outcome = await reader.fetchPayload(SERVED_SUMMARY.artifactId);
-
-    expect(outcome.status).toBe("refused");
-    expect(reader.snapshot.payload).toStrictEqual({
-      status: "refused",
-      artifactId: SERVED_SUMMARY.artifactId,
-      refusal: {
-        code: "call-rejected",
-        // The leg, and NOT the rejected value: a rejection off the wire can carry
-        // participant content as readily as a schema failure can.
-        detail: "The payload fetch was rejected.",
-        origin: "repos",
-      },
-    });
-    // The control is held by the `fetching` arm alone, so leaving that arm IS the
-    // control coming back — there is no second flag to assert against.
-    expect(reader.snapshot.payload.status).not.toBe("fetching");
-
-    // And the register was given back, so the next press reaches the port rather
-    // than meeting the in-flight refusal for the life of the pane.
-    await reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    expect(artifactRead).toHaveBeenCalledTimes(2);
-  });
-
-  it("carries a thrown refusal through with the origin and code it named", async () => {
-    // The normalizer's first arm, which is why this pane does not mint its own: the
-    // fixture bridge throws a `ConsoleRefusalError`, and re-labelling it
-    // `call-rejected` would bury the diagnosis the seam already composed.
-    const clock = new ManualClock();
-    const carried = refuse("growth-port", "scripted-reply-missing", "No reply was parked.");
-    const { reader } = readerWithRejectingBridge(clock, new ConsoleRefusalError(carried));
-    reader.start();
-    await readThrough(clock);
-
-    const outcome = await reader.fetchPayload(SERVED_SUMMARY.artifactId);
-
-    expect(outcome).toStrictEqual({ status: "refused", refusal: carried });
-    expect(reader.snapshot.payload).toStrictEqual({
-      status: "refused",
-      artifactId: SERVED_SUMMARY.artifactId,
-      refusal: carried,
-    });
-  });
-
-  it("records a rejected manifest re-read against its row, and a rejected delete too", async () => {
-    // The other two acts ask the same bridge across the same boundary. Left bare,
-    // each returned a rejected promise to a caller that only ever attaches `.then`,
-    // so the press produced no refusal anywhere and an unhandled rejection instead.
-    const clock = new ManualClock();
-    const { reader } = readerWithRejectingBridge(clock, new Error("the daemon channel closed"));
-    reader.start();
-    await readThrough(clock);
-
-    const reRead = await reader.readManifest(SERVED_SUMMARY.artifactId);
-    expect(reRead.status).toBe("refused");
-    expect(reader.snapshot.refusalByArtifactId.get(SERVED_SUMMARY.artifactId)?.code).toBe(
-      "call-rejected",
-    );
-
-    const deletion = await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
-    expect(deletion.status).toBe("refused");
-    // The row is still listed: a rejected delete established nothing at all, and
-    // removing the row would report a destruction the daemon never confirmed.
-    expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
-  });
-
-  it("negative control: a served answer still settles and a port refusal keeps its own code", async () => {
-    // Both halves of the over-reach. A `try` that swallowed the served path would
-    // pass every case above; so would one that re-labelled the port's own typed
-    // refusal, which is the code a person pastes into a bug report.
-    const clock = new ManualClock();
-    const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const served = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the bytes came back"));
-    expect((await served).status).toBe("settled");
-
-    const refusing = new ArtifactPaneReader({
-      bridge: {
-        growth: {
-          artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-          artifactAllowlistRead: async () => REFUSAL,
-          artifactRead: async () => REFUSAL,
-        },
-      } as unknown as ConsoleBridge,
-      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-      clock,
-    });
-    refusing.start();
-    await readThrough(clock);
-
-    const refused = await refusing.fetchPayload(SERVED_SUMMARY.artifactId);
-    expect(refused.status === "refused" ? refused.refusal.code : undefined).toBe(
-      "wire-unregistered",
-    );
-    expect(refused.status === "refused" ? refused.refusal.origin : undefined).toBe("growth-port");
   });
 });
 
