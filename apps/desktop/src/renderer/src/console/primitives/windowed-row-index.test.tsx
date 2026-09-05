@@ -22,6 +22,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { WindowedListRow } from "./WindowedListRow.js";
 import {
+  WINDOWED_ROW_INDEX_ATTRIBUTE,
   WINDOWED_ROW_MOVE_BY_KEY,
   clampedRowIndex,
   movedRowIndex,
@@ -103,17 +104,37 @@ function RovingList(props: {
           totalRowCount={props.rowCount}
           isTabbable={rowIndex === activeIndex}
         >
-          <button type="button">{`row ${String(rowIndex)}`}</button>
+          {(targetProps) => (
+            <button type="button" {...targetProps}>{`row ${String(rowIndex)}`}</button>
+          )}
         </WindowedListRow>
       ))}
     </ul>
   );
 }
 
+/**
+ * The index of every row Tab would reach, read from the element that holds the stop.
+ *
+ * The stop is on the row's declared target rather than on the `<li>`, so the index is
+ * read by climbing from it — which is also the assertion: a stop that was not inside
+ * a row would produce an empty string here rather than quietly not being counted.
+ */
 function tabbableIndexes(container: HTMLElement): readonly string[] {
-  return [...container.querySelectorAll<HTMLElement>('li[tabindex="0"]')].map(
-    (row) => row.dataset["index"] ?? "",
+  return [...container.querySelectorAll<HTMLElement>('[tabindex="0"]')].map(
+    (target) =>
+      target.closest<HTMLElement>(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`)?.dataset["index"] ?? "",
   );
+}
+
+/** Every element in the list that Tab would reach — the platform's rule, not a proxy. */
+function sequentialTabStops(container: HTMLElement): readonly HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>("*")].filter((element) => {
+    const declared = element.getAttribute("tabindex");
+    return declared === null
+      ? element.matches("button, a[href], input, select, textarea")
+      : Number(declared) >= 0;
+  });
 }
 
 describe("useWindowedRovingIndex — one tab stop that survives a shrinking set", () => {
@@ -177,8 +198,11 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
     await act(async () => {
       list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
     });
-    // Row 39 was not mounted when the key landed; focus waited for the window.
+    // Row 39 was not mounted when the key landed; focus waited for the window. The
+    // tag is asserted beside the text because the `<li>` and the button it wraps read
+    // the same textContent — which is how focus landing on the wrapper passed here.
     expect(document.activeElement?.textContent).toBe("row 39");
+    expect(document.activeElement?.tagName).toBe("BUTTON");
   });
 
   it("negative control: a key the table does not name is left to the page", async () => {
@@ -286,5 +310,79 @@ describe("useWindowedRovingIndex — a pending move is spent once, never left st
     expect(list.querySelector('li[data-index="4"]')).not.toBeNull();
     expect(document.activeElement?.textContent).not.toBe("row 4");
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe("useWindowedRovingIndex — the roving index controls the real target", () => {
+  function listOf(container: HTMLElement): HTMLElement {
+    const list = container.querySelector("ul");
+    if (list === null) {
+      throw new Error("the list did not render");
+    }
+    return list;
+  }
+
+  it("puts one tab stop in the whole list, whatever the window mounted", () => {
+    // The defect in terms: the roving index went on the `<li>` and every row's button
+    // kept its native stop, so a window of four rows put five stops in the page's tab
+    // order and the number moved with the scroll position.
+    const { container } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
+    );
+    const list = listOf(container);
+    expect(list.querySelectorAll("li").length).toBe(4);
+    const stops = sequentialTabStops(list);
+    expect(stops.map((element) => element.tagName)).toStrictEqual(["BUTTON"]);
+    expect(tabbableIndexes(list)).toStrictEqual(["0"]);
+  });
+
+  it("moves focus to the next row's control rather than to its wrapper", async () => {
+    const { container } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
+    );
+    const list = listOf(container);
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(document.activeElement?.tagName).toBe("BUTTON");
+    expect(document.activeElement?.textContent).toBe("row 1");
+    // And the stop moved with it: still one, now on the row that was moved to.
+    expect(tabbableIndexes(list)).toStrictEqual(["1"]);
+  });
+
+  it("keeps every inactive row's control out of the tab order", async () => {
+    const { container } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
+    );
+    const list = listOf(container);
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    const inactive = [...list.querySelectorAll<HTMLElement>("li")].filter(
+      (row) => row.dataset["index"] !== "1",
+    );
+    expect(inactive.length).toBe(3);
+    for (const row of inactive) {
+      expect(row.querySelector("button")?.getAttribute("tabindex"), row.textContent ?? "").toBe(
+        "-1",
+      );
+    }
+  });
+
+  it("negative control: the scan counts a stop that is not the row's declared target", () => {
+    // Without this the single-stop claims above would also be satisfied by a scan that
+    // matched nothing. A row rendered the old way — content as markup, so the wrapper
+    // takes the index and the button keeps its own — is counted as the two stops it is.
+    const { container } = render(
+      <ul>
+        <WindowedListRow as="li" rowIndex={0} totalRowCount={1} isTabbable>
+          <button type="button">row 0</button>
+        </WindowedListRow>
+      </ul>,
+    );
+    expect(sequentialTabStops(container).map((element) => element.tagName)).toStrictEqual([
+      "LI",
+      "BUTTON",
+    ]);
   });
 });

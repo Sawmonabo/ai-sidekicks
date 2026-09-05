@@ -111,3 +111,46 @@ describe("useReadingAnnouncement — the incomplete reading, said out loud", () 
     expect(renderAnnouncing([{ kind: "reading" }]).polite()).toBe("");
   });
 });
+
+describe("useReadingAnnouncement — one sentence, once, within the pass as well", () => {
+  // Two readings of one surface can say the same words, and the pass used to walk a
+  // LIST: each member was checked against the PREVIOUS pass only, so both passed and
+  // the region was asked to say the text twice. The announcer coalesces an immediate
+  // repeat, which hid the pair; it does not coalesce a repeat with another sentence
+  // between it, so a separated duplicate is where the defect is observable.
+  const STALE: ReadingState = { kind: "stale", refusal: undefined };
+  const CUT: ReadingState = { kind: "cut", servedCount: 12 };
+  const PARTIAL: ReadingState = { kind: "partial", unreadableCount: 3, newestRefusal: undefined };
+
+  it("says a repeated sentence once, however far apart the two readings are", () => {
+    const announced = renderAnnouncing([STALE, CUT, STALE]);
+    const staleSentence = announced.polite();
+    expect(staleSentence).toContain("may be behind what the daemon has sent");
+    // The second sentence, published as the first one's hold expires.
+    announced.settle();
+    expect(announced.polite()).toContain("12");
+    // And nothing behind it: the third reading's sentence was the first one's, and
+    // one sentence is one announcement.
+    announced.settle();
+    expect(announced.polite()).toBe("");
+  });
+
+  it("negative control: three distinct sentences are still three announcements", () => {
+    // Without this the silence above would also be satisfied by a hook that dropped
+    // everything after the first sentence, or by a drain that empties the lane
+    // whatever was queued. Same shape, same two settles, one sentence still to say.
+    const announced = renderAnnouncing([STALE, CUT, PARTIAL]);
+    announced.settle();
+    announced.settle();
+    expect(announced.polite()).toContain("3");
+    expect(announced.polite()).toContain("could not be read");
+  });
+
+  it("negative control: the two stale readings really do say the same words", () => {
+    // Without this the claim above could hold because the duplicate was never a
+    // duplicate. One `stale` reading and two of them put the same sentence on the
+    // region, which is what makes the second one nothing new to say.
+    expect(renderAnnouncing([STALE]).polite()).toBe(renderAnnouncing([STALE, STALE]).polite());
+    expect(renderAnnouncing([STALE, STALE]).polite()).not.toBe("");
+  });
+});
