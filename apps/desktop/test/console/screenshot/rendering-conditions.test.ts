@@ -27,6 +27,16 @@ import { formatClockTime } from "../../../src/renderer/src/console/primitives/wi
 /** An instant with a distinct hour in every zone this could plausibly run in. */
 const FIXED_INSTANT = "2026-09-05T23:41:07.000Z";
 
+/**
+ * The same instant as the number `Date` will take, composed rather than parsed.
+ *
+ * `new Date(FIXED_INSTANT)` is `Date.parse` behind a constructor and the tier's
+ * syntax bans refuse it, which is right even here: a screenshot tier whose reference
+ * images record a formatted time is the last place a lenient stamp reading belongs.
+ * The two constants are held together by the case below rather than by this comment.
+ */
+const FIXED_INSTANT_MILLISECONDS = Date.UTC(2026, 8, 5, 23, 41, 7);
+
 describe("screenshot tier — the rendering conditions its references were minted under", () => {
   it("renders a formatted time in the pinned zone", () => {
     // 23:41:07 in UTC, and a different hour in every offset but zero — which is the
@@ -41,7 +51,12 @@ describe("screenshot tier — the rendering conditions its references were minte
     // offset happens to be zero for another reason. These read what the browser
     // context was given, so a pin that stopped being applied is named as such.
     expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe("UTC");
-    expect(new Date(FIXED_INSTANT).getTimezoneOffset()).toBe(0);
+    // The composed number and the wire spelling are the same instant, asserted rather
+    // than assumed: two constants for one moment drift the day either is edited, and
+    // the drift would be invisible — every claim here would still pass, against an
+    // instant no longer the one the formatter above is measured on.
+    expect(new Date(FIXED_INSTANT_MILLISECONDS).toISOString()).toBe(FIXED_INSTANT);
+    expect(new Date(FIXED_INSTANT_MILLISECONDS).getTimezoneOffset()).toBe(0);
     expect(Intl.DateTimeFormat().resolvedOptions().locale).toBe("en-US");
   });
 
