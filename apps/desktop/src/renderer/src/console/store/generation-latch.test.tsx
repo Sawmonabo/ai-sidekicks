@@ -134,6 +134,129 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
   });
 });
 
+describe("GenerationLatch — supersedeAndClaim, for the write whose newest intent wins", () => {
+  it("admits every caller, including one whose key is already held", () => {
+    const latch = new GenerationLatch();
+    expect(latch.claim(SUBJECT_ONE, "goal")).toBeDefined();
+    expect(latch.supersedeAndClaim(SUBJECT_ONE, "goal")).toBeDefined();
+    expect(latch.supersedeAndClaim(SUBJECT_ONE, "goal")).toBeDefined();
+  });
+
+  it("negative control: the refusing form still refuses that same held key", () => {
+    // Without this, "admits every caller" would be satisfied by a register that had
+    // stopped holding anything at all.
+    const latch = new GenerationLatch();
+    latch.supersedeAndClaim(SUBJECT_ONE, "goal");
+    expect(latch.claim(SUBJECT_ONE, "goal")).toBeUndefined();
+  });
+
+  it("drops the settlement of the act it displaced", () => {
+    // The whole point of superseding rather than queueing: the older write installs
+    // nothing, so a reply that overtakes the newer one cannot be shown as the answer.
+    const latch = new GenerationLatch();
+    const displaced = latch.claim(SUBJECT_ONE, "goal");
+    const admitted = latch.supersedeAndClaim(SUBJECT_ONE, "goal");
+    let applied = 0;
+    expect(
+      displaced?.settle(() => {
+        applied += 1;
+      }),
+    ).toBe(false);
+    expect(displaced?.isCurrent).toBe(false);
+    expect(
+      admitted.settle(() => {
+        applied += 1;
+      }),
+    ).toBe(true);
+    expect(applied).toBe(1);
+  });
+
+  it("never lets the displaced act release the key its successor holds", () => {
+    const latch = new GenerationLatch();
+    const displaced = latch.claim(SUBJECT_ONE, "goal");
+    const admitted = latch.supersedeAndClaim(SUBJECT_ONE, "goal");
+    displaced?.release();
+    expect(admitted.isCurrent).toBe(true);
+    expect(latch.claim(SUBJECT_ONE, "goal")).toBeUndefined();
+  });
+
+  it("leaves the key free once the admitted act releases it", () => {
+    const latch = new GenerationLatch();
+    latch.claim(SUBJECT_ONE, "goal");
+    latch.supersedeAndClaim(SUBJECT_ONE, "goal").release();
+    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(0);
+  });
+
+  it("holds one entry however many times one key is superseded", () => {
+    const latch = new GenerationLatch();
+    for (let write = 0; write < 1000; write += 1) {
+      latch.supersedeAndClaim(SUBJECT_ONE, "goal");
+    }
+    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
+  });
+});
+
+describe("GenerationLatch — currentClaim, for the reader that joins the round", () => {
+  it("joins the live round rather than superseding it", () => {
+    // Both handles name one round: the claim that took the key is still current, and
+    // the joined handle settles through it.
+    const latch = new GenerationLatch();
+    const started = latch.claim(SUBJECT_ONE, "preferences");
+    const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
+    expect(started?.isCurrent).toBe(true);
+    expect(joined.isCurrent).toBe(true);
+    expect(joined.settle(() => undefined)).toBe(true);
+    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
+  });
+
+  it("goes stale with the round it joined, and not on its own", () => {
+    const latch = new GenerationLatch();
+    const started = latch.claim(SUBJECT_ONE, "preferences");
+    const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
+    latch.supersede(SUBJECT_ONE, "preferences");
+    expect(started?.isCurrent).toBe(false);
+    expect(joined.isCurrent).toBe(false);
+    expect(joined.settle(() => undefined)).toBe(false);
+  });
+
+  it("negative control: superseding one key leaves a round joined on another alone", () => {
+    // Without this, "goes stale" above would be satisfied by a handle that reported
+    // itself stale from the moment it was minted.
+    const latch = new GenerationLatch();
+    latch.claim(SUBJECT_ONE, "preferences");
+    const elsewhere = latch.currentClaim(SUBJECT_ONE, "appearance");
+    latch.supersede(SUBJECT_ONE, "preferences");
+    expect(elsewhere.isCurrent).toBe(true);
+    expect(elsewhere.settle(() => undefined)).toBe(true);
+  });
+
+  it("mints a round where the key is free, so the caller never handles a refusal", () => {
+    const latch = new GenerationLatch();
+    const minted = latch.currentClaim(SUBJECT_ONE, "preferences");
+    expect(minted.isCurrent).toBe(true);
+    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
+    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
+  });
+
+  it("answers the round a supersede-and-claim installed, not the one it displaced", () => {
+    const latch = new GenerationLatch();
+    const displaced = latch.claim(SUBJECT_ONE, "goal");
+    latch.supersedeAndClaim(SUBJECT_ONE, "goal");
+    const joined = latch.currentClaim(SUBJECT_ONE, "goal");
+    expect(displaced?.isCurrent).toBe(false);
+    expect(joined.isCurrent).toBe(true);
+  });
+
+  it("holds one entry however many readers join one round", () => {
+    const latch = new GenerationLatch();
+    latch.claim(SUBJECT_ONE, "preferences");
+    for (let read = 0; read < 1000; read += 1) {
+      latch.currentClaim(SUBJECT_ONE, "preferences");
+    }
+    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
+  });
+});
+
 describe("GenerationLatch — the register is bounded", () => {
   it("holds nothing for a subject once every key is released", () => {
     const latch = new GenerationLatch();

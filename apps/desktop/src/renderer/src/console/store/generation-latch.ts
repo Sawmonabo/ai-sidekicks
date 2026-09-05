@@ -41,10 +41,22 @@
 // Being superseded and being disposed are two different facts, and only one of them
 // is reversible; a caller that has a genuinely terminal state keeps its own flag.
 //
-// WHAT THIS IS NOT. It is not a queue: a second press is REFUSED, audibly, by the
-// caller that asked. A membership change held and applied later is a second act
-// nobody re-confirmed, against a row whose state may have moved underneath it. It is
-// not a scheduler either — a burst collapsing into one read is `store/scheduling.ts`.
+// THREE WAYS TO TAKE A KEY, BECAUSE THREE QUESTIONS ARE ASKED OF ONE REGISTER. A run
+// control asks whether it may dispatch at all, and the honest answer to a second press
+// is no — `claim`, which refuses. A durable write asks the opposite question: the
+// newest intent is the one the person is waiting on, so whatever is in flight is
+// abandoned and the new act is ALWAYS admitted — `supersedeAndClaim`. And a reader
+// asks which round is running, so a settlement it did not itself start can still be
+// measured against the round that did — `currentClaim`, which joins the live round and
+// mints one where none is. All three hand back the same {@link GenerationClaim}, so
+// the settlement path is written once whichever question admitted it, and refusing is
+// a property of `claim` rather than of the register.
+//
+// WHAT THIS IS NOT. It is not a queue: a second press is REFUSED by `claim`, audibly,
+// by the caller that asked, and SUPERSEDED by `supersedeAndClaim` — never held and
+// applied later. A membership change held and applied later is a second act nobody
+// re-confirmed, against a row whose state may have moved underneath it. It is not a
+// scheduler either — a burst collapsing into one read is `store/scheduling.ts`.
 
 import { useEffect, useState } from "react";
 
@@ -94,40 +106,46 @@ export class GenerationLatch {
    * dispatch first and discover afterwards that it was not admitted.
    */
   public claim(subject: object, key: string): GenerationClaim | undefined {
-    const serials = this.#serialsFor(subject);
-    if (serials.has(key)) {
-      return undefined;
-    }
-    this.#issuedClaims += 1;
-    const serial = this.#issuedClaims;
-    serials.set(key, serial);
-    // Read through the register on every question rather than closing over the table
-    // taken above: `supersedeAll` REPLACES that table, and a claim holding the old one
-    // would go on reporting itself current against a register nothing else can see.
-    const isCurrent = (): boolean => this.#serialsBySubject.get(subject)?.get(key) === serial;
-    return {
-      get isCurrent(): boolean {
-        return isCurrent();
-      },
-      settle: (apply: () => void): boolean => {
-        if (!isCurrent()) {
-          return false;
-        }
-        apply();
-        return true;
-      },
-      release: (): void => {
-        if (!isCurrent()) {
-          return;
-        }
-        const held = this.#serialsBySubject.get(subject);
-        if (held === undefined) {
-          return;
-        }
-        held.delete(key);
-        this.#dropIfEmpty(subject, held);
-      },
-    };
+    return this.#serialsFor(subject).has(key) ? undefined : this.#takeKey(subject, key);
+  }
+
+  /**
+   * Abandon whatever holds this key and take it. Never refuses.
+   *
+   * For the caller whose rule is that the NEWEST intent wins: a durable write, a
+   * preference the person re-typed, a view state re-derived from a later read. The
+   * answer they are waiting on is the one they asked for last, so an act still in
+   * flight is superseded rather than allowed to refuse them — and superseded means
+   * exactly what it means everywhere else here, that its settlement installs nothing.
+   *
+   * One act, not a `supersede` followed by a `claim`: writing the new serial over the
+   * old one IS the abandonment, so there is no instant at which the key is free and a
+   * third caller could take it in between.
+   */
+  public supersedeAndClaim(subject: object, key: string): GenerationClaim {
+    return this.#takeKey(subject, key);
+  }
+
+  /**
+   * A handle on whichever round is running for this key, minting one where none is.
+   *
+   * For the caller that has to measure a settlement it did not itself start — a
+   * reader folding a reply into whatever write is outstanding, a control asking
+   * whether the round it is rendering against is still the live one. It supersedes
+   * nothing: the claim that took the key keeps it, and this handle reports and settles
+   * against the SAME round, so both go stale together the moment anything supersedes
+   * it.
+   *
+   * Minting where the key is free rather than answering `undefined`, because the
+   * caller's question is "which round am I in", and a caller that had to answer
+   * "none, so I will start one" would be writing `claim`'s refusal handling for a
+   * question that never refuses.
+   */
+  public currentClaim(subject: object, key: string): GenerationClaim {
+    const serial = this.#serialsBySubject.get(subject)?.get(key);
+    return serial === undefined
+      ? this.#takeKey(subject, key)
+      : this.#claimOfSerial(subject, key, serial);
   }
 
   /**
@@ -167,6 +185,58 @@ export class GenerationLatch {
    */
   public heldKeyCount(subject: object): number {
     return this.#serialsBySubject.get(subject)?.size ?? 0;
+  }
+
+  /**
+   * Stamp this key with the next serial and hand back the claim that holds it.
+   *
+   * The one place a key is taken. Writing over an existing serial retires whatever
+   * held it — the serial is the whole generation mechanism — so the difference
+   * between the three public entry points is which of them is willing to reach here,
+   * and never how the register is written.
+   */
+  #takeKey(subject: object, key: string): GenerationClaim {
+    this.#issuedClaims += 1;
+    const serial = this.#issuedClaims;
+    this.#serialsFor(subject).set(key, serial);
+    return this.#claimOfSerial(subject, key, serial);
+  }
+
+  /**
+   * The handle on one round, for the caller that started it and the one that joined.
+   *
+   * Written once so a joined handle cannot answer a question differently from the
+   * claim that took the key.
+   */
+  #claimOfSerial(subject: object, key: string, serial: number): GenerationClaim {
+    // Read through the register on every question rather than closing over the table
+    // this key was written into: `supersedeAll` REPLACES that table, and a claim
+    // holding the old one would go on reporting itself current against a register
+    // nothing else can see.
+    const isCurrent = (): boolean => this.#serialsBySubject.get(subject)?.get(key) === serial;
+    return {
+      get isCurrent(): boolean {
+        return isCurrent();
+      },
+      settle: (apply: () => void): boolean => {
+        if (!isCurrent()) {
+          return false;
+        }
+        apply();
+        return true;
+      },
+      release: (): void => {
+        if (!isCurrent()) {
+          return;
+        }
+        const held = this.#serialsBySubject.get(subject);
+        if (held === undefined) {
+          return;
+        }
+        held.delete(key);
+        this.#dropIfEmpty(subject, held);
+      },
+    };
   }
 
   #serialsFor(subject: object): Map<string, number> {

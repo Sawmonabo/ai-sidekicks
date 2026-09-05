@@ -26,13 +26,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  SidekicksBridgeProvider,
-  createFixtureBridge,
-  useConsoleBridge,
-  type ConsoleBridge,
-} from "../bridge/index.js";
-import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
+import { createFixture, withDaemonCall } from "../bridge/fixture-bridge.test-support.js";
+import { SidekicksBridgeProvider, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import { ConsoleEntityProjectorRegistry, type SessionStoreRegistry } from "../store/index.js";
 import { useSessionStoreRegistry } from "./session-lifecycle.js";
 
@@ -83,7 +78,17 @@ interface SwapHarness {
   readonly observed: readonly Observation[];
   /** Every distinct registry that answered a render, in the order it appeared. */
   readonly registries: () => readonly SessionStoreRegistry[];
-  readonly renderAgainst: (bridge: ConsoleBridge) => void;
+  /**
+   * Re-render under a bridge, and optionally under a different projector board.
+   *
+   * The board is a parameter rather than a second harness because the claim it
+   * carries is about this same hook: the board is NOT the plumbing's subject, so
+   * replacing it must leave a live registry alone.
+   */
+  readonly renderAgainst: (
+    bridge: ConsoleBridge,
+    projectorRegistry?: ConsoleEntityProjectorRegistry,
+  ) => void;
   readonly unmount: () => void;
 }
 
@@ -103,18 +108,24 @@ function mountAgainst(bridge: ConsoleBridge): SwapHarness {
   const record = (observation: Observation): void => {
     observed.push(observation);
   };
-  const projectorRegistry = new ConsoleEntityProjectorRegistry();
-  const hostFor = (against: ConsoleBridge): React.JSX.Element => (
-    <SwapHost bridge={against} projectorRegistry={projectorRegistry} onObserve={record} />
+  const firstBoard = new ConsoleEntityProjectorRegistry();
+  const hostFor = (
+    against: ConsoleBridge,
+    board: ConsoleEntityProjectorRegistry,
+  ): React.JSX.Element => (
+    <SwapHost bridge={against} projectorRegistry={board} onObserve={record} />
   );
-  const mounted = render(hostFor(bridge));
+  const mounted = render(hostFor(bridge, firstBoard));
   return {
     observed,
     registries: (): readonly SessionStoreRegistry[] => [
       ...new Set(observed.map((observation) => observation.registry)),
     ],
-    renderAgainst: (next: ConsoleBridge): void => {
-      mounted.rerender(hostFor(next));
+    renderAgainst: (
+      next: ConsoleBridge,
+      board: ConsoleEntityProjectorRegistry = firstBoard,
+    ): void => {
+      mounted.rerender(hostFor(next, board));
     },
     unmount: (): void => {
       mounted.unmount();
@@ -123,19 +134,36 @@ function mountAgainst(bridge: ConsoleBridge): SwapHarness {
 }
 
 /**
- * A bridge that answers no growth operation at all.
+ * A bridge that answers no growth operation at all, and is asked nothing either.
  *
  * The live bridge's posture, reached without importing it: `growthServedOperations`
  * is the one field the composition root reads before it can build a registry, and
  * the interface that declares it says so in as many words. Overriding exactly that
  * field is what makes the two bridges here distinguishable BY the property under
  * test rather than by something standing in for it.
+ *
+ * Composed from `bridge/`'s two shared overrides rather than spread by hand here:
+ * `withDaemonCall` takes a bridge precisely so a suite that has already replaced one
+ * namespace adds the call arm to THAT bridge instead of minting a second builder to
+ * hold both.
+ *
+ * The call arm is a tripwire, not scaffolding. This file's header claims the registry
+ * settles what it can read AT CONSTRUCTION, from the flag — so a bridge serving no
+ * growth operation is never asked for the data at all. Measured today: no case here
+ * reaches the wire. An arm that refuses is what keeps that true, naming the method
+ * the day some path starts attempting a call and falling back, which would make the
+ * flag a hint rather than the answer the registry keeps for its life.
  */
 function bridgeServingNoGrowthOperation(): ConsoleBridge {
-  return {
-    ...createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
-    growthServedOperations: new Set(),
-  };
+  return withDaemonCall(
+    { ...createFixture().bridge, growthServedOperations: new Set() },
+    (call) => {
+      throw new Error(
+        `a bridge serving no growth operation was asked ${call.method}: the registry's ` +
+          "refusal is decided at construction from the flag, never by attempting a call",
+      );
+    },
+  ).bridge;
 }
 
 /** The frames whose registry was built from a bridge other than the one rendering. */
@@ -160,7 +188,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     // Without this every binding assertion below would hold over two bridges the
     // registry could not have told apart, and a hook that ignored the replacement
     // entirely would pass all of them.
-    const serving = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const serving = createFixture().bridge;
     const refusing = bridgeServingNoGrowthOperation();
 
     expect(serving.growthServedOperations.has("sessionRead")).toBe(true);
@@ -170,10 +198,10 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
   it("commits no frame that reads a session through a bridge it was not built from", () => {
     // The case the previous shape failed: it re-minted one commit late, so the
     // render that first saw the new bridge was handed the old registry.
-    const harness = mountAgainst(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }));
+    const harness = mountAgainst(createFixture().bridge);
 
     harness.renderAgainst(bridgeServingNoGrowthOperation());
-    harness.renderAgainst(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }));
+    harness.renderAgainst(createFixture().bridge);
 
     expect(mismatchedFrames(harness.observed)).toStrictEqual([]);
     harness.unmount();
@@ -183,7 +211,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     // The same claim from the resource's side, and it holds without knowing what a
     // registry reads: a plumbing that outlived its bridge is one object two bridges
     // both rendered against.
-    const harness = mountAgainst(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }));
+    const harness = mountAgainst(createFixture().bridge);
 
     harness.renderAgainst(bridgeServingNoGrowthOperation());
 
@@ -200,7 +228,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
   });
 
   it("re-mints the plumbing under a new bridge and disposes the one it replaced", () => {
-    const harness = mountAgainst(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }));
+    const harness = mountAgainst(createFixture().bridge);
     const retired = harness.registries().at(-1);
     expect(retired).toBeDefined();
     if (retired === undefined) {
@@ -228,7 +256,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     // The control on every case above: a hook that re-minted on each render would
     // satisfy them all and fail here, and one that never re-minted would do the
     // reverse.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const bridge = createFixture().bridge;
     const harness = mountAgainst(bridge);
 
     harness.renderAgainst(bridge);
@@ -245,7 +273,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     // The comparison is against the bridge the plumbing is CURRENTLY held under, not
     // against the first one ever seen. A hook that remembered only its original
     // bridge would hand back the disposed registry here.
-    const serving = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const serving = createFixture().bridge;
     const harness = mountAgainst(serving);
     const first = harness.registries().at(-1);
 
@@ -263,8 +291,37 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     harness.unmount();
   });
 
+  it("leaves live plumbing alone when a dependency that is not its subject changes", () => {
+    // The projector board is deliberately not the plumbing's subject: a registry
+    // takes a SNAPSHOT of it at construction, so a board replaced later is not part
+    // of what this resource is about. The shape this replaced disposed the LIVE
+    // registry anyway — its one effect listed the board among dependencies its
+    // teardown did not read — and then rebuilt it only because `disposeAll` happens
+    // to set `isDisposed` before the body reads it. Between those two moments every
+    // `useOpenSessionStore` consumer reads through a disposed registry.
+    const bridge = createFixture().bridge;
+    const harness = mountAgainst(bridge);
+    const live = harness.registries().at(-1);
+    expect(live).toBeDefined();
+
+    harness.renderAgainst(bridge, new ConsoleEntityProjectorRegistry());
+
+    expect(harness.registries()).toHaveLength(1);
+    expect(harness.registries()[0]).toBe(live);
+    expect(live?.isDisposed).toBe(false);
+
+    // Negative control: the subject that IS the plumbing's still retires it, so the
+    // claim above is about which dependency decided rather than about a hook that
+    // stopped re-minting at all.
+    harness.renderAgainst(bridgeServingNoGrowthOperation());
+    expect(harness.registries()).toHaveLength(2);
+    expect(live?.isDisposed).toBe(true);
+
+    harness.unmount();
+  });
+
   it("disposes the registry it is holding when the window goes away", () => {
-    const harness = mountAgainst(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }));
+    const harness = mountAgainst(createFixture().bridge);
     harness.renderAgainst(bridgeServingNoGrowthOperation());
     expect(harness.registries().at(-1)?.isDisposed).toBe(false);
 

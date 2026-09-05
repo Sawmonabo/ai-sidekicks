@@ -46,7 +46,7 @@
 // constructing it costs nothing, and subscribing is the side effect that must not
 // happen during render.
 //
-// AND WHY IT IS HELD BY `useSubjectScopedState` RATHER THAN BY `useState`.
+// AND WHY IT IS HELD BY `useSubjectScopedResource` RATHER THAN BY `useState`.
 // The plumbing belongs to the BRIDGE it was built from: the registry's session read
 // and the binder's subscription both travel through that transport, and the provider
 // replaces it — a reconnect, the fixture's scenario switch — while this window stays
@@ -57,13 +57,23 @@
 // exactly once per bridge even under the double-invoked render strict mode performs —
 // which a `useState` initializer does not.
 //
-// A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED. That is the half the holder
-// deliberately does not do, so the disposal stays where it already was: an effect
-// keyed on the plumbing itself, whose cleanup runs with the retired one in its own
-// closure. Keying that effect on anything else is what made the previous shape
-// accidental — its dependency list named `bridge`, which the body did not use, so a
-// bridge change tore the LIVE plumbing down and then rebuilt it only because
-// `disposeAll` happens to set `isDisposed` before the body reads it.
+// A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED, and the resource hook owns
+// both moments at which this one can be. The effect's cleanup runs with the retired
+// plumbing in its own closure, which is the bridge swap and the unmount; and a
+// plumbing dropped by a render React DISCARDS is disposed inside that render, because
+// no effect ever closed over it and nothing else would. Keying disposal on anything
+// but the plumbing is what made the previous shape accidental — its dependency list
+// named `bridge`, which the body did not use, so a bridge change tore the LIVE
+// plumbing down and then rebuilt it only because `disposeAll` happens to set
+// `isDisposed` before the body reads it.
+//
+// WHICH IS WHY THE REMOUNT ARM IS ITS OWN EFFECT. It is the one thing here that reads
+// the bridge and the projector board, so it is the one thing whose dependency list has
+// to name them — and a list that names them may not own a teardown, because a
+// projector board rebuilt while the bridge stood would then retire plumbing nothing
+// had replaced. The two are split by what they DO: one attaches the binder to the
+// plumbing it is keyed on, the other only publishes, and acts on no condition but a
+// plumbing that has already disposed itself.
 
 import { useEffect } from "react";
 
@@ -77,7 +87,7 @@ import {
 import {
   SessionStoreRegistry,
   useOpenSessionStore,
-  useSubjectScopedState,
+  useSubjectScopedResource,
   type ConsoleEntityProjectorRegistry,
   type SessionSnapshot,
   type SessionSnapshotRead,
@@ -128,29 +138,32 @@ export function useSessionStoreRegistry(
   // registration cannot make one open store fold two events of one kind two ways. A
   // value the resource does not read live is not part of what the resource is about.
   const { value: plumbing, publish: publishPlumbing } =
-    useSubjectScopedState<WindowSessionPlumbing>(bridge, undefined, () =>
-      createWindowSessionPlumbing(bridge, projectorRegistry),
+    useSubjectScopedResource<WindowSessionPlumbing>(
+      bridge,
+      undefined,
+      () => createWindowSessionPlumbing(bridge, projectorRegistry),
+      disposeWindowSessionPlumbing,
     );
+  // THE SUBSCRIPTION, KEYED ON THE PLUMBING AND NOTHING ELSE. Anything else in this
+  // list is a reason to re-run for something that has nothing to do with the
+  // resource: the plumbing is rebuilt by the HOLDER when its bridge moves, so a
+  // dependency the body does not read can only ever fire while the plumbing is
+  // exactly what it was.
   useEffect(() => {
     if (plumbing.registry.isDisposed) {
-      publishPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
       return;
     }
     plumbing.binder.attach();
-    return () => {
-      // The binder first, and the order is load-bearing. It holds the registry's
-      // change subscription, and `disposeAll` closes every open session — so a
-      // registry disposed first would call back into a binder that is about to be
-      // torn down, unbinding subscriptions during a teardown that is already
-      // unbinding them.
-      //
-      // This cleanup carries the RETIRED plumbing in its own closure, which is what
-      // makes the bridge swap total: the render mints the successor and this disposes
-      // the one it replaced, in that order, with no frame between them holding either
-      // a disposed registry or a live one nobody will ever dispose.
-      plumbing.binder.dispose();
-      plumbing.registry.disposeAll();
-    };
+  }, [plumbing]);
+  // THE REMOUNT ARM, SEPARATELY, because it is the one thing here that does read the
+  // bridge and the projector board. It publishes and never disposes, so the widest
+  // dependency list in this hook cannot retire anything: the effect above already
+  // disposed this plumbing, which is the only condition under which this one acts.
+  useEffect(() => {
+    if (!plumbing.registry.isDisposed) {
+      return;
+    }
+    publishPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
   }, [plumbing, publishPlumbing, bridge, projectorRegistry]);
   return plumbing.registry;
 }
@@ -234,6 +247,22 @@ function createWindowSessionPlumbing(
     projectors: projectorRegistry.snapshot(),
   });
   return { registry, binder: new SessionEventBinder({ registry, bridge }) };
+}
+
+/**
+ * Retire one window's plumbing, whichever moment retired it.
+ *
+ * THE BINDER FIRST, AND THE ORDER IS LOAD-BEARING. It holds the registry's change
+ * subscription, and `disposeAll` closes every open session — so a registry disposed
+ * first would call back into a binder that is about to be torn down, unbinding
+ * subscriptions during a teardown that is already unbinding them.
+ *
+ * A declared function rather than an arrow at the call site, because the holder is
+ * handed it on every render and the render that builds a plumbing is the rare one.
+ */
+function disposeWindowSessionPlumbing(plumbing: WindowSessionPlumbing): void {
+  plumbing.binder.dispose();
+  plumbing.registry.disposeAll();
 }
 
 /**

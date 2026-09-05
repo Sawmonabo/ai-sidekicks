@@ -12,7 +12,7 @@
 // is `session-lifecycle.ts`'s, deliberately — same window, same question, and a
 // second answer to it would be a second place to get the teardown wrong:
 //
-//   • **Held by `useSubjectScopedState`, not by `useState`.** The store's clock comes
+//   • **Held by `useSubjectScopedResource`, not by `useState`.** The store's clock comes
 //     from the bridge, and the provider replaces that bridge — a reconnect, the
 //     fixture's scenario switch — while this window stays mounted. A `useState`
 //     initializer runs once and never again, so the replacement was answered by
@@ -22,10 +22,13 @@
 //     bridge even under the double-invoked render strict mode performs — where a
 //     `useState` initializer runs twice and one of the two connections it opens is
 //     discarded without ever being closed.
-//   • **Closed in the effect's cleanup**, which is the only place that knows the
-//     window is actually going away rather than merely re-rendering — and, on a
-//     bridge swap, the only place carrying the RETIRED store in its own closure.
-//     Dropping a value is all a holder does; a connection has to be closed.
+//   • **Closed by the holder's own resource hook**, which owns both moments a
+//     connection can be retired: the effect's cleanup, which is the only place that
+//     knows the window is going away rather than merely re-rendering and the only
+//     place carrying the RETIRED store in its own closure; and the render that drops
+//     a store no commit ever saw, which nothing else would ever close. Dropping a
+//     value is all a holder does; a connection has to be closed, and the pass that
+//     opened one may be a pass React throws away.
 //   • **Re-minted when the state holds a closed store.** React's StrictMode
 //     double-mount runs the cleanup and then mounts the SAME component instance
 //     again, so the second mount would otherwise be handed the corpse the first
@@ -46,7 +49,7 @@ import { useEffect } from "react";
 
 import { consoleClockFor, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import { UiStateStore } from "../persistence/index.js";
-import { useSubjectScopedState } from "../store/index.js";
+import { useSubjectScopedResource } from "../store/index.js";
 
 /**
  * This window's UI-state store, rebuilt on a new bridge and closed when the console
@@ -64,27 +67,37 @@ import { useSubjectScopedState } from "../store/index.js";
  */
 export function useUiStateStore(): UiStateStore {
   const bridge = useConsoleBridge();
-  const { value: uiStateStore, publish: publishStore } = useSubjectScopedState<UiStateStore>(
+  const { value: uiStateStore, publish: publishStore } = useSubjectScopedResource<UiStateStore>(
     bridge,
     undefined,
     () => openUiStateStore(bridge),
+    closeUiStateStore,
   );
   useEffect(() => {
-    if (uiStateStore.isClosed) {
-      publishStore(openUiStateStore(bridge));
+    if (!uiStateStore.isClosed) {
       return;
     }
-    return () => {
-      // Fired without awaiting: `close` awaits the open it may still be racing, and
-      // a cleanup cannot await. The store declares no failure — `openConsoleDatabase`
-      // never rejects and neither adapter's `close` throws — so a rejection escaping
-      // here would be a defect, and an unhandled one is how it gets found.
-      void uiStateStore.close();
-    };
+    publishStore(openUiStateStore(bridge));
   }, [uiStateStore, publishStore, bridge]);
   return uiStateStore;
 }
 
 function openUiStateStore(bridge: ConsoleBridge): UiStateStore {
   return UiStateStore.opening({ clock: consoleClockFor(bridge) });
+}
+
+/**
+ * Close one connection, for whichever of the two moments retires this store.
+ *
+ * Fired without awaiting: `close` awaits the open it may still be racing, and neither
+ * a cleanup nor a render can await. The store declares no failure —
+ * `openConsoleDatabase` never rejects and neither adapter's `close` throws — so a
+ * rejection escaping here would be a defect, and an unhandled one is how it gets
+ * found.
+ *
+ * A declared function rather than an arrow at the call site, because the holder is
+ * handed it on every render and the render that opens a store is the rare one.
+ */
+function closeUiStateStore(store: UiStateStore): void {
+  void store.close();
 }
