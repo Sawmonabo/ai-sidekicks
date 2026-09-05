@@ -57,28 +57,21 @@ export {
   GROWTH_ARTIFACT_REPLICATION_STATUSES,
   // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_STATES,
-  // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_TYPES,
   // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_VISIBILITIES,
   type GrowthArtifactDeleteReceipt,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadDisposition,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadEncoding,
   type GrowthArtifactRead,
   // Consumed by T-023p-1C-5
   type GrowthArtifactReadDeferred,
   // Consumed by T-023p-1C-5
   type GrowthArtifactReadInline,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactReplicationStatus,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactState,
   type GrowthArtifactSummary,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactType,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactVisibility,
   type GrowthAttachmentIngestCompletion,
 } from "./artifacts.js";

@@ -16,9 +16,18 @@
 // wire lands, the diff is an import and a deletion here, not a redesign of the
 // panel. Nothing in this module claims the daemon sends it.
 //
-// THE FOUR CLOSED SETS ARE DECLARED ONCE EACH and every consumer derives from them,
-// which is the rule and also the only way the totals below can be trusted: three
-// states, two visibility classes, six types, five replication statuses plus absent.
+// THE CLOSED SETS ARE THE WIRE'S, NOT THIS MODULE'S. Five of them — states,
+// visibility classes, types, replication statuses, payload dispositions — used to be
+// declared here as `as const` arrays, member for member identical to the ones
+// `bridge/growth-values/artifacts.ts` declares for the same envelope, each copy under
+// a comment claiming to be the one home. The drift that pair admits is silent and
+// one-directional: the wire DROPS a replication status, this module still enumerates
+// it, the presentation table still holds a row for it and the filter still offers it,
+// and nothing fails, because a value assigned into a row stays assignable when the
+// union it came from shrinks. So the five vocabularies are derived from the bridge's
+// own declarations through `bridge/index.ts`, and the totals follow from them: three
+// states, two visibility classes, six types, five replication statuses plus absent,
+// three payload dispositions.
 //
 // WHAT THIS MODULE REFUSES TO MODEL — its own Never list, because no committed
 // document carries one for this surface:
@@ -35,62 +44,44 @@
 //   • No nulling of a derivative's `subject`. `subject` is read and rendered; the
 //     remedy on a blocked delete is the daemon's own, and the console states it.
 
-import type { GrowthArtifactSummary } from "../../bridge/index.js";
+import type {
+  GrowthArtifactPayloadDisposition,
+  GrowthArtifactReplicationStatus,
+  GrowthArtifactState,
+  GrowthArtifactSummary,
+  GrowthArtifactType,
+  GrowthArtifactVisibility,
+} from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { ChipTone } from "../../primitives/index.js";
 
-/** The three states a manifest is in. `pending` renders; `superseded` stays as history. */
-export const ARTIFACT_STATES = ["pending", "published", "superseded"] as const;
+/**
+ * One artifact state, named in this family's vocabulary and declared in the wire's.
+ *
+ * AN ALIAS AND NOT A SECOND UNION: the five aliases below rename nothing and add
+ * nothing, so a member the wire drops leaves the row type, the filter, and the
+ * presentation tables in the same compile. `pending` renders; `superseded` stays as
+ * history.
+ */
+export type ArtifactState = GrowthArtifactState;
 
-/** One artifact state. Derived, so the vocabulary is declared exactly once. */
-export type ArtifactState = (typeof ARTIFACT_STATES)[number];
-
-/** The two visibility CLASSES. V1 visibility is class-based and policy-based, never per-recipient. */
-export const ARTIFACT_VISIBILITIES = ["local-only", "shared"] as const;
-
-/** One visibility class. Derived. */
-export type ArtifactVisibility = (typeof ARTIFACT_VISIBILITIES)[number];
+/** One visibility CLASS. V1 visibility is class-based and policy-based, never per-recipient. */
+export type ArtifactVisibility = GrowthArtifactVisibility;
 
 /**
- * The six types, which are a FILTER over one list and never six lists.
+ * One artifact type, which is a FILTER over one list and never six lists.
  *
  * Every diff artifact is an artifact and appears in artifact listings, so the diff
- * pane is a view onto this list rather than a second store — a rule this set makes
- * structural, because `diff` is a member here rather than a sibling collection.
+ * pane is a view onto this list rather than a second store — a rule the wire's own set
+ * makes structural, because `diff` is a member of it rather than a sibling collection.
  */
-export const ARTIFACT_TYPES = [
-  "file",
-  "diff",
-  "summary",
-  "log",
-  "design",
-  "workflow_output",
-] as const;
+export type ArtifactType = GrowthArtifactType;
 
-/** One artifact type. Derived. */
-export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
-
-/** The five replication statuses. ABSENT is the sixth reading and is not a member — see the copy table. */
-export const ARTIFACT_REPLICATION_STATUSES = [
-  "pending_replication",
-  "pinned",
-  "over_cap",
-  "quota_exceeded",
-  "expired",
-] as const;
-
-/** One replication status. Derived. */
-export type ArtifactReplicationStatus = (typeof ARTIFACT_REPLICATION_STATUSES)[number];
+/** One replication status. ABSENT is the sixth reading and is not a member — see the copy table. */
+export type ArtifactReplicationStatus = GrowthArtifactReplicationStatus;
 
 /** What a delete did to the bytes. Reported after the act, never predicted before it. */
-export const ARTIFACT_PAYLOAD_DISPOSITIONS = [
-  "reclaimed",
-  "reclaim_pending",
-  "retained_by_references",
-] as const;
-
-/** One payload disposition. Derived. */
-export type ArtifactPayloadDisposition = (typeof ARTIFACT_PAYLOAD_DISPOSITIONS)[number];
+export type ArtifactPayloadDisposition = GrowthArtifactPayloadDisposition;
 
 /**
  * The manifest envelope a row renders from.

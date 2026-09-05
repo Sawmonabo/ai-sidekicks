@@ -100,6 +100,21 @@ export type {
   GrowthArtifactPayloadEncoding,
   GrowthArtifactRead,
 } from "./growth-values/artifacts.js";
+// The manifest's own closed vocabularies, through the same door and for the reason
+// that door exists: the repos family renders every one of them — a state chip, a
+// visibility chip, a type filter, a replication sentence, a delete receipt's
+// disposition — and it used to DECLARE a second copy of each, member for member,
+// under a comment claiming to be the one home. A view family derives from the shape
+// the wire declares or it drifts from it silently, and the drift that matters is the
+// wire dropping a member: a second union goes on offering it with nothing failing.
+export {
+  GROWTH_ARTIFACT_TYPES,
+  type GrowthArtifactPayloadDisposition,
+  type GrowthArtifactReplicationStatus,
+  type GrowthArtifactState,
+  type GrowthArtifactType,
+  type GrowthArtifactVisibility,
+} from "./growth-values/artifacts.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

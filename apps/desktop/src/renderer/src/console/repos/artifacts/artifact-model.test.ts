@@ -9,30 +9,44 @@
 
 import { describe, expect, it } from "vitest";
 
+import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SESSION_ID,
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "../../bridge/scenarios/repos.js";
+import * as artifactModel from "./artifact-model.js";
 import {
   ARTIFACT_DELETE_CONSEQUENCE,
-  ARTIFACT_PAYLOAD_DISPOSITIONS,
   ARTIFACT_PAYLOAD_DISPOSITION_COPY,
   ARTIFACT_PRODUCER_ABSENT_LABEL,
   ARTIFACT_REPLICATION_ABSENT,
   ARTIFACT_REPLICATION_PRESENTATION,
-  ARTIFACT_REPLICATION_STATUSES,
-  ARTIFACT_STATES,
-  ARTIFACT_TYPES,
+  ARTIFACT_STATE_PRESENTATION,
   ARTIFACT_TYPE_FILTER_ALL,
-  ARTIFACT_VISIBILITIES,
+  ARTIFACT_VISIBILITY_PRESENTATION,
   artifactDeleteReceiptSentence,
   artifactProducerLabel,
   artifactReplicationPresentation,
   artifactTypeCounts,
   filterArtifactRows,
   type ArtifactManifestRow,
+  type ArtifactReplicationStatus,
 } from "./artifact-model.js";
+
+/**
+ * The five vocabularies this module used to declare a second copy of.
+ *
+ * Named here so the control below reads as one claim rather than five, and so a
+ * sixth copy re-introduced under a new name is a one-line addition to this list.
+ */
+const WIRE_OWNED_VOCABULARY_NAMES = [
+  "ARTIFACT_STATES",
+  "ARTIFACT_VISIBILITIES",
+  "ARTIFACT_TYPES",
+  "ARTIFACT_REPLICATION_STATUSES",
+  "ARTIFACT_PAYLOAD_DISPOSITIONS",
+] as const;
 
 function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
   return {
@@ -54,18 +68,41 @@ function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactMani
 
 describe("artifact-model — the closed sets", () => {
   it("declares three states, two visibility classes, six types, and five replication statuses", () => {
-    expect(ARTIFACT_STATES).toHaveLength(3);
-    expect(ARTIFACT_VISIBILITIES).toHaveLength(2);
-    expect(ARTIFACT_TYPES).toHaveLength(6);
-    expect(ARTIFACT_REPLICATION_STATUSES).toHaveLength(5);
-    expect(ARTIFACT_PAYLOAD_DISPOSITIONS).toHaveLength(3);
+    // Counted off the presentation tables, which are typed `Record<Vocabulary, …>`
+    // and so are total over the wire's own set by the compiler rather than by a
+    // second array this module would have had to keep in step.
+    expect(Object.keys(ARTIFACT_STATE_PRESENTATION)).toHaveLength(3);
+    expect(Object.keys(ARTIFACT_VISIBILITY_PRESENTATION)).toHaveLength(2);
+    expect(GROWTH_ARTIFACT_TYPES).toHaveLength(6);
+    expect(Object.keys(ARTIFACT_REPLICATION_PRESENTATION)).toHaveLength(5);
+    expect(Object.keys(ARTIFACT_PAYLOAD_DISPOSITION_COPY)).toHaveLength(3);
   });
 
   it("carries `diff` as a type rather than as a separate collection", () => {
     // Every diff artifact is an artifact and appears in artifact listings, so the
     // diff pane is a view onto this list and never a second store. Membership here
     // is what makes that structural rather than a convention.
-    expect(ARTIFACT_TYPES).toContain("diff");
+    expect(GROWTH_ARTIFACT_TYPES).toContain("diff");
+  });
+
+  it("negative control: no vocabulary is declared a second time in this family", () => {
+    // The whole finding: five sets existed here AND on `growth-values/artifacts.ts`,
+    // member for member, each under a comment claiming to be the one home. The
+    // module namespace is what a second declaration would show up in, and it fails
+    // on the code this replaced, where all five were exported from here.
+    for (const vocabulary of WIRE_OWNED_VOCABULARY_NAMES) {
+      expect(Object.keys(artifactModel)).not.toContain(vocabulary);
+    }
+  });
+
+  it("draws a presentation for every replication status the wire declares", () => {
+    // Totality against the WIRE's census rather than against a local list: the
+    // direction that used to be silent is the wire dropping a member, which a local
+    // list goes on enumerating with nothing failing.
+    for (const status of Object.keys(ARTIFACT_REPLICATION_PRESENTATION)) {
+      const declared: ArtifactReplicationStatus = status as ArtifactReplicationStatus;
+      expect(ARTIFACT_REPLICATION_PRESENTATION[declared].meaning.length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -102,7 +139,7 @@ describe("artifact-model — the type filter", () => {
     // Total over the six, so the filter can offer a type nothing has produced yet —
     // hiding it would hide the vocabulary exactly when somebody is looking for
     // something that is not there.
-    expect(Object.keys(counts)).toHaveLength(ARTIFACT_TYPES.length);
+    expect(Object.keys(counts)).toHaveLength(GROWTH_ARTIFACT_TYPES.length);
   });
 
   it("negative control: a filter for a type nothing carries returns nothing, not everything", () => {
@@ -134,9 +171,10 @@ describe("artifact-model — absences that are facts", () => {
   it("reads a present status verbatim and never recomputes it", () => {
     // The persisted value is what lets an unresolved attachment marker carry a
     // non-`pinned` status as its cause, so the mapping is total and one-way.
-    for (const status of ARTIFACT_REPLICATION_STATUSES) {
-      expect(artifactReplicationPresentation(artifactRow({ replicationStatus: status }))).toBe(
-        ARTIFACT_REPLICATION_PRESENTATION[status],
+    for (const status of Object.keys(ARTIFACT_REPLICATION_PRESENTATION)) {
+      const declared: ArtifactReplicationStatus = status as ArtifactReplicationStatus;
+      expect(artifactReplicationPresentation(artifactRow({ replicationStatus: declared }))).toBe(
+        ARTIFACT_REPLICATION_PRESENTATION[declared],
       );
     }
   });
@@ -162,10 +200,8 @@ describe("artifact-model — the degraded sentences say what the design says", (
   });
 
   it("reports where the bytes went in all three dispositions", () => {
-    const sentences = ARTIFACT_PAYLOAD_DISPOSITIONS.map(
-      (disposition) => ARTIFACT_PAYLOAD_DISPOSITION_COPY[disposition],
-    );
-    expect(new Set(sentences).size).toBe(ARTIFACT_PAYLOAD_DISPOSITIONS.length);
+    const sentences = Object.values(ARTIFACT_PAYLOAD_DISPOSITION_COPY);
+    expect(new Set(sentences).size).toBe(sentences.length);
     expect(ARTIFACT_PAYLOAD_DISPOSITION_COPY.retained_by_references).toContain("another manifest");
   });
 });
