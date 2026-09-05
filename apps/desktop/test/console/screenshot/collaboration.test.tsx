@@ -173,7 +173,10 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     ];
     const { container } = await renderSettled(
       <Roster
-        state={{ kind: "loaded", value: participants }}
+        state={{
+          kind: "loaded",
+          value: { participants, readAtMilliseconds: COLLABORATION_INSTANT_MILLISECONDS },
+        }}
         rows={rosterRowsFrom(
           participants,
           (participantId) => allocator.assignmentFor(participantId),

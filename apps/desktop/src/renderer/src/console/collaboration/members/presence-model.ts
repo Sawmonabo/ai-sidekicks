@@ -31,7 +31,7 @@
 
 import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 
-import type { ConsoleClock } from "../../core/index.js";
+import { parseInstant, type ConsoleClock } from "../../core/index.js";
 import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
 import type { ParticipantHueAssignment } from "../../tokens/index.js";
 import type { SessionStore } from "../../store/index.js";
@@ -101,8 +101,82 @@ export function rosterRowsFrom(
     }));
 }
 
+/**
+ * One settled roster read: who was there, and WHEN the console heard it.
+ *
+ * The stamp rides the reading rather than being sampled where the rows are drawn.
+ * A relative age is measured against an instant, and a render body that read the
+ * clock for one produced a figure that depended on when the tree last happened to
+ * re-render: a participant idle since 10:00 went on reading "a few seconds ago" at
+ * 10:45 and then jumped straight to "45 minutes ago" the moment something unrelated
+ * moved. Stamped at the read, the instant is a fact about the read; advancing it is
+ * `useDeadlineWake`'s job and nobody else's.
+ */
+export interface PresenceReading {
+  readonly participants: readonly PresenceReadResponseParticipant[];
+  /** When this read settled, off the console's one clock. */
+  readonly readAtMilliseconds: number;
+}
+
 /** The read the roster is built on, with its refresh already bound. */
-export type PresenceRoster = PushDrivenRead<readonly PresenceReadResponseParticipant[]>;
+export type PresenceRoster = PushDrivenRead<PresenceReading>;
+
+/**
+ * The instants at which a row's rendered age changes, for every row.
+ *
+ * `formatRelativeTime` rounds within four bands — seconds under a minute, minutes
+ * under an hour, hours under a day, then days — so the text changes at half-unit
+ * offsets from the stamp, and each of those instants is a wake-up a surface must
+ * arm or else render a figure that is only correct at the moment it was painted.
+ *
+ * Derived from `lastSeen` ALONE and never from the current instant, which is what
+ * makes it a stable list `useDeadlineWake` can step through one deadline at a time:
+ * a list computed against "now" would name one boundary, and after waking to it
+ * would name the same one again and re-arm nothing.
+ *
+ * An unreadable stamp contributes no deadline — such a row renders an em dash, which
+ * does not age — and the horizon stops at {@link AGE_BOUNDARY_HORIZON_DAYS}, past
+ * which the figure moves once a day and the next presence read has long since
+ * restamped it.
+ */
+export function ageBoundariesOf(
+  participants: readonly PresenceReadResponseParticipant[],
+): readonly number[] {
+  const boundaries: number[] = [];
+  for (const participant of participants) {
+    const seen = parseInstant(participant.lastSeen);
+    if (seen.kind !== "instant") {
+      continue;
+    }
+    for (const { unitMilliseconds, steps } of AGE_BANDS) {
+      for (let step = 0; step < steps; step += 1) {
+        boundaries.push(seen.epochMilliseconds + unitMilliseconds * (step + 0.5));
+      }
+    }
+  }
+  return boundaries;
+}
+
+/** How far ahead the day band is enumerated. Beyond it the figure moves once a day. */
+const AGE_BOUNDARY_HORIZON_DAYS = 30;
+
+const SECOND_MILLISECONDS = 1000;
+const MINUTE_MILLISECONDS = 60 * SECOND_MILLISECONDS;
+const HOUR_MILLISECONDS = 60 * MINUTE_MILLISECONDS;
+const DAY_MILLISECONDS = 24 * HOUR_MILLISECONDS;
+
+/**
+ * The four bands `formatRelativeTime` rounds in, and how many steps each spans.
+ *
+ * One band's steps end where the next begins, so the enumeration crosses each band
+ * edge exactly once and never emits two deadlines for one rendered change.
+ */
+const AGE_BANDS: readonly { readonly unitMilliseconds: number; readonly steps: number }[] = [
+  { unitMilliseconds: SECOND_MILLISECONDS, steps: 60 },
+  { unitMilliseconds: MINUTE_MILLISECONDS, steps: 60 },
+  { unitMilliseconds: HOUR_MILLISECONDS, steps: 24 },
+  { unitMilliseconds: DAY_MILLISECONDS, steps: AGE_BOUNDARY_HORIZON_DAYS },
+];
 
 /**
  * Build the roster read for one session.
@@ -116,14 +190,19 @@ export function createPresenceRoster(options: {
   readonly clock: ConsoleClock;
 }): PresenceRoster {
   const { bridge, sessionStore, clock } = options;
-  return new PushDrivenRead<readonly PresenceReadResponseParticipant[]>({
+  return new PushDrivenRead<PresenceReading>({
     clock,
     origin: PRESENCE_ROSTER_ORIGIN,
     read: async () => {
       const reply = await callDaemon(bridge, PRESENCE_READ_METHOD, {
         sessionId: heldIdAsWireId(sessionStore.sessionId),
       });
-      return servedValueOrRaise(reply).participants;
+      // Stamped where the read settles, off the clock this read already owns — so a
+      // story's frozen clock stamps a frozen instant and a capture is byte-stable.
+      return {
+        participants: servedValueOrRaise(reply).participants,
+        readAtMilliseconds: clock.now(),
+      };
     },
     // The payload is typed `void` and the handler takes no argument, which is the
     // "never decodes the push payload" rule made unrepresentable rather than
