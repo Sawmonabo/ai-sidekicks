@@ -61,11 +61,11 @@ import { type DeckDensity } from "../workspace-bounds.js";
 import { minimumPaneWidthPx } from "./density.js";
 import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
 import { DeckPaneSlot } from "./DeckPaneSlot.js";
+import { type TrackedRect } from "./rect-geometry.js";
 import {
   usePaneRectSources,
   usePaneRectTracker,
   type AirspaceRegistry,
-  type TrackedRect,
 } from "./rect-discipline.js";
 import { useSeparatorValueBoundsCorrection } from "./separator-aria.js";
 

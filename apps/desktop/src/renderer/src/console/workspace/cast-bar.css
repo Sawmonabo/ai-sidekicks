@@ -1,0 +1,169 @@
+/* The cast bar: who is in this session, and what each of them is doing.
+ *
+ * Imported from `workspace/index.ts` beside the family's other sheets, so the rules
+ * land once per bundle and in the family's own order.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the bar follows the scheme attribute with no conditional in JSX.
+ */
+
+/* --- The cast bar ------------------------------------------------------- */
+
+/*
+ * One line, and it stays one line: the members list scrolls sideways rather than
+ * wrapping, because a cast bar that grows to two rows moves the deck under a
+ * person's cursor every time somebody joins.
+ */
+.meridian-cast-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-cast-bar__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-cast-bar__members {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.meridian-cast-bar__all-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  /* Right-aligned, which is this bar's own placement decision: the all-clear line
+   * `Spec-023 §The surface set` asks for is the last thing on the bar and the one a
+   * person's eye should be able to find without reading the rest. */
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-cast-bar__all-clear-line {
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-cast-bar__fold {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* --- One participant chip ----------------------------------------------- */
+
+/*
+ * `--meridian-cast-hue` is set per chip from the participant's wheel step. It is
+ * read only by the ring below: the hue answers "who" and never "how urgent", so
+ * nothing here uses an attention colour and the ring never changes with state.
+ *
+ * The ring TREATMENT carries the wrap lap (`data-ring`), which is what tells two
+ * participants who share a step apart past twelve — rule 2's own answer, and the
+ * reason the chip does not dim or brighten a repeated hue.
+ */
+.meridian-cast-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  max-width: 22ch;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-cast-hue);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-cast-chip:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-cast-chip:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-cast-chip[data-ring="dashed"] {
+  border-inline-start-style: dashed;
+}
+
+.meridian-cast-chip[data-ring="double"] {
+  border-inline-start-style: double;
+}
+
+.meridian-cast-chip[data-ring="dotted"] {
+  border-inline-start-style: dotted;
+}
+
+/*
+ * The chip somebody is blocked on. The ledger-side amber triple, verbatim from the
+ * `.meridian-chip--attention` precedent, on the chip's GROUND and its three plain
+ * edges — `border-inline-start` is the hue ring and is deliberately untouched,
+ * because the hue answers "who" and repurposing it for state would strand two
+ * participants who share a wheel step.
+ *
+ * Placed after `:hover`, which it therefore outranks by source order at equal
+ * specificity: a state colour that a passing cursor replaced would flicker off the
+ * one chip a person is looking for.
+ */
+.meridian-cast-chip[data-attention="true"] {
+  border-block-color: var(--meridian-amber-mark);
+  border-inline-end-color: var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+}
+
+/* The verb gives up its muted grey here rather than keeping it: grey is measured
+ * for contrast on the plain surfaces and on no tinted one, and amber-on-amber is
+ * the pair the palette actually proves. */
+.meridian-cast-chip[data-attention="true"] .meridian-cast-chip__verb {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-cast-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The verb truncates to one clause in CSS rather than in JavaScript: a wire-derived
+ * string put through a transformation would break the figure rules, and an ellipsis
+ * the browser draws is not a change to the value.
+ */
+.meridian-cast-chip__verb {
+  overflow: hidden;
+  max-width: 14ch;
+  color: var(--meridian-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A frozen verb reads as frozen: the projection is known-incomplete and says so. */
+.meridian-cast-chip__verb[data-stale="true"] {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}

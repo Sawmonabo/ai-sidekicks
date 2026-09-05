@@ -38,13 +38,12 @@
 //
 // AND A CRASHED WINDOW COMES BACK THROUGH A SIGNAL, NOT A GUESS. The same heading's
 // "a crashed auxiliary window returns the pane to the deck with the crash noted in the
-// pane's error slot" needs something to notice the crash, and
-// the growth registry carries exactly one: a window pane-error subscription whose
-// value is a pane id and a reason — the pair `noteWindowLost` already takes. It is
-// watched only while something is detached, because a subscription held over an
-// empty detached set can report nothing and its refusal would be a permanent notice
-// about a hazard the window does not currently have. A refused subscription is
-// rendered in the placeholder it belongs to: it does not mean "no crashes".
+// pane's error slot" needs something to notice the crash, and the growth registry
+// carries exactly one: a window pane-error subscription whose value is a pane id and a
+// reason — the pair `noteWindowLost` already takes. That subscription's own lifecycle
+// — start, install, drain, stop, and the rounds that keep a stale reply from
+// installing anything — is `aux-pane-error-watch.ts`. This file holds the SETS the
+// signal writes into, and delegates the watch.
 //
 // AND THE CRASH ITSELF IS KEPT, NOT MERELY REPORTED ONCE. The pane goes back into
 // the deck the instant the signal arrives, so a reason handed to the caller of
@@ -55,7 +54,6 @@
 // makes a note about the last one a note about nothing.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
-import { GenerationLatch, type CurrentGenerationClaim } from "../store/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import {
   AUXILIARY_ROUTE_LABELS,
@@ -63,7 +61,7 @@ import {
   isAuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
 import { type PaneKind } from "../seats/index.js";
-import { lossyStringify } from "../../../../shared/wire-errors.js";
+import { PaneErrorWatch } from "./aux-pane-error-watch.js";
 import {
   auxiliaryTarget,
   formatAuxiliaryTargetOrRefuse,
@@ -85,25 +83,6 @@ import {
  */
 type ConsoleGrowthPort = ConsoleBridge["growth"];
 
-/**
- * The served value of the pane-error subscription, taken off the port for the same
- * reason `ConsoleGrowthPort` is: the bridge door exports the bridge and not the
- * stream shape, and a second import for a type the open door already carries would
- * be a second name for one wire fact.
- */
-type PaneErrorSignal = Extract<
-  Awaited<ReturnType<ConsoleGrowthPort["windowSubscribePaneErrors"]>>,
-  { readonly status: "served" }
->["value"];
-
-/**
- * The one key the pane-error watch is claimed under.
- *
- * There is exactly one signal per hand-off, so one key: the latch's subject is the
- * hand-off itself and the register never holds more than this.
- */
-const PANE_ERROR_WATCH_KEY = "pane-error-watch";
-
 export class AuxiliaryHandoff {
   readonly #growth: ConsoleGrowthPort;
   readonly #detachedByPaneId = new Map<string, DetachedPane>();
@@ -117,23 +96,26 @@ export class AuxiliaryHandoff {
    */
   readonly #lostByPaneId = new Map<string, LostAuxiliaryWindow>();
   readonly #changes = new Emitter<readonly DetachedPane[]>("auxiliary hand-off change");
-  #paneErrorStream: PaneErrorSignal | undefined;
-  #paneErrorRefusal: AuxiliaryHandoffRefusal | undefined;
   /**
-   * Whether a start for the pane-error watch is in flight, and which round it is.
+   * The crashed-window signal, as a collaborator rather than as four more fields.
    *
-   * THE SUBSTRATE'S REGISTER RATHER THAN A COUNTER PAIR. This used to be a watch
-   * generation beside the generation a start was pending for, compared as
-   * `#pendingStartGeneration === #paneErrorWatchGeneration`; the latch says that
-   * once — a taken key IS a start in flight, and a superseded key IS a start whose
-   * settlement installs nothing. A boolean captured per call could not be reached
-   * from the stop that has to invalidate it, which is why the pair existed at all,
-   * and the latch keeps that property without the arithmetic.
+   * It is handed the two acts it needs and holds no set of its own: a lost window is
+   * recorded HERE, by the same method a caller would use, so the signal's arm and the
+   * hand-written arm cannot drift into two spellings of one act.
    */
-  readonly #paneErrorWatch = new GenerationLatch();
+  readonly #paneErrors: PaneErrorWatch;
 
   public constructor(options: { readonly growth: ConsoleGrowthPort }) {
     this.#growth = options.growth;
+    this.#paneErrors = new PaneErrorWatch({
+      growth: options.growth,
+      onWindowLost: (paneId, reason) => {
+        this.noteWindowLost(paneId, reason);
+      },
+      onChanged: () => {
+        this.#publish();
+      },
+    });
   }
 
   /**
@@ -144,7 +126,7 @@ export class AuxiliaryHandoff {
    * that showed nothing would be claiming the second.
    */
   public get paneErrorRefusal(): AuxiliaryHandoffRefusal | undefined {
-    return this.#paneErrorRefusal;
+    return this.#paneErrors.refusal;
   }
 
   /** Every pane currently shown in a window, in detach order. */
@@ -312,130 +294,20 @@ export class AuxiliaryHandoff {
   /**
    * Watch the pane-error signal, so a window that crashed returns its pane.
    *
-   * Idempotent across BOTH states a watch can be in, which is the half this used to
-   * miss. A second call while a stream is open is a no-op, because the deck detaching
-   * a second pane must not open a second subscription to the same signal — and a
-   * second call while the FIRST request is still in flight is a no-op for exactly the
-   * same reason, which a guard reading only the installed stream cannot say.
-   *
-   * AND A REQUEST THAT OUTLIVES ITS WATCH INSTALLS NOTHING. The subscription is
-   * asked for over a process boundary, so the last pane can come back while the
-   * request is in flight; without the generation the response then installed a
-   * stream and drained it for a window with nothing detached, which is the
-   * permanent-notice-about-a-hazard-the-window-does-not-have shape this file's header
-   * rules out. A stale response closes what it opened and installs nothing.
-   *
-   * AND THE CLAIM IS HELD FOR THE DRAIN, WHICH IS THE WORK IT GATES. The drain runs
-   * for the whole life of the subscription and every write it makes is a settlement
-   * — a pane returned to the deck, a refusal about the signal, the handle cleared.
-   * Freeing the key at the reply left all of that ungated: a stop closes the stream,
-   * which is what makes the drain throw, and a detach arriving right behind that stop
-   * has already installed a healthy one by the time the throw is caught. The key is
-   * given back at the end instead, where `release` is a no-op for a round something
-   * else has already superseded.
+   * Called when the FIRST pane goes into a window and idempotent after that: the
+   * watch itself answers a second call with a no-op, whether or not its first
+   * request has come back yet.
    */
   public async watchPaneErrors(): Promise<void> {
-    if (this.#paneErrorStream !== undefined) {
-      return;
-    }
-    const claim = this.#paneErrorWatch.claim(this, PANE_ERROR_WATCH_KEY);
-    if (claim === undefined) {
-      return;
-    }
-
-    try {
-      const answer = await this.#growth.windowSubscribePaneErrors({});
-      const installed = claim.settle(() => {
-        if (answer.status === "unavailable") {
-          this.#paneErrorRefusal = refuseHandoff("wire-unregistered", answer.detail);
-          this.#publish();
-          return;
-        }
-        this.#paneErrorRefusal = undefined;
-        this.#paneErrorStream = answer.value;
-      });
-      if (!installed) {
-        // Stopped while this was in flight, so the stream this reply carries is one
-        // nothing will ever drain.
-        if (answer.status === "served") {
-          answer.value.close();
-        }
-        return;
-      }
-      if (answer.status === "served") {
-        await this.#drainPaneErrors(answer.value, claim);
-      }
-    } finally {
-      claim.release();
-    }
+    await this.#paneErrors.start();
   }
 
-  /**
-   * Close the signal. Called when the last pane comes back, and on teardown.
-   *
-   * The round is superseded FIRST, so a request still in flight is invalidated by
-   * the same act that closes an installed stream — a stop that reached only what was
-   * installed left the pending one to arrive afterwards and re-open the watch it had
-   * just closed. Superseding also frees the key, so a detach arriving right behind
-   * this stop starts a new subscription rather than being turned away into no watch
-   * at all.
-   */
+  /** Close the signal. Called when the last pane comes back, and on teardown. */
   public stopWatchingPaneErrors(): void {
-    this.#paneErrorWatch.supersede(this, PANE_ERROR_WATCH_KEY);
-    this.#paneErrorStream?.close();
-    this.#paneErrorStream = undefined;
-    this.#paneErrorRefusal = undefined;
-  }
-
-  /**
-   * Deliver what the signal reports, for as long as this round is the watch.
-   *
-   * EVERY WRITE GOES THROUGH THE CLAIM, including the failure arm. A superseded drain
-   * is one whose stream has been closed by a stop, and closing is exactly what makes
-   * this loop throw — so an ungated catch wrote "the signal that reports a lost window
-   * stopped" over a subscription that a detach arriving behind that stop had already
-   * re-opened and that was delivering. The generation is what tells the two apart; the
-   * stream-identity check that used to guard the handle alone cannot, because the
-   * handle is one of the fields the stale round was writing.
-   */
-  async #drainPaneErrors(stream: PaneErrorSignal, claim: CurrentGenerationClaim): Promise<void> {
-    try {
-      for await (const paneError of stream.events) {
-        claim.settle(() => {
-          this.noteWindowLost(paneError.paneId, paneError.reason);
-        });
-      }
-    } catch (error) {
-      // A signal that ended in a failure is not a signal that reported no crashes,
-      // so the placeholder says so rather than the stream ending in silence.
-      claim.settle(() => {
-        this.#paneErrorRefusal = refuseHandoff(
-          "wire-unregistered",
-          `The signal that reports a lost window stopped: ${describeStreamFailure(error)}`,
-        );
-        this.#paneErrorStream = undefined;
-        this.#publish();
-      });
-      return;
-    }
-    claim.settle(() => {
-      this.#paneErrorStream = undefined;
-      this.#publish();
-    });
+    this.#paneErrors.stop();
   }
 
   #publish(): void {
     this.#changes.emit(this.detached());
   }
-}
-
-/**
- * An unknown thrown value as one sentence, without inventing a shape for it.
- *
- * `lossyStringify` rather than `String`: a caught value may be a revoked proxy, a
- * null-prototype object, or a `toString` that throws, and `String` on any of those
- * throws out of the very handler written to keep a failed signal from escaping.
- */
-function describeStreamFailure(error: unknown): string {
-  return error instanceof Error ? error.message : lossyStringify(error);
 }

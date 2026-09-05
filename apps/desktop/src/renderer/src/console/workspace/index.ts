@@ -14,8 +14,11 @@
 // would be a chain — the structure gate names that shape and fails it — and would
 // also let a sibling reach a seat through a view family's door.
 //
-// The family's stylesheet is imported HERE and nowhere else, so a surface can never
-// render a workspace element that arrived without its rules.
+// The family's stylesheets are imported HERE and nowhere else, so a surface can never
+// render a workspace element that arrived without its rules. There are four of them —
+// the shell, the cast bar, the deck, and the sidebar — split along the same seams the
+// modules take, and imported together so the family's rules stay one contiguous block
+// in the bundle's cascade.
 //
 // WHAT THE DOOR CARRIES IS WHAT LEAVES THE FAMILY, AND NOTHING MORE. The deck's
 // layout, its snapshot grammar, its density presets, its rect discipline, the
@@ -25,6 +28,9 @@
 // adds its line in the commit that imports it.
 
 import "./workspace.css";
+import "./cast-bar.css";
+import "./deck.css";
+import "./sidebar.css";
 
 export { PaneHeader } from "./deck/PaneHeader.js";
 
