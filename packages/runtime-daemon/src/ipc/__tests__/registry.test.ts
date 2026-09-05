@@ -12,7 +12,9 @@
 //   * I-007-7 — schema validation runs BEFORE handler dispatch. Handler
 //     is NEVER invoked on a malformed payload — `safeParse` short-
 //     circuits dispatch with `RegistryDispatchError("invalid_params")`.
-//   * I-007-9 — method names conform to the canonical regex set:
+//   * I-007-9 — method names conform to the canonical regex set (every
+//     segment starts lowercase and may carry camelCase, the namespace root
+//     included since the 2026-09-05 root widening):
 //     `METHOD_NAME_FORMAT` (the single source exported from
 //     `@ai-sidekicks/contracts`, canonical per
 //     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
@@ -289,11 +291,15 @@ describe("I-007-9 — method-name format validation", () => {
     "session.subscribe",
     "presence.subscribe",
     "run.stream.notify",
-    // camelCase tails (BL-142): lowercase root + camelCase tail segment, per
+    // camelCase tails (BL-142), per
     // `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`
     // (names `settings.effectiveRead` / `driver.listCapabilities` as permitted).
     "settings.effectiveRead",
     "driver.listCapabilities",
+    // camelCase ROOT — admitted by the 2026-09-05 first-segment widening in
+    // that same ratification. `providerAccount.*` is the corpus's only
+    // camelCase-rooted namespace; every one of its verbs threw here before.
+    "providerAccount.list",
     "$/subscription/notify",
     "$/subscription/cancel",
     "$/cancelRequest",
@@ -304,8 +310,11 @@ describe("I-007-9 — method-name format validation", () => {
   });
 
   const REJECTED = [
-    "Session.create", // uppercase root
-    "textDocument.didOpen", // camelCase ROOT — roots stay lowercase (BL-142 trap)
+    // No segment may START uppercase. The 2026-09-05 root widening admits an
+    // uppercase letter INSIDE a segment — root included — and never at its head,
+    // so these two are the guard that it did not loosen further than that.
+    "Session.create", // uppercase-starting root
+    "ProviderAccount.list", // uppercase-starting root of the widened namespace
     "sessionCreate", // no dot
     "session/create", // slash separator (non-LSP)
     "session.", // trailing dot
@@ -367,7 +376,8 @@ describe("I-007-9 — method-name format validation", () => {
   // blocking the Plan-009/010/012/016 Phase 3 registrations. Each pairs a
   // lowercase root with a camelCase tail per the canonical
   // `METHOD_NAME_FORMAT` (api-payload-contracts.md §JSON-RPC Method-Name
-  // Registry).
+  // Registry), whose 2026-09-05 root widening additionally admits a camelCase
+  // root such as `providerAccount.list`.
   const BL142_CAMELCASE_TAILS = [
     "repo.mountRead", // Plan-009
     "repo.executionModeSelect", // Plan-010

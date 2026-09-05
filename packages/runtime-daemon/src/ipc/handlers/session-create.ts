@@ -51,7 +51,7 @@
 //
 // Method-name format ratified: dotted-camelCase per
 // `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`. Canonical regex:
-// `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` — the `register` call site below
+// `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` — the `register` call site below
 // passes `"session.create"`, which matches.
 //
 // Pattern reference: `registerHandshakeMethod` in
