@@ -16,11 +16,13 @@ import type { GrowthUnavailable } from "../../bridge/index.js";
 import {
   ATTACHMENT_BYTE_CAP_DEFAULT,
   isConsoleRefusal,
-  normalizeWireRejection,
   refuse,
   type ConsoleRefusal,
-  type WireRefusal,
 } from "../../core/index.js";
+import {
+  ARTIFACT_READER_REFUSAL_ORIGIN,
+  type ArtifactPaneRefusalCode,
+} from "./artifact-pane-refusals.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import type {
   ArtifactDeleteReceipt,
@@ -153,98 +155,6 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
   refusalByArtifactId: NO_ROW_REFUSALS,
 };
 
-/** Which subsystem refused, when the refusal is the pane's own and not the port's. */
-export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
-
-/**
- * The three codes this pane mints. The port owns every other refusal the pane renders.
- *
- * Declared here, beside the reading they are recorded on, rather than in either of
- * the two modules that raise them: a refusal vocabulary split across the reader and
- * the acts would be two closed sets for one pane, and a caller narrowing on a code
- * would have to know which half minted it.
- */
-export const ARTIFACT_READ_THREW_CODE = "read-threw";
-
-export const ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE = "payload-fetch-in-flight";
-
-export const ARTIFACT_MANIFEST_READ_IN_FLIGHT_CODE = "manifest-read-in-flight";
-
-export const ARTIFACT_REPLY_UNREADABLE_CODE = "reply-unreadable";
-
-/**
- * The refusal a read that threw becomes.
- *
- * A thrown value is not a refusal until something makes it one, and the alternative —
- * letting it reject inside a timer callback — leaves the pane on the in-flight absence
- * for the rest of its life.
- *
- * A DELEGATION, NOT A NORMALIZER, on `repos/repo-reads.ts:repoCallRefusal`'s shape.
- * The three-arm reading this replaces flattened everything to one code and one
- * sentence: a JSON-RPC envelope carrying `data.type` arrived as `read-threw` with the
- * daemon's dotted code and its own words discarded, a rate-limit envelope lost its
- * retry hint, a `ConsoleRefusal` thrown across the bridge lost the origin its author
- * named, and `error instanceof Error` answered false for an `Error` minted in the
- * preload realm — which is the realm every bridge rejection crosses — so that value
- * took the not-an-error arm and its message went with it. `core/wire-rejection.ts`
- * owns all four of those readings and a terminal that never throws, and the two
- * things left here are this pane's own: the origin, and the sentence for a rejection
- * that said nothing machine-readable.
- *
- * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
- * there — a rejection off the wire can carry participant content as readily as a
- * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
- * sets and which the copy this replaces broke by interpolating the message into it.
- *
- * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `ConsoleRefusal`
- * widened by the optional retry hint a rate-limit envelope registers, so every
- * consumer that takes a refusal takes this unchanged — and narrowing it back to
- * `ConsoleRefusal` here would hide the one member this delegation exists to stop
- * dropping from the only reader that could offer the retry.
- */
-export function readFailureRefusal(error: unknown): WireRefusal {
-  return normalizeWireRejection(ARTIFACT_READER_REFUSAL_ORIGIN, error, {
-    code: ARTIFACT_READ_THREW_CODE,
-    detail: "The artifact read failed before it could answer.",
-  });
-}
-
-/**
- * The refusal a second payload fetch becomes while the first is still on the wire.
- *
- * NAMED RATHER THAN SILENT, and it names the artifact the pane is actually waiting
- * on rather than the one that was pressed: a participant told "something is in
- * flight" cannot tell what. The control that produced it is held while a fetch is
- * pending, so this is structurally unreachable from the pane — and recorded anyway,
- * for `repos/proposal-gate-actions.ts`'s reason: a press that produced nothing at all
- * is the silent no-op rule 8 forbids.
- */
-export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleRefusal {
-  return refuse(
-    ARTIFACT_READER_REFUSAL_ORIGIN,
-    ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE,
-    `The payload of ${pendingArtifactId} has been asked for and the daemon has not answered yet. Nothing else is fetched until it settles.`,
-  );
-}
-
-/**
- * The refusal a second manifest re-read becomes while this row's first is on the wire.
- *
- * NAMED RATHER THAN SILENT, on `payloadFetchInFlightRefusal`'s reason, and it names the
- * ROW: two presses on one row are two reads of one manifest whose answers can settle in
- * either order, so the older reply would put the staler row back. The control that
- * produced it is held while that row's read is pending, so this is structurally
- * unreachable from the panel — and recorded anyway, because a press that produced
- * nothing at all is the silent no-op rule 8 forbids.
- */
-export function manifestReadInFlightRefusal(artifactId: string): ConsoleRefusal {
-  return refuse(
-    ARTIFACT_READER_REFUSAL_ORIGIN,
-    ARTIFACT_MANIFEST_READ_IN_FLIGHT_CODE,
-    `The manifest of ${artifactId} has been asked for again and the daemon has not answered yet. That row is read once until it settles.`,
-  );
-}
-
 /**
  * One growth-port answer, in the two arms the port produces.
  *
@@ -310,7 +220,7 @@ export function growthAnswerReading<TValue>(
       status: "refused",
       refusal: refuse(
         ARTIFACT_READER_REFUSAL_ORIGIN,
-        ARTIFACT_REPLY_UNREADABLE_CODE,
+        "reply-unreadable" satisfies ArtifactPaneRefusalCode,
         `${operation} answered with a shape that is neither a served value nor a refusal, so nothing was read.`,
       ),
     };

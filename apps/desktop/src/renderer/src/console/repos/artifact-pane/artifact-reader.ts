@@ -83,11 +83,11 @@ import { ArtifactPaneActions } from "./artifact-actions.js";
 import { type ArtifactActionHost } from "./artifact-action-host.js";
 import {
   NOTHING_READ_YET,
-  readFailureRefusal,
   type ArtifactDeleteOutcome,
   type ArtifactPaneReading,
   type ArtifactRowActOutcome,
 } from "./artifact-pane-reading.js";
+import { readFailureRefusal } from "./artifact-pane-refusals.js";
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
 import { readArtifactAllowlist, readArtifactList } from "./artifact-pane-reads.js";
 

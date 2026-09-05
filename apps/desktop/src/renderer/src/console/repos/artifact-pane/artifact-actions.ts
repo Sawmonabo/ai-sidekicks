@@ -89,7 +89,6 @@ import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-hos
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
 import { readGrowthAnswer } from "./growth-call.js";
 import {
-  manifestReadInFlightRefusal,
   withManifestReadInFlight,
   withReplacedRow,
   withoutManifestReadInFlight,
@@ -98,6 +97,7 @@ import {
   type ArtifactDeleteOutcome,
   type ArtifactRowActOutcome,
 } from "./artifact-pane-reading.js";
+import { manifestReadInFlightRefusal } from "./artifact-pane-refusals.js";
 import { type ArtifactPayloadOutcome } from "./artifact-payload.js";
 
 export interface ArtifactPaneActionsOptions {

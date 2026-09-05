@@ -38,11 +38,8 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { artifactManifestRowFromSummary } from "../artifacts/artifact-model.js";
 import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
 import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-host.js";
-import {
-  payloadFetchInFlightRefusal,
-  withReplacedRow,
-  withoutRowRefusal,
-} from "./artifact-pane-reading.js";
+import { withReplacedRow, withoutRowRefusal } from "./artifact-pane-reading.js";
+import { payloadFetchInFlightRefusal } from "./artifact-pane-refusals.js";
 import { artifactPayloadReadingFrom, type ArtifactPayloadOutcome } from "./artifact-payload.js";
 import { readGrowthAnswer } from "./growth-call.js";
 
