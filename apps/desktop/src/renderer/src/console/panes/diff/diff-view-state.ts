@@ -22,18 +22,52 @@
 // `ConsoleDiffModel` carries no id (`diff-model.ts` says why its producer does
 // not exist yet), and a key derived from `baseRef` / `headRef` / attribution
 // would both miss a real change — two diffs of the same two refs can hold
-// different content — and claim a member the model does not have.
+// different content — and claim a member the model does not have. So the model
+// IS the subject, and the key within it is `undefined`: one model is one subject
+// entire, with nothing inside it to name.
 //
-// THE COMPARISON IS HELD IN STATE RATHER THAN IN A REF. React's own rule for
-// adjusting state when a prop changes is a state register compared during
-// render; writing a ref during render is what React documents as forbidden, and
-// under a double-invoked render it would mark the change handled before the
-// state that answers it was ever set.
+// AND THE RULE IS THE CONSOLE'S ONE COPY OF IT. `store/subject-scoped-state.ts`
+// holds what a subject-scoped value may do — seeded during the render that first
+// sees a new subject, so no committed frame carries the previous one's; and
+// written only by a publisher captured under the subject still on screen, so a
+// handler a consumer carried across the move writes NOWHERE rather than selecting
+// one diff's path inside another. This module hand-rolled the first half from a
+// state register and left the second open; both are now the substrate's, and this
+// file only says what the diff's subject and seed are.
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
+
+import { useSubjectScopedState } from "../../store/index.js";
 
 import type { ConsoleDiffModel } from "./diff-model.js";
 import { expandGap, type DiffGapExpansion } from "./diff-row-model.js";
+
+/**
+ * The subject a pane holding no diff is addressed at.
+ *
+ * A module-level constant rather than a fresh object per render, so every pass with
+ * no diff is one subject and the seed is not re-run under a pane that is simply
+ * waiting. It is never compared with a model — a `ConsoleDiffModel` is a different
+ * object — so no diff can be mistaken for the absence of one.
+ */
+const NO_DIFF_SUBJECT: object = {};
+
+/** The two pieces of view state one diff owns, held as one value. */
+interface HeldDiffViewState {
+  readonly selectedFilePath: string | undefined;
+  readonly expansion: DiffGapExpansion;
+}
+
+/**
+ * What a diff opens on: the whole change set, with nothing unfolded.
+ *
+ * Declared once rather than written at the seed site, because it is also what the
+ * pane degrades to when the model moves — the same reading in both places, and one
+ * of them cannot drift.
+ */
+function unnarrowedDiffViewState(): HeldDiffViewState {
+  return { selectedFilePath: undefined, expansion: new Map() };
+}
 
 /** The two pieces of view state one diff owns, and the two ways they move. */
 export interface DiffModelViewState {
@@ -55,32 +89,37 @@ export interface DiffModelViewState {
  * zero and resolve the first file's context.
  */
 export function useDiffModelViewState(diff: ConsoleDiffModel | undefined): DiffModelViewState {
-  const [renderedModel, setRenderedModel] = useState<ConsoleDiffModel | undefined>(diff);
-  const [expansion, setExpansion] = useState<DiffGapExpansion>(() => new Map());
-  const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>(undefined);
+  const { value, publish } = useSubjectScopedState<HeldDiffViewState>(
+    diff ?? NO_DIFF_SUBJECT,
+    undefined,
+    unnarrowedDiffViewState,
+  );
 
-  if (renderedModel !== diff) {
-    setRenderedModel(diff);
-    setExpansion(new Map());
-    setSelectedFilePath(undefined);
-  }
+  const selectFilePath = useCallback(
+    (path: string | undefined) => {
+      publish((previous) => ({ ...previous, selectedFilePath: path }));
+    },
+    [publish],
+  );
 
   const expandGapAt = useCallback(
     (fileIndex: number, hunkIndex: number) => {
       const available = diff?.files[fileIndex]?.hunks[hunkIndex]?.precedingContext.length ?? 0;
-      setExpansion((previous) => expandGap(previous, fileIndex, hunkIndex, available));
+      // The update runs where the held value is, rather than over an expansion read
+      // out of this closure: two presses settling in one tick would otherwise both
+      // grow the map the render produced, and the second would erase the first.
+      publish((previous) => ({
+        ...previous,
+        expansion: expandGap(previous.expansion, fileIndex, hunkIndex, available),
+      }));
     },
-    [diff],
+    [diff, publish],
   );
 
   return {
-    // The state a render that has just seen a new model still holds is the OLD
-    // model's, and React re-renders before committing this one — but reading the
-    // stale values here would paint one frame of the previous diff's narrowing
-    // over the new one.
-    selectedFilePath: renderedModel === diff ? selectedFilePath : undefined,
-    expansion: renderedModel === diff ? expansion : new Map(),
-    selectFilePath: setSelectedFilePath,
+    selectedFilePath: value.selectedFilePath,
+    expansion: value.expansion,
+    selectFilePath,
     expandGapAt,
   };
 }
