@@ -122,6 +122,7 @@ export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
   /** The session the caller-identity read is asked under. The store's own, never minted. */
+  readonly #sessionStore: SessionStore;
   /** Resolved once: whether this root can be asked about, and with what. */
   readonly #readPlan: BranchContextReadPlan;
   readonly #scheduler: RefreshScheduler;
@@ -150,6 +151,7 @@ export class ProposalGateReader {
   public constructor(options: ProposalGateReaderOptions) {
     this.#bridge = options.bridge;
     this.#subject = options.subject;
+    this.#sessionStore = options.sessionStore;
     this.#readPlan = branchContextReadPlanFor(options.subject);
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
@@ -202,6 +204,30 @@ export class ProposalGateReader {
   /** How many reads have actually run — the coalescing assertion, not an inference. */
   public get performCount(): number {
     return this.#scheduler.performCount;
+  }
+
+  /**
+   * Whether this reader is over, terminally.
+   *
+   * READ BY THE BINDING: `dispose` is terminal and strict mode runs a cleanup and then
+   * the same effect's setup again, so `start()` on a disposed gate returns early and
+   * the row would sit unread with nothing on screen to say why.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
+  /**
+   * Whether this gate's reads are taken against `sessionStore`.
+   *
+   * The seam holds one resource per `(subject, key)` and this reader has two
+   * collaborators the key cannot both carry — the bridge it calls through and the store
+   * whose repair edge and frames are two of its three refresh reasons. The bridge is
+   * the subject and the gate's own five-part identity is the key, so this is the axis
+   * left over.
+   */
+  public isReadingFor(sessionStore: SessionStore): boolean {
+    return this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ProposalGateReading) => void): Unsubscribe {

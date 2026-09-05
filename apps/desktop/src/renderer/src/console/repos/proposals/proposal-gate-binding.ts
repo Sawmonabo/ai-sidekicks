@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
-import type { SessionStore } from "../../store/index.js";
+import { useSubjectScopedResource, type SessionStore } from "../../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
@@ -31,21 +31,22 @@ export interface ProposalGateBinding {
 /**
  * Bind one execution root's gate to its reader.
  *
- * THE DEPENDENCIES ARE THE SUBJECT'S PARTS, NOT ITS IDENTITY, and that is deliberate:
- * every caller composes the subject inline — a mount card builds one per worktree row
- * on every render — so a memo keyed on the object would mint a new reader, and a new
- * read, on every render. The parts below are the whole of every arm of the union
- * (`kind`, `workspaceId`, `repoMountId`, the arm's own root id, and `executionMode`),
- * so two subjects agreeing on all five are the same subject and the captured one is
- * never stale.
+ * THE SEAM IS ADDRESSED BY THE SUBJECT'S PARTS, NOT ITS IDENTITY: `proposalGateKeyOf`
+ * below states which five, and why the object itself would open a reader per frame.
  *
  * `repoMountId` IS ONE OF THE FIVE even though the gate does not READ under it. It is
  * the only identity the registered `GitActionExecuteRequest` takes, so a reader holding
  * a stale one would send an act naming a mount the surface has moved off. Every arm
  * happens to resolve it from the workspace row, which makes it a function of
  * `workspaceId` in practice — but that is a property of three constructors elsewhere
- * rather than anything this memo can check, and a dependency omitted because a caller
- * currently makes it redundant is a dependency omitted.
+ * rather than anything this hook can check, and a key member omitted because a caller
+ * currently makes it redundant is a key member omitted.
+ *
+ * THE READER IS HELD BY `useSubjectScopedResource` RATHER THAN BY `useMemo`, which is
+ * the difference between a resource closed however its render ended and one closed only
+ * on the renders React keeps: a memo opened during a pass React then discards really
+ * built the reader and really armed its refresh, and no effect ever committed to close
+ * it. The seam closes that pass's reader inside the render that drops it.
  *
  * The session store is the reader's own collaborator rather than the surface's: it is
  * what carries the reconnect edge and the `workspace.stale` frame, two of the four
@@ -61,22 +62,34 @@ export function useProposalGate(
   subject: ProposalGateSubject,
   sessionStore: SessionStore,
 ): ProposalGateBinding {
-  const { kind, workspaceId, repoMountId, executionMode } = subject;
-  const executionRootId = proposalGateSubjectRootId(subject);
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const reader = useMemo(
+  const gateKey = proposalGateKeyOf(subject);
+  const { value: reader, settle } = useSubjectScopedResource(
+    bridge,
+    gateKey,
     () => new ProposalGateReader({ bridge, subject, sessionStore, clock }),
-    // The subject itself is deliberately NOT a dependency: every caller composes it
-    // inline, so its identity changes on every render while its content does not. The
-    // five values below ARE its content, on every arm of the union.
-    [bridge, kind, workspaceId, repoMountId, executionRootId, executionMode, sessionStore, clock],
+    closeProposalGateReader,
   );
   useEffect(() => {
+    // THE RE-MINT ARM, on `useAttachmentCarrier`'s pattern and for its two reasons.
+    // Strict mode runs the seam's cleanup and then this setup again on the SAME
+    // committed reader, and `dispose` is terminal — `start()` on it returns early, so
+    // the row sat unread with nothing on screen to say why. And the seam holds one
+    // resource per `(subject, key)`, which here is `(bridge, gate identity)`: the store
+    // whose repair edge and frames are two of this gate's three refresh reasons is the
+    // axis that key cannot carry, so the reader is asked instead. Either way the
+    // replacement is PUBLISHED through the seam, so it is closed on the seam's terms.
+    if (reader.isDisposed || !reader.isReadingFor(sessionStore)) {
+      settle()(new ProposalGateReader({ bridge, subject, sessionStore, clock }));
+      return;
+    }
     reader.start();
-    return () => {
-      reader.dispose();
-    };
-  }, [reader]);
+    // `subject` is read inside the re-mint arm and is deliberately absent from the
+    // list: its identity moves on every render while `gateKey` — which the held reader
+    // is addressed by, and which is a function of the subject's five members — does
+    // not. A re-mint therefore reads the subject of the render that triggered it, and
+    // that subject agrees with the key by construction.
+  }, [reader, settle, bridge, gateKey, sessionStore, clock]);
   const subscribe = useCallback(
     (onReadingChange: () => void) => reader.subscribe(onReadingChange),
     [reader],
@@ -92,12 +105,40 @@ export function useProposalGate(
   return { reading, requestAction };
 }
 
+/** Close one reader. Declared once so the resource seam holds one identity for it. */
+function closeProposalGateReader(reader: ProposalGateReader): void {
+  reader.dispose();
+}
+
+/**
+ * The whole of a subject's content, as the one string the resource seam keys on.
+ *
+ * THE SUBJECT ITSELF IS DELIBERATELY NOT THE KEY: every caller composes one inline — a
+ * mount card builds one per worktree row on every render — so a seam addressed by the
+ * object would open a reader, and a read, on every frame. These five values ARE its
+ * content on every arm of the union, so two subjects agreeing on all five address the
+ * same gate and the held reader is never stale.
+ *
+ * SEPARATED BY A CHARACTER NO MEMBER CAN CONTAIN, so two members cannot run together
+ * into a third value: an id ending in a mode name beside an empty root id would
+ * otherwise collide with a different subject under a plain join.
+ */
+function proposalGateKeyOf(subject: ProposalGateSubject): string {
+  return [
+    subject.kind,
+    subject.workspaceId,
+    subject.repoMountId,
+    proposalGateSubjectRootId(subject) ?? "",
+    subject.executionMode,
+  ].join("\u0000");
+}
+
 /**
  * The id of the root this subject names, or `undefined` on the arm that names none.
  *
- * A branch root binds no separate root, so it HAS no id — which is why the memo above
- * takes the value rather than a member name: one dependency slot serves all three arms
- * and `undefined` is the branch arm's honest answer rather than a missing dependency.
+ * A branch root binds no separate root, so it HAS no id — which is why the key above
+ * takes the value rather than a member name: one key segment serves all three arms and
+ * `undefined` is the branch arm's honest answer rather than a missing segment.
  */
 function proposalGateSubjectRootId(subject: ProposalGateSubject): string | undefined {
   switch (subject.kind) {

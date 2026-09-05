@@ -63,7 +63,11 @@ import {
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
-import { RefreshScheduler, type SessionStore } from "../../store/index.js";
+import {
+  RefreshScheduler,
+  useSubjectScopedResource,
+  type SessionStore,
+} from "../../store/index.js";
 import {
   ExecutionModeSelections,
   type ExecutionModeSelectionHost,
@@ -120,6 +124,7 @@ export interface RepoMountsReaderOptions {
 
 export class RepoMountsReader {
   readonly #bridge: ConsoleBridge;
+  readonly #sessionStore: SessionStore;
   readonly #sessionId: string;
   readonly #clock: ConsoleClock;
   readonly #scheduler: RefreshScheduler;
@@ -133,6 +138,7 @@ export class RepoMountsReader {
 
   public constructor(options: RepoMountsReaderOptions) {
     this.#bridge = options.bridge;
+    this.#sessionStore = options.sessionStore;
     this.#sessionId = options.sessionStore.sessionId;
     // Bound once and shared with the scheduler, so the instant a reading is stamped
     // with and the instant a refresh is measured from are the same time base — under
@@ -168,6 +174,33 @@ export class RepoMountsReader {
   /** What the section renders right now. Stable identity between publishes. */
   public get snapshot(): RepoMountsReading {
     return this.#reading;
+  }
+
+  /**
+   * Whether this reader is over, terminally.
+   *
+   * READ BY THE BINDING, because `dispose` is terminal and React's strict-mode
+   * double-mount runs a cleanup and then the same effect's setup again: `start()` on a
+   * disposed reader returns early, so the section would sit unread with nothing on
+   * screen to say why. The binding asks and mints a replacement instead of this class
+   * growing a second, revivable lifecycle.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
+  /**
+   * Whether this reader's reads are taken against `sessionStore`.
+   *
+   * The seam holds a resource per `(subject, key)` and this reader has TWO
+   * collaborators — the bridge it calls through and the store it reads against — where
+   * the seam has one subject slot and one string key. The bridge is the subject and the
+   * session id is the key, so the axis a key cannot carry is the store's own identity:
+   * a projection replaced under the same id retires every read taken against the old
+   * one, and this is how the binding notices.
+   */
+  public isReadingFor(sessionStore: SessionStore): boolean {
+    return this.#sessionStore === sessionStore;
   }
 
   /** How many workspaces hold a mode switch right now. The act half's own bound. */
@@ -375,6 +408,11 @@ function recordFirstRefusal(
   return reply.refusal;
 }
 
+/** Close one reader. Declared once so the resource seam holds one identity for it. */
+function closeRepoMountsReader(reader: RepoMountsReader): void {
+  reader.dispose();
+}
+
 /** What the hook hands a surface: the reading, and the one mutation the picker sends. */
 export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
@@ -401,16 +439,27 @@ export function useRepoMounts(
   sessionStore: SessionStore,
 ): RepoMountsBinding {
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const reader = useMemo(
+  const { value: reader, settle } = useSubjectScopedResource(
+    bridge,
+    sessionStore.sessionId,
     () => new RepoMountsReader({ bridge, sessionStore, clock }),
-    [bridge, sessionStore, clock],
+    closeRepoMountsReader,
   );
   useEffect(() => {
+    // THE RE-MINT ARM, on `useAttachmentCarrier`'s pattern and for its two reasons.
+    // Strict mode runs the seam's cleanup and then this setup again on the SAME
+    // committed reader, and `dispose` is terminal — `start()` on it returns early, so
+    // the section sat unread with nothing on screen to say why. And the seam holds one
+    // resource per `(subject, key)`, which here is `(bridge, session id)`: a store
+    // replaced under the same id retires every read taken against the old one, and the
+    // key cannot carry that axis, so the reader is asked instead. Either way the
+    // replacement is PUBLISHED through the seam, so it is closed on the seam's terms.
+    if (reader.isDisposed || !reader.isReadingFor(sessionStore)) {
+      settle()(new RepoMountsReader({ bridge, sessionStore, clock }));
+      return;
+    }
     reader.start();
-    return () => {
-      reader.dispose();
-    };
-  }, [reader]);
+  }, [reader, settle, bridge, sessionStore, clock]);
   const subscribe = useCallback(
     (onReadingChange: () => void) => reader.subscribe(onReadingChange),
     [reader],

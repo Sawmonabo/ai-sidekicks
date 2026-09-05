@@ -14,6 +14,7 @@
 // which is why a case drives time rather than polling it.
 
 import { renderHook } from "@testing-library/react";
+import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
@@ -40,7 +41,10 @@ interface BindingUnderTest {
   readonly readCount: () => number;
 }
 
-function renderBinding(subject: ProposalGateSubject): BindingUnderTest {
+function renderBinding(
+  subject: ProposalGateSubject,
+  options: { readonly strict?: boolean } = {},
+): BindingUnderTest {
   const answering = createFixtureBridge({ scenario: REPOS_SCENARIO });
   let reads = 0;
   const bridge: ConsoleBridge = {
@@ -58,7 +62,10 @@ function renderBinding(subject: ProposalGateSubject): BindingUnderTest {
   const { rerender } = renderHook(
     (props: { readonly subject: ProposalGateSubject }) =>
       useProposalGate(bridge, props.subject, sessionStore),
-    { initialProps: { subject } },
+    {
+      initialProps: { subject },
+      ...(options.strict === true ? { wrapper: StrictMode } : {}),
+    },
   );
   return {
     rerenderWith: (next) => {
@@ -92,6 +99,34 @@ describe("useProposalGate — the subject's parts are the memo's key", () => {
     // itself, which every caller replaces on every render — a new reader and a new
     // read per frame, which is the reason the list names parts at all.
     const binding = renderBinding(WORKTREE_SUBJECT);
+    await binding.expectReadsToReach(1);
+
+    binding.rerenderWith({ ...WORKTREE_SUBJECT });
+    binding.rerenderWith({ ...WORKTREE_SUBJECT });
+
+    await binding.expectReadsToReach(1);
+    expect(binding.readCount()).toBe(1);
+  });
+});
+
+describe("useProposalGate — the reader is a resource, not a memo", () => {
+  it("reads under StrictMode, where a memoised reader was disposed and never restarted", async () => {
+    // The bug, exercised: the cleanup disposed terminally and the replayed setup called
+    // `start()` on the corpse, so a gate row sat unread in development — the one
+    // environment where the console's budgets are being watched. The re-mint arm is
+    // what makes the replay reach a live reader.
+    const binding = renderBinding(WORKTREE_SUBJECT, { strict: true });
+
+    await binding.expectReadsToReach(1);
+
+    expect(binding.readCount()).toBe(1);
+  });
+
+  it("negative control: StrictMode's replay opens exactly one reader, not one per render", async () => {
+    // Without this the case above would pass against a binding that opened a reader on
+    // every pass — the leak the memo existed to prevent, dressed as a fix for the one
+    // it caused.
+    const binding = renderBinding(WORKTREE_SUBJECT, { strict: true });
     await binding.expectReadsToReach(1);
 
     binding.rerenderWith({ ...WORKTREE_SUBJECT });
