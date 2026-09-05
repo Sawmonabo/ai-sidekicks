@@ -1,0 +1,359 @@
+/*
+ * The change-proposal gate: its disclosure row, its summary, and the proposal itself.
+ *
+ * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
+ * why, and for the import rule every sheet in this family obeys.
+ *
+ * The gate's own act rows are here rather than in a sixth sheet: `proposal-gate-acts/`
+ * is a sub-directory of this one, and a sheet per nesting level would put two files
+ * between a reader and one surface's rules.
+ */
+
+/*
+  One root and the change proposal standing behind it, read as one unit. The gate is
+  indented under its card rather than set beside it, because the two are one subject
+  and a gate at the card's own measure would read as a second row.
+
+  NAMED FOR WHAT IT HOLDS, which is any of the three writable execution roots: the
+  worktree row, the ephemeral-clone row, and the branch root whose gate sits on the
+  workspace card all draw this same disclosure over different cards. The rules were
+  the worktree's by name while they bounded all three, which read as a claim that a
+  clone or an in-place root was borrowing another root's styling.
+*/
+.meridian-root-gate-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-root-gate {
+  margin-inline-start: var(--meridian-space-3);
+  border-inline-start: 1px solid var(--meridian-edge);
+  padding-inline-start: var(--meridian-space-3);
+}
+
+.meridian-root-gate__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  cursor: default;
+  color: var(--meridian-text-muted);
+}
+
+/*
+  The collapsed line is a READING, so it is set beside the disclosure's own label and
+  never in place of it: what the row is stays legible while what it found is reported.
+*/
+.meridian-root-gate__line {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* -------------------------------------------------- change proposal gate */
+
+/*
+ * The gate's density made structural: base, head, title, and the check rollup sit in the
+ * open, and body, trailers, the file list, and the blob are `<details>`. The gate is a
+ * column so the reading order IS the approval order — context, status, what would be
+ * sent, then the acts that would send it.
+ */
+.meridian-proposal-gate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-block-size: 0;
+}
+
+.meridian-proposal-gate__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-proposal-gate__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+/* The detected host is a report, so it reads as one: quiet, beside the heading. */
+.meridian-proposal-gate__host {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-block-size: 0;
+}
+
+.meridian-proposal-gate__context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-proposal-gate__pair {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__pair dt {
+  flex: 0 0 8rem;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__pair dd {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.meridian-proposal-gate__status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__meaning {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__detail-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-proposal-gate__detail-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-proposal-gate__checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2) 0 0;
+  list-style: none;
+}
+
+.meridian-proposal-gate__checks li {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-proposal__face {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal__title {
+  flex: 1 1 12rem;
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+}
+
+.meridian-proposal__range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal__lineage,
+.meridian-proposal__body {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal__body {
+  padding-block-start: var(--meridian-space-2);
+  white-space: pre-wrap;
+}
+
+/*
+ * Both lists are unbounded on the wire — a proposal names as many files as it
+ * changes — so both take the console's one enumeration ceiling and scroll inside
+ * their own box. Without it a forty-file proposal pushes the three offers, which are
+ * what a person opened the gate to reach, off the bottom of the surface.
+ */
+.meridian-proposal__trailers,
+.meridian-proposal__paths {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2) 0 0;
+  max-block-size: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.meridian-proposal__blob {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding-block-start: var(--meridian-space-2);
+}
+
+/*
+ * The blocking choice. It sits above the acts it holds and states the daemon's own
+ * reason first — the way out is offered, never taken automatically.
+ */
+.meridian-proposal-gate__conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-amber-ground);
+}
+
+.meridian-proposal-gate__conflict-reason {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-proposal-gate__conflict-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__act-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__act {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* One primary act: preparation is what a participant came here to approve. */
+.meridian-proposal-gate__act--primary {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-proposal-gate__act:disabled {
+  color: var(--meridian-text-faint);
+  cursor: not-allowed;
+}
+
+.meridian-proposal-gate__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-proposal-gate__consequence {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__degraded {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-amber-ground);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-proposal-gate__in-flight {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__withheld-act {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__bundle {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

@@ -9,18 +9,30 @@
 // doors. This is the one door: everything the family registers is registered here.
 //
 // THE FAMILY'S SHEETS ARE IMPORTED HERE AND NOWHERE ELSE. One family, one door for
-// its stylesheets — the rule every console family obeys, and the family occupies
-// three directories, so all three of its sheets are imported here. This module is
-// what both pane barrels are reached through, so every sheet is present whenever any
-// of the three directories renders, and each lands in the graph once.
+// its stylesheets — the rule every console family obeys — and the family's styling is
+// spread over eight files: the root sheet, one per sub-directory of `repos/`, and one
+// for each pane next door. This module is what both pane barrels are reached through,
+// so every sheet is present whenever any of the three directories renders, and each
+// lands in the graph once.
 //
-// WHAT IS HERE AND WHAT IS NEXT DOOR. This module imports the family's three sheets,
+// WHAT IS HERE AND WHAT IS NEXT DOOR. This module imports the family's eight sheets,
 // publishes the two registration entry points the console calls, and publishes the
 // two cross-family seams at the bottom. The BODIES are all in `family-bodies.ts`,
 // whose header says why a door that read the two pane barrels and the sidebar
 // registry itself was a barrel chain rather than a consumer of any of them.
 
 import "./repos.css";
+// The five sub-directory sheets, in the order their rules held inside `repos.css`
+// before that file outgrew a reader. Imported after the root sheet and before the two
+// pane sheets, which is the order the rules were in, so nothing about the cascade
+// turns on the split. Each is imported HERE for the same reason the pane sheets are:
+// a sheet imported from the directory it styles arrives only on the paths that reach
+// that directory, and this family is reached through several.
+import "./mounts/mounts.css";
+import "./proposals/proposals.css";
+import "./restore/restore.css";
+import "./artifacts/artifacts.css";
+import "./attachments/attachments.css";
 // The two pane sub-modules' own sheets, imported HERE and not from their barrels, so
 // this door stays the family's only stylesheet importer. A CSS `@import` from
 // `repos.css` would have kept the file count the same and lost the rules: the
