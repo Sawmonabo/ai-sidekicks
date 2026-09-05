@@ -45,13 +45,19 @@ import { TimelineRowHost } from "./TimelineRowHost.js";
 /**
  * Who owns the rows, what this pane owes them, and where the shell dies.
  *
- * DEVELOPER-FACING AND NEVER RENDERED — every member names governance work, and the
- * repository's standing rule keeps those ids off a participant's screen. The empty
- * state below names the FEATURE that has not been built; this names the people
- * building it.
+ * DEVELOPER-FACING AND NEVER RENDERED — every member names work in flight, and the
+ * empty state below names the FEATURE that has not been built while this names the
+ * people building it.
+ *
+ * AND THE GOVERNANCE IDS LIVE IN THIS COMMENT RATHER THAN IN THE VALUES. The owner
+ * is Plan-013 Phase 4, authoring the `Spec-013 §Timeline Entry Types` vocabulary in
+ * `renderer/src/timeline/`, and that is what every member below is about — but the
+ * repository's standing rule keeps those ids out of runtime strings, because a
+ * string is one bad render away from a participant's screen and a comment is not.
+ * The suite beside this file asserts the absence rather than trusting it.
  */
 export const TIMELINE_ROW_SLOT: OwnerSlotContract = {
-  owningTask: "Plan-013 Phase 4 — the Spec-013 row vocabulary in renderer/src/timeline/",
+  owningTask: "the timeline row vocabulary, authored in renderer/src/timeline/",
   mountObligation:
     "the projected row wire-verbatim, the author's hue assignment, whether a later rollback boundary supersedes it, and the list's collapse state for it",
   deleteShellIn:

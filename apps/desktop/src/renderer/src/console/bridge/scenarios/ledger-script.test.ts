@@ -13,6 +13,10 @@
 
 import { describe, expect, it } from "vitest";
 
+// The cast the builder under test is driven with, imported rather than restated: an
+// id declared twice is two ids the day one of them moves, and every value below is
+// already exported by the module this scenario's beats are built from.
+import { EVENT_ID_STEM, RUN_IMPLEMENTER, SESSION_ID } from "./ledger-cast.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,
@@ -21,11 +25,6 @@ import {
   type LedgerScriptEntry,
 } from "./ledger-script.js";
 
-const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
-
-/** This suite's own row-id namespace, as every scenario declares one. */
-const EVENT_ID_STEM = "019b793b-7b60-7ea1-8110-e5e0d115";
-const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 /**
  * The base instant, minted from its fields rather than read back out of a string.
  *
@@ -72,10 +71,12 @@ describe("scriptLedgerBeats", () => {
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
       startedAtIso: STARTED_AT_ISO,
-      entries: [{ atMs: 0, kind: "user.message", actorId: RUN_ID, payload: { note: "kept" } }],
+      entries: [
+        { atMs: 0, kind: "user.message", actorId: RUN_IMPLEMENTER, payload: { note: "kept" } },
+      ],
     });
     expect(beat?.event.kind).toBe("user.message");
-    expect(beat?.event.actorId).toBe(RUN_ID);
+    expect(beat?.event.actorId).toBe(RUN_IMPLEMENTER);
     expect(beat?.event.payload).toStrictEqual({ note: "kept" });
   });
 
@@ -137,7 +138,7 @@ describe("runTransitionEntry", () => {
     const entry = runTransitionEntry({
       atMs: 0,
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      runId: RUN_IMPLEMENTER,
       runVersion: 4,
       previousState: "running",
       newState: "waiting_for_approval",
@@ -145,7 +146,7 @@ describe("runTransitionEntry", () => {
     expect(entry.kind).toBe("run.waiting_for_approval");
     expect(entry.payload).toStrictEqual({
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      runId: RUN_IMPLEMENTER,
       runVersion: 4,
       previousState: "running",
       newState: "waiting_for_approval",
@@ -156,10 +157,10 @@ describe("runTransitionEntry", () => {
     const entry = runTransitionEntry({
       atMs: 0,
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      runId: RUN_IMPLEMENTER,
       runVersion: 1,
       newState: "queued",
-      agentId: RUN_ID,
+      agentId: RUN_IMPLEMENTER,
     });
     expect(entry.payload).not.toHaveProperty("previousState");
     expect(entry.payload).toHaveProperty("agentId");
@@ -171,14 +172,14 @@ describe("the machine-output entries", () => {
     const entry = assistantOutputEntry({
       atMs: 0,
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      runId: RUN_IMPLEMENTER,
       kind: "assistant.message",
       contentType: "text/markdown",
       contentLength: 1_284,
     });
     expect(entry.payload).toStrictEqual({
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      runId: RUN_IMPLEMENTER,
       contentType: "text/markdown",
       contentLength: 1_284,
     });
@@ -188,7 +189,7 @@ describe("the machine-output entries", () => {
     const entry = toolActivityEntry({
       atMs: 0,
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      runId: RUN_IMPLEMENTER,
       kind: "tool.result",
       toolName: "edit_file",
       toolCallId: "call-1",
@@ -201,7 +202,7 @@ describe("the machine-output entries", () => {
     const entry = toolActivityEntry({
       atMs: 0,
       sessionId: SESSION_ID,
-      runId: RUN_ID,
+      runId: RUN_IMPLEMENTER,
       kind: "tool.invoked",
       toolName: "edit_file",
       toolCallId: "call-1",

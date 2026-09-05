@@ -9,7 +9,7 @@
 //
 // THE LOGS ARE NOT HERE. A store builder needs no DOM and no React, and the pane's
 // pure-model cases read them without ever mounting anything, so they live in
-// `ledger-feed-logs.ts` and this file holds only what has to render.
+// `ledger-feed-logs.test-support.ts` and this file holds only what has to render.
 //
 // `happy-dom` answers zero for every geometry read, which is why anything that needs
 // the virtualizer to have a range stubs the two reads the chokepoint makes —
@@ -23,7 +23,10 @@ import { useLedgerRowLease } from "../../ledger/frame/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { consoleCommandSurface, consoleCommands } from "../../frame/command-surface.js";
 import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
-import { LEDGER_COMMAND_OWNER, registerLedgerCommands } from "../../ledger/structure/index.js";
+import {
+  LEDGER_COMMAND_OWNER,
+  registerLedgerCommands,
+} from "../../ledger/structure/structure-commands.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowSlotProps } from "../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";

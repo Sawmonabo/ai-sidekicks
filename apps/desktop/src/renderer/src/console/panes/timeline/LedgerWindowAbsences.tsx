@@ -1,16 +1,9 @@
 // The four ways this window is not the whole session, each said out loud.
 //
-// Its own module for the one-component rule. Four separate sentences because a
-// person's next move differs for each: an unrecognised type is this build's limit, a
-// dropped row is the window's cap, a row ahead of the replay position is a control
-// they are holding, and a sequence that never arrived is the stream's. Collapsing any
-// two would tell somebody the console failed where it merely stopped holding, or the
-// reverse — and collapsing the middle two told them rows they can scrub back to in a
-// keystroke were gone for good.
-//
-// THE SENTENCES ARE THE CONSOLE'S NOW, NOT THIS LEDGER'S. Six families each wrote
-// their own wording for this case and they disagreed; `primitives/window-absence.ts`
-// says it once and this hands it the readings the feed derived.
+// Its own module for the one-component rule, and the reasoning lives on the component
+// below rather than being said twice: a reader who opens this file meets the JSDoc,
+// and a header restating it is a second copy that goes stale on the first edit that
+// touches only one of them.
 
 import { WindowAbsences } from "../../primitives/index.js";
 import { type LedgerScope } from "../../ledger/frame/index.js";

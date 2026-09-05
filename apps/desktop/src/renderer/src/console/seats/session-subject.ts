@@ -35,7 +35,6 @@ import {
 } from "../store/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 
-// Consumed by T-023p-1C-3
 /**
  * Hold one value per `(bridge, sessionId)`.
  *

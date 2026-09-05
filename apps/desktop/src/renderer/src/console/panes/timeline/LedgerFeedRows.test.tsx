@@ -20,12 +20,12 @@ import {
   renderFeed,
   withLaidOutViewport,
   withdrawLedgerCommands,
-} from "./ledger-feed-fixtures.js";
+} from "./LedgerFeedFixtures.test-support.js";
+import { openSessionStoreWithToolRows } from "./ledger-feed-logs.test-support.js";
 import {
   openSessionStoreWithSeam,
   openSessionStoreWithTerminalChapter,
-  openSessionStoreWithToolRows,
-} from "./ledger-feed-logs.js";
+} from "./ledger-chapter-logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

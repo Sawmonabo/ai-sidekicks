@@ -21,11 +21,14 @@
 // classifier's internals, the rail's own geometry and the command table's fixtures
 // stop here, reached deeply by their siblings inside this directory.
 //
-// A NAME REACHED ONLY BY A TEST IS NOT ON THIS LIST. Three were: the superseded-band
+// A NAME REACHED ONLY BY A TEST IS NOT ON THIS LIST. Four were: the superseded-band
 // derivation, the jump-absence tuple and the replay-state tuple, each imported by one
-// suite in another directory to assert totality over a closed set. A door line for a
-// test is a door widened for testing, so those three suites reach their module
-// directly and the door publishes what production reaches.
+// suite in another directory to assert totality over a closed set — and the command
+// owner beside its registrar, whose one production reader imports the declaring
+// module directly and whose only reader THROUGH this door was the feed's scaffolding,
+// invisible to the census while that scaffolding was misnamed as production. A door
+// line for a test is a door widened for testing, so those four suites reach their
+// module directly and the door publishes what production reaches.
 
 export { ChapterHeader } from "./ChapterHeader.js";
 export { FindInLedger } from "./FindInLedger.js";
@@ -63,5 +66,4 @@ export {
   type ReplayState,
 } from "./replay-model.js";
 export { LedgerSeamIndex, type LedgerSeam } from "./seams.js";
-export { LEDGER_COMMAND_OWNER, registerLedgerCommands } from "./structure-commands.js";
 export { SupersededIndex } from "./superseded-bands.js";

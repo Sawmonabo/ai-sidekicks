@@ -13,6 +13,7 @@ import { ProvenanceRailModel } from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import { useLedgerFind, type LedgerFindState } from "./ledger-find.js";
 import { useVisibleLedgerWindow, type VisibleLedgerWindow } from "./ledger-visible-window.js";
+import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow } from "./ledger-window.js";
 
 const SESSION_ID = "session-visible-window";
@@ -26,7 +27,7 @@ function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
     sessionId: SESSION_ID,
     sequence: index,
     kind: EVERY_ROW_QUERY,
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString(),
+    occurredAt: ledgerFixtureStampAt(index),
     payload: {},
   }));
 }

@@ -43,6 +43,14 @@
 // — read inside this arrangement they were forty lines of callbacks between two
 // elements. What stays here is the composition that hands them their windows.
 //
+// AND WHAT THIS FILE RENDERS IS THREE CHILDREN, NOT TWENTY ELEMENTS. What the ledger
+// says ABOVE its rows is `LedgerFeedHeader.tsx`' — the find field, the facet bar, the
+// id jump, and the two absences a person can still act on, one subject — and the
+// right-hand column is `LedgerFeedRail.tsx`', where the dock's reveal is a property
+// of the strip that reveals it. Both DERIVE NOTHING: every value they take is a
+// reading already held here, so neither can become a second answer to a question the
+// derivations below already answer. What is left in this file is the arrangement.
+//
 // AND ONE ENGINE THIS MOUNT OWNS. The reveal engine is per feed, minted here and
 // disposed with the feed, because a lane is a row of THIS window and a second engine
 // would publish a second answer for one row's text. It is not a fifth seam: nothing
@@ -52,7 +60,8 @@
 // AND TWO SEATS THIS MOUNT CLAIMS, both for callers composed before it existed: the
 // palette's, so a ledger chord acts on the feed that is up when it fires, and the
 // workspace's follow seat, so a cast chip scrolls this ledger through this ledger's
-// own chokepoint. Every act behind both is built in `ledger-feed-acts.ts`.
+// own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
+// follow seat in `ledger-actor-follow-seat.ts`.
 //
 // NEITHER STRUCTURAL CONTROL IS GIVEN AN `onLoadEarlier` HANDLER, and the omission
 // is the offer being absent rather than the boundary being denied. The two rows the
@@ -74,32 +83,22 @@ import {
   useLedgerViewport,
   type LedgerScope,
 } from "../../ledger/frame/index.js";
-import {
-  FindInLedger,
-  LedgerFilterBar,
-  ProvenanceRail,
-  ReplayControls,
-} from "../../ledger/structure/index.js";
-import { LedgerEventIdJump } from "./LedgerEventIdJump.js";
-import { LedgerRowsAdmittedDuringReplayNotice } from "./LedgerRowsAdmittedDuringReplayNotice.js";
+import { LedgerFeedHeader } from "./LedgerFeedHeader.js";
+import { LedgerFeedRail } from "./LedgerFeedRail.js";
 import { LedgerWindowAbsences } from "./LedgerWindowAbsences.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
-import { matchWalkReading } from "./ledger-find-readings.js";
-import { PartialRead } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../seats/index.js";
-import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
+import { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
+import { useLedgerStructureActs } from "./ledger-feed-acts.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
 import {
   useLedgerFindAndJump,
   useReplayDockConcealOnFocusLeaving,
 } from "./ledger-feed-find-jump.js";
 import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
-import {
-  useLedgerReplay,
-  useReplayAnchorRowId,
-  useReplayRevealedRows,
-} from "./ledger-replay-window.js";
+import { useReplayAnchorRowId, useReplayRevealedRows } from "./ledger-replay-reveal.js";
+import { useLedgerReplay } from "./ledger-replay-window.js";
 import { useRailGeometry, useVisibleLedgerWindow } from "./ledger-visible-window.js";
 import { useLedgerProjection } from "./ledger-window.js";
 
@@ -129,7 +128,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // The fold is this MOUNT's, not the log's: which finished chapters a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
-  const chapterDisclosure = useChapterDisclosure();
+  const chapterDisclosure = useChapterDisclosure(props.sessionStore.sessionId);
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
   const unfurledWindow = useLedgerProjection(props.sessionStore, props.channelId);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
@@ -145,7 +144,11 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // unreachable by narrowing until somebody expands the chapter by hand.
   const ledgerFilter = useLedgerFilter(unfurledWindow);
   const narrowedWindow = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
-  const ledgerWindow = useFoldedChapters(narrowedWindow, chapterDisclosure.openedTerminalRunIds);
+  const ledgerWindow = useFoldedChapters(
+    narrowedWindow,
+    chapterDisclosure.openedTerminalRunIds,
+    props.sessionStore.sessionId,
+  );
   const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
@@ -245,7 +248,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
 
   // The palette's chords and the cast bar's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
-  // claimed here for the mount's lifetime; what each act does is `ledger-feed-acts.ts`'.
+  // claimed here for the mount's lifetime; what each act does is its own module's.
   const collapseAllTerminal = chapterDisclosure.collapseAllTerminal;
   const collapseAllTerminalChapters = useCallback(() => {
     collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
@@ -263,41 +266,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
 
   return (
     <div className="meridian-ledger">
-      {find.isOpen ? (
-        <FindInLedger
-          query={find.query}
-          result={find.result}
-          currentMatchIndex={find.currentMatchIndex}
-          openRequestCount={find.openRequestCount}
-          onQueryChange={find.setQuery}
-          onStep={findAndJump.onStep}
-          onClose={findAndJump.onClose}
-        />
-      ) : null}
-      <LedgerFilterBar
+      <LedgerFeedHeader
+        findAndJump={findAndJump}
         facets={ledgerFilter.facets}
         filter={ledgerFilter.filter}
         onFilterChange={ledgerFilter.setFilter}
-      />
-      <LedgerEventIdJump
-        outcome={findAndJump.outcome}
-        reach={findAndJump.reach}
         onJumpToRow={jumpToRow}
-      />
-      {/* Two mounts and two subjects, because the two cuts are two facts: nothing
-          brings a pruned row back, and scrubbing the dock forward brings the
-          withheld ones back at once. One mount carrying both states would say the
-          same sentence twice over one subject. */}
-      <PartialRead
-        states={[matchWalkReading(find.result.totalMatchCount, find.beyondWindowMatchCount)]}
-        subject="this window"
-      />
-      <PartialRead
-        states={[matchWalkReading(find.result.totalMatchCount, find.notYetReplayedMatchCount)]}
-        subject="this replay's walk"
-      />
-      <LedgerRowsAdmittedDuringReplayNotice
-        count={replay.rowsAdmittedSinceReplayBegan}
+        rowsAdmittedSinceReplayBegan={replay.rowsAdmittedSinceReplayBegan}
         onEndReplay={replay.end}
       />
       <div className="meridian-ledger__body">
@@ -312,40 +287,20 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
             />
           </LedgerRowRevealProvider>
         </LedgerRowLeaseProvider>
-        <div
-          className="meridian-ledger__rail"
-          onPointerEnter={replay.reveal}
-          // Unguarded, unlike the focus pair: React's leave events do not fire for
-          // a pointer move between two elements inside this subtree.
-          onPointerLeave={replay.conceal}
-          // Reveal needs no guard of its own — it is idempotent, and a focus move
-          // arriving from anywhere is a reason for the dock to be on screen.
-          onFocus={replay.reveal}
-          onBlur={concealReplayDockOnFocusLeaving}
-        >
-          <ProvenanceRail
-            model={visible.railModel}
-            viewportPosition={geometry.position}
-            viewportExtent={geometry.extent}
-            isFollowing={viewport.snapshot.reading.mode === "following"}
-            onJumpToRow={jumpToRow}
-            hueForActor={hueForActor}
-            clock={clock}
-          />
-          <ReplayControls
-            position={replay.position}
-            isRevealed={replay.isRevealed}
-            onPlay={replay.play}
-            onPause={replay.pause}
-            onSpeedChange={replay.setSpeed}
-            onScrub={replay.scrub}
-            onJumpToNextSeam={replay.jumpToNextSeam}
-            // THE SAME ACT THE PALETTE RUNS, not a second copy: the refusal for an
-            // absent anchor lives inside it, so a control with its own callback
-            // would be a second place this console decides what to say.
-            onReplayFromRowInView={structureActs.replayFromRowInView}
-          />
-        </div>
+        <LedgerFeedRail
+          railModel={visible.railModel}
+          geometry={geometry}
+          isFollowing={viewport.snapshot.reading.mode === "following"}
+          onJumpToRow={jumpToRow}
+          hueForActor={hueForActor}
+          clock={clock}
+          replay={replay}
+          onFocusLeaving={concealReplayDockOnFocusLeaving}
+          // THE SAME ACT THE PALETTE RUNS, not a second copy: the refusal for an
+          // absent anchor lives inside it, so a control with its own callback
+          // would be a second place this console decides what to say.
+          onReplayFromRowInView={structureActs.replayFromRowInView}
+        />
       </div>
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}

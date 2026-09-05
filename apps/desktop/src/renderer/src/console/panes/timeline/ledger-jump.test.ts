@@ -19,12 +19,8 @@ import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "../../ledger/str
 // suite's totality case, so a door line for it would be a door widened for testing.
 import { LEDGER_JUMP_ABSENCES } from "../../ledger/structure/filters.js";
 import { foldChapterHeaders } from "./ledger-chapter-fold.js";
-import {
-  SESSION_ID,
-  TERMINAL_RUN_ID,
-  foldedMessageChapterLog,
-  projectedRowId,
-} from "./ledger-feed-logs.js";
+import { SESSION_ID, TERMINAL_RUN_ID, projectedRowId } from "./ledger-feed-logs.test-support.js";
+import { foldedMessageChapterLog } from "./ledger-chapter-logs.test-support.js";
 import { jumpOutcomeRowId, useDeferredRowJump, useLedgerJumpReach } from "./ledger-jump.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 

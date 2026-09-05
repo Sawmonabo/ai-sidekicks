@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+// The row-id namespace comes from the ledger scenario that declares it, deeply and
+// not through a door: a stem restated here would be a second namespace the day the
+// scenario's own moved.
+import { EVENT_ID_STEM } from "../../bridge/scenarios/ledger-cast.js";
 import { isContractTimelineRow } from "../../bridge/timeline-row-contract.test-support.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 // Deeply, and not through `structure/index.ts`: this is the only consumer outside
@@ -17,7 +21,7 @@ function event(
   overrides: Partial<ConsoleSessionEvent> & { readonly sequence: number },
 ): ConsoleSessionEvent {
   return {
-    id: `019b793b-7b60-7ea1-8110-e5e0d115${String(overrides.sequence).padStart(4, "0")}`,
+    id: `${EVENT_ID_STEM}${String(overrides.sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
     kind: "run.running",
     occurredAt: `2026-01-01T11:0${String(overrides.sequence % 10)}:00.000Z`,
@@ -243,7 +247,7 @@ describe("which payload member names a row's run", () => {
         type: "interrupt",
         targetRunId,
         expectedRunVersion: 1,
-        clientIdempotencyKey: "019b793b-7b60-7ea1-8110-e5e0d1150001",
+        clientIdempotencyKey: `${EVENT_ID_STEM}0001`,
       },
     });
   }

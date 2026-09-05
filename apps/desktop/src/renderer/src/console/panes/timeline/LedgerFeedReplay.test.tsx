@@ -15,8 +15,8 @@ import {
   replayDockHarness,
   withLaidOutViewport,
   withdrawLedgerCommands,
-} from "./ledger-feed-fixtures.js";
-import { openSessionStoreWithLog } from "./ledger-feed-logs.js";
+} from "./LedgerFeedFixtures.test-support.js";
+import { openSessionStoreWithLog } from "./ledger-feed-logs.test-support.js";
 
 afterEach(() => {
   withdrawLedgerCommands();
