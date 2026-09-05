@@ -52,6 +52,30 @@ export const CODE_TOKEN_FAMILIES = [
 /** One token family. Derived from the enumeration, never restated. */
 export type CodeTokenFamily = (typeof CODE_TOKEN_FAMILIES)[number];
 
+/**
+ * The families whose colour is one of the console's own text tokens.
+ *
+ * They need no per-scheme declaration of their own, because the token they defer to
+ * already swaps with the scheme. Listed rather than derived because deferring is a
+ * DESIGN decision about a family, and stating the exception here makes the other
+ * half a complement: a family added to the enumeration is coloured until somebody
+ * says otherwise, so it arrives owing a declaration under both schemes rather than
+ * silently rendering its light value on a dark ground.
+ */
+const NEUTRAL_CODE_TOKEN_FAMILIES = ["plain", "comment", "operator", "invalid"] as const;
+
+/**
+ * The families that carry a colour of their own, as the complement of the neutral set.
+ *
+ * The partition is what makes the stylesheet cross-check quantify over the DECLARED
+ * enumeration rather than over a list a second file wrote out by hand — which is the
+ * shape that stops covering a sixth coloured family the day one is added.
+ */
+export const COLOURED_CODE_TOKEN_FAMILIES: readonly CodeTokenFamily[] = CODE_TOKEN_FAMILIES.filter(
+  (family): family is CodeTokenFamily =>
+    !(NEUTRAL_CODE_TOKEN_FAMILIES as readonly string[]).includes(family),
+);
+
 /** The custom property a family's colour is declared under, in one place. */
 export function codeTokenVariableName(family: CodeTokenFamily): string {
   return `--meridian-code-${family}`;
