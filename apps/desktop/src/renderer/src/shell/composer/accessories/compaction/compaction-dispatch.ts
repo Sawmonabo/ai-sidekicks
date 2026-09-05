@@ -51,14 +51,14 @@
 
 import { useCallback } from "react";
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts";
-import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
+import { refuse, type ConsoleRefusal } from "../../../../console/core/index.js";
 import {
   callDaemon,
   readRunId,
   readSessionId,
   type ConsoleBridge,
-} from "../../../console/bridge/index.js";
-import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
+} from "../../../../console/bridge/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../../../../console/store/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COMPACTION_REFUSAL_ORIGIN = "composer-compaction";

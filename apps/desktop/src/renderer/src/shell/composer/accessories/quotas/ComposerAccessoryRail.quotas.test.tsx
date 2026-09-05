@@ -11,18 +11,18 @@ import { describe, expect, it } from "vitest";
 import {
   withCapturedStream,
   type StreamUnderTest,
-} from "../../../console/bridge/fixture-bridge.test-support.js";
+} from "../../../../console/bridge/fixture-bridge.test-support.js";
 import {
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   createFixtureBridge,
   type ConsoleBridge,
-} from "../../../console/bridge/index.js";
+} from "../../../../console/bridge/index.js";
 import {
   EMPTY_REGISTRY,
   ONE_URGENT_QUOTA,
   mountRailSettled,
   railScenarioAnsweringRegistry,
-} from "./rail.test-support.js";
+} from "../rail.test-support.js";
 
 describe("ComposerAccessoryRail — the quota chips come off the account plane", () => {
   /** A fixture bridge answering the node-scoped registry read with `reply`. */

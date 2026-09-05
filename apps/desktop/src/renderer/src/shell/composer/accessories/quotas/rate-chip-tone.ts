@@ -12,11 +12,11 @@
 // Two functions would let the thresholds drift into a band that is visible and
 // colourless.
 
-import { remainingPercentOf, type ProviderQuotaReading } from "../../../console/bridge/index.js";
+import { remainingPercentOf, type ProviderQuotaReading } from "../../../../console/bridge/index.js";
 import {
   RATE_CHIP_URGENT_BELOW_REMAINING_PERCENT,
   RATE_CHIP_VISIBLE_BELOW_REMAINING_PERCENT,
-} from "./accessory-bounds.js";
+} from "../accessory-bounds.js";
 
 /**
  * The two tones that render. Closed, and derived into a union below, so a third

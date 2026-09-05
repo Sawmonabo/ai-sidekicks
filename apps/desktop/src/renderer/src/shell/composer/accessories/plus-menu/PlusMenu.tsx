@@ -17,13 +17,13 @@
 // the glyph's `title`, which is what makes it announce as anything at all.
 
 import { useCallback, useRef, useState } from "react";
-import { Glyph } from "../../../console/primitives/index.js";
+import { Glyph } from "../../../../console/primitives/index.js";
 // The chrome scale, from the one home that publishes it. `GLYPH_DEFAULT_SIZE` would
 // draw this mark larger than the rail it sits in; a private copy of the number would
 // be the second declaration of one scale that a token exists to prevent.
-import { GLYPH_SIZE_CHROME } from "../../../console/tokens/index.js";
-import type { OwnerSlotContract } from "../../../console/seats/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { GLYPH_SIZE_CHROME } from "../../../../console/tokens/index.js";
+import type { OwnerSlotContract } from "../../../../console/seats/index.js";
+import type { ConsoleBridge } from "../../../../console/bridge/index.js";
 import { AttachmentPickerSeat } from "./AttachmentPickerSeat.js";
 import { WorkflowStartSlot } from "./WorkflowStartSlot.js";
 

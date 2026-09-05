@@ -6,8 +6,8 @@
 // the seat, and until it does the slot renders the seat's own absence copy rather
 // than a stand-in that would read as the feature.
 
-import { Nothing } from "../../../console/primitives/index.js";
-import type { OwnerSlotProps } from "../../../console/seats/index.js";
+import { Nothing } from "../../../../console/primitives/index.js";
+import type { OwnerSlotProps } from "../../../../console/seats/index.js";
 
 /** One plan-owned seat, rendered the composer's own way. */
 export function WorkflowStartSlot(props: OwnerSlotProps<React.ReactNode>): React.JSX.Element {

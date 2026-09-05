@@ -20,10 +20,10 @@ import {
   AGENT,
   AGENT_ID,
   RUNNING_RUN,
-} from "./rail.test-support.js";
-import type { ConsoleEntity, ConsoleSessionEvent } from "../../../console/store/index.js";
-import type { ConsolePaneAddress } from "../../../console/seats/index.js";
-import { CONTEXT_COMPACTED_EVENT_KIND } from "./usage-readings.js";
+} from "../rail.test-support.js";
+import type { ConsoleEntity, ConsoleSessionEvent } from "../../../../console/store/index.js";
+import type { ConsolePaneAddress } from "../../../../console/seats/index.js";
+import { CONTEXT_COMPACTED_EVENT_KIND } from "../usage-readings.js";
 
 describe("ComposerAccessoryRail — absence before assertion", () => {
   it("renders the not-checked meter when the daemon has reported nothing", () => {

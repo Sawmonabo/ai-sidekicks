@@ -32,9 +32,9 @@
 // does, and it is DELETED by the PR that mounts the owning body rather than being
 // left behind as a second answer to the same question.
 
-import { DerivedFigure, formatCount } from "../../../console/primitives/index.js";
-import { type ProviderQuotaReading } from "../../../console/bridge/index.js";
-import { RATE_CHIP_RENDER_CAP } from "./accessory-bounds.js";
+import { DerivedFigure, formatCount } from "../../../../console/primitives/index.js";
+import { type ProviderQuotaReading } from "../../../../console/bridge/index.js";
+import { RATE_CHIP_RENDER_CAP } from "../accessory-bounds.js";
 import { rateChipToneFor, type RateChipTone } from "./rate-chip-tone.js";
 import { RateChip } from "./RateChip.js";
 

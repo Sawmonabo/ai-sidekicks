@@ -32,14 +32,22 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
 import type { OwnerSlotContract } from "../../../console/seats/index.js";
-import { CompactionSlot, COMPACTION_SLOT_CONTRACT, type CompactionBody } from "./CompactionSlot.js";
+import {
+  CompactionSlot,
+  COMPACTION_SLOT_CONTRACT,
+  type CompactionBody,
+} from "./compaction/CompactionSlot.js";
 import {
   ContextMeterSlot,
   CONTEXT_METER_SLOT_CONTRACT,
   type ContextMeterBody,
-} from "./ContextMeterSlot.js";
+} from "./context-meter/ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
-import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT, type RateLimitBody } from "./RateLimitSlot.js";
+import {
+  RateLimitSlot,
+  RATE_LIMIT_SLOT_CONTRACT,
+  type RateLimitBody,
+} from "./quotas/RateLimitSlot.js";
 import type { ProviderQuotaReading } from "../../../console/bridge/index.js";
 import type { ContextWindowReading } from "./usage-readings.js";
 

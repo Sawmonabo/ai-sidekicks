@@ -13,8 +13,8 @@ import { describe, expect, it } from "vitest";
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import { settleScheduledRead } from "../../../console/bridge/scheduled-read.test-support.js";
+import type { ConsoleBridge } from "../../../../console/bridge/index.js";
+import { settleScheduledRead } from "../../../../console/bridge/scheduled-read.test-support.js";
 import {
   AGENT,
   ON_THE_AGENT,
@@ -25,8 +25,8 @@ import {
   mountRail,
   mountRailSettled,
   railBridgeAnswering,
-} from "./rail.test-support.js";
-import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
+} from "../rail.test-support.js";
+import { drainMicrotasks } from "../../../../console/bridge/fixture-bridge.test-support.js";
 
 const CAPABILITY_READ_METHOD = "driver.listCapabilities";
 const COMPACTION_METHOD = "driver.compactContext";

@@ -26,8 +26,8 @@
 // rule stated above is the behaviour this console is bound to and a shell that only
 // looked like the control would prove none of it.
 
-import { Nothing, WireFigure } from "../../../console/primitives/index.js";
-import type { ConsoleBridge, DriverCapabilityReading } from "../../../console/bridge/index.js";
+import { Nothing, WireFigure } from "../../../../console/primitives/index.js";
+import type { ConsoleBridge, DriverCapabilityReading } from "../../../../console/bridge/index.js";
 import { useCompactionDispatch } from "./compaction-dispatch.js";
 import { CompactionSettlement } from "./CompactionSettlement.js";
 

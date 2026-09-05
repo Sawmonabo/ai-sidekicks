@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
+import { refuse, type ConsoleRefusal } from "../../../../console/core/index.js";
 import { QueueShelf } from "./QueueShelf.js";
 import { fixtureQueueItemId, queueRow } from "./queue-rows.test-support.js";
 

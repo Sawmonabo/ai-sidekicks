@@ -15,9 +15,9 @@ import {
   InlineRefusal,
   WireFigure,
   formatClockTime,
-} from "../../../console/primitives/index.js";
+} from "../../../../console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
-import type { ConsoleRefusal } from "../../../console/core/index.js";
+import type { ConsoleRefusal } from "../../../../console/core/index.js";
 
 const CANCEL_GLYPH_SIZE = 12;
 

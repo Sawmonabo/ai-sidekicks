@@ -9,7 +9,7 @@
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { readQueueItemId } from "../../../console/bridge/index.js";
+import { readQueueItemId } from "../../../../console/bridge/index.js";
 
 /**
  * A queue-item id the wire admits, or a loud failure.

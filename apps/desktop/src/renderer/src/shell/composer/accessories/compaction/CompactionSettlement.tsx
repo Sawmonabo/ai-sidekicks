@@ -9,7 +9,7 @@
 // carried; a compaction whose boundary the daemon has not confirmed is not rendered
 // as one here, because the request being accepted is not the work being done.
 
-import { InlineRefusal, WireFigure } from "../../../console/primitives/index.js";
+import { InlineRefusal, WireFigure } from "../../../../console/primitives/index.js";
 import { type CompactionDispatchState } from "./compaction-dispatch.js";
 
 /**

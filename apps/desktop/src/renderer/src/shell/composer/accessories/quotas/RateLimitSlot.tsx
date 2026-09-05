@@ -16,7 +16,7 @@
 // contract in this directory: the indicator body is Plan-013's, mounted under the
 // obligation Plan-023 Phase 6 records for it.
 
-import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/seats/index.js";
+import type { OwnerSlotContract, OwnerSlotProps } from "../../../../console/seats/index.js";
 import { RateChips, type RateChipsProps } from "./RateChips.js";
 
 /** The three facts this seat answers. Developer-facing; never rendered. */

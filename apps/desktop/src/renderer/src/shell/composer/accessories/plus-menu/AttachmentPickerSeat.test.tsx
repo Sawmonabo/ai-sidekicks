@@ -10,14 +10,14 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AttachmentPickerSeat } from "./AttachmentPickerSeat.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../../console/bridge/scenarios/composer.js";
 import {
   createFixtureBridge,
   growthUnavailable,
   type ConsoleBridge,
   type GrowthPort,
-} from "../../../console/bridge/index.js";
-import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
+} from "../../../../console/bridge/index.js";
+import { drainMicrotasks } from "../../../../console/bridge/fixture-bridge.test-support.js";
 
 const SESSION_ONE = COMPOSER_SCENARIO.sessionId;
 const SESSION_TWO = "019b7a33-3300-75e5-8520-ada11a5a55b6";

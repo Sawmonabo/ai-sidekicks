@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ProviderQuotaReading } from "../../../console/bridge/index.js";
+import type { ProviderQuotaReading } from "../../../../console/bridge/index.js";
 import { RateChips } from "./RateChips.js";
 import { RATE_CHIP_TONES, rateChipToneFor } from "./rate-chip-tone.js";
 

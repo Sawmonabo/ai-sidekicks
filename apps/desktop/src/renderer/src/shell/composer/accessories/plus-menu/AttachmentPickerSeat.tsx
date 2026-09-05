@@ -28,8 +28,8 @@
 // rather than into this surface.
 
 import { useCallback } from "react";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import { useSessionScopedState } from "../../../console/seats/index.js";
+import type { ConsoleBridge } from "../../../../console/bridge/index.js";
+import { useSessionScopedState } from "../../../../console/seats/index.js";
 import { UNASKED, type PickerState } from "./attachment-picker-state.js";
 import { AttachmentPickerAnswer } from "./AttachmentPickerAnswer.js";
 

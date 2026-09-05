@@ -83,13 +83,13 @@ import {
   type SessionStoreState,
 } from "../../../console/store/index.js";
 import { useComposerAddress } from "../composer-address.js";
-import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./CompactionSlot.js";
-import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./ContextMeterSlot.js";
+import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./compaction/CompactionSlot.js";
+import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./context-meter/ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
-import { PlusMenu } from "./PlusMenu.js";
-import { QueueShelf } from "./QueueShelf.js";
-import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./RateLimitSlot.js";
-import { waitingQueueRows } from "./waiting-queue.js";
+import { PlusMenu } from "./plus-menu/PlusMenu.js";
+import { QueueShelf } from "./queue-shelf/QueueShelf.js";
+import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./quotas/RateLimitSlot.js";
+import { waitingQueueRows } from "./queue-shelf/waiting-queue.js";
 import { newestCompactionBoundarySequence, newestContextWindowReading } from "./usage-readings.js";
 
 /**

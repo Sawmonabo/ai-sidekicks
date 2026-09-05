@@ -17,7 +17,7 @@
 // work and a reader who needs the identifier reads it here: the meter body is
 // Plan-013's, mounted under the obligation Plan-023 Phase 6 records for it.
 
-import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/seats/index.js";
+import type { OwnerSlotContract, OwnerSlotProps } from "../../../../console/seats/index.js";
 import { ContextMeter, type ContextMeterProps } from "./ContextMeter.js";
 
 /** The three facts this seat answers. Developer-facing; never rendered. */

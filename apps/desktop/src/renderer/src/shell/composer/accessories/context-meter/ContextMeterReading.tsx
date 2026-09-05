@@ -8,9 +8,9 @@
 // not the same claim), so the note table lives here beside the render that uses it
 // rather than in the seat, which never reads it.
 
-import { WireFigure, formatCount } from "../../../console/primitives/index.js";
-import { CONTEXT_HINT_PERCENT } from "./accessory-bounds.js";
-import type { ContextWindowReading, ContextWindowSource } from "./usage-readings.js";
+import { WireFigure, formatCount } from "../../../../console/primitives/index.js";
+import { CONTEXT_HINT_PERCENT } from "../accessory-bounds.js";
+import type { ContextWindowReading, ContextWindowSource } from "../usage-readings.js";
 
 /**
  * What each provenance grade means for a person reading the bar.

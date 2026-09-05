@@ -9,7 +9,7 @@
 // daemon carried no answer" are different facts about the same picker, and a
 // two-flag encoding makes the pair that means neither representable.
 
-import type { ConsoleRefusal } from "../../../console/core/index.js";
+import type { ConsoleRefusal } from "../../../../console/core/index.js";
 
 /** The picker's four phases. Every other combination is unrepresentable by construction. */
 export type PickerState =

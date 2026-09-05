@@ -49,11 +49,11 @@ import {
   formatCount,
   unreadableDeliveryReading,
   type ReadingState,
-} from "../../../console/primitives/index.js";
+} from "../../../../console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
-import { readRefusalOf, type WireReadState } from "../../../console/bridge/index.js";
-import type { ConsoleRefusal } from "../../../console/core/index.js";
-import { QUEUE_SHELF_ROW_CAP } from "./accessory-bounds.js";
+import { readRefusalOf, type WireReadState } from "../../../../console/bridge/index.js";
+import type { ConsoleRefusal } from "../../../../console/core/index.js";
+import { QUEUE_SHELF_ROW_CAP } from "../accessory-bounds.js";
 import { QueueShelfRow } from "./QueueShelfRow.js";
 
 export interface QueueShelfProps {

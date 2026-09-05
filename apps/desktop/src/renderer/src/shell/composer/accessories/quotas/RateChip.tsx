@@ -16,8 +16,8 @@ import {
   WireFigure,
   formatCount,
   formatRelativeTime,
-} from "../../../console/primitives/index.js";
-import { type ProviderQuotaReading } from "../../../console/bridge/index.js";
+} from "../../../../console/primitives/index.js";
+import { type ProviderQuotaReading } from "../../../../console/bridge/index.js";
 import type { RateChipTone } from "./rate-chip-tone.js";
 
 interface RateChipProps {

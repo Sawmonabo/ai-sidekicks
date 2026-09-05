@@ -8,8 +8,12 @@
 // surface that showed nothing for both would report the refusal as a state nobody
 // had reached yet.
 
-import { InlineRefusal, Nothing, formatByteQuantity } from "../../../console/primitives/index.js";
-import { ATTACHMENT_CARRIER_COUNT_CAP } from "./accessory-bounds.js";
+import {
+  InlineRefusal,
+  Nothing,
+  formatByteQuantity,
+} from "../../../../console/primitives/index.js";
+import { ATTACHMENT_CARRIER_COUNT_CAP } from "../accessory-bounds.js";
 import { type PickerState } from "./attachment-picker-state.js";
 
 /**

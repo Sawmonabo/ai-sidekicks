@@ -34,8 +34,8 @@
 // superseded quietly, because a shell left in place is a second meter that will
 // eventually disagree with the first.
 
-import { Nothing } from "../../../console/primitives/index.js";
-import type { ContextWindowReading } from "./usage-readings.js";
+import { Nothing } from "../../../../console/primitives/index.js";
+import type { ContextWindowReading } from "../usage-readings.js";
 import { ContextMeterReading } from "./ContextMeterReading.js";
 
 export interface ContextMeterProps {
