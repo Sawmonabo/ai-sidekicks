@@ -101,7 +101,19 @@ const RUN_IMPLEMENTER = "019b793b-7b60-740e-8110-d1a4c1150111";
 const RUN_REVIEWER = "019b793b-7b60-740e-8120-d1a4c1150112";
 const RUN_ARCHITECT = "019b793b-7b60-740e-8130-d1a4c1150113";
 
-const STARTED_AT_ISO = "2026-01-01T11:05:00.000Z";
+/**
+ * The base instant, minted from its fields rather than read back out of a string.
+ *
+ * `Date.parse` is not a validator — it reads a timezone-less stamp in the host's
+ * zone and normalizes a day that does not exist — so a fixture that derived its
+ * milliseconds by parsing its own literal was asking a reader to trust the one
+ * function the console bans. `Date.UTC` states the instant, and the ISO spelling
+ * every reply carries is derived from it, so the two can never disagree. The name
+ * ends `Ms` because that is what it holds — a number, not a stamp behind a name.
+ */
+const startedAtMs = Date.UTC(2026, 0, 1, 11, 5);
+
+const STARTED_AT_ISO = new Date(startedAtMs).toISOString();
 
 /**
  * The three lanes, as the `agents` projection carries them.
@@ -138,7 +150,7 @@ const LEDGER_AGENTS = [
 
 /** The instant one agent was attached, as the `agent.list` reply reports it. */
 function attachedAtIso(attachedAtMs: number): string {
-  return new Date(Date.parse(STARTED_AT_ISO) + attachedAtMs).toISOString();
+  return new Date(startedAtMs + attachedAtMs).toISOString();
 }
 
 /**

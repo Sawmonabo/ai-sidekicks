@@ -121,6 +121,7 @@ export { ScenarioSelection } from "./scenario-selection.js";
 // because the frame's binder is the reader and the parse is this family's job: the
 // wire's own shapes are read here and nowhere above.
 export { readConsoleSessionEvent } from "./session-event-payload.js";
+export { readRollbackBoundaryPayload } from "./rollback-boundary-payload.js";
 
 // `entity-body-reads.ts` is deliberately NOT published here. Its two reads have no
 // production consumer yet — the composition root will hand `membershipRoleOf` to

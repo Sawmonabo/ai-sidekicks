@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TimelineRowSchema } from "@ai-sidekicks/contracts";
-
+import { isContractTimelineRow } from "../../bridge/timeline-row-contract.test-support.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import { deriveSupersededBands } from "../structure/index.js";
 import { projectFixtureShellRows } from "./fixture-shell-projection.js";
@@ -59,7 +58,7 @@ describe("the fixture shell's row projection", () => {
       // The real validator, not a shape check written here: a projection that
       // satisfied a local assertion and failed the contract would be a projection
       // the daemon's own consumers could never accept.
-      expect(TimelineRowSchema.safeParse(row).success).toBe(true);
+      expect(isContractTimelineRow(row)).toBe(true);
     }
   });
 

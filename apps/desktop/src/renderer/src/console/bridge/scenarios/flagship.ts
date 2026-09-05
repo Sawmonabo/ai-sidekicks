@@ -104,7 +104,19 @@ const RUN_SCOUT = "019b79ee-0280-740e-8130-d1a4c1150013";
 const RUN_ARCHITECT = "019b79ee-0280-740e-8140-d1a4c1150014";
 const RUN_ARCHITECT_HELPER = "019b79ee-0280-740e-8150-d1a4c1150015";
 
-const STARTED_AT_ISO = "2026-01-01T14:20:00.000Z";
+/**
+ * The base instant, minted from its fields rather than read back out of a string.
+ *
+ * `Date.parse` is not a validator — it reads a timezone-less stamp in the host's
+ * zone and normalizes a day that does not exist — so a fixture that derived its
+ * milliseconds by parsing its own literal was asking a reader to trust the one
+ * function the console bans. `Date.UTC` states the instant, and the ISO spelling
+ * every reply carries is derived from it, so the two can never disagree. The name
+ * ends `Ms` because that is what it holds — a number, not a stamp behind a name.
+ */
+const startedAtMs = Date.UTC(2026, 0, 1, 14, 20);
+
+const STARTED_AT_ISO = new Date(startedAtMs).toISOString();
 
 /**
  * The four lanes, as the `agents` projection carries them.
@@ -161,7 +173,7 @@ export const FLAGSHIP_LANE_COUNT: number = FLAGSHIP_AGENTS.length;
 
 /** The instant one agent was attached, as the `agent.list` reply reports it. */
 function attachedAtIso(attachedAtMs: number): string {
-  return new Date(Date.parse(STARTED_AT_ISO) + attachedAtMs).toISOString();
+  return new Date(startedAtMs + attachedAtMs).toISOString();
 }
 
 /** The three entry builders, with this scenario's session bound in. */

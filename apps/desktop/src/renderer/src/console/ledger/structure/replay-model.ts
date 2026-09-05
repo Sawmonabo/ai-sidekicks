@@ -26,7 +26,12 @@
 //     frozen clock in the fixture and in every test, so a replay is deterministic
 //     rather than wall-clock-dependent.
 
-import type { ConsoleClock, ScheduledHandle } from "../../core/index.js";
+import {
+  compareInstants,
+  parseInstant,
+  type ConsoleClock,
+  type ScheduledHandle,
+} from "../../core/index.js";
 import { REPLAY_FRAME_INTERVAL_MS } from "./constants.js";
 import type { LedgerSeam } from "./seams.js";
 
@@ -136,24 +141,28 @@ export class ReplayEngine {
     // Ordered by `occurredAt`, which is what playback reveals in — a
     // sequence order would be the log's order, and the two differ wherever the
     // daemon admitted rows out of wall-clock order.
-    const rowsInOrder = [...options.rows].sort(
-      (left, right) => Date.parse(left.occurredAt) - Date.parse(right.occurredAt),
+    // Parsed ONCE per row rather than three times: the sort comparator, the base,
+    // and the offset all read the same instant, and `parseInstant` answers a
+    // reading rather than a number that may be `NaN`.
+    const readRows = options.rows.map((row) => ({ row, instant: parseInstant(row.occurredAt) }));
+    const rowsInOrder = [...readRows].sort((left, right) =>
+      compareInstants(left.instant, right.instant),
     );
-    const firstMs = rowsInOrder.length === 0 ? 0 : Date.parse(rowsInOrder[0]?.occurredAt ?? "");
-    const offsets = rowsInOrder.map((row) => {
-      const parsed = Date.parse(row.occurredAt);
-      // An unparseable instant lands at the head rather than at `NaN`: the row is
+    const firstMs = rowsInOrder[0]?.instant.epochMilliseconds ?? 0;
+    const offsets = rowsInOrder.map(({ instant }) =>
+      // An unreadable instant lands at the head rather than at `NaN`: the row is
       // still part of the session and dropping it would make replay show fewer
-      // rows than the ledger does.
-      return Number.isNaN(parsed) ? 0 : parsed - firstMs;
-    });
+      // rows than the ledger does. `compareInstants` has already put such rows
+      // last in the order, so the head they land at is the playback's own start.
+      instant.epochMilliseconds === undefined ? 0 : instant.epochMilliseconds - firstMs,
+    );
     const rowIndexByRowId = new Map<string, number>();
-    for (const [index, row] of rowsInOrder.entries()) {
+    for (const [index, { row }] of rowsInOrder.entries()) {
       if (!rowIndexByRowId.has(row.rowId)) {
         rowIndexByRowId.set(row.rowId, index);
       }
     }
-    this.#rowsInOrder = rowsInOrder;
+    this.#rowsInOrder = rowsInOrder.map(({ row }) => row);
     this.#offsetsMs = offsets;
     this.#rowIndexByRowId = rowIndexByRowId;
     this.#spanMs = offsets.length === 0 ? 0 : Math.max(...offsets);

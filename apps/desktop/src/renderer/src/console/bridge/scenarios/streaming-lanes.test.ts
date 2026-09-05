@@ -14,6 +14,14 @@ import type { ScenarioBeat } from "../scenario.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
 
+/**
+ * The base instant these synthetic beats are spaced out from, minted from its
+ * fields: `Date.parse` reads a timezone-less stamp in the host's zone, so a
+ * fixture that parsed its own literal would be trusting the one function the
+ * console bans.
+ */
+const streamBaseMs = Date.UTC(2026, 0, 1);
+
 /** Beats for a script written as `[kind, payload]` pairs, positioned and stamped. */
 function beatsFor(
   entries: readonly (readonly [string, Record<string, unknown>])[],
@@ -25,7 +33,7 @@ function beatsFor(
       sessionId: SESSION_ID,
       sequence: entryIndex + 1,
       kind,
-      occurredAt: new Date(Date.parse("2026-01-01T00:00:00.000Z") + entryIndex * 50).toISOString(),
+      occurredAt: new Date(streamBaseMs + entryIndex * 50).toISOString(),
       payload,
     },
   }));

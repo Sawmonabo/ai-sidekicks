@@ -44,6 +44,7 @@
 // the census alone; `assistant.*` and `tool.*` do have one, and it is `.strict()`,
 // so a member these builders do not name is a member the wire rejects.
 
+import { parseInstant } from "../../core/index.js";
 import type { ScenarioBeat } from "../scenario.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
@@ -90,8 +91,8 @@ export interface LedgerScriptOptions {
  * measured against.
  */
 export function scriptLedgerBeats(options: LedgerScriptOptions): readonly ScenarioBeat[] {
-  const startedAtMs = Date.parse(options.startedAtIso);
-  if (Number.isNaN(startedAtMs)) {
+  const startedAt = parseInstant(options.startedAtIso);
+  if (startedAt.epochMilliseconds === undefined) {
     throw new RangeError(
       `a ledger script needs a parseable start instant; received "${options.startedAtIso}"`,
     );
@@ -113,7 +114,7 @@ export function scriptLedgerBeats(options: LedgerScriptOptions): readonly Scenar
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
         kind: entry.kind,
-        occurredAt: new Date(startedAtMs + entry.atMs).toISOString(),
+        occurredAt: new Date(startedAt.epochMilliseconds + entry.atMs).toISOString(),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
         payload: entry.payload ?? {},
       },

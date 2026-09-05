@@ -73,7 +73,6 @@
 // the value under it is the wire's own.
 
 import {
-  RunRolledBackEventSchema,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
@@ -83,6 +82,7 @@ import {
   type TimelineRow,
 } from "@ai-sidekicks/contracts";
 
+import { readRollbackBoundaryPayload } from "../../bridge/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
@@ -185,7 +185,7 @@ function commonRowFields(
  *
  * The arm's payload is the TYPED event rather than the open record the other arms
  * carry, and its schema refines `position` against `payload.targetPosition` — so
- * the payload is PARSED here rather than cast. A rollback whose payload does not
+ * the payload is READ at the bridge rather than cast here. A rollback whose payload does not
  * satisfy the contract is dropped and counted rather than rendered as a boundary
  * whose cutoff nobody can trust: a band drawn from a bad cutoff hides real rows.
  */
@@ -193,11 +193,10 @@ function projectRollbackBoundary(
   event: ConsoleSessionEvent,
   progression: RunProgression,
 ): RollbackBoundaryRow | undefined {
-  const parsed = RunRolledBackEventSchema.safeParse(event.payload);
-  if (!parsed.success) {
+  const boundary = readRollbackBoundaryPayload(event.payload);
+  if (boundary === undefined) {
     return undefined;
   }
-  const boundary = parsed.data;
   return {
     ...commonRowFields(event, TIMELINE_RUN_LIFECYCLE_CATEGORY),
     kind: "rollback_boundary",

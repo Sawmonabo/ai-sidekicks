@@ -68,7 +68,19 @@ const AGENT_REVIEWER = "019b78ff-f900-7a6e-8130-d1a4c1150107";
 const RUN_IMPLEMENTER = "019b78ff-f900-740e-8110-d1a4c1150114";
 const RUN_REVIEWER = "019b78ff-f900-740e-8120-d1a4c1150115";
 
-const STARTED_AT_ISO = "2026-01-01T10:00:00.000Z";
+/**
+ * The base instant, minted from its fields rather than read back out of a string.
+ *
+ * `Date.parse` is not a validator — it reads a timezone-less stamp in the host's
+ * zone and normalizes a day that does not exist — so a fixture that derived its
+ * milliseconds by parsing its own literal was asking a reader to trust the one
+ * function the console bans. `Date.UTC` states the instant, and the ISO spelling
+ * every reply carries is derived from it, so the two can never disagree. The name
+ * ends `Ms` because that is what it holds — a number, not a stamp behind a name.
+ */
+const startedAtMs = Date.UTC(2026, 0, 1, 10, 0);
+
+const STARTED_AT_ISO = new Date(startedAtMs).toISOString();
 
 /** One second of scenario time, so the pacing below reads in seconds. */
 const ONE_SECOND_MS = 1_000;
@@ -114,7 +126,7 @@ function atSecond(second: number): number {
 }
 
 function instantAtSecond(second: number): string {
-  return new Date(Date.parse(STARTED_AT_ISO) + atSecond(second)).toISOString();
+  return new Date(startedAtMs + atSecond(second)).toISOString();
 }
 
 /** The three entry builders, with this scenario's session bound in. */

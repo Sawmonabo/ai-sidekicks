@@ -26,7 +26,19 @@ const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 /** This suite's own row-id namespace, as every scenario declares one. */
 const EVENT_ID_STEM = "019b793b-7b60-7ea1-8110-e5e0d115";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
-const STARTED_AT_ISO = "2026-01-01T11:05:00.000Z";
+/**
+ * The base instant, minted from its fields rather than read back out of a string.
+ *
+ * `Date.parse` is not a validator — it reads a timezone-less stamp in the host's
+ * zone and normalizes a day that does not exist — so a fixture that derived its
+ * milliseconds by parsing its own literal was asking a reader to trust the one
+ * function the console bans. `Date.UTC` states the instant, and the ISO spelling
+ * every reply carries is derived from it, so the two can never disagree. The name
+ * ends `Ms` because that is what it holds — a number, not a stamp behind a name.
+ */
+const startedAtMs = Date.UTC(2026, 0, 1, 11, 5);
+
+const STARTED_AT_ISO = new Date(startedAtMs).toISOString();
 
 /** A three-entry script whose `atMs` values are distinct and increasing. */
 const ORDERED_SCRIPT: readonly LedgerScriptEntry[] = [
@@ -50,7 +62,6 @@ describe("scriptLedgerBeats", () => {
   });
 
   it("derives `occurredAt` from the start instant and the beat's own `atMs`", () => {
-    const startedAtMs = Date.parse(STARTED_AT_ISO);
     expect(buildOrderedBeats().map((beat) => beat.event.occurredAt)).toStrictEqual(
       ORDERED_SCRIPT.map((entry) => new Date(startedAtMs + entry.atMs).toISOString()),
     );

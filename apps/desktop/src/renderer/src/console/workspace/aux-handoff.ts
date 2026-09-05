@@ -63,6 +63,7 @@ import {
   isAuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
 import { type PaneKind } from "../seats/index.js";
+import { lossyStringify } from "../../../../shared/wire-errors.js";
 import {
   auxiliaryTarget,
   formatAuxiliaryTargetOrRefuse,
@@ -403,7 +404,13 @@ export class AuxiliaryHandoff {
   }
 }
 
-/** An unknown thrown value as one sentence, without inventing a shape for it. */
+/**
+ * An unknown thrown value as one sentence, without inventing a shape for it.
+ *
+ * `lossyStringify` rather than `String`: a caught value may be a revoked proxy, a
+ * null-prototype object, or a `toString` that throws, and `String` on any of those
+ * throws out of the very handler written to keep a failed signal from escaping.
+ */
 function describeStreamFailure(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return error instanceof Error ? error.message : lossyStringify(error);
 }
