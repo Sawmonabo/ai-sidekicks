@@ -26,6 +26,7 @@
 // closed set, so a sixth reason is a compile error rather than a line that silently
 // reads like one of the five.
 
+import { readWireString } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 
 /** The event a lease transition arrives on. Wire-verbatim, rendered as received. */
@@ -178,7 +179,7 @@ export function readTerminalLeaseUnreadTransition(
   return {
     sequence: event.sequence,
     occurredAtIso: event.occurredAt,
-    reason: typeof reason === "string" && reason !== "" ? reason : undefined,
+    reason: readWireString(reason),
   };
 }
 
@@ -189,9 +190,13 @@ export function readTerminalLeaseUnreadTransition(
  * an identity: an absent member and an explicit null both mean "nobody holds it",
  * and a surface that treated a missing member as a holder would attribute the
  * shell to `undefined`.
+ *
+ * The predicate is the console's one wire-string reading; what this module owns is
+ * the mapping of its absence onto the free lease, which is a lease fact and not a
+ * wire one.
  */
 function readParticipantId(candidate: unknown): string | null {
-  return typeof candidate === "string" && candidate !== "" ? candidate : null;
+  return readWireString(candidate) ?? null;
 }
 
 /**
