@@ -68,7 +68,9 @@ describe("the transition ledger — one click away, every reason its own line", 
     fireEvent.click(disclosureControl(container));
     const notice = container.querySelector(".meridian-partial-read");
     expect(notice?.textContent).toContain("5");
-    expect(notice?.textContent).toContain("read before this transition history was cut");
+    expect(notice?.textContent).toContain(
+      "read before the answer for this transition history was cut short",
+    );
     expect(notice?.textContent).toContain("what is not shown here may still exist");
     // And the rows are still there: a notice withdraws the completeness claim, it
     // does not replace the best reading the surface has.

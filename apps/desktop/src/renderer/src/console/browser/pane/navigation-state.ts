@@ -104,22 +104,6 @@ export type NavigationReading =
 const UNREAD_NAVIGATION: NavigationReading = { kind: "reading" };
 
 /**
- * A reading and the `(bridge, paneId)` it was read under.
- *
- * The reading alone is not a fact about anything: it is a fact about ONE pane on ONE
- * bridge, and a hook instance outlives both. React reuses the instance across a prop
- * change, so a deck that swaps which pane a slot holds replaces the effect and its
- * subscription while the state still holds the previous pane's frame — and until the
- * replacement stream produces one, the chrome presented the OLD page's URL and
- * enabled its history controls while dispatching Back and Forward against the NEW
- * `paneId`. That is not a stale render; it is one pane's reading driving another
- * pane's acts.
- *
- * So the reading travels with its subject and the hook compares before returning it.
- * A stamp rather than a reset-in-an-effect, because a reset is a second render pass
- * that the first pass — the one that dispatches — happens before.
- */
-/**
  * Subscribe to the view's reported navigation state for the life of the pane.
  *
  * Both arms are implemented — the refusing arm is what runs today, and the
@@ -138,11 +122,19 @@ const UNREAD_NAVIGATION: NavigationReading = { kind: "reading" };
  * is reporting. So the same close the failing path runs happens here too, and the
  * reading says the subscription is over rather than staying on its final frame.
  *
- * AND THE READING IS HELD FOR ITS SUBJECT. The console's one subject-scoped holder
- * keys the value on the `(bridge, paneId)` the subscription was opened under, so a
- * changed pane renders its designed unread arm — no URL, no history controls — until
- * the new stream's first frame, and a frame from the old stream that arrives after
- * the change is refused by the holder rather than by the cancellation flag alone.
+ * AND THE READING IS HELD FOR ITS SUBJECT. A reading is not a fact about anything on
+ * its own: it is a fact about ONE pane on ONE bridge, and a hook instance outlives
+ * both. React reuses the instance across a prop change, so a deck that swaps which
+ * pane a slot holds replaces the effect and its subscription while the state still
+ * holds the previous pane's frame — and until the replacement stream produced one, the
+ * controls presented the OLD page's URL and enabled its history controls while
+ * dispatching Back and Forward against the NEW `paneId`. That is not a stale render;
+ * it is one pane's reading driving another pane's acts. The console's one
+ * subject-scoped holder keys the value on the `(bridge, paneId)` the subscription was
+ * opened under, so a changed pane renders its designed unread arm — no URL, no history
+ * controls — until the new stream's first frame, and a frame from the old stream that
+ * arrives after the change is refused by the holder rather than by the cancellation
+ * flag alone.
  */
 export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): NavigationReading {
   const { value: reading, publish } = useSubjectScopedState(

@@ -180,7 +180,15 @@ export function outputRefusal(region: HTMLElement): Element | null {
   );
 }
 
-/** The pane's region, or a raise. One reader, because three suites reach for it. */
+/**
+ * The pane's region, or a raise. One reader, because three suites reach for it.
+ *
+ * The section is `seats/ConsolePaneChrome`'s now, so the query stays on the element
+ * rather than moving to an accessible name: the chrome names a pane by its whole
+ * address trail, and a suite mounting the pane with no session and one with a session
+ * would then be looking the region up under two different names for the same reason
+ * they mount it — which is not what any of them is about.
+ */
 export function paneRegionOf(container: HTMLElement): HTMLElement {
   const region = container.querySelector("section");
   if (!(region instanceof HTMLElement)) {
@@ -194,7 +202,12 @@ export function renderPane(
   consoleBridge: ConsoleBridge = paneBridge(),
 ): HTMLElement {
   const { container } = render(
-    <TerminalPane paneId="pane-terminal" bridge={consoleBridge} sessionStore={sessionStore} />,
+    <TerminalPane
+      paneId="pane-terminal"
+      bridge={consoleBridge}
+      sessionStore={sessionStore}
+      focusHue={undefined}
+    />,
   );
   return paneRegionOf(container);
 }

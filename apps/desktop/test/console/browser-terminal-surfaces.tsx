@@ -21,7 +21,7 @@
 // over the whole transition ledger. So the store here is fed the scenario's beats
 // verbatim and the degraded reading is the fixture's, not this file's.
 
-import { waitFor } from "@testing-library/react";
+import { waitFor, within } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
 import { renderSettled } from "./console-harness.js";
@@ -153,14 +153,29 @@ export interface MountedFamilySurface {
  * Scoped by role and name rather than by class, because that is the pair a person
  * using assistive technology navigates by — a surface that lost its accessible name
  * would still match a class selector and would still be captured as if nothing had
- * changed.
+ * changed. Through `getByRole` rather than an `[aria-label]` selector, because both
+ * panes are named by `seats/ConsolePaneChrome` through `aria-labelledby` now and an
+ * attribute selector cannot see a name a reference computes.
  */
-function requireRegion(container: HTMLElement, accessibleName: string): HTMLElement {
-  const region = container.querySelector(`[aria-label="${accessibleName}"]`);
-  if (!(region instanceof HTMLElement)) {
-    throw new Error(`nothing in the mounted tree is labelled \`${accessibleName}\``);
-  }
-  return region;
+function requireNamedSurface(
+  container: HTMLElement,
+  role: "region" | "article",
+  accessibleName: string,
+): HTMLElement {
+  return within(container).getByRole(role, { name: accessibleName });
+}
+
+/**
+ * What the chrome calls a pane of `kind` mounted over `sessionId`.
+ *
+ * The trail and not the kind's own word: `ConsolePaneChrome` names a pane by every
+ * scope its address carries and then by what the pane is, so two terminals in one
+ * deck are told apart by the session whose shell each holds. Derived here rather
+ * than written out twice, so a mount that changes which session it addresses cannot
+ * go on looking its own surface up under the old name.
+ */
+function paneTrailName(sessionId: string | undefined, paneWord: string): string {
+  return `${sessionId ?? "No session"} ${paneWord}`;
 }
 
 /** The browser pane, mounted with its navigation subscription settled. */
@@ -174,7 +189,10 @@ export async function mountBrowserPane(): Promise<MountedFamilySurface> {
     />,
   );
   await releaseQueuedPaneFrames(bridge);
-  return { element: requireRegion(container, "Browser"), bridge };
+  return {
+    element: requireNamedSurface(container, "region", paneTrailName(undefined, "Browser")),
+    bridge,
+  };
 }
 
 /**
@@ -198,7 +216,11 @@ export async function mountTerminalPane(): Promise<MountedFamilySurface> {
       })}
     />,
   );
-  const region = requireRegion(container, "Terminal");
+  const region = requireNamedSurface(
+    container,
+    "region",
+    paneTrailName(TERMINAL_SCENARIO.sessionId, "Terminal"),
+  );
   // Deliberately NOT inside `act`. The chunk resolves in a promise React knows
   // nothing about, and an `act` scope holds the resulting commit back until it
   // exits — so a wait for the mounted grid placed inside one waits for a render
@@ -242,5 +264,8 @@ export async function mountBrowserCaptureCard(): Promise<MountedFamilySurface> {
       }}
     />,
   );
-  return { element: requireRegion(container, "Capture checkout-step-two.png"), bridge };
+  return {
+    element: requireNamedSurface(container, "article", "Capture checkout-step-two.png"),
+    bridge,
+  };
 }

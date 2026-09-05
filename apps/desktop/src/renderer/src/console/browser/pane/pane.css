@@ -23,22 +23,33 @@
 /* --------------------------------------------------------------- pane shell */
 
 /*
- * The pane of chapter 12.2, in three bands: a chrome bar that cannot grow, a
+ * The chord claim, which is an event boundary and not a box.
+ *
+ * `display: contents` because the element exists only to carry a capture handler over
+ * the whole pane — the chrome's head included, which the body does not contain — and
+ * a wrapper that generated a box would put an unsized element between the deck's slot
+ * and the section the deck sizes. It has no children of its own to lose: the one child
+ * is the chrome's `<section>`, which takes the deck's box directly.
+ */
+.meridian-browser-pane-claim {
+  display: contents;
+}
+
+/*
+ * The pane's BODY of chapter 12.2, in three bands: a chrome bar that cannot grow, a
  * viewport that takes whatever is left, and the resource ceiling of 12.10 folded
  * away behind a disclosure (rule 7 — one click, never on the surface).
  *
- * The attribution edge is a PER-INSTANCE value and so arrives on the element as
- * `--meridian-browser-pane-hue`, the shape `LedgerRow` established for the same
- * reason: the hue is a different colour on every pane, and twelve hard-coded
- * classes would be a second record of the participant wheel.
+ * It carries no frame of its own. `seats/pane-chrome.css` draws the section, its
+ * boundary, its surface, and the actor's hue on the two focus treatments, and this
+ * box grows inside the body slot that sheet leaves — so a second always-on hue edge
+ * here would be a second answer to "who" one element inside the first.
  */
 .meridian-browser-pane {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  block-size: 100%;
   min-block-size: 0;
-  background: var(--meridian-surface);
-  border-inline-start: 2px solid var(--meridian-browser-pane-hue);
 }
 
 .meridian-browser-chrome {
