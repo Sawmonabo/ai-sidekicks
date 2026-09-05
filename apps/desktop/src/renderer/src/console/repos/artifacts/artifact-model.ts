@@ -16,9 +16,18 @@
 // wire lands, the diff is an import and a deletion here, not a redesign of the
 // panel. Nothing in this module claims the daemon sends it.
 //
-// THE FOUR CLOSED SETS ARE DECLARED ONCE EACH and every consumer derives from them,
-// which is the rule and also the only way the totals below can be trusted: three
-// states, two visibility classes, six types, five replication statuses plus absent.
+// THE CLOSED SETS ARE THE WIRE'S, NOT THIS MODULE'S. Five of them — states,
+// visibility classes, types, replication statuses, payload dispositions — used to be
+// declared here as `as const` arrays, member for member identical to the ones
+// `bridge/growth-values/artifacts.ts` declares for the same envelope, each copy under
+// a comment claiming to be the one home. The drift that pair admits is silent and
+// one-directional: the wire DROPS a replication status, this module still enumerates
+// it, the presentation table still holds a row for it and the filter still offers it,
+// and nothing fails, because a value assigned into a row stays assignable when the
+// union it came from shrinks. So the five vocabularies are derived from the bridge's
+// own declarations through `bridge/index.ts`, and the totals follow from them: three
+// states, two visibility classes, six types, five replication statuses plus absent,
+// three payload dispositions.
 //
 // WHAT THIS MODULE REFUSES TO MODEL — its own Never list, because no committed
 // document carries one for this surface:
@@ -35,62 +44,46 @@
 //   • No nulling of a derivative's `subject`. `subject` is read and rendered; the
 //     remedy on a blocked delete is the daemon's own, and the console states it.
 
-import type { GrowthArtifactSummary } from "../../bridge/index.js";
+import { lossyStringify } from "../../../../../shared/wire-errors.js";
+
+import type {
+  GrowthArtifactPayloadDisposition,
+  GrowthArtifactReplicationStatus,
+  GrowthArtifactState,
+  GrowthArtifactSummary,
+  GrowthArtifactType,
+  GrowthArtifactVisibility,
+} from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { ChipTone } from "../../primitives/index.js";
 
-/** The three states a manifest is in. `pending` renders; `superseded` stays as history. */
-export const ARTIFACT_STATES = ["pending", "published", "superseded"] as const;
+/**
+ * One artifact state, named in this family's vocabulary and declared in the wire's.
+ *
+ * AN ALIAS AND NOT A SECOND UNION: the five aliases below rename nothing and add
+ * nothing, so a member the wire drops leaves the row type, the filter, and the
+ * presentation tables in the same compile. `pending` renders; `superseded` stays as
+ * history.
+ */
+export type ArtifactState = GrowthArtifactState;
 
-/** One artifact state. Derived, so the vocabulary is declared exactly once. */
-export type ArtifactState = (typeof ARTIFACT_STATES)[number];
-
-/** The two visibility CLASSES. V1 visibility is class-based and policy-based, never per-recipient. */
-export const ARTIFACT_VISIBILITIES = ["local-only", "shared"] as const;
-
-/** One visibility class. Derived. */
-export type ArtifactVisibility = (typeof ARTIFACT_VISIBILITIES)[number];
+/** One visibility CLASS. V1 visibility is class-based and policy-based, never per-recipient. */
+export type ArtifactVisibility = GrowthArtifactVisibility;
 
 /**
- * The six types, which are a FILTER over one list and never six lists.
+ * One artifact type, which is a FILTER over one list and never six lists.
  *
  * Every diff artifact is an artifact and appears in artifact listings, so the diff
- * pane is a view onto this list rather than a second store — a rule this set makes
- * structural, because `diff` is a member here rather than a sibling collection.
+ * pane is a view onto this list rather than a second store — a rule the wire's own set
+ * makes structural, because `diff` is a member of it rather than a sibling collection.
  */
-export const ARTIFACT_TYPES = [
-  "file",
-  "diff",
-  "summary",
-  "log",
-  "design",
-  "workflow_output",
-] as const;
+export type ArtifactType = GrowthArtifactType;
 
-/** One artifact type. Derived. */
-export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
-
-/** The five replication statuses. ABSENT is the sixth reading and is not a member — see the copy table. */
-export const ARTIFACT_REPLICATION_STATUSES = [
-  "pending_replication",
-  "pinned",
-  "over_cap",
-  "quota_exceeded",
-  "expired",
-] as const;
-
-/** One replication status. Derived. */
-export type ArtifactReplicationStatus = (typeof ARTIFACT_REPLICATION_STATUSES)[number];
+/** One replication status. ABSENT is the sixth reading and is not a member — see the copy table. */
+export type ArtifactReplicationStatus = GrowthArtifactReplicationStatus;
 
 /** What a delete did to the bytes. Reported after the act, never predicted before it. */
-export const ARTIFACT_PAYLOAD_DISPOSITIONS = [
-  "reclaimed",
-  "reclaim_pending",
-  "retained_by_references",
-] as const;
-
-/** One payload disposition. Derived. */
-export type ArtifactPayloadDisposition = (typeof ARTIFACT_PAYLOAD_DISPOSITIONS)[number];
+export type ArtifactPayloadDisposition = GrowthArtifactPayloadDisposition;
 
 /**
  * The manifest envelope a row renders from.
@@ -375,13 +368,47 @@ export function artifactManifestRowFromSummary(
   };
 }
 
-/** Every metadata entry, as the string a row draws for it. */
+/**
+ * Every metadata entry, as the string a row draws for it.
+ *
+ * `JSON.stringify` IS NOT TOTAL, AND BOTH OF ITS FAILURES REACH THIS ROW. `metadata`
+ * is freeform daemon-side provenance typed `unknown` on the wire, so nothing upstream
+ * of here constrains what a value is:
+ *
+ *   • IT THROWS on a `BigInt`, on a structure that refers to itself, and on a hostile
+ *     `toJSON`. Thrown from here it escapes the row builder, the reader's fold, and
+ *     the render — taking the whole pane down over one provenance entry.
+ *   • IT ANSWERS `undefined` for `undefined`, a function, and a symbol, which the
+ *     return type says cannot happen. That value went into a `Record<string, string>`
+ *     unchecked, so the row carried a hole the compiler had been told was a string
+ *     and a surface reading `.length` on it threw one layer further out.
+ *
+ * Both land on `lossyStringify`, `src/shared/wire-errors.ts`'s total stringifier —
+ * the same one `core/wire-rejection.ts` reaches for, and total by construction rather
+ * than by one more layer of `try`. A value is RENDERED IN SOME FORM either way,
+ * because a row that silently showed fewer entries than the daemon sent would
+ * misreport the provenance it exists to show.
+ */
 function renderableMetadata(
   metadata: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, string>> {
   const rendered: Record<string, string> = {};
   for (const [key, value] of Object.entries(metadata)) {
-    rendered[key] = typeof value === "string" ? value : JSON.stringify(value);
+    rendered[key] = typeof value === "string" ? value : renderableMetadataValue(value);
   }
   return rendered;
+}
+
+/** One non-string metadata value, as a string, whatever it is. */
+function renderableMetadataValue(value: unknown): string {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    // A `BigInt`, a cycle, or a `toJSON` that threw. The value is still shown.
+    return lossyStringify(value);
+  }
+  // `undefined`, a function, or a symbol: serialization succeeded and produced no
+  // JSON at all, which is a different fact from a failure and takes the same home.
+  return serialized ?? lossyStringify(value);
 }

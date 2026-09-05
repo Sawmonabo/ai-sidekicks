@@ -15,6 +15,7 @@ import { useState } from "react";
 
 import { InlineRefusal } from "../../../primitives/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
+import { useSubjectScopedState } from "../../../store/index.js";
 import { PROPOSAL_ACTION_PRESENTATION, type ProposalAction } from "../proposal-actions.js";
 
 /**
@@ -155,29 +156,39 @@ export function ProposalActionGroup(props: {
  * would let the confirmation reappear with it. Clearing on the CHANGE is what makes the
  * approval unrepeatable.
  *
- * Reset during the render that sees the new scope, which is React's own answer for
- * state that follows a prop: an effect would clear it one commit later, and that commit
- * is a frame in which the confirm button for the new offer is on screen and pressable.
+ * WHICH IS THE CONSOLE'S OWN SUBJECT RULE, TAKEN RATHER THAN WRITTEN AGAIN.
+ * `store/subject-scoped-state.ts` seeds during the render that first sees a new key,
+ * so no committed frame carries the previous offer's confirmation — an effect would
+ * clear it one commit later, and that commit is a frame in which the confirm button
+ * for the new offer is on screen and pressable. It also drops a write captured under
+ * an offer that has since moved, which the register this function used to keep could
+ * not: a pass React discarded left that register naming the old scope, and the return
+ * to it re-opened a confirmation nobody had re-read.
+ *
+ * THE MOUNT IS THE SUBJECT AND THE OFFER IS THE KEY WITHIN IT. There is no live
+ * object here whose replacement retires the confirmation — this group holds no
+ * transport and no projection — and the thing a confirmation belongs to is a value,
+ * which is exactly what a key is. So the subject is this mount, minted once and
+ * compared by reference, and it moves only when the group is remounted.
  */
 function usePendingConfirmation(confirmationScope: string): {
   readonly pendingAction: ProposalAction | undefined;
   readonly toggle: (action: ProposalAction) => void;
   readonly close: () => void;
 } {
-  const [pendingAction, setPendingAction] = useState<ProposalAction | undefined>(undefined);
-  const [scopeConfirmedIn, setScopeConfirmedIn] = useState(confirmationScope);
-  const hasMoved = scopeConfirmedIn !== confirmationScope;
-  if (hasMoved) {
-    setScopeConfirmedIn(confirmationScope);
-    setPendingAction(undefined);
-  }
+  const [confirmationSubject] = useState<object>(() => ({}));
+  const { value: pendingAction, publish } = useSubjectScopedState<ProposalAction | undefined>(
+    confirmationSubject,
+    confirmationScope,
+    () => undefined,
+  );
   return {
-    pendingAction: hasMoved ? undefined : pendingAction,
+    pendingAction,
     toggle: (action: ProposalAction) => {
-      setPendingAction((standing) => (standing === action ? undefined : action));
+      publish((standing) => (standing === action ? undefined : action));
     },
     close: () => {
-      setPendingAction(undefined);
+      publish(undefined);
     },
   };
 }

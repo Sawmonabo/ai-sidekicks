@@ -16,15 +16,17 @@ import type { GrowthUnavailable } from "../../bridge/index.js";
 import {
   ATTACHMENT_BYTE_CAP_DEFAULT,
   isConsoleRefusal,
+  normalizeWireRejection,
   refuse,
   type ConsoleRefusal,
+  type WireRefusal,
 } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment-policy.js";
 import type {
   ArtifactDeleteReceipt,
   ArtifactManifestRow,
   ArtifactsPanelState,
-} from "../../repos/artifacts/index.js";
+} from "../../repos/artifacts/artifact-model.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
 /**
@@ -43,9 +45,35 @@ export interface ArtifactAllowlistReading {
   readonly refusal: ConsoleRefusal | undefined;
 }
 
+/**
+ * The instant a reading nobody has published yet carries.
+ *
+ * Reachable by nothing a participant sees: `NOTHING_READ_YET` draws no row, so no age
+ * is rendered against it, and the reader stamps its own opening reading from the
+ * window's clock at construction. Named rather than written as a bare `0` so the
+ * declaration says which of the two it is — an instant nobody took, not midnight 1970.
+ */
+export const UNREAD_AT_MILLISECONDS = 0;
+
 /** Everything the pane renders from, in one immutable value. */
 export interface ArtifactPaneReading {
   readonly artifacts: ArtifactsPanelState;
+  /**
+   * The instant this reading was published at, taken from the window's own clock.
+   *
+   * ON THE READING, WHICH IS THE WHOLE POINT. `repos/repo-mounts-model.ts` states the
+   * rule for this family and names the alternative as the defect: a card reading
+   * `Date.now()` in its render body would move an age on any unrelated re-render, and
+   * under the fixture it would move against wall time while the scenario advanced on
+   * frozen time — so a screenshot listing a row pinned text that renders differently
+   * next month. An age moves when the READ moves, and on no other occasion; an age
+   * that advanced on a timer would be the interval poll the budget forbids, wearing a
+   * clock face.
+   *
+   * Stamped by the reader's one publish rather than by each producer, so no path can
+   * put a reading on screen carrying an instant from an earlier one.
+   */
+  readonly readAtMilliseconds: number;
   readonly allowlist: ArtifactAllowlistReading;
   /**
    * What the last delete REPORTED, which is not the same as that it happened.
@@ -117,6 +145,7 @@ export const SHIPPED_DEFAULT_ALLOWLIST: ArtifactAllowlistReading = {
 /** Before anyone asked. `not-checked` is a different claim from an empty list. */
 export const NOTHING_READ_YET: ArtifactPaneReading = {
   artifacts: { kind: "not-checked" },
+  readAtMilliseconds: UNREAD_AT_MILLISECONDS,
   allowlist: SHIPPED_DEFAULT_ALLOWLIST,
   lastDeleteReceipt: undefined,
   payload: { status: "not-checked" },
@@ -148,16 +177,36 @@ export const ARTIFACT_REPLY_UNREADABLE_CODE = "reply-unreadable";
  *
  * A thrown value is not a refusal until something makes it one, and the alternative —
  * letting it reject inside a timer callback — leaves the pane on the in-flight absence
- * for the rest of its life. The message is carried; the thrown value is not.
+ * for the rest of its life.
+ *
+ * A DELEGATION, NOT A NORMALIZER, on `repos/repo-reads.ts:repoCallRefusal`'s shape.
+ * The three-arm reading this replaces flattened everything to one code and one
+ * sentence: a JSON-RPC envelope carrying `data.type` arrived as `read-threw` with the
+ * daemon's dotted code and its own words discarded, a rate-limit envelope lost its
+ * retry hint, a `ConsoleRefusal` thrown across the bridge lost the origin its author
+ * named, and `error instanceof Error` answered false for an `Error` minted in the
+ * preload realm — which is the realm every bridge rejection crosses — so that value
+ * took the not-an-error arm and its message went with it. `core/wire-rejection.ts`
+ * owns all four of those readings and a terminal that never throws, and the two
+ * things left here are this pane's own: the origin, and the sentence for a rejection
+ * that said nothing machine-readable.
+ *
+ * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
+ * there — a rejection off the wire can carry participant content as readily as a
+ * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
+ * sets and which the copy this replaces broke by interpolating the message into it.
+ *
+ * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `ConsoleRefusal`
+ * widened by the optional retry hint a rate-limit envelope registers, so every
+ * consumer that takes a refusal takes this unchanged — and narrowing it back to
+ * `ConsoleRefusal` here would hide the one member this delegation exists to stop
+ * dropping from the only reader that could offer the retry.
  */
-export function readFailureRefusal(error: unknown): ConsoleRefusal {
-  const cause =
-    error instanceof Error ? error.message : "the read threw a value that is not an error.";
-  return refuse(
-    ARTIFACT_READER_REFUSAL_ORIGIN,
-    ARTIFACT_READ_THREW_CODE,
-    `The artifact read failed before it could answer: ${cause}`,
-  );
+export function readFailureRefusal(error: unknown): WireRefusal {
+  return normalizeWireRejection(ARTIFACT_READER_REFUSAL_ORIGIN, error, {
+    code: ARTIFACT_READ_THREW_CODE,
+    detail: "The artifact read failed before it could answer.",
+  });
 }
 
 /**

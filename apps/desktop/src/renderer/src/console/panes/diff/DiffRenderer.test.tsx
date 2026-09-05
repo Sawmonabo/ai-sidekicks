@@ -13,7 +13,7 @@
 //
 // HOW A ROW GETS A HEIGHT HERE. happy-dom has no layout engine, so every box it
 // reports is zero and a window measured against one would be measured against
-// nothing. `diff-layout-fixture.ts` supplies the heights at the seam the library
+// nothing. `diff-layout-fixture.test-support.ts` supplies the heights at the seam the library
 // reads them from, and every case here installs it. Nothing about the window is
 // reimplemented: the library computes it from the numbers a browser would have
 // given it.
@@ -24,7 +24,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
 import { buildDiffFixture } from "./diff-fixture.js";
 import { ENDURANCE_DIFF_SHAPE, SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
-import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
+import {
+  DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
+  DiffLayoutFixture,
+} from "./diff-layout-fixture.test-support.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { type DiffGapExpansion } from "./diff-row-model.js";
 

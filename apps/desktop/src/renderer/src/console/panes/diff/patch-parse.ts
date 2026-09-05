@@ -72,6 +72,7 @@
 
 import { diffWordsWithSpace, parsePatch, type StructuredPatch } from "diff";
 
+import { reportTripwire } from "../../core/index.js";
 import type {
   ConsoleDiffModel,
   DiffAttribution,
@@ -116,8 +117,26 @@ export function parseUnifiedPatch(
   // hunks back — both walks read the same text top to bottom, so the nth declared
   // header belongs to the nth parsed hunk across every file.
   const declaredHeaders = declaredHunkHeaders(patchText);
+  const structuredPatches = parsePatch(patchText);
+  const parsedHunkCount = structuredPatches.reduce(
+    (total, structuredPatch) => total + structuredPatch.hunks.length,
+    0,
+  );
+  // BOTH DIRECTIONS, BEFORE THE FIRST PAIRING. The pairing is by ordinal across two
+  // independent walks of one text, so it is only sound while the two walks agree on
+  // how many hunks there are. A guard on the SHORT side alone — which is what the
+  // per-hunk lookup below can see — leaves the other direction silent: one extra `@@`
+  // line found by this module's own scanner shifts every later hunk onto the previous
+  // one's declared header, and every header still resolves, so nothing anywhere says
+  // the rendering is wrong. The two counts are compared once, up front, and a
+  // disagreement refuses the patch rather than rendering a mispaired one.
+  if (declaredHeaders.length !== parsedHunkCount) {
+    throw new Error(
+      `the patch declares ${String(declaredHeaders.length)} \`@@\` headers and parsed into ${String(parsedHunkCount)} hunks, so no header can be paired with the hunk it declares`,
+    );
+  }
   let hunkOrdinal = 0;
-  for (const structuredPatch of parsePatch(patchText)) {
+  for (const structuredPatch of structuredPatches) {
     files.push({
       path: patchFilePath(structuredPatch),
       ...extendedHeaderChange(structuredPatch),
@@ -125,10 +144,11 @@ export function parseUnifiedPatch(
         const header = declaredHeaders[hunkOrdinal];
         hunkOrdinal += 1;
         if (header === undefined) {
-          // Unreachable for any patch `parsePatch` accepted, and a throw rather than
-          // a fallback because the only fallback is the reconstruction this function
-          // exists to stop making: a header composed from the numbers would be
-          // indistinguishable on screen from one the patch declared.
+          // Unreachable, because the counts were compared before the walk began. A
+          // throw rather than a fallback because the only fallback is the
+          // reconstruction this function exists to stop making: a header composed
+          // from the numbers would be indistinguishable on screen from one the patch
+          // declared.
           throw new Error(
             `the patch declares fewer \`@@\` headers (${String(declaredHeaders.length)}) than it parsed hunks`,
           );
@@ -163,13 +183,35 @@ export function parseUnifiedPatch(
 const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
 
 /**
- * The line endings a patch may use, matched exactly as `diff` matches them.
+ * Where a patch's lines end, split EXACTLY as the adopted parser splits them.
  *
- * One expression rather than a `\n` split, because a patch produced on Windows ends
- * its header line with `\r` and a header carrying a stray carriage return is not the
- * header the patch declared.
+ * `parsePatch` splits on `/\n/` and on nothing else — measured against `diff` 9.0.0's
+ * `libesm/patch/parse.js`, not assumed — so this scanner must too, and the reason is
+ * the pairing below. Two walks of one text pair by ordinal, and that is sound only
+ * while both walks agree line for line. This used to split on `\r\n` and on a bare
+ * `\v`, `\f`, `\r`, or `\u0085`, which is strictly more separators than the library
+ * recognises: a hunk body line carrying a lone carriage return — an ordinary line in a
+ * file with old-Mac endings — was ONE line to the parser and TWO to this scanner, so a
+ * `@@` header inside such a line was counted as declared with no hunk to pair it with,
+ * and every later hunk took the previous one's header.
+ *
+ * The carriage return a Windows patch leaves on the end of a line is a different
+ * question from where the line ends, and it is answered where the header is KEPT
+ * rather than here.
  */
-const PATCH_LINE_BREAK_PATTERN = /\r\n|[\n\v\f\r\u0085]/;
+const PATCH_LINE_BREAK_PATTERN = /\n/;
+
+/**
+ * One line's text without the carriage return a Windows patch leaves on it.
+ *
+ * The split above is the parser's, which leaves a `\r` at the end of every line of a
+ * CRLF patch. A header carrying a stray carriage return is not the header the patch
+ * declared, so it is trimmed from what is kept — one character, from the end, and only
+ * where it is there.
+ */
+function withoutTrailingCarriageReturn(line: string): string {
+  return line.endsWith("\r") ? line.slice(0, -1) : line;
+}
 
 /**
  * Every `@@` header the patch text declares, in the order it declares them.
@@ -185,7 +227,7 @@ function declaredHunkHeaders(patchText: string): readonly string[] {
   const headers: string[] = [];
   for (const line of patchText.split(PATCH_LINE_BREAK_PATTERN)) {
     if (HUNK_HEADER_PATTERN.test(line)) {
-      headers.push(line);
+      headers.push(withoutTrailingCarriageReturn(line));
     }
   }
   return headers;
@@ -303,6 +345,9 @@ const LINE_KIND_BY_PREFIX: Readonly<Record<string, DiffLineKind>> = {
   "-": "delete",
 };
 
+/** What a tripwire report from this module names as the site it fired at. */
+const PATCH_PARSE_SITE = "console/panes/diff/patch-parse.ts";
+
 /**
  * The prefix the unified format reserves for its one annotation.
  *
@@ -349,11 +394,29 @@ function hunkLines(
       }
       continue;
     }
-    const kind = LINE_KIND_BY_PREFIX[prefixedLine.slice(0, 1)];
+    // AN EMPTY LINE IS A CONTEXT LINE WHOSE TEXT IS EMPTY, and it is the one body
+    // line that carries no prefix at all: many producers write a blank context line
+    // bare, and `parsePatch` infers it as context and pushes it RAW (`""`). Read
+    // through the prefix table that is `undefined`, and the `continue` below dropped
+    // it — so the blank vanished from the rendering AND both counters stopped
+    // advancing, putting every later gutter number in that hunk one too low. A number
+    // beside the wrong line is the misreported figure, not the missing row.
+    const kind = prefixedLine === "" ? "context" : LINE_KIND_BY_PREFIX[prefixedLine.slice(0, 1)];
     if (kind === undefined) {
+      // LOUD, NOT SWALLOWED. Every prefix the format defines is handled above, so
+      // reaching here means the body carried something this parser cannot place — and
+      // dropping it silently costs the same two counters the empty line used to, with
+      // a shorter hunk on screen and nothing anywhere saying why. Under the figure
+      // kind on `attachment-ingest-acknowledgement.ts`'s precedent: what breaks is
+      // every line number after this one, not the render.
+      reportTripwire(
+        "wire-figure-formatting",
+        PATCH_PARSE_SITE,
+        `a hunk body line carried the unrecognised prefix ${JSON.stringify(prefixedLine.slice(0, 1))}; it is not rendered and both line counters stop advancing at it, so every later number in this hunk is low`,
+      );
       continue;
     }
-    const text = prefixedLine.slice(1);
+    const text = prefixedLine === "" ? "" : prefixedLine.slice(1);
     // Spread-in rather than `: undefined`, for `diff-fixture.ts`'s reason: under
     // `exactOptionalPropertyTypes` an optional member assigned `undefined` is a
     // different type from an absent one, and the model means the second.

@@ -21,7 +21,7 @@ import {
   ScriptedGrowthPort,
   clientOver,
   sourceOver,
-} from "./attachment-ingest-scripted-port.js";
+} from "./attachment-ingest-scripted-port.test-support.js";
 import {
   ATTACHMENT_INGEST_STATES,
   SENDING_ATTACHMENT_INGEST_STATES,

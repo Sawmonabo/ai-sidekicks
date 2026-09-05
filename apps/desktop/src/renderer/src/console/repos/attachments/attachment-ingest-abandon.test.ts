@@ -15,7 +15,7 @@ import {
   ScriptedGrowthPort,
   clientOver,
   sourceOver,
-} from "./attachment-ingest-scripted-port.js";
+} from "./attachment-ingest-scripted-port.test-support.js";
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);

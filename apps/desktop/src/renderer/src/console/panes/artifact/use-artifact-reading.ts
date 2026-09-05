@@ -24,8 +24,8 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
-import type { SessionStore } from "../../store/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { useSubjectScopedResource, type SessionStore } from "../../store/index.js";
 import type {
   ArtifactDeleteOutcome,
   ArtifactPaneReading,
@@ -33,6 +33,11 @@ import type {
 } from "./artifact-pane-reading.js";
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
+
+/** Close one reader. Declared once so the resource seam holds one identity for it. */
+function closeArtifactPaneReader(reader: ArtifactPaneReader): void {
+  reader.dispose();
+}
 
 /** What the hook hands the pane: the reading, and the acts it can put to the port. */
 export interface ArtifactPaneBinding {
@@ -49,37 +54,63 @@ export interface ArtifactPaneBinding {
  * Constructed in a hook and never in a render body, read through
  * `useSyncExternalStore` so a publish is one transition, and disposed on unmount.
  *
- * THE SUBJECT IS PART OF THE READER'S IDENTITY, which is `repos/proposal-gate-binding.ts`'s
- * stamp-to-subject shape: that hook keys its memo on the subject's PARTS, and this
- * one's subject is a single id, so the id is the whole of it. A subject that moved
- * mints a new reader and the effect below disposes the old one — so the pane opens on
- * the new artifact's not-read absence rather than on the previous artifact's bytes,
- * and a fetch still on the wire for the previous subject settles into a disposed
- * reader instead of holding this one's control.
+ * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE ARTIFACT, held through the console's
+ * own resource seam. `useSubjectScopedResource` opens the reader on the render that
+ * first sees a `(bridge, artifact)` pair and closes it however that render ended —
+ * including the pass React discards, which the `useMemo` this replaces never closed at
+ * all. React documents a memo as a cache it MAY discard, and a discard with unchanged
+ * dependencies constructed a second reader mid-render: `useSyncExternalStore` then
+ * read that reader's not-read-yet absence, the effect disposed the committed one, and
+ * the pane blanked and re-ran a whole read pair for no participant action.
+ *
+ * THE ARTIFACT ID IS THE WHOLE KEY, and it is not a narrowing of the memo it replaces.
+ * An artifact id names one artifact of one session, so a key that moved to another
+ * session moved this key too; what one bridge holds many of is artifacts, which is
+ * exactly what a key inside a subject's key space is for. A subject that moved mints a
+ * new reader — so the pane opens on the new artifact's not-read absence rather than on
+ * the previous artifact's bytes, and a fetch still on the wire for the previous subject
+ * settles into a disposed reader instead of holding this one's control.
  *
  * The id and not the address object: the deck composes a pane context on every
- * render, so a memo keyed on it would mint a reader — and a read pair — every time
+ * render, so a subject keyed on it would mint a reader — and a read pair — every time
  * the deck re-rendered.
+ *
+ * A RE-MINT ARM, on `useAttachmentCarrier`'s shape and for both of its reasons. The
+ * seam's disposal followed by a replayed setup on the same committed reader is what
+ * React's development double-mount does, and a disposed reader's `start()` returns at
+ * once — the pane inert with nothing on screen to say so. The store is the second
+ * reason: it is not part of the seam's key, so a projection replaced across a
+ * reconnect is caught by asking the reader rather than by keying on it. The
+ * replacement is PUBLISHED through the seam, so it is closed on the seam's own terms
+ * rather than by a cleanup of this effect's.
  */
 export function useArtifactPaneReading(
   bridge: ConsoleBridge,
   sessionStore: SessionStore | undefined,
   subjectArtifactId: string,
 ): ArtifactPaneBinding {
-  const reader = useMemo(
-    () => new ArtifactPaneReader({ bridge, sessionStore }),
-    // The subject is a dependency the constructor is not handed: the reader reads the
-    // session's whole list rather than one artifact, so nothing inside it takes an
-    // artifact id — what the subject decides is which reader's subject-scoped state
-    // this is, which is exactly what a memo key decides.
-    [bridge, sessionStore, subjectArtifactId],
+  // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
+  // shape. `consoleClockFor` is the one answer to which clock a window runs on, and
+  // the reader used to default to a `RealClock` of its own, so a pane under the
+  // fixture scheduled its reads on wall time while the scenario advanced on frozen
+  // time.
+  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
+  // The subject is a key the constructor is not handed: the reader reads the session's
+  // whole list rather than one artifact, so nothing inside it takes an artifact id —
+  // what the key decides is whose subject-scoped state this reader holds.
+  const { value: reader, settle } = useSubjectScopedResource(
+    bridge,
+    subjectArtifactId,
+    () => new ArtifactPaneReader({ bridge, sessionStore, clock }),
+    closeArtifactPaneReader,
   );
   useEffect(() => {
+    if (!reader.isCurrentFor(sessionStore)) {
+      settle()(new ArtifactPaneReader({ bridge, sessionStore, clock }));
+      return;
+    }
     reader.start();
-    return () => {
-      reader.dispose();
-    };
-  }, [reader]);
+  }, [reader, settle, bridge, sessionStore, clock]);
   const subscribe = useCallback(
     (onReadingChange: () => void) => reader.subscribe(onReadingChange),
     [reader],

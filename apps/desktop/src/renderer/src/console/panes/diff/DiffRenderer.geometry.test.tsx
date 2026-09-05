@@ -22,7 +22,7 @@ import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
   type DiffGrownRow,
-} from "./diff-layout-fixture.js";
+} from "./diff-layout-fixture.test-support.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { expandGap, type DiffGapExpansion } from "./diff-row-model.js";
 

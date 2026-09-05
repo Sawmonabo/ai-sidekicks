@@ -76,13 +76,14 @@
 // control by and the arm a scheduled list read deliberately carries forward. The
 // pane was then stuck until it was remounted. Every act goes through
 // `readGrowthAnswer` (`growth-call.ts`), which reads a rejection as the refusal it is
-// through the repos family's one rejection normalizer, so a disconnect lands on the
-// same refused arm a typed wire refusal does and the control comes back. It is a
+// through the console's one rejection normalizer and the growth port's own
+// vocabulary, so a disconnect lands on the same refused arm a typed wire refusal does,
+// under the same subsystem name, and the control comes back. It is a
 // module of its own because the READ half needs the same door, and a second copy
 // would be two chances to relabel a code the console may not paraphrase.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { artifactManifestRowFromSummary } from "../../repos/artifacts/index.js";
+import { artifactManifestRowFromSummary } from "../../repos/artifacts/artifact-model.js";
 import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-host.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";

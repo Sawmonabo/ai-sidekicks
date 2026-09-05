@@ -22,8 +22,6 @@
 // reference lands, the seat's own placeholder is deleted and this arm becomes the
 // resolved or unresolved reading the daemon sends.
 
-import { useMemo } from "react";
-
 import { AttachmentCard } from "../../repos/attachments/AttachmentCard.js";
 import type { AttachmentReading } from "../../repos/attachments/attachment-shapes.js";
 import { registerInlineCardBody, type AttachmentInlineCardProps } from "../../seats/index.js";
@@ -31,22 +29,53 @@ import { registerInlineCardBody, type AttachmentInlineCardProps } from "../../se
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_ATTACHMENT_CARD_OWNER = "repos";
 
-export interface InlineAttachmentCardProps {
-  readonly card: AttachmentInlineCardProps;
-  /** What is known about the attachment. Absent means nobody asked — see the header. */
-  readonly reading?: AttachmentReading;
-}
+/**
+ * The instant the unread arm renders against, which nothing spends.
+ *
+ * `AttachmentCard` reaches its `nowMilliseconds` on the in-flight arm alone — the
+ * stall disclosure and the stream-ceiling remainder — and the `not-checked` reading
+ * this card composes has no entry to be in flight. Named and pinned rather than read
+ * off a clock, so the arm that spends nothing asks nothing for it.
+ */
+const UNREAD_ARM_INSTANT = 0;
+
+/**
+ * What the card renders, as the two shapes it actually has.
+ *
+ * A UNION RATHER THAN TWO OPTIONAL MEMBERS, because the instant is meaningless without
+ * the reading it is about and the pair must arrive together. This card used to take
+ * the reading alone and capture `Date.now()` at MOUNT for the other half, which is the
+ * defect `repos/attachment-carrier.ts` publishes `publishedAtMilliseconds` to close: a
+ * frozen instant makes `isIngestStalled` compare a moment against progress stamped
+ * AFTER it, so the disclosure `INGEST_STALL_DISCLOSURE_MS` exists to produce can never
+ * fire, and it makes the ceiling remainder subtract a later moment from an earlier one
+ * and report MORE time left than the ceiling allows. Whatever supplies the reading
+ * supplies the instant it was taken at — the carrier's snapshot already carries one —
+ * and the compiler now says so.
+ */
+export type InlineAttachmentCardProps =
+  | {
+      readonly card: AttachmentInlineCardProps;
+      readonly reading?: undefined;
+      readonly nowMilliseconds?: undefined;
+    }
+  | {
+      readonly card: AttachmentInlineCardProps;
+      /** What is known about the attachment. Absent means nobody asked — see the header. */
+      readonly reading: AttachmentReading;
+      /** The instant that reading was taken at, from its producer's own clock. */
+      readonly nowMilliseconds: number;
+    };
 
 export function InlineAttachmentCard(props: InlineAttachmentCardProps): React.JSX.Element {
   const attachmentId = props.card.attachment.attachmentId;
-  // The instant this card was mounted at, captured once. It feeds the stall and ceiling
-  // readings on an in-flight arm; a card that recomputed it every render would move an
-  // age under a reader without a read having happened.
-  const nowMilliseconds = useMemo(() => Date.now(), []);
   const reading: AttachmentReading = props.reading ?? { kind: "not-checked", attachmentId };
   return (
     <div className="meridian-attachment-card">
-      <AttachmentCard reading={reading} nowMilliseconds={nowMilliseconds} />
+      <AttachmentCard
+        reading={reading}
+        nowMilliseconds={props.nowMilliseconds ?? UNREAD_ARM_INSTANT}
+      />
     </div>
   );
 }

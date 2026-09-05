@@ -12,7 +12,10 @@ import { describe, expect, it } from "vitest";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";
 import { AttachmentCarrierSection } from "./AttachmentCarrierSection.js";
-import { ScriptedGrowthPort, patternedBytes } from "./attachment-ingest-scripted-port.js";
+import {
+  ScriptedGrowthPort,
+  patternedBytes,
+} from "./attachment-ingest-scripted-port.test-support.js";
 
 /** How long a stream may take to settle before a case gives up on it. */
 const INGEST_TIMEOUT_MS = 5_000;

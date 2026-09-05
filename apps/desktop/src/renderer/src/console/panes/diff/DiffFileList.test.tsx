@@ -21,7 +21,10 @@ import {
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
 } from "./diff-fixture-shapes.js";
-import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
+import {
+  DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
+  DiffLayoutFixture,
+} from "./diff-layout-fixture.test-support.js";
 import { DiffFileList } from "./DiffFileList.js";
 import { HIDDEN_SELECTION_COPY } from "./diff-file-entries.js";
 import { type ConsoleDiffModel } from "./diff-model.js";

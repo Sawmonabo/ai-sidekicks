@@ -35,7 +35,7 @@
 // the key instead.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { artifactManifestRowFromSummary } from "../../repos/artifacts/index.js";
+import { artifactManifestRowFromSummary } from "../../repos/artifacts/artifact-model.js";
 import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
 import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-host.js";
 import {

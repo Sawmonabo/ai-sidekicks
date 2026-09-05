@@ -9,30 +9,45 @@
 
 import { describe, expect, it } from "vitest";
 
+import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SESSION_ID,
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "../../bridge/scenarios/repos.js";
+import * as artifactModel from "./artifact-model.js";
 import {
   ARTIFACT_DELETE_CONSEQUENCE,
-  ARTIFACT_PAYLOAD_DISPOSITIONS,
   ARTIFACT_PAYLOAD_DISPOSITION_COPY,
   ARTIFACT_PRODUCER_ABSENT_LABEL,
   ARTIFACT_REPLICATION_ABSENT,
   ARTIFACT_REPLICATION_PRESENTATION,
-  ARTIFACT_REPLICATION_STATUSES,
-  ARTIFACT_STATES,
-  ARTIFACT_TYPES,
+  ARTIFACT_STATE_PRESENTATION,
   ARTIFACT_TYPE_FILTER_ALL,
-  ARTIFACT_VISIBILITIES,
+  ARTIFACT_VISIBILITY_PRESENTATION,
   artifactDeleteReceiptSentence,
+  artifactManifestRowFromSummary,
   artifactProducerLabel,
   artifactReplicationPresentation,
   artifactTypeCounts,
   filterArtifactRows,
   type ArtifactManifestRow,
+  type ArtifactReplicationStatus,
 } from "./artifact-model.js";
+
+/**
+ * The five vocabularies this module used to declare a second copy of.
+ *
+ * Named here so the control below reads as one claim rather than five, and so a
+ * sixth copy re-introduced under a new name is a one-line addition to this list.
+ */
+const WIRE_OWNED_VOCABULARY_NAMES = [
+  "ARTIFACT_STATES",
+  "ARTIFACT_VISIBILITIES",
+  "ARTIFACT_TYPES",
+  "ARTIFACT_REPLICATION_STATUSES",
+  "ARTIFACT_PAYLOAD_DISPOSITIONS",
+] as const;
 
 function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
   return {
@@ -54,18 +69,41 @@ function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactMani
 
 describe("artifact-model — the closed sets", () => {
   it("declares three states, two visibility classes, six types, and five replication statuses", () => {
-    expect(ARTIFACT_STATES).toHaveLength(3);
-    expect(ARTIFACT_VISIBILITIES).toHaveLength(2);
-    expect(ARTIFACT_TYPES).toHaveLength(6);
-    expect(ARTIFACT_REPLICATION_STATUSES).toHaveLength(5);
-    expect(ARTIFACT_PAYLOAD_DISPOSITIONS).toHaveLength(3);
+    // Counted off the presentation tables, which are typed `Record<Vocabulary, …>`
+    // and so are total over the wire's own set by the compiler rather than by a
+    // second array this module would have had to keep in step.
+    expect(Object.keys(ARTIFACT_STATE_PRESENTATION)).toHaveLength(3);
+    expect(Object.keys(ARTIFACT_VISIBILITY_PRESENTATION)).toHaveLength(2);
+    expect(GROWTH_ARTIFACT_TYPES).toHaveLength(6);
+    expect(Object.keys(ARTIFACT_REPLICATION_PRESENTATION)).toHaveLength(5);
+    expect(Object.keys(ARTIFACT_PAYLOAD_DISPOSITION_COPY)).toHaveLength(3);
   });
 
   it("carries `diff` as a type rather than as a separate collection", () => {
     // Every diff artifact is an artifact and appears in artifact listings, so the
     // diff pane is a view onto this list and never a second store. Membership here
     // is what makes that structural rather than a convention.
-    expect(ARTIFACT_TYPES).toContain("diff");
+    expect(GROWTH_ARTIFACT_TYPES).toContain("diff");
+  });
+
+  it("negative control: no vocabulary is declared a second time in this family", () => {
+    // The whole finding: five sets existed here AND on `growth-values/artifacts.ts`,
+    // member for member, each under a comment claiming to be the one home. The
+    // module namespace is what a second declaration would show up in, and it fails
+    // on the code this replaced, where all five were exported from here.
+    for (const vocabulary of WIRE_OWNED_VOCABULARY_NAMES) {
+      expect(Object.keys(artifactModel)).not.toContain(vocabulary);
+    }
+  });
+
+  it("draws a presentation for every replication status the wire declares", () => {
+    // Totality against the WIRE's census rather than against a local list: the
+    // direction that used to be silent is the wire dropping a member, which a local
+    // list goes on enumerating with nothing failing.
+    for (const status of Object.keys(ARTIFACT_REPLICATION_PRESENTATION)) {
+      const declared: ArtifactReplicationStatus = status as ArtifactReplicationStatus;
+      expect(ARTIFACT_REPLICATION_PRESENTATION[declared].meaning.length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -102,7 +140,7 @@ describe("artifact-model — the type filter", () => {
     // Total over the six, so the filter can offer a type nothing has produced yet —
     // hiding it would hide the vocabulary exactly when somebody is looking for
     // something that is not there.
-    expect(Object.keys(counts)).toHaveLength(ARTIFACT_TYPES.length);
+    expect(Object.keys(counts)).toHaveLength(GROWTH_ARTIFACT_TYPES.length);
   });
 
   it("negative control: a filter for a type nothing carries returns nothing, not everything", () => {
@@ -134,9 +172,10 @@ describe("artifact-model — absences that are facts", () => {
   it("reads a present status verbatim and never recomputes it", () => {
     // The persisted value is what lets an unresolved attachment marker carry a
     // non-`pinned` status as its cause, so the mapping is total and one-way.
-    for (const status of ARTIFACT_REPLICATION_STATUSES) {
-      expect(artifactReplicationPresentation(artifactRow({ replicationStatus: status }))).toBe(
-        ARTIFACT_REPLICATION_PRESENTATION[status],
+    for (const status of Object.keys(ARTIFACT_REPLICATION_PRESENTATION)) {
+      const declared: ArtifactReplicationStatus = status as ArtifactReplicationStatus;
+      expect(artifactReplicationPresentation(artifactRow({ replicationStatus: declared }))).toBe(
+        ARTIFACT_REPLICATION_PRESENTATION[declared],
       );
     }
   });
@@ -162,10 +201,8 @@ describe("artifact-model — the degraded sentences say what the design says", (
   });
 
   it("reports where the bytes went in all three dispositions", () => {
-    const sentences = ARTIFACT_PAYLOAD_DISPOSITIONS.map(
-      (disposition) => ARTIFACT_PAYLOAD_DISPOSITION_COPY[disposition],
-    );
-    expect(new Set(sentences).size).toBe(ARTIFACT_PAYLOAD_DISPOSITIONS.length);
+    const sentences = Object.values(ARTIFACT_PAYLOAD_DISPOSITION_COPY);
+    expect(new Set(sentences).size).toBe(sentences.length);
     expect(ARTIFACT_PAYLOAD_DISPOSITION_COPY.retained_by_references).toContain("another manifest");
   });
 });
@@ -203,5 +240,83 @@ describe("artifact-model — the delete disclosure states only what is known whe
     // Negative control on the pair: the two receipts must not read the same, which is
     // the whole reason the flag rides the reply.
     expect(sentence).not.toContain("still possible");
+  });
+});
+
+describe("artifact manifest row — metadata a daemon can send and JSON cannot hold", () => {
+  /** One summary whose metadata is whatever the case is about. Every other member is fixed. */
+  function rowWithMetadata(metadata: Readonly<Record<string, unknown>>): ArtifactManifestRow {
+    return artifactManifestRowFromSummary({
+      artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
+      sessionId: REPOS_SESSION_ID,
+      runId: REPOS_IMPLEMENTER_RUN_ID,
+      createdBy: REPOS_VIEWING_PARTICIPANT_ID,
+      artifactType: "diff",
+      digest: "sha256:2b4c",
+      size: 4096,
+      annotations: {},
+      visibility: "shared",
+      state: "published",
+      replicationStatus: "pinned",
+      metadata,
+      createdAt: "2026-09-02T07:00:00.000Z",
+    } as unknown as Parameters<typeof artifactManifestRowFromSummary>[0]);
+  }
+
+  it("renders a value JSON refuses to serialize rather than taking the pane down", () => {
+    // `metadata` is freeform provenance typed `unknown` on the wire, so a `BigInt` or
+    // a structure that refers to itself is a value the daemon can send. Thrown from
+    // the row builder it escapes the fold and the render, and one provenance entry
+    // takes the whole pane with it. On the bare `JSON.stringify` this replaces, the
+    // construction below throws before a single assertion runs.
+    const selfReferential: Record<string, unknown> = { name: "cycle" };
+    selfReferential["itself"] = selfReferential;
+    const hostile = {
+      toJSON(): never {
+        throw new Error("this value refuses to be serialized");
+      },
+    };
+
+    const row = rowWithMetadata({
+      byteCount: 9007199254740993n,
+      selfReferential,
+      hostile,
+    });
+
+    expect(typeof row.metadata["byteCount"]).toBe("string");
+    expect(row.metadata["byteCount"]).toContain("9007199254740993");
+    expect(typeof row.metadata["selfReferential"]).toBe("string");
+    expect(typeof row.metadata["hostile"]).toBe("string");
+  });
+
+  it("renders a value JSON serializes to nothing rather than writing a hole", () => {
+    // The other half, and the quieter one. `JSON.stringify` ANSWERS `undefined` for
+    // these three — no throw — so the value went into a `Record<string, string>`
+    // unchecked and the row carried a hole the compiler had been told was a string.
+    const row = rowWithMetadata({
+      absent: undefined,
+      callable: () => "provenance",
+      named: Symbol("provenance"),
+    });
+
+    for (const key of ["absent", "callable", "named"]) {
+      expect(typeof row.metadata[key]).toBe("string");
+      expect(row.metadata[key]).not.toBe("");
+    }
+  });
+
+  it("negative control: an ordinary value is still its own JSON, and a string is verbatim", () => {
+    // Without this the fix could route everything through the total stringifier, and
+    // a nested object would render as `[object Object]` — provenance the row exists to
+    // show, replaced by a sentence about JavaScript.
+    const row = rowWithMetadata({
+      producer: "codex-driver",
+      counts: { added: 4, removed: 1 },
+      flags: [true, null],
+    });
+
+    expect(row.metadata["producer"]).toBe("codex-driver");
+    expect(row.metadata["counts"]).toBe('{"added":4,"removed":1}');
+    expect(row.metadata["flags"]).toBe("[true,null]");
   });
 });

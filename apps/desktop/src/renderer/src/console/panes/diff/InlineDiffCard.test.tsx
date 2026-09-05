@@ -16,7 +16,10 @@ import {
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
 import { buildDiffFixture } from "./diff-fixture.js";
 import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
-import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
+import {
+  DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
+  DiffLayoutFixture,
+} from "./diff-layout-fixture.test-support.js";
 import { InlineDiffCard, registerInlineDiffCardBody } from "./InlineDiffCard.js";
 
 const CARD: DiffInlineCardProps = {

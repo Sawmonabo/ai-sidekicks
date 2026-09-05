@@ -15,10 +15,16 @@
 // viewport satisfies without virtualizing anything. Stating the height makes the
 // bound a bound.
 //
-// IT IS NOT IMPORTED BY ANY RENDERING PATH — the rule `diff-fixture.ts` keeps, for
-// the same reason. It shadows a property on `HTMLElement.prototype`, which is
-// global to the environment, so installing and restoring are one object's two
-// methods rather than a module-level flag two files could both flip.
+// IT IS NOT IMPORTED BY ANY RENDERING PATH, and the FILE NAME is what says so. This
+// module shadows a property on `HTMLElement.prototype` — global to the environment,
+// which is why installing and restoring are one object's two methods rather than a
+// module-level flag two files could both flip — and a shim of that reach reached from
+// a rendering path would be a production surface monkey-patching the DOM. Under the
+// `.test-support.ts` suffix the claim stops being a sentence in a header: the shared
+// source walk every architecture gate reads excludes these modules, and the layering
+// gate admits them as roots precisely because their only legitimate dependents are
+// the suites it removes from the graph. The rule `diff-fixture.ts` keeps by hand, this
+// one keeps by name.
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
 

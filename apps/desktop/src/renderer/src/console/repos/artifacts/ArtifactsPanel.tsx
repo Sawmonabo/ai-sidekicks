@@ -55,6 +55,10 @@
 
 import { useMemo, useState } from "react";
 
+// The wire's own type census, so the filter offers exactly the types the manifest
+// envelope declares. Read here rather than through a family-local copy of the list:
+// a copy goes on offering a type the wire dropped, with nothing failing.
+import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import {
   DerivedFigure,
@@ -66,13 +70,13 @@ import {
 } from "../../primitives/index.js";
 import { ArtifactRow, type DeleteConfirmState } from "./ArtifactRow.js";
 import {
-  ARTIFACT_TYPES,
   ARTIFACT_TYPE_FILTER_ALL,
   artifactDeleteReceiptSentence,
   artifactTypeCounts,
   filterArtifactRows,
   type ArtifactDeleteReceipt,
   type ArtifactManifestRow,
+  type ArtifactType,
   type ArtifactTypeFilter,
   type ArtifactsPanelState,
 } from "./artifact-model.js";
@@ -268,7 +272,7 @@ function renderPanelBody(
 }
 
 interface FilterButtonsProps {
-  readonly countsByType: Readonly<Record<(typeof ARTIFACT_TYPES)[number], number>>;
+  readonly countsByType: Readonly<Record<ArtifactType, number>>;
   readonly totalCount: number;
   readonly selected: ArtifactTypeFilter;
   readonly onSelect: (filter: ArtifactTypeFilter) => void;
@@ -291,7 +295,7 @@ function renderFilterButtons(props: FilterButtonsProps): React.JSX.Element {
       >
         All <DerivedFigure text={formatCount(props.totalCount)} />
       </button>
-      {ARTIFACT_TYPES.map((artifactType) => (
+      {GROWTH_ARTIFACT_TYPES.map((artifactType) => (
         <button
           key={artifactType}
           type="button"

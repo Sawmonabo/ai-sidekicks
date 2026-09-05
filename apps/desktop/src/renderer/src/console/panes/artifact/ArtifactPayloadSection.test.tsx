@@ -21,9 +21,9 @@ import {
   ARTIFACT_ENTITY,
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ENTITY,
-  PORT_REFUSAL,
+  REFUSAL,
   SESSION_ID,
-  bridgeListing,
+  artifactBridgeAnswering,
   confirmDelete,
   contextFor,
   inlineReadAnswering,
@@ -32,7 +32,7 @@ import {
   renderPane,
   settleAct,
   type ArtifactPaneContext,
-} from "./ArtifactPane.test-support.js";
+} from "./artifact-pane.test-support.js";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -46,15 +46,15 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   it("asks for nothing until the control is pressed", async () => {
     // A payload is bounded only by the ingest cap, so a fetch that ran on mount would
     // spend a hundred megabytes of somebody's link on a pane they passed through.
-    const artifactRead = vi.fn<() => Promise<unknown>>().mockResolvedValue(PORT_REFUSAL);
+    const artifactRead = vi.fn<() => Promise<unknown>>().mockResolvedValue(REFUSAL);
     renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: {
           growth: {
             artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => PORT_REFUSAL,
+            artifactAllowlistRead: async () => REFUSAL,
             artifactRead,
-            artifactDelete: async () => PORT_REFUSAL,
+            artifactDelete: async () => REFUSAL,
           },
         } as unknown as ConsoleBridge,
         sessionId: SESSION_ID,
@@ -73,9 +73,9 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         bridge: {
           growth: {
             artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => PORT_REFUSAL,
+            artifactAllowlistRead: async () => REFUSAL,
             artifactRead,
-            artifactDelete: async () => PORT_REFUSAL,
+            artifactDelete: async () => REFUSAL,
           },
         } as unknown as ConsoleBridge,
         sessionId: SESSION_ID,
@@ -94,7 +94,10 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   it("draws a deferred handle as what it is, and asks nothing further of it", async () => {
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({ readAnswer: readAnswering("published") }),
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
+          readAnswer: readAnswering("published"),
+        }),
         sessionId: SESSION_ID,
       }),
     );
@@ -111,7 +114,8 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         // "diff --git a/one b/one" in RFC 4648 base64.
-        bridge: bridgeListing({
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
           readAnswer: inlineReadAnswering("ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==", "base64"),
         }),
         sessionId: SESSION_ID,
@@ -130,7 +134,10 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     const wide = "x".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP + 50);
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({ readAnswer: inlineReadAnswering(wide, "utf8") }),
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
+          readAnswer: inlineReadAnswering(wide, "utf8"),
+        }),
         sessionId: SESSION_ID,
       }),
     );
@@ -150,7 +157,10 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         // Two bytes that are not valid UTF-8.
-        bridge: bridgeListing({ readAnswer: inlineReadAnswering("//8=", "base64") }),
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
+          readAnswer: inlineReadAnswering("//8=", "base64"),
+        }),
         sessionId: SESSION_ID,
       }),
     );
@@ -166,14 +176,17 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
 
   it("renders the daemon's refusal when the fetch is turned down", async () => {
     const { container, getByRole } = renderPane(
-      contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+        sessionId: SESSION_ID,
+      }),
     );
     await readThrough();
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
     expect(container.querySelector(".meridian-artifact-payload")?.textContent).toContain(
-      PORT_REFUSAL.detail,
+      REFUSAL.detail,
     );
   });
 
@@ -194,9 +207,9 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         bridge: {
           growth: {
             artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => PORT_REFUSAL,
+            artifactAllowlistRead: async () => REFUSAL,
             artifactRead,
-            artifactDelete: async () => PORT_REFUSAL,
+            artifactDelete: async () => REFUSAL,
           },
         } as unknown as ConsoleBridge,
         sessionId: SESSION_ID,
@@ -219,7 +232,10 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
 
   it("negative control: nothing is drawn before the fetch, and no old copy survives", async () => {
     const { container } = renderPane(
-      contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+        sessionId: SESSION_ID,
+      }),
     );
     await readThrough();
     expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
@@ -234,7 +250,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({ artifactList }),
+        bridge: artifactBridgeAnswering({ artifactList }),
         sessionId: SESSION_ID,
       }),
     );
@@ -283,7 +299,8 @@ describe("artifact pane — the reader is stamped to its subject", () => {
     // as B's with nothing on screen to say otherwise.
     const context = contextFor(ARTIFACT_ENTITY, {
       // "diff --git a/one b/one" in RFC 4648 base64.
-      bridge: bridgeListing({
+      bridge: artifactBridgeAnswering({
+        listAnswer: LISTED_ONE_ROW,
         readAnswer: inlineReadAnswering("ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==", "base64"),
       }),
       sessionId: SESSION_ID,
@@ -315,10 +332,10 @@ describe("artifact pane — the reader is stamped to its subject", () => {
       bridge: {
         growth: {
           artifactList: async () => LISTED_ONE_ROW,
-          artifactAllowlistRead: async () => PORT_REFUSAL,
+          artifactAllowlistRead: async () => REFUSAL,
           // Never answers: the fetch stays on the wire for the rest of the case.
           artifactRead: () => new Promise<unknown>(() => undefined),
-          artifactDelete: async () => PORT_REFUSAL,
+          artifactDelete: async () => REFUSAL,
         },
       } as unknown as ConsoleBridge,
       sessionId: SESSION_ID,
@@ -341,7 +358,8 @@ describe("artifact pane — the reader is stamped to its subject", () => {
     // is the cost the stamp is deliberately narrow to avoid.
     const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
     const context = contextFor(ARTIFACT_ENTITY, {
-      bridge: bridgeListing({
+      bridge: artifactBridgeAnswering({
+        listAnswer: LISTED_ONE_ROW,
         artifactList,
         readAnswer: inlineReadAnswering("ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==", "base64"),
       }),

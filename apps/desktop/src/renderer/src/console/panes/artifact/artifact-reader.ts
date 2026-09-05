@@ -69,10 +69,10 @@
 // reach a second object to press a control would put the pane's own composition into
 // every caller.
 
-import type { SessionEventType } from "@ai-sidekicks/contracts";
+import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
   GenerationLatch,
   RefreshScheduler,
@@ -91,21 +91,36 @@ import {
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
 import { readArtifactAllowlist, readArtifactList } from "./artifact-pane-reads.js";
 
+/** The namespace every frame about an artifact is registered under. */
+const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
+
 /**
- * The three frames this pane re-reads on.
+ * Every registered frame that names an artifact.
  *
- * `satisfies SessionEventType` rather than bare strings: the type is the contract's
- * own census (`packages/contracts/src/event.ts`), so a kind renamed on the wire fails
- * to compile here instead of silently matching nothing for the life of the release.
- * All three, because each changes what one of this pane's two reads would answer — a
- * publish or a supersession changes the list, and a visibility update changes a row's
- * class, which is a member the row draws.
+ * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed, on
+ * `repos/repo-refresh-triggers.ts`'s shape and for its reason: the three kinds this
+ * used to spell out are a snapshot of a registry that grows, so a fourth
+ * `artifact.*` kind — a retention sweep, a re-publication — would have reached this
+ * pane and been ignored, with the list on screen going stale and nothing anywhere
+ * saying why. `SESSION_EVENT_CATEGORY_BY_TYPE` is the canonical type registry and its
+ * keys are the whole census, so a kind is watched the day it is registered and a kind
+ * renamed stops matching nothing silently rather than compiling and doing so.
+ *
+ * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this pane
+ * is actually asking. Both of its reads are about artifacts, so any frame that names
+ * one changes what one of them would answer — while `artifact_publication`, the
+ * category the three live in, also holds `diff.created`, `pr.prepared`, and
+ * `pr.submitted`, which are publications of other entities and change neither read. It
+ * deliberately does not infer a category from the prefix either, which
+ * `packages/contracts/src/event.ts` warns against: a type's category is the registry's
+ * to state, and this set never reads one.
+ *
+ * The annotation is explicit rather than inferred, because `isolatedDeclarations`
+ * requires one on every exported binding.
  */
-const ARTIFACT_TERMINAL_EVENT_KINDS = [
-  "artifact.published",
-  "artifact.superseded",
-  "artifact.visibility_updated",
-] satisfies readonly SessionEventType[];
+export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [
+  ...SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
+].filter((eventType) => eventType.startsWith(ARTIFACT_EVENT_NAMESPACE_PREFIX));
 
 /**
  * The one key this pane's scheduled read is claimed under.
@@ -133,12 +148,23 @@ export interface ArtifactPaneReaderOptions {
    * listens for nothing, and the pane renders the absence that says nobody asked.
    */
   readonly sessionStore: SessionStore | undefined;
-  /** Injected so a test drives every read on frozen time with no real timers. */
-  readonly clock?: ConsoleClock;
+  /**
+   * The clock this reader's scheduler and every stamp it publishes run on.
+   *
+   * REQUIRED, AND THE BINDING READS IT OFF THE BRIDGE. It used to default to a fresh
+   * `RealClock`, so a pane composed under the fixture coalesced its reads against wall
+   * time while the scenario advanced on frozen time — the two clocks racing inside one
+   * window, with whichever ran first deciding what a screenshot caught.
+   * `consoleClockFor` is the one answer to which clock a window runs on, and a default
+   * here is what let a call site skip asking it.
+   */
+  readonly clock: ConsoleClock;
 }
 
 export class ArtifactPaneReader {
   readonly #bridge: ConsoleBridge;
+  readonly #clock: ConsoleClock;
+  readonly #sessionStore: SessionStore | undefined;
   readonly #sessionId: string | undefined;
   readonly #scheduler: RefreshScheduler;
   /** Absent on a bare route: with no session there is nothing to observe. */
@@ -163,9 +189,14 @@ export class ArtifactPaneReader {
 
   public constructor(options: ArtifactPaneReaderOptions) {
     this.#bridge = options.bridge;
+    this.#clock = options.clock;
+    // Stamped at construction rather than left at the declaration's own placeholder,
+    // so every reading a surface can reach carries an instant somebody took.
+    this.#reading = { ...NOTHING_READ_YET, readAtMilliseconds: this.#clock.now() };
+    this.#sessionStore = options.sessionStore;
     this.#sessionId = options.sessionStore?.sessionId;
     this.#scheduler = new RefreshScheduler({
-      clock: options.clock ?? new RealClock(),
+      clock: options.clock,
       perform: async () => {
         await this.#performRead();
       },
@@ -201,6 +232,29 @@ export class ArtifactPaneReader {
   /** How many reads have actually run — the coalescing assertion, not an inference. */
   public get performCount(): number {
     return this.#scheduler.performCount;
+  }
+
+  /**
+   * Whether this reader is still the right one for a render holding that store.
+   *
+   * ASKED RATHER THAN REMEMBERED, on `AttachmentCarrier.isDisposed`'s reason: the
+   * binding that owns this reader's lifetime has exactly one question before it calls
+   * `start()`, and a flag kept beside the reader would be a copy of what the reader
+   * already knows.
+   *
+   * TWO CONJUNCTS, AND THEY ARE TWO DIFFERENT FACTS. A DISPOSED reader is terminal —
+   * `start()` returns at once — and React's development double-mount produces exactly
+   * one, by running the seam's disposal and then replaying the setup on the same
+   * committed value; without this the pane would come back from that replay having
+   * read nothing, forever. A reader built against a DIFFERENT store is not broken,
+   * it is looking at a projection this render has replaced: the subject-scoped seam
+   * keys on the artifact, which names its session and so cannot separate two readings
+   * of one session, and a store rebuilt across a reconnect is exactly that. Both
+   * answers mean the same act — mint a fresh reader — which is why one question
+   * carries them.
+   */
+  public isCurrentFor(sessionStore: SessionStore | undefined): boolean {
+    return !this.#disposed && this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ArtifactPaneReading) => void): Unsubscribe {
@@ -354,8 +408,23 @@ export class ArtifactPaneReader {
     });
   }
 
-  #publish(reading: ArtifactPaneReading): void {
-    this.#reading = reading;
-    this.#changes.emit(reading);
+  /**
+   * Put one reading on the pane, stamped with the instant it was put there.
+   *
+   * THE STAMP IS TAKEN HERE AND NOWHERE ELSE. Every publish this reader makes — the
+   * read's own pair, the scheduler's error arm, and all three acts through the action
+   * host — comes through this method, so stamping here is what makes the instant a
+   * property of the publish rather than of whichever producer remembered to take one.
+   * A producer that spread a previous reading forward gets this publish's instant,
+   * which is correct: the reading changed, and that is when.
+   *
+   * WHICH IS WHY THE PARAMETER OMITS IT. A producer cannot supply the stamp, so the
+   * type does not ask it to — and one that spreads a stamped reading forward passes
+   * through unchanged, because the member this method writes is written last.
+   */
+  #publish(reading: Omit<ArtifactPaneReading, "readAtMilliseconds">): void {
+    const stamped: ArtifactPaneReading = { ...reading, readAtMilliseconds: this.#clock.now() };
+    this.#reading = stamped;
+    this.#changes.emit(stamped);
   }
 }
