@@ -46,13 +46,49 @@ export function skipOffPinnedPlatform(context: TestContext): void {
 }
 
 /**
+ * A sentence this run says at most once, however many suites ask for it.
+ *
+ * A class with a private field rather than a module-level `let`, which
+ * `apps/desktop/AGENTS.md` rejects — and it takes its writer as an argument rather
+ * than reaching for `console` itself, so the latch can be driven without capturing a
+ * global. A notice built with no message says nothing at all, which is the
+ * on-platform case: the absence of a reason and the presence of one already said are
+ * two different silences, and folding them into one flag is how the guarantee in the
+ * name gets lost again.
+ */
+export class RunScopedNotice {
+  #alreadySaid = false;
+  readonly #message: string | undefined;
+
+  constructor(message: string | undefined) {
+    this.#message = message;
+  }
+
+  say(write: (message: string) => void): void {
+    if (this.#message === undefined || this.#alreadySaid) {
+      return;
+    }
+    this.#alreadySaid = true;
+    write(this.#message);
+  }
+}
+
+/** This run's off-platform sentence, or nothing at all where the references serve. */
+const offPinnedPlatformNotice = new RunScopedNotice(
+  isOffPinnedPlatform ? OFF_PLATFORM_REASON : undefined,
+);
+
+/**
  * Say the reason once at collection, on the channel the terminal reporter forwards.
  *
  * Without it an off-platform run reports a bare skipped count and nothing else,
- * which a reader cannot tell from a tier that was quietly switched off.
+ * which a reader cannot tell from a tier that was quietly switched off. ONCE for the
+ * run and not once per caller: every suite in the tier calls this during collection,
+ * so the unlatched body printed the same paragraph once per suite and the note that
+ * exists to make a skipped run legible was the noisiest thing in the report.
  */
 export function warnOnceIfOffPinnedPlatform(): void {
-  if (isOffPinnedPlatform) {
-    console.warn(OFF_PLATFORM_REASON);
-  }
+  offPinnedPlatformNotice.say((message) => {
+    console.warn(message);
+  });
 }
