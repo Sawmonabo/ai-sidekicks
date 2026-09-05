@@ -136,11 +136,18 @@ export {
 } from "./driver-capability-readings.js";
 export type { DriverCapabilityReading } from "./driver-capability-readings.js";
 
+// How far a reading got and why it got no further — the pair both wire readings
+// below publish, and the accessor a surface reads the refusal through. One home,
+// because two copies of the pair had drifted into two answers about when a refusal
+// stops being true.
+export { readRefusalOf } from "./reading-lifecycle.js";
+export type { WireReadPhase, WireReadState } from "./reading-lifecycle.js";
+
 // The session's one queue reading. Here for the same reason the capability read is:
 // the runs pane and the composer's shelf ask two questions of one list, and each
 // used to ask its own down its own subscription.
 export { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
-export type { QueueFeed, QueueReadPhase } from "./queue-reading.js";
+export type { QueueFeed } from "./queue-reading.js";
 
 // The node's provider-account quotas: one read, one tail, one fold per bridge.
 //

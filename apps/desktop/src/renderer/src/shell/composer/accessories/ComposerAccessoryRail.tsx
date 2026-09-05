@@ -63,6 +63,7 @@
 
 import { useMemo } from "react";
 import {
+  readRefusalOf,
   readingForDriver,
   useDriverCapabilities,
   useProviderQuotas,
@@ -164,13 +165,18 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   // stayed on screen for the rest of the window's life. This arms one timeout at a
   // time and none at all once every reset is behind, which is the no-polling rule.
   const nowMilliseconds = useDeadlineWake(clock, quotaResetDeadlines);
+  // Through the reading's own phase-aware accessor and never off the member: a
+  // registry that refused once and then healed carries the old refusal no longer,
+  // and this rail rendered one beside healthy chips for the life of the window while
+  // it read the member bare.
+  const quotaReadRefusal = readRefusalOf(providerQuotas);
   const quotaReadings: readonly ReadingState[] = [
-    providerQuotas.readRefusal === undefined
+    quotaReadRefusal === undefined
       ? { kind: "served" }
       : {
           kind: "refused",
           scope: providerQuotas.readings.length === 0 ? "whole-answer" : "beside-an-answer",
-          refusal: providerQuotas.readRefusal,
+          refusal: quotaReadRefusal,
         },
     unreadableDeliveryReading(
       providerQuotas.unreadableDeliveryCount,
@@ -182,8 +188,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
     <div className="meridian-composer__rail">
       <QueueShelf
         items={waitingItems}
-        phase={queueFeed.phase}
-        readRefusal={queueFeed.readRefusal}
+        snapshotRead={queueFeed}
         pendingCancelIds={queueFeed.pendingCancelIds}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}

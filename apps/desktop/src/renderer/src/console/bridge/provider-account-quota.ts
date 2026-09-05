@@ -48,6 +48,7 @@ import {
   type RefreshReason,
 } from "../store/index.js";
 import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM, subscribeNodeDaemon } from "./daemon-streams.js";
+import { WireReadLifecycle, type WireReadState } from "./reading-lifecycle.js";
 import { callDaemon } from "./daemon-reply.js";
 import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
 import { ProviderQuotaDeliveries } from "./provider-quota-deliveries.js";
@@ -55,11 +56,8 @@ import { PROVIDER_QUOTA_REFUSAL_ORIGIN, streamRefusalFor } from "./provider-quot
 import type { UnreadableDeliveryReading } from "./unreadable-deliveries.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
-/** How the registry read has gone. Three answers, and none of them is an empty list. */
-export type ProviderQuotaReadPhase = "reading" | "read" | "refused";
-
 /** What the account plane answered, and why it did not where it did not. */
-export interface ProviderQuotaReadout extends UnreadableDeliveryReading {
+export interface ProviderQuotaReadout extends UnreadableDeliveryReading, WireReadState {
   /** One reading per `(accountId, limitId)`, ordered by account then limit label. */
   readonly readings: readonly ProviderQuotaReading[];
   /**
@@ -74,15 +72,6 @@ export interface ProviderQuotaReadout extends UnreadableDeliveryReading {
    * handle.
    */
   readonly accountLabels: ReadonlyMap<string, string>;
-  readonly phase: ProviderQuotaReadPhase;
-  /**
-   * Why the registry could not be read.
-   *
-   * Carried rather than swallowed. A chip's absence is not a health reading, so a
-   * read that failed and a node whose quotas are all healthy would otherwise look
-   * identical — and the one a person needs to act on is the one that says nothing.
-   */
-  readonly readRefusal: ConsoleRefusal | undefined;
 }
 
 /**
@@ -110,6 +99,13 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   readonly #onIdle: () => void;
   readonly #fold = new ProviderQuotaFold();
   readonly #deliveries: ProviderQuotaDeliveries;
+  /**
+   * The phase, the newest read's refusal, and whether the tail is up.
+   *
+   * `reading-lifecycle.ts`'s and not three fields here — the session queue reading
+   * holds the same three, and the two had drifted into two answers for one rule.
+   */
+  readonly #lifecycle = new WireReadLifecycle();
   #closeStream: (() => void) | undefined = undefined;
   /**
    * Whether this reading has been forgotten by the registry that held it.
@@ -120,13 +116,10 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
    * the one question this node-scoped reading exists to answer once.
    */
   #isRetired = false;
-  #isOpen = false;
   // Identifies the read attempt a reply belongs to. A reply whose ordinal has moved
   // on was abandoned by an overflow re-read and seats nothing — without it the
   // abandoned snapshot would land after the fresh one and undo it.
   #seedReadOrdinal = 0;
-  #phase: ProviderQuotaReadPhase = "reading";
-  #readRefusal: ConsoleRefusal | undefined = undefined;
   #readout: ProviderQuotaReadout;
 
   public constructor(bridge: ConsoleBridge, onIdle: () => void) {
@@ -151,6 +144,15 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
       // otherwise, resolved once per reading.
       clock: consoleClockFor(bridge),
       perform: async () => {
+        if (!this.#lifecycle.isOpen) {
+          // THE REPAIR IS THE OPEN. A registry read taken with no tail behind it
+          // publishes a served, current-looking readout that will never update
+          // again, which is worse than the refusal it replaced — so a trigger that
+          // arrives while the stream is down re-opens, and the open takes its own
+          // read. A reading whose stream can never open does nothing here.
+          this.#open();
+          return;
+        }
         await this.#seedRead();
       },
       // A read that fails is already recorded as this readout's own `readRefusal`.
@@ -167,7 +169,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
    * in one window still cost one call.
    */
   public requestRead(reason: RefreshReason): void {
-    if (reason === "subscribe" && this.#isOpen && this.#phase !== "refused") {
+    if (reason === "subscribe" && this.#lifecycle.isOpen && this.#readout.phase !== "refused") {
       // THE OPEN IS THIS READING'S `subscribe` READ, so a surface arriving to an
       // already-open reading asks for nothing. Two reasons, and both matter: a joiner
       // needs no read because the tail has been keeping the reading current since the
@@ -175,7 +177,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
       // is frozen and only a scenario beat moves it, so a first read behind the
       // scheduler's window would never happen at all in fixture mode. A reading
       // settled as REFUSED falls through: the joiner's arrival is exactly the reason
-      // to try a failed read again.
+      // to try the failed read — or the failed OPEN — again.
       return;
     }
     this.#refresh.request(reason);
@@ -207,22 +209,24 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   }
 
   #open(): void {
-    if (this.#isOpen) {
+    if (!this.#lifecycle.isOpenable) {
       return;
     }
-    this.#isOpen = true;
 
     // The stream's own registered request, parsed rather than assumed. It is empty
     // by design and parsing it is still the claim that this console sends what the
     // registry declares — an extra member would be refused here rather than travel.
     const subscribeRequest = ProviderAccountSubscribeRequestSchema.safeParse({});
     if (!subscribeRequest.success) {
-      this.#settleRefused(
+      // TERMINAL: the request this parses is the empty object every time, so a
+      // schema that refused it once refuses it on every later trigger.
+      this.#settleRefusedOpen(
         refuse(
           PROVIDER_QUOTA_REFUSAL_ORIGIN,
           "request-unreadable",
           "The provider-account subscription's registered request did not parse, so the console did not open it.",
         ),
+        "terminal",
       );
       return;
     }
@@ -235,7 +239,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
           // The open check is here rather than inside the tail: a frame arriving
           // after this reading closed belongs to a registry that is no longer its
           // own, and the tail's job starts at the frame it is given.
-          if (this.#isOpen) {
+          if (this.#lifecycle.isOpen) {
             this.#deliveries.deliver(payload);
           }
         },
@@ -244,9 +248,15 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
       // The read is deliberately NOT attempted after this. The tail is what keeps
       // the quotas current, and a list read once off a bridge that could not open a
       // stream is a reading that stops being true the moment it lands.
-      this.#settleRefused(streamRefusalFor(streamRejection));
+      //
+      // RE-OPENABLE: the transport that threw may serve the next caller, so the
+      // scheduler re-opens instead of seeding a read behind a tail that is down.
+      // Leaving the reading marked open let a later read serve and publish a
+      // `read` phase over a stream nothing was listening on.
+      this.#settleRefusedOpen(streamRefusalFor(streamRejection), "retryable");
       return;
     }
+    this.#lifecycle.markOpen();
 
     // The open's own read, taken now rather than behind the scheduler's window: the
     // tail is already up and holding its notifications across this read. Every LATER
@@ -261,7 +271,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
    * whichever read is newest is the only one whose reply may seat anything.
    */
   async #seedRead(): Promise<void> {
-    if (!this.#isOpen) {
+    if (!this.#lifecycle.isOpen) {
       // Requested before the stream opened or after it closed. The registry it would
       // describe is not this reading's any more, and the notification hold it would
       // begin has nothing to release it.
@@ -272,7 +282,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
     this.#deliveries.beginHold();
 
     await callDaemon(this.#bridge, "providerAccount.list", {}).then((reply) => {
-      if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
+      if (!this.#lifecycle.isOpen || this.#seedReadOrdinal !== readOrdinal) {
         return;
       }
       // The held notifications are replayed on BOTH arms, and on the served arm they
@@ -287,38 +297,56 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
         this.#settleRefused(reply.refusal);
         return;
       }
+
       for (const account of reply.value.accounts) {
         this.#fold.seatAccount(account);
       }
       for (const usageWindow of reply.value.usageWindows) {
         this.#deliveries.mergeWindow(usageWindow);
       }
-      this.#phase = "read";
+      // Served, so the phase moves AND the previous read's refusal is cleared. The
+      // rail rendered a healed registry's stale refusal beside healthy chips for the
+      // life of the window because this line used to move only the phase.
+      this.#lifecycle.settleRead();
       this.#deliveries.releaseHold();
       this.#publish();
     });
   }
 
   #close(): void {
-    this.#isOpen = false;
+    this.#lifecycle.markClosed();
     this.#refresh.dispose();
     this.#closeStream?.();
     this.#closeStream = undefined;
   }
 
+  /** A registry read refused. The tail is untouched; only this read failed. */
   #settleRefused(readRefusal: ConsoleRefusal): void {
-    this.#phase = "refused";
-    this.#readRefusal = readRefusal;
+    this.#lifecycle.refuseRead(readRefusal);
+    this.#publish();
+  }
+
+  /**
+   * The tail would not open, on one of the two arms the open distinguishes.
+   *
+   * Named rather than passed a boolean: `retryable` leaves the reading openable so a
+   * trigger re-opens it, and `terminal` closes that door for the reading's life.
+   */
+  #settleRefusedOpen(readRefusal: ConsoleRefusal, disposition: "retryable" | "terminal"): void {
+    if (disposition === "terminal") {
+      this.#lifecycle.refuseOpenTerminally(readRefusal);
+    } else {
+      this.#lifecycle.refuseOpen(readRefusal);
+    }
     this.#publish();
   }
 
   #composeReadout(): ProviderQuotaReadout {
     return {
       ...this.#deliveries.unreadable,
+      ...this.#lifecycle.state,
       readings: this.#fold.readings(),
       accountLabels: this.#fold.accountLabels(),
-      phase: this.#phase,
-      readRefusal: this.#readRefusal,
     };
   }
 

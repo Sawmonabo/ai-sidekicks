@@ -19,7 +19,11 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import { QUEUE_SUBSCRIBE_STREAM } from "./daemon-streams.js";
-import { withUnopenableStream } from "./daemon-streams.test-support.js";
+import {
+  withRecordedStreamLifecycle,
+  withStreamUnopenableAtFirst,
+  withUnopenableStream,
+} from "./daemon-streams.test-support.js";
 import {
   createFixture,
   withDaemonCall,
@@ -255,5 +259,88 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
     expect(openedStreams).toStrictEqual(["run.subscribeQueue"]);
     expect(latest().phase).toBe("read");
     expect(latest().readRefusal).toBeUndefined();
+  });
+});
+
+describe("a queue reading whose open refused can be opened again", () => {
+  /**
+   * The shipped fixture whose queue subscription throws once, then opens.
+   *
+   * The transport arm of a refused open. Refusing every open cannot state this
+   * claim — under it a reading that re-opens and one that never tries again look
+   * identical — so the second open has to be able to succeed.
+   */
+  function bridgeRefusingTheFirstOpen(): {
+    bridge: ConsoleBridge;
+    openCount: () => number;
+    calls: readonly RecordedDaemonCall[];
+  } {
+    const answered = withDaemonCall(createFixture().bridge, async () => ({ items: [] }));
+    const refusingFirst = withStreamUnopenableAtFirst(
+      answered.bridge,
+      QUEUE_SUBSCRIBE_STREAM,
+      new ConsoleRefusalError(
+        refuse("console-daemon-stream", "stream-unavailable", "The daemon is a stub."),
+      ),
+    );
+    const recorded = withRecordedStreamLifecycle(refusingFirst);
+    return {
+      bridge: recorded.bridge,
+      openCount: () => recorded.openCountFor(QUEUE_SUBSCRIBE_STREAM),
+      calls: answered.calls,
+    };
+  }
+
+  it("re-opens on the window's own reason and then reads", async () => {
+    // THE DEFECT. The catch arm left the reading marked open with no subscription
+    // behind it, and the scoped session id was assigned only after the open — so
+    // every later focus, repair, and mount was a guaranteed no-op and the pane held
+    // that first refusal for the life of the window.
+    const { bridge, openCount, calls } = bridgeRefusingTheFirstOpen();
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(held?.phase).toBe("refused");
+    expect(methodsOf(calls)).toStrictEqual([]);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(bridge);
+
+    expect(openCount()).toBe(2);
+    expect(held?.phase).toBe("read");
+    // Cleared, not merely superseded: the reading that healed carries no refusal.
+    expect(held?.readRefusal).toBeUndefined();
+    expect(methodsOf(calls)).toStrictEqual(["run.queueList"]);
+  });
+
+  it("negative control: a request the registered shape refused is never re-opened", async () => {
+    // The other arm, and the reason the two are named apart. This request is
+    // composed from the same session id every time, so re-trying it would re-mint
+    // one refusal on every window focus and re-render every watcher for a fact that
+    // has not moved.
+    const recorded = withRecordedStreamLifecycle(
+      withDaemonCall(createFixture().bridge, async () => ({ items: [] })).bridge,
+    );
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe
+        bridge={recorded.bridge}
+        sessionId="not-a-session"
+        onFeed={(feed) => (held = feed)}
+      />,
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(recorded.bridge);
+
+    expect(recorded.openCountFor(QUEUE_SUBSCRIBE_STREAM)).toBe(0);
+    expect(held?.readRefusal?.code).toBe("session-unreadable");
   });
 });

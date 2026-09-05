@@ -5,7 +5,7 @@
 // standing in for a surface, and a surface goes through the door — and every wrapper
 // here replaces the namespace's own `subscribe`.
 //
-// FOUR ROLES, ONE HOME, and each is a SPREAD OVER A REAL BRIDGE rather than a
+// FIVE ROLES, ONE HOME, and each is a SPREAD OVER A REAL BRIDGE rather than a
 // fabricated object. That is the whole difference from the stand-ins these replaced:
 // an object cast to `ConsoleBridge` answers every stream and every call with whatever
 // its author remembered to write, so a surface that opened a SECOND read passed
@@ -141,6 +141,35 @@ export function withUnopenableStream(
       return underlying(name, sink);
     }
     throw thrown;
+  });
+}
+
+/**
+ * A bridge whose named subscription throws on its FIRST open and opens after that.
+ *
+ * The transport arm of a refused open, which is a different fact from
+ * {@link withUnopenableStream}'s permanent one: a bridge that threw once is the same
+ * bridge a repair, a focus, or a fresh mount asks again, so a reading that settled
+ * refused on the open has to be able to come back. Refusing every open cannot state
+ * that claim — under it a re-open and a reading that never tries again look
+ * identical — which is why this is its own role rather than a flag on that one.
+ */
+export function withStreamUnopenableAtFirst(
+  bridge: ConsoleBridge,
+  streamName: string,
+  thrown: unknown,
+): ConsoleBridge {
+  const underlying = rawSubscribeOf(bridge);
+  let hasRefused = false;
+  return withSubscribeArm(bridge, (name, sink) => {
+    if (name !== streamName) {
+      return underlying(name, sink);
+    }
+    if (!hasRefused) {
+      hasRefused = true;
+      throw thrown;
+    }
+    return underlying(name, sink);
   });
 }
 

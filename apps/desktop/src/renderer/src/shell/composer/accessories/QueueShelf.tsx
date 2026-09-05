@@ -51,7 +51,7 @@ import {
   type ReadingState,
 } from "../../../console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
-import type { QueueReadPhase } from "../../../console/bridge/index.js";
+import { readRefusalOf, type WireReadState } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import { QUEUE_SHELF_ROW_CAP } from "./accessory-bounds.js";
 import { QueueShelfRow } from "./QueueShelfRow.js";
@@ -61,14 +61,16 @@ export interface QueueShelfProps {
   /**
    * How the session's snapshot read has gone, straight off the one reading.
    *
+   * THE PAIR AND NOT ITS TWO HALVES. The phase and the refusal are one statement —
+   * `readRefusal` means the NEWEST read failed — so they travel as the member the
+   * reading publishes rather than as two props a caller could pass out of step.
+   *
    * Required rather than optional, unlike the partial-read pair below: every caller
    * of this shelf reads the feed that carries it, so a caller with nothing to pass
    * is a caller that has stopped reading the queue — and defaulting it would make
    * this surface answer "read" for a snapshot nobody asked about.
    */
-  readonly phase: QueueReadPhase;
-  /** Why the snapshot could not be read. Rendered rather than swallowed. */
-  readonly readRefusal: ConsoleRefusal | undefined;
+  readonly snapshotRead: WireReadState;
   /** The ids whose cancel is in flight, straight off the session's one reading. */
   readonly pendingCancelIds: ReadonlySet<string>;
   readonly cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal>;
@@ -100,7 +102,7 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
   // which is a section that says nothing about a queue nobody could see.
   const deliveries = deliveryReading(props);
   const isPartial = deliveries.kind !== "served";
-  const isSnapshotRefused = props.phase === "refused";
+  const isSnapshotRefused = props.snapshotRead.phase === "refused";
   if (props.items.length === 0 && !isPartial && !isSnapshotRefused) {
     return null;
   }
@@ -108,10 +110,7 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
   const foldedCount = props.items.length - rendered.length;
   return (
     <section className="meridian-queue-shelf" aria-label="Queued messages">
-      <PartialRead
-        states={[snapshotReading(props.phase, props.readRefusal), deliveries]}
-        subject="the queue"
-      />
+      <PartialRead states={[snapshotReading(props.snapshotRead), deliveries]} subject="the queue" />
       <ul className="meridian-queue-shelf__rows">
         {rendered.map((item) => (
           <QueueShelfRow
@@ -145,11 +144,12 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
  * unstated-cause constant below is what keeps this total without claiming a
  * completeness the phase has just denied.
  */
-function snapshotReading(
-  phase: QueueReadPhase,
-  readRefusal: ConsoleRefusal | undefined,
-): ReadingState {
-  switch (phase) {
+function snapshotReading(snapshotRead: WireReadState): ReadingState {
+  // Through the accessor and never off the member: a reading whose newest read
+  // served carries no refusal to render, and the coupling is stated once where the
+  // reading publishes it rather than at each surface that reads one.
+  const readRefusal = readRefusalOf(snapshotRead);
+  switch (snapshotRead.phase) {
     case "read":
       return { kind: "served" };
     case "reading":

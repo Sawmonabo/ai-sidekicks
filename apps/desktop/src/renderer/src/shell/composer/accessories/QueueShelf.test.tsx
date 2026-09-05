@@ -37,8 +37,7 @@ function shelfWith(options: {
   const { container } = render(
     <QueueShelf
       items={[queuedRow(FIRST_ITEM), queuedRow(SECOND_ITEM)]}
-      phase="read"
-      readRefusal={undefined}
+      snapshotRead={{ phase: "read", readRefusal: undefined }}
       pendingCancelIds={options.pendingCancelIds ?? new Set<string>()}
       cancelRefusalByItemId={options.cancelRefusalByItemId ?? new Map<string, ConsoleRefusal>()}
       onCancel={() => undefined}
@@ -91,8 +90,7 @@ describe("the queue shelf says when part of its stream could not be read", () =>
     const { container } = render(
       <QueueShelf
         items={options.items ?? [queuedRow(FIRST_ITEM)]}
-        phase="read"
-        readRefusal={undefined}
+        snapshotRead={{ phase: "read", readRefusal: undefined }}
         pendingCancelIds={new Set<string>()}
         cancelRefusalByItemId={new Map<string, ConsoleRefusal>()}
         onCancel={() => undefined}
@@ -179,8 +177,7 @@ describe("the queue shelf says when the snapshot itself could not be read", () =
     const { container } = render(
       <QueueShelf
         items={options.items ?? []}
-        phase={options.phase}
-        readRefusal={options.readRefusal}
+        snapshotRead={{ phase: options.phase, readRefusal: options.readRefusal }}
         pendingCancelIds={new Set<string>()}
         cancelRefusalByItemId={new Map<string, ConsoleRefusal>()}
         onCancel={() => undefined}

@@ -16,8 +16,28 @@ import { describe, expect, it } from "vitest";
 
 import { settleScheduledRead } from "./scheduled-read.test-support.js";
 
-import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.test-support.js";
+import { ConsoleRefusalError, refuse } from "../core/index.js";
+import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM } from "./daemon-streams.js";
+import {
+  withRecordedStreamLifecycle,
+  withStreamUnopenableAtFirst,
+} from "./daemon-streams.test-support.js";
+import {
+  bridgeAnswering,
+  createFixture,
+  withDaemonCall,
+  type BridgeUnderTest,
+} from "./fixture-bridge.test-support.js";
+import {
+  AccountPlaneBridge,
+  account,
+  listReply,
+  mountQuotas,
+  usageWindow,
+} from "./provider-quota-feed.test-support.js";
 import { useProviderQuotas } from "./provider-quota-feed.js";
+import { readRefusalOf } from "./reading-lifecycle.js";
+import type { ProviderQuotaReadout } from "./provider-account-quota.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 /** A bridge answering the registry read with an empty node. */
@@ -66,5 +86,93 @@ describe("the provider-account reading re-reads on the window's own reasons", ()
     await settleScheduledRead(under.bridge);
     await settleScheduledRead(under.bridge);
     expect(accountListCallCount(under)).toBe(1);
+  });
+});
+
+describe("a registry reading that healed says so", () => {
+  it("clears the refusal the moment a later read serves", async () => {
+    // THE DEFECT, and it was live. The served arm moved the phase and left
+    // `readRefusal` standing, so a registry that refused once — one transient daemon
+    // error — and then answered on the next window focus published populated
+    // readings beside a refusal from a read two triggers ago. The composer's
+    // accessory rail rendered that refusal beside healthy chips for the life of the
+    // window, because it read the member without checking the phase.
+    const plane = new AccountPlaneBridge(
+      { accounts: "not a list" },
+      {
+        laterReply: listReply([account()], [usageWindow()]),
+      },
+    );
+    const mounted = await mountQuotas(plane.bridge);
+    expect(mounted.refusalCodeNow()).toBe("reply-unreadable");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(plane.bridge);
+
+    expect(mounted.readingsNow()).toHaveLength(1);
+    expect(mounted.refusalCodeNow()).toBeUndefined();
+  });
+
+  it("negative control: a read that refuses again keeps saying so", async () => {
+    // Without this the case above would pass over a reading that dropped every
+    // refusal it was ever handed, which renders a node nobody could read as a node
+    // with nothing to report.
+    const plane = new AccountPlaneBridge({ accounts: "not a list" });
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(plane.bridge);
+
+    expect(mounted.refusalCodeNow()).toBe("reply-unreadable");
+  });
+});
+
+describe("a registry reading whose open refused can be opened again", () => {
+  it("re-opens on the window's own reason rather than reading behind a dead tail", async () => {
+    // THE DEFECT, in the shape that is worse than the queue's. `#seedRead` guarded
+    // only on the open flag, and the catch arm left that flag set — so a later read
+    // COULD serve and published `phase: "read"` with populated readings and no live
+    // tail behind them: a readout the rail renders as current that will never update
+    // again. The reading now closes on that arm, so the trigger re-opens instead.
+    const answered = withDaemonCall(createFixture().bridge, async ({ method }) =>
+      method === "providerAccount.list"
+        ? listReply([account()], [usageWindow()])
+        : { accounts: [], usageWindows: [], readiness: [] },
+    );
+    const refusingFirst = withStreamUnopenableAtFirst(
+      answered.bridge,
+      PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
+      new ConsoleRefusalError(
+        refuse("console-daemon-stream", "stream-unavailable", "The daemon is a stub."),
+      ),
+    );
+    const recorded = withRecordedStreamLifecycle(refusingFirst);
+
+    let readout: ProviderQuotaReadout | undefined;
+    function Probe(): null {
+      readout = useProviderQuotas(recorded.bridge);
+      return null;
+    }
+    await act(async () => {
+      render(<Probe />);
+    });
+    expect(readout?.phase).toBe("refused");
+    // No read was taken behind the refused open: the tail is what keeps the quotas
+    // current, so a registry read without one stops being true as it lands.
+    expect(answered.calls).toStrictEqual([]);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(recorded.bridge);
+
+    expect(recorded.openCountFor(PROVIDER_ACCOUNT_SUBSCRIBE_STREAM)).toBe(2);
+    expect(readout?.phase).toBe("read");
+    expect(readout?.readings).toHaveLength(1);
+    expect(readRefusalOf(readout ?? { phase: "reading", readRefusal: undefined })).toBeUndefined();
   });
 });
