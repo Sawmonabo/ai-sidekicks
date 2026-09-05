@@ -24,10 +24,19 @@
 // refusal render above the list rather than in place of it — the rows are still the
 // best reading there is, and they are no longer offered as a complete one.
 
-import { Chip, DerivedFigure, Nothing, RefusalCard, WireFigure } from "../../primitives/index.js";
+import {
+  Chip,
+  DerivedFigure,
+  Nothing,
+  PartialRead,
+  RefusalCard,
+  WireFigure,
+  unreadableDeliveryReading,
+} from "../../primitives/index.js";
 import { formatCount, InlineRefusal } from "../../primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 import { QUEUE_ROWS_RENDERED_CAP } from "./runs-bounds.js";
+import type { ReadingState } from "../../primitives/index.js";
 import type { QueueFeed } from "../../bridge/index.js";
 
 /** The one state a queue item can still be taken back from. */
@@ -53,6 +62,9 @@ export interface QueueContentsProps {
 
 export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const { feed } = props;
+  // Derived once and branched on twice, so the reading the notice renders and the
+  // reading that decides whether the empty arm may reassure are the same one.
+  const deliveries = deliveryReading(feed);
 
   if (feed.phase === "refused") {
     return feed.readRefusal === undefined ? (
@@ -78,12 +90,12 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   }
 
   if (feed.items.length === 0) {
-    return feed.isPartial ? (
+    return deliveries.kind !== "served" ? (
       // An empty list and an unreadable delivery are both true at once, and the
       // reassuring arm is unavailable: a row this build could not read is a row
       // whose existence is unknown, never one known to be absent.
       <div className="meridian-queue">
-        <PartialRead feed={feed} />
+        <PartialRead states={[deliveries]} subject="the queue" />
       </div>
     ) : (
       <Nothing
@@ -100,7 +112,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
 
   return (
     <div className="meridian-queue">
-      {feed.isPartial ? <PartialRead feed={feed} /> : null}
+      <PartialRead states={[deliveries]} subject="the queue" />
       <ol className="meridian-queue__rows">
         {rendered.map((item) => (
           <QueueRow
@@ -123,26 +135,16 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
 }
 
 /**
- * The reading is live and behind at once — neither an absence nor a refusal.
+ * The tail's deliveries, in the console's one reading vocabulary.
  *
- * Two sentences and not one: the console's own count of what it could not read, and
- * then the delivery's own parse refusal verbatim beneath it, because the count says
- * how stale the shelf may be and the refusal says why.
+ * What stood here was this file's own notice component — its own box, its own two
+ * sentences, and a name that shadowed the primitive it duplicated. The count-to-state
+ * step is the model's (`primitives/partial-read.ts`), the sentence is the model's, and
+ * a count of zero answers `served`, which renders nothing: the surface no longer has
+ * to ask whether it is partial before deciding whether to mount the notice.
  */
-function PartialRead(props: { readonly feed: QueueFeed }): React.JSX.Element {
-  const { feed } = props;
-  return (
-    <div className="meridian-queue__partial">
-      <p className="meridian-queue__partial-copy">
-        <DerivedFigure text={formatCount(feed.unreadableDeliveryCount)} />{" "}
-        {feed.unreadableDeliveryCount === 1 ? "queue delivery" : "queue deliveries"} could not be
-        read, so what is shown here may be behind what the daemon has sent.
-      </p>
-      {feed.unreadableRefusal === undefined ? null : (
-        <InlineRefusal code={feed.unreadableRefusal.code} detail={feed.unreadableRefusal.detail} />
-      )}
-    </div>
-  );
+function deliveryReading(feed: QueueFeed): ReadingState {
+  return unreadableDeliveryReading(feed.unreadableDeliveryCount, feed.unreadableRefusal);
 }
 
 /** One queued item: its state, its figures, and cancel where cancel applies. */

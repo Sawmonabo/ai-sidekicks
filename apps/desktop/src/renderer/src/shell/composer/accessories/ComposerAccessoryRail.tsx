@@ -67,10 +67,15 @@ import {
   useProviderQuotas,
   useQueueFeed,
 } from "../../../console/bridge/index.js";
-import { RealClock, type ConsoleRefusal } from "../../../console/core/index.js";
-import { DerivedFigure, InlineRefusal, formatCount } from "../../../console/primitives/index.js";
+import { RealClock, parseInstant } from "../../../console/core/index.js";
+import {
+  PartialRead,
+  unreadableDeliveryReading,
+  type ReadingState,
+} from "../../../console/primitives/index.js";
 import type { ComposerSeatProps } from "../../../console/seats/index.js";
 import {
+  useDeadlineWake,
   useSessionStore,
   type ConsoleSessionEvent,
   type SessionStoreState,
@@ -134,6 +139,44 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
     () => newestCompactionBoundarySequence(timeline, addressedRunId),
     [timeline, addressedRunId],
   );
+  // Both of the account plane's readings, in the console's one vocabulary. The
+  // refusal's SCOPE is decided here, where the outcomes are counted: a refused read
+  // with chips already on screen is a note beside an answer, and a refused read with
+  // none is the whole of the answer, and the two sentences are not interchangeable.
+  // Every quota window's reset, as the instants a countdown crosses. A window whose
+  // reset the wire did not name, or named unreadably, arms nothing rather than
+  // arming against a value no threshold corresponds to.
+  const quotaResetDeadlines = useMemo(
+    () =>
+      providerQuotas.readings.flatMap((reading) => {
+        if (reading.resetsAt === undefined) {
+          return [];
+        }
+        const reset = parseInstant(reading.resetsAt);
+        return reset.kind === "instant" ? [reset.epochMilliseconds] : [];
+      }),
+    [providerQuotas.readings],
+  );
+  // The instant the chips are measured against, woken once at each reset rather than
+  // read in the render body. `clock.now()` in a render made the rail's output depend
+  // on when React happened to run it — so a countdown froze at whatever it said when
+  // the surface last re-rendered for some unrelated reason, and "resets in 2 minutes"
+  // stayed on screen for the rest of the window's life. This arms one timeout at a
+  // time and none at all once every reset is behind, which is the no-polling rule.
+  const nowMilliseconds = useDeadlineWake(clock, quotaResetDeadlines);
+  const quotaReadings: readonly ReadingState[] = [
+    providerQuotas.readRefusal === undefined
+      ? { kind: "served" }
+      : {
+          kind: "refused",
+          scope: providerQuotas.readings.length === 0 ? "whole-answer" : "beside-an-answer",
+          refusal: providerQuotas.readRefusal,
+        },
+    unreadableDeliveryReading(
+      providerQuotas.unreadableDeliveryCount,
+      providerQuotas.unreadableRefusal,
+    ),
+  ];
 
   return (
     <div className="meridian-composer__rail">
@@ -158,26 +201,14 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
             contract={RATE_LIMIT_SLOT_CONTRACT}
             body={undefined}
             readings={providerQuotas.readings}
-            nowMilliseconds={clock.now()}
+            nowMilliseconds={nowMilliseconds}
           />
-          {/* Rendered rather than swallowed: a chip's absence is not a health
-              reading, so a registry nobody could read must not look like a node
-              whose quotas are all fine. */}
-          {providerQuotas.readRefusal === undefined ? null : (
-            <InlineRefusal
-              code={providerQuotas.readRefusal.code}
-              detail={providerQuotas.readRefusal.detail}
-            />
-          )}
-          {/* Beside the chips and never instead of them: the readings shown are the
-              best the console has, and what this says is that the tail carrying the
-              next one is incomplete. */}
-          {providerQuotas.isPartial ? (
-            <QuotaPartialRead
-              unreadableDeliveryCount={providerQuotas.unreadableDeliveryCount}
-              refusal={providerQuotas.unreadableRefusal}
-            />
-          ) : null}
+          {/* Beside the chips and never instead of them, and BOTH readings at once:
+              a registry nobody could read must not look like a node whose quotas are
+              all fine, and a tail this build could not parse must not look like a
+              tail that carried nothing. The primitive takes the set, so neither can
+              be reported without the other. */}
+          <PartialRead states={quotaReadings} subject="these quotas" />
           {addressedRun === undefined ? null : (
             <CompactionSlot
               contract={COMPACTION_SLOT_CONTRACT}
@@ -202,37 +233,6 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
         </div>
       </div>
       <EditResendSlot contract={EDIT_RESEND_SLOT_CONTRACT} body={undefined} />
-    </div>
-  );
-}
-
-/**
- * What the rail says when part of the account plane's tail could not be read.
- *
- * Phrased about the CHIPS rather than about the wire, because a person reading it is
- * deciding whether to trust the numbers in front of them: "may be behind the registry"
- * is the consequence, and the delivery's own parse refusal beneath it is the cause for
- * whoever needs it. It lives here rather than in the rate-limit seat's body because
- * the body is another plan's to replace and this notice is the composer's own —
- * a seat whose mount obligation grew a partial-read member would hand that plan a
- * reading it never asked for.
- */
-function QuotaPartialRead(props: {
-  readonly unreadableDeliveryCount: number;
-  readonly refusal: ConsoleRefusal | undefined;
-}): React.JSX.Element {
-  return (
-    <div className="meridian-quota-partial" role="status">
-      <p className="meridian-quota-partial__copy">
-        <DerivedFigure text={formatCount(props.unreadableDeliveryCount)} />{" "}
-        {props.unreadableDeliveryCount === 1
-          ? "provider-account delivery"
-          : "provider-account deliveries"}{" "}
-        could not be read — these quotas may be behind the registry.
-      </p>
-      {props.refusal === undefined ? null : (
-        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
-      )}
     </div>
   );
 }

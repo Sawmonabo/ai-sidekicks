@@ -672,11 +672,14 @@ describe("ProviderCommandAutocomplete — a cut enumeration is said, not treated
     return { ...group, ...overrides };
   }
 
-  /** The truncation line's text, or `undefined` where the surface rendered none. */
+  /**
+   * The cut notice's text, or `undefined` where the surface rendered none.
+   *
+   * The console's one partial-read notice rather than a line this family draws: the
+   * `cut` reading is what a producer that stopped short renders as, everywhere.
+   */
   function truncationLine(container: HTMLElement): string | undefined {
-    return (
-      container.querySelector(".meridian-command-discovery__truncated")?.textContent ?? undefined
-    );
+    return container.querySelector(".meridian-partial-read__copy")?.textContent ?? undefined;
   }
 
   it("withholds the empty claim when the prefix matched nothing over a cut list", async () => {
@@ -692,10 +695,12 @@ describe("ProviderCommandAutocomplete — a cut enumeration is said, not treated
     await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
 
     expect(mounted.container.textContent).not.toContain(EMPTY_STATE_SENTENCE);
-    expect(truncationLine(mounted.container)).toContain("before the provider’s list was cut");
+    expect(truncationLine(mounted.container)).toContain(
+      "read before this run's command list was cut",
+    );
     // The count is the group's own served entries — the wire carries no figure for
     // what was dropped, and this surface invents none.
-    expect(truncationLine(mounted.container)).toContain("2 commands and skills");
+    expect(truncationLine(mounted.container)).toContain("2 ");
   });
 
   it("says the list was cut beside the entries it did carry", async () => {

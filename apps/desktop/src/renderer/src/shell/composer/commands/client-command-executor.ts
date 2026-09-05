@@ -19,7 +19,11 @@
 
 import { useCallback, useMemo } from "react";
 
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
+import {
+  isErrorInstance,
+  lossyStringify,
+  readGuardedProperty,
+} from "../../../../../shared/wire-errors.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
 import type {
@@ -94,12 +98,29 @@ async function settleInvocation(
         // The command's own failure, carried rather than paraphrased. A command that
         // renders its own refusal has already done so; this is what keeps the LINE
         // from being cleared as though the act had succeeded.
-        const failure = wireRejectionToError(cause, { total: true });
+        //
+        // NOT `normalizeWireRejection`, and the reason is what threw. A client
+        // command runs IN THIS WINDOW — nothing crossed a wire, so there is no
+        // daemon code to preserve, and letting a callback's thrown `code` become
+        // the refusal's code would widen a closed composer vocabulary from outside
+        // it. What is wanted here is one thing the thrown value can always give: a
+        // sentence. The shared leaf helpers answer that and nothing else, so no
+        // second stringifier is written and none of the wire machinery is invoked
+        // on a value that never saw the wire.
+        // Read guardedly and stringified totally, because this is the report path:
+        // an `Error` subclass is free to define an accessor over `message`, and a
+        // throw from inside the sentence that says something failed is the one
+        // outcome this branch exists to prevent.
+        const thrownMessage = readGuardedProperty(cause, "message");
+        const failureMessage =
+          isErrorInstance(cause) && typeof thrownMessage === "string"
+            ? thrownMessage
+            : lossyStringify(cause);
         return {
           status: "refused",
           refusal: clientCommandRefusal(
             "command-failed",
-            `${commandId} did not complete: ${failure.message}`,
+            `${commandId} did not complete: ${failureMessage}`,
           ),
         };
       }

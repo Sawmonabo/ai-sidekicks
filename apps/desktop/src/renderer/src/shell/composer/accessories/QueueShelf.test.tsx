@@ -113,8 +113,8 @@ describe("the queue shelf says when part of its stream could not be read", () =>
     // so a shelf that showed only rows presented a stale list as a current one.
     const container = renderShelf({ unreadableDeliveryCount: 2 });
 
-    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
-      "2 queue deliveries could not be read — the shelf may be stale.",
+    expect(container.querySelector(".meridian-partial-read__copy")?.textContent).toContain(
+      "2 deliveries could not be read, so the queue may be behind what the daemon has sent.",
     );
     expect(container.querySelectorAll(".meridian-queue-shelf__row")).toHaveLength(1);
   });
@@ -126,8 +126,8 @@ describe("the queue shelf says when part of its stream could not be read", () =>
     const container = renderShelf({ items: [], unreadableDeliveryCount: 1 });
 
     expect(container.querySelector(".meridian-queue-shelf")).not.toBeNull();
-    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
-      "1 queue delivery could not be read",
+    expect(container.querySelector(".meridian-partial-read__copy")?.textContent).toContain(
+      "1 delivery could not be read",
     );
   });
 
@@ -148,7 +148,7 @@ describe("the queue shelf says when part of its stream could not be read", () =>
 
   it("negative control: a complete reading says none of it", () => {
     const withRows = renderShelf({ unreadableDeliveryCount: 0 });
-    expect(withRows.querySelector(".meridian-queue-shelf__partial")).toBeNull();
+    expect(withRows.querySelector(".meridian-partial-read")).toBeNull();
 
     const withNothing = renderShelf({ items: [], unreadableDeliveryCount: 0 });
     expect(withNothing.querySelector(".meridian-queue-shelf")).toBeNull();
@@ -189,8 +189,8 @@ describe("the queue shelf says when the snapshot itself could not be read", () =
     const container = renderShelf({ phase: "refused", readRefusal: READ_REFUSAL });
 
     expect(container.querySelector(".meridian-queue-shelf")).not.toBeNull();
-    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
-      "The queue could not be read",
+    expect(container.querySelector(".meridian-partial-read__copy")?.textContent).toContain(
+      "The read of the queue was refused, so what is shown here is not the whole of it.",
     );
     expect(container.querySelector(".meridian-refusal")?.textContent).toContain("reply-unreadable");
   });
@@ -205,17 +205,19 @@ describe("the queue shelf says when the snapshot itself could not be read", () =
     });
 
     expect(container.querySelectorAll(".meridian-queue-shelf__row")).toHaveLength(1);
-    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
-      "is not the whole queue",
+    expect(container.querySelector(".meridian-partial-read__copy")?.textContent).toContain(
+      "is not the whole of it",
     );
   });
 
   it("says nothing the read did not carry when the refusal is absent", () => {
     // The reading publishes the phase and the refusal separately, so the notice
-    // renders on the phase alone and invents no cause where none was carried.
+    // renders on the phase alone and invents no cause where none was carried. The
+    // shelf reaches for the one reading kind that withdraws the completeness claim
+    // and carries no refusal — never a sentence with a code this console made up.
     const container = renderShelf({ phase: "refused" });
 
-    expect(container.querySelector(".meridian-queue-shelf__partial-copy")).not.toBeNull();
+    expect(container.querySelector(".meridian-partial-read__copy")).not.toBeNull();
     expect(container.querySelector(".meridian-refusal")).toBeNull();
   });
 

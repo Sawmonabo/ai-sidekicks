@@ -30,9 +30,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Nothing } from "../../primitives/index.js";
-import { type ConsoleRefusal } from "../../core/index.js";
+import { parseInstant, type ConsoleRefusal } from "../../core/index.js";
 import { consoleClockFor } from "../../bridge/index.js";
 import {
+  useDeadlineWake,
   useSessionPartition,
   useSessionStore,
   useSubjectScopedState,
@@ -116,7 +117,25 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   // seat it was mounted in. The deadline is shown as the instant the daemon sent plus
   // a reading of it against this; nothing here ticks.
   const { value: clock } = useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge));
-  const nowMilliseconds = clock.now();
+  // Every ask's expiry, as the instants the countdown beside it crosses. An ask that
+  // named no expiry, or named one this console could not read, arms nothing.
+  const expiryDeadlines = useMemo(
+    () =>
+      [...askByApprovalId.values()].flatMap((ask) => {
+        if (ask.expiryAt === undefined) {
+          return [];
+        }
+        const expiry = parseInstant(ask.expiryAt);
+        return expiry.kind === "instant" ? [expiry.epochMilliseconds] : [];
+      }),
+    [askByApprovalId],
+  );
+  // Woken once at each expiry rather than read in the render body. A render that read
+  // the clock produced a countdown frozen at whatever instant React last happened to
+  // run this pane for — so "expires in 30 seconds" stayed on screen after the ask had
+  // expired, and the row a person was deciding about was the one row whose deadline
+  // had passed. One timeout at a time, and none once every expiry is behind.
+  const nowMilliseconds = useDeadlineWake(clock, expiryDeadlines);
 
   const paneRootRef = useRef<HTMLDivElement>(null);
   const announcement = useArrivalAnnouncement(pending, paneRootRef);

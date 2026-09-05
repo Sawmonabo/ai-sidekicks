@@ -46,7 +46,6 @@ import {
   type RunStateChangeEvent,
 } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
@@ -55,7 +54,7 @@ import {
 import { useSessionScopedState } from "../../seats/index.js";
 import {
   compareInstants,
-  isConsoleRefusal,
+  normalizeWireRejection,
   parseInstant,
   refuse,
   type ConsoleRefusal,
@@ -405,7 +404,17 @@ export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): R
         },
       );
     } catch (thrown: unknown) {
-      setFeed({ ...EMPTY_FEED, openRefusal: streamOpenRefusal(thrown) });
+      // The console's one reading of a rejected promise, consumed and not copied.
+      // What used to stand here unwrapped a carried refusal through a bare cast and
+      // otherwise built a refusal out of an `Error`'s NAME — so a daemon that
+      // refused with `session.not_found` rendered as `Error`, and a rejection whose
+      // own property access throws took the read down. No fallback pair is passed:
+      // a stream that would not open is diagnosed by what the transport said, and a
+      // sentence of this file's own would displace it.
+      setFeed({
+        ...EMPTY_FEED,
+        openRefusal: normalizeWireRejection(RUN_STATE_REFUSAL_ORIGIN, thrown),
+      });
       // No unsubscribe was ever handed back, so the refused path has nothing to
       // close — it only stops deliveries that can no longer arrive from landing.
       return () => {
@@ -419,24 +428,6 @@ export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): R
   }, [bridge, sessionId]);
 
   return useMemo(() => ({ ...feed, hasRead: hasReadSnapshot }), [feed, hasReadSnapshot]);
-}
-
-/**
- * The refusal an unopenable stream renders.
- *
- * A `ConsoleRefusalError` from the wrapper's own unscoped-open guard already
- * carries a refusal, and re-wrapping it would replace a sentence that names the
- * defect with one that names the exception. Anything else is a wire rejection and
- * normalizes exactly as every other console catch boundary normalizes one, so this
- * file grows no second normalizer.
- */
-function streamOpenRefusal(thrown: unknown): ConsoleRefusal {
-  const carried = (thrown as { readonly refusal?: unknown } | null | undefined)?.refusal;
-  if (isConsoleRefusal(carried)) {
-    return carried;
-  }
-  const wireError = wireRejectionToError(thrown, { total: true });
-  return refuse(RUN_STATE_REFUSAL_ORIGIN, wireError.name, wireError.message);
 }
 
 /** The reading before anything has been delivered. Frozen so no caller mutates it. */

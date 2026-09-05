@@ -101,7 +101,10 @@ describe("ComposerAccessoryRail — an unreadable delivery is said beside the ch
       plane.deliver({ kind: "account_removed" });
     });
 
-    const partial = container.querySelector(".meridian-quota-partial");
+    // Scoped to the meters, like its `.meridian-refusal` sibling above: the shelf
+    // renders the same primitive for the queue's own reading, so a document-wide
+    // query here would be answered by whichever read failed first.
+    const partial = container.querySelector(".meridian-composer__meters .meridian-partial-read");
     expect(partial).not.toBeNull();
     expect(partial?.textContent).toContain("could not be read");
     expect(partial?.querySelector(".meridian-refusal")?.textContent).toContain(
@@ -119,7 +122,7 @@ describe("ComposerAccessoryRail — an unreadable delivery is said beside the ch
       plane.deliver({ kind: "account_removed", accountId: "acct-elsewhere" });
     });
 
-    expect(container.querySelector(".meridian-quota-partial")).toBeNull();
+    expect(container.querySelector(".meridian-composer__meters .meridian-partial-read")).toBeNull();
     expect(container.querySelector(".meridian-rate-chip")).not.toBeNull();
   });
 });

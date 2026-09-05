@@ -116,8 +116,8 @@ describe("a partial reading is said beside the rows, never in place of them", ()
   it("keeps the rows and names how many deliveries could not be read", () => {
     const { container } = render(<QueueContents feed={partialFeed([READ_ROW])} />);
     expect(container.querySelectorAll(".meridian-queue__row")).toHaveLength(1);
-    expect(container.querySelector(".meridian-queue__partial")?.textContent).toContain(
-      "2 queue deliveries",
+    expect(container.querySelector(".meridian-partial-read")?.textContent).toContain(
+      "2 deliveries could not be read",
     );
     expect(container.textContent).toContain("may be behind what the daemon has sent");
     // The delivery's own refusal, verbatim beneath the count.
@@ -128,7 +128,7 @@ describe("a partial reading is said beside the rows, never in place of them", ()
     // An empty list and an unreadable delivery are both true at once, and "nothing
     // is waiting" is the claim that cannot be made from here.
     const { container } = render(<QueueContents feed={partialFeed([])} />);
-    expect(container.querySelector(".meridian-queue__partial")).not.toBeNull();
+    expect(container.querySelector(".meridian-partial-read")).not.toBeNull();
     expect(container.textContent).not.toContain("Nothing is waiting.");
   });
 
@@ -138,7 +138,7 @@ describe("a partial reading is said beside the rows, never in place of them", ()
     const { container } = render(
       <QueueContents feed={{ ...partialFeed([]), unreadableDeliveryCount: 0, isPartial: false }} />,
     );
-    expect(container.querySelector(".meridian-queue__partial")).toBeNull();
+    expect(container.querySelector(".meridian-partial-read")).toBeNull();
     expect(container.textContent).toContain("Nothing is waiting.");
   });
 });

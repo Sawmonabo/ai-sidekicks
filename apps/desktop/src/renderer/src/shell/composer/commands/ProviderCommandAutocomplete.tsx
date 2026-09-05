@@ -61,10 +61,10 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import {
-  DerivedFigure,
   InlineRefusal,
   Nothing,
-  formatCount,
+  PartialRead,
+  type ReadingState,
 } from "../../../console/primitives/index.js";
 import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useComposerAddress } from "../composer-address.js";
@@ -417,13 +417,25 @@ function EnumerationState(props: {
       // Said whether the filter matched anything or not: a nonempty list off a cut
       // enumeration looks exhaustive, and an empty one reads as a finished search.
       // The figure is what the group DID carry, which is the only count the reply
-      // supplies — how many were dropped is not on the wire and is not invented here.
-      return addressedGroup.complete ? null : (
-        <p className="meridian-command-discovery__truncated" role="status">
-          <DerivedFigure text={formatCount(addressedGroup.entries.length)} /> commands and skills
-          were read before the provider&rsquo;s list was cut, so a name that is not shown here may
-          still exist.
-        </p>
+      // supplies — how many were dropped is not on the wire, and the `cut` reading is
+      // the one shape in the console that says so without inventing one.
+      return (
+        <PartialRead
+          states={[cutEnumerationReading(addressedGroup)]}
+          subject="this run's command list"
+        />
       );
   }
+}
+
+/**
+ * A served group's own account of how complete its list is.
+ *
+ * `complete` is the reply's member and `cut` is the console's word for what it means
+ * — the one reading kind that says a producer stopped short without a figure for how
+ * much it dropped. A complete group answers `served`, which renders nothing at all,
+ * so this branch never has to be written twice.
+ */
+function cutEnumerationReading(group: ProviderCommandBindingGroup): ReadingState {
+  return group.complete ? { kind: "served" } : { kind: "cut", servedCount: group.entries.length };
 }

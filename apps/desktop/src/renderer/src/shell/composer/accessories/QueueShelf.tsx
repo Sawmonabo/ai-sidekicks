@@ -25,10 +25,16 @@
 // deliver in that window — nothing at all, or a subset — and neither is the queue.
 // An empty shelf would then say "nothing is waiting" about a list nobody managed to
 // read, and a subset would present the window's arrivals as the whole of it. So the
-// phase and the read's own refusal reach this surface and are said, through the same
-// notice the unreadable-delivery count is said through rather than a second one
-// beside it: the two are one claim — what is on screen is not the whole queue — and
-// they differ only in the cause printed under it.
+// phase and the read's own refusal reach this surface and are said.
+//
+// BOTH READINGS GO TO ONE PRIMITIVE, AND THE SHELF WRITES NO COPY. `PartialRead`
+// (`primitives/PartialRead.tsx`) takes the SET of readings a surface holds and says a
+// sentence for every one that did not serve, so the two causes are two notices rather
+// than one merged sentence that would have to drop a refusal, and the shelf cannot
+// mount a notice for its snapshot while quietly leaving its tail unreported. What
+// used to stand here was this family's own notice component and its own two
+// sentences, which is how one console came to say "may be stale" about the same fact
+// another called "may be behind the registry".
 //
 // A CANCEL IN FLIGHT DISABLES ITS OWN ROW AND NO OTHER. The shelf renders the state
 // the reading publishes rather than holding its own: the same set the runs pane's
@@ -41,9 +47,12 @@ import {
   DerivedFigure,
   Glyph,
   InlineRefusal,
+  PartialRead,
   WireFigure,
   formatClockTime,
   formatCount,
+  unreadableDeliveryReading,
+  type ReadingState,
 } from "../../../console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 import type { QueueReadPhase } from "../../../console/bridge/index.js";
@@ -98,19 +107,10 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
   const foldedCount = props.items.length - rendered.length;
   return (
     <section className="meridian-queue-shelf" aria-label="Queued messages">
-      {isSnapshotRefused ? (
-        <IncompleteReading refusal={props.readRefusal}>
-          The queue could not be read, so what is on this shelf arrived on the live tail alone and
-          is not the whole queue.
-        </IncompleteReading>
-      ) : null}
-      {isPartial ? (
-        <IncompleteReading refusal={props.unreadableRefusal}>
-          <DerivedFigure text={formatCount(unreadableDeliveryCount)} />{" "}
-          {unreadableDeliveryCount === 1 ? "queue delivery" : "queue deliveries"} could not be read
-          — the shelf may be stale.
-        </IncompleteReading>
-      ) : null}
+      <PartialRead
+        states={[snapshotReading(props.phase, props.readRefusal), deliveryReading(props)]}
+        subject="the queue"
+      />
       <ul className="meridian-queue-shelf__rows">
         {rendered.map((item) => (
           <QueueShelfRow
@@ -132,30 +132,47 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
 }
 
 /**
- * What the shelf says when what it is showing is not the whole queue.
+ * The snapshot read, in the console's one reading vocabulary.
  *
- * ONE notice for both causes — a snapshot that refused and a delivery that did not
- * parse — because they are one claim to the person reading it: what is on screen is
- * incomplete. Only the sentence and the refusal beneath it differ, so they are what
- * the caller supplies and everything else is here once.
+ * `beside-an-answer` and never `whole-answer`: the tail opens BEFORE the snapshot is
+ * taken, so a refused `run.queueList` leaves the shelf holding whatever the tail
+ * delivered in that window, and the rows on screen are a fragment of unknown size
+ * rather than nothing at all.
  *
- * Above the rows and never instead of them, and phrased about the SHELF rather than
- * about the wire: a person reading this is deciding whether to trust what they are
- * looking at, so the consequence is the sentence and the read's own refusal beneath
- * it is the cause for whoever needs it.
+ * A cause is REQUIRED by that arm and the reading's sole refusing writer takes one,
+ * so the pairing is proved where it is produced and only the type is loose here. The
+ * unstated-cause constant below is what keeps this total without claiming a
+ * completeness the phase has just denied.
  */
-function IncompleteReading(props: {
-  readonly children: React.ReactNode;
-  readonly refusal: ConsoleRefusal | undefined;
-}): React.JSX.Element {
-  return (
-    <div className="meridian-queue-shelf__partial" role="status">
-      <p className="meridian-queue-shelf__partial-copy">{props.children}</p>
-      {props.refusal === undefined ? null : (
-        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
-      )}
-    </div>
-  );
+function snapshotReading(
+  phase: QueueReadPhase,
+  readRefusal: ConsoleRefusal | undefined,
+): ReadingState {
+  switch (phase) {
+    case "read":
+      return { kind: "served" };
+    case "reading":
+      return { kind: "reading" };
+    case "refused":
+      // A cause was carried, which is the ordinary arm and the only one the reading
+      // produces: its single refusing writer takes a `ConsoleRefusal` and sets the
+      // phase in the same act.
+      //
+      // A cause was NOT carried — unreachable from that writer, and answered anyway,
+      // because the alternative at this branch is `served`, which is the shelf
+      // claiming to be the whole queue on the strength of a read that was refused.
+      // `stale` is the one kind that withdraws the completeness claim while inventing
+      // NO cause: it renders its sentence with nothing beneath it, which is exactly
+      // what a refusal nobody sent should look like.
+      return readRefusal === undefined
+        ? { kind: "stale", refusal: undefined }
+        : { kind: "refused", scope: "beside-an-answer", refusal: readRefusal };
+  }
+}
+
+/** The tail's deliveries, as the count-bearing reading the model already owns. */
+function deliveryReading(props: QueueShelfProps): ReadingState {
+  return unreadableDeliveryReading(props.unreadableDeliveryCount ?? 0, props.unreadableRefusal);
 }
 
 interface QueueShelfRowProps {

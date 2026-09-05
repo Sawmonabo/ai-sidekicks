@@ -52,8 +52,8 @@ describe("ComposerAccessoryRail — the queue shelf", () => {
 
     const shelf = container.querySelector(".meridian-queue-shelf");
     expect(shelf).not.toBeNull();
-    expect(shelf?.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
-      "The queue could not be read",
+    expect(shelf?.querySelector(".meridian-partial-read__copy")?.textContent).toContain(
+      "The read of the queue was refused",
     );
     // The read's own refusal, carried rather than paraphrased. `run.queueList` IS a
     // registered method, so the reply above is parsed at the call door and refused
@@ -78,8 +78,8 @@ describe("ComposerAccessoryRail — the queue shelf", () => {
       tail.deliver({ id: "queue-item-a", status: "waiting", rank: 3 });
     });
 
-    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
-      "1 queue delivery could not be read",
+    expect(container.querySelector(".meridian-partial-read__copy")?.textContent).toContain(
+      "1 delivery could not be read",
     );
   });
 });
