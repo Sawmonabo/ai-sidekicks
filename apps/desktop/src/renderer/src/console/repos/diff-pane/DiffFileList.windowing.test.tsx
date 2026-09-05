@@ -11,8 +11,8 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
-import { buildDiffFixture } from "./diff-fixture.js";
-import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,

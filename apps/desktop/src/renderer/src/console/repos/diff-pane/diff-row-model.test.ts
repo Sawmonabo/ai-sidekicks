@@ -9,8 +9,8 @@
 import { describe, expect, it } from "vitest";
 
 import { DIFF_GAP_EXPANSION_LINE_COUNT } from "./diff-bounds.js";
-import { buildDiffFixture } from "./diff-fixture.js";
-import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import { diffGapKey, expandGap } from "./diff-row-model.js";
 import { DiffRowIndex } from "./hunk-virtualization.js";
 

@@ -6,7 +6,7 @@
 // no operation for it, so nothing in the running console can produce a
 // `ConsoleDiffModel`. This module is the shell that stands in the producer's
 // place — DELETED, not filled, the day a wire hands the console patch bytes,
-// along with `diff-fixture-shapes.ts`, `diff-fixture-patch.ts`, and every import
+// along with `diff-fixture-shapes.test-support.ts`, `diff-fixture-patch.test-support.ts`, and every import
 // of the three. What survives that deletion is `patch-parse.ts`, which is the
 // producer itself.
 //
@@ -29,11 +29,11 @@
 // WHAT THIS MODULE ITSELF DOES is the part a patch cannot: the hidden context above
 // each hunk, which the unified format has no representation for at all, and the
 // trailer-supplied agent attribution, which lives on the commit rather than in the
-// patch body. The shapes are `diff-fixture-shapes.ts`'s and the patch text is
-// `diff-fixture-patch.ts`'s.
+// patch body. The shapes are `diff-fixture-shapes.test-support.ts`'s and the patch text is
+// `diff-fixture-patch.test-support.ts`'s.
 
-import { buildPatchText } from "./diff-fixture-patch.js";
-import { RUN_ATTRIBUTION, type DiffFixtureShape } from "./diff-fixture-shapes.js";
+import { buildPatchText } from "./diff-fixture-patch.test-support.js";
+import { RUN_ATTRIBUTION, type DiffFixtureShape } from "./diff-fixture-shapes.test-support.js";
 import type { ConsoleDiffModel, DiffAttribution, DiffLine } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 import { parseUnifiedPatch } from "./patch-parse.js";

@@ -34,8 +34,8 @@ import {
 import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port.js";
 import { refuse, type ConsoleRefusal } from "../../../src/renderer/src/console/core/index.js";
 import { fixtureBridgeWithGrowth } from "../../../src/renderer/src/console/bridge/fixture-bridge.test-support.js";
-import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.js";
-import { EXTENDED_HEADER_DIFF_SHAPE } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.js";
+import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.test-support.js";
+import { EXTENDED_HEADER_DIFF_SHAPE } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.test-support.js";
 import type { ConsoleDiffModel } from "../../../src/renderer/src/console/repos/diff-pane/diff-model.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import type { BranchContextReading } from "../../../src/renderer/src/console/repos/mounts/branch-context-model.js";

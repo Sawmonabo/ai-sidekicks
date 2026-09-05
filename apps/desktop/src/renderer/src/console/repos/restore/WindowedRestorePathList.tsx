@@ -1,13 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useRef } from "react";
-import { RESTORE_PATH_ROW_HEIGHT_PX } from "../../core/index.js";
+
 import { WindowedListRow, useWindowedRovingIndex } from "../../primitives/index.js";
 
 import { RestorePathCell } from "./RestorePathCell.js";
 import {
-  type RestorePathListProps,
+  RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
-} from "./restore-path-window.js";
+} from "./restore-bounds.js";
+import { type RestorePathListProps } from "./restore-path-window.js";
 
 /**
  * The same paths, with only the window's worth of rows in the document.

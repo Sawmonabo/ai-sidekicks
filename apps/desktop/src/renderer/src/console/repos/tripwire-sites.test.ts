@@ -20,13 +20,21 @@
 // that goes quiet the moment someone adds a fifth site the same way the fourth was
 // added. The walk finds every declaration whose name ends `_SITE`, so a new one is
 // covered by existing.
+//
+// BOTH EXTENSIONS, because the rule below admits both. The glob read `.ts` alone while
+// `CONSOLE_ROOTED_PATH` matched `\.tsx?$`, so a site declared in a component — nothing
+// forbids one, and `console/primitives/Chip.tsx` is the doc's own example of the
+// console-rooted form — was covered by none of the three cases and the suite stayed
+// green. Today's four sites are all in `.ts` modules, so the hole was in the claim
+// rather than in the tree; the planted control below carries a `.tsx` carrier so it
+// cannot come back.
 
 import { describe, expect, it } from "vitest";
 
 // The family's own modules, inlined at transform time through Vite's raw glob —
 // `node:fs` is banned in renderer programs, and this is the form `families.test.ts`
 // and `growth-values/index.test.ts` established for source reads.
-const familySources = import.meta.glob("./**/*.ts", {
+const familySources = import.meta.glob("./**/*.{ts,tsx}", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -79,12 +87,16 @@ describe("the repos family — every tripwire site is a console-rooted module pa
     const planted = {
       "./attachments/one.ts": 'const A_SITE = "repos/attachments/one.ts";',
       "./diff-pane/two.ts": 'const B_SITE = "console/repos/diff-pane/three.ts";',
+      // The `.tsx` carrier. A component declaring a site is what the glob could not
+      // see, so this entry is what proves the walk reaches one at all — and it is
+      // family-rooted, so it also has to be reported wrong.
+      "./mounts/Four.tsx": 'const C_SITE = "repos/mounts/Four.tsx";',
     };
     const sites = declaredSites(planted);
-    expect(sites.map((site) => site.name)).toStrictEqual(["A_SITE", "B_SITE"]);
-    expect(sites.filter((site) => !CONSOLE_ROOTED_PATH.test(site.value))).toHaveLength(1);
+    expect(sites.map((site) => site.name)).toStrictEqual(["A_SITE", "B_SITE", "C_SITE"]);
+    expect(sites.filter((site) => !CONSOLE_ROOTED_PATH.test(site.value))).toHaveLength(2);
     expect(
       sites.filter((site) => `console/repos/${site.module.replace("./", "")}` !== site.value),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 });

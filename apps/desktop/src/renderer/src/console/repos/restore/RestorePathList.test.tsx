@@ -23,7 +23,7 @@ import {
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
   RESTORE_PATH_VISIBLE_ROW_CAP,
-} from "../../core/index.js";
+} from "./restore-bounds.js";
 import { RestorePathList } from "./RestorePathList.js";
 
 /** The height the shim reports for the windowed enumeration's scroll container. */

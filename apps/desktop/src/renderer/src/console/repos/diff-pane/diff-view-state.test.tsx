@@ -19,8 +19,8 @@ import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { buildDiffFixture } from "./diff-fixture.js";
-import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import type { ConsoleDiffModel } from "./diff-model.js";
 import { diffGapKey, type DiffGapExpansion } from "./diff-row-model.js";
 import { useDiffModelViewState, type DiffModelViewState } from "./diff-view-state.js";

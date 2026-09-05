@@ -1,6 +1,6 @@
 // The unified patch text a fixture shape is generated as, before anything parses it.
 //
-// SPLIT FROM `diff-fixture.ts` ON THE SEAM BETWEEN A SHAPE AND ITS BYTES. That module
+// SPLIT FROM `diff-fixture.test-support.ts` ON THE SEAM BETWEEN A SHAPE AND ITS BYTES. That module
 // declares the shapes, holds the named fixtures, and turns a parsed patch into a
 // `ConsoleDiffModel` — the two things a patch cannot carry included. This one writes
 // the patch: hunk headers with the line numbers the format produces, the extended
@@ -18,7 +18,7 @@ import {
   EXTENDED_HEADER_FIXTURE_FILES,
   TERMINAL_NEWLINE_FIXTURE_FILE,
   type DiffFixtureShape,
-} from "./diff-fixture-shapes.js";
+} from "./diff-fixture-shapes.test-support.js";
 import type { DiffLineKind } from "./diff-model.js";
 
 /**

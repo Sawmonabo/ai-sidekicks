@@ -46,11 +46,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildDiffFixture,
   fixtureChangedLineCount,
-} from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.js";
+} from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.test-support.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   SINGLE_LARGE_HUNK_DIFF_SHAPE,
-} from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.js";
+} from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.test-support.js";
 import {
   diffLineText,
   type DiffLine,
@@ -310,7 +310,7 @@ function pathologicalBodyRow(lineIndex: number): DiffLineRow {
 /**
  * A five-thousand-line patch whose first changed pair is two very wide lines.
  *
- * Built here rather than in `diff-fixture.ts` because it is not a SHAPE the surfaces
+ * Built here rather than in `diff-fixture.test-support.ts` because it is not a SHAPE the surfaces
  * render — it is one deliberately hostile input, and the fixture module's generated
  * change sets are the subjects the screenshot and layout tiers share. The wide line is
  * made of many short tokens rather than one long run of characters, because the word

@@ -1,11 +1,11 @@
 // The change-set shapes the diff surfaces are built and measured against, and the named
 // fixtures a case reaches for by name.
 //
-// SPLIT FROM `diff-fixture.ts` ON THE SEAM BETWEEN A DESCRIPTION AND A BUILD. This
+// SPLIT FROM `diff-fixture.test-support.ts` ON THE SEAM BETWEEN A DESCRIPTION AND A BUILD. This
 // module says what shapes exist — how many files, how many hunks, how much hidden
 // context, whether a terminator file or an extended-header file is included — and holds
 // the two attributions a fixture carries. Nothing here generates anything: the patch
-// text is `diff-fixture-patch.ts`'s and the model is `diff-fixture.ts`'s. Declared with
+// text is `diff-fixture-patch.test-support.ts`'s and the model is `diff-fixture.test-support.ts`'s. Declared with
 // the builder, the shape and its generator could not be read apart, and the file was
 // over the size at which one module is doing two jobs.
 //

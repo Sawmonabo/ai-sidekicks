@@ -95,7 +95,7 @@ export function hunkLines(
       continue;
     }
     const text = prefixedLine === "" ? "" : prefixedLine.slice(1);
-    // Spread-in rather than `: undefined`, for `diff-fixture.ts`'s reason: under
+    // Spread-in rather than `: undefined`, for `diff-fixture.test-support.ts`'s reason: under
     // `exactOptionalPropertyTypes` an optional member assigned `undefined` is a
     // different type from an absent one, and the model means the second.
     lines.push({

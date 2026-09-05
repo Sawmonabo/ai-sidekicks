@@ -14,12 +14,12 @@ import {
   DIFF_ROW_HEIGHT_PX,
   DIFF_WINDOW_OVERSCAN_ROWS,
 } from "./diff-bounds.js";
-import { buildDiffFixture, fixtureChangedLineCount } from "./diff-fixture.js";
+import { buildDiffFixture, fixtureChangedLineCount } from "./diff-fixture.test-support.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   SINGLE_LARGE_HUNK_DIFF_SHAPE,
   SMALL_DIFF_SHAPE,
-} from "./diff-fixture-shapes.js";
+} from "./diff-fixture-shapes.test-support.js";
 import { DIFF_VIEW_MODES, type ConsoleDiffModel } from "./diff-model.js";
 import { expandGap, type DiffRow } from "./diff-row-model.js";
 import { DiffRowIndex } from "./hunk-virtualization.js";

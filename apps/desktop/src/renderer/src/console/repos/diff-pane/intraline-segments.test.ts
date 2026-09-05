@@ -17,8 +17,8 @@ import {
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
 } from "./diff-bounds.js";
-import { buildDiffFixture } from "./diff-fixture.js";
-import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import { diffLineText, type ConsoleDiffModel, type DiffLine } from "./diff-model.js";
 import type { DiffLineRow } from "./diff-row-model.js";
 import { IntralineSegmentCache } from "./intraline-segments.js";

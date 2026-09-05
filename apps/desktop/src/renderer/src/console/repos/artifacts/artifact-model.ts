@@ -194,7 +194,7 @@ export function artifactTypeCounts(
 /**
  * Read one served manifest summary as a row.
  *
- * THIS FUNCTION USED TO BE A REFUSAL. `console/bridge/growth-values.ts` once answered
+ * THIS FUNCTION USED TO BE A REFUSAL. `console/bridge/growth-values/artifacts.ts` once answered
  * `artifactList` with a four-member payload summary — `artifactId`, `name`,
  * `byteLength`, `contentType` — and a reader that had mapped those four into the
  * envelope below would have put a `state` and a `visibility` on screen that no read

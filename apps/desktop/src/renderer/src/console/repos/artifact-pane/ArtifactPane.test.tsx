@@ -190,7 +190,7 @@ describe("artifact pane — the ingest bounds disclosure", () => {
 
 describe("artifact pane — the instant a row's age is read against", () => {
   it("renders an age from the reader's clock, so a frozen scenario renders one text", async () => {
-    // The defect: the pane read `Date.now()` in its render body. `test/console/repos-surfaces.tsx`
+    // The defect: the pane read `Date.now()` in its render body. `test/console/surfaces/repos.tsx`
     // recorded the consequence in its own words — the pane built a clock behind the
     // binding and no surface could hand it one — so a screenshot subject that listed a
     // row pinned text derived from real wall-clock time against a fixture `createdAt`,
