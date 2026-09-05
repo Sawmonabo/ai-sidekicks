@@ -40,7 +40,12 @@ import {
   type SidebarSectionDescriptor,
   type SidebarSectionId,
 } from "../../seats/index.js";
-import { type PersistedLayoutRecord } from "../layout-persistence.js";
+import { type PersistedLayoutRecord } from "../layout-writer.js";
+import {
+  SIDEBAR_DEFAULT_WIDTH_PERCENT,
+  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
+  SIDEBAR_MINIMUM_WIDTH_PERCENT,
+} from "../workspace-bounds.js";
 
 /**
  * What a section reports when it is calling for somebody.
@@ -93,28 +98,6 @@ export const SIDEBAR_SNAPSHOT_HEADER_KEY = "$sidebar";
  * record.
  */
 export const SIDEBAR_LAYOUT_SNAPSHOT_VERSION = 1;
-
-/**
- * How wide the sidebar opens the first time, as a share of the workspace.
- *
- * A layout default rather than a cap, so it sits with the grammar that carries it
- * rather than in `core/constants.ts`. Twenty-two percent is a column wide enough for a
- * section's own rows at the type scale and narrow enough that a two-pane deck still
- * clears the deck's own density floor on a 1280 px window.
- */
-export const SIDEBAR_DEFAULT_WIDTH_PERCENT = 22;
-
-/** The narrowest and widest the sidebar may be kept at, in percent. */
-export const SIDEBAR_MINIMUM_WIDTH_PERCENT = 12;
-export const SIDEBAR_MAXIMUM_WIDTH_PERCENT = 40;
-
-/**
- * The width a collapsed sidebar occupies, in pixels.
- *
- * Not zero: the collapsed rail carries the control that expands it again, and a
- * sidebar collapsed to nothing is a sidebar a pointer cannot get back.
- */
-export const SIDEBAR_COLLAPSED_WIDTH_PX = 40;
 
 /** What the sidebar keeps between visits. */
 export interface SidebarLayoutState {

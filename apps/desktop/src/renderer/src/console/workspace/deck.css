@@ -1,0 +1,169 @@
+/* The deck: the panes, the separators between them, and the density presets.
+ *
+ * Imported from `workspace/index.ts` beside the family's other sheets, so the rules
+ * land once per bundle and in the family's own order.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the deck follows the scheme attribute with no conditional in JSX.
+ */
+
+/* --- The deck ----------------------------------------------------------- */
+
+.meridian-deck {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * The panel group itself. `react-resizable-panels` fixes `display`,
+ * `flex-direction`, `flex-wrap`, and `overflow` on this element and documents that
+ * they cannot be overridden, so nothing here tries: the group is the row, and the
+ * deck's own frame above carries anything that would have fought it.
+ */
+.meridian-deck__group {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-deck__refusals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+}
+
+/* The pane whose body is showing in a window of its own. The slot stays and
+   only the projection is suppressed, so this is the absence plus its two ways back.
+   The controls take the shipped `.meridian-new-session__open` shape verbatim — same
+   padding, edge, radius, and `cursor: default` — because a control one pixel
+   different reads as a different KIND of control. */
+
+.meridian-deck__detached {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+}
+
+.meridian-deck__detached-control {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-deck__detached-control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The pane's error slot — what happened to the window this pane came back from.
+   Above the body rather than over it: the pane works again, and a note that covered
+   it would be reporting the pane as broken instead of the window that was. */
+.meridian-deck__pane-error {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
+
+/*
+ * One pane's frame. The panel owns the width — `flex-grow` is the library's, and
+ * the density floor rides its `minSize` — so what is left here is the pane's own
+ * chrome and the marks a person reads off it.
+ */
+.meridian-deck__pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  border-inline-start: 1px solid transparent;
+}
+
+/*
+ * The focused pane is marked on its own edge rather than by dimming its
+ * neighbours: a deck where the unfocused panes fade reads as a deck where they
+ * have stopped working.
+ */
+.meridian-deck__pane--focused {
+  border-inline-start-color: var(--meridian-accent);
+}
+
+/*
+ * The drop indicator: a bar on the edge the pane would land against.
+ *
+ * Own-built, because the drag library ships no CSS and no indicator by design. Drawn
+ * as a pseudo-element so it costs no node and no React render — the class changes,
+ * and the class is set only when the target or the edge actually changes.
+ */
+.meridian-deck__pane--drop-before::after,
+.meridian-deck__pane--drop-after::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 2px;
+  background: var(--meridian-accent);
+  pointer-events: none;
+}
+
+.meridian-deck__pane--drop-before::after {
+  inset-inline-start: 0;
+}
+
+.meridian-deck__pane--drop-after::after {
+  inset-inline-end: 0;
+}
+
+/*
+ * The separator is the library's widget wearing our chrome: it arrives focusable,
+ * arrow-operable, and carrying the window-splitter ARIA, and every line below is
+ * paint. It is drawn as a hairline and hit as a bar — the width is the target and
+ * the gradient is the line.
+ */
+.meridian-deck__separator {
+  width: var(--meridian-space-2);
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent 40%,
+    var(--meridian-edge) 40% 60%,
+    transparent 60%
+  );
+  cursor: col-resize;
+}
+
+.meridian-deck__separator:hover,
+.meridian-deck__separator:focus-visible {
+  background: linear-gradient(
+    to right,
+    transparent 30%,
+    var(--meridian-accent) 30% 70%,
+    transparent 70%
+  );
+}
+
+.meridian-deck__separator:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* --- Density presets ---------------------------------------------------- */
+
+/*
+ * The preset decides a minimum WIDTH, which the pane carries inline because the
+ * number comes from `density.ts`. What lives here is the rhythm that goes with it:
+ * a tighter deck sets its chrome tighter, so the extra pane a person bought is
+ * spent on content rather than on padding.
+ */
+.meridian-deck[data-density="comfortable"] .meridian-pane__header {
+  padding-block: var(--meridian-space-3);
+}
+
+.meridian-deck[data-density="compact"] .meridian-pane__header {
+  padding-block: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+}

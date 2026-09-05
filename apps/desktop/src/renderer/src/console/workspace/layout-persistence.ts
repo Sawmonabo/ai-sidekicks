@@ -1,136 +1,28 @@
-// Keeping the workspace's arrangement on disk, without arming a timer to do it.
+// Restoring the deck's arrangement, and keeping it saved.
 //
-// The problem is the resize drag: a separator commits a new layout on every
-// pointer move, so a naive "save on change" writes sixty records a second to a
-// database that only needs to hold the last one.
+// A hook and the two gates it runs on. The coalescing write itself is
+// `layout-writer.ts`, which this module holds one of per store; what is here is the
+// ORDER the two halves happen in — the record is read before anything is written, and
+// read exactly once for the arrangement and session on screen.
 //
-// WHY THIS IS NOT A DEBOUNCE, AND NOT `store/scheduling.ts`. The obvious answer is
-// a trailing debounce, and the console already owns one — `RefreshScheduler`. It is
-// the wrong tool twice over: its own header says the session-store registry is what
-// constructs it and nothing else in the tree may arm a timer, and its
-// `RefreshReason` vocabulary is a diagnostics field whose doc forbids inventing a
-// value for a read nobody asked for. A deck rearrangement is not a refresh, and
-// there is no honest reason to hand it. Writing a second debouncer beside that one
-// would be a second implementation of the thing it exists to be.
-//
-// So the coalescing comes from the write itself: at most ONE write is in flight,
-// and while one is, further changes replace a single pending snapshot rather than
-// queueing. A drag costs as many writes as the database can absorb — each of them
-// the newest arrangement, never a stale one — with no timer to arm, cancel, or
-// leak, and nothing for a test to advance.
-//
-// AND THE PARTITION RIDES THE REQUEST, NOT THE CALLER'S CURRENT STATE. A request
-// names the session its snapshot belongs to, and the single pending slot carries
-// both, so the pump writes what the request named however long it waited. The
-// alternative — reading the caller's current session inside the write callback —
-// files a queued arrangement under whichever session the person navigated to while
-// it waited, which overwrites that session's saved deck with another one's.
-//
-// TWO RECORDS, ONE WRITER, AND WHY THIS MODULE LEFT `deck/`. The deck's arrangement
-// was the first record kept this way; the session sidebar's width, collapse, and open
-// section is the second. Both are the persistence chokepoint's `layout` value class,
-// both are written on a gesture, and both need exactly the coalescing below — so the
-// writer is generic over the record it carries and lives at the family's own level
-// rather than inside the deck's subtree. A second writer beside it would be the one
-// thing this file exists to be.
-//
-// AND THERE IS NOTHING TO DISPOSE, WHICH IS THE POINT. This class arms no timer,
-// holds no subscription, and reaches no DOM node, so it owns no resource a pane's
-// unmount has to reclaim. A `dispose()` here would either be a no-op that reads as
-// a lifecycle, or a cancel that throws away the last arrangement the person made
-// before they closed the pane — which is exactly the one they expect to find when
-// they open it again. The surface stops calling `request`; that is the whole
-// teardown.
+// THE RESTORE HAPPENS ONCE AND THE SAVE WAITS FOR IT. A save that fired before the
+// restore completed would file an empty deck over the record it was about to read, and
+// the result looks identical to a first run. A restore that ran a SECOND time would
+// replace an arrangement the person built with whatever the record holds, which reads
+// as the window undoing their work; `RestoreProgress` below is addressed so that
+// neither can happen.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { type UiStateStore } from "../persistence/index.js";
+import { useSubjectScopedResource, useSubjectScopedState } from "../store/index.js";
 import { type DeckLayout } from "./deck/deck-layout.js";
-
-/**
- * The shape the persistence chokepoint's `layout` value class admits: an object of
- * objects whose members are numbers, booleans, and identifier-shaped strings.
- *
- * Written here rather than imported from either record's own grammar, because it is
- * the CLASS's constraint and not either grammar's preference — the deck names its
- * own record `DeckSnapshotRecord` and the sidebar names its own, and both satisfy
- * this because both are stored under that one class.
- */
-export type PersistedLayoutRecord = Record<string, Record<string, number | boolean | string>>;
-
-export interface CoalescingLayoutWriterOptions<TRecord extends PersistedLayoutRecord> {
-  /**
-   * Performs one durable write, under the partition the request named. A refusal
-   * is the caller's to render.
-   */
-  readonly write: (partition: string, snapshot: TRecord) => Promise<void>;
-  /** A write that rejected outright, as opposed to one the store refused. */
-  readonly onFailed: (error: unknown) => void;
-}
-
-/** One arrangement, and the session it belongs to. The two travel together. */
-interface PendingLayoutWrite<TRecord extends PersistedLayoutRecord> {
-  readonly partition: string;
-  readonly snapshot: TRecord;
-}
-
-export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
-  readonly #write: (partition: string, snapshot: TRecord) => Promise<void>;
-  readonly #onFailed: (error: unknown) => void;
-  #pending: PendingLayoutWrite<TRecord> | undefined;
-  #inFlight = false;
-  #writeCount = 0;
-
-  public constructor(options: CoalescingLayoutWriterOptions<TRecord>) {
-    this.#write = options.write;
-    this.#onFailed = options.onFailed;
-  }
-
-  /** Writes performed, so a test can count them rather than infer a coalesce. */
-  public get writeCount(): number {
-    return this.#writeCount;
-  }
-
-  /** True when nothing is in flight and nothing is waiting to go. */
-  public get isIdle(): boolean {
-    return !this.#inFlight && this.#pending === undefined;
-  }
-
-  /**
-   * Save this arrangement, under the session it belongs to.
-   *
-   * The newest request REPLACES an unsent one rather than joining a queue: the
-   * layout is a single current value, and writing an arrangement the person has
-   * already moved past would put a stale record on disk and then correct it. The
-   * partition travels with the snapshot for the same reason it exists at all — a
-   * queued write settles later than the act that queued it, and by then the caller's
-   * own idea of the current session may have moved on.
-   */
-  public request(partition: string, snapshot: TRecord): void {
-    this.#pending = { partition, snapshot };
-    this.#pump();
-  }
-
-  #pump(): void {
-    if (this.#inFlight || this.#pending === undefined) {
-      return;
-    }
-    const { partition, snapshot } = this.#pending;
-    this.#pending = undefined;
-    this.#inFlight = true;
-    this.#writeCount += 1;
-    void this.#write(partition, snapshot)
-      .catch((error: unknown) => {
-        this.#onFailed(error);
-      })
-      .finally(() => {
-        this.#inFlight = false;
-        this.#pump();
-      });
-  }
-}
-
+import {
+  CoalescingLayoutWriter,
+  flushAndCloseWriter,
+  type PersistedLayoutRecord,
+} from "./layout-writer.js";
 /** The durable record the deck's arrangement is saved under, per session. */
 export const DECK_LAYOUT_RECORD_KEY = "deck-layout";
 
@@ -159,6 +51,63 @@ export function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): Wor
   return { ...refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail), code };
 }
 
+/**
+ * How far one surface's restore has got, for one arrangement and one session.
+ *
+ * TWO ANSWERS AND NEITHER IS RENDER STATE. "Has this restore been dispatched" gates
+ * an effect, and a flag that re-rendered would re-run the very effect it gates;
+ * "has it landed" is read from inside the layout subscription, a callback that
+ * outlives the render which installed it, and a captured render value there would be
+ * whatever was true when the subscription was made. A mutable holder answers both
+ * from wherever they are asked.
+ *
+ * WHAT IT IS ADDRESSED BY IS THE POINT. Held per `(arrangement, session)` through
+ * `store/subject-scoped-state.ts`, so routing to another open session re-arms it and a
+ * `UiStateStore` REPLACEMENT — a reconnect re-mints the store and hands it down
+ * without remounting anything — does not. A restore that re-ran there would replace a
+ * deck the person has been arranging for minutes with whatever the record holds,
+ * which reads as the window silently undoing their work.
+ *
+ * It owns nothing, so it is a value and not a resource: there is no disposal, and a
+ * holder that dropped it needs to do nothing about the one it dropped.
+ */
+export class RestoreProgress {
+  #hasStarted = false;
+  #hasSettled = false;
+
+  /** True while no read has been dispatched for this pair. The dispatch gate. */
+  public get isUnstarted(): boolean {
+    return !this.#hasStarted;
+  }
+
+  /** True once the record has been adopted — the moment saving may begin. */
+  public get hasSettled(): boolean {
+    return this.#hasSettled;
+  }
+
+  public start(): void {
+    this.#hasStarted = true;
+  }
+
+  public settle(): void {
+    this.#hasSettled = true;
+  }
+
+  /**
+   * Give the dispatch gate back, where the read never landed.
+   *
+   * A read abandoned before it settled — the effect torn down, the strict-mode
+   * double mount — has adopted nothing, so the next pass must be free to read again.
+   * A settled restore is never re-armed by this: it has already replaced the deck,
+   * and reading a second time is what this whole holder exists to prevent.
+   */
+  public abandon(): void {
+    if (!this.#hasSettled) {
+      this.#hasStarted = false;
+    }
+  }
+}
+
 export interface DeckPersistenceOptions {
   readonly layout: DeckLayout;
   readonly uiStateStore: UiStateStore;
@@ -183,9 +132,17 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
   // session stores and never closes them. Reading a mutable current-session holder at
   // write time filed the older session's arrangement under the newer one's partition
   // and overwrote a deck the person had not touched.
-  const [writer] = useState(
+  //
+  // AND THE WRITER ITSELF IS HELD PER STORE. The partition axis above is the session;
+  // this is the other one. The store handed down is replaced on a reconnect without
+  // remounting this surface, and a writer that closed over the first one goes on
+  // writing into it — so the holder retires that writer, draining what it had queued,
+  // and the render that first sees the new store builds the writer bound to it.
+  const { value: writer } = useSubjectScopedResource<CoalescingLayoutWriter<PersistedLayoutRecord>>(
+    uiStateStore,
+    undefined,
     () =>
-      new CoalescingLayoutWriter({
+      new CoalescingLayoutWriter<PersistedLayoutRecord>({
         write: async (partition, snapshot) => {
           const result = await uiStateStore.write(
             partition,
@@ -208,21 +165,23 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
           );
         },
       }),
+    flushAndCloseWriter,
   );
 
-  // Closed until the read has landed, and closed AGAIN whenever the surface points at
-  // another session — a flag left true from the session before would gate nothing for
-  // the one arriving. It is a write gate and nothing else, which is why it is held here
-  // rather than on the deck: the sidebar's `hasSettled` is a rendered fact its surface
-  // announces on, so hoisting one of the two onto the other would give a persistence
-  // gate a place in a rendered state shape, or an announcement a place in a hook.
-  const hasRestoreSettledReference = useRef(false);
+  // Closed until the read has landed, and re-armed for the session arriving rather than
+  // for the store: the deck is the subject and the session is the key, so a `UiStateStore`
+  // replacement leaves this exactly as it was. It is a write gate and a dispatch gate and
+  // nothing else, which is why it is held here rather than on the deck: the sidebar's
+  // `hasSettled` is a rendered fact its surface announces on, so hoisting one of the two
+  // onto the other would give a persistence gate a place in a rendered state shape, or an
+  // announcement a place in a hook.
+  const { value: restore } = useSubjectScopedState(layout, sessionId, () => new RestoreProgress());
 
   useEffect(() => {
-    if (sessionId === undefined) {
+    if (sessionId === undefined || !restore.isUnstarted) {
       return;
     }
-    hasRestoreSettledReference.current = false;
+    restore.start();
     let superseded = false;
     void (async () => {
       // WHAT THE DECK HELD WHEN THE READ STARTED, so an arrangement the person makes
@@ -268,7 +227,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
 
       // Opened only now, so nothing above reached the store: every commit this block
       // made is either what the record already held or what the write below carries.
-      hasRestoreSettledReference.current = true;
+      restore.settle();
       if (actedDuringRead || (report?.restoredPaneCount ?? 0) === 0) {
         // ONCE, and only where the deck on screen is not what the record held: the
         // person's arrangement, or the fallback ledger this surface just opened.
@@ -277,8 +236,12 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
     })();
     return () => {
       superseded = true;
+      // Abandoned before it landed, so the gate goes back: this pass adopted nothing,
+      // and a pass that never reads again would leave the deck saving an arrangement it
+      // never restored.
+      restore.abandon();
     };
-  }, [layout, sessionId, uiStateStore, writer]);
+  }, [layout, restore, sessionId, uiStateStore, writer]);
 
   useEffect(() => {
     if (sessionId === undefined) {
@@ -289,12 +252,12 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
       // persistence states in the same words. A write from the transient deck would
       // replace the very record the read above is still resolving, and the person would
       // find a first-run window where their arrangement had been.
-      if (!hasRestoreSettledReference.current) {
+      if (!restore.hasSettled) {
         return;
       }
       writer.request(sessionId, layout.toSnapshot());
     });
-  }, [layout, writer, sessionId]);
+  }, [layout, restore, writer, sessionId]);
 
   return restoreRefusals;
 }

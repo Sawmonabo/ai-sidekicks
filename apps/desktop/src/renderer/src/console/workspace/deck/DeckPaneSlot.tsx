@@ -24,7 +24,8 @@ import { LostWindowNotice } from "./LostWindowNotice.js";
 import { MissingPaneBody } from "./MissingPaneBody.js";
 import { PaneBody } from "./PaneBody.js";
 import { PERMILLE_PER_PERCENT, type DeckPane } from "./deck-model.js";
-import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
+import { type DeckDensity } from "../workspace-bounds.js";
+import { minimumPaneWidthPx } from "./density.js";
 import {
   usePaneDragSource,
   usePaneDropTarget,

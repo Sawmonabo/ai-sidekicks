@@ -1,175 +1,37 @@
-// The sidebar: every declared section, exactly one of them open, and an arrangement
-// that survives the window closing.
+// The sidebar: every declared section, exactly one of them open, and a section that
+// is calling for somebody.
 //
 // The failure this file exists for is the quiet one. A sidebar that rendered only the
 // sections somebody had filled would, on a build where nobody has, be an empty column
 // — and an empty column reads as "this session has no work", which is a claim nothing
 // established. The second is the open-section rule going one way only: attention that
-// never opens a section leaves a red item folded away, and a choice that never survives
-// a restart makes the sidebar forget what a person was watching.
+// never opens a section leaves a red item folded away.
+//
+// What the arrangement itself does — collapse, width, the keyboard, and what survives
+// the window closing — is `SessionSidebar.arrangement.test.tsx`. The harness both
+// files mount is `SessionSidebar.test-support.tsx`.
 
-import { act, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario.js";
-import { PERSISTED_VALUE_CLASSES } from "../../persistence/value-classes.js";
-import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
-import { UiStateStore } from "../../persistence/index.js";
-import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,
   type SidebarSectionId,
 } from "../../seats/index.js";
-import { MountedSidebarSeat } from "./sidebar-commands.js";
+import { SIDEBAR_LAYOUT_RECORD_KEY, SIDEBAR_SECTION_LABELS } from "./sidebar-model.js";
 import {
-  SIDEBAR_LAYOUT_RECORD_KEY,
-  SIDEBAR_LAYOUT_SNAPSHOT_VERSION,
-  SIDEBAR_SECTION_LABELS,
-  SIDEBAR_SNAPSHOT_HEADER_KEY,
-} from "./sidebar-model.js";
-import { useSidebarLayout } from "./sidebar-state.js";
-import { SessionSidebar } from "./SessionSidebar.js";
-
-const SESSION_ID = "session-sidebar";
-
-const SCENARIO: ConsoleScenario = {
-  id: "sidebar",
-  label: "Sidebar",
-  purpose: "Drives the session sidebar's composition.",
-  sessionId: SESSION_ID,
-  participantIdsInJoinOrder: ["participant-you"],
-  startedAtIso: "2026-01-01T09:00:00.000Z",
-  beats: [],
-  replies: [],
-};
-
-function sessionStore(): SessionStore {
-  const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
-  return store;
-}
-
-function memoryStore(): UiStateStore {
-  return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
-}
-
-interface HarnessProps {
-  readonly uiStateStore: UiStateStore;
-  readonly registry: SidebarSectionRegistry;
-  readonly commandSeat: MountedSidebarSeat;
-  readonly bridge: ConsoleBridge;
-  /**
-   * ONE store for the mount, built by the caller.
-   *
-   * Built here it would be a fresh store on every pass, which is a store construction in
-   * a render body and, worse for these cases, a container identity that changes every
-   * time — so a memo keyed on it would recompute whatever its other dependencies said,
-   * and the case below could not tell a subscribed sidebar from an unsubscribed one.
-   */
-  readonly sessionStore: SessionStore;
-}
-
-/**
- * The sidebar wired to the real persistence hook, which is how the workspace mounts it.
- *
- * The hook is what restores and saves, so a harness that held the state itself would
- * drive a stand-in for the module under test — the one shape a test may never take.
- */
-function MountedSidebar(props: HarnessProps): React.JSX.Element {
-  const sidebar = useSidebarLayout({
-    uiStateStore: props.uiStateStore,
-    sessionId: SESSION_ID,
-    onSaveRefused: () => undefined,
-  });
-  return (
-    <SessionSidebar
-      sessionStore={props.sessionStore}
-      bridge={props.bridge}
-      openPane={() => undefined}
-      layout={sidebar.layout}
-      snapshot={sidebar.snapshot}
-      registry={props.registry}
-      commandSeat={props.commandSeat}
-    />
-  );
-}
-
-interface RenderedSidebar {
-  readonly container: HTMLElement;
-  readonly uiStateStore: UiStateStore;
-  readonly registry: SidebarSectionRegistry;
-  readonly commandSeat: MountedSidebarSeat;
-  readonly store: SessionStore;
-  readonly unmount: () => void;
-  readonly remount: () => void;
-}
-
-function renderSidebar(
-  uiStateStore: UiStateStore = memoryStore(),
-  registry: SidebarSectionRegistry = new SidebarSectionRegistry(),
-  store: SessionStore = sessionStore(),
-): RenderedSidebar {
-  const commandSeat = new MountedSidebarSeat();
-  const bridge = createFixtureBridge({ scenario: SCENARIO });
-  const element = (
-    <LiveAnnouncerProvider>
-      <MountedSidebar
-        uiStateStore={uiStateStore}
-        registry={registry}
-        commandSeat={commandSeat}
-        bridge={bridge}
-        sessionStore={store}
-      />
-    </LiveAnnouncerProvider>
-  );
-  const view = render(element);
-  return {
-    container: view.container,
-    uiStateStore,
-    registry,
-    commandSeat,
-    store,
-    unmount: view.unmount,
-    remount: () => {
-      view.unmount();
-      view.rerender(element);
-    },
-  };
-}
-
-function headers(container: HTMLElement): HTMLButtonElement[] {
-  return [...container.querySelectorAll<HTMLButtonElement>("[data-sidebar-section]")];
-}
-
-function headerFor(container: HTMLElement, sectionId: SidebarSectionId): HTMLButtonElement {
-  const header = headers(container).find(
-    (candidate) => candidate.getAttribute("data-sidebar-section") === sectionId,
-  );
-  expect(header).not.toBeUndefined();
-  return header as HTMLButtonElement;
-}
-
-function press(header: HTMLButtonElement): void {
-  act(() => {
-    header.click();
-  });
-}
-
-function openSectionIds(container: HTMLElement): string[] {
-  return headers(container)
-    .filter((header) => header.getAttribute("aria-expanded") === "true")
-    .map((header) => header.getAttribute("data-sidebar-section") ?? "");
-}
-
-/** Settle the restore, which is the first render every case below depends on. */
-async function settled(container: HTMLElement): Promise<void> {
-  await waitFor(() => {
-    expect(headers(container)).toHaveLength(SIDEBAR_SECTION_IDS.length);
-  });
-}
+  SESSION_ID,
+  headerFor,
+  headers,
+  memoryStore,
+  openSectionIds,
+  press,
+  renderSidebar,
+  sessionStore,
+  settled,
+} from "./SessionSidebar.test-support.js";
 
 describe("the sidebar — which sections it renders", () => {
   it("renders every declared section, in the tuple's order", async () => {
@@ -408,180 +270,3 @@ describe("the sidebar — a section that is calling for somebody", () => {
     expect(openSectionIds(rendered.container)).toStrictEqual([]);
   });
 });
-
-describe("the sidebar — collapse, width, and what is kept", () => {
-  it("restores collapsed, at the width it was saved with", async () => {
-    const store = memoryStore();
-    const written = await store.write(SESSION_ID, SIDEBAR_LAYOUT_RECORD_KEY, "layout", {
-      [SIDEBAR_SNAPSHOT_HEADER_KEY]: {
-        version: SIDEBAR_LAYOUT_SNAPSHOT_VERSION,
-        widthPercent: 31,
-        isCollapsed: true,
-      },
-    });
-    expect(written.outcome).toBe("written");
-
-    const rendered = renderSidebar(store);
-    await waitFor(() => {
-      expect(rendered.container.querySelector(".meridian-sidebar--collapsed")).not.toBeNull();
-    });
-    // The width travels with the collapse rather than being forgotten by it: expanding
-    // puts the sidebar back where the person left it.
-    const record = await store.read(SESSION_ID, SIDEBAR_LAYOUT_RECORD_KEY);
-    const header = (record?.value as Record<string, Record<string, unknown>>)[
-      SIDEBAR_SNAPSHOT_HEADER_KEY
-    ];
-    expect(header?.["widthPercent"]).toBe(31);
-  });
-
-  it("collapses from the column's own control, so the palette is not the only way", async () => {
-    const rendered = renderSidebar();
-    await settled(rendered.container);
-
-    act(() => {
-      rendered.container.querySelector<HTMLButtonElement>(".meridian-sidebar__collapse")?.click();
-    });
-
-    expect(rendered.container.querySelector(".meridian-sidebar--collapsed")).not.toBeNull();
-    expect(headers(rendered.container)).toHaveLength(0);
-  });
-
-  it("expands again from the collapsed rail, which is what keeps it reachable", async () => {
-    const store = memoryStore();
-    await store.write(SESSION_ID, SIDEBAR_LAYOUT_RECORD_KEY, "layout", {
-      [SIDEBAR_SNAPSHOT_HEADER_KEY]: {
-        version: SIDEBAR_LAYOUT_SNAPSHOT_VERSION,
-        widthPercent: 31,
-        isCollapsed: true,
-      },
-    });
-    const rendered = renderSidebar(store);
-    await waitFor(() => {
-      expect(rendered.container.querySelector(".meridian-sidebar__expand")).not.toBeNull();
-    });
-
-    act(() => {
-      rendered.container.querySelector<HTMLButtonElement>(".meridian-sidebar__expand")?.click();
-    });
-
-    expect(headers(rendered.container)).toHaveLength(SIDEBAR_SECTION_IDS.length);
-  });
-
-  it("keeps everything under the `layout` class, adding none of its own", async () => {
-    // The negative control that catches a widening: the closed enumeration is asserted
-    // BY NAME, so a sidebar that had reached for a class of its own fails here rather
-    // than at the chokepoint one release later.
-    expect([...PERSISTED_VALUE_CLASSES]).toStrictEqual([
-      "layout",
-      "scroll-position",
-      "selection",
-      "pin",
-      "expansion",
-      "scheme",
-      "keybinding",
-    ]);
-    const store = memoryStore();
-    const rendered = renderSidebar(store);
-    await settled(rendered.container);
-    press(headerFor(rendered.container, "goal"));
-    await waitFor(async () => {
-      const record = await store.read(SESSION_ID, SIDEBAR_LAYOUT_RECORD_KEY);
-      expect(record?.valueClass).toBe("layout");
-    });
-  });
-
-  it("renders a record this build cannot read as a refusal rather than crashing", async () => {
-    const store = memoryStore();
-    await store.write(SESSION_ID, SIDEBAR_LAYOUT_RECORD_KEY, "layout", {
-      [SIDEBAR_SNAPSHOT_HEADER_KEY]: { version: 99, widthPercent: 31, isCollapsed: false },
-    });
-    const rendered = renderSidebar(store);
-    await waitFor(() => {
-      expect(
-        rendered.container.querySelector('.meridian-sidebar__refusals[role="status"]')?.textContent,
-      ).toContain("written by a different version");
-    });
-    expect(headers(rendered.container)).toHaveLength(SIDEBAR_SECTION_IDS.length);
-  });
-
-  it("leaves a value the chokepoint will not take to the chokepoint, rather than storing it", async () => {
-    // The other half of the same guarantee, and it is deliberately not the sidebar's
-    // to enforce: a value carrying authored content is stopped by the store's own
-    // validator, which a development build escalates to a tripwire. The sidebar writes
-    // identifiers, so it never reaches this — and it holds no second copy of the rule.
-    const store = memoryStore();
-    await expect(
-      store.write(SESSION_ID, SIDEBAR_LAYOUT_RECORD_KEY, "layout", {
-        [SIDEBAR_SNAPSHOT_HEADER_KEY]: { version: 1, openSectionId: "not an identifier at all" },
-      }),
-    ).rejects.toThrow(/not identifier-shaped/);
-  });
-});
-
-describe("the sidebar — the keyboard and what it announces", () => {
-  afterEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  it("puts every section header in tab order with its state exposed", async () => {
-    const rendered = renderSidebar();
-    await settled(rendered.container);
-    for (const header of headers(rendered.container)) {
-      expect(header.tagName).toBe("BUTTON");
-      expect(header.getAttribute("aria-expanded")).not.toBeNull();
-      expect(header.getAttribute("aria-controls")).not.toBeNull();
-      expect(header.hasAttribute("disabled")).toBe(false);
-    }
-  });
-
-  it("focuses the first header and toggles the collapse through the palette's acts", async () => {
-    const rendered = renderSidebar();
-    await settled(rendered.container);
-
-    act(() => {
-      expect(rendered.commandSeat.perform("focusSidebar").status).toBe("performed");
-    });
-    expect(document.activeElement).toBe(headers(rendered.container)[0]);
-
-    act(() => {
-      rendered.commandSeat.perform("toggleSidebarCollapsed");
-    });
-    expect(rendered.container.querySelector(".meridian-sidebar--collapsed")).not.toBeNull();
-  });
-
-  it("announces a section that came back open once, and not again on a later render", async () => {
-    const store = memoryStore();
-    await store.write(SESSION_ID, SIDEBAR_LAYOUT_RECORD_KEY, "layout", {
-      [SIDEBAR_SNAPSHOT_HEADER_KEY]: {
-        version: SIDEBAR_LAYOUT_SNAPSHOT_VERSION,
-        widthPercent: 22,
-        isCollapsed: false,
-        openSectionId: "repos",
-      },
-    });
-    const rendered = renderSidebar(store);
-    await waitFor(() => {
-      expect(politeText(rendered.container)).toContain(SIDEBAR_SECTION_LABELS["repos"]);
-    });
-    const announced = politeText(rendered.container);
-
-    press(headerFor(rendered.container, "channels"));
-
-    // The negative control: opening a section re-renders the whole column, and a
-    // surface that announced on render would speak again here.
-    expect(politeText(rendered.container)).toBe(announced);
-  });
-
-  it("says nothing where the settled sidebar reports nothing a person cannot see", async () => {
-    // The announcer serialises one polite message at a time, so a sentence nobody
-    // needed delays the next one somebody does. A sidebar that restored nothing and
-    // opened nothing is a column already on screen.
-    const rendered = renderSidebar();
-    await settled(rendered.container);
-    expect(politeText(rendered.container)).toBe("");
-  });
-});
-
-function politeText(container: HTMLElement): string {
-  return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
-}

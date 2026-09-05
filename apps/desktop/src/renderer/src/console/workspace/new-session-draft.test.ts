@@ -161,9 +161,27 @@ describe("NewSessionDraft — the send", () => {
     // The error slot names the calls that SUCCEEDED, because a person
     // deciding whether to retry needs to know a session already exists.
     expect(result.completedCalls).toStrictEqual(["session.create"]);
+    // The draft named a sidekick, so the send stops at the call that has no shape at
+    // all, and says the turn behind it was not attempted either.
     expect(result.refusal?.code).toBe("wire-unregistered");
     expect(result.refusal?.detail).toContain("agent.attach");
     expect(result.refusal?.detail).toContain("run.queueCreate");
+  });
+
+  it("names the missing first turn, not the wire, when the draft chose no sidekicks", async () => {
+    // Zero agents is zero attaches, so the only call left is one that IS registered:
+    // reporting it as unregistered would name a cause the module's own header denies,
+    // and a person pasting that code into an issue would be reporting the wrong fact.
+    const draft = draftFor({ scriptsCreate: true });
+    draft.setPosture("trusted");
+    const result = await draft.send();
+
+    expect(result.outcome).toBe("partial");
+    expect(result.completedCalls).toStrictEqual(["session.create"]);
+    expect(result.refusal?.code).toBe("first-turn-missing");
+    expect(result.refusal?.detail).toContain("run.queueCreate");
+    // And it does not name a call this send was never going to make.
+    expect(result.refusal?.detail).not.toContain("agent.attach");
   });
 
   it("keeps the draft when the create itself fails, and names no completed call", async () => {
@@ -213,14 +231,14 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     draft.setPosture("trusted");
 
     const first = await draft.send();
-    // What a person does after reading `wire-unregistered`: change nothing, press
-    // again. That is a retry of the send, not a request for a second session.
+    // What a person does after reading the partial: change nothing, press again.
+    // That is a retry of the send, not a request for a second session.
     const retried = await draft.send();
 
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
     expect(retried.sessionId).toBe(first.sessionId);
     expect(retried.completedCalls).toStrictEqual([SESSION_CREATE_METHOD]);
-    expect(retried.refusal?.code).toBe("wire-unregistered");
+    expect(retried.refusal?.code).toBe("first-turn-missing");
   });
 
   it("creates again for a fresh draft object, which is what closing gives", async () => {

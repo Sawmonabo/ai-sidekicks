@@ -7,7 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { INITIAL_SIDEBAR_LAYOUT_STATE, SIDEBAR_DEFAULT_WIDTH_PERCENT } from "./sidebar-model.js";
+import { SIDEBAR_DEFAULT_WIDTH_PERCENT } from "../workspace-bounds.js";
+import { INITIAL_SIDEBAR_LAYOUT_STATE } from "./sidebar-model.js";
 import { SidebarLayout } from "./sidebar-state.js";
 
 /** A layout with a subscriber counting the transitions it was told about. */

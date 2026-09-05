@@ -15,7 +15,7 @@
 //     refs, and widths, which is the `layout` value class and nothing beyond it.
 //   • **Saves are coalesced by the write itself.** Dragging a separator produces a
 //     transition per frame, and one durable write per frame would spend the store's
-//     whole budget on a gesture. `deck/layout-persistence.ts` holds one write in
+//     whole budget on a gesture. `layout-writer.ts` holds one write in
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
 //   • **An empty deck opens the ledger.** This surface's own empty state, because no
@@ -44,14 +44,20 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
-import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
+import { type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { RefusalBanner, useAnnounce } from "../primitives/index.js";
+import { useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 import { consoleCommandSurface } from "../frame/command-surface.js";
+import {
+  DECK_RESTORED_PANE_CAP,
+  SIDEBAR_COLLAPSED_WIDTH_PX,
+  SIDEBAR_MINIMUM_WIDTH_PERCENT,
+} from "./workspace-bounds.js";
 import { CastBar } from "./CastBar.js";
+import { WorkspaceBannerRow } from "./WorkspaceBannerRow.js";
 import { useAuxiliaryPanes } from "./auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
@@ -60,10 +66,6 @@ import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
 import { useDeckPersistence } from "./layout-persistence.js";
 import { SessionSidebar } from "./sidebar/SessionSidebar.js";
 import { registerSidebarCommands } from "./sidebar/sidebar-commands.js";
-import {
-  SIDEBAR_COLLAPSED_WIDTH_PX,
-  SIDEBAR_MINIMUM_WIDTH_PERCENT,
-} from "./sidebar/sidebar-model.js";
 import { useSidebarLayout } from "./sidebar/sidebar-state.js";
 import {
   composerSeatRenderer,
@@ -75,6 +77,12 @@ import {
   type ConsolePaneRegistry,
 } from "../seats/index.js";
 import { useActorFollow } from "./actor-follow.js";
+import {
+  dismissWorkspaceBanner,
+  raiseWorkspaceBanner,
+  workspaceBannerKey,
+  type WorkspaceBanner,
+} from "./workspace-banners.js";
 
 /**
  * The sidebar's two palette rows, contributed the moment this module is evaluated.
@@ -127,10 +135,14 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   // rather than the first time somebody presses a chip.
   const announce = useAnnounce();
   const sessionStore = props.sessionStore;
-  const [banners, setBanners] = useState<readonly ConsoleRefusal[]>([]);
+  const [banners, setBanners] = useState<readonly WorkspaceBanner[]>([]);
 
   const raise = useCallback((refusal: ConsoleRefusal) => {
-    setBanners((current) => [...current, refusal]);
+    setBanners((current) => raiseWorkspaceBanner(current, refusal));
+  }, []);
+
+  const dismiss = useCallback((key: string) => {
+    setBanners((current) => dismissWorkspaceBanner(current, key));
   }, []);
 
   const restoreRefusals = useDeckPersistence({
@@ -208,14 +220,11 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
 
   return (
     <div className="meridian-workspace">
-      {banners.map((refusal, position) => (
-        <RefusalBanner
-          key={`${refusal.code}-${String(position)}`}
-          code={refusal.code}
-          detail={refusal.detail}
-          onDismiss={() => {
-            setBanners((current) => current.filter((candidate) => candidate !== refusal));
-          }}
+      {banners.map((banner) => (
+        <WorkspaceBannerRow
+          key={workspaceBannerKey(banner.refusal)}
+          banner={banner}
+          onDismiss={dismiss}
         />
       ))}
       <CastBar sessionId={sessionId} sessionStore={props.sessionStore} onFollow={onFollow} />

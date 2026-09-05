@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CoalescingLayoutWriter } from "./layout-persistence.js";
+import { CoalescingLayoutWriter } from "./layout-writer.js";
 import type { DeckSnapshotRecord } from "./deck/deck-snapshot.js";
 
 const SESSION_A = "session-a";
@@ -240,3 +240,61 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
 
 /** The second record the writer now carries, in the shape the sidebar keeps it. */
 type SidebarRecord = Record<string, Record<string, number | boolean | string>>;
+
+describe("CoalescingLayoutWriter — the terminal a replaced store retires it through", () => {
+  it("drains what was waiting rather than dropping it", async () => {
+    // A retirement that cancelled would throw away the newest arrangement — the one
+    // act the person performed last, and the one they expect to find on the way back.
+    const held = heldWrite();
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+      write: held.write,
+      onFailed: () => {
+        throw new Error("no write should have failed");
+      },
+    });
+
+    writer.request(SESSION_A, snapshotAt(1));
+    // In the writer's pending slot, behind the write held open above.
+    writer.request(SESSION_A, snapshotAt(2));
+    writer.flushAndClose();
+    held.settle();
+    await settle();
+    held.settle();
+    await settle();
+
+    expect(held.seen.map((write) => write.snapshot["pane-1"]?.["position"])).toStrictEqual([1, 2]);
+  });
+
+  it("takes no request once it has been retired", async () => {
+    const held = heldWrite();
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+      write: held.write,
+      onFailed: () => {
+        throw new Error("no write should have failed");
+      },
+    });
+
+    writer.flushAndClose();
+    writer.request(SESSION_A, snapshotAt(1));
+    await settle();
+
+    expect(writer.writeCount).toBe(0);
+  });
+
+  it("negative control: the same request before retirement is written", async () => {
+    // Without this, the case above would pass over a writer that never wrote at all,
+    // and "retired" would be indistinguishable from "broken".
+    const held = heldWrite();
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+      write: held.write,
+      onFailed: () => {
+        throw new Error("no write should have failed");
+      },
+    });
+
+    writer.request(SESSION_A, snapshotAt(1));
+    await settle();
+
+    expect(writer.writeCount).toBe(1);
+  });
+});

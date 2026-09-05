@@ -27,7 +27,7 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
-import { DEFAULT_DECK_DENSITY, type DeckDensity } from "./density.js";
+import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../workspace-bounds.js";
 import {
   DECK_TOTAL_PERMILLE,
   EPHEMERAL_PANE_KINDS,

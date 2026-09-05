@@ -20,11 +20,13 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { type SidebarSectionId } from "../../seats/index.js";
+import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
+import { RestoreProgress, refuseWorkspace } from "../layout-persistence.js";
 import {
   CoalescingLayoutWriter,
-  refuseWorkspace,
+  flushAndCloseWriter,
   type PersistedLayoutRecord,
-} from "../layout-persistence.js";
+} from "../layout-writer.js";
 import {
   INITIAL_SIDEBAR_LAYOUT_STATE,
   SIDEBAR_LAYOUT_RECORD_KEY,
@@ -136,7 +138,13 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
 } {
   const { uiStateStore, sessionId, onSaveRefused } = options;
   const [layout] = useState(() => new SidebarLayout());
-  const [writer] = useState(
+  // Held per store, for the reason `layout-persistence.ts` states about the deck's:
+  // the `UiStateStore` handed down is replaced on a reconnect without remounting this
+  // surface, and a writer that closed over the first one would go on filing the
+  // sidebar's width into a store nothing reads again.
+  const { value: writer } = useSubjectScopedResource<CoalescingLayoutWriter<PersistedLayoutRecord>>(
+    uiStateStore,
+    undefined,
     () =>
       new CoalescingLayoutWriter<PersistedLayoutRecord>({
         write: async (partition, snapshot) => {
@@ -159,18 +167,27 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
           );
         },
       }),
+    flushAndCloseWriter,
   );
 
+  // Once per `(sidebar, session)`, for the reason `layout-persistence.ts` states: the
+  // store is replaced under a live surface and `adopt` replaces the width, the collapse
+  // and the open section wholesale, so a gate re-armed by that replacement would put the
+  // saved arrangement back over the one the person is looking at.
+  const { value: restore } = useSubjectScopedState(layout, sessionId, () => new RestoreProgress());
+
   useEffect(() => {
-    if (sessionId === undefined) {
+    if (sessionId === undefined || !restore.isUnstarted) {
       return;
     }
+    restore.start();
     let superseded = false;
     void (async () => {
       const record = await uiStateStore.read(sessionId, SIDEBAR_LAYOUT_RECORD_KEY);
       if (superseded) {
         return;
       }
+      restore.settle();
       if (record === undefined) {
         layout.adopt(INITIAL_SIDEBAR_LAYOUT_STATE, []);
         return;
@@ -180,8 +197,9 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
     })();
     return () => {
       superseded = true;
+      restore.abandon();
     };
-  }, [layout, sessionId, uiStateStore]);
+  }, [layout, restore, sessionId, uiStateStore]);
 
   useEffect(() => {
     if (sessionId === undefined) {

@@ -12,7 +12,6 @@ export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from 
 export {
   APPLY_COALESCE_MS,
   CAST_BAR_CHIP_CAP,
-  DECK_RESTORED_PANE_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
