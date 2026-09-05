@@ -22,6 +22,10 @@ import { paneBodyForKind } from "../pane-chrome.js";
 import { RunsPane } from "./RunsPane.js";
 
 import "./runs.css";
+// The intervention surfaces carry their own sheet beside the pane's, split at the
+// same seam their components are; rules addressing selectors in both sheets stay
+// in `runs.css` as a single declaration.
+import "./interventions/run-interventions.css";
 
 /**
  * Claim the `runs` kind.

@@ -20,6 +20,11 @@ import { ApprovalsPane } from "./ApprovalsPane.js";
 // the registration below, so a body cannot arrive without its CSS, and the seat
 // board six branches each replace one line in is never touched.
 import "./approvals.css";
+// The sections this pane hosts carry their own sheet beside the pane's, split at
+// the same seam their components are: the rules that address selectors in BOTH
+// sheets — the pane-wide control metrics and the one focus ring — stay in
+// `approvals.css` as a single declaration rather than being written twice.
+import "./approvals-sections.css";
 
 /**
  * Claim the `approvals` kind.

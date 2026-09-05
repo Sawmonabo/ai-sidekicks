@@ -6,8 +6,9 @@
    is what the pane SHOWS about a run, and everything here is what a person DOES to
    one and what the daemon said came of it.
 
-   Imported from this subtree's door beside the pane's own sheet, so the bundler
-   still sees one edge per file.
+   Imported from the runs family door beside the pane's own sheet — `interventions/`
+   is a sub-directory of this family and not a family of its own, so it carries no
+   door, and a family's CSS is imported from that family's barrel and nowhere else.
 
    Every value here is a Meridian token: no colour literal, no font stack, and no
    spacing number. */

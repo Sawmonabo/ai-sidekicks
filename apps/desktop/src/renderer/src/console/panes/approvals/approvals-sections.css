@@ -10,6 +10,11 @@
    still sees one edge per file and a surface can no more arrive without its CSS
    than before.
 
+   What stays behind in `approvals.css` is the set of rules that address selectors in
+   BOTH sheets — the pane-wide control metrics and the single focus ring — because a
+   grouped selector split across two files is one declaration written twice, and two
+   copies drift.
+
    Every value here is a Meridian token: no colour literal, no font stack, and no
    spacing number. */
 
