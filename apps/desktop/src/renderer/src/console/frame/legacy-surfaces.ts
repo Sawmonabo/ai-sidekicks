@@ -43,7 +43,7 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { Nothing } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
-import { SurfaceAbsence } from "./RouteSurface.js";
+import { SurfaceAbsence } from "./SurfaceAbsence.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { SessionsSurface } from "./SessionsSurface.js";

@@ -19,6 +19,12 @@
 
 export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.js";
 
+// The database and object-store NAMES are not published beside them. A record
+// address is what a second reader of the same record needs; the connection names
+// are what one reader needs to open its own connection, which only the end-to-end
+// tier does, and it reaches them in `indexeddb-adapter.ts` where the store this
+// door deliberately does not export is composed.
+
 // The one grammar that tells an identifier from authored content, published because
 // a family above this one holds the SAME value to it. A pane address's entity id is
 // a string that reaches disk through this family's own value walk, so a boundary
@@ -26,8 +32,6 @@ export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.j
 // durable path refuses — one value, two boundaries, disagreeing. The alternative was
 // a second grammar in `seats/`, which is how two sources of truth start.
 export { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "./identifier-grammar.js";
-
-export { CONSOLE_DATABASE_NAME, UI_STATE_STORE_NAME } from "./indexeddb-adapter.js";
 
 export { MemoryPersistenceAdapter } from "./memory-adapter.js";
 

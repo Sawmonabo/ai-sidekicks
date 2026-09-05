@@ -33,11 +33,9 @@ import {
 } from "./fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
-import {
-  isWireErrorEnvelope,
-  normalizeWireRejection,
-  type WireErrorEnvelope,
-} from "../../../../shared/wire-errors.js";
+import { readWireErrorEnvelope, type WireErrorEnvelope } from "../../../../shared/wire-errors.js";
+
+import { normalizeWireRejection } from "../core/index.js";
 
 /** The call the refusal cases script, so a scenario can carry both arms at once. */
 const REFUSED_CALL = "session.read";
@@ -88,13 +86,25 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
       (rejection: unknown) => rejection,
     );
 
-    // The claim is not "some object was thrown" — it is that `src/shared/`'s wire
-    // vocabulary recognises it, which is what every renderer catch arm runs. A
-    // second refusal shape would pass a `rejects` assertion and fail here.
-    expect(isWireErrorEnvelope(caught)).toBe(true);
-    const rendered = normalizeWireRejection(caught);
-    expect(rendered.name).toBe(SCRIPTED_REFUSAL.code);
-    expect(rendered.message).toBe(SCRIPTED_REFUSAL.message);
+    // The claim is not "some object was thrown" — it is that the console's own wire
+    // vocabulary recognises it, which is what every renderer catch arm runs. A second
+    // refusal shape would pass a `rejects` assertion and fail here. Read rather than
+    // tested: the reader answers both members in one pass, so the assertion names
+    // what the fixture refused with instead of guarding and then reading it again.
+    expect(readWireErrorEnvelope(caught)).toStrictEqual({
+      code: SCRIPTED_REFUSAL.code,
+      message: SCRIPTED_REFUSAL.message,
+    });
+    // Through `core/wire-rejection.ts` — the normalizer a console catch arm actually
+    // calls — rather than `src/shared/`'s `Error`-returning one, which no console
+    // surface runs. What matters is that the daemon's CODE survives as the refusal's
+    // code, because that is the string a person pastes into an issue.
+    const rendered = normalizeWireRejection("fixture-bridge", caught);
+    expect(rendered.code).toBe(SCRIPTED_REFUSAL.code);
+    expect(rendered.detail).toBe(SCRIPTED_REFUSAL.message);
+    // The negative control: a normalizer with no envelope arm would answer its own
+    // synthesized code here, which is the defect this substrate exists to close.
+    expect(rendered.code).not.toBe("fixture-bridge-call-failed");
   });
 
   it("holds a delayed refusal pending until the caller advances past it", async () => {

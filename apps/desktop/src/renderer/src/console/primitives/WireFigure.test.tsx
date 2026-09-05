@@ -1,22 +1,23 @@
-// The two figure classes, held apart.
+// The mono provenance signature, and the fact that it is distinguishable.
 //
-// `Figure.tsx` is two components rather than one with a `mono` flag precisely so a
-// call site cannot get the class wrong by omission — which means the property worth
-// testing is not what either renders but that the two are DISTINGUISHABLE in the
-// output. A refactor that collapsed them into one element with one class would keep
-// every screen readable and would silently strip the provenance signature from
-// every wire figure in the console.
+// The two figure classes are two modules rather than one component with a `mono`
+// flag precisely so a call site cannot get the class wrong by omission — which
+// means the first property worth testing is not what either renders but that the
+// two are DISTINGUISHABLE in the output. A refactor that collapsed them into one
+// element with one class would keep every screen readable and would silently strip
+// the provenance signature from every wire figure in the console. That case lives
+// here rather than beside `DerivedFigure`, because the signature the collapse
+// destroys is the WIRE class's; the derived figure is the foil it is told apart
+// from.
 //
-// The second property is the eight rules' closing clause: "the exact wire value is
-// exposed in the element's `title` … so no formatted figure hides the number the
-// daemon sent". `WireFigure` has the slot; `DerivedFigure` deliberately has none,
-// because a derived reading is not a formatting of a wire figure and a `title` on
-// it would invite one to be put there.
+// The rest is the eight rules' closing clause: "the exact wire value is exposed in
+// the element's `title` … so no formatted figure hides the number the daemon sent".
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DerivedFigure, WireFigure } from "./Figure.js";
+import { DerivedFigure } from "./DerivedFigure.js";
+import { WireFigure } from "./WireFigure.js";
 
 function renderFigure(element: React.JSX.Element): HTMLElement {
   const { container } = render(element);
@@ -60,14 +61,6 @@ describe("WireFigure — verbatim, and never hiding the value it formats", () =>
     // A verbatim figure IS the wire value, so a title would repeat it — and an
     // empty-string title is a tooltip that flashes nothing on hover.
     const figure = renderFigure(<WireFigure value="run.failed" />);
-    expect(figure.hasAttribute("title")).toBe(false);
-  });
-});
-
-describe("DerivedFigure — the console's own reading, and no wire slot", () => {
-  it("renders the reading and offers nowhere to hide a wire value", () => {
-    const figure = renderFigure(<DerivedFigure text="waiting on you" />);
-    expect(figure.textContent).toBe("waiting on you");
     expect(figure.hasAttribute("title")).toBe(false);
   });
 });

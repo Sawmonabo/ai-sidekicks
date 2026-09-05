@@ -39,7 +39,7 @@
 import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { consoleCommandSurface } from "../frame/command-surface.js";
-import { SurfaceAbsence } from "../frame/RouteSurface.js";
+import { SurfaceAbsence } from "../frame/SurfaceAbsence.js";
 import {
   type ConsoleSurfaceContext,
   type ConsoleSurfaceDescriptor,

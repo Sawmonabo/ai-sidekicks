@@ -22,12 +22,10 @@
 // other: the directory may not yet name a session this window just created, and the
 // open set names nothing this window has not opened.
 //
-// The absence follows the directory rather than the count. A refused directory with
-// no session open is `not-checked` — the console did not ask the daemon, and must
-// not report "there are none" for a question it never put. A SERVED directory with
-// no rows is `empty`, because that question was put and answered. A read still in
-// flight is `not-loaded`. Collapsing any two of the three is the conflation
-// `Spec-023 §Console Design (Meridian)` rule 8 exists to prevent.
+// The absence follows the directory rather than the count, and which of the three
+// kinds of nothing it is is `SessionsAbsence.tsx`'s one decision — split out
+// because it is the surface's real content whenever there is nothing to list, and
+// this file's job is the list, the heading, and the start control.
 //
 // WHY THE START CONTROL TAKES A FACTORY RATHER THAN IMPORTING THE PROBE. The probe
 // reads the installed bridge directly, so it is mountable only under a live one;
@@ -38,14 +36,10 @@
 import { useState, type ReactNode } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
-import { Nothing } from "../primitives/index.js";
 import { useOpenSessionIds, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
+import { SessionsAbsence } from "./SessionsAbsence.js";
 import { WireChoiceList } from "./WireChoiceList.js";
-import {
-  offeredSessionIds,
-  useSessionDirectory,
-  type SessionDirectoryState,
-} from "./session-directory.js";
+import { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
 
 /**
  * How the list names itself, for the heading and for assistive technology.
@@ -130,48 +124,5 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         </div>
       )}
     </section>
-  );
-}
-
-/**
- * The absence, chosen by what the directory read did rather than by the row count.
- *
- * Split out because the three arms are the surface's real content when there is
- * nothing to list, and inlining them left the one decision that matters — which
- * kind of nothing this is — buried inside a ternary about array length.
- */
-function SessionsAbsence(props: {
-  readonly directory: SessionDirectoryState;
-  readonly action: ReactNode;
-}): React.JSX.Element {
-  if (props.directory.status === "reading") {
-    // No action on this arm, and the primitive is why: a read in flight renders as
-    // a skeleton, which carries no title, no detail and no control — "a control
-    // offered beside one is a control offered against nothing". Passing one here
-    // would not render it, which is worse than not passing it, because the code
-    // would read as though the control were on screen.
-    return (
-      <Nothing kind="not-loaded" placement="surface" title="Reading the sessions on this node." />
-    );
-  }
-  if (props.directory.status === "served") {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="There are no sessions on this node yet."
-        detail="The node answered, and it has none. Starting one is the way to have the first."
-        action={props.action}
-      />
-    );
-  }
-  return (
-    <Nothing
-      kind="not-checked"
-      placement="surface"
-      title="No session is open in this window."
-      detail={`The console shows the sessions this window has opened; it has not asked the daemon for the rest. ${props.directory.refusal.detail}`}
-      action={props.action}
-    />
   );
 }

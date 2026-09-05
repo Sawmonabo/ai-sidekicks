@@ -32,7 +32,7 @@ import {
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
 import { formatRoute } from "../../../src/renderer/src/console/routing/index.js";
-import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
+import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,

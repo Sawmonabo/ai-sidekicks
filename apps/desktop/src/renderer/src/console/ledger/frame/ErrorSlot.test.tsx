@@ -8,7 +8,8 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires, refuse } from "../../core/index.js";
+import { refuse } from "../../core/index.js";
+import { consoleTripwires } from "../../core/tripwires.js";
 import {
   LEDGER_ERROR_KINDS,
   LedgerErrorSlot,

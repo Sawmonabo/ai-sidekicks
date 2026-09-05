@@ -38,7 +38,7 @@
 // name, and green for the same reason it was measuring nothing.
 //
 // So the run does two things the earlier shape did not. It NAMES the scenario it
-// wants — `launchConsole({ scenarioId })`, which the main process turns into a
+// wants — `withLaunchedConsole({ scenarioId }, …)`, which the main process turns into a
 // document-URL query the renderer reads once at boot — because the default is the
 // first-run scenario, whose script is one beat long by design. And it advances the
 // frozen clock on every churn cycle through the fixture-only handle the bridge
@@ -72,24 +72,25 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
+import { withLaunchedConsole } from "../electron-harness.js";
+import { fixtureBundleExists } from "../fixture-bundle.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   TRIPWIRE_FIXTURE_GLOBAL,
-  fixtureBundleExists,
-  launchConsole,
-} from "../electron-harness.js";
+} from "../fixture-handles.js";
 import {
-  FLAGSHIP_SESSION_ID,
-  SETTINGS_SURFACE_SELECTOR,
-  WORKSPACE_SURFACE_SELECTOR,
   churnOnce,
+  ENDURANCE_LAUNCH_OPTIONS,
+  FLAGSHIP_SESSION_ID,
   openFlagshipSessionRoute,
   openSettingsRoute,
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
   readSettledHeapBytes,
+  SETTINGS_SURFACE_SELECTOR,
+  WORKSPACE_SURFACE_SELECTOR,
 } from "./console-workload.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
@@ -147,8 +148,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
   // the same two constants `churnOnce` waits on, so a wait re-pointed at any
   // element both routes render fails on the two absence checks below.
   it("waits on a surface that only its own destination renders", async () => {
-    const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
-    try {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // `openSettingsRoute` has already waited for its own locator, so the
@@ -168,14 +168,11 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         await consoleWindow.locator(SETTINGS_SURFACE_SELECTOR).count(),
         "the settings wait is satisfied on the workspace route, so a churn cycle never observes the transition into settings",
       ).toBe(0);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("does not grow its steady-state heap across sustained use", async () => {
-    const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
-    try {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       // The workload is named before it is measured. A launch that fell back to
       // the first-run scenario would churn a one-beat script and pass every
       // reading below, so this is the negative control for the whole run rather
@@ -270,9 +267,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       // had a producer, which made this whole tier an idle loop wearing a
       // workload's name.
       expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("leaves no tripwire firing after sustained use", async () => {
@@ -285,8 +280,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
     // because the breaches most worth catching are the ones a delivering scenario
     // causes: a beat applied outside the store's chokepoint, a tick that outlived
     // its pane.
-    const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
-    try {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
         await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
       }
@@ -304,8 +298,6 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       // architecture tier, so the two sides cannot drift into a vacuous pass.
       expect(firings, `${TRIPWIRE_FIXTURE_GLOBAL} is not exposed by this build`).not.toBeNull();
       expect(firings).toStrictEqual([]);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 });

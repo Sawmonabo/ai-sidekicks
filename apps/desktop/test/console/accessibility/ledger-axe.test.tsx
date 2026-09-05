@@ -52,7 +52,7 @@ import {
   type TimelinePaneContext,
 } from "../../../src/renderer/src/console/panes/timeline/TimelinePane.js";
 import { FrameStore, SessionStore } from "../../../src/renderer/src/console/store/index.js";
-import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
+import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/index.js";
 
 /**

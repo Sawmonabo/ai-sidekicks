@@ -1,8 +1,9 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "source": "docs/specs/023-desktop-shell-and-renderer.md — §Console Design (Meridian) §Budgets",
   "plan": "docs/plans/023-desktop-shell-and-renderer.md — Phase 1C (T-023p-1C-1..8), invariant I-023-14",
-  "description": "The single source of truth for every numeric budget the console is gated on. Every budget the spec's §Budgets table names appears here exactly once, whether or not this revision can measure it: a budget silently omitted is a budget nobody notices is ungated. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `producedBy`, the Plan-023 task that makes it measurable and, in `notMeasurableReason`, what is missing. Every harness that reads this file prints one line per \"n/a\" entry beside the budgets it did measure.",
+  "description": "The single source of truth for every numeric budget the console is gated on. Rows carry a `scope`. A `product` row is one of `Spec-023 §Console Design (Meridian)` §Budgets' own figures: every budget that table names appears here exactly once, whether or not this revision can measure it, because a budget silently omitted is a budget nobody notices is ungated. A `harness` row is a bound the test scaffolding itself applies — no spec figure stands behind it, so its `specTarget` states the bound in its own terms while `harnessBudgetDerivation` states, once for the whole set, why those figures and not others. Both kinds live here for the same reason: one value, one home. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `producedBy`, the Plan-023 task that makes it measurable and, in `notMeasurableReason`, what is missing. Every harness that reads this file prints one line per \"n/a\" entry beside the budgets it did measure.",
+  "harnessBudgetDerivation": "The five `console-*` harness rows are the slices of ONE tier timeout, so their derivation is a property of the set and is stated here rather than five times over. Three of them bound the launch: `launch-deadline.ts` mints a single deadline per launch and divides it into readiness, the frame witness, and cleanup, so a launch that overruns produces its own diagnostic instead of vitest's undiagnosable kill. The other two bound what runs BETWEEN a settled launch and its cleanup — the caller's test body, which was budgeted by nothing until 2026-09-05 and could therefore be killed by vitest mid-poll, before the poll's own message or the cleanup settled, leaving an Electron alive. A launching tier's `testTimeout` is now DERIVED from these rows rather than written as a literal: `tierTimeoutFor()` in `launch-deadline.ts` sums the launch budget, the body allowance that tier applies, and a 2 000 ms settlement residual — a floor rather than a ceiling, which is why it is a constant beside those rows and not a row among them, since every row here is a ceiling. `architecture/launch-deadline.test.ts` resolves every launching tier through `createVitest` and holds its real `testTimeout` and `hookTimeout` against those derived figures, never against a literal copied out of the config. The body allowance is per tier because the two tiers' bodies are different subjects — a driven interaction against a sustained workload — and a tier that states none gets the shorter one, so a new tier fails loudly inside its own bound rather than quietly under vitest's. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged phase rather than an expectation.",
   "unitConventions": {
     "kB": "1000 bytes (SI). The spec writes `kB`; the SI reading is also the stricter one (450 kB = 450000 B, against 450 KiB = 460800 B), so taking it costs the budget nothing and cannot make a passing measurement out of a failing one.",
     "MB": "1000000 bytes (SI), by the same reading and the same reasoning (120 MB = 120000000 B, against 120 MiB = 125829120 B).",
@@ -31,7 +32,9 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-1",
       "measuredBy": "apps/desktop/scripts/budget/measure-bundle.mts",
-      "notes": "Gated on gzip because the spec's figure is a gzip figure. Brotli is measured and reported for every asset beside it — it is what the renderer protocol handler can actually serve — but it is reported, never gated, so the gate and the spec agree byte for byte. CI enforcement of this gate is T-023p-1C-8's leg; the measurement and its budget row land here."
+      "subjectSymbol": "RendererBundleMeasurer",
+      "notes": "Gated on gzip because the spec's figure is a gzip figure. Brotli is measured and reported for every asset beside it — it is what the renderer protocol handler can actually serve — but it is reported, never gated, so the gate and the spec agree byte for byte. CI enforcement of this gate is T-023p-1C-8's leg; the measurement and its budget row land here.",
+      "scope": "product"
     },
     {
       "id": "frame-time-p95-four-lanes",
@@ -48,7 +51,9 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-2",
       "measuredBy": "apps/desktop/test/console/endurance/frame-time.test.ts",
-      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. Off that class the harness still runs and prints the figure — the instrument is exercised everywhere and the comparison is withheld — which `test/console/endurance/pinned-runner-class.ts` decides for the whole tier. The reading is the median of three fresh launches' p95, each sampling 300 frame durations with a warm-up discarded, taken by nearest rank; a frame's duration is measured from the start of its `requestAnimationFrame` callback to the first task that runs after that frame's rendering has been committed, which is the main-thread work the frame cost and not the interval between frames — an interval is bounded below by the surface's own refresh period, so on the 60 Hz reference profile it reads ~16.7 ms for a renderer doing nothing and can never be under this ceiling; the warm-up is a frame count rather than the protocol's ten seconds because a frozen clock walked for ten seconds would deliver the whole script before the first sample, which the harness states in full. No runner-calibrated threshold is recorded yet, so the comparison is against this row's own product limit. The flagship scenario is the four-lane session and its script now drives one: four runs mid-turn at the same tick with interleaved thinking, message, and tool beats, an approval blocking one lane while the other three keep talking, a cost reading per lane, and a helper run threaded to the turn that spawned it. The run asserts three things about its own sampled window rather than describing them — the script finished delivering inside it, it was still arriving during it, and four lanes were streaming inside it, the last read off the scenario's beats by `src/renderer/src/console/bridge/scenarios/streaming-lanes.ts` and checked against the scenario's own cast size. Until 2026-09-02 the row was enforced against a skeleton script of eight beats with no assistant or tool row in it at all, so the comparison could stay green over a console that had never streamed anything; that script's own `notMeasurableReason` said as much and was deleted rather than answered. Until 2026-09-02 the harness sampled the interval instead, which is why the row went red on the pinned runner at 16.80 ms while the same tree read 9.90 ms on a 120 Hz laptop: each machine was reporting its own refresh period. Measured after the correction on an eight-core laptop across three passes of the tier: per-run p95 6.80–9.20 ms beside a p50 of 0.10–0.20 ms. Both statistics are printed, because a p50 sitting at the surface's refresh period is the cadence being reported rather than the console's work. The spread is recorded rather than a single figure pinned, because a duration is a property of this machine's CPU as much as of the console — which is the same fact that keeps the comparison on the pinned runner class, and off that class this row gates nothing."
+      "subjectSymbol": "sampleFrameTimings",
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. Off that class the harness still runs and prints the figure — the instrument is exercised everywhere and the comparison is withheld — which `test/console/endurance/pinned-runner-class.ts` decides for the whole tier. The reading is the median of three fresh launches' p95, each sampling 300 frame durations with a warm-up discarded, taken by nearest rank; a frame's duration is measured from the start of its `requestAnimationFrame` callback to the first task that runs after that frame's rendering has been committed, which is the main-thread work the frame cost and not the interval between frames — an interval is bounded below by the surface's own refresh period, so on the 60 Hz reference profile it reads ~16.7 ms for a renderer doing nothing and can never be under this ceiling; the warm-up is a frame count rather than the protocol's ten seconds because a frozen clock walked for ten seconds would deliver the whole script before the first sample, which the harness states in full. No runner-calibrated threshold is recorded yet, so the comparison is against this row's own product limit. The flagship scenario is the four-lane session and its script now drives one: four runs mid-turn at the same tick with interleaved thinking, message, and tool beats, an approval blocking one lane while the other three keep talking, a cost reading per lane, and a helper run threaded to the turn that spawned it. The run asserts three things about its own sampled window rather than describing them — the script finished delivering inside it, it was still arriving during it, and four lanes were streaming inside it, the last read off the scenario's beats by `src/renderer/src/console/bridge/scenarios/streaming-lanes.ts` and checked against the scenario's own cast size. Until 2026-09-02 the row was enforced against a skeleton script of eight beats with no assistant or tool row in it at all, so the comparison could stay green over a console that had never streamed anything; that script's own `notMeasurableReason` said as much and was deleted rather than answered. Until 2026-09-02 the harness sampled the interval instead, which is why the row went red on the pinned runner at 16.80 ms while the same tree read 9.90 ms on a 120 Hz laptop: each machine was reporting its own refresh period. Measured after the correction on an eight-core laptop across three passes of the tier: per-run p95 6.80–9.20 ms beside a p50 of 0.10–0.20 ms. Both statistics are printed, because a p50 sitting at the surface's refresh period is the cadence being reported rather than the console's work. The spread is recorded rather than a single figure pinned, because a duration is a property of this machine's CPU as much as of the console — which is the same fact that keeps the comparison on the pinned runner class, and off that class this row gates nothing.",
+      "scope": "product"
     },
     {
       "id": "renderer-heap-at-rest",
@@ -65,7 +70,9 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
       "measuredBy": "apps/desktop/test/console/endurance/heap-at-rest.test.ts",
-      "notes": "Deliberately NOT measured in a Node process. Until 2026-09-02 this row was `enforced` against `process.memoryUsage().heapUsed` in the budget CLI with a stand-in entity map retained — no Chromium, no renderer isolate, no React, no DOM, no console store — so the gate could report green over a renderer well past 120 MB, which is the one failure a budget exists to catch. It was then recorded `n/a` rather than re-pointed, because the subject was out of reach: nothing delivered events into a session store, so the only reading available was a renderer with an EMPTY session open. The fixture bridge now serves the growth port's session read and the scenario engine drives beats through the apply chokepoint into it, so the subject exists and the row is gated again — on the endurance tier, which launches the built console, opens the flagship scenario's own session, walks the frozen clock over the whole script, asserts the store admitted events through a live subscription, and reads `performance.memory.usedJSHeapSize` as the minimum over settling samples. That figure counts allocated-and-not-yet-collected bytes, so it sits at or above the retained heap this row bounds, which is the safe direction for a ceiling. The reading is a renderer isolate figure taken in the Electron shell in unobtrusive-window mode; the substrate floor recorded on 2026-09-02 with no session content was 6,564,912 B."
+      "subjectSymbol": "readSettledHeapBytes",
+      "notes": "Deliberately NOT measured in a Node process. Until 2026-09-02 this row was `enforced` against `process.memoryUsage().heapUsed` in the budget CLI with a stand-in entity map retained — no Chromium, no renderer isolate, no React, no DOM, no console store — so the gate could report green over a renderer well past 120 MB, which is the one failure a budget exists to catch. It was then recorded `n/a` rather than re-pointed, because the subject was out of reach: nothing delivered events into a session store, so the only reading available was a renderer with an EMPTY session open. The fixture bridge now serves the growth port's session read and the scenario engine drives beats through the apply chokepoint into it, so the subject exists and the row is gated again — on the endurance tier, which launches the built console, opens the flagship scenario's own session, walks the frozen clock over the whole script, asserts the store admitted events through a live subscription, and reads `performance.memory.usedJSHeapSize` as the minimum over settling samples. That figure counts allocated-and-not-yet-collected bytes, so it sits at or above the retained heap this row bounds, which is the safe direction for a ceiling. The reading is a renderer isolate figure taken in the Electron shell in unobtrusive-window mode; the substrate floor recorded on 2026-09-02 with no session content was 6,564,912 B.",
+      "scope": "product"
     },
     {
       "id": "steady-heap-flagship-replay",
@@ -85,8 +92,10 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "The endurance tier does not exist: no thirty-minute flagship replay, no CDP heap-snapshot helper, and no dated endurance ledger to record refutations in. The scenario it replays is additionally T-023p-1C-2's.",
-      "notes": "`Spec-023 §Console Test Tiers` places this on the endurance tier — heap snapshots captured by an own CDP helper, analyzed with memlab, results in a dated ledger."
+      "notes": "`Spec-023 §Console Test Tiers` places this on the endurance tier — heap snapshots captured by an own CDP helper, analyzed with memlab, results in a dated ledger.",
+      "scope": "product"
     },
     {
       "id": "idle-cpu",
@@ -106,8 +115,10 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "There is no session surface to open and no scheduler whose timers could be enumerated; the measurement runs the built bundle in the Electron shell against the flagship scenario (T-023p-1C-2) and is taken by the endurance reference run (T-023p-1C-8).",
-      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. The timer-enumeration half is a tripwire on the architecture tier, not a number."
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. The timer-enumeration half is a tripwire on the architecture tier, not a number.",
+      "scope": "product"
     },
     {
       "id": "streaming-cpu-one-lane",
@@ -125,8 +136,10 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "There is no reveal engine and no streaming lane. Both are T-023p-1C-2's; the measurement itself is the endurance reference run's at T-023p-1C-8.",
-      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`."
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`.",
+      "scope": "product"
     },
     {
       "id": "terminal-instance-memory",
@@ -143,8 +156,10 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-7",
       "measuredBy": null,
+      "subjectSymbol": null,
       "notMeasurableReason": "The `terminal` pane kind does not exist, and neither does the renderer pool whose per-instance cost this budget bounds. T-023p-1C-7 builds both over fixtures.",
-      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget)."
+      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget).",
+      "scope": "product"
     },
     {
       "id": "time-to-first-ledger-row",
@@ -161,7 +176,104 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-2",
       "measuredBy": "apps/desktop/test/console/endurance/first-ledger-row.test.ts",
-      "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets. Window show is read as the renderer's own `first-contentful-paint` entry: `revealWindow` is called from `ready-to-show`, which Electron emits once the page has been rendered, and on macOS an automated launch deliberately never reveals the window at all — so there is no `show` timestamp to read and no wall clock is read in either process. The interval ends at the animation frame after the first row element is laid out, and the whole of it is measured inside one page function, so the only harness cost inside it is the gap between the launch handshake settling and that function starting, which the report prints separately rather than subtracting. Measured 43–46 ms of an 800 ms ceiling on an eight-core laptop across three runs of the tier, 13–22 ms of it that handshake."
+      "subjectSymbol": "measureFirstLedgerRow",
+      "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets. Window show is read as the renderer's own `first-contentful-paint` entry: `revealWindow` is called from `ready-to-show`, which Electron emits once the page has been rendered, and on macOS an automated launch deliberately never reveals the window at all — so there is no `show` timestamp to read and no wall clock is read in either process. The interval ends at the animation frame after the first row element is laid out, and the whole of it is measured inside one page function, so the only harness cost inside it is the gap between the launch handshake settling and that function starting, which the report prints separately rather than subtracting. Measured 43–46 ms of an 800 ms ceiling on an eight-core laptop across three runs of the tier, 13–22 ms of it that handshake.",
+      "scope": "product"
+    },
+    {
+      "id": "console-launch-readiness",
+      "label": "Console launch readiness ladder",
+      "subject": "Wall time from `_electron.launch()` to the renderer's frame element being present — the whole cold-start ladder (first window, `load`, the frame selector) charged once between its phases rather than once each.",
+      "specTarget": "≤ 30 000 ms across every readiness phase combined",
+      "limit": {
+        "comparison": "<=",
+        "value": 30000,
+        "unit": "ms",
+        "canonicalValue": 30000,
+        "canonicalUnit": "ms"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
+      "subjectSymbol": "LaunchDeadline",
+      "notes": "The whole cold-start ladder — first window, `load`, the frame selector — charged once between its phases rather than once each, which is what the four independent 30 000 ms allowances this replaced got wrong. Generous on purpose: a cold CI runner with no warm Electron cache is the case it must not flake on. The derivation these three bounds share is stated once in `harnessBudgetDerivation`. Measured by `architecture/launch-deadline.test.ts`, which drives the real `LaunchDeadline` this ladder draws from and holds the aggregate against every launching tier's resolved patience."
+    },
+    {
+      "id": "console-launch-frame-witness",
+      "label": "Console launch first-frame witness",
+      "subject": "The wait, after the renderer reports ready, for the first animation frame to arrive — the reading that separates a window that painted from one that merely opened.",
+      "specTarget": "≤ 15 000 ms from readiness, not from launch",
+      "limit": {
+        "comparison": "<=",
+        "value": 15000,
+        "unit": "ms",
+        "canonicalValue": 15000,
+        "canonicalUnit": "ms"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": "apps/desktop/test/console/architecture/frame-witness.test.ts",
+      "subjectSymbol": "FrameWitness",
+      "notes": "Armed only once readiness has landed, so a slow boot is charged to the readiness row rather than reported as a frame that never came — the flake this split was introduced to remove. What it answers is whether the window painted at all, and late is not the same as never: it fails only on never. First-frame LATENCY is bounded by nothing at this revision — `frame-time-p95-four-lanes` is the row that would catch a frame-schedule regression and it is `n/a` until T-023p-1C-2 — so a green witness is a claim about paint and never about how long the paint took. The derivation these three bounds share is stated once in `harnessBudgetDerivation`. Measured by the suite that drives the race rather than by the one that reads the figure: `architecture/frame-witness.test.ts` constructs the real `FrameWitness` over a source that delivers late and one that never delivers, which is the boundary this bound decides. It named `architecture/launch-deadline.test.ts` until 2026-09-05, a file that holds this figure against its constant and drives no witness at all."
+    },
+    {
+      "id": "console-launch-cleanup",
+      "label": "Console launch cleanup",
+      "subject": "The bound `application.close()` is raced against before the Electron process tree is SIGKILLed and the temporary profile removed.",
+      "specTarget": "≤ 10 000 ms, or the tree is terminated",
+      "limit": {
+        "comparison": "<=",
+        "value": 10000,
+        "unit": "ms",
+        "canonicalValue": 10000,
+        "canonicalUnit": "ms"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": "apps/desktop/test/console/architecture/bounded-cleanup.test.ts",
+      "subjectSymbol": "BoundedCleanup",
+      "notes": "A ceiling rather than a target: what it guards against is an Electron wedged rather than slow, so what matters is that some finite number is enforced. It is the WHOLE applied bound and the same one on both closing paths — a close reached from a failed launch is held to it exactly as one reached minutes later on the success path is, so the figure a budget audit reads is the figure the harness enforces. It was a floor until 2026-09-04, raised by whatever the launch deadline had left, which handed an early readiness failure nearly the whole 55 000 ms deadline. Because `terminated` records and passes, this figure decides when the process tree is SIGKILLed rather than whether the tier goes red; `unterminable` and `closed-after-rejection` fail, and those are the two settlements that harm the launches after them. The derivation these three bounds share is stated once in `harnessBudgetDerivation`. Measured by `architecture/bounded-cleanup.test.ts`, which races a real `BoundedCleanup` against a close that never settles and one that rejects; it named `architecture/launch-deadline.test.ts` until 2026-09-05, which applies this bound to nothing."
+    },
+    {
+      "id": "console-launch-body",
+      "label": "Console launch test-body allowance",
+      "subject": "The wall time a test body gets between a settled launch and its cleanup — the interval `withLaunchedConsole` runs the caller's own function in, and the default for a tier that states no allowance of its own.",
+      "specTarget": "≤ 70 000 ms between a settled launch and its cleanup",
+      "limit": {
+        "comparison": "<=",
+        "value": 70000,
+        "unit": "ms",
+        "canonicalValue": 70000,
+        "canonicalUnit": "ms"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": "apps/desktop/test/console/architecture/launch-body.test.ts",
+      "subjectSymbol": "BodyAllowance",
+      "notes": "Counted from the worst body in the tree rather than chosen, and RE-COUNTED on 2026-09-05 once every wait in that body was made to draw on this allowance. `e2e/frame-boot.test.ts`'s scheme-persistence case declares, in order: the palette overlay opening at 10 000 ms; three 10 000 ms `expect.poll` waits, on the applied attribute, on the durable write, and on the attribute after a reload — 30 000 ms in all; and the reload, whose navigation and the frame element it must produce share ONE 30 000 ms clock, because the renderer boot they perform between them is the same subject `console-launch-readiness` bounds. 10 000 + 30 000 + 30 000 is this figure. The 60 000 it replaces counted the polls and the reload and omitted the overlay wait, which carried Playwright's default rather than any figure written down here. A bound under a body's own declared waits would fire first and replace that body's message (\"the scheme did not change\") with a sentence about a clock, which is the inversion the launch deadline exists to undo. A body is handed what is LEFT of this allowance and asks for `boundedMs(<its own bound>)`, the smaller of the two, so the first wait that cannot fit fails with ITS sentence rather than the generic overrun; `architecture/body-allowance-consumption.test.ts` reads both launching tiers and fails a bounded wait that names no allowance. The derivation these rows share is stated once in `harnessBudgetDerivation`."
+    },
+    {
+      "id": "console-endurance-body",
+      "label": "Console endurance test-body allowance",
+      "subject": "The wall time the endurance tier's sustained workload gets between a settled launch and its cleanup — hundreds of driven churn cycles and the settling heap samples either side of them.",
+      "specTarget": "≤ 540 000 ms between a settled launch and its cleanup",
+      "limit": {
+        "comparison": "<=",
+        "value": 540000,
+        "unit": "ms",
+        "canonicalValue": 540000,
+        "canonicalUnit": "ms"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": "apps/desktop/test/console/architecture/launch-body.test.ts",
+      "subjectSymbol": "ENDURANCE_BODY_ALLOWANCE_MS",
+      "notes": "A separate figure because the endurance body is a different subject from an end-to-end one, not a slower version of it: `steady-state.test.ts` drives 200 churn cycles twice over with settling heap samples either side, which its own count comment measures at roughly 50 ms a cycle — well under a minute warm, and the reason that tier has always carried a patience an order of magnitude past the end-to-end one. Nine minutes keeps the derived tier timeout at the 597 000 ms this tier effectively had before the arithmetic was made explicit, so nothing about a tier nobody has complained about is tightened here. Its own waits draw on this allowance through the same `boundedMs` the end-to-end bodies use, but this FIGURE is deliberately not re-counted from them: a churn cycle's declared bounds are ceilings for a wedged console rather than intervals a run spends, and 200 of them summed would describe no run this tier has ever performed. The derivation these rows share is stated once in `harnessBudgetDerivation`."
     }
   ]
 }

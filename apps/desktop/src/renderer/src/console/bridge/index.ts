@@ -18,7 +18,11 @@
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 
-export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
+export type {
+  ConsoleBridge,
+  // Consumed by T-023p-1C-4
+  ConsoleBridgeSource,
+} from "./console-bridge.js";
 
 // The one answer to "which clock does this window run on". Exported because the
 // two composition roots that build a clocked subsystem — the session registry and
@@ -50,6 +54,29 @@ export {
 } from "./BridgeProvider.js";
 
 export { createFixtureBridge } from "./fixture-bridge.js";
+
+// The one door a daemon reply enters the console through. Exported as the CALL
+// plus the answer it gives and the method set it admits — and deliberately not the
+// registry, the bindings, or the schemas behind them: a surface names a method and
+// renders a served value or a refusal, and a surface that could reach a schema
+// would be a surface that could parse a second time, differently.
+export {
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  callDaemon,
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  DAEMON_REPLY_REFUSAL_ORIGIN,
+} from "./daemon-reply.js";
+export type {
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  DaemonReply,
+  // Consumed by T-023p-1C-2, T-023p-1C-3
+  DaemonReplyRefusalCode,
+} from "./daemon-reply.js";
+export type {
+  ConsoleDaemonMethod,
+  DaemonRequestOf,
+  DaemonResponseOf,
+} from "./daemon-reply-registry.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
@@ -89,3 +116,16 @@ export { SIDEKICK_POSTURE_MODES, type SidekickPostureMode } from "./sidekick-def
 // only caller is the provider beside it, and its only reader is a driver in
 // another process that imports the module directly.
 export { ScenarioSelection } from "./scenario-selection.js";
+
+// The decode boundary for a delivered session-event envelope. Through the door
+// because the frame's binder is the reader and the parse is this family's job: the
+// wire's own shapes are read here and nowhere above.
+export { readConsoleSessionEvent } from "./session-event-payload.js";
+
+// `entity-body-reads.ts` is deliberately NOT published here. Its two reads have no
+// production consumer yet — the composition root will hand `membershipRoleOf` to
+// `useCallerMembershipRole` as its injected lookup, and the stamped posture waits on
+// the projector that carries the member into a run body — and a door line whose only
+// importer is a test is the class `test/console/architecture/barrel-census.test.ts`
+// fails. Their suites read the declaring module, which is the disposition that census
+// names for exactly this state.

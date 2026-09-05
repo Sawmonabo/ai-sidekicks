@@ -41,12 +41,11 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
+import { withLaunchedConsole, type ConsoleApplication } from "../electron-harness.js";
+import { fixtureBundleExists } from "../fixture-bundle.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "../fixture-handles.js";
 import {
-  SCENARIO_FIXTURE_GLOBAL,
-  fixtureBundleExists,
-  launchConsole,
-} from "../electron-harness.js";
-import {
+  ENDURANCE_LAUNCH_OPTIONS,
   FLAGSHIP_SESSION_ROUTE,
   LEDGER_ROW_SELECTOR,
   WORKSPACE_SURFACE_SELECTOR,
@@ -105,7 +104,7 @@ interface FirstLedgerRowReading {
  * rather than a re-implementation of it.
  */
 async function measureFirstLedgerRow(
-  consoleApplication: Awaited<ReturnType<typeof launchConsole>>,
+  consoleApplication: ConsoleApplication,
   plantedStallMilliseconds: number,
 ): Promise<FirstLedgerRowReading | null> {
   const { stepMilliseconds, stepCount } = flagshipDeliverySchedule();
@@ -256,8 +255,7 @@ describe("the time-to-first-ledger-row budget row", () => {
 
 describe.skipIf(!bundleIsBuilt)("endurance — the first ledger row after launch", () => {
   it("paints the first ledger row inside the budget's ceiling", async () => {
-    const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
-    try {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const reading = requireReading(await measureFirstLedgerRow(consoleApplication, 0));
 
       // The run delivered a session rather than timing an empty one. Both halves
@@ -274,9 +272,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first ledger row after launch
         `${budget.label}: ${elapsedFromWindowShow(reading).toFixed(1)} ms against a ` +
           `${String(budget.limit.canonicalValue)} ms ceiling`,
       ).toBe(true);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("negative control: a planted slow paint crosses the same ceiling", async () => {
@@ -286,8 +282,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first ledger row after launch
     // window being shown and the ledger's first row, and it is driven through the
     // SAME measurement function — so what is shown is that this gate's own
     // comparison fails on a console that boots slowly.
-    const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
-    try {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const reading = requireReading(
         await measureFirstLedgerRow(consoleApplication, PLANTED_PAINT_STALL_MS),
       );
@@ -299,8 +294,6 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first ledger row after launch
         "a console that took nearly a second to paint its first row passed the budget, so this gate " +
           "would report green over the one failure it exists to catch",
       ).toBe(false);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 });

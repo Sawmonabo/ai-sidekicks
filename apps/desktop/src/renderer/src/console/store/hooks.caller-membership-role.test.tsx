@@ -23,6 +23,7 @@ import {
   CALLER_IDENTITY_READ_FAILED,
   useCallerMembershipRole,
   type CallerParticipantReader,
+  type MembershipRoleReader,
 } from "./hooks.js";
 import { SessionStore } from "./session-store.js";
 
@@ -41,12 +42,26 @@ function storeWithRoster(rolesByParticipantId: Readonly<Record<string, string>>)
   return store;
 }
 
+/**
+ * A double for the roster-role PORT, not for the narrowing behind it.
+ *
+ * The hook under test chains an identity read to a roster lookup and decides neither
+ * — which participant it is comes from the injected reader, and what a body member
+ * means comes from the injected lookup. The real lookup narrows against the
+ * registered wire shape and is driven by `bridge/entity-body-reads.test.ts`; driving
+ * it here as well would test that module twice and this one not at all.
+ */
+const readRosterRole: MembershipRoleReader = (participant) => {
+  const role = participant?.body?.["role"];
+  return typeof role === "string" ? (role as ReturnType<MembershipRoleReader>) : undefined;
+};
+
 /** The rendered answer, flattened to one string so a case reads as one assertion. */
 function Caller(props: {
   readonly read: CallerParticipantReader;
   readonly store: SessionStore;
 }): React.JSX.Element {
-  const result = useCallerMembershipRole(props.read, props.store);
+  const result = useCallerMembershipRole(props.read, props.store, readRosterRole);
   const detail =
     result.status === "read"
       ? `${result.participantId}:${result.role ?? "no-role"}`

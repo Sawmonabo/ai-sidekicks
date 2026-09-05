@@ -84,13 +84,10 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  SCENARIO_FIXTURE_GLOBAL,
-  fixtureBundleExists,
-  launchConsole,
-  type ConsoleApplication,
-} from "../electron-harness.js";
-import { openFlagshipSessionRoute } from "./console-workload.js";
+import { withLaunchedConsole, type ConsoleApplication } from "../electron-harness.js";
+import { fixtureBundleExists } from "../fixture-bundle.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "../fixture-handles.js";
+import { ENDURANCE_LAUNCH_OPTIONS, openFlagshipSessionRoute } from "./console-workload.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
 import {
   FLAGSHIP_LANE_COUNT,
@@ -263,8 +260,7 @@ async function sampleFrameTimings(
 
 /** One launch, opened on the flagship session and sampled. */
 async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun> {
-  const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
-  try {
+  return await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
     await openFlagshipSessionRoute(consoleApplication);
     const run = await sampleFrameTimings(consoleApplication, plantedStallMilliseconds);
     expect(
@@ -277,9 +273,7 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
     }
     expect(run.frameDurationsMs).toHaveLength(SAMPLED_FRAME_COUNT);
     return run;
-  } finally {
-    await consoleApplication.close();
-  }
+  });
 }
 
 /**

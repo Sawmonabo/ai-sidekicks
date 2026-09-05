@@ -97,3 +97,64 @@ describe("isConsoleRefusal — recognition across a family boundary", () => {
     expect(isConsoleRefusal({ code: "c", detail: "d", origin: null })).toBe(false);
   });
 });
+
+describe("isConsoleRefusal — total, because every caller is already on a failure path", () => {
+  /** The unguarded read the guard used to perform, so the counterfactual is runnable. */
+  const readDirectly = (value: unknown): unknown => (value as { readonly code?: unknown }).code;
+
+  it("answers false for a value whose property access throws", () => {
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("this getter is hostile");
+        },
+      },
+    );
+    // The negative control, and it is the whole reason this case exists: the read the
+    // guard used to perform THROWS on this value. A predicate that throws is not a
+    // guard — it escapes the `catch` that called it and unmounts the surface whose
+    // only job was to report the failure.
+    expect(() => readDirectly(hostile)).toThrow();
+    expect(isConsoleRefusal(hostile)).toBe(false);
+  });
+
+  it("answers false when only one of the three members is unreadable", () => {
+    // The partial case, which is the realistic one: two members read fine and the
+    // third throws, so a guard that short-circuits on the first two still reaches it.
+    const partiallyHostile = {
+      code: "c",
+      detail: "d",
+      get origin(): never {
+        throw new Error("this getter is hostile");
+      },
+    };
+    expect(() => partiallyHostile.origin).toThrow();
+    expect(isConsoleRefusal(partiallyHostile)).toBe(false);
+  });
+
+  it("answers false for a null-prototype object carrying nothing", () => {
+    expect(isConsoleRefusal(Object.create(null))).toBe(false);
+  });
+
+  it("accepts a null-prototype carrier, object or function, that holds the three members", () => {
+    // A refusal that crossed a structured clone or arrived from another realm has no
+    // prototype chain left, and it is still a refusal. The function case is the one
+    // the old `typeof value !== "object"` pre-check rejected outright: a function is a
+    // property container too, and `typeof` calls it neither `"object"` nor `null`.
+    const nullPrototypeObject = Object.assign(Object.create(null) as object, {
+      code: "c",
+      detail: "d",
+      origin: "o",
+    });
+    expect(isConsoleRefusal(nullPrototypeObject)).toBe(true);
+
+    const carrierFunction = Object.assign(function carrier(): void {}, {
+      code: "c",
+      detail: "d",
+      origin: "o",
+    });
+    Object.setPrototypeOf(carrierFunction, null);
+    expect(isConsoleRefusal(carrierFunction)).toBe(true);
+  });
+});

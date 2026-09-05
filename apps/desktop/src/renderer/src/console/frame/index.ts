@@ -15,8 +15,8 @@ import "./frame.css";
 
 export { ConsoleRoot } from "./ConsoleRoot.js";
 
-export {
-  MERIDIAN_STYLE_ELEMENT_ID,
-  applyConsoleScheme,
-  installMeridianTokens,
-} from "./token-installation.js";
+// The two calls a composition root makes. The element id they install under is not
+// beside them: nothing above this family names it, and the tiers that assert the
+// sheet landed exactly once read it from `token-installation.ts` — the module that
+// both declares it and puts it in the document.
+export { applyConsoleScheme, installMeridianTokens } from "./token-installation.js";

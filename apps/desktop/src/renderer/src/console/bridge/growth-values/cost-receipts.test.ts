@@ -18,7 +18,7 @@
 import { BILLING_MODES, type BillingMode } from "@ai-sidekicks/contracts";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { GrowthCostReceiptAccountRow } from "./index.js";
+import type { GrowthCostReceiptAccountRow } from "./cost-receipts.js";
 
 /** The member under test, named once so every case reads the same declaration. */
 type ReceiptBillingMode = GrowthCostReceiptAccountRow["billingMode"];

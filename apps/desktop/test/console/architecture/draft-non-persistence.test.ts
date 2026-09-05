@@ -20,24 +20,36 @@
 //
 // Each has a negative control, because a guard that cannot fail is not a guard.
 
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const PERSISTENCE_DIRECTORY = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "src",
-  "renderer",
-  "src",
-  "console",
-  "persistence",
-);
+// Statically, not through `await import()` inside each case, which is what these
+// three used to do. A dynamic import inside a case charges the module's whole
+// transform-and-load cost — Vite resolving the console's persistence graph — to
+// that case's `testTimeout`, and this tier declares none, so the bill landed
+// against Vitest's 5000 ms default; on a loaded runner with six turbo tasks in
+// flight that is a coin flip rather than a budget. A static import pays the same
+// cost during file collection, which no per-test budget bounds, and it is what
+// the two sibling suites in this tier that import console source already do
+// (`scenario-wire-truth.test.ts`, `scenario-delivery-shape.test.ts`). Nothing
+// about the assertions changes: the chokepoint is still CALLED, not read.
+import {
+  PERSISTED_VALUE_CLASSES,
+  validatePersistedValue,
+} from "../../../src/renderer/src/console/persistence/value-classes.js";
+
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
+
+const PERSISTENCE_DIRECTORY = join(CONSOLE_DIRECTORY, "persistence");
+
+/** The persistence subtree, through the tier's one walk. */
+const PERSISTENCE_MODULES = consoleSourceModules({ roots: [PERSISTENCE_DIRECTORY] });
 
 /**
  * The browser storage APIs a renderer can reach. `caches` and `openDatabase` are
@@ -64,13 +76,13 @@ const STORAGE_ADAPTER_FILES: readonly string[] = ["indexeddb-adapter.ts", "memor
 const PARTICIPANT_CONTENT_WORDS: readonly string[] = ["draft", "composer", "form"];
 
 function persistenceSourceFiles(): readonly string[] {
-  return readdirSync(PERSISTENCE_DIRECTORY)
-    .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))
-    .sort();
+  return PERSISTENCE_MODULES.map((module) => module.relativePath);
 }
 
 function readPersistenceSource(file: string): string {
-  return readFileSync(join(PERSISTENCE_DIRECTORY, file), "utf8");
+  return readConsoleSourceModule(
+    moduleNamed(PERSISTENCE_MODULES, `console/persistence/${file}`, "a persistence module"),
+  );
 }
 
 /**
@@ -87,9 +99,7 @@ function withoutComments(source: string): string {
 }
 
 describe("tripwire — the durable store admits no participant-authored text", () => {
-  it("names no draft, composer, or form class in its closed enumeration", async () => {
-    const { PERSISTED_VALUE_CLASSES } =
-      await import("../../../src/renderer/src/console/persistence/value-classes.js");
+  it("names no draft, composer, or form class in its closed enumeration", () => {
     for (const valueClass of PERSISTED_VALUE_CLASSES) {
       for (const word of PARTICIPANT_CONTENT_WORDS) {
         expect(valueClass.toLowerCase()).not.toContain(word);
@@ -97,9 +107,7 @@ describe("tripwire — the durable store admits no participant-authored text", (
     }
   });
 
-  it("refuses prose through the write chokepoint, whatever class is claimed", async () => {
-    const { PERSISTED_VALUE_CLASSES, validatePersistedValue } =
-      await import("../../../src/renderer/src/console/persistence/value-classes.js");
+  it("refuses prose through the write chokepoint, whatever class is claimed", () => {
     // A real composer draft: sentences, punctuation, spaces. Every admissible
     // class is tried, so the guarantee is "no class takes this" rather than "the
     // one class I thought of does not".
@@ -111,9 +119,7 @@ describe("tripwire — the durable store admits no participant-authored text", (
     }
   });
 
-  it("negative control: the chokepoint accepts the UI state it exists for", async () => {
-    const { validatePersistedValue } =
-      await import("../../../src/renderer/src/console/persistence/value-classes.js");
+  it("negative control: the chokepoint accepts the UI state it exists for", () => {
     // Without this, a `validatePersistedValue` that refused EVERYTHING would pass
     // the case above while having stopped working entirely.
     expect(validatePersistedValue("scheme", "dark")).toBeUndefined();

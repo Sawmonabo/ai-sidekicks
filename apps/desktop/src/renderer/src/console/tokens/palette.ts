@@ -113,7 +113,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // no ink whatsoever buys the light scheme a visibly darker press. Its leg
   // therefore takes the deepest face the floor admits, L 0.565 at 4.57:1, with
   // chroma up against the sRGB edge at this lightness so the state reads as a
-  // deeper face rather than a dimmer one; `primitives.css` carries the rest of the
+  // deeper face rather than a dimmer one; `accent-fill.css` carries the rest of the
   // press on the control's boundary, which takes the ink and costs no ratio. The
   // dark leg starts at 7.41:1 and can afford a real deepening: L 0.68 at 6.17:1.
   //
