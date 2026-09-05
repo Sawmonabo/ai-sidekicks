@@ -71,6 +71,15 @@
 // The close-tab chord of 12.2 lives here too, and not beside the tab strip, because it
 // is the same question — is this keystroke the application's? — and a second modifier
 // comparison written next to the strip is how the two answers start to disagree.
+//
+// WHAT IS BUILT AHEAD OF ITS WIRE, AND WHY IT SAYS SO. The close-tab half already has a
+// caller: `panes/browser/BrowserPane.tsx` reads a descriptor off a real event and asks
+// this module whether it is the chord. The CLAIM half does not, and cannot until the
+// browser bridge namespace exists to carry a mirror between the main process and the
+// renderer — so `KeyboardHandback`, `projectClaimableChords`,
+// `chordCarriesApplicationModifier`, and the token set they share carry a one-line
+// claim naming the growth slate row that owns that wire. The claim is the difference
+// between a symbol waiting for a named consumer and one nothing will ever import.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { chordMatchesEvent, parseChord } from "../palette/index.js";
@@ -149,10 +158,12 @@ export function carriesApplicationModifier(descriptor: ChordDescriptor): boolean
  * optional modifier, and the console's one chord parser stays
  * `palette/keybinding-chord.ts`.
  */
+// Consumed by growth slate row `browser-pane-namespace`
 export const CLAIMABLE_MODIFIER_TOKENS: readonly ChordModifierToken[] =
   CHORD_MODIFIER_TOKENS.filter((token) => token !== "Shift");
 
 /** Whether an authored chord names a modifier that makes it claimable at all. */
+// Consumed by growth slate row `browser-pane-namespace`
 export function chordCarriesApplicationModifier(chord: string): boolean {
   const authored = chord.trim();
   // A SEQUENCE IS NOT CLAIMABLE, and it has to be refused here rather than left to the
@@ -180,6 +191,7 @@ export function chordCarriesApplicationModifier(chord: string): boolean {
  * ever holding a chord it must not claim: a bare `KeyS` binding never reaches the
  * mirror, so no amount of main-process logic can take `S` away from a page.
  */
+// Consumed by growth slate row `browser-pane-namespace`
 export function projectClaimableChords(chords: readonly string[]): readonly string[] {
   return [...new Set(chords.filter((chord) => chordCarriesApplicationModifier(chord)))].sort();
 }
@@ -271,6 +283,7 @@ export interface KeyboardHandbackOptions {
  * between calls, and because a replay has to be attributable: `replayCount` is what a
  * test asserts against instead of trusting that a dispatched event was delivered.
  */
+// Consumed by growth slate row `browser-pane-namespace`
 export class KeyboardHandback {
   readonly #readInstalledChords: () => readonly string[] | undefined;
   readonly #platform: ChordPlatform;
