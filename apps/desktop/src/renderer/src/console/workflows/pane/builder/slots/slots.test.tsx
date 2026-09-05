@@ -78,8 +78,7 @@ describe("an unfilled builder slot is reserved, not stubbed", () => {
     // Both contracts name their owning task. If neither did, the assertion above
     // would hold over a component that rendered the whole contract verbatim.
     for (const slot of [WORKFLOW_GRAPH_SLOT, WORKFLOW_DRAFT_SLOT]) {
-      expect(slot.contract.owningTask).toContain("Plan-017");
-      expect(slot.body).toBeUndefined();
+      expect(slot.owningTask).toContain("Plan-017");
     }
   });
 });

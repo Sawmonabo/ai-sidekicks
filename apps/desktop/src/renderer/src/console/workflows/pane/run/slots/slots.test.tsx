@@ -74,8 +74,7 @@ describe("an unfilled slot is reserved, not stubbed", () => {
     // Every contract names its owning task. If none did, the assertion above would
     // hold over a component that rendered the whole contract verbatim.
     for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
-      expect(slot.contract.owningTask).toContain("Plan-017");
-      expect(slot.body).toBeUndefined();
+      expect(slot.owningTask).toContain("Plan-017");
     }
   });
 });

@@ -39,8 +39,7 @@ describe("the conversational start is reserved, not stubbed", () => {
   it("negative control: the contract really does carry that prose, so the case is not vacuous", () => {
     // Without this, the case above would hold over a component that rendered the
     // whole contract verbatim, had the contract simply named nobody.
-    expect(WORKFLOW_CHAT_START_SLOT.contract.owningTask).toContain("Plan-017");
-    expect(WORKFLOW_CHAT_START_SLOT.body).toBeUndefined();
+    expect(WORKFLOW_CHAT_START_SLOT.owningTask).toContain("Plan-017");
   });
 });
 

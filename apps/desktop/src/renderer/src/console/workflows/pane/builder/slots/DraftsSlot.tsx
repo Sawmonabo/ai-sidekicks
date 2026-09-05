@@ -59,13 +59,12 @@ export interface DraftsSlotProps extends DraftsMount {
 
 /** The inspector's drafts, or the honest statement that they are reserved and unbuilt. */
 export function DraftsSlot(props: DraftsSlotProps): React.JSX.Element {
-  const { body: DraftsBodyComponent, ...mount } = props;
+  const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{
-        contract: WORKFLOW_DRAFT_SLOT.contract,
-        body: DraftsBodyComponent === undefined ? undefined : <DraftsBodyComponent {...mount} />,
-      }}
+      seat={WORKFLOW_DRAFT_SLOT}
+      body={body}
+      mount={mount}
       title="The phase inspector is not built yet."
       detail="A phase's form configuration, tool binding and gate open here; nothing typed into them is ever written to disk."
     />

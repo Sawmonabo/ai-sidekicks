@@ -96,21 +96,16 @@ export interface HumanFormSlotProps {
 
 /** The human phase's form, or the honest statement that it is reserved and unbuilt. */
 export function HumanFormSlot(props: HumanFormSlotProps): React.JSX.Element {
-  const { phase, body: HumanFormBodyComponent } = props;
+  const { phase, body } = props;
   return (
     <WorkflowSlotMount
-      slot={{
-        contract: WORKFLOW_HUMAN_FORM_SLOT.contract,
-        // No phase means no body, and never a body rendered against a placeholder: a
-        // form composed against a phase nobody resolved would be answerable in
-        // appearance and unsubmittable in fact. The element is CONSTRUCTED here and
-        // rendered by the mount, so the body keeps its own hook boundary across this
-        // conditional.
-        body:
-          phase === undefined || HumanFormBodyComponent === undefined ? undefined : (
-            <HumanFormBodyComponent {...phase} />
-          ),
-      }}
+      seat={WORKFLOW_HUMAN_FORM_SLOT}
+      body={body}
+      // No phase means no body, and never a body rendered against a placeholder: a
+      // form composed against a phase nobody resolved would be answerable in
+      // appearance and unsubmittable in fact. The mount reads the absence and renders
+      // the reserved shell, so this slot states its rule and composes nothing.
+      mount={phase}
       title="The form a waiting phase needs is not built yet."
       detail="A phase waiting on a person opens its prompt and fields here; until then the phase is readable and not answerable."
     />

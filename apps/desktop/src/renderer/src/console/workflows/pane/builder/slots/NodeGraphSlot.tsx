@@ -78,14 +78,12 @@ export interface NodeGraphSlotProps extends NodeGraphMount {
 
 /** The node graph, or the honest statement that it is reserved and unbuilt. */
 export function NodeGraphSlot(props: NodeGraphSlotProps): React.JSX.Element {
-  const { body: NodeGraphBodyComponent, ...mount } = props;
+  const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{
-        contract: WORKFLOW_GRAPH_SLOT.contract,
-        body:
-          NodeGraphBodyComponent === undefined ? undefined : <NodeGraphBodyComponent {...mount} />,
-      }}
+      seat={WORKFLOW_GRAPH_SLOT}
+      body={body}
+      mount={mount}
       title="The node graph is not built yet."
       detail="Phases, their gates and the sequence edges between them are drawn here once the workflow engine's own canvas ships."
     />

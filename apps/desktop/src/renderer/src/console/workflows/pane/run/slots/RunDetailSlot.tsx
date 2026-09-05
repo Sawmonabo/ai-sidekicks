@@ -72,14 +72,12 @@ export interface RunDetailSlotProps extends RunDetailMount {
 
 /** The run detail, or the honest statement that it is reserved and unbuilt. */
 export function RunDetailSlot(props: RunDetailSlotProps): React.JSX.Element {
-  const { body: RunDetailBodyComponent, ...mount } = props;
+  const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{
-        contract: WORKFLOW_RUN_DETAIL_SLOT.contract,
-        body:
-          RunDetailBodyComponent === undefined ? undefined : <RunDetailBodyComponent {...mount} />,
-      }}
+      seat={WORKFLOW_RUN_DETAIL_SLOT}
+      body={body}
+      mount={mount}
       title="The run detail is not built yet."
       detail="Phase sections, their retries, pool waits and completed outputs render here once the workflow engine's own view ships."
     />
