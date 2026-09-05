@@ -35,8 +35,17 @@ export interface ProposalGateBinding {
  * every caller composes the subject inline — a mount card builds one per worktree row
  * on every render — so a memo keyed on the object would mint a new reader, and a new
  * read, on every render. The parts below are the whole of every arm of the union
- * (`kind`, `workspaceId`, the arm's own root id, and `executionMode`), so two subjects
- * agreeing on all four are the same subject and the captured one is never stale.
+ * (`kind`, `workspaceId`, `repoMountId`, the arm's own root id, and `executionMode`),
+ * so two subjects agreeing on all five are the same subject and the captured one is
+ * never stale.
+ *
+ * `repoMountId` IS ONE OF THE FIVE even though the gate does not READ under it. It is
+ * the only identity the registered `GitActionExecuteRequest` takes, so a reader holding
+ * a stale one would send an act naming a mount the surface has moved off. Every arm
+ * happens to resolve it from the workspace row, which makes it a function of
+ * `workspaceId` in practice — but that is a property of three constructors elsewhere
+ * rather than anything this memo can check, and a dependency omitted because a caller
+ * currently makes it redundant is a dependency omitted.
  *
  * The session store is the reader's own collaborator rather than the surface's: it is
  * what carries the reconnect edge and the `workspace.stale` frame, two of the four
@@ -52,15 +61,15 @@ export function useProposalGate(
   subject: ProposalGateSubject,
   sessionStore: SessionStore,
 ): ProposalGateBinding {
-  const { kind, workspaceId, executionMode } = subject;
+  const { kind, workspaceId, repoMountId, executionMode } = subject;
   const executionRootId = proposalGateSubjectRootId(subject);
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const reader = useMemo(
     () => new ProposalGateReader({ bridge, subject, sessionStore, clock }),
     // The subject itself is deliberately NOT a dependency: every caller composes it
     // inline, so its identity changes on every render while its content does not. The
-    // four values below ARE its content, on every arm of the union.
-    [bridge, kind, workspaceId, executionRootId, executionMode, sessionStore, clock],
+    // five values below ARE its content, on every arm of the union.
+    [bridge, kind, workspaceId, repoMountId, executionRootId, executionMode, sessionStore, clock],
   );
   useEffect(() => {
     reader.start();
