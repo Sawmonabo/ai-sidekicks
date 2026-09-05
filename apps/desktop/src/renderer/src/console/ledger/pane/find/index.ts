@@ -9,9 +9,12 @@
 // success nobody can see — and why the readings that count what the cap and the replay
 // position hid are beside the walk that could not reach them.
 //
-// WHAT LEAVES. The find state and its walk, the filter and the window it narrows, the
-// jump's reach and the acts that perform one, the reading a header renders, and the
-// id-entry control. The facet vocabulary and the deferred-jump plumbing stop here.
+// WHAT LEAVES. Everything these five modules export, which is unusual for a door and
+// is the honest reading here: the feed composes all of it — the find state and its
+// walk, the filter and the window it narrows, the jump's reach and the three acts that
+// perform one, the reading a header renders, and the id-entry control. What the door
+// buys is not concealment but a name: a sibling reads one seam instead of five files,
+// and a name added here is a decision rather than a reachable file.
 
 export { LedgerEventIdJump } from "./LedgerEventIdJump.js";
 export { matchWalkReading } from "./ledger-find-readings.js";

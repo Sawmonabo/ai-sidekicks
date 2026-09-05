@@ -12,7 +12,8 @@
 // WHAT LEAVES. The two windows and their hooks, the chapter key the fold groups by,
 // the retention a second derivation holds its own instance of, and the absences
 // component. `deriveLedgerWindow` stops here: it is the pure derivation under
-// `useLedgerProjection`, and every reader of it is a suite, which reaches it deeply.
+// `useLedgerProjection`, and every reader of it outside this directory is a suite or a
+// suite's scaffolding, which reaches it deeply.
 
 export { LedgerWindowAbsences } from "./LedgerWindowAbsences.js";
 export {
