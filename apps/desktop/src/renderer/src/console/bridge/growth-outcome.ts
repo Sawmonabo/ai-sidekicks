@@ -81,6 +81,21 @@ export interface GrowthUnavailable extends ConsoleRefusal {
   readonly owningDocument: string;
 }
 
+/**
+ * Whether this refusal is a live bridge saying the wire does not exist yet.
+ *
+ * The one growth code a LIVE bridge produces, and this file's own vocabulary note
+ * says what a surface owes it: `wire-unregistered` is "the 'not checked' kind of
+ * nothing rather than an empty result" — a question nobody has asked, not a read
+ * that failed. A consumer holding a widened {@link ConsoleRefusal} cannot see that
+ * from `code` alone, because the console's five refusal producers share one shape
+ * and only the pair `(origin, code)` identifies this one. So the pair is tested
+ * here, once, rather than spelled at each surface that renders a growth refusal.
+ */
+export function isUnbuiltWireRefusal(refusal: ConsoleRefusal): boolean {
+  return refusal.origin === GROWTH_PORT_REFUSAL_ORIGIN && refusal.code === "wire-unregistered";
+}
+
 /** A served result, from the fixture bridge. */
 export interface GrowthServed<TValue> {
   readonly status: "served";

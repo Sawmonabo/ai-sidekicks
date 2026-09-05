@@ -113,16 +113,82 @@ describe("TargetChip — every fact on it came from the wire", () => {
           ...NOTHING_ASKED,
           phase: "refused",
           refusal: {
-            code: "wire-unregistered",
-            detail: "Plan-016 owns registering `agent.list`.",
+            code: "reply-unreadable",
+            detail: "The roster reply did not parse.",
             origin: "growth-port",
           },
         }}
       />,
     );
 
-    expect(container.textContent).toContain("wire-unregistered");
-    expect(container.textContent).toContain("Plan-016 owns registering");
+    expect(container.textContent).toContain("reply-unreadable");
+    expect(container.textContent).toContain("did not parse");
+  });
+
+  it("says nobody asked for a wire this build does not carry", () => {
+    // The growth port's own rule: `wire-unregistered` is the ONE code a live bridge
+    // produces, and it renders as the "not checked" kind of nothing rather than as a
+    // read that failed. The chip rendered it as an alert glyph and a mono code — an
+    // error treatment for a question this build never put.
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={{
+          ...NOTHING_ASKED,
+          phase: "refused",
+          refusal: {
+            code: "wire-unregistered",
+            detail: "Not checked — agent.list is not registered on this build yet.",
+            origin: "growth-port",
+          },
+        }}
+      />,
+    );
+
+    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+    // The negative controls: not the error treatment, and the code is not paraded as
+    // a mono figure for a wire nobody asked about.
+    expect(container.querySelector(".meridian-nothing--error")).toBeNull();
+    expect(container.textContent).not.toContain("wire-unregistered");
+  });
+
+  it("renders the account plane's refusal on a roster read that served", () => {
+    // The join attaches the account plane's refusal on the arm where the ROSTER
+    // answered and only the label is missing. The chip tested the phase before the
+    // reason and fell through to "the account registry has not reported a label",
+    // which says nobody asked about a read that failed.
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={bindingRead({
+          refusal: {
+            code: "reply-unreadable",
+            detail: "The account registry reply did not parse.",
+            origin: "provider-accounts",
+          },
+        })}
+      />,
+    );
+
+    expect(container.textContent).toContain("reply-unreadable");
+    expect(container.textContent).toContain("did not parse");
+    expect(container.textContent).not.toContain("has not reported a label");
+  });
+
+  it("is a refusal on a refused read that carried no reason", () => {
+    // Not reachable from today's producer, and the arm is still owed: the component
+    // is a total function over the reading, and a refused phase with no reason fell
+    // through to a sentence claiming the roster HAD answered.
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={{ ...NOTHING_ASKED, phase: "refused" }}
+      />,
+    );
+
+    expect(container.querySelector(".meridian-nothing--error")).not.toBeNull();
+    expect(container.textContent).toContain("Paying account not read");
+    expect(container.textContent).not.toContain("has not reported a label");
   });
 
   it("says the binding was not read rather than showing one it chose", () => {

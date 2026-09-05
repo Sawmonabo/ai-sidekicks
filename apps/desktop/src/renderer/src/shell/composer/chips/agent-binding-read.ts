@@ -46,6 +46,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 
 import {
+  readRefusalOf,
   useProviderQuotas,
   type ConsoleBridge,
   type GrowthAgentPendingSwitch,
@@ -151,9 +152,13 @@ export function useAgentBindingReading(
       isAbandoned = true;
     };
   }, [bridge, sessionId, agentId, publishSettlement]);
+  // `readRefusalOf` and not `quotas.readRefusal`: the member says the NEWEST read
+  // failed only when the phase agrees, and a consumer reading it bare rendered an
+  // account plane's last failure beside rows a later read had already healed.
+  const accountReadRefusal = readRefusalOf(quotas);
   return useMemo(
-    () => joinAccountLabel(value, quotas.accountLabels, quotas.readRefusal),
-    [value, quotas.accountLabels, quotas.readRefusal],
+    () => joinAccountLabel(value, quotas.accountLabels, accountReadRefusal),
+    [value, quotas.accountLabels, accountReadRefusal],
   );
 }
 

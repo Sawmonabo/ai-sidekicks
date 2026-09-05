@@ -210,6 +210,7 @@ export type {
   GrowthAgentSummary,
   GrowthAgentSwitchBoundary,
 } from "./growth-values/agents.js";
+export { isUnbuiltWireRefusal } from "./growth-outcome.js";
 export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
