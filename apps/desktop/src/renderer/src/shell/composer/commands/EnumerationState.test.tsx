@@ -54,7 +54,7 @@ describe("ProviderCommandAutocomplete — a cut enumeration is said, not treated
 
     expect(mounted.container.textContent).not.toContain(EMPTY_STATE_SENTENCE);
     expect(truncationLine(mounted.container)).toContain(
-      "read before this run's command list was cut",
+      "the answer for this run's command list was cut short",
     );
     // The count is the group's own served entries — the wire carries no figure for
     // what was dropped, and this surface invents none.
