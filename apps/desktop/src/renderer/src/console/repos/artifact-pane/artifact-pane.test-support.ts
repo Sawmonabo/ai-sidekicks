@@ -24,7 +24,7 @@
 // `setTimeout` — the third copy of it this directory used to carry.
 
 import { act } from "@testing-library/react";
-import { vi } from "vitest";
+import { type Mock, vi } from "vitest";
 
 import type {
   ConsoleBridge,
@@ -43,8 +43,12 @@ import { growthUnavailable } from "../../bridge/index.js";
 // that rule is about a DOOR forwarding another door's symbols, and this module is a
 // leaf the suites beside it read.
 export type { GrowthPortAnswer };
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
-import { ManualClock, REFRESH_DEBOUNCE_MS, type ConsoleClock } from "../../core/index.js";
+import {
+  drainMicrotasks,
+  fixtureBridgeWithGrowth,
+} from "../../bridge/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 
@@ -190,14 +194,8 @@ export interface ArtifactPortScript {
   readonly deleteAnswer?: ScriptedAnswer<"artifactDelete">;
   /** Supplied where a case counts the list reads or varies them between reads. */
   readonly artifactList?: () => Promise<GrowthPortAnswer<"artifactList">>;
-  /**
-   * The clock the pane's own subsystems run on, where a case freezes them.
-   *
-   * `consoleClockFor` reads the running scenario engine's clock, so a bridge that
-   * carries one hands the pane's reader frozen time — which is the only way a mounted
-   * case can assert against a stamp rather than against the host's wall clock.
-   */
-  readonly clock?: ConsoleClock;
+  /** Supplied where a case counts the payload reads or asserts what one was asked. */
+  readonly artifactRead?: (request: unknown) => Promise<GrowthPortAnswer<"artifactRead">>;
 }
 
 /**
@@ -212,19 +210,25 @@ export interface ArtifactPortScript {
  * The `Error` arm is the shape the port's own union cannot express and the live bridge
  * produces anyway: an IPC disconnect makes a call throw rather than answer. An `Error`
  * is never a scripted answer here, so it needs no marker type to be told from one.
+ *
+ * A REAL FIXTURE BRIDGE UNDER THE SCRIPTED PORT, rather than `{ growth } as unknown as
+ * ConsoleBridge`. The cast left every other namespace `undefined`, so the first surface
+ * to reach the daemon door threw in the case instead of failing an assertion; the port
+ * a case does not script is now the fixture's own. It also carries the scenario's frozen
+ * clock, which is where the `clock` this builder used to take went: `consoleClockFor`
+ * resolves the pane's subsystems onto that clock, and a case moves it with
+ * `scenarioManualClock(bridge)` — the mount hands it back, so no case builds one.
  */
 export function artifactBridgeAnswering(script: ArtifactPortScript): ConsoleBridge {
-  return {
-    growth: {
-      artifactList:
-        script.artifactList ?? (async () => scriptedAnswer("artifactList", script.listAnswer)),
-      artifactAllowlistRead: async () =>
-        scriptedAnswer("artifactAllowlistRead", script.allowlistAnswer),
-      artifactRead: async () => scriptedAnswer("artifactRead", script.readAnswer),
-      artifactDelete: async () => scriptedAnswer("artifactDelete", script.deleteAnswer),
-    },
-    ...(script.clock === undefined ? {} : { scenarioEngine: { clock: script.clock } }),
-  } as unknown as ConsoleBridge;
+  return fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+    artifactList:
+      script.artifactList ?? (async () => scriptedAnswer("artifactList", script.listAnswer)),
+    artifactAllowlistRead: async () =>
+      scriptedAnswer("artifactAllowlistRead", script.allowlistAnswer),
+    artifactRead:
+      script.artifactRead ?? (async () => scriptedAnswer("artifactRead", script.readAnswer)),
+    artifactDelete: async () => scriptedAnswer("artifactDelete", script.deleteAnswer),
+  });
 }
 
 /**
@@ -289,22 +293,20 @@ export async function settleAct(): Promise<void> {
  */
 export function readerRacingADelete(clock: ManualClock): {
   readonly reader: ArtifactPaneReader;
-  readonly releaseDelete: (answer: unknown) => void;
+  readonly releaseDelete: (answer: GrowthPortAnswer<"artifactDelete">) => void;
   readonly stopListingTheArtifact: () => void;
 } {
-  let listedSummaries: readonly unknown[] = [SERVED_SUMMARY];
-  let releaseDelete: (answer: unknown) => void = () => undefined;
+  let listedSummaries: readonly GrowthArtifactSummary[] = [SERVED_SUMMARY];
+  let releaseDelete: (answer: GrowthPortAnswer<"artifactDelete">) => void = () => undefined;
   const reader = new ArtifactPaneReader({
-    bridge: {
-      growth: {
-        artifactList: async () => ({ status: "served", value: listedSummaries }),
-        artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-        artifactDelete: () =>
-          new Promise((resolve) => {
-            releaseDelete = resolve;
-          }),
-      },
-    } as unknown as ConsoleBridge,
+    bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+      artifactList: async () => ({ status: "served", value: listedSummaries }),
+      artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
+      artifactDelete: () =>
+        new Promise((resolve) => {
+          releaseDelete = resolve;
+        }),
+    }),
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });
@@ -330,31 +332,29 @@ export function listedRowIds(reader: ArtifactPaneReader): readonly string[] {
  */
 export function readerWithHeldPayloadFetch(clock: ManualClock): {
   readonly reader: ArtifactPaneReader;
-  readonly artifactRead: ReturnType<typeof vi.fn>;
-  readonly releaseRead: (answer: unknown) => void;
+  readonly artifactRead: Mock<() => Promise<GrowthPortAnswer<"artifactRead">>>;
+  readonly releaseRead: (answer: GrowthPortAnswer<"artifactRead">) => void;
 } {
-  let releaseRead: (answer: unknown) => void = () => undefined;
+  let releaseRead: (answer: GrowthPortAnswer<"artifactRead">) => void = () => undefined;
   const artifactRead = vi.fn(
     () =>
-      new Promise((resolve) => {
+      new Promise<GrowthPortAnswer<"artifactRead">>((resolve) => {
         releaseRead = resolve;
       }),
   );
   const reader = new ArtifactPaneReader({
-    bridge: {
-      growth: {
-        artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-        artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-        artifactRead,
-        // Served for whichever row was asked about, so a case can delete the
-        // artifact whose bytes are on the wire AND a case can delete a different
-        // one. The receipt is the daemon's, so its `artifactId` follows the request.
-        artifactDelete: async ({ artifactId }: { artifactId: string }) => ({
-          status: "served",
-          value: { ...DELETE_RECEIPT, artifactId },
-        }),
-      },
-    } as unknown as ConsoleBridge,
+    bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+      artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
+      artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
+      artifactRead,
+      // Served for whichever row was asked about, so a case can delete the
+      // artifact whose bytes are on the wire AND a case can delete a different
+      // one. The receipt is the daemon's, so its `artifactId` follows the request.
+      artifactDelete: async ({ artifactId }: { artifactId: string }) => ({
+        status: "served",
+        value: { ...DELETE_RECEIPT, artifactId },
+      }),
+    }),
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });

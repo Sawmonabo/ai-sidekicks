@@ -28,8 +28,22 @@ export type { GrowthPortAnswer };
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
+import { scenarioManualClock } from "../scenario-clock.test-support.js";
 import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
 import { artifactBridgeAnswering } from "./artifact-pane.test-support.js";
+
+/**
+ * What a mount hands back: everything `render` returns, plus the clock the pane is on.
+ *
+ * THE MOUNT IS WHERE THE CLOCK IS KNOWN. The pane resolves its subsystems off the
+ * bridge in the context it was mounted with, so the case that has to move that clock
+ * is exactly the case that mounted the pane — and returning it here is what keeps
+ * every case from re-deriving it, or worse, minting a second one the pane never reads.
+ */
+export type MountedPane = ReturnType<typeof render> & {
+  /** The scenario clock every subsystem under this pane reads. `readThrough` moves it. */
+  readonly paneClock: ManualClock;
+};
 
 /** This pane's own address arm, taken from the prop rather than restated. */
 export type ArtifactPaneContext = ArtifactPaneProps["context"];
@@ -115,8 +129,11 @@ export function paneTree(context: ArtifactPaneContext, announcerClock: ManualClo
 }
 
 /** Mount the pane inside the announcer it renders under. */
-export function renderPane(context: ArtifactPaneContext): ReturnType<typeof render> {
-  return render(paneTree(context, new ManualClock()));
+export function renderPane(context: ArtifactPaneContext): MountedPane {
+  return {
+    ...render(paneTree(context, new ManualClock())),
+    paneClock: scenarioManualClock(context.bridge),
+  };
 }
 
 /**
@@ -127,6 +144,9 @@ export function renderPane(context: ArtifactPaneContext): ReturnType<typeof rend
  * `start()` on the corpse. A pane that cannot come back from it is inert with nothing
  * on screen to say so, which is why this is a mount of its own rather than a flag.
  */
-export function renderPaneStrictly(context: ArtifactPaneContext): ReturnType<typeof render> {
-  return render(createElement(StrictMode, null, paneTree(context, new ManualClock())));
+export function renderPaneStrictly(context: ArtifactPaneContext): MountedPane {
+  return {
+    ...render(createElement(StrictMode, null, paneTree(context, new ManualClock()))),
+    paneClock: scenarioManualClock(context.bridge),
+  };
 }

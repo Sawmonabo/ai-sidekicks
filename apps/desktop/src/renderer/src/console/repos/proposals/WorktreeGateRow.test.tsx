@@ -12,6 +12,9 @@ import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import type { GrowthPortAnswer } from "../../bridge/growth-port.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -41,29 +44,56 @@ const ROOT: WorktreeStatusRecord = {
 
 const NOW = Date.UTC(2026, 0, 1, 9, 6, 0);
 
-/** A bridge whose gate read refuses the way the live bridge refuses it. */
-function bridgeAnswering(branchContext: unknown): ConsoleBridge {
+/**
+ * The real fixture bridge with this row's one read answering what a case scripts.
+ *
+ * NAMED FOR THE ROW rather than `bridgeAnswering`, which is
+ * `bridge/fixture-bridge.test-support.ts`'s exported name for an unrelated contract —
+ * the bridge whose DAEMON call arm a suite decides. One grep giving two contracts under
+ * one name is the reason the artifact copy was renamed before this one.
+ *
+ * NO SCENARIO ENGINE, WHICH IS THIS SUITE'S WHOLE WAIT. `consoleClockFor` mints a
+ * `RealClock` where no engine is running, and every case below waits on the debounce
+ * elapsing in real time rather than moving a frozen clock — which is what makes the
+ * read land "a real interval after the mount", exactly as it does behind the sidebar
+ * section. Dropping the member is typed rather than cast: the port, the daemon door and
+ * every other namespace stay the fixture's.
+ */
+function gateRowBridgeAnswering(
+  branchContext: GrowthPortAnswer<"gitflowBranchContextRead">,
+): ConsoleBridge {
   return {
-    growth: { gitflowBranchContextRead: async () => branchContext },
-  } as unknown as ConsoleBridge;
+    ...fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+      gitflowBranchContextRead: async () => branchContext,
+    }),
+    scenarioEngine: undefined,
+  };
 }
 
-const SERVED_CONTEXT = {
+/**
+ * One served context PAIRED WITH THIS FILE'S SUBJECT, in the wire's own flat shape.
+ *
+ * Local rather than the scripted port's `SERVED_CONTEXT`, because the reading this row
+ * renders is decided by whether the context names the worktree the subject does, and
+ * that module's fixture is paired with the scenario's implementer root instead. Flat
+ * because `BranchContextReadResponse` is flat: this fixture used to wrap its members in
+ * a `branchContext` envelope no producer sends, which only compiled while the whole
+ * bridge around it was cast.
+ */
+const SERVED_CONTEXT: GrowthPortAnswer<"gitflowBranchContextRead"> = {
   status: "served",
   value: {
-    branchContext: {
-      branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
-      workspaceId: SUBJECT.workspaceId,
-      baseBranch: "develop",
-      headBranch: "feat/rate-limit-wiring",
-      worktreeId: SUBJECT.worktreeId,
-    },
+    branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
+    workspaceId: SUBJECT.workspaceId,
+    baseBranch: "develop",
+    headBranch: "feat/rate-limit-wiring",
+    worktreeId: SUBJECT.worktreeId,
   },
 };
 
 /** One row inside the window's announcer, on frozen time. */
 function row(
-  branchContext: unknown,
+  branchContext: GrowthPortAnswer<"gitflowBranchContextRead">,
   overrides: Partial<React.ComponentProps<typeof WorktreeGateRow>> = {},
 ): React.JSX.Element {
   return (
@@ -72,7 +102,7 @@ function row(
         record={ROOT}
         subject={SUBJECT}
         unpairedReason={UNPAIRED_REASON}
-        bridge={bridgeAnswering(branchContext)}
+        bridge={gateRowBridgeAnswering(branchContext)}
         sessionStore={new SessionStore({ sessionId: ROOT.createdBySessionId })}
         nowMilliseconds={NOW}
         {...overrides}
@@ -91,7 +121,7 @@ function row(
  * not the answer any of these cases is about.
  */
 async function renderRow(
-  branchContext: unknown,
+  branchContext: GrowthPortAnswer<"gitflowBranchContextRead">,
   overrides: Partial<React.ComponentProps<typeof WorktreeGateRow>> = {},
 ): Promise<ReturnType<typeof render>> {
   let result!: ReturnType<typeof render>;

@@ -17,11 +17,14 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import { SessionStore } from "../../store/index.js";
+import { scenarioManualClock } from "../scenario-clock.test-support.js";
 import {
+  type GrowthPortAnswer,
   LISTED_ONE_ROW,
   SESSION_ID,
   artifactBridgeAnswering,
@@ -146,22 +149,24 @@ describe("artifact pane — the ingest bounds disclosure", () => {
     // published a `read-threw` refusal whose sentence was a `TypeError`. So both
     // halves are asserted: the disclosure shows the refusal on its designed
     // shipped-default arm, and the list beside it still read.
-    const { container } = renderPane(
+    const { paneClock, container } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: {
-          growth: {
-            artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => ({
+        bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+          artifactList: async () => LISTED_ONE_ROW,
+          // THE CAST IS ON THE ANSWER AND NOT ON THE BRIDGE. This shape is deliberately
+          // outside the port's own union — that is the whole case — so the arm serving
+          // it says so in one place, while every other namespace stays the fixture's.
+          artifactAllowlistRead: async () =>
+            ({
               code: "wire-unregistered",
               detail: "Not checked — the artifact CRUD method strings are not registered yet.",
               origin: "growth-port",
-            }),
-          },
-        } as unknown as ConsoleBridge,
+            }) as unknown as GrowthPortAnswer<"artifactAllowlistRead">,
+        }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     expect(container.querySelector(".meridian-ingest-bounds__source")?.textContent).toContain(
       "shipped default",
     );
@@ -192,22 +197,21 @@ describe("artifact pane — the instant a row's age is read against", () => {
     // and the same subject rendered differently the next month.
     //
     // The reading now carries the instant the READER took, off the window's own clock.
-    // Under the fixture that clock is frozen at the scenario's epoch, so the row's age
-    // is a fixed distance from a fixed `createdAt`: `SERVED_SUMMARY` is stamped in 2026
-    // and this clock starts at zero, so the row says the artifact is twenty thousand
-    // days in the future — a text no wall clock can produce.
-    const clock = new ManualClock();
-    const { container } = renderPane(
+    // Under the fixture that clock is frozen at the scenario's declared start, so the
+    // row's age is a fixed distance between two fixed stamps — the scenario's
+    // 2026-01-01 against `SERVED_SUMMARY`'s September `createdAt` — and the row says
+    // the artifact is most of a year in the FUTURE, which no wall clock can produce.
+    const { paneClock, container } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, clock }),
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough(clock);
+    await readThrough(paneClock);
     await settleAct();
 
     const age = container.querySelector(".meridian-artifact-row")?.textContent ?? "";
-    expect(age).toContain("in 20,698 days");
+    expect(age).toContain("in 244 days");
   });
 
   it("holds that age still while the pane re-renders under it", async () => {
@@ -215,9 +219,9 @@ describe("artifact pane — the instant a row's age is read against", () => {
     // occasion. A body reading the wall clock moves it on any unrelated re-render —
     // and one that advanced on a timer would be the interval poll the budget forbids,
     // wearing a clock face.
-    const clock = new ManualClock();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    const bridge = artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, clock });
+    const bridge = artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW });
+    const clock = scenarioManualClock(bridge);
     const announcerClock = new ManualClock();
     const { container, rerender } = render(
       paneTree(contextFor(ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock),
