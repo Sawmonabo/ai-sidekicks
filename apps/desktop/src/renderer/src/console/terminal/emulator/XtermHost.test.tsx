@@ -1,111 +1,37 @@
-// The mount point: the chunk it waits for, one adapter per mount, disposed with
-// it, and a name that carries the write gate.
+// The mount point: the chunk it waits for, one adapter per mount, and disposal.
 //
 // WHAT THIS FILE IS FOR AND WHAT IT IS NOT. The emulator's behaviour is
-// `xterm-adapter.test.ts`'s subject; this one owns the five things the COMPONENT
-// decides — that the emulator's code is fetched rather than statically linked, so
-// the box stands in as a read-in-flight absence until it lands; that an adapter is
-// built once per mount and never in a render pass; that unmounting disposes it
-// (which is what gives up its hold on the renderer); that the emulator's lifetime
-// belongs to the terminal id rather than to the identities of the callbacks the
-// parent hands down; and that a lease change forwards the write gate without
-// tearing the emulator down. Each is asserted through an observable consequence
-// rather than by reading the component's internals: the ledger's own readings, the
-// emulator's own first child, the absence primitive's class, and the region's
-// accessible name.
+// `xterm-adapter.test.ts`'s subject; this one owns what the COMPONENT decides about the
+// emulator's LIFE — that its code is fetched rather than statically linked, so the box
+// stands in as a read-in-flight absence until it lands; that an adapter is built once
+// per mount and never in a render pass; that unmounting disposes it, which is what gives
+// up its hold on the renderer; that the lifetime belongs to the terminal id rather than
+// to the identities of the callbacks the parent hands down; and that the one moment the
+// component can build an emulator and never get a disposer — a parent whose
+// `onRendererMode` throws inside the effect body — tears it down anyway.
 //
-// THE LOADER IS THE REAL ONE. A stub that resolved the adapter synchronously would
-// test a component that does not exist — the whole point of the change under test
-// is that the module arrives a commit later than the mount, and a substitute that
-// erased that gap would pass over the bug it exists to catch.
+// The write gate is `XtermHost.write-gate.test.tsx`'s and the renderer fallback is
+// `XtermHost.renderer-mode.test.tsx`'s. The readers every one of them takes are in
+// `XtermHost.test-support.tsx`.
 
-import { act, render, waitFor, type RenderResult } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { terminalEmulatorLoader } from "./emulator-loader.js";
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
 import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
 import { XtermHost } from "./XtermHost.js";
+import {
+  COMPONENT_TERMINAL_IDS,
+  mountHost,
+  reclaimComponentHolds,
+  settleEmulatorLoad,
+  surfaceOf,
+  typeOneCharacter,
+} from "./XtermHost.test-support.js";
 
 afterEach(() => {
-  // The page ledger is module state the component reaches through the adapter's
-  // default. A leaked hold here would silently narrow every later case, so the
-  // sweep is unconditional rather than per-case — and it RECLAIMS rather than
-  // releases, because this environment has no WebGL2 and so never made a context
-  // for a stale hold to stand for.
-  for (const terminalId of ["host-1", "host-2"]) {
-    terminalRendererPool.reclaimEveryContextFor(terminalId);
-  }
+  reclaimComponentHolds(COMPONENT_TERMINAL_IDS);
 });
-
-/**
- * The hidden textarea xterm.js listens on: the emulator's one input surface.
- * Resolved once, because both readings below are about that same element.
- */
-function emulatorInputOf(surface: HTMLElement): HTMLTextAreaElement {
-  const textarea = surface.querySelector("textarea");
-  if (!(textarea instanceof HTMLTextAreaElement)) {
-    throw new Error("the emulator rendered no input");
-  }
-  return textarea;
-}
-
-/**
- * Type one character, the way the library's own listener sees it. xterm.js turns a
- * keydown on that textarea into a data event, which is the only path a keystroke
- * takes to `onKeystroke` — so dispatching here makes the assertion about the wiring
- * rather than about a function reference the test already holds.
- */
-function typeOneCharacter(surface: HTMLElement): void {
-  emulatorInputOf(surface).dispatchEvent(
-    new KeyboardEvent("keydown", { key: "a", keyCode: 65, bubbles: true, cancelable: true }),
-  );
-}
-
-function surfaceOf(container: HTMLElement): HTMLElement {
-  const surface = container.querySelector(".meridian-terminal-host__surface");
-  if (!(surface instanceof HTMLElement)) {
-    throw new Error("XtermHost rendered no surface");
-  }
-  return surface;
-}
-
-/**
- * Wait for the emulator's chunk to have been fetched AND for every callback
- * registered on it to have run.
- *
- * Awaiting the loader's own promise is what makes the wait exact rather than a
- * guessed number of ticks: the component registered its continuation on that same
- * promise first, so by the time this one settles the component's has already run,
- * and `act` flushes the state it set.
- */
-async function settleEmulatorLoad(): Promise<void> {
-  await act(async () => {
-    await terminalEmulatorLoader.load();
-  });
-}
-
-/**
- * Whether the LIBRARY thinks this surface may be typed into.
- *
- * xterm.js mirrors its own `disableStdin` option onto the hidden textarea it
- * listens on — at open and again on every change of that option — so this reads
- * the emulator's gate rather than a field of ours that was set beside it. It is
- * the only place the write gate becomes observable outside the adapter, and it is
- * what makes "the gate reached the emulator" a claim a test can hold.
- */
-function isEmulatorAcceptingInput(surface: HTMLElement): boolean {
-  return !emulatorInputOf(surface).readOnly;
-}
-
-/** Render a host and wait until its emulator is on screen. */
-async function mountHost(element: React.JSX.Element): Promise<RenderResult> {
-  const view = render(element);
-  await waitFor(() => {
-    expect(view.container.querySelector(".meridian-terminal-host__surface")).not.toBeNull();
-  });
-  return view;
-}
 
 describe("the emulator's code is fetched, not linked", () => {
   it("stands the box in as a read-in-flight absence before the chunk lands", async () => {
@@ -319,260 +245,6 @@ describe("the emulator outlives the parent's callback identities", () => {
     );
     typeOneCharacter(surfaceOf(container));
     expect(watcherKeystrokeHandler).not.toHaveBeenCalled();
-  });
-});
-
-describe("the write gate reaches assistive technology by name", () => {
-  /** A writer, so the lease is the only thing a case about the lease is varying. */
-  const sendToWire = (): void => undefined;
-
-  it("names the surface read-only while the lease is not the viewer's", async () => {
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled={false}
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output, read-only");
-  });
-
-  it("drops the read-only suffix when the viewer holds the shell and can reach the wire", async () => {
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
-  });
-
-  it("opens the emulator's own gate for a lease that was already the viewer's", async () => {
-    // The emulator is built a commit AFTER the one that first carried the lease, so
-    // a gate forwarded only when the lease MOVES would leave a holder watching a
-    // shell they hold — the emulator would be built closed and stay closed until
-    // the next transition.
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
-  });
-
-  it("negative control: a watcher's emulator is closed, so the case above is not free", async () => {
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-2"
-        isWriteEnabled={false}
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(false);
-  });
-
-  it("forwards a lease change without rebuilding the emulator", async () => {
-    const observed = vi.fn();
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled={false}
-        label="Terminal output"
-        onKeystroke={sendToWire}
-        onRendererMode={observed}
-      />,
-    );
-    const surfaceBefore = surfaceOf(container).firstElementChild;
-    act(() => {
-      rerender(
-        <XtermHost
-          terminalId="host-1"
-          isWriteEnabled
-          label="Terminal output"
-          onKeystroke={sendToWire}
-          onRendererMode={observed}
-        />,
-      );
-    });
-    // 8.8: a transition never disturbs the foreground process. The emulator is the
-    // same instance — the mount effect did not run a second time — and only the
-    // gate moved.
-    expect(observed).toHaveBeenCalledTimes(1);
-    expect(surfaceOf(container).firstElementChild).toBe(surfaceBefore);
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
-  });
-
-  it("opens the gate on the emulator a new terminal id builds under the same lease", async () => {
-    // The finding. A terminal id that moves replaces the adapter, and the lease did
-    // not move with it — so a gate forwarded only when the LEASE changes left the
-    // fresh binding on its default shut stdin while the box below still read
-    // `data-write-enabled="true"`, and every character the holder typed was dropped
-    // until the shell next changed hands.
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
-
-    act(() => {
-      rerender(
-        <XtermHost
-          terminalId="host-2"
-          isWriteEnabled
-          label="Terminal output"
-          onKeystroke={sendToWire}
-        />,
-      );
-    });
-
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
-  });
-
-  it("negative control: a shut lease stays shut across the same terminal id change", async () => {
-    // Without it the case above would pass against a component that opened stdin on
-    // every adapter it built, which is watch mode failing open on a rebuild.
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled={false}
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    act(() => {
-      rerender(
-        <XtermHost
-          terminalId="host-2"
-          isWriteEnabled={false}
-          label="Terminal output"
-          onKeystroke={sendToWire}
-        />,
-      );
-    });
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(false);
-  });
-
-  it("carries the gate on the host box too, for the styling that has no text", async () => {
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled={false}
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    const host = container.querySelector(".meridian-terminal-host");
-    expect(host?.getAttribute("data-write-enabled")).toBe("false");
-    act(() => {
-      rerender(
-        <XtermHost
-          terminalId="host-1"
-          isWriteEnabled
-          label="Terminal output"
-          onKeystroke={sendToWire}
-        />,
-      );
-    });
-    expect(host?.getAttribute("data-write-enabled")).toBe("true");
-  });
-
-  it("negative control: the name is not read-only in both states", async () => {
-    // Every case above would pass against a component that hardcoded one name.
-    const watching = await mountHost(
-      <XtermHost
-        terminalId="host-1"
-        isWriteEnabled={false}
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    const holding = await mountHost(
-      <XtermHost
-        terminalId="host-2"
-        isWriteEnabled
-        label="Terminal output"
-        onKeystroke={sendToWire}
-      />,
-    );
-    expect(surfaceOf(watching.container).getAttribute("aria-label")).not.toBe(
-      surfaceOf(holding.container).getAttribute("aria-label"),
-    );
-  });
-});
-
-describe("a held lease with nowhere to send a keystroke is still read-only", () => {
-  // The pane mounts exactly this combination today — the output wire is
-  // unregistered, so no writer is passed — and a re-render across a terminal id
-  // reaches it too. The old gate read the lease alone, so xterm accepted every
-  // character while the adapter, built without an `onData` subscription, forwarded
-  // none of them.
-
-  it("keeps the emulator's own gate shut when the surface has no writer", async () => {
-    const { container } = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
-    );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(false);
-  });
-
-  it("names the missing channel rather than announcing the surface writable", async () => {
-    const { container } = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
-    );
-    // The old component announced "Terminal output" here — a name that says a
-    // person may type into a shell that will discard everything they send.
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe(
-      "Terminal output, read-only: no input channel",
-    );
-    expect(
-      container.querySelector(".meridian-terminal-host")?.getAttribute("data-write-enabled"),
-    ).toBe("false");
-  });
-
-  it("distinguishes the missing channel from the lease being somebody else's", async () => {
-    // Two different next moves: wait for the shell, or stop waiting because this
-    // build has nowhere to put a keystroke. One suffix for both would send a holder
-    // to wait for a lease they already have.
-    const noWriter = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
-    );
-    const noLease = await mountHost(
-      <XtermHost
-        terminalId="host-2"
-        isWriteEnabled={false}
-        label="Terminal output"
-        onKeystroke={() => undefined}
-      />,
-    );
-    expect(surfaceOf(noWriter.container).getAttribute("aria-label")).not.toBe(
-      surfaceOf(noLease.container).getAttribute("aria-label"),
-    );
-  });
-
-  it("negative control: adding the writer to that same lease opens the surface", async () => {
-    // Without this the cases above would pass against a component that never opened
-    // the gate at all, which is a different bug and not a fix.
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-2"
-        isWriteEnabled
-        label="Terminal output"
-        onKeystroke={() => undefined}
-      />,
-    );
-    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
-    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 });
 
