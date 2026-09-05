@@ -28,8 +28,12 @@ import { refuseHandoff, type AuxiliaryHandoffRefusal } from "./aux-handoff-contr
  * `bridge/index.ts` exports the bridge and not the port, deliberately — the port is
  * reached THROUGH a bridge and never held on its own — so this alias takes the type
  * off the door that is open rather than asking for a second one.
+ *
+ * Declared HERE and imported by `aux-handoff.ts` rather than the other way round:
+ * that file already imports this module for the watch, and a type-only import back
+ * would close a cycle the layering gate counts as an edge.
  */
-type ConsoleGrowthPort = ConsoleBridge["growth"];
+export type ConsoleGrowthPort = ConsoleBridge["growth"];
 
 /**
  * The served value of the pane-error subscription, taken off the port for the same

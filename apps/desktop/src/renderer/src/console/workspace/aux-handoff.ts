@@ -54,14 +54,13 @@
 // makes a note about the last one a note about nothing.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
-import { type ConsoleBridge } from "../bridge/index.js";
 import {
   AUXILIARY_ROUTE_LABELS,
   IMPLEMENTED_AUXILIARY_ROUTES,
   isAuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
 import { type PaneKind } from "../seats/index.js";
-import { PaneErrorWatch } from "./aux-pane-error-watch.js";
+import { PaneErrorWatch, type ConsoleGrowthPort } from "./aux-pane-error-watch.js";
 import {
   auxiliaryTarget,
   formatAuxiliaryTargetOrRefuse,
@@ -72,16 +71,6 @@ import {
   type DetachedPane,
   type LostAuxiliaryWindow,
 } from "./aux-handoff-contract.js";
-
-/**
- * The growth port, reached as the bridge's own member rather than by importing the
- * port type.
- *
- * `bridge/index.ts` exports the bridge and not the port, deliberately — the port is
- * reached THROUGH a bridge and never held on its own — so this alias takes the type
- * off the door that is open rather than asking for a second one.
- */
-type ConsoleGrowthPort = ConsoleBridge["growth"];
 
 export class AuxiliaryHandoff {
   readonly #growth: ConsoleGrowthPort;
