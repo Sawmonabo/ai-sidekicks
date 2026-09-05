@@ -7,23 +7,16 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock, refuse } from "../core/index.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { liveRegionText, politeText } from "./live-region.test-support.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
 import { useReadingAnnouncement } from "./reading-announcement.js";
 import { uncheckedCoverageReading, type ReadingState } from "./partial-read.js";
-
-const SUBJECT = "the queue";
-
-const PARSE_REFUSAL = refuse(
-  "session-queue",
-  "delivery-unreadable",
-  "A queue delivery did not match the registered row shape.",
-);
+import { PARSE_REFUSAL, READING_SUBJECT } from "./partial-read.test-support.js";
 
 function AnnouncingSurface(props: { readonly states: readonly ReadingState[] }): null {
-  useReadingAnnouncement(props.states, SUBJECT);
+  useReadingAnnouncement(props.states, READING_SUBJECT);
   return null;
 }
 
@@ -76,7 +69,7 @@ describe("useReadingAnnouncement — the incomplete reading, said out loud", () 
     // The figure travels with its sentence: "3" and "deliveries could not be read"
     // spoken apart are two fragments.
     expect(announced.polite()).toContain("3 deliveries could not be read");
-    expect(announced.polite()).toContain(SUBJECT);
+    expect(announced.polite()).toContain(READING_SUBJECT);
     // The assertive lane is for refusals that change what the whole room can do.
     expect(announced.assertive()).toBe("");
   });
