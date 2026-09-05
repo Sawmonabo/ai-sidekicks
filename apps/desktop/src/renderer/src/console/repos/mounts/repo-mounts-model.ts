@@ -40,10 +40,15 @@ export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
  *
  * `byCapabilitiesRead` is the reader's, rebuilt whole on each read and never written by
  * an act. `bySelection` is the act's, written when a switch is refused and cleared when
- * a new switch takes that workspace's register, and the read only ever scopes it to the
+ * a new switch for that workspace is issued, and the read only ever scopes it to the
  * roster it just saw.
+ *
+ * NAMED FOR WHAT IT HOLDS AND NOT FOR THE WORD `Register`, which the console reserves:
+ * a `Register` suffix names a subject-scoped generation holder, of which the console has
+ * exactly one, and `subject-state-chokepoint.test.ts` reads that suffix as a second copy
+ * of it. This is a pair of plain lookup tables and takes the plural noun instead.
  */
-export interface WorkspaceRefusalRegister {
+export interface WorkspaceRefusals {
   /** What the capabilities read could not answer, per workspace. Rebuilt by every read. */
   readonly byCapabilitiesRead: Readonly<Record<string, ConsoleRefusal>>;
   /** What a mode switch could not do, per workspace. Written and cleared by the act half. */
@@ -51,7 +56,7 @@ export interface WorkspaceRefusalRegister {
 }
 
 /** Neither half has anything to say yet. */
-export const NO_WORKSPACE_REFUSALS: WorkspaceRefusalRegister = {
+export const NO_WORKSPACE_REFUSALS: WorkspaceRefusals = {
   byCapabilitiesRead: {},
   bySelection: {},
 };
@@ -65,10 +70,10 @@ export const NO_WORKSPACE_REFUSALS: WorkspaceRefusalRegister = {
  * a question nobody put and hides the one they did.
  */
 export function workspaceRefusalFor(
-  register: WorkspaceRefusalRegister,
+  refusals: WorkspaceRefusals,
   workspaceId: string,
 ): ConsoleRefusal | undefined {
-  return register.bySelection[workspaceId] ?? register.byCapabilitiesRead[workspaceId];
+  return refusals.bySelection[workspaceId] ?? refusals.byCapabilitiesRead[workspaceId];
 }
 
 /**
@@ -132,7 +137,7 @@ export interface RepoMountsReading {
    */
   readonly worktreeReadPosition: "not-made" | "made";
   /** Per workspace: what the read could not answer, and what a press could not do. */
-  readonly workspaceRefusals: WorkspaceRefusalRegister;
+  readonly workspaceRefusals: WorkspaceRefusals;
   /**
    * Per workspace: the mode a switch is on the wire for, where one is.
    *

@@ -67,7 +67,7 @@ import {
 import { ProposalGateDisclosure } from "../proposals/ProposalGateDisclosure.js";
 import { branchRootGateSubject } from "../proposals/proposal-gate-model.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
-import { workspaceRefusalFor, type WorkspaceRefusalRegister } from "./repo-mounts-model.js";
+import { workspaceRefusalFor, type WorkspaceRefusals } from "./repo-mounts-model.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { WorktreeGateRow } from "../proposals/WorktreeGateRow.js";
 import {
@@ -96,7 +96,7 @@ export interface MountCardProps {
     Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
   >;
   /** Per workspace: what the read could not answer, and what a press could not do. */
-  readonly workspaceRefusals: WorkspaceRefusalRegister;
+  readonly workspaceRefusals: WorkspaceRefusals;
   /** Per workspace: the mode a switch is on the wire for, where one is. */
   readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
   /** Every execution root this session holds. Filtered to this mount's here, not by the caller. */
