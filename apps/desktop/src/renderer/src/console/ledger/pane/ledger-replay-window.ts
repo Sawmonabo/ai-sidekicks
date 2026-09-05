@@ -23,29 +23,22 @@ import { isReplayEngaged } from "./ledger-replay-reveal.js";
 import { type LedgerWindowModel } from "./ledger-window.js";
 
 /**
- * Which engines this mount has already disposed.
+ * The two disposal readings the resource holder is handed, at module scope.
  *
- * WHY THE READING IS HELD HERE AND NOT ASKED OF THE ENGINE. `ReplayEngine.dispose()`
- * is terminal — a disposed engine can never arm again — and the resource holder needs
- * to know that to answer React's double-mount, where the committed cleanup disposes a
- * value and the effect then re-runs against the corpse it just closed. The engine
- * publishes no disposal reading of its own and belongs to another lane's directory,
- * so the smallest honest answer is to remember here what this mount closed. A
- * `WeakSet` rather than a `Set`: an engine nothing else holds is collectable, and a
- * table that pinned every engine a long session ever opened would be the leak this
- * whole hook exists to close.
+ * MODULE SCOPE BECAUSE THE HOLDER HOLDS THEM ON A DEPENDENCY. `useSubjectScopedResource`
+ * keeps its caller's `close` and `isClosed` in a layout effect keyed on their identity,
+ * so a pair minted per render would restart that lifetime every pass. Two constants have
+ * one identity for the module's life and nothing to close over.
+ *
+ * AND THE READING COMES OFF THE ENGINE. Disposal is terminal there, so the engine can
+ * answer it; this mount used to remember on the side which engines it had closed, which
+ * was a second record of a fact the object already had.
  */
-class DisposedReplayEngines {
-  readonly #disposed = new WeakSet<ReplayEngine>();
+const disposeReplayEngine = (engine: ReplayEngine): void => {
+  engine.dispose();
+};
 
-  /** Dispose one and record it, which are one act and never two. */
-  public readonly dispose = (engine: ReplayEngine): void => {
-    this.#disposed.add(engine);
-    engine.dispose();
-  };
-
-  public readonly isDisposed = (engine: ReplayEngine): boolean => this.#disposed.has(engine);
-}
+const isReplayEngineDisposed = (engine: ReplayEngine): boolean => engine.isDisposed;
 
 /** The replay dock's engine, its reveal, and the position it renders. */
 export interface LedgerReplayState {
@@ -218,7 +211,6 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
   // somewhere else; and the walk is keyed by a COUNTER rather than by its rows,
   // because ending a walk over an unchanged window has to re-mint one and two arrays
   // compared by identity could not say "same rows, new walk".
-  const [disposedEngines] = useState(() => new DisposedReplayEngines());
   const walkKey = String(walk.generation);
   const openEngine = useCallback((): ReplayEngine => {
     const mintedEngine = new ReplayEngine({
@@ -249,8 +241,8 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
     clock,
     walkKey,
     openEngine,
-    disposedEngines.dispose,
-    disposedEngines.isDisposed,
+    disposeReplayEngine,
+    isReplayEngineDisposed,
   ).value;
 
   useEffect(() => {

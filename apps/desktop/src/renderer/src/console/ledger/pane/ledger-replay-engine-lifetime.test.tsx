@@ -186,4 +186,30 @@ describe("the replay engine's lifetime across a walk it does not survive", () =>
     expect(beforeDisclosure).toBeGreaterThan(1);
     expect(afterDisclosure).toBeGreaterThan(beforeDisclosure);
   });
+
+  it("answers the holder's re-mint question from the engine, across its own disposal", () => {
+    // WHY THIS CASE IS IN THIS FILE. The double-mount claim above holds only because
+    // the resource holder can ask a value it has ALREADY closed whether it is closed —
+    // React's committed cleanup disposes, and the effect then re-runs against what it
+    // just closed. That reading is the engine's own. This mount used to keep a
+    // `WeakSet` of the engines it had disposed, which was a second record of a fact the
+    // object already had and one only this file could consult.
+    //
+    // Minted exactly as `openEngine` mints one, resumed the way a carried walk is, so
+    // the arming the reading is held against is the arming the hook really performs.
+    const { clock } = fixtureBridgeOnFrozenClock();
+    const loadedWindow: LedgerWindowModel = deriveLedgerWindow(chapteredLog(), false);
+    const engine = new ReplayEngine({
+      clock,
+      rows: loadedWindow.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
+    });
+    engine.scrubTo(ONE_ROW_MS);
+    engine.play();
+    expect(engine.isDisposed).toBe(false);
+    expect(clock.pendingCount).toBe(1);
+
+    engine.dispose();
+    expect(engine.isDisposed).toBe(true);
+    expect(clock.pendingCount).toBe(0);
+  });
 });

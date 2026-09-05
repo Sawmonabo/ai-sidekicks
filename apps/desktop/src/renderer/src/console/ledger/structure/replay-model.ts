@@ -301,6 +301,21 @@ export class ReplayEngine {
     this.#state = "idle";
   }
 
+  /**
+   * Whether `dispose` has been called. Terminal, so it never goes back to `false`.
+   *
+   * PUBLISHED BECAUSE A HOLDER HAS TO ASK. React's double-mount runs a committed
+   * cleanup and then re-runs the effect that held the value, so a resource holder
+   * meets an engine it has already closed and must tell that from one it may keep —
+   * and `isArmed` cannot answer it, since a paused engine and a disposed one both
+   * hold no handle. Without the reading here, a holder's only recourse was to
+   * remember on the side which engines it had closed, which is a second record of a
+   * fact this object already has.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
   /** Whether a frame is armed. The idle-CPU budget's question, answerable. */
   public get isArmed(): boolean {
     return this.#armedHandle !== undefined;

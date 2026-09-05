@@ -159,6 +159,35 @@ describe("replay — one armed timeout at a time, on the injected clock", () => 
     expect(clock.pendingCount).toBe(1);
   });
 
+  it("says whether it has been disposed, which no other reading can be read for", () => {
+    // The holder that closes this engine meets it again on React's double-mount and
+    // has to tell a corpse from a live value. `isArmed` cannot answer that: a paused
+    // engine and a disposed one both hold no handle, which the middle pair below is
+    // what makes checkable.
+    const engine = engineOver(new ManualClock());
+    expect(engine.isDisposed).toBe(false);
+
+    engine.play();
+    engine.pause();
+    expect(engine.isArmed).toBe(false);
+    expect(engine.isDisposed).toBe(false);
+
+    engine.dispose();
+    expect(engine.isArmed).toBe(false);
+    expect(engine.isDisposed).toBe(true);
+  });
+
+  it("negative control: disposal is terminal, so the reading never goes back", () => {
+    // Without this the reading above would pass over a flag any later call could
+    // clear — and a holder told a disposed engine is live re-arms a dead walk.
+    const engine = engineOver(new ManualClock());
+    engine.dispose();
+    engine.play();
+    engine.scrubTo(0);
+    engine.pause();
+    expect(engine.isDisposed).toBe(true);
+  });
+
   it("reports every position change to its caller", () => {
     const clock = new ManualClock();
     const seen: ReplayPosition[] = [];
