@@ -9,6 +9,9 @@
 // a symbol here ever needs a type from `store/` or `bridge/`, it is not core.
 
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
+// The clock seam's third implementation: one identity over a clock the window
+// replaces underneath a live mount.
+export { ForwardingConsoleClock } from "./forwarding-clock.js";
 export {
   APPLY_COALESCE_MS,
   LIVE_ANNOUNCEMENT_HOLD_MS,
