@@ -352,3 +352,70 @@ export function declaredFlagsForDriver(
   }
   return readout.flagsByDriverName.get(driverName);
 }
+
+/**
+ * What this build knows about one driver flag. Declared once, for every consumer.
+ *
+ * Three answers and they are three different facts: `declared` — that driver
+ * declared it; `undeclared` — that driver declared it absent; `unknown` — nobody
+ * has answered the question, because the read has not landed, the run's binding is
+ * not nameable, or the named driver filed no report. The third is what a boolean
+ * cannot carry, and the reason this is a set rather than a flag: a surface that
+ * collapsed `unknown` onto `undeclared` would show a session whose read has not
+ * landed exactly as it shows one bound to a driver that cannot do the thing.
+ */
+export const DRIVER_CAPABILITY_READINGS = ["declared", "undeclared", "unknown"] as const;
+
+/** One reading of one driver flag. Derived from the enumeration above. */
+export type DriverCapabilityReading = (typeof DRIVER_CAPABILITY_READINGS)[number];
+
+/**
+ * Which driver a run is bound to, or `undefined` where the console cannot say.
+ *
+ * Two sources in priority order and no third: the binding the session's own
+ * projection named for this run, then the sole-report fallback — where exactly one
+ * driver filed a report, that report is this run's whatever the projection has said,
+ * because there is nothing else it could be bound to. Guessing between two reported
+ * drivers is deliberately not one of them: a wrong guess offers a control the daemon
+ * will always refuse, or hides one it would have honoured.
+ */
+export function boundDriverNameForRun(
+  readout: DriverCapabilityReadout | undefined,
+  runId: string,
+): string | undefined {
+  if (readout === undefined) {
+    return undefined;
+  }
+  const named = readout.driverNameByRunId.get(runId);
+  if (named !== undefined) {
+    return named;
+  }
+  if (readout.flagsByDriverName.size !== 1) {
+    return undefined;
+  }
+  const [onlyReportedDriverName] = readout.flagsByDriverName.keys();
+  return onlyReportedDriverName;
+}
+
+/**
+ * What this build knows about one flag on the driver ONE RUN is bound to.
+ *
+ * The console's single answer to that question. It used to be three: a
+ * `boolean | undefined` in the runs pane, a three-value union in the composer, and a
+ * `"declared" | "undeclared" | undefined` in the approvals pane — and the first two
+ * disagreed about the same run, because only the pane resolved the binding through
+ * the sole-report fallback while the rail was handed a driver name the session
+ * projection had not supplied. One readout, one run, one moment, two answers, and
+ * nothing derived from the other to report the split.
+ */
+export function readingForRun(
+  readout: DriverCapabilityReadout | undefined,
+  runId: string,
+  flag: DriverCapabilityFlag,
+): DriverCapabilityReading {
+  const flags = declaredFlagsForDriver(readout, boundDriverNameForRun(readout, runId));
+  if (flags === undefined) {
+    return "unknown";
+  }
+  return flags[flag] ? "declared" : "undeclared";
+}

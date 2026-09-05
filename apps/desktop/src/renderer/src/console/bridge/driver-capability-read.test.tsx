@@ -23,7 +23,10 @@ import { ManualClock, REFRESH_MAX_WAIT_MS, type ConsoleRefusal } from "../core/i
 import { SessionStore } from "../store/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
+  DRIVER_CAPABILITY_READINGS,
+  boundDriverNameForRun,
   declaredFlagsForDriver,
+  readingForRun,
   useDriverCapabilities,
   useDriverCapabilityRepairRead,
   withRunDriverBindings,
@@ -456,5 +459,51 @@ describe("declaredFlagsForDriver", () => {
   it("says nothing about a driver nobody named", () => {
     expect(declaredFlagsForDriver(undefined, "claude")).toBeUndefined();
     expect(declaredFlagsForDriver(neverRead(), undefined)).toBeUndefined();
+  });
+});
+
+describe("readingForRun — one readout, one run, one answer for every surface", () => {
+  const CLAUDE_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+  const CODEX_RUN = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
+
+  /** One report, and no session projection to name which run is bound to it. */
+  function soleReportReadout(): DriverCapabilityReadout {
+    return {
+      flagsByDriverName: new Map([
+        [
+          "claude",
+          Object.fromEntries(
+            DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, flag === "context_compaction"]),
+          ) as Readonly<Record<DriverCapabilityFlag, boolean>>,
+        ],
+      ]),
+      driverNameByRunId: new Map(),
+      readRefusal: undefined,
+    };
+  }
+
+  it("answers the same for a run whose binding only the sole-report fallback names", () => {
+    // The state the composer's rail and the runs pane disagreed in: exactly one
+    // driver filed a report and the session projection has named no binding, so the
+    // pane resolved the driver through the fallback and offered its gated control
+    // while the rail — handed a driver name the projection had not supplied — said
+    // nobody had asked. One readout, one run, one moment, two answers.
+    const readout = soleReportReadout();
+    expect(boundDriverNameForRun(readout, CLAUDE_RUN)).toBe("claude");
+    expect(readingForRun(readout, CLAUDE_RUN, "context_compaction")).toBe("declared");
+    expect(readingForRun(readout, CODEX_RUN, "context_compaction")).toBe("declared");
+  });
+
+  it("says nobody has asked where no reading can name the binding", () => {
+    expect(readingForRun(undefined, CLAUDE_RUN, "context_compaction")).toBe("unknown");
+    expect(readingForRun(neverRead(), CLAUDE_RUN, "context_compaction")).toBe("unknown");
+  });
+
+  it("negative control: a declared absence is not the same reading as an unasked one", () => {
+    // Without this the case above would pass over a resolver that answered
+    // `unknown` for everything, which is the collapse the third state exists to stop.
+    const readout = soleReportReadout();
+    expect(readingForRun(readout, CLAUDE_RUN, "rollback")).toBe("undeclared");
+    expect(DRIVER_CAPABILITY_READINGS).toStrictEqual(["declared", "undeclared", "unknown"]);
   });
 });

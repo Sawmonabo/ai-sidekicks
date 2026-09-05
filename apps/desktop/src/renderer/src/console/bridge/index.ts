@@ -124,14 +124,15 @@ export {
 // it and neither may import the other — one read per bridge serves both, and a hook
 // living in one of them would make the other's copy a second call on one wire.
 export {
-  declaredFlagsForDriver,
+  DRIVER_CAPABILITY_READINGS,
+  readingForRun,
   useDriverCapabilities,
   useDriverCapabilityRepairRead,
   withRunDriverBindings,
 } from "./driver-capability-read.js";
 export { useRunDriverBindings } from "./run-driver-binding.js";
 export { SessionRepairWatcher } from "./session-repair-watcher.js";
-export type { DriverCapabilityReadout } from "./driver-capability-read.js";
+export type { DriverCapabilityReadout, DriverCapabilityReading } from "./driver-capability-read.js";
 
 // The session's one queue reading. Here for the same reason the capability read is:
 // the runs pane and the composer's shelf ask two questions of one list, and each

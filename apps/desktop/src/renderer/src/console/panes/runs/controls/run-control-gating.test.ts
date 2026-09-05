@@ -9,17 +9,17 @@
 import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import { withRunDriverBindings, type DriverCapabilityReadout } from "../../../bridge/index.js";
+import {
+  readingForRun,
+  withRunDriverBindings,
+  type DriverCapabilityReadout,
+} from "../../../bridge/index.js";
 // The declaring modules rather than the door: both names are read only from this
 // suite, and a door line no production module imports is a dead export.
 import { foldRunDriverBindings } from "../../../bridge/run-driver-binding.js";
 import type { DeclaredDriverFlags } from "../../../bridge/driver-capability-read.js";
 import type { ConsoleEntity, ConsoleSessionEvent } from "../../../store/index.js";
-import {
-  boundDriverNameForRun,
-  driverCapabilityForRun,
-  isControlOffered,
-} from "./run-control-gating.js";
+import { isControlOffered } from "./run-control-gating.js";
 
 const CLAUDE_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 const CODEX_RUN = "c4a1b2d3-5e6f-4071-8b82-0d3e4f506172";
@@ -64,7 +64,7 @@ describe("capability gating resolves the run's own bound driver", () => {
         [CODEX_RUN, "codex"],
       ],
     );
-    expect(driverCapabilityForRun(capabilities, CLAUDE_RUN, "rollback")).toBe(true);
+    expect(readingForRun(capabilities, CLAUDE_RUN, "rollback")).toBe("declared");
     expect(isControlOffered("rollback", capabilities, CLAUDE_RUN)).toBe(true);
   });
 
@@ -79,7 +79,7 @@ describe("capability gating resolves the run's own bound driver", () => {
         [CODEX_RUN, "codex"],
       ],
     );
-    expect(driverCapabilityForRun(capabilities, CODEX_RUN, "rollback")).toBe(false);
+    expect(readingForRun(capabilities, CODEX_RUN, "rollback")).toBe("undeclared");
     expect(isControlOffered("rollback", capabilities, CODEX_RUN)).toBe(false);
   });
 
@@ -94,8 +94,7 @@ describe("capability gating resolves the run's own bound driver", () => {
     // One driver reported for the session is the only binding any run in it can
     // hold, so this is a resolution rather than a guess.
     const capabilities = readout([["claude", ["steer", "rollback"]]]);
-    expect(boundDriverNameForRun(capabilities, CLAUDE_RUN)).toBe("claude");
-    expect(driverCapabilityForRun(capabilities, CLAUDE_RUN, "steer")).toBe(true);
+    expect(readingForRun(capabilities, CLAUDE_RUN, "steer")).toBe("declared");
   });
 });
 
@@ -105,18 +104,17 @@ describe("an unnameable binding says so rather than guessing", () => {
       ["claude", ["steer", "rollback"]],
       ["codex", ["steer", "rollback"]],
     ]);
-    expect(boundDriverNameForRun(capabilities, CLAUDE_RUN)).toBeUndefined();
-    expect(driverCapabilityForRun(capabilities, CLAUDE_RUN, "rollback")).toBeUndefined();
+    expect(readingForRun(capabilities, CLAUDE_RUN, "rollback")).toBe("unknown");
     expect(isControlOffered("rollback", capabilities, CLAUDE_RUN)).toBe(false);
   });
 
   it("answers undefined for a binding naming a driver that filed no report", () => {
     const capabilities = readout([["claude", ["steer", "rollback"]]], [[CODEX_RUN, "codex"]]);
-    expect(driverCapabilityForRun(capabilities, CODEX_RUN, "rollback")).toBeUndefined();
+    expect(readingForRun(capabilities, CODEX_RUN, "rollback")).toBe("unknown");
   });
 
   it("answers undefined before the read has come back", () => {
-    expect(driverCapabilityForRun(undefined, CLAUDE_RUN, "rollback")).toBeUndefined();
+    expect(readingForRun(undefined, CLAUDE_RUN, "rollback")).toBe("unknown");
     expect(isControlOffered("rollback", undefined, CLAUDE_RUN)).toBe(false);
   });
 
@@ -184,10 +182,9 @@ describe("the session's own projection is what names a run's driver", () => {
     );
     const capabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), bindings);
 
-    expect(boundDriverNameForRun(capabilities, CODEX_RUN)).toBe("codex");
     // The Codex run's own driver declared rollback absent, which is a DECLARATION
     // rather than an absence of one — and Steer, which it did declare, is offered.
-    expect(driverCapabilityForRun(capabilities, CODEX_RUN, "rollback")).toBe(false);
+    expect(readingForRun(capabilities, CODEX_RUN, "rollback")).toBe("undeclared");
     expect(isControlOffered("steer", capabilities, CODEX_RUN)).toBe(true);
     expect(isControlOffered("rollback", capabilities, CLAUDE_RUN)).toBe(true);
   });
@@ -201,8 +198,7 @@ describe("the session's own projection is what names a run's driver", () => {
     ]);
     const capabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), bindings);
 
-    expect(boundDriverNameForRun(capabilities, CODEX_RUN)).toBeUndefined();
-    expect(driverCapabilityForRun(capabilities, CODEX_RUN, "steer")).toBeUndefined();
+    expect(readingForRun(capabilities, CODEX_RUN, "steer")).toBe("unknown");
     expect(isControlOffered("steer", capabilities, CODEX_RUN)).toBe(false);
   });
 
@@ -211,7 +207,6 @@ describe("the session's own projection is what names a run's driver", () => {
     // above fails on it rather than passing over a resolution that never had the
     // defect.
     const unjoined = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), new Map());
-    expect(boundDriverNameForRun(unjoined, CLAUDE_RUN)).toBeUndefined();
     expect(isControlOffered("steer", unjoined, CLAUDE_RUN)).toBe(false);
     expect(isControlOffered("rollback", unjoined, CODEX_RUN)).toBe(false);
   });

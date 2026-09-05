@@ -55,7 +55,7 @@
 
 import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import { declaredFlagsForDriver, type DriverCapabilityReadout } from "../../../bridge/index.js";
+import { readingForRun, type DriverCapabilityReadout } from "../../../bridge/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
 
 /**
@@ -77,50 +77,6 @@ export const CONTROL_CAPABILITY_GATE: Readonly<
 };
 
 /**
- * Which driver a run is bound to, or `undefined` where the console cannot say.
- *
- * Two sources in priority order and no third: the binding the session's own
- * projection named for this run, then the sole-report fallback the header explains.
- * Guessing between two reported drivers is deliberately not one of them — a wrong
- * guess offers a control the daemon will always refuse, or hides one it would have
- * honoured.
- */
-export function boundDriverNameForRun(
-  readout: DriverCapabilityReadout | undefined,
-  runId: string,
-): string | undefined {
-  if (readout === undefined) {
-    return undefined;
-  }
-  const named = readout.driverNameByRunId.get(runId);
-  if (named !== undefined) {
-    return named;
-  }
-  if (readout.flagsByDriverName.size !== 1) {
-    return undefined;
-  }
-  const [onlyReportedDriverName] = readout.flagsByDriverName.keys();
-  return onlyReportedDriverName;
-}
-
-/**
- * Whether the driver bound to one run declares one capability flag.
- *
- * Three answers and they are three different facts: `true` — that driver declared
- * it; `false` — that driver declared it absent; `undefined` — the console cannot
- * say, because the read has not answered, the run's binding is not nameable, or the
- * named driver filed no report. Every caller renders `undefined` as ABSENT, on
- * the absent-not-disabled rule the header cites, and never as a declared `false`.
- */
-export function driverCapabilityForRun(
-  readout: DriverCapabilityReadout | undefined,
-  runId: string,
-  flag: DriverCapabilityFlag,
-): boolean | undefined {
-  return declaredFlagsForDriver(readout, boundDriverNameForRun(readout, runId))?.[flag];
-}
-
-/**
  * Whether a control is OFFERED on the driver this run is bound to.
  *
  * Absent, never disabled. An ungated control is always offered, and a gated one is
@@ -137,5 +93,5 @@ export function isControlOffered(
   if (gate === undefined) {
     return true;
   }
-  return driverCapabilityForRun(readout, runId, gate) === true;
+  return readingForRun(readout, runId, gate) === "declared";
 }
