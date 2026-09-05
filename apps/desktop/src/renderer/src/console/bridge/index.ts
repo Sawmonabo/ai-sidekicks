@@ -109,6 +109,12 @@ export {
 // was narrowing without it.
 export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
 
+// The `invitesList` outcome and its served row. Published because TWO sibling view
+// families read that one operation — the sent ledger and the received shelf — and a
+// view family may not import its sibling, so each had declared the pair itself under
+// a name of its own. Derived off the growth signature here, once.
+export type { InvitesListOutcome, InvitesListRefusal, ServedInvite } from "./invites-outcome.js";
+
 // The agent plane's reply and request shapes. Published because the agent console
 // and the cast bar RENDER them: they are declared on the substrate rather than in a
 // view family — see `agent-plane.js`'s header — so the family that draws a roster

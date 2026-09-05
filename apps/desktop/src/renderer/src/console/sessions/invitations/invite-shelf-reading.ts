@@ -12,28 +12,10 @@
 
 import { parseInstant } from "../../core/index.js";
 import type { ReadingState } from "../../primitives/index.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { InvitesListOutcome, InvitesListRefusal, ServedInvite } from "../../bridge/index.js";
 
 /** What the shelf's notices call what was read. Mid-sentence, so never capitalized. */
 export const SHELF_SUBJECT = "your invitations";
-
-/**
- * What one `invitesList` call answers.
- *
- * Derived off the port rather than restated: the bridge door exports the bridge
- * and not the port's vocabulary, and a hand-written copy of an outcome shape would
- * be a second declaration that nothing checks against the first.
- */
-export type InvitesListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["invitesList"]>>;
-
-/** One invitation as the port serves it. */
-export type ReceivedInvite = Extract<
-  InvitesListOutcome,
-  { readonly status: "served" }
->["value"][number];
-
-/** The refusal arm. A `ConsoleRefusal`, so it renders through the one refusal grammar. */
-export type InvitesListRefusal = Extract<InvitesListOutcome, { readonly status: "unavailable" }>;
 
 /**
  * The read. One outcome per session the console holds a reference to.
@@ -59,7 +41,7 @@ export interface StampedShelfOutcomes {
 
 /** The invitations worth showing, and what the sessions that were asked answered. */
 export interface ShelfReading {
-  readonly pending: readonly ReceivedInvite[];
+  readonly pending: readonly ServedInvite[];
   /**
    * What the fan-out could not answer, in the console's own completeness vocabulary.
    *
@@ -100,7 +82,7 @@ export interface ShelfReading {
  * another that refused.
  */
 export function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading {
-  const byInviteId = new Map<string, ReceivedInvite>();
+  const byInviteId = new Map<string, ServedInvite>();
   let refusal: InvitesListRefusal | undefined;
   let servedCount = 0;
   for (const outcome of outcomes) {
@@ -153,7 +135,7 @@ export function isCompleteRead(reading: ShelfReading): boolean {
  * rendering as waiting and shows the wire's own spelling, which is the honest
  * reading of a stamp nobody here could parse.
  */
-export function expiryDeadlinesOf(invites: readonly ReceivedInvite[]): readonly number[] {
+export function expiryDeadlinesOf(invites: readonly ServedInvite[]): readonly number[] {
   return invites
     .map((invite) => parseInstant(invite.expiresAt).epochMilliseconds)
     .filter((epochMilliseconds): epochMilliseconds is number => epochMilliseconds !== undefined);
@@ -172,9 +154,9 @@ export function expiryDeadlinesOf(invites: readonly ReceivedInvite[]): readonly 
  * strength of a stamp this console could not read.
  */
 export function stillWaitingAt(
-  invites: readonly ReceivedInvite[],
+  invites: readonly ServedInvite[],
   atMilliseconds: number,
-): readonly ReceivedInvite[] {
+): readonly ServedInvite[] {
   return invites.filter((invite) => {
     const expiry = parseInstant(invite.expiresAt).epochMilliseconds;
     return expiry === undefined || expiry > atMilliseconds;

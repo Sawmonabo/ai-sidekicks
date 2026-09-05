@@ -21,31 +21,15 @@
 
 import type { InviteRevokeResponse } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
-
-/**
- * What one `invitesList` call answers.
- *
- * Derived off the port rather than restated, for the received shelf's reason: the
- * bridge door exports the bridge and not the port's vocabulary, and a hand-written
- * copy of an outcome shape is a second declaration nothing checks against the
- * first.
- */
-export type InvitesListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["invitesList"]>>;
-
-/** One sent invitation as the port serves it. */
-export type SentInvite = Extract<
-  InvitesListOutcome,
-  { readonly status: "served" }
->["value"][number];
+import type { InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
 
 /** Pending first, then everything that has already settled. */
 export interface InviteLedger {
-  readonly pending: readonly SentInvite[];
-  readonly settled: readonly SentInvite[];
+  readonly pending: readonly ServedInvite[];
+  readonly settled: readonly ServedInvite[];
 }
 
-export function partitionInvites(invites: readonly SentInvite[]): InviteLedger {
+export function partitionInvites(invites: readonly ServedInvite[]): InviteLedger {
   return {
     pending: invites.filter((invite) => invite.state === "pending"),
     settled: invites.filter((invite) => invite.state !== "pending"),

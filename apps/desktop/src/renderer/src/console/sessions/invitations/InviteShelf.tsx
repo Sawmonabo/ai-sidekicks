@@ -39,6 +39,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { ConsoleClock } from "../../core/index.js";
+import type { ServedInvite } from "../../bridge/index.js";
 import {
   Chip,
   InlineRefusal,
@@ -58,12 +59,12 @@ import {
   readShelf,
   stillWaitingAt,
   type InviteShelfReader,
-  type ReceivedInvite,
   type ShelfReading,
   type StampedShelfOutcomes,
 } from "./invite-shelf-reading.js";
 
-export type { InviteShelfReader, ReceivedInvite } from "./invite-shelf-reading.js";
+export type { InviteShelfReader } from "./invite-shelf-reading.js";
+export type { ServedInvite } from "../../bridge/index.js";
 
 export interface InviteShelfProps {
   readonly read: InviteShelfReader;
@@ -175,7 +176,7 @@ export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
 
 function ShelfBody(props: {
   readonly reading: ShelfReading | undefined;
-  readonly visible: readonly ReceivedInvite[];
+  readonly visible: readonly ServedInvite[];
   readonly onSetAside: (inviteId: string) => void;
 }): React.JSX.Element {
   const { reading } = props;
@@ -245,7 +246,7 @@ function ShelfBody(props: {
  * screen reader, so it is a second copy rather than the answer.
  */
 function InviteRow(props: {
-  readonly invite: ReceivedInvite;
+  readonly invite: ServedInvite;
   readonly actionLabel: string;
   readonly onAct: () => void;
 }): React.JSX.Element {

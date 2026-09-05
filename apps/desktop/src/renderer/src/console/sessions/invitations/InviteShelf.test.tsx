@@ -14,13 +14,13 @@ import { frozenStartMilliseconds } from "../../core/frozen-instant.test-support.
 import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
 import type { UiStateStore } from "../../persistence/index.js";
 import { openStore, openStoreOver } from "../sessions.test-support.js";
-import { InviteShelf, type InviteShelfReader, type ReceivedInvite } from "./InviteShelf.js";
+import { InviteShelf, type InviteShelfReader, type ServedInvite } from "./InviteShelf.js";
 import { HIDDEN_INVITES_KEY } from "./hidden-invites.js";
 import { settle as settlePasses } from "../../core/settle.test-support.js";
 
 type ShelfOutcome = Awaited<ReturnType<InviteShelfReader>>[number];
 
-function invite(overrides: Partial<ReceivedInvite> = {}): ReceivedInvite {
+function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
   return {
     inviteId: "invite-1",
     state: "pending",
@@ -29,7 +29,7 @@ function invite(overrides: Partial<ReceivedInvite> = {}): ReceivedInvite {
   };
 }
 
-function served(invites: readonly ReceivedInvite[]): ShelfOutcome {
+function served(invites: readonly ServedInvite[]): ShelfOutcome {
   return { status: "served", value: invites };
 }
 

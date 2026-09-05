@@ -74,9 +74,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
+import { heldIdAsWireId, type ConsoleBridge, type InvitesListOutcome } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
-import { partitionInvites, withSettledInvite, type InvitesListOutcome } from "./invite-ledger.js";
+import { partitionInvites, withSettledInvite } from "./invite-ledger.js";
 import {
   WireMutationCoordinator,
   daemonMutation,

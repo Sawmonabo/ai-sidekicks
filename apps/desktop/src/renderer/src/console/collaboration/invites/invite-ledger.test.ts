@@ -9,15 +9,14 @@ import { describe, expect, it } from "vitest";
 
 import type { InviteId, InviteRevokeResponse } from "@ai-sidekicks/contracts";
 
-import { growthUnavailable } from "../../bridge/index.js";
 import {
-  partitionInvites,
-  withSettledInvite,
+  growthUnavailable,
   type InvitesListOutcome,
-  type SentInvite,
-} from "./invite-ledger.js";
+  type ServedInvite,
+} from "../../bridge/index.js";
+import { partitionInvites, withSettledInvite } from "./invite-ledger.js";
 
-function invite(overrides: Partial<SentInvite> = {}): SentInvite {
+function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
   return {
     inviteId: "invite-1",
     state: "pending",
@@ -26,7 +25,7 @@ function invite(overrides: Partial<SentInvite> = {}): SentInvite {
   };
 }
 
-function served(invites: readonly SentInvite[]): InvitesListOutcome {
+function served(invites: readonly ServedInvite[]): InvitesListOutcome {
   return { status: "served", value: invites };
 }
 

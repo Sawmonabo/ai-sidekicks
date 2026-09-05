@@ -19,10 +19,9 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
 import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge, ServedInvite } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
-import type { SentInvite } from "./invite-ledger.js";
 import { SentInvites } from "./SentInvites.js";
 import { settle as settlePasses } from "../../core/settle.test-support.js";
 
@@ -58,7 +57,7 @@ const SESSION_B = "019b7910-0000-7000-8000-00000000000b";
 
 const EMPTY_SCENARIO = unscriptedScenario("collaboration-invites-test");
 
-function invite(overrides: Partial<SentInvite> = {}): SentInvite {
+function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
   return {
     inviteId: INVITE_1,
     state: "pending",
@@ -83,7 +82,7 @@ function bridgeRefusingInvites(): ConsoleBridge {
 }
 
 /** The real fixture bridge, with the one growth operation this surface reads served. */
-function bridgeServing(invites: readonly SentInvite[]): ConsoleBridge {
+function bridgeServing(invites: readonly ServedInvite[]): ConsoleBridge {
   return fixtureBridgeWithGrowth(EMPTY_SCENARIO, { invitesList: growthServing(invites) });
 }
 
@@ -101,7 +100,7 @@ function scenarioSettlingRevoke(inviteId: string): ConsoleScenario {
 }
 
 /** The bridge for a revoke that settles, with every `invitesList` call counted. */
-function bridgeSettlingRevoke(invites: readonly SentInvite[]): {
+function bridgeSettlingRevoke(invites: readonly ServedInvite[]): {
   readonly bridge: ConsoleBridge;
   readonly invitesListCallCount: () => number;
 } {
@@ -443,7 +442,7 @@ describe("sent invites — the session a row and a control belong to", () => {
 
   /** A bridge whose invites read answers per session, as the real one is scoped to. */
   function bridgeServingPerSession(
-    rowsBySession: Readonly<Record<string, readonly SentInvite[]>>,
+    rowsBySession: Readonly<Record<string, readonly ServedInvite[]>>,
   ): ConsoleBridge {
     return fixtureBridgeWithGrowth(EMPTY_SCENARIO, {
       invitesList: async (request) =>
@@ -458,7 +457,7 @@ describe("sent invites — the session a row and a control belong to", () => {
    * microtask settles the coordinator before the session can move, and every
    * ordering then looks correct.
    */
-  function bridgeHoldingRevoke(rowsBySession: Readonly<Record<string, readonly SentInvite[]>>): {
+  function bridgeHoldingRevoke(rowsBySession: Readonly<Record<string, readonly ServedInvite[]>>): {
     readonly bridge: ConsoleBridge;
     readonly revokeRequests: readonly unknown[];
     readonly settleRevoke: (reply: InviteRevokeResponse) => void;
