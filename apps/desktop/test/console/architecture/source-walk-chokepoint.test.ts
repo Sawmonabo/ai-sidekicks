@@ -20,7 +20,7 @@
 // from the shared walk" is a claim about how a test file is written, which no type
 // and no runtime assertion inside those tests can reach.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -200,5 +200,31 @@ describe("source-walk chokepoint — the walk answers what its options say", () 
     expect(() => moduleNamed(modules, "console/core/absent.ts", "the reader")).toThrow(
       "the scan did not reach the reader at console/core/absent.ts",
     );
+  });
+});
+
+describe("the shared walk — answers files, never a directory with a file's name", () => {
+  const screenshotTier = resolve(HERE, "..", "screenshot");
+
+  it("control: the tier holds a DIRECTORY whose name is extension-shaped", () => {
+    // Vitest names a screenshot tier's committed reference directory after its spec,
+    // so this entry is what a walk deciding by extension would admit as a module.
+    const entries = readdirSync(screenshotTier, { recursive: true, encoding: "utf8" }).map(
+      (entry) => entry.split("\\").join("/"),
+    );
+    const directoryNamedLikeASpec = entries.find((entry) =>
+      entry.endsWith("__screenshots__/frame.test.tsx"),
+    );
+    expect(directoryNamedLikeASpec).toBeDefined();
+    expect(statSync(join(screenshotTier, directoryNamedLikeASpec ?? "")).isDirectory()).toBe(true);
+  });
+
+  it("returns only files from a root that holds such a directory", () => {
+    const modules = consoleSourceModules({ roots: [screenshotTier], tests: true });
+    expect(modules.length).toBeGreaterThan(0);
+    const notFiles = modules.filter((module) => !statSync(module.absolutePath).isFile());
+    expect(notFiles.map((module) => module.displayPath)).toStrictEqual([]);
+    // The spec itself is still read; only its reference directory is not.
+    expect(modules.some((module) => module.relativePath === "frame.test.tsx")).toBe(true);
   });
 });

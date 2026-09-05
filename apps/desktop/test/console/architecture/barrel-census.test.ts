@@ -82,28 +82,15 @@ function toKey(absolutePath: string): string {
   return relative(DESKTOP_ROOT, absolutePath).split("\\").join("/");
 }
 
-/**
- * Vitest names a screenshot tier's committed reference directory after its spec file.
- *
- * So `test/console/screenshot/__screenshots__/frame.test.tsx` is a DIRECTORY whose
- * name ends in `.tsx`, and the shared walk — which decides what is source by
- * extension — hands it back as a module. No earlier caller passed a root containing
- * one; this census does, so it drops them by the segment that names them rather than
- * by asking the filesystem what each of several hundred entries is.
- */
-const REFERENCE_IMAGE_SEGMENT = "__screenshots__/";
-
 /** The console and the tiers that read it, as the census reads them. */
 function consoleCensusModules(): readonly CensusModule[] {
-  return consoleSourceModules({ roots: CENSUS_ROOTS, tests: true })
-    .filter((module) => !module.displayPath.includes(REFERENCE_IMAGE_SEGMENT))
-    .map((module) => ({
-      path: toKey(module.absolutePath),
-      source: readConsoleSourceModule(module),
-      isTest:
-        module.directory === TEST_CONSOLE_ROOT ||
-        /\.test(-support)?\.tsx?$/.test(module.relativePath),
-    }));
+  return consoleSourceModules({ roots: CENSUS_ROOTS, tests: true }).map((module) => ({
+    path: toKey(module.absolutePath),
+    source: readConsoleSourceModule(module),
+    isTest:
+      module.directory === TEST_CONSOLE_ROOT ||
+      /\.test(-support)?\.tsx?$/.test(module.relativePath),
+  }));
 }
 
 /** A module written by hand, for the controls. */

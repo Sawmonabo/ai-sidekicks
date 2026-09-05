@@ -7,8 +7,12 @@
 // three slightly different ideas of what counts as source is how one tripwire comes
 // to scan `.d.ts` files and another does not, with nothing reporting the difference.
 //
-// WHAT COUNTS AS SOURCE, decided once. TypeScript and TSX, excluding declaration
-// files (nothing runs) and co-located tests. Tests are excluded for the reason the
+// WHAT COUNTS AS SOURCE, decided once. A FILE — asked of the directory entry, not
+// inferred from the name, because Vitest names a screenshot tier's committed
+// reference directory after its spec (`__screenshots__/frame.test.tsx` is a
+// directory) and a walk deciding by extension handed that back as a module and
+// threw on the read — in TypeScript or TSX, excluding declaration files (nothing
+// runs) and co-located tests. Tests are excluded for the reason the
 // byte-scaling chokepoint states for its own scan: a test asserting that a rule bites
 // has to write the thing the rule forbids, and a tripwire that forbade that would
 // forbid testing itself.
@@ -29,7 +33,7 @@
 // count it got back rather than trusting the walk.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -84,16 +88,18 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
     if (!existsSync(directory)) {
       continue;
     }
-    const rootName = directory.slice(RENDERER_SOURCE_ROOT.length + 1);
-    for (const entry of readdirSync(directory, { recursive: true, encoding: "utf8" })) {
-      if (!isSourceModulePath(entry, tests)) {
+    const rootName = relative(RENDERER_SOURCE_ROOT, directory).split("\\").join("/");
+    for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
+      const absolutePath = join(entry.parentPath, entry.name);
+      const relativePath = relative(directory, absolutePath);
+      if (!entry.isFile() || !isSourceModulePath(relativePath, tests)) {
         continue;
       }
       modules.push({
         directory,
-        relativePath: entry,
-        displayPath: `${rootName}/${entry.split("\\").join("/")}`,
-        absolutePath: join(directory, entry),
+        relativePath,
+        displayPath: `${rootName}/${relativePath.split("\\").join("/")}`,
+        absolutePath,
       });
     }
   }
