@@ -5,7 +5,7 @@
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
 // by row, and the ledger that records the keying is two tables next door:
-// `GROWTH_OPERATIONS` (`growth-operations.ts`) for the callables and
+// `GROWTH_OPERATIONS` (`growth-operations/`) for the callables and
 // `GROWTH_PREREQUISITES` (`growth-prerequisites.ts`) for the non-callable rest.
 //
 // I-023-13's test maps in both directions: no slate row is unmapped, no entry names
@@ -24,21 +24,21 @@
 // port: the mapped type that derives one method per operation, the refusal builder,
 // and the refusing port itself. All three are one construction over whatever the
 // signature table says, so they do not move when a wire is registered — and the
-// table does, which is why it lives next door in `growth-signatures.ts`. The
+// table does, which is why it lives next door in `growth-signatures/`. The
 // ledger's rows and the ledger's row shape are somebody else's too. What a call
 // ANSWERS with is `growth-outcome.ts`, so a surface can narrow a result without
 // reaching for the signature table it will never read.
 
 import { refuse } from "../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import {
   GROWTH_PORT_REFUSAL_ORIGIN,
   type GrowthOutcome,
   type GrowthPortRefusalCode,
   type GrowthUnavailable,
 } from "./growth-outcome.js";
-import type { GrowthOperationSignatures } from "./growth-signatures.js";
+import type { GrowthOperationSignatures } from "./growth-signatures/index.js";
 import { growthSlateRow } from "./growth-slate.js";
 import type { ScriptedReplyRefusalCode } from "./scripted-reply.js";
 

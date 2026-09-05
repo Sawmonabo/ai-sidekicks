@@ -11,7 +11,7 @@
 // growth port.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-signatures.ts` imports them from the contracts package
+// is DELETED and `growth-signatures/sidekicks.ts` imports them from the contracts
 // instead. The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth
 // slate` in the same PR, and `failure-modes.test.ts` then fails on the port entries
 // that still claim fixture-only — which is the reminder this file wants at that

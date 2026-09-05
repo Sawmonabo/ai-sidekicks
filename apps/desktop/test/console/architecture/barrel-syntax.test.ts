@@ -105,7 +105,7 @@ describe("door reading — what a clause names, however it was written", () => {
       "./m.js",
     );
     expect(readingOf("import { ALPHA } from './m.js';\n").reaches).toStrictEqual([
-      { moduleSpecifier: "./m.js", names: ["ALPHA"] },
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: false },
     ]);
   });
 
@@ -130,10 +130,10 @@ describe("door reading — what a clause names, however it was written", () => {
 
   it("reads an imported alias by the name the source module calls it", () => {
     expect(readingOf('import { ALPHA as alpha } from "./m.js";\n').reaches).toStrictEqual([
-      { moduleSpecifier: "./m.js", names: ["ALPHA"] },
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: false },
     ]);
     expect(readingOf('import * as tokens from "./m.js";\n').reaches).toStrictEqual([
-      { moduleSpecifier: "./m.js", names: "namespace" },
+      { moduleSpecifier: "./m.js", names: "namespace", forwarded: false },
     ]);
   });
 
@@ -144,6 +144,112 @@ describe("door reading — what a clause names, however it was written", () => {
     expect(readingOf('export type { Alpha } from "./m.js";\n').doorSpecifiers[0]?.localName).toBe(
       "Alpha",
     );
+  });
+
+  it("tells a door line's reach apart from an import's", () => {
+    // The distinction the census rests a whole disposition on: a door line MOVES the
+    // names and an import that builds with them USES them. Not read off the module
+    // they appear in — a family door writes both, and a rule that could only ask
+    // whether the importer was a barrel called every symbol a door imports and builds
+    // with a forward, so its claim could never retire. The case below is the other
+    // half: the statement kind alone does not decide it either.
+    expect(readingOf('export { ALPHA } from "./m.js";\n').reaches).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: true },
+    ]);
+    expect(readingOf('import { ALPHA } from "./m.js";\n').reaches).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: false },
+    ]);
+  });
+
+  it("tells an import apart by what the module does with it, not by its statement", () => {
+    // The re-export written in two statements. Read off the statement kind alone it
+    // is an import like any other, so the census counted it as a production use of
+    // `ALPHA` — which passes the door-forwarding comparison AND retires the claim on
+    // the door it took the name from, both at once, for a module that consumes
+    // nothing. The disposition is what the module DOES with the binding.
+    // The door line the clause itself is comes second in each reading, naming no
+    // module of its own — that is the pre-existing half, asserted here so the whole
+    // reading is stated rather than a filtered view of it.
+    expect(
+      readingOf('import { ALPHA } from "./m.js";\n\nexport { ALPHA };\n').reaches,
+    ).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: true },
+      { moduleSpecifier: undefined, names: ["ALPHA"], forwarded: true },
+    ]);
+    expect(
+      readingOf('import * as tokens from "./m.js";\n\nexport { tokens };\n').reaches,
+    ).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: "namespace", forwarded: true },
+      { moduleSpecifier: undefined, names: ["tokens"], forwarded: true },
+    ]);
+    // And an alias parts the two names: the clause republishes the LOCAL one while
+    // the reach carries the name the source module declares.
+    expect(
+      readingOf('import { ALPHA as alpha } from "./m.js";\n\nexport { alpha };\n').reaches,
+    ).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: true },
+      { moduleSpecifier: undefined, names: ["alpha"], forwarded: true },
+    ]);
+  });
+
+  it("keeps a republished binding a production use where the module also reads it", () => {
+    // The negative control on the reading above, and the direction that matters: a
+    // door that builds a table out of a name and publishes it too is a consumer, so
+    // classifying it as a forward would leave the source door's claim standing with
+    // no reachable retiring event — the defect this whole `forwarded` flag replaced.
+    expect(
+      readingOf(
+        'import { ALPHA } from "./m.js";\n\nexport const table = [ALPHA];\n\nexport { ALPHA };\n',
+      ).reaches,
+    ).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: false },
+      { moduleSpecifier: undefined, names: ["ALPHA"], forwarded: true },
+    ]);
+  });
+
+  it("splits one clause that republishes some of what it took and builds with the rest", () => {
+    // Per BINDING and not per statement: a rule judging the whole statement has to be
+    // wrong about one half of a mixed one, and both halves are dispositions the
+    // census rests on.
+    expect(
+      readingOf(
+        'import { ALPHA, BETA } from "./m.js";\n\nexport const table = [BETA];\n\nexport { ALPHA };\n',
+      ).reaches,
+    ).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["BETA"], forwarded: false },
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: true },
+      { moduleSpecifier: undefined, names: ["ALPHA"], forwarded: true },
+    ]);
+  });
+
+  it("reads an `import()` nested inside a method body", () => {
+    // The shape a lazy chunk's loader is: the call is an expression inside a class
+    // method, so a walk over top-level statements sees no reach at all and the door
+    // it names — the one module the bundle budget requires be reached this way and
+    // no other — reads as a door nothing imports.
+    expect(
+      readingOf(
+        "export class Loader {\n  async load() {\n    const { CANVAS } = await import('./m.js');\n    return CANVAS;\n  }\n}\n",
+      ).reaches,
+    ).toStrictEqual([{ moduleSpecifier: "./m.js", names: "namespace", forwarded: false }]);
+  });
+
+  it("reads an `import()` written in a type position", () => {
+    // How a loader narrows the shape it hands back. Erased by the compiler and still
+    // a reach: a reading that took only the runtime half would under-count a door
+    // named by a type alone.
+    expect(
+      readingOf('export type Module = Pick<typeof import("./m.js"), "CANVAS">;\n').reaches,
+    ).toStrictEqual([{ moduleSpecifier: "./m.js", names: "namespace", forwarded: false }]);
+  });
+
+  it("reads no reach from an `import()` whose module is computed", () => {
+    // The fail-closed direction: a specifier the text does not spell out cannot be
+    // resolved to a module in the set, and inventing one would attribute a reader to
+    // whichever module the reader guessed.
+    expect(
+      readingOf("export const load = (name: string) => import(name);\n").reaches,
+    ).toStrictEqual([]);
   });
 
   it("reports a re-export whose set the text does not enumerate", () => {
