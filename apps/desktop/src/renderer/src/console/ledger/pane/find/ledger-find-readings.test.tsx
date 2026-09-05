@@ -47,7 +47,7 @@ describe("the find walk's reading, on screen", () => {
     renderWalk(12, 3, "this window");
     expect(
       screen.getByText(
-        /read before this window was cut, so what is not shown here may still exist/u,
+        /read before the answer for this window was cut short, so what is not shown here may still exist/u,
       ),
     ).toBeTruthy();
     expect(screen.getByText("12")).toBeTruthy();
@@ -57,7 +57,7 @@ describe("the find walk's reading, on screen", () => {
     renderWalk(2, 5, "this replay's walk");
     expect(
       screen.getByText(
-        /read before this replay's walk was cut, so what is not shown here may still exist/u,
+        /read before the answer for this replay's walk was cut short, so what is not shown here may still exist/u,
       ),
     ).toBeTruthy();
   });
