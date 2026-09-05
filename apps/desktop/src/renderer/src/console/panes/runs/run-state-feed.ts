@@ -36,9 +36,10 @@
 // timer of any kind: elapsed is measured between two instants the WIRE supplied, so
 // the pane never needs to know what time it is now.
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
+  consoleClockFor,
   readSessionId,
   subscribeDaemon,
   type ConsoleBridge,
@@ -47,10 +48,19 @@ import { useSessionScopedState } from "../../seats/index.js";
 import {
   normalizeWireRejection,
   refuse,
+  type ConsoleClock,
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
-import { useSessionInitialised, type SessionStore } from "../../store/index.js";
+import {
+  NO_TRIGGERING_EVENT_KINDS,
+  RefreshScheduler,
+  useSessionInitialised,
+  useSessionReadTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
+  type SessionStore,
+} from "../../store/index.js";
 import { RunStateProjection, type RunProjection } from "./run-state-projection.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -124,8 +134,29 @@ export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): R
     () => EMPTY_FEED,
   );
 
+  // THE FOLD OUTLIVES THE SUBSCRIPTION AND DIES WITH THE SUBJECT. A re-open is the
+  // same session's stream coming back, so the rows it already established are still
+  // this session's rows — minting a fold per subscription would blank the pane on
+  // every reconnect and leave it blank for as long as the daemon took to re-deliver
+  // them. A rebind mints a new one, because then they are somebody else's rows.
+  const fold = useMemo(() => new RunStateProjection(), [bridge, sessionId]);
+  const [reopenGeneration, setReopenGeneration] = useState(0);
+  const reopen = useMemo(
+    () =>
+      new RunStreamReopen(consoleClockFor(bridge), () => {
+        setReopenGeneration((generation) => generation + 1);
+      }),
+    [bridge, sessionId],
+  );
+  useEffect(() => () => reopen.dispose(), [reopen]);
+  // THE SESSION HALF ALONE. A stream-only reading has no snapshot to re-take, so its
+  // only re-read is a re-open — and re-opening because a surface mounted or the
+  // window regained focus would tear down a live tail that had missed nothing. What
+  // it does owe a re-open is a repair: the stream that went away is the one this
+  // hook is holding, and nothing else in the console will notice it came back.
+  useSessionReadTriggers(reopen, sessionStore);
+
   useEffect(() => {
-    const fold = new RunStateProjection();
     let isMounted = true;
 
     // The stream's own scope, read through the bridge family's identifier reader
@@ -207,9 +238,54 @@ export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): R
     // renders the empty feed for the life of the mount with nothing saying why. It is
     // stable across every render that did not re-address, so this costs no extra
     // subscribe and re-opens the stream exactly when the addressing moves.
-  }, [bridge, sessionId, setFeed]);
+    //
+    // `fold` and `reopenGeneration` join it for the two other reasons this effect
+    // must run again: the fold is the subject's, so a new one means a new subject,
+    // and the generation is the repair trigger's one output — bumping it is how a
+    // reconnect closes the dead stream and opens a live one over the rows already
+    // folded.
+  }, [bridge, fold, reopenGeneration, sessionId, setFeed]);
 
   return useMemo(() => ({ ...feed, hasRead: hasReadSnapshot }), [feed, hasReadSnapshot]);
+}
+
+/**
+ * The one re-read a stream-only feed has: closing the dead tail and opening a live one.
+ *
+ * A class rather than a bare callback because the trigger set is a contract — the
+ * declared kinds and the request method — and because the scheduler behind it is the
+ * console's one answer to "two surfaces asked at once". `perform` returns nothing to
+ * await: the re-open lands as a render, and the stream that render opens answers
+ * whenever the daemon answers.
+ */
+class RunStreamReopen implements ReadTriggerTarget {
+  /**
+   * The stream carries every run-state change this feed folds, so nothing in the
+   * timeline tells it anything its own tail did not — and the repair trigger, which
+   * is what this class exists for, is not an event kind.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
+  readonly #refresh: RefreshScheduler;
+
+  public constructor(clock: ConsoleClock, reopenStream: () => void) {
+    this.#refresh = new RefreshScheduler({
+      clock,
+      perform: async () => {
+        reopenStream();
+      },
+      // Nothing here can reject: the body sets state and returns.
+      onError: () => undefined,
+    });
+  }
+
+  public requestRead(reason: RefreshReason): void {
+    this.#refresh.request(reason);
+  }
+
+  /** Disarm the pending re-open when the mount that would render it is gone. */
+  public dispose(): void {
+    this.#refresh.dispose();
+  }
 }
 
 /** The reading before anything has been delivered. Frozen so no caller mutates it. */

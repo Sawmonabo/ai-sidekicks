@@ -18,7 +18,8 @@ import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError, refuse } from "../core/index.js";
+import { ConsoleRefusalError, ManualClock, refuse } from "../core/index.js";
+import { settleScheduledRead } from "./scheduled-read.test-support.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { useQueueFeed } from "./queue-feed.js";
 import type { QueueFeed } from "./queue-reading.js";
@@ -74,7 +75,10 @@ function stubBridge(snapshot: readonly unknown[] = []): {
     growth: {},
     growthServedOperations: new Set(),
     source: "fixture",
-    scenarioEngine: undefined,
+    // The snapshot read is scheduled rather than taken inside the open, so this double
+    // carries the frozen clock the scheduler arms on: a case that never advanced it
+    // would assert the absence of a read it gave the scheduler no chance to perform.
+    scenarioEngine: { clock: new ManualClock() },
   } as unknown as ConsoleBridge;
   return { bridge, deliver: (payload) => deliverToFeed(payload), openedStreams, calledMethods };
 }
@@ -109,9 +113,7 @@ async function openFeed(
       onFeed={(feed) => (held = feed)}
     />,
   );
-  await act(async () => {
-    await Promise.resolve();
-  });
+  await settleScheduledRead(bridge);
   return {
     deliver: (payload) => {
       act(() => {
@@ -165,9 +167,7 @@ describe("one session's queue is read once for every surface", () => {
     render(
       <TwoQueueSurfaces bridge={bridge} firstSessionId={SESSION_ID} secondSessionId={SESSION_ID} />,
     );
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await settleScheduledRead(bridge);
     expect(openedStreams).toStrictEqual(["run.subscribeQueue"]);
     expect(calledMethods).toStrictEqual(["run.queueList"]);
   });
@@ -181,9 +181,7 @@ describe("one session's queue is read once for every surface", () => {
         secondSessionId={SECOND_SESSION_ID}
       />,
     );
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await settleScheduledRead(bridge);
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
     expect(calledMethods).toStrictEqual(["run.queueList", "run.queueList"]);
   });
@@ -216,24 +214,19 @@ describe("one session's queue is read once for every surface", () => {
     const view = render(
       <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await settleScheduledRead(bridge);
     view.rerender(
       <QueueFeedProbe key="y" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
-    await act(async () => {
-      await Promise.resolve();
-    });
 
     // A third surface arriving afterwards must JOIN what the swap left behind rather
-    // than mint its own, which is the reading that says the registry holds one.
+    // than mint its own, which is the reading that says the registry holds one. Both
+    // arrivals settle together, which is the case's own claim: two surfaces sharing
+    // one reading ask it for one read.
     render(
       <QueueFeedProbe key="z" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await settleScheduledRead(bridge);
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
     expect(calledMethods).toStrictEqual(["run.queueList", "run.queueList"]);
   });
@@ -525,7 +518,9 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
 
   it("clears the count when a well-formed snapshot supersedes what preceded it", async () => {
     // The tail opens before the snapshot lands, so this window is a real one: a
-    // delivery missed before the list was restated is no longer missing.
+    // delivery missed before the list was restated is no longer missing. The window
+    // is now the scheduler's rather than a microtask's, which is what lets the case
+    // place the delivery inside it deliberately instead of relying on a race.
     const { bridge, deliver } = stubBridge([REGISTERED_ROW_DELIVERY]);
     let held: QueueFeed | undefined;
     render(
@@ -535,9 +530,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
       deliver(UNREADABLE_DELIVERY);
     });
     expect(held?.unreadableDeliveryCount).toBe(1);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await settleScheduledRead(bridge);
     expect(held?.unreadableDeliveryCount).toBe(0);
     expect(held?.unreadableRefusal).toBeUndefined();
   });
@@ -569,8 +562,9 @@ function row(id: string, state: string, updatedAt: string): Record<string, unkno
 describe("the ordering rule holds through the hook", () => {
   it("holds the rule through the hook, over a tail delivery that beat the snapshot", async () => {
     // The production path, with the race the fold exists for: the subscription is
-    // opened synchronously inside the effect and the snapshot resolves a microtask
-    // later, so a delivery made before that await is one that arrived first.
+    // opened synchronously inside the effect and the snapshot is taken when the
+    // scheduler's window elapses, so a delivery made before that is one that arrived
+    // first.
     const { bridge, deliver } = stubBridge([
       row(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z"),
       row(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z"),
@@ -582,9 +576,7 @@ describe("the ordering rule holds through the hook", () => {
     act(() => {
       deliver(row(QUEUE_ITEM_B, "admitted", "2026-09-02T09:00:02.000Z"));
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await settleScheduledRead(bridge);
     expect(held?.items.map((item) => item.id)).toStrictEqual([QUEUE_ITEM_A, QUEUE_ITEM_B]);
     expect(held?.items[1]?.state).toBe("admitted");
   });

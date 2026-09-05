@@ -8,7 +8,15 @@
 // rather than being handed a list that stopped being updated when nobody was
 // watching it.
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+
+import {
+  useSessionReadTriggers,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
+  type SessionStore,
+} from "../store/index.js";
 
 import type { ConsoleBridge } from "./console-bridge.js";
 import { SessionQueueReading, type QueueFeed } from "./queue-reading.js";
@@ -73,6 +81,13 @@ const sessionQueueReadings = new SessionQueueReadings();
  * Every surface on one bridge and session is served by one snapshot read and one
  * tail. The watcher count is what opens and closes them, so a window with no queue
  * surface mounted holds no subscription.
+ *
+ * THE WINDOW HALF OF THE TRIGGER SET IS WIRED HERE and the session half is
+ * `useQueueRepairRead` below, for the reason `driver-capability-read.ts` splits the
+ * same pair: this hook is reached by a caller that holds only the id it is addressed
+ * at, and a connection whose repair is worth re-reading for is a fact about a session
+ * STORE. Splitting keeps the id-only caller served rather than making it produce
+ * something it does not have.
  */
 export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFeed {
   // Both callbacks go through the registry rather than closing over the reading this
@@ -88,5 +103,55 @@ export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFee
     () => sessionQueueReadings.reading(bridge, sessionId).snapshot(),
     [bridge, sessionId],
   );
-  return useSyncExternalStore(subscribe, readFeed, readFeed);
+  // The trigger target resolves its reading at TRIGGER time for the same reason the
+  // two callbacks do, and holds no reading of its own: the object is stable per pair,
+  // so the mount trigger fires once per pair rather than once per render.
+  const readTrigger = useMemo<ReadTriggerTarget>(
+    () => ({
+      get triggeringEventKinds(): ReadonlySet<string> {
+        return sessionQueueReadings.reading(bridge, sessionId).triggeringEventKinds;
+      },
+      requestRead: (reason: RefreshReason): void => {
+        sessionQueueReadings.reading(bridge, sessionId).requestRead(reason);
+      },
+    }),
+    [bridge, sessionId],
+  );
+  const feed = useSyncExternalStore(subscribe, readFeed, readFeed);
+  // WIRED AFTER THE SUBSCRIPTION, and the order is load-bearing. React runs a hook's
+  // effects in the order the hooks were called, and `useSyncExternalStore`'s
+  // subscription is what OPENS the reading — which takes its own first read. A
+  // trigger set wired ahead of it would ask an unopened reading for a `subscribe`
+  // read, and the open would then take a second one for the same arrival.
+  useWindowReadTriggers(readTrigger);
+
+  return feed;
+}
+
+/**
+ * Re-read one session's queue when its stream is repaired.
+ *
+ * Separate from the hook above and deliberately so, exactly as the driver-capability
+ * read splits its own pair: the reading is addressed at a session ID, and what says
+ * a tail may have missed rows is the session STORE's sticky degraded flag clearing —
+ * the console's nearest honest reading of a stream that stopped and came back.
+ *
+ * A surface holding the store calls this beside `useQueueFeed`; one holding only the
+ * id still re-reads on mount and on focus. Both are served by the one reading, so the
+ * repair read a session-holding surface asks for refreshes what every surface sees.
+ */
+export function useQueueRepairRead(bridge: ConsoleBridge, sessionStore: SessionStore): void {
+  const { sessionId } = sessionStore;
+  const readTrigger = useMemo<ReadTriggerTarget>(
+    () => ({
+      get triggeringEventKinds(): ReadonlySet<string> {
+        return sessionQueueReadings.reading(bridge, sessionId).triggeringEventKinds;
+      },
+      requestRead: (reason: RefreshReason): void => {
+        sessionQueueReadings.reading(bridge, sessionId).requestRead(reason);
+      },
+    }),
+    [bridge, sessionId],
+  );
+  useSessionReadTriggers(readTrigger, sessionStore);
 }

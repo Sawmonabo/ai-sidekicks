@@ -63,7 +63,7 @@
 
 import { useMemo } from "react";
 import {
-  readingForRun,
+  readingForDriver,
   useDriverCapabilities,
   useProviderQuotas,
   useQueueFeed,
@@ -215,9 +215,9 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
               body={undefined}
               bridge={props.bridge}
               sessionId={props.sessionStore.sessionId}
-              capability={readingForRun(
+              capability={readingForDriver(
                 driverCapabilities,
-                addressedRun.targetRunId,
+                addressedRun.driverName,
                 "context_compaction",
               )}
               targetRunId={addressedRun.targetRunId}

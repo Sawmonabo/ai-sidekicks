@@ -86,6 +86,19 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // apply chokepoint.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
+// The wiring that feeds that chokepoint, on the door for the same reason: the four
+// moments a reading goes stale are one rule, and a family that could not reach this
+// hook would wire whichever subset its author remembered — which is exactly how the
+// queue and quota readings came to have none. `ReadTriggerTarget` travels with it
+// because every reading above this family implements it.
+export {
+  NO_TRIGGERING_EVENT_KINDS,
+  useReadTriggers,
+  useSessionReadTriggers,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+} from "./read-triggers.js";
+
 // `useSessionPartition` joins the door with its cross-family consumers: the
 // composer reads the `agent`, `run`, and `channel` partitions to resolve what a
 // send is addressed to, and the frame's agent step reads a session's agents. It is

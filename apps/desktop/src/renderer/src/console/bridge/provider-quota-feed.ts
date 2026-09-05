@@ -12,7 +12,13 @@
 // mounted holds no subscription and a surface that mounts later reads afresh rather
 // than being handed a list that stopped being updated when nobody was watching it.
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+
+import {
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
+} from "../store/index.js";
 
 import type { ConsoleBridge } from "./console-bridge.js";
 import { NodeProviderQuotaReading, type ProviderQuotaReadout } from "./provider-account-quota.js";
@@ -64,6 +70,11 @@ const nodeProviderQuotaReadings = new NodeProviderQuotaReadings();
  * Every consumer on one bridge is served by one read and one subscription. No timer
  * and no poll: the tail is what makes a reading current, and a surface that polled
  * would be asking a registry that already tells it when something moved.
+ *
+ * THE WINDOW HALF OF THE TRIGGER SET AND NOT THE SESSION HALF. This read is
+ * addressed at the node, so no one session's repair and no one session's timeline
+ * bear on it — tying a node-wide answer to whichever session happened to be open is
+ * the thing the split exists to refuse.
  */
 export function useProviderQuotas(bridge: ConsoleBridge): ProviderQuotaReadout {
   // Through the registry on both callbacks rather than over a reading this render
@@ -77,5 +88,26 @@ export function useProviderQuotas(bridge: ConsoleBridge): ProviderQuotaReadout {
     () => nodeProviderQuotaReadings.reading(bridge).snapshot(),
     [bridge],
   );
-  return useSyncExternalStore(subscribe, readReadout, readReadout);
+  // Resolved at TRIGGER time for the reason the two callbacks are, and stable per
+  // bridge, so mounting asks for one read rather than one per render.
+  const readTrigger = useMemo<ReadTriggerTarget>(
+    () => ({
+      get triggeringEventKinds(): ReadonlySet<string> {
+        return nodeProviderQuotaReadings.reading(bridge).triggeringEventKinds;
+      },
+      requestRead: (reason: RefreshReason): void => {
+        nodeProviderQuotaReadings.reading(bridge).requestRead(reason);
+      },
+    }),
+    [bridge],
+  );
+  const readout = useSyncExternalStore(subscribe, readReadout, readReadout);
+  // WIRED AFTER THE SUBSCRIPTION, and the order is load-bearing. React runs a hook's
+  // effects in the order the hooks were called, and `useSyncExternalStore`'s
+  // subscription is what OPENS the reading — which takes its own first read. A
+  // trigger set wired ahead of it would ask an unopened reading for a `subscribe`
+  // read, and the open would then take a second one for the same arrival.
+  useWindowReadTriggers(readTrigger);
+
+  return readout;
 }

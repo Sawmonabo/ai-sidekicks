@@ -26,7 +26,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "../core/index.js";
+import { ManualClock, PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "../core/index.js";
+import { settleScheduledRead } from "./scheduled-read.test-support.js";
 
 import { useProviderQuotas } from "./provider-quota-feed.js";
 import type { ProviderQuotaReading } from "./provider-quota-fold.js";
@@ -142,7 +143,11 @@ class AccountPlaneBridge {
       growth: {},
       growthServedOperations: new Set(),
       source: "fixture",
-      scenarioEngine: undefined,
+      // The registry read is scheduled rather than taken inside the open, so this
+      // double carries the frozen clock the scheduler arms on: a case that never
+      // advanced it would assert the absence of a read it never let the scheduler
+      // perform.
+      scenarioEngine: { clock: new ManualClock() },
     } as unknown as ConsoleBridge;
   }
 
@@ -223,6 +228,9 @@ async function mountQuotas(bridge: ConsoleBridge): Promise<MountedQuotas> {
   await act(async () => {
     mounted = render(<Probe />);
   });
+  // The read the mount asks for is taken when the scheduler's window elapses, so
+  // every case starts from a reading that has actually been answered.
+  await settleScheduledRead(bridge);
   if (mounted === undefined) {
     throw new Error("the probe did not mount");
   }

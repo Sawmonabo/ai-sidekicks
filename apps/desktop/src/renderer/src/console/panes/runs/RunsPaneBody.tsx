@@ -10,6 +10,7 @@ import {
   useDriverCapabilities,
   useDriverCapabilityRepairRead,
   useQueueFeed,
+  useQueueRepairRead,
   useRunDriverBindings,
   withRunDriverBindings,
 } from "../../bridge/index.js";
@@ -65,6 +66,7 @@ export function RunsPaneBody(props: {
   // run and takes Rewind and Steer off every row.
   const declarations = useDriverCapabilities(context.bridge);
   useDriverCapabilityRepairRead(context.bridge, sessionStore);
+  useQueueRepairRead(context.bridge, sessionStore);
   const runDriverBindings = useRunDriverBindings(sessionStore);
   const driverCapabilities = useMemo(
     () => withRunDriverBindings(declarations, runDriverBindings),

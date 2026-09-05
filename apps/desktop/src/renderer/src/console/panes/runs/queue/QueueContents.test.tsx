@@ -6,11 +6,11 @@
 // through the registered schema, this file fails rather than the pane quietly
 // rendering an empty queue.
 
-import { useMemo } from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, readQueueItemId } from "../../../bridge/index.js";
+import { createFixtureBridge, readQueueItemId, type ConsoleBridge } from "../../../bridge/index.js";
+import { settleScheduledRead } from "../../../bridge/scheduled-read.test-support.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 import type { QueueFeed } from "../../../bridge/index.js";
@@ -20,21 +20,27 @@ import { QueueContents } from "./QueueContents.js";
 import { useQueueFeed } from "../../../bridge/index.js";
 
 /** A one-component harness: the real hook, the real component, the real fixture. */
-function QueueHarness(props: { readonly sessionId: string }): React.JSX.Element {
-  // Built once. A fresh bridge per render would change the hook's dependency on
-  // every pass and re-open the subscription forever, which is a defect in the
-  // harness rather than in the feed — and one worth stating, because the symptom
-  // (a queue that never settles) looks exactly like a wire fault.
-  const bridge = useMemo(() => createFixtureBridge({ scenario: RUNS_SCENARIO }), []);
-  const feed = useQueueFeed(bridge, props.sessionId);
+function QueueHarness(props: {
+  readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
+}): React.JSX.Element {
+  const feed = useQueueFeed(props.bridge, props.sessionId);
   return <QueueContents feed={feed} />;
 }
 
 async function renderQueue(): Promise<HTMLElement> {
-  const { container } = render(<QueueHarness sessionId={RUNS_SCENARIO.sessionId} />);
-  await act(async () => {
-    await Promise.resolve();
-  });
+  // Built once and OUTSIDE the component. A fresh bridge per render would change the
+  // hook's dependency on every pass and re-open the subscription forever, which is a
+  // defect in the harness rather than in the feed — and one worth stating, because
+  // the symptom (a queue that never settles) looks exactly like a wire fault. It is
+  // built here rather than in a memo because the case has to reach the frozen clock
+  // this bridge carries: the snapshot read is scheduled against it, so a harness that
+  // kept the bridge to itself could never let that read happen.
+  const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
+  const { container } = render(
+    <QueueHarness bridge={bridge} sessionId={RUNS_SCENARIO.sessionId} />,
+  );
+  await settleScheduledRead(bridge);
   await waitFor(() => {
     expect(container.querySelector(".meridian-queue__row")).not.toBeNull();
   });

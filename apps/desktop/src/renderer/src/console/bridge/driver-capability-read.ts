@@ -60,18 +60,20 @@
 // reading of "the daemon went away and came back", and that is exactly the transient
 // that leaves a stale or refused capability set standing.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import {
+  NO_TRIGGERING_EVENT_KINDS,
   RefreshScheduler,
-  useSessionDegradedCause,
+  useSessionReadTriggers,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
   type RefreshReason,
   type SessionStore,
 } from "../store/index.js";
 import { callDaemon } from "./daemon-reply.js";
-import { SessionRepairWatcher } from "./session-repair-watcher.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
 /** One driver's declared flags, exactly as its own report carried them. */
@@ -127,7 +129,16 @@ const NO_DECLARATIONS: ReadonlyMap<string, DeclaredDriverFlags> = new Map<
  * thing that may put a call on the wire. A caller that could move one without the
  * others is how a latch gets reintroduced.
  */
-class BridgeCapabilityRead {
+class BridgeCapabilityRead implements ReadTriggerTarget {
+  /**
+   * Nothing in a session's timeline says this node's declarations changed.
+   *
+   * A driver declares its capabilities at the node, and the events a session
+   * appends are about that session's runs — so the empty set here is a claim and
+   * not an omission: this reading goes stale when the window has been away or the
+   * connection was repaired, and never because a run ended.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
   readonly #scheduler: RefreshScheduler;
   readonly #listeners = new Set<() => void>();
@@ -247,10 +258,12 @@ const driverCapabilityReads = new DriverCapabilityReadCache();
  * readout object, so `useSyncExternalStore` compares a pointer and a surface that
  * asked second re-renders once, when the answer lands, and never on a poll.
  *
- * Two of the three refresh reasons are wired here, because both are properties of
- * this window rather than of a session: a surface mounting is `subscribe`, and the
- * window regaining focus is `window-focus`. The third is
- * `useDriverCapabilityRepairRead` below.
+ * The two window-scoped refresh reasons are wired here, because both are properties
+ * of this window rather than of a session: a surface mounting is `subscribe`, and
+ * the window regaining focus is `window-focus`. The session-scoped one is
+ * `useDriverCapabilityRepairRead` below. Neither is wired in this module any more —
+ * both are the console's one trigger set, so a reading added later cannot ship with
+ * a subset of it.
  */
 export function useDriverCapabilities(bridge: ConsoleBridge): DriverCapabilityReadout | undefined {
   const reading = driverCapabilityReads.reading(bridge);
@@ -259,24 +272,7 @@ export function useDriverCapabilities(bridge: ConsoleBridge): DriverCapabilityRe
     [reading],
   );
   const readSnapshot = useCallback(() => reading.readout, [reading]);
-  useEffect(() => {
-    // In an effect and not in the render body: a render React discards would
-    // otherwise put a call on the wire for a surface nobody ever saw.
-    reading.requestRead("subscribe");
-  }, [reading]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onFocus = (): void => {
-      reading.requestRead("window-focus");
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [reading]);
+  useWindowReadTriggers(reading);
 
   return useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
 }
@@ -298,20 +294,10 @@ export function useDriverCapabilityRepairRead(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
 ): void {
-  const reading = driverCapabilityReads.reading(bridge);
-  // Minted per subject, so a pane rebound to another session does not carry the
-  // previous one's standing degraded flag into the new one's first pass — where it
-  // would read as a repair nothing repaired.
-  const repairWatcher = useMemo(() => new SessionRepairWatcher(), [sessionStore]);
-  // Subscribed to in the render body like any other store read, and EXAMINED in an
-  // effect: advancing the watcher is a mutation, and a mutation in a render body
-  // runs twice under React's strict double-invoke.
-  const degradedCause = useSessionDegradedCause(sessionStore);
-  useEffect(() => {
-    if (repairWatcher.observe(degradedCause)) {
-      reading.requestRead("reconnect");
-    }
-  }, [degradedCause, reading, repairWatcher]);
+  // The session half alone, deliberately: the window half is already wired by
+  // `useDriverCapabilities`, which every caller of this hook also calls, and wiring
+  // it twice would put two focus listeners on one window for one reading.
+  useSessionReadTriggers(driverCapabilityReads.reading(bridge), sessionStore);
 }
 
 /**
@@ -386,10 +372,19 @@ export function boundDriverNameForRun(
   if (readout === undefined) {
     return undefined;
   }
-  const named = readout.driverNameByRunId.get(runId);
-  if (named !== undefined) {
-    return named;
-  }
+  return readout.driverNameByRunId.get(runId) ?? soleReportedDriverName(readout);
+}
+
+/**
+ * The one driver this node reported, where it reported exactly one.
+ *
+ * The fallback both entry points below share. A node with one driver installed names
+ * a binding for no run — `driver.listCapabilities` is addressed at the node and names
+ * no run at all — and refusing to answer there would take every capability-gated
+ * control off every run on the most ordinary installation there is. With two drivers
+ * reported it answers nothing, because then the question really is unanswered.
+ */
+function soleReportedDriverName(readout: DriverCapabilityReadout): string | undefined {
   if (readout.flagsByDriverName.size !== 1) {
     return undefined;
   }
@@ -408,14 +403,33 @@ export function boundDriverNameForRun(
  * projection had not supplied. One readout, one run, one moment, two answers, and
  * nothing derived from the other to report the split.
  */
+export function readingForDriver(
+  readout: DriverCapabilityReadout | undefined,
+  driverName: string | undefined,
+  flag: DriverCapabilityFlag,
+): DriverCapabilityReading {
+  const resolved =
+    driverName ?? (readout === undefined ? undefined : soleReportedDriverName(readout));
+  const flags = declaredFlagsForDriver(readout, resolved);
+  if (flags === undefined) {
+    return "unknown";
+  }
+  return flags[flag] ? "declared" : "undeclared";
+}
+
+/**
+ * The same question asked of a RUN rather than of a named driver.
+ *
+ * For a surface that holds a run and not a binding — the runs pane, which seats rows
+ * it has only run ids for. A surface that already resolved the driver its agent is
+ * attached to asks `readingForDriver` with the name it has: throwing that away and
+ * re-deriving it from a map the readout may not carry is how the rail came to report
+ * `unknown` for a run whose driver the session had named.
+ */
 export function readingForRun(
   readout: DriverCapabilityReadout | undefined,
   runId: string,
   flag: DriverCapabilityFlag,
 ): DriverCapabilityReading {
-  const flags = declaredFlagsForDriver(readout, boundDriverNameForRun(readout, runId));
-  if (flags === undefined) {
-    return "unknown";
-  }
-  return flags[flag] ? "declared" : "undeclared";
+  return readingForDriver(readout, boundDriverNameForRun(readout, runId), flag);
 }

@@ -5,10 +5,12 @@
 // against it — and a second mount helper would let the seat's cases and the body's
 // cases drift into two different panes.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { type RunState } from "@ai-sidekicks/contracts";
 import { type PaneContextOf } from "../pane-chrome.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
+import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { FrameStore } from "../../store/index.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
@@ -52,7 +54,11 @@ export function scriptedBridge(deliveries: readonly unknown[]): ConsoleBridge {
     },
     growth: {},
     source: "fixture",
-    scenarioEngine: undefined,
+    // The pane's snapshot reads are scheduled rather than taken inside their opens,
+    // so this double carries the frozen clock they arm on: without it the queue shelf
+    // would render its read-in-flight skeleton for the whole of every case, and a
+    // case asserting that no skeleton is on screen would be failing on the wrong one.
+    scenarioEngine: { clock: new ManualClock() },
   } as unknown as ConsoleBridge;
 }
 
@@ -88,9 +94,7 @@ export async function renderPane(
     seed?.(sessionStore);
   }
   const { container } = render(<RunsPane {...paneContext(bridge, sessionStore)} />);
-  await act(async () => {
-    await Promise.resolve();
-  });
+  await settleScheduledRead(bridge);
   return container;
 }
 

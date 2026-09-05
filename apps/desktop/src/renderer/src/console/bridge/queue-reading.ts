@@ -76,25 +76,36 @@
 // opens BEFORE the snapshot lands, so the window this clears is a real one.
 
 import {
-  QueueItemIdSchema,
   QueueItemSummarySchema,
   RunQueueSubscribeRequestSchema,
   type QueueItemSummary,
 } from "@ai-sidekicks/contracts";
 
+import { refuse, type ConsoleRefusal } from "../core/index.js";
 import {
-  normalizeWireRejection,
-  refuse,
-  refusedMemberPaths,
-  type ConsoleRefusal,
-} from "../core/index.js";
+  QUEUE_REFUSAL_ORIGIN,
+  streamRefusalFor,
+  unreadableDeliveryRefusal,
+} from "./queue-refusals.js";
+import {
+  NO_TRIGGERING_EVENT_KINDS,
+  RefreshScheduler,
+  type ReadTriggerTarget,
+  type RefreshReason,
+} from "../store/index.js";
 import { QUEUE_SUBSCRIBE_STREAM, subscribeDaemon } from "./daemon-streams.js";
 import { callDaemon } from "./daemon-reply.js";
 import { QueueOrder } from "./queue-order.js";
-import type { ConsoleBridge } from "./console-bridge.js";
+import { readQueueItemId } from "./wire-identifiers.js";
+import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
-/** The subsystem name every refusal this module raises carries. */
-export const QUEUE_REFUSAL_ORIGIN = "session-queue";
+/**
+ * The session id as the stream's own registered request carries it.
+ *
+ * Taken off the schema rather than re-declared, so the brand this module holds is
+ * the brand the wire admitted and never a `string` that resembles one.
+ */
+type ScopedSessionId = ReturnType<typeof RunQueueSubscribeRequestSchema.parse>["sessionId"];
 
 /** How the snapshot read has gone. Three answers, and none of them is an empty list. */
 export type QueueReadPhase = "reading" | "read" | "refused";
@@ -128,27 +139,6 @@ export interface QueueFeed {
 }
 
 /**
- * The refusal an unopenable stream settles as.
- *
- * The console's ONE reading of a rejected promise, consumed rather than re-derived.
- * `normalizeWireRejection` already unwraps a `ConsoleRefusalError`'s carried refusal
- * structurally — which is what keeps the subscription wrapper's own unscoped-open
- * code intact instead of replacing it with this module's origin and a stringified
- * message — and already takes a typed envelope's dotted code off `data.type`, where
- * a `{ code: string }` guard cannot see it. All this module supplies is the two
- * thing that is its own: the origin.
- *
- * NO FALLBACK PAIR, deliberately. The fallback exists for a seam that knows its
- * failure better than the thrown value does, and this one does not: a stream that
- * would not open failed for a transport reason the transport already states — "the
- * preload is a stub" is the sentence someone acts on, and a house sentence about a
- * live tail would displace it with a paraphrase that names nothing to fix.
- */
-function streamRefusalFor(rejection: unknown): ConsoleRefusal {
-  return normalizeWireRejection(QUEUE_REFUSAL_ORIGIN, rejection);
-}
-
-/**
  * One session's live queue reading, and everyone watching it.
  *
  * A class with private fields rather than a hook's state, because every surface in
@@ -157,9 +147,18 @@ function streamRefusalFor(rejection: unknown): ConsoleRefusal {
  * reading already in hand. The refusals, the fold, and the cancel path are exactly
  * the ones each surface used to own — only where they live has moved.
  */
-export class SessionQueueReading {
+export class SessionQueueReading implements ReadTriggerTarget {
+  /**
+   * Nothing in the timeline says this list changed that its own tail did not.
+   *
+   * `run.subscribeQueue` carries every row change, so the empty set is a claim:
+   * this reading goes stale when the window has been away or the connection was
+   * repaired — not because a session event that describes a RUN was appended.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string;
+  readonly #refresh: RefreshScheduler;
   readonly #order = new QueueOrder();
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
@@ -177,6 +176,16 @@ export class SessionQueueReading {
    * granted and the registry hands out a fresh reading instead.
    */
   #isRetired = false;
+  /**
+   * The scope every snapshot read is addressed at, parsed once when the stream
+   * opened. Absent until then, which is what makes a read requested before the open
+   * a no-op rather than an unscoped call.
+   */
+  #scopedSessionId: ScopedSessionId | undefined = undefined;
+  // Identifies the read attempt a reply belongs to. A reply whose ordinal has moved
+  // on was abandoned by a newer read and seats nothing — without it the abandoned
+  // snapshot could land after the fresh one and undo it.
+  #readOrdinal = 0;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
   #phase: QueueReadPhase = "reading";
   #readRefusal: ConsoleRefusal | undefined = undefined;
@@ -190,7 +199,41 @@ export class SessionQueueReading {
     this.#bridge = bridge;
     this.#sessionId = sessionId;
     this.#onIdle = onIdle;
+    this.#refresh = new RefreshScheduler({
+      // The fixture's frozen clock wherever a scenario is playing and the real one
+      // otherwise, resolved once per reading — the fixture bridge makes the frozen
+      // clock the only clock the renderer reads in fixture mode.
+      clock: consoleClockFor(bridge),
+      perform: async () => {
+        await this.#readSnapshot();
+      },
+      // A read that fails is already recorded as this feed's own `readRefusal`, so
+      // re-throwing would surface the same fact again as an unhandled rejection.
+      onError: () => undefined,
+    });
     this.#feed = this.#composeFeed();
+  }
+
+  /**
+   * Ask for a fresh snapshot.
+   *
+   * The tail keeps rows current while it is up; this is what answers for the time
+   * it was not. Coalesced by the scheduler, so the surfaces that mount together on
+   * one session still cost one call.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (reason === "subscribe" && this.#isOpen && this.#phase !== "refused") {
+      // THE OPEN IS THIS READING'S `subscribe` READ, so a surface arriving to an
+      // already-open reading asks for nothing. Two reasons, and both matter: a joiner
+      // needs no read because the tail has been keeping the reading current since the
+      // first one landed, and the first read must not wait on a clock — the fixture's
+      // is frozen and only a scenario beat moves it, so a first read behind the
+      // scheduler's window would never happen at all in fixture mode. A reading
+      // settled as REFUSED falls through: the joiner's arrival is exactly the reason
+      // to try a failed read again.
+      return;
+    }
+    this.#refresh.request(reason);
   }
 
   /** The reading as it stands. One object for every watcher, stable between changes. */
@@ -280,9 +323,32 @@ export class SessionQueueReading {
     // The already-parsed id, taken off the stream's own request rather than parsed a
     // second time: one reading of this pane's session, and the guard above is where
     // an unreadable one refuses.
-    const { sessionId } = subscribeRequest.data;
-    void callDaemon(this.#bridge, "run.queueList", { sessionId }).then((reply) => {
-      if (!this.#isOpen) {
+    this.#scopedSessionId = subscribeRequest.data.sessionId;
+    // The open's own read, taken now rather than behind the scheduler's window: the
+    // tail is already up, and the whole point of opening it first is that the window
+    // between the tail and the snapshot is a real one this fold accounts for. Every
+    // LATER read goes through the scheduler, which is what coalesces the reasons the
+    // world outside supplies.
+    void this.#readSnapshot();
+  }
+
+  /**
+   * Take the snapshot that says what the whole list is at this moment.
+   *
+   * Requested at the open and again whenever the window or the connection says the
+   * tail may have missed something. A read that arrives before the stream opened, or
+   * after it closed, seats nothing: the list it would describe is not this reading's
+   * any more.
+   */
+  async #readSnapshot(): Promise<void> {
+    const sessionId = this.#scopedSessionId;
+    if (!this.#isOpen || sessionId === undefined) {
+      return;
+    }
+    this.#readOrdinal += 1;
+    const readOrdinal = this.#readOrdinal;
+    await callDaemon(this.#bridge, "run.queueList", { sessionId }).then((reply) => {
+      if (!this.#isOpen || this.#readOrdinal !== readOrdinal) {
         return;
       }
       // One branch: the door has already collapsed an unsendable request, a
@@ -305,13 +371,16 @@ export class SessionQueueReading {
 
   #close(): void {
     this.#isOpen = false;
+    this.#refresh.dispose();
     this.#closeStream?.();
     this.#closeStream = undefined;
   }
 
   #cancelItem = (rawQueueItemId: string): void => {
-    const queueItemId = QueueItemIdSchema.safeParse(rawQueueItemId);
-    if (!queueItemId.success) {
+    // Through the family's own reader rather than a schema parsed here: one reading
+    // of what the wire admits as a queue-item identifier, in the module that owns it.
+    const queueItemId = readQueueItemId(rawQueueItemId);
+    if (queueItemId === undefined) {
       const next = new Map(this.#cancelRefusalByItemId);
       next.set(
         rawQueueItemId,
@@ -335,19 +404,17 @@ export class SessionQueueReading {
     }
     this.#pendingCancelIds = withId(this.#pendingCancelIds, rawQueueItemId);
     this.#publish();
-    void callDaemon(this.#bridge, "run.queueCancel", { queueItemId: queueItemId.data }).then(
-      (reply) => {
-        this.#pendingCancelIds = withoutId(this.#pendingCancelIds, rawQueueItemId);
-        if (reply.status === "refused") {
-          const next = new Map(this.#cancelRefusalByItemId);
-          next.set(rawQueueItemId, reply.refusal);
-          this.#cancelRefusalByItemId = next;
-        }
-        // A served reply changes nothing about the list. It confirms the REQUEST; the
-        // row's state changes when the tail says the daemon changed it.
-        this.#publish();
-      },
-    );
+    void callDaemon(this.#bridge, "run.queueCancel", { queueItemId }).then((reply) => {
+      this.#pendingCancelIds = withoutId(this.#pendingCancelIds, rawQueueItemId);
+      if (reply.status === "refused") {
+        const next = new Map(this.#cancelRefusalByItemId);
+        next.set(rawQueueItemId, reply.refusal);
+        this.#cancelRefusalByItemId = next;
+      }
+      // A served reply changes nothing about the list. It confirms the REQUEST; the
+      // row's state changes when the tail says the daemon changed it.
+      this.#publish();
+    });
   };
 
   #settleRefused(refusal: ConsoleRefusal): void {
@@ -375,26 +442,6 @@ export class SessionQueueReading {
       listener();
     }
   }
-}
-
-/**
- * One unreadable delivery as the refusal a surface renders.
- *
- * Names the failing MEMBER PATHS and never the payload: the payload is a frame
- * this build could not read, so quoting it would put an unbounded and unvalidated
- * value on screen to explain why an unvalidated value was refused. The path set is
- * fixed by the registered schema, which is what makes the sentence bounded without
- * a cap to spend.
- */
-function unreadableDeliveryRefusal(
-  issues: readonly { readonly path: readonly PropertyKey[]; readonly message: string }[],
-): ConsoleRefusal {
-  const members = refusedMemberPaths(issues);
-  return refuse(
-    QUEUE_REFUSAL_ORIGIN,
-    "delivery-unreadable",
-    `A queue delivery did not match the registered row shape, so it changed no row here: ${members.join(", ")}.`,
-  );
 }
 
 const EMPTY_ITEMS: readonly QueueItemSummary[] = Object.freeze([]);
