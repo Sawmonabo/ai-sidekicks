@@ -140,16 +140,21 @@ export function registerConsoleFamilies(
   // kinds whose fold it owns, a sidebar section, and an inline-card body — through
   // its own `register<Family>` entry point, never by editing a shared spine and
   // never through a board's module-scope registrar, which writes into production
-  // whatever the caller composed into. A seat may also carry a COMPOSITION argument
-  // beside the boards, on the terms the sessions control above is named under: one
-  // view family may not import another, so this root — the one file allowed to name
-  // more than one — says which component a family's slot mounts.
+  // whatever the caller composed into.
+  //
+  // A seat may also be handed a COMPOSITION argument beside its boards, on the terms
+  // the sessions control above is named under: one view family may not import
+  // another, so this root — the one file allowed to name more than one — says which
+  // component a family's slot mounts. It is NAMED here rather than written into the
+  // seat, because a seat line passes identifiers and nothing else, which is what lets
+  // `seat-census.test-support.ts` read this block as a grammar rather than parse it.
+  const ledgerComposition = { workspace: Workspace };
   //
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
   // seven one-line diffs at seven distinct positions; `families.seat-board.test.ts`
   // reads the block as a census and refuses anything that is not a seat.
-  registerLedger(surfaces, { workspace: Workspace }); // T-023p-1C-2 ledger
+  registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
