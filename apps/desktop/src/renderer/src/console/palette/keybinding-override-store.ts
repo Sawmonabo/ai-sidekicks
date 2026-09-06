@@ -6,10 +6,18 @@
 // carry it:
 //
 //   • **One accessor, never the raw table.** The frame's key dispatch and the
-//     Keyboard page both read `surface.bindings`. A consumer reading
-//     `FRAME_KEY_BINDINGS` directly would install, or print, the chords a person
-//     replaced — and the two surfaces would then disagree about which keyboard this
-//     window has, which is the exact defect a person cannot debug.
+//     Keyboard page both read `surface.bindings`. A consumer reading the shipped table
+//     directly would install, or print, the chords a person replaced — and the two
+//     surfaces would then disagree about which keyboard this window has, which is the
+//     exact defect a person cannot debug. The page needs the SHIPPED table too, to say
+//     which rows were changed, so the snapshot carries that as well rather than sending
+//     one reader back to the module the base is declared in.
+//   • **The base is READ, not captured.** `defaults` is a function and not an array,
+//     because the shipped table is composed from the frame's chords plus whatever the
+//     view families have contributed, and a family contributes from an effect — so a
+//     table captured once at construction is wrong the moment a family mounts later.
+//     A base that can move supplies `subscribeToDefaults` beside the reader, and this
+//     store re-composes on that signal like any other change it publishes.
 //   • **The override applies to this window before the write settles, and a refused
 //     write is disclosed rather than discarded.** `scheme-preference.ts` states the
 //     reasoning for the one other window-wide preference: the choice is taken, so the
@@ -87,13 +95,39 @@ export interface KeybindingHydrationRefusal {
 export interface KeybindingSurface {
   /** The effective table: the shipped chords with this window's overrides applied. */
   readonly bindings: readonly KeyBinding[];
+  /**
+   * The shipped table these overrides were composed ONTO, as it was read.
+   *
+   * Beside the effective one rather than instead of it, because the two answer
+   * different questions and a surface asking "which rows did this person change" needs
+   * the one the changes are not in. Reading it off this snapshot is what keeps that
+   * answer in step with the table the frame is installing — where a page reading the
+   * base's own module would be a second reading the moment the base stops being one
+   * module's constant. The Keyboard page still reads that constant, because today it
+   * IS the whole base; the day the base is composed, that page reads this member and
+   * nothing else about it changes.
+   */
+  readonly shippedBindings: readonly KeyBinding[];
   /** True while a chord is being recorded, which suspends the console keyboard. */
   readonly recording: boolean;
 }
 
 export interface KeybindingOverrideStoreOptions {
-  /** The chords the console ships. Overrides are composed onto this table. */
-  readonly defaults: readonly KeyBinding[];
+  /**
+   * Reads the chords the console ships. Overrides are composed onto what it answers.
+   *
+   * A reader rather than the table, so a base that grows as families contribute is
+   * read at composition time instead of captured at construction.
+   */
+  readonly defaults: () => readonly KeyBinding[];
+  /**
+   * Signals that the shipped table has moved, where it can. Absent means it cannot.
+   *
+   * The store re-composes and publishes on the signal, so every reader of the surface
+   * re-renders exactly as it does for a rebinding. A base that never moves supplies
+   * nothing, and the reader above is then called once per composition and no oftener.
+   */
+  readonly subscribeToDefaults?: (onDefaultsChange: () => void) => Unsubscribe;
   /** Which host's reserved chords to refuse. Defaults to the one being run on. */
   readonly platform?: ChordPlatform;
 }
@@ -117,7 +151,7 @@ const HYDRATION_KEY = "hydrate";
  * the state has one owner.
  */
 export class KeybindingOverrideStore {
-  readonly #defaults: readonly KeyBinding[];
+  readonly #readDefaults: () => readonly KeyBinding[];
   readonly #platform: ChordPlatform;
   readonly #changes = new Emitter<void>("keybinding override change");
   #overrides: KeybindingOverrideMap = {};
@@ -141,8 +175,13 @@ export class KeybindingOverrideStore {
   readonly #overrideRounds = new GenerationLatch();
 
   public constructor(options: KeybindingOverrideStoreOptions) {
-    this.#defaults = options.defaults;
+    this.#readDefaults = options.defaults;
     this.#platform = options.platform ?? HOST_CHORD_PLATFORM;
+    // Never released, and that is the lifetime rather than an omission: this store is
+    // window-scoped and the surface it listens to is too, so both die with the window.
+    options.subscribeToDefaults?.(() => {
+      this.#publish();
+    });
   }
 
   /** Called when the effective table or the recording flag moves. */
@@ -152,8 +191,10 @@ export class KeybindingOverrideStore {
 
   /** What to install and what to draw. One object, stable between changes. */
   public get surface(): KeybindingSurface {
+    const shippedBindings = this.#snapshot === undefined ? this.#readDefaults() : [];
     this.#snapshot ??= {
-      bindings: composeEffectiveBindings(this.#defaults, this.#overrides),
+      bindings: composeEffectiveBindings(shippedBindings, this.#overrides),
+      shippedBindings,
       recording: this.#recording,
     };
     return this.#snapshot;
@@ -330,7 +371,7 @@ export class KeybindingOverrideStore {
     overrides: KeybindingOverrideMap,
   ): KeybindingOverrideRefusal | undefined {
     return refuseCandidateChord({
-      defaults: this.#defaults,
+      defaults: this.#readDefaults(),
       overrides,
       commandId,
       chord,
@@ -354,7 +395,7 @@ export class KeybindingOverrideStore {
  * contract that deliberately carries none.
  */
 export const consoleKeybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
-  defaults: FRAME_KEY_BINDINGS,
+  defaults: () => FRAME_KEY_BINDINGS,
 });
 
 /**

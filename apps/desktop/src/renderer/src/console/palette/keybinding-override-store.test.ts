@@ -26,7 +26,7 @@ const DEFAULTS: readonly KeyBinding[] = [
 ];
 
 function overrideStore(): KeybindingOverrideStore {
-  return new KeybindingOverrideStore({ defaults: DEFAULTS, platform: "darwin" });
+  return new KeybindingOverrideStore({ defaults: () => DEFAULTS, platform: "darwin" });
 }
 
 /** A store over its own memory adapter, on a frozen clock like every other one. */
@@ -311,5 +311,82 @@ describe("what one window wrote, the next one reads", () => {
       expect(result.unsaved?.origin).toBe("persistence");
     }
     expect(overrides.surface.bindings[0]?.chord).toBe("$mod+9");
+  });
+});
+
+describe("the shipped table is read, not captured", () => {
+  /** A base a case can grow, beside the signal that says it did. */
+  function growableBase(): {
+    readonly options: {
+      readonly defaults: () => readonly KeyBinding[];
+      readonly subscribeToDefaults: (onDefaultsChange: () => void) => () => void;
+      readonly platform: "darwin";
+    };
+    readonly contribute: (binding: KeyBinding) => void;
+    readonly contributeSilently: (binding: KeyBinding) => void;
+  } {
+    let base: readonly KeyBinding[] = DEFAULTS;
+    const listeners = new Set<() => void>();
+    return {
+      options: {
+        defaults: () => base,
+        subscribeToDefaults: (onDefaultsChange) => {
+          listeners.add(onDefaultsChange);
+          return () => listeners.delete(onDefaultsChange);
+        },
+        platform: "darwin",
+      },
+      contribute: (binding) => {
+        base = [...base, binding];
+        for (const listener of listeners) {
+          listener();
+        }
+      },
+      // The same growth with no signal, for the control below.
+      contributeSilently: (binding) => {
+        base = [...base, binding];
+      },
+    };
+  }
+
+  it("composes over a table that grew after the store was built", () => {
+    // A view family contributes its chords from an effect, so the shipped table is not
+    // whole when this store is constructed. A store holding the array it was handed
+    // would install a keyboard missing every chord that arrived after it.
+    const growable = growableBase();
+    const overrides = new KeybindingOverrideStore(growable.options);
+    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length);
+
+    growable.contribute({ chord: "Alt+Digit3", commandId: "ledger.open" });
+
+    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length + 1);
+    expect(overrides.surface.bindings.map((binding) => binding.commandId)).toContain("ledger.open");
+  });
+
+  it("negative control: the signal is what refreshes it, not the next read", () => {
+    // The snapshot is cached on purpose — `useSyncExternalStore` compares by identity —
+    // so a base that moved without saying so is invisible until something else
+    // publishes. This is what makes `subscribeToDefaults` load-bearing rather than
+    // decorative, and it fails if the store recomposes on every read.
+    const growable = growableBase();
+    const overrides = new KeybindingOverrideStore(growable.options);
+    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length);
+
+    growable.contributeSilently({ chord: "Alt+Digit4", commandId: "ledger.close" });
+
+    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length);
+  });
+
+  it("answers the shipped table beside the effective one, with the overrides only in the second", async () => {
+    // The Keyboard page needs both: the effective table is what this window listens on,
+    // and the shipped one is what "changed" is measured against. A page reading the
+    // effective table for both would report every row as unchanged.
+    const overrides = overrideStore();
+    await overrides.hydrateFrom(uiStateStore());
+    const result = await overrides.bind("frame.goToSessions", "Alt+Digit9");
+    expect(result.outcome).toBe("bound");
+
+    expect(overrides.surface.shippedBindings).toStrictEqual(DEFAULTS);
+    expect(overrides.surface.bindings[0]?.chord).toBe("Alt+Digit9");
   });
 });
