@@ -17,7 +17,7 @@ import type {
   SessionEventType,
 } from "@ai-sidekicks/contracts";
 
-import { readWireString } from "../core/index.js";
+import { isWireRecord, readWireString } from "../core/index.js";
 
 /** Every member either registered run shape names. */
 type RegisteredRunMemberName = keyof RunStateChangeEvent | keyof RunRolledBackEvent;
@@ -150,9 +150,11 @@ const WIRE_MEMBER_READERS: Readonly<Record<WireMemberReaderName, (value: unknown
   boolean: (value) => (typeof value === "boolean" ? value : undefined),
   // Carried whole and unparsed — `executionPosture` is a registered object the
   // console renders through its own consumer, and re-validating it here would be
-  // a second reading of a shape the contract already owns.
-  object: (value) =>
-    typeof value === "object" && value !== null && !Array.isArray(value) ? value : undefined,
+  // a second reading of a shape the contract already owns. The arm that decides
+  // whether it IS a body is `core/wire-record.ts`, for the reason the string arm
+  // above takes `readWireString`: this table's rule and that predicate's rule are
+  // the same sentence, and two copies of one sentence are how they come to disagree.
+  object: (value) => (isWireRecord(value) ? value : undefined),
 };
 
 /**
