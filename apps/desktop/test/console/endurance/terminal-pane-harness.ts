@@ -187,9 +187,11 @@ export async function openPaneAndAwaitWebglReadiness(
     readings.rendererModes.every((mode) => mode === "webgl"),
     `every instance must be drawing on a WebGL2 context for this row's subject to be whole; ` +
       `the ${String(readings.hostCount)} mounted emulator(s) report [${readings.rendererModes.join(", ")}]. ` +
-      "A `dom` reading means this runner gave the renderer no WebGL2 — on a headless Linux runner " +
-      "that is the display server and the GL stack, not the console, and the endurance job must " +
-      "supply software GL (`--use-gl=angle --use-angle=swiftshader`) before this budget can be read there.",
+      "A `dom` reading means this launch reached the renderer with no WebGL2. The launcher supplies " +
+      "a GPU-less host its own software GL stack (test/console/launch-args.ts), so the question is " +
+      "whether those switches reached Chromium and were honoured — read the GPU process's own " +
+      "`eglInitialize` lines with `--enable-logging=stderr`; it is the graphics stack that failed " +
+      "here and not the console.",
   ).toBe(true);
   expect(
     readings.canvasCount,

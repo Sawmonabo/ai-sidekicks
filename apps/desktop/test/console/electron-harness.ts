@@ -36,6 +36,11 @@
 // the whole run and exports `$DISPLAY` to every later step, which both tiers
 // inherit through `process.env`. They run in the aggregate `test` script's last
 // group and in that job's desktop step, both on the fixture build.
+//
+// That display is not a GL driver, and a hosted runner has no GPU behind it, so
+// the software graphics stack such a host needs is stated in the launch's own
+// arguments — see `launch-args.ts`, which owns every switch this launcher passes
+// and why each one is passed.
 
 import process from "node:process";
 
@@ -50,6 +55,7 @@ import {
 } from "./bounded-cleanup.js";
 import { cleanupFailure, withCleanupOutcome, withProfileRemoval } from "./cleanup-disposition.js";
 import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
+import { composeLaunchArgs } from "./launch-args.js";
 import { BodyAllowance, withBoundedBody } from "./launch-body.js";
 import {
   LAUNCH_BUDGET_MS,
@@ -144,22 +150,14 @@ export interface LaunchConsoleOptions {
    * served from a long-interval cache rather than read at the moment it is asked
    * for, which is fine for a coarse sanity check and useless for a tier whose
    * gated figures are differences of two readings taken seconds apart. A named
-   * option rather than a caller-spelled argument list, so the flag string lives in
-   * one place and a tier states what it NEEDS instead of how Chromium spells it.
+   * option rather than a caller-spelled argument list, so a tier states what it
+   * NEEDS and `launch-args.ts` decides how Chromium spells it.
    *
    * Off by default: the flag makes every read walk the heap, which is a cost no
    * tier that does not measure one should pay.
    */
   readonly isPreciseHeapReadingRequired?: boolean;
 }
-
-/**
- * What Chromium calls the precise-heap switch.
- *
- * One home, and named beside the option that asks for it: a second spelling in a
- * tier would be a launch that silently kept the bucketized instrument.
- */
-const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
 
 /**
  * Launch the built console and wait for its first window.
@@ -190,11 +188,12 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
   let application: ElectronApplication;
   try {
     application = await electron.launch({
-      args: [
-        `--user-data-dir=${profile.directory}`,
-        ...(options.isPreciseHeapReadingRequired === true ? [PRECISE_MEMORY_INFO_FLAG] : []),
-        MAIN_ENTRY_PATH,
-      ],
+      args: composeLaunchArgs({
+        profileDirectory: profile.directory,
+        mainEntryPath: MAIN_ENTRY_PATH,
+        isPreciseHeapReadingRequired: options.isPreciseHeapReadingRequired === true,
+        platform: process.platform,
+      }),
       env: {
         ...process.env,
         ...options.env,
