@@ -97,7 +97,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     () => mergeSessionRows({ directory, windowSessionIds, projectedRows: [] }).map(sessionIdOf),
     [directory, windowSessionIds],
   );
-  const attention = useAttentionProjection(
+  const attentionProjection = useAttentionProjection(
     useMemo(
       () => attentionProjectionReaderFor(context.bridge.growth, attentionSessionIds),
       [context.bridge.growth, attentionSessionIds],
@@ -105,6 +105,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     context.bridge,
     context.sessionStoreRegistry,
   );
+  const attention = attentionProjection.reading;
   // Said once per settlement, here rather than inside the center: this destination is
   // where the read lives, and the center is handed a reading and mounted in two other
   // harnesses that render it with no announcer above them. The panel draws the same
@@ -187,7 +188,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
 
         <aside className="meridian-sessions__aside" aria-label="What is waiting on you">
           <InviteShelf read={readInvites} uiStateStore={context.uiStateStore} clock={shelfClock} />
-          <NotificationCenter reading={attention} />
+          <NotificationCenter reading={attention} onReopen={attentionProjection.retry} />
         </aside>
       </div>
 

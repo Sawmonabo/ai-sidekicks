@@ -49,6 +49,14 @@ export interface NotificationCenterProps {
   readonly reading: AttentionReading;
   /** Open the source of one item. Renderer-local navigation; resolves nothing. */
   readonly onOpen?: (item: AttentionItem) => void;
+  /**
+   * Re-open the projection read after a refusal. Reaches the refused phase alone.
+   *
+   * Optional for {@link NotificationCenterProps.onOpen}'s reason: the center is
+   * mounted in two harnesses that hold no read, and only the destination that
+   * performs one can offer a way back into it.
+   */
+  readonly onReopen?: () => void;
 }
 
 export function NotificationCenter(props: NotificationCenterProps): React.JSX.Element {
@@ -60,7 +68,7 @@ export function NotificationCenter(props: NotificationCenterProps): React.JSX.El
           Muting is a single global setting, and it never hides work that is blocking.
         </p>
       </header>
-      <ProjectionBody reading={props.reading} onOpen={props.onOpen} />
+      <ProjectionBody reading={props.reading} onOpen={props.onOpen} onReopen={props.onReopen} />
     </section>
   );
 }

@@ -11,7 +11,7 @@
 // so a case that did not advance a clock would be asserting about a read that has not
 // happened yet rather than about one that never will.
 
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -111,8 +111,8 @@ function AttentionProbe(props: {
   readonly bridge: ConsoleBridge;
   readonly registry: SessionStoreRegistry;
 }): React.JSX.Element {
-  const reading = useAttentionProjection(props.read, props.bridge, props.registry);
-  return <NotificationCenter reading={reading} />;
+  const { reading, retry } = useAttentionProjection(props.read, props.bridge, props.registry);
+  return <NotificationCenter reading={reading} onReopen={retry} />;
 }
 
 /**
@@ -247,6 +247,49 @@ describe("the attention read — a reader that fails is not a reader nobody aske
     expect(text).toContain("the projection reader gave out");
     expect(text).not.toContain("has not been read");
     expect(text).not.toContain("Nothing needs you.");
+  });
+
+  it("offers a way back, and taking it puts the read again", async () => {
+    // A refused projection read is otherwise terminal for the destination: the effect
+    // that opened it runs once per read, and a person who landed on the panel while a
+    // cap was tripped had one line of error text and nothing to press.
+    const { bridge, clock } = bridgeOnFrozenTime();
+    const registry = registryHolding(clock);
+    let refusalsLeft = 1;
+    const read = vi.fn<AttentionProjectionReader>(() => {
+      if (refusalsLeft > 0) {
+        refusalsLeft -= 1;
+        return Promise.reject(new Error("the projection reader gave out"));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { container } = renderProbe(read, bridge, registry);
+    await releaseCoalescedRead(clock);
+    const retry = container.querySelector(".meridian-refusal__action button");
+    expect(retry?.textContent).toBe("Try again");
+
+    await act(async () => {
+      fireEvent.click(retry as HTMLButtonElement);
+    });
+    await releaseCoalescedRead(clock);
+
+    expect(read.mock.calls.length).toBeGreaterThan(1);
+    expect(container.textContent ?? "").toContain("has not been read");
+  });
+
+  it("negative control: a served read offers no way back", async () => {
+    // Without this, the case above would pass over a panel that carried the control on
+    // every phase — a retry beside an answer, which reads as a refresh this surface
+    // does not have.
+    const { bridge, clock } = bridgeOnFrozenTime();
+    const registry = registryHolding(clock);
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(undefined));
+
+    const { container } = renderProbe(read, bridge, registry);
+    await releaseCoalescedRead(clock);
+
+    expect(container.querySelector(".meridian-refusal__action")).toBeNull();
   });
 
   it("negative control: a reader answering 'nothing was read' still says exactly that", async () => {
