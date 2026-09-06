@@ -152,12 +152,30 @@ export function handRolledWindowedRows(
 }
 
 /**
+ * Whether `source` RENDERS the row primitive, rather than merely naming it.
+ *
+ * The same instrument, and the same reason, as `handRolledWindowedRows` next door: a
+ * module that mentions `WindowedListRow` in a comment — "deliberately not
+ * WindowedListRow" is the sentence that was measured doing it — satisfies a substring
+ * test and places its rows itself. A JSX element is a declaration boundary, so the
+ * question is the parser's; an import of the name is not a rendering of it either, and
+ * this asks only about the element.
+ *
+ * Pure over text so a control can drive it with a module whose verdict is known,
+ * on this file's own model-beside-its-gate pattern.
+ */
+export function rendersTheRowPrimitive(source: string, fileName: string): boolean {
+  const parsed = parseSourceText(fileName, source);
+  return jsxTagNamesIn(parsed, parsed).includes(WINDOWED_ROW_PRIMITIVE);
+}
+
+/**
  * Whether a row rendered as a component reaches the primitive in the module it names.
  *
  * The `DiffFileList` / `DiffFileRow` shape: the windowing module names no primitive and
  * its rows do go through one. Resolved by matching the component's name to the module
  * that declares it, which is this tree's own convention — one component per `.tsx` file,
- * named for it.
+ * named for it, and then by reading whether that module RENDERS the primitive.
  */
 export function rowComponentDelegates(
   rowComponents: readonly string[],
@@ -167,7 +185,7 @@ export function rowComponentDelegates(
     modules.some(
       (module) =>
         module.displayPath.endsWith(`/${component}.tsx`) &&
-        readConsoleSourceModule(module).includes(WINDOWED_ROW_PRIMITIVE),
+        rendersTheRowPrimitive(readConsoleSourceModule(module), module.displayPath),
     ),
   );
 }

@@ -67,6 +67,7 @@ import {
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import {
+  rendersTheRowPrimitive,
   undeclaredRowTabStops,
   windowsAList,
   windowsWithoutTheRowPrimitive,
@@ -373,6 +374,28 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
     expect(windowsWithoutTheRowPrimitive(delegating, "Delegating.tsx", tree.reading.modules)).toBe(
       false,
     );
+  });
+
+  it("planted violation: a sibling that only MENTIONS the primitive does not delegate", () => {
+    // The other half of the substring defect, and the half that outlived the first: the
+    // sibling lookup asked whether the row's OWN module contained the primitive's name,
+    // so a row module carrying the same excusing comment as the violation above admitted
+    // its whole windowing caller — claim 3's false pass, moved one module along.
+    const mentionsOnly = [
+      "// Deliberately not WindowedListRow: this row places itself.",
+      'export const DiffFileRow = () => <li className="meridian-diff-files__row" />;',
+    ].join("\n");
+    // The old predicate's whole question, so the fail-first direction is stated rather
+    // than remembered: it says yes, and the parser says no.
+    expect(mentionsOnly).toContain(WINDOWED_ROW_PRIMITIVE);
+    expect(rendersTheRowPrimitive(mentionsOnly, "DiffFileRow.tsx")).toBe(false);
+    // Both JSX forms, because the ELEMENT is what the claim reads: a row that wraps its
+    // content opens and closes, and one that takes a render function self-closes.
+    const selfClosing = 'export const DiffFileRow = () => <WindowedListRow as="li" />;';
+    const wrapping =
+      'export const DiffFileRow = () => <WindowedListRow as="li">{path}</WindowedListRow>;';
+    expect(rendersTheRowPrimitive(selfClosing, "DiffFileRow.tsx")).toBe(true);
+    expect(rendersTheRowPrimitive(wrapping, "DiffFileRow.tsx")).toBe(true);
   });
 
   it("negative control: the read is over the WINDOW and not over any list", () => {
