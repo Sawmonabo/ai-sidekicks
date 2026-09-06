@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { ProvenanceRailModel } from "../../structure/index.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 import { useLedgerFind, type LedgerFindState } from "./ledger-find.js";
+import { type LedgerWindowModel } from "../window/ledger-window.js";
 import {
   useVisibleLedgerWindow,
   type VisibleLedgerWindow,
@@ -55,12 +56,47 @@ describe("the walk when the result moves under it", () => {
   function findOver(
     rows: readonly TimelineRow[],
   ): RenderHookResult<LedgerFindState, { readonly rows: readonly TimelineRow[] }> {
-    return renderHook(({ rows: currentRows }) => useLedgerFind(windowOver(currentRows)), {
-      initialProps: { rows },
-    });
+    return renderHook(
+      ({ rows: currentRows }) => {
+        const stage = deriveLedgerWindow(syntheticLog(currentRows.length), false);
+        return useLedgerFind({
+          visible: windowOver(currentRows),
+          unfurledWindow: stage,
+          narrowedWindow: stage,
+          foldedWindow: stage,
+        });
+      },
+      { initialProps: { rows } },
+    );
   }
 
   const wholeLog = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
+
+  /**
+   * The find state over three stages of one pipeline, each a prefix of the last.
+   *
+   * The hook reads the stages as SETS — what the filter removed is the difference
+   * between the first two, what the fold removed is the difference between the next
+   * two — so a prefix models the pipeline exactly at this seam without building a
+   * facet bar and a terminal run chapter to produce the same two differences.
+   */
+  function findOverPipeline(stages: {
+    readonly unfurled: number;
+    readonly narrowed: number;
+    readonly folded: number;
+  }): RenderHookResult<LedgerFindState, unknown> {
+    const modelOf = (count: number): LedgerWindowModel =>
+      deriveLedgerWindow(syntheticLog(count), false);
+    const foldedWindow = modelOf(stages.folded);
+    return renderHook(() =>
+      useLedgerFind({
+        visible: windowOver(foldedWindow.rows),
+        unfurledWindow: modelOf(stages.unfurled),
+        narrowedWindow: modelOf(stages.narrowed),
+        foldedWindow,
+      }),
+    );
+  }
 
   it("reports no position once the selected row has left the result", () => {
     const { result, rerender } = findOver(wholeLog);
@@ -107,6 +143,43 @@ describe("the walk when the result moves under it", () => {
     expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
   });
 
+  it("counts matches the filter took out of the walk", () => {
+    // A term in a row the facet bar is hiding is a term in a LOADED row. The walk
+    // could not step to it, and nothing said so either — the field simply reported
+    // fewer matches than the session holds, or none at all.
+    const { result } = findOverPipeline({ unfurled: 10, narrowed: 8, folded: 6 });
+    act(() => {
+      result.current.setQuery(EVERY_ROW_QUERY);
+    });
+
+    expect(result.current.result.totalMatchCount).toBe(6);
+    expect(result.current.filteredAwayMatchCount).toBe(2);
+  });
+
+  it("counts matches a folded chapter is holding", () => {
+    // Rule 7 folds every finished run by default, so on a completed session most of
+    // the log is behind a chapter header and this is most of the matches.
+    const { result } = findOverPipeline({ unfurled: 10, narrowed: 8, folded: 6 });
+    act(() => {
+      result.current.setQuery(EVERY_ROW_QUERY);
+    });
+
+    expect(result.current.foldedAwayMatchCount).toBe(2);
+  });
+
+  it("negative control: an unnarrowed, unfolded ledger counts neither", () => {
+    // Without this the two cases above would pass over counts that reported the whole
+    // log every time, which is the same lie in the other direction.
+    const { result } = findOverPipeline({ unfurled: 10, narrowed: 10, folded: 10 });
+    act(() => {
+      result.current.setQuery(EVERY_ROW_QUERY);
+    });
+
+    expect(result.current.result.totalMatchCount).toBe(10);
+    expect(result.current.filteredAwayMatchCount).toBe(0);
+    expect(result.current.foldedAwayMatchCount).toBe(0);
+  });
+
   it("negative control: a new query still restarts the walk", () => {
     // Without this the retention above could have been written as "never reset",
     // which would resume a walk inside a match list built from a different question.
@@ -130,9 +203,18 @@ describe("the find field's own open act", () => {
   function findOverWholeLog(): RenderHookResult<LedgerFindState, void> {
     const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
-      useLedgerFind(
-        useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, ledgerWindow.viewportRows),
-      ),
+      useLedgerFind({
+        visible: useVisibleLedgerWindow(
+          ledgerWindow,
+          ledgerWindow.viewportRows,
+          ledgerWindow.viewportRows,
+        ),
+        // Nothing is narrowed and nothing is folded here, so the three upstream
+        // stages are one model and both of their counts stay zero.
+        unfurledWindow: ledgerWindow,
+        narrowedWindow: ledgerWindow,
+        foldedWindow: ledgerWindow,
+      }),
     );
   }
 

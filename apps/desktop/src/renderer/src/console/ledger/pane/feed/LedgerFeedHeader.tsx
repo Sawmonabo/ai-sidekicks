@@ -63,10 +63,12 @@ export function LedgerFeedHeader(props: LedgerFeedHeaderProps): React.JSX.Elemen
         reach={props.findAndJump.reach}
         onJumpToRow={props.onJumpToRow}
       />
-      {/* Two mounts and two subjects, because the two cuts are two facts: nothing
-          brings a pruned row back, and scrubbing the dock forward brings the
-          withheld ones back at once. One mount carrying both states would say the
-          same sentence twice over one subject. */}
+      {/* Four mounts and four subjects, because the four cuts are four facts with
+          four exits: nothing brings a pruned row back, scrubbing the dock forward
+          brings the withheld ones back at once, clearing the facet bar brings the
+          narrowed ones, and opening a chapter header brings the folded ones. One
+          mount carrying every state would say the same sentence four times over a
+          subject nobody could act on. */}
       <PartialRead
         states={[matchWalkReading(find.result.totalMatchCount, find.beyondWindowMatchCount)]}
         subject="this window"
@@ -74,6 +76,14 @@ export function LedgerFeedHeader(props: LedgerFeedHeaderProps): React.JSX.Elemen
       <PartialRead
         states={[matchWalkReading(find.result.totalMatchCount, find.notYetReplayedMatchCount)]}
         subject="this replay's walk"
+      />
+      <PartialRead
+        states={[matchWalkReading(find.result.totalMatchCount, find.filteredAwayMatchCount)]}
+        subject="the entries this ledger is narrowed to"
+      />
+      <PartialRead
+        states={[matchWalkReading(find.result.totalMatchCount, find.foldedAwayMatchCount)]}
+        subject="the run chapters this ledger has folded"
       />
       <LedgerRowsAdmittedDuringReplayNotice
         count={props.rowsAdmittedSinceReplayBegan}

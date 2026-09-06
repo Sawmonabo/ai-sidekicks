@@ -85,7 +85,10 @@ export function useLedgerFindAndJump(inputs: {
     focusLedgerSurface,
   } = inputs;
 
-  const find = useLedgerFind(visible);
+  // Every stage, not just the rows on screen: what the walk cannot reach is counted
+  // under the name of the narrowing holding it, and two of the four narrowings are
+  // upstream of the visible window.
+  const find = useLedgerFind({ visible, unfurledWindow, narrowedWindow, foldedWindow });
   // Classified against every stage between the log and the screen rather than
   // against the rows on it, so an id the fold, the replay or the cap took is not
   // reported as one the filter is hiding.
