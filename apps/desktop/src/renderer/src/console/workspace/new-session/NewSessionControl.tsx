@@ -273,8 +273,8 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
         // A STRUCTURAL GUARD, and no test drives it, because nothing in this build
         // reaches it: `callDaemon` answers a rejected call, an absent door and an
         // unreadable reply alike with a typed refusal, and every statement `send()`
-        // makes outside that call is total — so no bridge a test can compose makes
-        // this promise reject, and a test that did would need an injected draft this
+        // makes outside that call is total — so no wire a test can compose makes this
+        // promise reject, and a test that did would need an injected draft this
         // component deliberately does not take. What the arm PUBLISHES is asserted
         // where it is built, in `new-session-draft.test.ts`.
         //

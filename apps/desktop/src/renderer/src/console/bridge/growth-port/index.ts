@@ -36,11 +36,14 @@ export type {
 
 export type { GrowthOutcome } from "./growth-outcome.js";
 
+// `settledGrowthCall` is deliberately absent: its only readers are the workspace's
+// auxiliary hand-off and pane-error watch, which take it from `bridge/index.ts` like
+// every other family. A name no SIBLING of this sub-module reaches is a dead export
+// the barrel census fails, so this door is never widened for symmetry.
 export {
   createRefusingGrowthPort,
   growthScriptedReplyUnavailable,
   growthUnavailable,
-  settledGrowthCall,
   type GrowthPort,
 } from "./growth-port.js";
 

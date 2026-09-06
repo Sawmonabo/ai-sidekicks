@@ -92,10 +92,13 @@ export {
   type ConsoleSurfaceDescriptor,
 } from "./surface-registry.js";
 
+// `PANE_KINDS` is deliberately absent: every reader of the set itself is inside this
+// family or is a suite that drives the kinds directly, and both take
+// `seats/pane-kinds.js` by its own specifier. A door line no production module reads
+// is one the barrel census fails, so the set leaves rather than being tagged.
 export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
-  PANE_KINDS,
   isDetachablePaneKind,
   isPaneKind,
   type PaneKind,

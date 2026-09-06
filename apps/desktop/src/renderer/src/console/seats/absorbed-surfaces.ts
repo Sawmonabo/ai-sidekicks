@@ -84,8 +84,13 @@ export function renderAbsorbedSessionProbe(bridgeSource: ConsoleBridgeSource): R
  * because the callers that need it carry a session differently — one from a slot's
  * route, one from a pane's own store — and neither should have to build a route to
  * reach a component.
+ *
+ * Tagged HERE as well as on the door's specifier, and the reason lives on the door
+ * once: excluding the barrel's line takes the re-export edge with it, so without this
+ * tag the declaration is reported unreferenced — measured, not assumed.
+ *
+ * @consumedBy T-023p-1C-4
  */
-// Consumed by T-023p-1C-4 — this family's door carries the reason, once.
 export function renderAbsorbedParticipantRoster(
   bridgeSource: ConsoleBridgeSource,
   subject: string | undefined,
