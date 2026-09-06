@@ -108,10 +108,9 @@ function settleSessionEvent(registry: SessionStoreRegistry, sequence: number): v
 
 function AttentionProbe(props: {
   readonly read: AttentionProjectionReader;
-  readonly bridge: ConsoleBridge;
   readonly registry: SessionStoreRegistry;
 }): React.JSX.Element {
-  const { reading, retry } = useAttentionProjection(props.read, props.bridge, props.registry);
+  const { reading, retry } = useAttentionProjection(props.read, props.registry);
   return <NotificationCenter reading={reading} onReopen={retry} />;
 }
 
@@ -130,7 +129,7 @@ function renderProbe(
 ): ReturnType<typeof render> {
   return render(
     <SidekicksBridgeProvider bridge={bridge}>
-      <AttentionProbe read={read} bridge={bridge} registry={registry} />
+      <AttentionProbe read={read} registry={registry} />
     </SidekicksBridgeProvider>,
   );
 }
@@ -168,6 +167,58 @@ describe("the attention read — a session change is what re-reads it", () => {
 
     expect(read).toHaveBeenCalledTimes(2);
     expect(container.textContent ?? "").toContain("A tool call is waiting on you.");
+  });
+
+  it("re-reads when the transport is swapped and the reader itself did not move", async () => {
+    // The hook took a bridge it named nowhere in its body, so the read it held
+    // outlived the transport it was made through. It was right only because the one
+    // caller derives its reader from `bridge.growth` — correctness resting on a memo
+    // in a file this module does not own. Here the reader identity is deliberately
+    // STABLE across the swap, which is the shape that exposes it.
+    const first = bridgeOnFrozenTime();
+    const registry = registryHolding(first.clock);
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
+
+    const view = renderProbe(read, first.bridge, registry);
+    await releaseCoalescedRead(first.clock);
+    expect(read).toHaveBeenCalledTimes(1);
+
+    const second = bridgeOnFrozenTime();
+    await act(async () => {
+      view.rerender(
+        <SidekicksBridgeProvider bridge={second.bridge}>
+          <AttentionProbe read={read} registry={registry} />
+        </SidekicksBridgeProvider>,
+      );
+      await Promise.resolve();
+    });
+    await releaseCoalescedRead(second.clock);
+
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("negative control: a re-render carrying the same bridge re-reads nothing", async () => {
+    // Without this, a hook that rebuilt the read on every pass would satisfy the case
+    // above while putting a read on the wire for every render the surface performs.
+    const { bridge, clock } = bridgeOnFrozenTime();
+    const registry = registryHolding(clock);
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
+
+    const view = renderProbe(read, bridge, registry);
+    await releaseCoalescedRead(clock);
+    expect(read).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      view.rerender(
+        <SidekicksBridgeProvider bridge={bridge}>
+          <AttentionProbe read={read} registry={registry} />
+        </SidekicksBridgeProvider>,
+      );
+      await Promise.resolve();
+    });
+    await releaseCoalescedRead(clock);
+
+    expect(read).toHaveBeenCalledTimes(1);
   });
 
   it("costs one read when two changes land inside one window", async () => {

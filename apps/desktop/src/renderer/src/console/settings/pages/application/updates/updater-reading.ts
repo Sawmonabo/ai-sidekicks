@@ -34,9 +34,9 @@
 
 import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../../core/index.js";
-import { consoleRefusalFrom } from "../../../seats/index.js";
-import { GenerationLatch, type GenerationClaim } from "../../../store/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../../../core/index.js";
+import { consoleRefusalFrom } from "../../../../seats/index.js";
+import { GenerationLatch, type GenerationClaim } from "../../../../store/index.js";
 
 /**
  * What this module names a failure it could not read a code off.
@@ -102,7 +102,7 @@ const OPENING_KEY = "open";
  *
  * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`:
  * it owns a subscription, an opening generation, and the rule that decides which
- * answer installs. The React binding lives in `UpdatesPage.tsx` and holds nothing.
+ * answer installs. The React binding lives in `UpdatesBlock.tsx` and holds nothing.
  */
 export class UpdaterReadingHolder {
   readonly #updater: SidekicksBridge["update"];
@@ -134,6 +134,14 @@ export class UpdaterReadingHolder {
    * be lost, and the worst case the other way round is one redundant render. A
    * subscription that cannot be opened at all settles the whole reading as
    * unreachable and asks for no state, because there is nothing left to keep current.
+   *
+   * TWO BOUNDARIES AND NOT ONE, because the two codes are the whole point of the
+   * pair above. A shipped bridge implements these methods as synchronous throws, so
+   * `getState()` fails on its INVOCATION rather than on its promise — and under one
+   * boundary that failure was reported as a subscription that had in fact opened and
+   * is still held in `this.#release`, which is the one thing the two codes exist to
+   * tell apart. The read's synchronous and asynchronous failures now land on the
+   * same code, because they are the same failure.
    */
   public open(): void {
     this.close();
@@ -143,6 +151,11 @@ export class UpdaterReadingHolder {
       this.#release = this.#updater.subscribe((state) => {
         this.#observePush(opening, state);
       });
+    } catch (subscribeRejection: unknown) {
+      this.#observeOpening(opening, unreachableFrom(subscribeRejection, UPDATER_SUBSCRIBE_FAILED));
+      return;
+    }
+    try {
       void this.#updater
         .getState()
         .then((state) => {
@@ -151,8 +164,8 @@ export class UpdaterReadingHolder {
         .catch((readRejection: unknown) => {
           this.#observeOpening(opening, unreachableFrom(readRejection, UPDATER_READ_FAILED));
         });
-    } catch (openingRejection: unknown) {
-      this.#observeOpening(opening, unreachableFrom(openingRejection, UPDATER_SUBSCRIBE_FAILED));
+    } catch (readRejection: unknown) {
+      this.#observeOpening(opening, unreachableFrom(readRejection, UPDATER_READ_FAILED));
     }
   }
 

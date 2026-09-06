@@ -34,7 +34,7 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { useConsoleClock, type ConsoleBridge } from "../../bridge/index.js";
+import { useConsoleBridge, useConsoleClock } from "../../bridge/index.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import type { SessionStoreRegistry } from "../../store/index.js";
@@ -182,16 +182,30 @@ export interface AttentionProjectionReading {
  * opens nothing and arms nothing, so a render React discards leaves no subscription
  * behind, and the subscribe-and-read that must not happen during render rides the
  * effect.
+ *
+ * THE TRANSPORT IT IS SCOPED TO IS THE ONE THE CONSOLE RESOLVED, and it is read here
+ * rather than taken as a parameter. This signature used to declare a `bridge` it named
+ * nowhere in its body, so the read outlived the transport it was made through and the
+ * surface went on reading over a bridge that had been replaced; it happened to be right
+ * only because the one caller derives `read` from `bridge.growth`, which makes
+ * correctness a property of a memo in a file this module does not own.
+ *
+ * A CALLER'S PROP IS THE WRONG SUBJECT, measured rather than assumed: the provider
+ * publishes a replacement one commit AFTER the prop moves, so a read rebuilt on the
+ * prop is constructed in the commit where the window's clock is still the retired one
+ * — and `useConsoleClock` forwards to whatever is held when a method RUNS, so that
+ * read arms its opening request on a clock nothing will ever advance again. Keyed on
+ * the resolution instead, the rebuild and the clock swap are the same commit.
  */
 export function useAttentionProjection(
   read: AttentionProjectionReader,
-  bridge: ConsoleBridge,
   sessionStoreRegistry: SessionStoreRegistry,
 ): AttentionProjectionReading {
   // The scenario's frozen clock under the fixture and the real one otherwise, from
   // the window's own clock hook rather than resolved inside the memo below: the live
   // arm of `consoleClockFor` MINTS, and a memo is a hint React may discard, so a pass
   // nothing moved on could rebuild this `dispose()`-bearing read around a new clock.
+  const resolvedBridge = useConsoleBridge();
   const clock = useConsoleClock();
   const projectionRead = useMemo(
     () =>
@@ -202,7 +216,7 @@ export function useAttentionProjection(
         subscribe: (onChangeSignal) =>
           subscribeToSessionProjections(sessionStoreRegistry, onChangeSignal),
       }),
-    [clock, read, sessionStoreRegistry],
+    [clock, read, resolvedBridge, sessionStoreRegistry],
   );
   useEffect(() => {
     projectionRead.start();

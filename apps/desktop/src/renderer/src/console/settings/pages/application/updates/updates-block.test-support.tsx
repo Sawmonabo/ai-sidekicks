@@ -1,24 +1,26 @@
-// The cast both updates-page suites drive the five arms with.
+// The cast both updates-block suites drive the five arms with.
 //
-// Hoisted because the suite splits on the page's own seam — what it reads, and what
+// Hoisted because the suite splits on the block's own seam — what it reads, and what
 // its controls do — and both halves need the same updater namespace replacement, the
 // same refusing preference carrier, and the same settled render. A second copy of the
 // updater stub is two files disagreeing about what the shipped bridge serves.
 
 import { act, render } from "@testing-library/react";
+import type { ReactNode } from "react";
 
 import type { SidekicksBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { ManualClock } from "../../../core/index.js";
-import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";
+import { ManualClock } from "../../../../core/index.js";
+import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../../primitives/index.js";
+import { politeText } from "../../../../primitives/live-region.test-support.js";
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge.test-support.js";
-import { UpdatesPage } from "./UpdatesPage.js";
-import type { ConsoleBridge, GrowthPort } from "../../../bridge/index.js";
-import type { ConsoleScenario } from "../../../bridge/scenario.js";
+} from "../../../../bridge/fixture-bridge.test-support.js";
+import { UpdatesBlock } from "./UpdatesBlock.js";
+import type { ConsoleBridge, GrowthPort } from "../../../../bridge/index.js";
+import type { ConsoleScenario } from "../../../../bridge/scenario.js";
 
 export const SCENARIO: ConsoleScenario = unscriptedScenario("updates-page-test");
 
@@ -175,28 +177,52 @@ export function updatesBlockOf(root: HTMLElement): HTMLElement {
  * two live regions are the provider's siblings above it and one of them carries
  * `role="alert"` — a case asserting this block raises no alert would otherwise be
  * reading the announcer's.
+ *
+ * It hands back the transport swap and the teardown as well as the block, because a
+ * suite that mounted its own tree to reach either had a second copy of this mount and
+ * the two disagreed about which announcer clock the block runs on.
  */
 export async function renderSettled(bridge: ConsoleBridge): Promise<{
-  readonly page: HTMLElement;
+  readonly block: HTMLElement;
   readonly clock: ManualClock;
   readonly politeText: () => string;
+  /** The automatic-update switch, re-queried on each call so a swap is visible. */
+  readonly toggle: () => HTMLElement | null;
+  /** Re-render this same tree against another transport, and let it settle. */
+  readonly swapBridge: (next: ConsoleBridge) => Promise<void>;
+  readonly unmount: () => void;
 }> {
   const clock = new ManualClock();
   const announcer = new LiveAnnouncer({ clock });
-  let root: HTMLElement | undefined;
+  const treeFor = (transport: ConsoleBridge): ReactNode => (
+    <LiveAnnouncerProvider announcer={announcer}>
+      <UpdatesBlock bridge={transport} />
+    </LiveAnnouncerProvider>
+  );
+  let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
-    root = render(
-      <LiveAnnouncerProvider announcer={announcer}>
-        <UpdatesPage bridge={bridge} />
-      </LiveAnnouncerProvider>,
-    ).container;
+    rendered = render(treeFor(bridge));
     await Promise.resolve();
     await Promise.resolve();
   });
-  const mounted = root as HTMLElement;
+  const mounted = rendered as ReturnType<typeof render>;
   return {
-    page: updatesBlockOf(mounted),
+    block: updatesBlockOf(mounted.container),
     clock,
-    politeText: () => mounted.querySelector('[data-live-region="polite"]')?.textContent ?? "",
+    politeText: () => politeText(mounted.container),
+    toggle: () =>
+      updatesBlockOf(mounted.container).querySelector<HTMLElement>(
+        ".meridian-settings-row__switch",
+      ),
+    swapBridge: async (next: ConsoleBridge) => {
+      await act(async () => {
+        mounted.rerender(treeFor(next));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    },
+    unmount: () => {
+      mounted.unmount();
+    },
   };
 }

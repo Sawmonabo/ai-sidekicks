@@ -102,7 +102,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
       () => attentionProjectionReaderFor(context.bridge.growth, attentionSessionIds),
       [context.bridge.growth, attentionSessionIds],
     ),
-    context.bridge,
     context.sessionStoreRegistry,
   );
   const attention = attentionProjection.reading;

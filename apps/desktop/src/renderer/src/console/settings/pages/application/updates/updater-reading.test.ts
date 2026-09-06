@@ -1,7 +1,7 @@
 // The race between the updater's two mouths, driven directly.
 //
 // The case worth the most is the one the block could never show on its own: a push
-// landing while the opening read is still in flight. Through a rendered page that is
+// landing while the opening read is still in flight. Through a rendered block that is
 // a timing accident; here the opening read is held open by hand, so "the push wins"
 // is asserted rather than hoped for.
 
@@ -168,6 +168,41 @@ describe("the updater reading — a feed that was not reached", () => {
         detail: "update.subscribe is not implemented",
       },
     });
+  });
+
+  it("names the READ when the state call throws on its invocation, and keeps the subscription", () => {
+    // The shipped Tier-1 bridge implements every updater method as a synchronous
+    // throw, so this is the live shape rather than a contrived one: `getState()`
+    // fails before it ever returns a promise. Under one `try` around both calls it
+    // was reported as `updater-subscribe-failed` — naming a subscription that had in
+    // fact opened and is still held, which is the one distinction the two codes
+    // exist to draw.
+    let releaseCount = 0;
+    const holder = new UpdaterReadingHolder({
+      getState: () => {
+        throw new Error("update.getState is not implemented");
+      },
+      subscribe: (): Unsubscribe => () => {
+        releaseCount += 1;
+      },
+      requestCheck: () => Promise.resolve(),
+      requestRestart: () => Promise.resolve(),
+    });
+    holder.open();
+
+    expect(holder.snapshot().reading).toStrictEqual({
+      kind: "unreachable",
+      refusal: {
+        code: "updater-read-failed",
+        origin: "updates",
+        detail: "update.getState is not implemented",
+      },
+    });
+    // The subscription the failed read was reported against is live: closing the
+    // holder releases it. A seam that had really failed to subscribe would have
+    // nothing to release here.
+    holder.close();
+    expect(releaseCount).toBe(1);
   });
 
   it("keeps a refused read's own code and message rather than a class name", async () => {

@@ -1,28 +1,28 @@
-// What the updates page reads, and what it says once it has read it.
+// What the updates block reads, and what it says once it has read it.
 //
 // The five arms the updater publishes, the ordering between the opening read and a
 // transition pushed while it is still in flight, and the one polite announcement the
 // settled read makes. What a control does with any of it is
-// `UpdatesPage.controls.test.tsx`, over the one cast in `updates-page.test-support.tsx`.
+// `UpdatesBlock.controls.test.tsx`, over the one cast in `updates-block.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { LIVE_ANNOUNCEMENT_HOLD_MS } from "../../../core/index.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS } from "../../../../core/index.js";
 import {
   bridgeHoldingItsRead,
   bridgePushing,
   bridgeReporting,
   bridgeWithNoUpdater,
   renderSettled,
-} from "./updates-page.test-support.js";
+} from "./updates-block.test-support.js";
 
-describe("updates page — the five arms", () => {
+describe("the updates block — the five arms", () => {
   it("renders idle as nothing waiting", async () => {
-    const { page: container } = await renderSettled(bridgeReporting({ status: "idle" }));
+    const { block: container } = await renderSettled(bridgeReporting({ status: "idle" }));
     expect(container.textContent ?? "").toContain("No update is waiting");
   });
 
   it("renders downloading with its own percent and a bar", async () => {
-    const { page: container } = await renderSettled(
+    const { block: container } = await renderSettled(
       bridgeReporting({ status: "downloading", percent: 42 }),
     );
     const progress = container.querySelector("progress");
@@ -31,7 +31,7 @@ describe("updates page — the five arms", () => {
   });
 
   it("renders the error arm's message verbatim", async () => {
-    const { page: container } = await renderSettled(
+    const { block: container } = await renderSettled(
       bridgeReporting({ status: "error", message: "the feed returned 503" }),
     );
     expect(container.textContent ?? "").toContain("the feed returned 503");
@@ -41,7 +41,7 @@ describe("updates page — the five arms", () => {
     // The section is explicit — "A feed that cannot be reached is not an error arm
     // and does not render as one." Without this, an `unreachable` folded into
     // `error` would look identical to a real updater failure.
-    const { page: container } = await renderSettled(bridgeWithNoUpdater());
+    const { block: container } = await renderSettled(bridgeWithNoUpdater());
     const text = container.textContent ?? "";
     expect(text).toContain("update feed was not reached");
     expect(text).not.toContain("The updater reported a failure");
@@ -54,7 +54,7 @@ describe("updates page — the five arms", () => {
     // said WHICH conversation failed — and a registered daemon code would have been
     // discarded the same way. The sentence stays an aside and the code arrives with
     // it, in the console's own inline shape rather than as a second kind of prose.
-    const { page: container } = await renderSettled(bridgeWithNoUpdater());
+    const { block: container } = await renderSettled(bridgeWithNoUpdater());
 
     const refusal = container.querySelector(".meridian-refusal--inline");
     expect(refusal?.textContent ?? "").toContain("updater-subscribe-failed");
@@ -64,13 +64,13 @@ describe("updates page — the five arms", () => {
   });
 });
 
-describe("updates page — the two sources are sequenced", () => {
+describe("the updates block — the two sources are sequenced", () => {
   it("keeps a pushed transition when the opening read resolves behind it", async () => {
     // The block's own end of the race. Without the sequencing, the read's older
     // snapshot lands last and the ready arm — and its restart control — disappear
     // until the updater pushes again, which from a terminal arm it never does.
     const held = bridgeHoldingItsRead();
-    const { page } = await renderSettled(held.bridge);
+    const { block } = await renderSettled(held.bridge);
 
     await act(async () => {
       held.push({ status: "ready" });
@@ -79,10 +79,10 @@ describe("updates page — the two sources are sequenced", () => {
       await Promise.resolve();
     });
 
-    const text = page.textContent ?? "";
+    const text = block.textContent ?? "";
     expect(text).toContain("An update has finished downloading");
     expect(text).not.toContain("Checking for an update");
-    const labels = [...page.querySelectorAll("button")].map((button) => button.textContent ?? "");
+    const labels = [...block.querySelectorAll("button")].map((button) => button.textContent ?? "");
     expect(labels).toContain("Restart to apply");
   });
 
@@ -90,8 +90,8 @@ describe("updates page — the two sources are sequenced", () => {
     // Without this, a block that ignored its opening read outright would satisfy the
     // case above and then show "Reading the updater's state" for the window's life.
     const held = bridgeHoldingItsRead();
-    const { page } = await renderSettled(held.bridge);
-    expect(page.textContent ?? "").toContain("Reading the updater");
+    const { block } = await renderSettled(held.bridge);
+    expect(block.textContent ?? "").toContain("Reading the updater");
 
     await act(async () => {
       held.settleRead({ status: "idle" });
@@ -99,11 +99,11 @@ describe("updates page — the two sources are sequenced", () => {
       await Promise.resolve();
     });
 
-    expect(page.textContent ?? "").toContain("No update is waiting");
+    expect(block.textContent ?? "").toContain("No update is waiting");
   });
 });
 
-describe("updates page — the read says it landed, once", () => {
+describe("the updates block — the read says it landed, once", () => {
   it("announces what the updater answered", async () => {
     const { politeText } = await renderSettled(bridgeReporting({ status: "idle" }));
     expect(politeText()).toBe("Update state read. No update is waiting.");
@@ -123,7 +123,7 @@ describe("updates page — the read says it landed, once", () => {
     // above and then announce once per percentage point — which fills the polite
     // queue with one condition and sheds every other announcement behind it.
     const pushing = bridgePushing({ status: "downloading", percent: 42 });
-    const { page, clock, politeText } = await renderSettled(pushing.bridge);
+    const { block, clock, politeText } = await renderSettled(pushing.bridge);
     expect(politeText()).toBe("Update state read. An update is downloading.");
 
     await act(async () => {
@@ -139,7 +139,7 @@ describe("updates page — the read says it landed, once", () => {
 
     // The block really did re-render on the push, so the silence is the hook's doing
     // rather than a component that stopped listening.
-    expect(page.textContent ?? "").toContain("43%");
+    expect(block.textContent ?? "").toContain("43%");
     expect(politeText()).toBe("");
   });
 });
