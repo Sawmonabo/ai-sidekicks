@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { usePushDrivenRead, type SidebarSectionContext } from "../../seats/index.js";
+import { useComposingLookup } from "../activity-model.js";
 import { useDeadlineWake, useSessionDegraded } from "../../store/index.js";
 import { Memberships } from "./Memberships.js";
 import { ageBoundariesOf, rosterRowsFrom } from "./presence-model.js";
@@ -42,6 +43,13 @@ export function MembersSectionBody(props: {
   const wokeAtMilliseconds = useDeadlineWake(models.clock, ageBoundaries);
   const nowMilliseconds = Math.max(wokeAtMilliseconds, reading?.readAtMilliseconds ?? 0);
 
+  // Subscribed rather than sampled, like the degraded flag above it. Read during
+  // render off the registry, a composing mark moved only when something else
+  // re-rendered this section — and the something else was the age wake-up, which now
+  // fires at the minute a rendered age changes rather than every second. A mark that
+  // depends on an unrelated re-render is right by accident.
+  const composingChannelFor = useComposingLookup(models.activity);
+
   const rows = useMemo(
     () =>
       reading !== undefined
@@ -65,7 +73,7 @@ export function MembersSectionBody(props: {
         rows={rows}
         nowMilliseconds={nowMilliseconds}
         labels={models.labels}
-        composingChannelFor={(participantId) => models.activity.composingChannelFor(participantId)}
+        composingChannelFor={composingChannelFor}
         isLastKnown={isLastKnown}
       />
       <Memberships context={context} />

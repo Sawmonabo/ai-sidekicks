@@ -193,3 +193,77 @@ describe("roster — the absences", () => {
     expect(container.querySelectorAll(".meridian-roster__degraded")).toHaveLength(1);
   });
 });
+
+describe("roster — a re-render that moved nothing does no work", () => {
+  it("skips the list when a parent re-renders with the same props", () => {
+    // Counts the roster's OWN work rather than a render count: `composingChannelFor`
+    // is called once per row per pass, so the count is the number of rows the list
+    // actually re-derived. The sidebar re-renders whenever any of its sections moves,
+    // and this list is one of the console's longest.
+    let lookupCallCount = 0;
+    const composingChannelFor = (): string | undefined => {
+      lookupCallCount += 1;
+      return undefined;
+    };
+    const rows: readonly RosterRow[] = rosterRowsFrom(
+      [participant("participant-one", "online"), participant("participant-two", "idle")],
+      (participantId) => new ParticipantHueAllocator().assignmentFor(participantId),
+      undefined,
+    );
+    const state: PushDrivenReadState<PresenceReading> = {
+      kind: "loaded",
+      value: { participants: [], readAtMilliseconds: NOW_MILLISECONDS },
+    };
+    // A FRESH element each pass, holding the same props. Handing the same element
+    // back would bail out on identity alone and assert nothing about this component.
+    const rosterElement = (): React.JSX.Element => (
+      <Roster
+        state={state}
+        rows={rows}
+        nowMilliseconds={NOW_MILLISECONDS}
+        labels={LABELS}
+        composingChannelFor={composingChannelFor}
+        isLastKnown={false}
+      />
+    );
+    const { rerender } = render(<div>{rosterElement()}</div>);
+    expect(lookupCallCount).toBe(2);
+
+    rerender(<div>{rosterElement()}</div>);
+    expect(lookupCallCount).toBe(2);
+  });
+
+  it("negative control: a moved instant re-renders every row", () => {
+    // Without this, the case above would pass over a roster that never re-rendered at
+    // all — which is a list whose ages freeze at the instant it first mounted.
+    let lookupCallCount = 0;
+    const composingChannelFor = (): string | undefined => {
+      lookupCallCount += 1;
+      return undefined;
+    };
+    const rows: readonly RosterRow[] = rosterRowsFrom(
+      [participant("participant-one", "online"), participant("participant-two", "idle")],
+      (participantId) => new ParticipantHueAllocator().assignmentFor(participantId),
+      undefined,
+    );
+    const state: PushDrivenReadState<PresenceReading> = {
+      kind: "loaded",
+      value: { participants: [], readAtMilliseconds: NOW_MILLISECONDS },
+    };
+    const rosterAt = (nowMilliseconds: number): React.JSX.Element => (
+      <Roster
+        state={state}
+        rows={rows}
+        nowMilliseconds={nowMilliseconds}
+        labels={LABELS}
+        composingChannelFor={composingChannelFor}
+        isLastKnown={false}
+      />
+    );
+    const { rerender } = render(<div>{rosterAt(NOW_MILLISECONDS)}</div>);
+    expect(lookupCallCount).toBe(2);
+
+    rerender(<div>{rosterAt(NOW_MILLISECONDS + 60_000)}</div>);
+    expect(lookupCallCount).toBe(4);
+  });
+});

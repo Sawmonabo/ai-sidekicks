@@ -20,6 +20,8 @@
 // same colour here, in the log, and on a pane's focus ring. A participant the wheel
 // has not admitted renders unattributed rather than borrowing a neighbour's colour.
 
+import { memo } from "react";
+
 import { DerivedFigure, Nothing, RefusalCard } from "../../primitives/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
@@ -45,55 +47,67 @@ export interface RosterProps {
   readonly isLastKnown: boolean;
 }
 
-export function Roster(props: RosterProps): React.JSX.Element {
-  const { state, rows, nowMilliseconds, labels, composingChannelFor, isLastKnown } = props;
+/**
+ * MEMOIZED, and every prop above is arranged so the memo can hit.
+ *
+ * The sidebar re-renders whenever any section's own state moves, and without this
+ * the roster re-derived a relative age for every participant on each of those passes
+ * — work whose result is identical, in a list that is one of the console's longest.
+ * The memo is only as good as the identities handed in: `rows` is derived once per
+ * reading, `composingChannelFor` is a subscribed reading rather than a bound method,
+ * and `nowMilliseconds` moves exactly when a rendered age does.
+ */
+export const Roster: React.MemoExoticComponent<(props: RosterProps) => React.JSX.Element> = memo(
+  function Roster(props: RosterProps): React.JSX.Element {
+    const { state, rows, nowMilliseconds, labels, composingChannelFor, isLastKnown } = props;
 
-  if (state.kind === "not-loaded") {
+    if (state.kind === "not-loaded") {
+      return (
+        <div className="meridian-roster">
+          <Nothing kind="not-loaded" title="Reading who is in this session." />
+        </div>
+      );
+    }
+
+    if (state.kind === "failed") {
+      return (
+        <div className="meridian-roster">
+          <RefusalCard code={state.refusal.code} detail={state.refusal.detail} />
+        </div>
+      );
+    }
+
     return (
       <div className="meridian-roster">
-        <Nothing kind="not-loaded" title="Reading who is in this session." />
+        {isLastKnown ? (
+          <p className="meridian-roster__degraded" role="status">
+            <DerivedFigure text="These are the last presence readings the console received." />
+          </p>
+        ) : null}
+        {rows.length === 0 ? (
+          // Unreachable for a member, since the reader is one of the rows — which is
+          // exactly why it is rendered rather than assumed away: a roster that came
+          // back with nobody in it is a fact worth stating, not a blank panel.
+          <Nothing
+            kind="empty"
+            placement="surface"
+            title="Presence came back with nobody in this session."
+            detail="Every member of a session appears here, including you, so an empty reading is worth telling someone about."
+          />
+        ) : (
+          <ul className="meridian-roster__list">
+            {rows.map((row) => (
+              <RosterListRow
+                key={row.participant.participantId}
+                row={row}
+                nowMilliseconds={nowMilliseconds}
+                label={labels.participantLabel(row.participant.participantId)}
+                composingChannelId={composingChannelFor(row.participant.participantId)}
+              />
+            ))}
+          </ul>
+        )}
       </div>
     );
-  }
-
-  if (state.kind === "failed") {
-    return (
-      <div className="meridian-roster">
-        <RefusalCard code={state.refusal.code} detail={state.refusal.detail} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="meridian-roster">
-      {isLastKnown ? (
-        <p className="meridian-roster__degraded" role="status">
-          <DerivedFigure text="These are the last presence readings the console received." />
-        </p>
-      ) : null}
-      {rows.length === 0 ? (
-        // Unreachable for a member, since the reader is one of the rows — which is
-        // exactly why it is rendered rather than assumed away: a roster that came
-        // back with nobody in it is a fact worth stating, not a blank panel.
-        <Nothing
-          kind="empty"
-          placement="surface"
-          title="Presence came back with nobody in this session."
-          detail="Every member of a session appears here, including you, so an empty reading is worth telling someone about."
-        />
-      ) : (
-        <ul className="meridian-roster__list">
-          {rows.map((row) => (
-            <RosterListRow
-              key={row.participant.participantId}
-              row={row}
-              nowMilliseconds={nowMilliseconds}
-              label={labels.participantLabel(row.participant.participantId)}
-              composingChannelId={composingChannelFor(row.participant.participantId)}
-            />
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+  },
+);
