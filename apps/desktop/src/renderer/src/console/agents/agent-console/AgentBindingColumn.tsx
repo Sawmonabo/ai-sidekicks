@@ -216,16 +216,22 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // for the life of the window, and a cap that clears in thirty seconds is
   // indistinguishable from a refusal that never will.
   const reopenRoster = useCallback(() => {
-    // THE STREAM FIRST, THE READ SECOND, AND NEVER BOTH. A read whose stream never
-    // opened is behind a dead channel, and refreshing that one paints a current-looking
-    // surface over a subscription nobody holds; a read whose stream IS live failed at
-    // the read alone, and a fresh read is the whole recovery. `isSubscribed` is the
-    // seam's own answer to which of the two this is.
-    if (models.roster.isSubscribed) {
-      models.roster.refresh("participant-request");
-      return;
-    }
-    models.roster.start();
+    // ONE CALL, because the seam owns the stream-then-read order now: `refresh` takes
+    // the subscription first where it is not held and requests the read either way.
+    // A branch here would be a second reading of a decision the read already makes,
+    // and the branch this replaced could only be right while both halves agreed.
+    models.roster.refresh("participant-request");
+  }, [models]);
+  // THE OTHER TWO READS THIS COLUMN OWNS. Both are rendered by forms below that hold
+  // no stream — the switch draws the catalog's refusal, the attach dialog draws the
+  // catalog's and the definition list's — so the way out of each is composed here,
+  // where the model is, and handed down beside the state it belongs to. Without it a
+  // catalog that refused once left the switch reading as permanently broken.
+  const reopenCatalog = useCallback(() => {
+    models.driverCatalog.refresh("participant-request");
+  }, [models]);
+  const reopenDefinitions = useCallback(() => {
+    models.definitions.refresh("participant-request");
   }, [models]);
 
   const agents = rosterState.kind === "loaded" ? rosterState.value.agents : [];
@@ -308,6 +314,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
           key={soleAgent.agentId}
           agent={soleAgent}
           catalog={catalogState}
+          onCatalogReopen={reopenCatalog}
           onApply={(axes, interruptAndSwitch) => {
             applySwitch(soleAgent.agentId, axes, interruptAndSwitch);
           }}
@@ -332,6 +339,8 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         sessionId={models.sessionId}
         catalog={catalogState}
         definitions={definitionsState}
+        onCatalogReopen={reopenCatalog}
+        onDefinitionsReopen={reopenDefinitions}
         onSubmit={submitAttach}
         // The latch's own arm, projected onto the control. The form holds no flag
         // of its own, so what is disabled and what is refused cannot disagree.

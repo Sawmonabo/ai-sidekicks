@@ -27,8 +27,9 @@
 // reference minted anywhere else is one no CI run will reproduce, and a comparison
 // run anywhere else is red for reasons belonging to the host. That module's own
 // doc block carries the reasoning, the two variables, and the measured cost of the
-// pin this replaced; `baseline-comparison.ts` is the browser-side half every file
-// in this tier reads that verdict through, so the guard is stated once.
+// pin this replaced; `baseline-host.ts` beside it reads this run's verdict once per
+// file and says why on both channels, and every suite in this tier asks it rather
+// than deciding for itself.
 //
 // They are refreshed by dispatching
 // `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate` on
@@ -68,11 +69,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
 import {
-  announceSkippedBaselines,
   requireCapturedElement,
   screenshotUpdateMode,
   skipOffBaselineHost,
-} from "./baseline-comparison.js";
+  warnOnceOffBaselineHost,
+} from "./baseline-host.js";
 
 import {
   ConsoleRoot,
@@ -90,10 +91,8 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
  */
 const UNCOMMITTED_REFERENCE_NAME = "no-reference-is-committed-under-this-name";
 
-/** The mounted frame, or a throw naming what did not mount. */
-function requireFrame(container: HTMLElement): Element {
-  return requireCapturedElement(container, ".meridian-frame");
-}
+/** What the console's outermost mounted element is, and what this file captures. */
+const FRAME_SELECTOR = ".meridian-frame";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -131,7 +130,7 @@ describe("screenshot — the tier gates rather than mints", () => {
     );
 
     const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
-    const frame = requireFrame(container);
+    const frame = requireCapturedElement(container, FRAME_SELECTOR);
 
     await expect(expect(frame).toMatchScreenshot(UNCOMMITTED_REFERENCE_NAME)).rejects.toThrowError(
       /No existing reference screenshot found/,
@@ -143,7 +142,7 @@ describe("screenshot — the frame under the first-run scenario", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
   // Without it a skipped run reports "3 skipped" and nothing else, which a reader
   // cannot tell from a tier that was quietly switched off.
-  announceSkippedBaselines();
+  warnOnceOffBaselineHost();
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme`, async (context) => {
@@ -151,7 +150,9 @@ describe("screenshot — the frame under the first-run scenario", () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
-      await expect(requireFrame(container)).toMatchScreenshot(`frame-first-run-${scheme}`);
+      await expect(requireCapturedElement(container, FRAME_SELECTOR)).toMatchScreenshot(
+        `frame-first-run-${scheme}`,
+      );
     });
   }
 
@@ -165,7 +166,7 @@ describe("screenshot — the frame under the first-run scenario", () => {
     await pressKeys("{Control>}k{/Control}");
     await pressKeys("{Meta>}k{/Meta}");
 
-    requireFrame(container);
+    requireCapturedElement(container, FRAME_SELECTOR);
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
     // The whole body, not the frame: the palette portals out of the frame's
     // subtree into the overlay root, so a frame-scoped shot would miss it.

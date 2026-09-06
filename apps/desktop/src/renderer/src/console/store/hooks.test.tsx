@@ -23,6 +23,7 @@ import {
   useSessionStore,
 } from "./hooks.js";
 import { type SessionSnapshotReader } from "./open-session-entry.js";
+import { eventOfKind } from "./session-event.test-support.js";
 import { SessionStoreRegistry } from "./session-store-registry.js";
 import type { SessionStore } from "./session-store.js";
 
@@ -48,15 +49,9 @@ const projectors: EntityProjectorRegistry = {
   ],
 };
 
+/** One event at `sequence`, carrying the entity id both projectors key on. */
 function eventAt(sequence: number, kind: string, entityId: string): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: "session-1",
-    sequence,
-    kind,
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
-    payload: { runId: entityId },
-  };
+  return eventOfKind("session-1", kind, sequence, { runId: entityId });
 }
 
 /** Render tallies, keyed by the label the component under test was given. */

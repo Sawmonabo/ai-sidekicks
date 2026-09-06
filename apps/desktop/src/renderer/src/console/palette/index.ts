@@ -40,4 +40,32 @@ export { KeyBindingTable } from "./keybindings.js";
 
 export type { WhenClauseContext } from "./when-clause.js";
 
-export { COMMAND_PALETTE_OPEN_CHORD, PaletteOverlay } from "./PaletteOverlay.js";
+export { PaletteOverlay } from "./PaletteOverlay.js";
+
+// The command surface and the chord surface, which moved here from `frame/`.
+//
+// They were authored beside the frame because the frame is what registers the
+// console's own commands and installs their chords. But the settings pages read
+// both — the keyboard page lists every binding and rebinds one, the appearance
+// page registers a scheme command — and settings is a VIEW family, so those reads
+// were cross-family imports reaching past a door into another family's subtree.
+// The rule's own remedy is to hoist to the lowest family that owns the inputs, and
+// that family is this one: a command IS a `CommandRegistry` entry and a chord IS a
+// `KeyBindingTable` row, both declared next door. The frame keeps what only the
+// frame does — composing the registry into a running window — and imports the
+// vocabulary through this door like every other consumer.
+export {
+  CONSOLE_CHORD_PLATFORM,
+  FRAME_KEY_BINDINGS,
+  RAIL_NAVIGATION_DETAILS,
+  consoleCommands,
+  registerConsoleCommands,
+  type FrameCommand,
+  type FrameWhenClauseContext,
+} from "./command-surface.js";
+
+export { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
+
+export { composeEffectiveBindings, type KeybindingOverrideMap } from "./keybinding-overrides.js";
+
+export { consoleKeybindingOverrides, useKeybindingSurface } from "./keybinding-override-store.js";

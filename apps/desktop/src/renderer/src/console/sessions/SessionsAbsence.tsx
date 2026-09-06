@@ -18,7 +18,7 @@
 
 import { type ReactNode } from "react";
 
-import type { SessionDirectoryState } from "../frame/session-directory.js";
+import type { SessionDirectoryState } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
 import { sessionsAbsenceKindFor } from "./rows/session-directory-rows.js";
 

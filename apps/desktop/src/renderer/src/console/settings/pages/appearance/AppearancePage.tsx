@@ -43,7 +43,7 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
-import { consoleCommands } from "../../../frame/command-surface.js";
+import { consoleCommands } from "../../../palette/index.js";
 import { InlineRefusal, Nothing } from "../../../primitives/index.js";
 import {
   SCHEME_ATTRIBUTE,

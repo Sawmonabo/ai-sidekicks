@@ -6,7 +6,7 @@
 // `KeyboardPage.reading.test.tsx`, over the one cast in `keyboard-page.test-support.tsx`.
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { consoleKeybindingOverrides } from "../../../frame/keybinding-override-store.js";
+import { consoleKeybindingOverrides } from "../../../palette/index.js";
 import { LiveAnnouncerProvider, formatCount } from "../../../primitives/index.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 import {

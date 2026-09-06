@@ -46,13 +46,20 @@
 // and the effect re-committed the corpse. Nothing was leaked and nothing was closed
 // twice — the subject simply went on holding a resource that would never work again,
 // which is invisible until something reads through it. A caller whose `close` merely
-// releases (a counter advanced, a subscription dropped) is unaffected, which is why
-// the reading is OPTIONAL and its absence means exactly the behaviour above.
+// releases (a counter advanced, a subscription dropped) is unaffected.
 //
-// SO THE RE-MINT IS THE CALLER'S READING OF ITS OWN VALUE, NOT AN INTERFACE. `isClosed`
-// is supplied beside the `open` and `close` it belongs with rather than demanded of the
-// resource, because this hook is generic over values two unrelated window subsystems
-// own and a shape requirement here would reach into both of them. When the lifetime
+// SO THE DISPOSAL IS ONE ARGUMENT WITH TWO SHAPES, AND WHICH SHAPE IT IS SAYS WHICH
+// KIND OF ENDING IT IS. A releasing caller hands over `{ release }`; a terminal one
+// hands over `{ dispose, isClosed }`, and the reading is not optional beside it. That
+// is the whole reason for the object: the reading used to be a fifth positional
+// parameter a caller could simply not pass, so `flushAndClose()` — a writer's one-way
+// drain — typechecked as a release and silently took the behaviour above. A missing
+// member is a compile error; a missing fifth argument was nothing at all.
+//
+// THE RE-MINT IS STILL THE CALLER'S READING OF ITS OWN VALUE, NOT AN INTERFACE.
+// `isClosed` is supplied beside the `dispose` it belongs with rather than demanded of
+// the resource, because this hook is generic over values unrelated window subsystems
+// own and a shape requirement here would reach into all of them. When the lifetime
 // effect is about to commit a value that reading calls closed, it publishes a fresh one
 // through `open` instead — the holder's own write path, so the retired value is
 // disposed on the same terms as any replaced one.
@@ -75,6 +82,43 @@ import {
   type SubjectScopedPublish,
 } from "./subject-scoped-holder.js";
 import { useHeldSubjectValue, type SubjectScopedState } from "./subject-scoped-state.js";
+
+/**
+ * A disposal that hands a resource back rather than ending it.
+ *
+ * A counter advanced, a subscription dropped, a listener detached: the value is still
+ * a working value afterwards and a later commit may hold it again. There is no closed
+ * state to read, which is why this arm carries no reading — supplying one would be a
+ * claim about a lifetime that does not end.
+ */
+export interface SubjectScopedRelease<TResource> {
+  readonly release: (resource: TResource) => void;
+}
+
+/**
+ * A disposal that ENDS a resource, and the reading that recognises one it ended.
+ *
+ * The two travel together because neither is usable alone: a terminal disposal
+ * without a reading is the double-mount corpse the header describes, and a reading
+ * without a terminal disposal is a claim about a value nothing ever closes.
+ */
+export interface SubjectScopedTerminalDisposal<TResource> {
+  readonly dispose: (resource: TResource) => void;
+  readonly isClosed: (resource: TResource) => boolean;
+}
+
+/**
+ * How a caller's resource ends — released, or disposed and recognisable afterwards.
+ *
+ * NO `kind` TAG, BECAUSE THE VERB IS THE TAG. `release` and `dispose` are the two
+ * facts, and a literal beside them would be a second place to state one of them and
+ * a second place to get it wrong. TypeScript discriminates the arms on the member
+ * names alone: `{ dispose }` with no reading matches neither, which is the compile
+ * error this type exists to produce.
+ */
+export type SubjectScopedDisposal<TResource> =
+  | SubjectScopedRelease<TResource>
+  | SubjectScopedTerminalDisposal<TResource>;
 
 /**
  * How a resource whose `close` was terminal is replaced: the reading, the mint, and
@@ -230,12 +274,15 @@ class SubjectScopedResourceLifetime<TResource> {
  * beyond the `open` thunk the holder already required, and both call sites pass a
  * declared `close` rather than an arrow.
  *
- * A `close` THAT IS TERMINAL SAYS SO THROUGH `isClosed`, and is then re-minted rather
- * than re-committed. Optional, and its absence is not a weaker claim but a different
- * one: a caller whose disposal releases has no closed value to recognise. Supplied
- * beside `open` and `close` rather than demanded of the resource, so a value another
- * family owns needs no shape from this one — and read only where the lifetime effect
- * RUNS, so a resource that disposes itself while nothing moves stays disposed.
+ * A DISPOSAL THAT IS TERMINAL SAYS SO BY ITS SHAPE, and is then re-minted rather than
+ * re-committed. `{ dispose, isClosed }` and `{ release }` are the two arms, and the
+ * difference between them is not optional detail but which kind of ending this is: a
+ * caller whose disposal releases has no closed value to recognise, and one whose
+ * disposal ends the resource cannot fail to say how a closed one is recognised. The
+ * reading is supplied beside the `dispose` it belongs with rather than demanded of the
+ * resource, so a value another family owns needs no shape from this one — and it is
+ * read only where the lifetime effect RUNS, so a resource that disposes itself while
+ * nothing moves stays disposed.
  *
  * A resource a caller PUBLISHES is disposed on the same terms, by the effect, when the
  * value it replaced retires. Publishing is the arm for a replacement reason the hook
@@ -251,9 +298,15 @@ export function useSubjectScopedResource<TResource>(
   subject: object,
   key: SubjectKey,
   open: () => TResource,
-  close: (resource: TResource) => void,
-  isClosed?: (resource: TResource) => boolean,
+  disposal: SubjectScopedDisposal<TResource>,
 ): SubjectScopedState<TResource> {
+  // Read apart here rather than carried as one object, so the dependency lists below
+  // are the caller's own function identities. A caller that declares both members at
+  // module level then has a stable list even though it hands over a fresh literal on
+  // every render, which is the shape both frame subsystems take.
+  const isTerminalDisposal = "dispose" in disposal;
+  const close = isTerminalDisposal ? disposal.dispose : disposal.release;
+  const isClosed = isTerminalDisposal ? disposal.isClosed : undefined;
   const [lifetime] = useState(() => new SubjectScopedResourceLifetime<TResource>(close));
   // The holder is handed the disposal at construction, because a resource it lets go
   // of is one nothing else can reach: never installed, installed and replaced before

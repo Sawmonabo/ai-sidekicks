@@ -7,15 +7,29 @@ import type { SidekickDefinitionListReading } from "../agent-wire.js";
 export function DefinitionPicker(props: {
   readonly form: AttachSidekickForm;
   readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
+  /** Re-open the definition read, from the surface that owns it. */
+  readonly onReopen?: (() => void) | undefined;
 }): React.JSX.Element {
-  const { definitions, form } = props;
+  const { definitions, form, onReopen } = props;
   if (definitions.kind === "not-loaded") {
     return <Nothing kind="not-loaded" title="Reading the definitions" />;
   }
   if (definitions.kind === "failed") {
     // Not reachable through the arm button, which is disabled in this state; kept
-    // because a read can fail while the arm is already selected.
-    return <RefusalCard {...definitions.refusal} />;
+    // because a read can fail while the arm is already selected. The way out is
+    // handed in, because this picker renders a stream the column beside it owns.
+    return (
+      <RefusalCard
+        {...definitions.refusal}
+        action={
+          onReopen === undefined ? undefined : (
+            <button type="button" onClick={onReopen}>
+              Try again
+            </button>
+          )
+        }
+      />
+    );
   }
   const rows = definitions.value.definitions;
   if (rows.length === 0) {

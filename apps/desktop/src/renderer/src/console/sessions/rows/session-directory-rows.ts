@@ -27,7 +27,7 @@
 // prevent — so the decision is a function of the directory state and the row count
 // cannot reach it.
 
-import type { SessionDirectoryState } from "../../frame/session-directory.js";
+import type { SessionDirectoryState } from "../../seats/index.js";
 import type { AttentionSeverity } from "../../bridge/index.js";
 import type { SessionListRow } from "./session-rows.js";
 

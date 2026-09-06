@@ -56,7 +56,14 @@
 // arrives as `children` from the family that owns it. Its stylesheet is imported below,
 // where every console family imports its own.
 //
-// NOTHING ELSE HERE RENDERS. No store, no scenario, no second component.
+// NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
+//
+// `absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
+// component it builds is owned by a renderer subtree outside the console: the four
+// shipped Tier-1 families the console absorbed by import. That is not a sibling's
+// body — it is a component with no owner left to mount it, handed to whichever
+// console surface absorbed it. Four view families reach for one of those mounts, so
+// the mounts sit here for exactly the reason every other seat does.
 //
 // THE `@consumedBy` TAGS BELOW are the dead-code gate's one exemption, on the terms
 // `apps/desktop/AGENTS.md` sets: every seat is reached by a task that has not landed,
@@ -84,12 +91,15 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   paneEntityScopeFor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
-  parseConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
 } from "./pane-address.js";
+
+export {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  parseConsolePaneAddress,
+} from "./pane-address-parse.js";
 
 export {
   ConsolePaneRegistry,
@@ -270,3 +280,29 @@ export {
 // file changes. Its call-side twin is gone — `bridge/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./wire-access.js";
+
+// The session directory read, which moved here from `frame/`.
+//
+// The frame's context picker offers the sessions this node has, and the sessions
+// destination lists them — one a layer family, the other a view family — so the
+// hook had a reader on each side of the DAG and lived above one of them. It reads
+// the growth port and nothing else, so `seats/` is the lowest family that owns its
+// inputs, and both readers now reach it through this door.
+export {
+  offeredSessionIds,
+  useSessionDirectory,
+  type SessionDirectoryState,
+} from "./session-directory.js";
+
+// The shipped Tier-1 families the console absorbed, and the guard two of them still
+// carry. They sit in this family because the surfaces that mount them are four
+// different view families and the helpers were written in `frame/`, which no view
+// family may reach into and whose door composes those families. `frame/
+// legacy-surfaces.ts` keeps the slot table and reaches the roster's mount through
+// this door like every other consumer.
+export {
+  renderAbsorbedInviteAcceptance,
+  renderAbsorbedNodeRoster,
+  renderAbsorbedParticipantRoster,
+  renderAbsorbedSessionProbe,
+} from "./absorbed-surfaces.js";

@@ -8,7 +8,7 @@
 //
 // WHERE A REBINDING GOES
 //
-// The frame publishes the seam (`frame/keybinding-override-store.ts`): one store per
+// The palette publishes the seam (`palette/keybinding-override-store.ts`): one store per
 // window, holding the overrides a person authored composed onto the chords the
 // console ships, read by the frame's key dispatch through the same accessor this
 // page reads. So a chord recorded here IS the chord installed — no second table, no
@@ -25,14 +25,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { FRAME_KEY_BINDINGS, consoleCommands } from "../../../frame/command-surface.js";
-import { auditKeybindings } from "../../../frame/keybinding-audit.js";
 import {
+  FRAME_KEY_BINDINGS,
+  auditKeybindings,
+  consoleCommands,
   consoleKeybindingOverrides,
   useKeybindingSurface,
-} from "../../../frame/keybinding-override-store.js";
-import { COMMAND_PALETTE_OPEN_CHORD } from "../../../palette/index.js";
+} from "../../../palette/index.js";
 import {
+  COMMAND_PALETTE_OPEN_CHORD,
   ChordHint,
   HOST_CHORD_PLATFORM,
   InlineRefusal,

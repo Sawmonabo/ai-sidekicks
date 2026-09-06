@@ -13,7 +13,12 @@
 // `*.test.ts` exactly — so it is compiled and type-checked like source and collected
 // as a suite by nobody.
 
-import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
+import type {
+  DaemonEvent,
+  DaemonMethod,
+  EventEnvelope,
+  Unsubscribe,
+} from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
@@ -176,6 +181,45 @@ export function withDaemonCall(
             return answer(recorded, async () => wrappedCall(method, params));
           }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
         },
+      },
+    },
+  };
+}
+
+/**
+ * Replace one bridge's `daemon.subscribe` with an arm this suite decides.
+ *
+ * {@link withDaemonCall}'s twin for the OTHER daemon seam, and here for the same
+ * reason that one is: the namespace spread that composes it is a reach
+ * `test/console/architecture/daemon-reply-chokepoint.test.ts` admits inside this
+ * family and nowhere else, so a surface suite that wrote it itself would be a second
+ * door. Everything but the subscription stays the wrapped bridge's, so a case
+ * proving a surface came back after a refused open really did drive a bridge.
+ *
+ * `open` receives the pass-through so a case can refuse the first attempt and hold
+ * the next, which is the shape the shipped Tier-1 preload puts a console in: every
+ * daemon method throws until a build with a real one is installed.
+ */
+export function withDaemonSubscribe(
+  bridge: ConsoleBridge,
+  open: (passThrough: () => Unsubscribe) => Unsubscribe,
+): ConsoleBridge {
+  // Bound before the spread, so the pass-through reaches the bridge this helper
+  // WRAPPED rather than the arm it is building — which would call itself forever.
+  const wrappedSubscribe = bridge.sidekicks.daemon.subscribe.bind(bridge.sidekicks.daemon) as (
+    event: string,
+    handler: (payload: unknown) => void,
+  ) => Unsubscribe;
+  return {
+    ...bridge,
+    sidekicks: {
+      ...bridge.sidekicks,
+      daemon: {
+        ...bridge.sidekicks.daemon,
+        subscribe: ((event: string, handler: (payload: unknown) => void): Unsubscribe =>
+          open(() =>
+            wrappedSubscribe(event, handler),
+          )) as ConsoleBridge["sidekicks"]["daemon"]["subscribe"],
       },
     },
   };

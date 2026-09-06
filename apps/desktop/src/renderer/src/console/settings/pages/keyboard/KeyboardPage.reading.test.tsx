@@ -7,7 +7,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
-import { consoleCommands } from "../../../frame/command-surface.js";
+import { consoleCommands } from "../../../palette/index.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { KeyboardPage, registerKeyboardPage } from "./KeyboardPage.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";

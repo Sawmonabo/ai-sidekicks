@@ -52,8 +52,7 @@
 // identity: a store, the bridge, or a wire-verbatim string off the route.
 
 import { useMemo, useState } from "react";
-import { useSessionDirectory } from "../frame/session-directory.js";
-import { renderAbsorbedSessionProbe } from "../frame/legacy-surfaces.js";
+
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import { useConsoleClock, type GrowthPort } from "../bridge/index.js";
 import {
@@ -63,6 +62,7 @@ import {
   useAttentionSettlementAnnouncement,
 } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
+import { renderAbsorbedSessionProbe, useSessionDirectory } from "../seats/index.js";
 import { useOpenSessionIds } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionRows } from "./rows/open-session-rows.js";

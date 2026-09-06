@@ -39,6 +39,24 @@
 export const CHORD_PLATFORMS = ["darwin", "win32", "linux"] as const;
 
 /**
+ * The chord that opens the command palette.
+ *
+ * `KeyK` rather than `k` so the binding is keyboard-layout independent: on an
+ * AZERTY or Dvorak layout the physical key a person reaches for is the same one,
+ * and matching by `KeyboardEvent.code` is what preserves that.
+ *
+ * HERE RATHER THAN IN `palette/`, on this module's own precedent above. It was
+ * declared beside the overlay that binds it, and three surfaces PRINT it: the
+ * overlay itself, the keyboard settings page, and the whole-surface absence, which
+ * is a primitive. So the primitive was reaching up into palette for a string, which
+ * is the inversion the paragraph above describes and the reason chord printing
+ * moved down in the first place. The binding still belongs to the overlay — it is
+ * the only reader that hands this to `parseChord` — but the LITERAL is console-wide
+ * vocabulary, and one home for it is what keeps three hints spelling one chord.
+ */
+export const COMMAND_PALETTE_OPEN_CHORD = "$mod+KeyK";
+
+/**
  * Which display convention to render a chord in.
  *
  * Every renderer takes it as a PARAMETER rather than reading it, so a fixture can

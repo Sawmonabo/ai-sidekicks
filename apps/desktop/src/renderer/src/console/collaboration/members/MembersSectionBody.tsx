@@ -53,16 +53,11 @@ export function MembersSectionBody(props: {
   // column terminal for the life of the window, and the roster that refused is the
   // only one that has to be re-opened.
   const reopenRoster = useCallback(() => {
-    // THE STREAM FIRST, THE READ SECOND, AND NEVER BOTH. A read whose stream never
-    // opened is behind a dead channel, and refreshing that one paints a current-looking
-    // surface over a subscription nobody holds; a read whose stream IS live failed at
-    // the read alone, and a fresh read is the whole recovery. `isSubscribed` is the
-    // seam's own answer to which of the two this is.
-    if (models.presenceRoster.isSubscribed) {
-      models.presenceRoster.refresh("participant-request");
-      return;
-    }
-    models.presenceRoster.start();
+    // ONE CALL, because the seam owns the stream-then-read order now: `refresh` takes
+    // the subscription first where it is not held and requests the read either way.
+    // A branch here would be a second reading of a decision the read already makes,
+    // and the branch this replaced could only be right while both halves agreed.
+    models.presenceRoster.refresh("participant-request");
   }, [models]);
 
   const rows = useMemo(
