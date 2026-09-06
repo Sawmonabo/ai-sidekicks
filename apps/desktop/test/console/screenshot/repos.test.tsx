@@ -1,11 +1,12 @@
-// The screenshot tier: the repos family's five surfaces, per scheme.
+// The screenshot tier: the repos family's seven surfaces, per scheme.
 //
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
 // snapshot-update modes, why the references are pinned to a RUNNER rather than to a
 // platform, and which machine may mint one. `baseline-platform.ts` holds the values
-// and the predicate that reasoning produces, so nothing about it is restated here.
+// and the predicate that reasoning produces, and `baseline-host.ts` holds this run's
+// reading of them, so nothing about either is restated here.
 //
-// WHAT IS PINNED, AND WHY THESE FIVE. The family ships one sidebar section, two pane
+// WHAT IS PINNED, AND WHY THESE SEVEN. The family ships one sidebar section, two pane
 // bodies, and the gate a change proposal is put through — and the gate is pinned both
 // on its own and where a person meets it. Each is a different composition rather than
 // a state of one:
@@ -23,6 +24,12 @@
 //     beside the shipped-default allow-list hint. A refusal is a rendered surface
 //     with a remedy in it, and pinning it is how a tier notices it turning into a
 //     bare error box;
+//   • the ARTIFACT PANE ON ITS DEFERRED PAYLOAD ARM — a content-addressed handle and
+//     no bytes — and on its INLINE one, where the bytes and the encoding a reader
+//     switches on are both drawn. Two references rather than one because the two arms
+//     are what the payload disclosure is FOR: an image is the only place the
+//     difference between "here is where the bytes live" and "here are the bytes"
+//     reads as two different surfaces rather than as one branch of a union;
 //   • the PROPOSAL GATE on its prepared arm, where the branch context, the proposal,
 //     its changed paths, all three offers, and the refusal beside the remote one are
 //     on screen at once. All three, because the fixture's proposal is `ready`: the
@@ -32,14 +39,12 @@
 //     holds the mount: the gate composing inside a row it does not own, under the
 //     execution root it was asked about, on whatever arm the fixture actually served.
 //
-// Five surfaces and two schemes is ten references, and every one of them is minted
+// Seven surfaces and two schemes is fourteen references, and every one of them is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
 // A local run on any other host skips; a local run on a developer Mac is advisory in
 // the small, measured way `frame.test.tsx` records.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { TestContext } from "vitest";
-import { server } from "vitest/browser";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
@@ -54,7 +59,7 @@ import {
   mountArtifactPaneInlinePayload,
 } from "../surfaces/repos-artifact.js";
 import { type MountedFamilySurface } from "../surfaces/repos-mount-harness.js";
-import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
+import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -66,33 +71,6 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
  * surface is mounted, and four copies of the same six lines is four places for the
  * scheme emulation or the skip guard to be forgotten in one of them.
  */
-// THE HOST READING IS BOUND HERE AND NOT IN `baseline-platform.ts`, which is where a
-// reader who has seen `frame.test.tsx` do the same three lines will look for it. That
-// module is imported by `vitest/console-projects.ts` — a config file Vitest loads in
-// NODE, to widen `envPrefix` by the prefix the two variables share — so a
-// `vitest/browser` import at its top would put a browser-only module into the program
-// that configures the run. It stays a pure predicate over an environment record for
-// that reason, and each browser-mode suite hands it its own reading.
-
-/** What this host declared about itself, off Vite's resolved env — there is no `process` in the page. */
-const baselineHost = readBaselineHost(server.config.env);
-
-/** Whether this host is one whose comparisons mean anything. */
-const comparesHere = comparesBaselines(baselineHost);
-
-/** Why they did not run here. One sentence, carried on both channels. */
-const SKIP_REASON = baselineSkipReason(baselineHost);
-
-/**
- * Skip a baseline comparison on a host that cannot reproduce the references.
- *
- * A skip with a NOTE rather than `describe.skipIf`, because the reason is the whole
- * point: a suite simply absent from the report reads exactly like one that passed.
- */
-function skipOffBaselineHost(context: TestContext): void {
-  context.skip(!comparesHere, SKIP_REASON);
-}
-
 const PINNED_SURFACES: readonly {
   readonly referenceName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
@@ -123,9 +101,7 @@ afterEach(async () => {
 describe("screenshot — the repos, diff, artifact, and proposal surfaces", () => {
   // Said once at collection, on the one channel the terminal reporter forwards: a
   // bare skipped count reads exactly like a tier that was quietly switched off.
-  if (!comparesHere) {
-    console.warn(SKIP_REASON);
-  }
+  warnOnceOffBaselineHost();
 
   for (const surface of PINNED_SURFACES) {
     for (const scheme of CONSOLE_SCHEMES) {

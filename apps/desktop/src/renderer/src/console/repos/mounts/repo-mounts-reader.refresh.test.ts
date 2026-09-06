@@ -5,49 +5,30 @@
 // start one, how a burst of them is coalesced into a single call, and the disposal
 // that must leave none of them able to fire.
 
-import { type SessionEventType } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
 import { openReader, settle, disposeTrackedReaders } from "./repo-mounts.test-support.js";
 
 // Every reader a case opens is tracked, and none of them outlives its case.
 afterEach(disposeTrackedReaders);
 
-/** The one call that names an execution root, whichever kind. */
-
 /**
- * One lifecycle frame of a named kind, carrying no payload.
+ * One `workspace.stale` frame — the kind the section watched before it watched them all.
  *
- * Deliberately payload-free: the trigger keys on the event KIND and on nothing else,
- * and a frame carrying members here would suggest it reads one. The wire's own payload
- * shape is `bridge/scenarios/repos.ts`'s to state, where the wire-truth predicate holds
- * it to the contract. The kind is a PARAMETER because the section watches the whole
- * repo / workspace / worktree namespace rather than one frame, and a helper pinned to
- * one kind would have made every case here about that kind.
+ * The envelope itself is `store/session-event.test-support.ts`'s, which is where every
+ * suite that needs an admitted event gets one. Named here only because the kind is the
+ * reading: four cases below are about THIS frame arriving, and spelling the string at
+ * each of them would make the kind incidental to a case that is entirely about it.
+ * Payload-free, because the trigger keys on the kind and on nothing else, and a frame
+ * carrying members would suggest the section reads one — the wire's own payload shape
+ * is `bridge/scenarios/repos.ts`'s to state, under the wire-truth predicate.
  */
-function lifecycleFrame(
-  sessionId: string,
-  sequence: number,
-  kind: SessionEventType,
-): ConsoleSessionEvent {
-  return {
-    // The canonical envelope names the row as well as its position, so a frame the
-    // store admits carries one. Derived from the position rather than repeated, on
-    // `bridge/scenarios/repos-beats.ts`'s rule: two numberings of one row drift.
-    id: `event-${String(sequence)}`,
-    sessionId,
-    sequence,
-    kind,
-    occurredAt: "2026-01-01T09:05:01.900Z",
-  };
-}
-
-/** One `workspace.stale` frame — the kind the section watched before it watched them all. */
 function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
-  return lifecycleFrame(sessionId, sequence, "workspace.stale");
+  return eventOfKind(sessionId, "workspace.stale", sequence);
 }
 
 /** A store with a base state, which is what makes a later frame a frame and not history. */
@@ -127,7 +108,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     const readAtFirstSettle = reader.snapshot.readAtMilliseconds;
     expect(reader.performCount).toBe(1);
 
-    sessionStore.applyBatch([lifecycleFrame(REPOS_SCENARIO.sessionId, 1, "workspace.ready")]);
+    sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "workspace.ready", 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -147,7 +128,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     reader.start();
     await settle(clock, reader);
 
-    sessionStore.applyBatch([lifecycleFrame(REPOS_SCENARIO.sessionId, 1, "repo.detached")]);
+    sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "repo.detached", 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -164,11 +145,11 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
 
     sessionStore.applyBatch([
-      lifecycleFrame(REPOS_SCENARIO.sessionId, 1, "workspace.provisioning"),
-      lifecycleFrame(REPOS_SCENARIO.sessionId, 2, "worktree.created"),
-      lifecycleFrame(REPOS_SCENARIO.sessionId, 3, "worktree.ready"),
-      lifecycleFrame(REPOS_SCENARIO.sessionId, 4, "workspace.ready"),
-      lifecycleFrame(REPOS_SCENARIO.sessionId, 5, "repo.attached"),
+      eventOfKind(REPOS_SCENARIO.sessionId, "workspace.provisioning", 1),
+      eventOfKind(REPOS_SCENARIO.sessionId, "worktree.created", 2),
+      eventOfKind(REPOS_SCENARIO.sessionId, "worktree.ready", 3),
+      eventOfKind(REPOS_SCENARIO.sessionId, "workspace.ready", 4),
+      eventOfKind(REPOS_SCENARIO.sessionId, "repo.attached", 5),
     ]);
     await settle(clock, reader);
 

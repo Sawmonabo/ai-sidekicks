@@ -13,8 +13,9 @@ import { type ArtifactDeleteReceipt } from "../artifacts/artifact-model.js";
 import { artifactDeleteReceiptSentence } from "../artifacts/artifact-copy.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
-export /** What a settled act says, once, when it settles. A refusal speaks in its own words. */
-const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the read answered.";
+/** What a settled act says, once, when it settles. A refusal speaks in its own words. */
+export const MANIFEST_RE_READ_ANNOUNCEMENT =
+  "Manifest re-read. The row shows what the read answered.";
 
 /**
  * What a settled delete says: the daemon's own two facts, in the daemon's own words.
