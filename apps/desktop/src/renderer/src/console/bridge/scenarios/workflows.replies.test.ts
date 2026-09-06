@@ -15,6 +15,7 @@ import {
   WORKFLOWS_COMPLETED_PHASE_ID,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
 } from "./workflow-fixture-phase-outputs.js";
+import { WORKFLOWS_CHANNEL_ID } from "./workflow-fixture-ids.js";
 import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
 import { WORKFLOWS_RUN_ENUMERATION_CALL, WORKFLOWS_SCENARIO } from "./workflows.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
@@ -41,6 +42,18 @@ const RELEASE_CHECKS_DEFINITION_FACTS = {
 const SHIP_PIPELINE_DEFINITION_FACTS = {
   definitionName: "Ship pipeline",
   definitionLatestWorkflowVersionId: "019b7a10-0280-7d22-8100-be5100150003",
+} as const;
+
+/**
+ * The chat-start provenance the enumeration carries for the ONE run that has it.
+ *
+ * Its own constant rather than a member of the definition facts above: the two
+ * definition facts are true of every run and this is true of one, and folding it into
+ * a shared constant would put a channel on the frozen-pin run, which shares the
+ * definition and was not started from a conversation.
+ */
+const PARKED_RUN_CHANNEL_PROVENANCE = {
+  channelId: WORKFLOWS_CHANNEL_ID,
 } as const;
 
 const INCIDENT_TRIAGE_DEFINITION_FACTS = {
@@ -90,7 +103,11 @@ describe("the workflows scenario — what a caller is answered with", () => {
       value: {
         runs: [
           { ...WORKFLOWS_SCENARIO_RUNS[0], ...RELEASE_CHECKS_DEFINITION_FACTS },
-          { ...WORKFLOWS_PARKED_RUN, ...SHIP_PIPELINE_DEFINITION_FACTS },
+          {
+            ...WORKFLOWS_PARKED_RUN,
+            ...SHIP_PIPELINE_DEFINITION_FACTS,
+            ...PARKED_RUN_CHANNEL_PROVENANCE,
+          },
           { ...WORKFLOWS_SCENARIO_RUNS[2], ...INCIDENT_TRIAGE_DEFINITION_FACTS },
           { ...WORKFLOWS_SCENARIO_RUNS[3], ...SHIP_PIPELINE_DEFINITION_FACTS },
         ],
@@ -275,8 +292,32 @@ describe("the workflows scenario — what a caller is answered with", () => {
     );
 
     expect(enumerated).toHaveLength(4);
-    expect(parked).toStrictEqual({ ...WORKFLOWS_PARKED_RUN, ...SHIP_PIPELINE_DEFINITION_FACTS });
+    expect(parked).toStrictEqual({
+      ...WORKFLOWS_PARKED_RUN,
+      ...SHIP_PIPELINE_DEFINITION_FACTS,
+      ...PARKED_RUN_CHANNEL_PROVENANCE,
+    });
     expect(parked?.phaseStates).toBe(WORKFLOWS_PARKED_RUN.phaseStates);
+    engine.dispose();
+  });
+
+  it("carries the chat-start channel on exactly the run that was started from one", async () => {
+    // The provenance `workflowRunStart` accepts and no read carried back, so a
+    // channel-scoped surface can find its own run. One row has it and three do not —
+    // which is the fixture's claim rather than an omission: a table where every run
+    // carried a channel would leave the "this channel started nothing" arm, the one a
+    // pinned region draws as no element at all, unreachable from this scenario.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+
+    const enumerated = await enumerationEntries(engine);
+
+    expect(enumerated.filter((entry) => entry.channelId !== undefined)).toStrictEqual([
+      {
+        ...WORKFLOWS_PARKED_RUN,
+        ...SHIP_PIPELINE_DEFINITION_FACTS,
+        ...PARKED_RUN_CHANNEL_PROVENANCE,
+      },
+    ]);
     engine.dispose();
   });
 
