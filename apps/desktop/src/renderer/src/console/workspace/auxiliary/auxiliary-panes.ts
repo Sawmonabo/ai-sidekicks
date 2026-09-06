@@ -20,7 +20,11 @@ import { useCallback, useEffect, useState } from "react";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
-import { lostWindowNotice } from "./aux-handoff-contract.js";
+import {
+  lostWindowNotice,
+  refuseHandoffFromRejection,
+  type AuxiliaryHandoffRefusal,
+} from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import type { DeckPane } from "../deck/deck-model.js";
 
@@ -101,49 +105,61 @@ export function useAuxiliaryPanes(options: {
   );
   const projection = useDetachedPanes(handoff);
 
+  // Every act below is dispatched from an event handler, so a promise that rejects
+  // reaches nobody: no refusal renders, the control answers the press by doing
+  // nothing, and the fault surfaces only as an unhandled rejection a shipped window
+  // never reports. The hand-off settles its own wire calls into refusals, so this arm
+  // is the backstop for a defect rather than the wire path — and a defect a person
+  // sees stated is strictly better than one nothing records.
+  const stateRefusal = useCallback(
+    (refusal: AuxiliaryHandoffRefusal | undefined) => {
+      if (refusal !== undefined) {
+        onRefused(refusal);
+      }
+    },
+    [onRefused],
+  );
+  const stateRejection = useCallback(
+    (rejection: unknown) => {
+      onRefused(refuseHandoffFromRejection(rejection));
+    },
+    [onRefused],
+  );
+
   const openInWindow = useCallback(
     (pane: DeckPane) => {
-      void (async () => {
-        const outcome = await handoff.detach({
+      void handoff
+        .detach({
           paneId: pane.paneId,
           kind: pane.kind,
           sessionId,
           ...(pane.entity?.kind === "agent" ? { agentId: pane.entity.id } : {}),
-        });
-        if (outcome.outcome === "refused") {
-          onRefused(outcome.refusal);
-        }
-        // The pane STAYS, with its body suppressed. `Spec-023 §The surface set` keeps
-        // the slot as a placeholder rather than closing it: a closed pane loses its
-        // width and its position,
-        // and the window closing would then have nowhere to put the pane back.
-      })();
+        })
+        .then((outcome) => {
+          if (outcome.outcome === "refused") {
+            onRefused(outcome.refusal);
+          }
+          // The pane STAYS, with its body suppressed. `Spec-023 §The surface set`
+          // keeps the slot as a placeholder rather than closing it: a closed pane
+          // loses its width and its position, and the window closing would then have
+          // nowhere to put the pane back.
+        }, stateRejection);
     },
-    [handoff, onRefused, sessionId],
+    [handoff, onRefused, sessionId, stateRejection],
   );
 
   const focusWindow = useCallback(
     (paneId: string) => {
-      void (async () => {
-        const refusal = await handoff.focus(paneId);
-        if (refusal !== undefined) {
-          onRefused(refusal);
-        }
-      })();
+      void handoff.focus(paneId).then(stateRefusal, stateRejection);
     },
-    [handoff, onRefused],
+    [handoff, stateRefusal, stateRejection],
   );
 
   const returnToDeck = useCallback(
     (paneId: string) => {
-      void (async () => {
-        const refusal = await handoff.returnToDeck(paneId);
-        if (refusal !== undefined) {
-          onRefused(refusal);
-        }
-      })();
+      void handoff.returnToDeck(paneId).then(stateRefusal, stateRejection);
     },
-    [handoff, onRefused],
+    [handoff, stateRefusal, stateRejection],
   );
 
   const dismissLostWindow = useCallback(
@@ -199,6 +215,10 @@ function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
       handoff.stopWatchingPaneErrors();
       return;
     }
+    // No arm here, and that is the design rather than the omission this used to be:
+    // the watch installs from an effect with no surface to refuse into, so it settles
+    // its own failures into the placeholder's refusal slot and resolves either way.
+    // An arm on a promise that cannot reject would be a branch nothing can reach.
     void handoff.watchPaneErrors();
   }, [handoff, hasDetachedPane]);
 

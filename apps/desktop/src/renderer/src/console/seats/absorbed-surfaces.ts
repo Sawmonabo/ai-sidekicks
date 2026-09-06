@@ -84,13 +84,8 @@ export function renderAbsorbedSessionProbe(bridgeSource: ConsoleBridgeSource): R
  * because the callers that need it carry a session differently — one from a slot's
  * route, one from a pane's own store — and neither should have to build a route to
  * reach a component.
- *
- * The slot itself is the ledger family's from T-023p-1C-2 on, and that family does
- * not re-mount the roster: its console home is a sidebar section the collaboration
- * family owns, which is the caller this claim names.
- *
- * @consumedBy T-023p-1C-4
  */
+// Consumed by T-023p-1C-4 — this family's door carries the reason, once.
 export function renderAbsorbedParticipantRoster(
   bridgeSource: ConsoleBridgeSource,
   subject: string | undefined,

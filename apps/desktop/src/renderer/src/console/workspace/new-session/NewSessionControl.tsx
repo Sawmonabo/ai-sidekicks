@@ -270,9 +270,18 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
         // vocabulary instead, so the refusal renders in the slot every other outcome
         // uses and the announce effect below says it out loud.
         //
-        // `then`'s SECOND ARGUMENT rather than a `.catch` tail, which would also catch
-        // a throw from the arm above it and report a fault of this component's as the
-        // draft's send rejecting.
+        // A STRUCTURAL GUARD, and no test drives it, because nothing in this build
+        // reaches it: `callDaemon` answers a rejected call, an absent door and an
+        // unreadable reply alike with a typed refusal, and every statement `send()`
+        // makes outside that call is total — so no bridge a test can compose makes
+        // this promise reject, and a test that did would need an injected draft this
+        // component deliberately does not take. What the arm PUBLISHES is asserted
+        // where it is built, in `new-session-draft.test.ts`.
+        //
+        // `then`'s SECOND ARGUMENT rather than a `.catch` tail, for that same reason
+        // rather than a different one: a tail would also catch a throw from the arm
+        // above it and report a fault of this component's as the draft's send
+        // rejecting — the one fault this arm's sentence would be wrong about.
         publishReport({ isSending: false, result: refuseSendThatRejected() });
       },
     );

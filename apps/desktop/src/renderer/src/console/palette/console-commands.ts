@@ -1,6 +1,6 @@
-// This window's command registry, the door a family contributes to it through, the
-// `when` vocabulary the console evaluates clauses against, and the channel an act
-// with no surface of its own states a refusal on.
+// This window's command registry, the seat a family contributes its whole command
+// set through, the `when` vocabulary the console evaluates clauses against, and the
+// channel an act with no surface of its own states a refusal on.
 //
 // One registry per window, held at module scope for the same reason
 // `consoleSurfaceRegistry` and `consoleRouteRegistry` are: an auxiliary window is
@@ -34,7 +34,7 @@
 // rail navigation table, and the chords it binds itself — is `command-surface.ts`
 // beside this file, which followed the same rule here for the same reason.
 
-import type { ConsoleRefusal, Unsubscribe } from "../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 import { CommandRegistry } from "./command-registry.js";
 import type { ConsoleCommand, KeyBinding } from "./contributions.js";
@@ -127,7 +127,7 @@ export interface ConsoleCommandSurface {
 }
 
 /**
- * The families' contributions, owner-scoped.
+ * The families' contributions, owner-scoped, and the signal that they changed.
  *
  * OWNER-SCOPED RATHER THAN ADDITIVE, for the reason composition is idempotent
  * everywhere else in the console: `registerConsoleFamilies` runs at module scope in
@@ -136,12 +136,20 @@ export interface ConsoleCommandSurface {
  * duplicate id, and the key-binding table refuses two bindings on one chord — so a
  * family re-contributing REPLACES its own previous rows and touches nobody else's.
  *
+ * AND IT EMITS, because a contribution is not a fact known at mount. A family
+ * contributes when it is composed, and composition is not over when the frame
+ * installs the window's chord table: a family composed later — a lazily-loaded
+ * chunk, a second composition into a registry a test owns — would otherwise bind
+ * its chords into a table nothing re-reads, which is a keypress that does nothing
+ * and reports nothing. Whatever installs the table subscribes and re-reads.
+ *
  * The frame's own commands do not come through here: they close over one window's
  * store, so they are registered from an effect and removed on unmount.
  */
 class ConsoleFamilyContributions implements ConsoleCommandSurface {
   readonly #registry: CommandRegistry;
   readonly #contributionsByOwner = new Map<string, ConsoleFamilyCommandContribution>();
+  readonly #changes = new Emitter<void>("console family contribution");
 
   public constructor(registry: CommandRegistry) {
     this.#registry = registry;
@@ -156,6 +164,13 @@ class ConsoleFamilyContributions implements ConsoleCommandSurface {
     // it — which keeps this owner's rows out of the registry rather than half in.
     this.#registry.registerAll(contribution.commands);
     this.#contributionsByOwner.set(contribution.owner, contribution);
+    // After the map is written, never before: a listener re-reads the table, and a
+    // signal raised mid-replace would hand it this owner's chords twice or none.
+    this.#changes.emit();
+  }
+
+  public subscribe(listener: () => void): Unsubscribe {
+    return this.#changes.subscribe(listener);
   }
 
   public keyBindings(): readonly KeyBinding[] {
@@ -168,11 +183,21 @@ class ConsoleFamilyContributions implements ConsoleCommandSurface {
 /** This window's family contributions. */
 const consoleFamilyContributions = new ConsoleFamilyContributions(consoleCommands);
 
-/** The door `console/families.ts` composes each family's commands through. */
+/**
+ * The door `console/families.ts` composes each family's commands through.
+ *
+ * Typed to the contribution half alone. The change signal below is read by the one
+ * module that composes the window's chord table, and a family holding a handle it
+ * could subscribe through would be a family able to watch its siblings.
+ */
 export const consoleCommandSurface: ConsoleCommandSurface = consoleFamilyContributions;
 
 /**
- * Every chord the FAMILIES bind, in contribution order.
+ * Every chord the FAMILIES bind, in the order the families first contributed.
+ *
+ * First-contribution order rather than latest: an owner-scoped replace rewrites a
+ * family's rows and leaves its slot where it was, so re-composing one family cannot
+ * reorder another's chords underneath it.
  *
  * The frame prepends its own and publishes the whole table; this half is the part
  * that lives with the contributions it reads, so a family's chords reach the keyboard
@@ -181,6 +206,11 @@ export const consoleCommandSurface: ConsoleCommandSurface = consoleFamilyContrib
  */
 export function consoleFamilyKeyBindings(): readonly KeyBinding[] {
   return consoleFamilyContributions.keyBindings();
+}
+
+/** Told when a family contributes, so a composed table can be read again. */
+export function subscribeToConsoleFamilyContributions(listener: () => void): Unsubscribe {
+  return consoleFamilyContributions.subscribe(listener);
 }
 
 /**

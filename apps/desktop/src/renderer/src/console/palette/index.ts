@@ -25,21 +25,22 @@ export { CommandRegistry } from "./command-registry.js";
 // This window's one registry, the plural call a family contributes through, the seat
 // a family contributes its whole set at composition time, the channel an act with no
 // surface states its refusal on, the host chord platform the printer formats for, and
-// the `when` vocabulary a clause is written against. On this door rather than the
-// frame's because the frame is a CONSUMER of them and this family declares what they
-// are made of — and because the two other consumers, a view family and the composer's
-// shell half, both close a cycle on `frame/index.ts` and can reach nothing there at
-// all.
+// the `when` vocabulary a clause is written against. On this
+// door rather than the frame's because the frame is a CONSUMER of them and this family
+// declares what they are made of — and because the two other consumers, a view family
+// and the composer's shell half, both close a cycle on `frame/index.ts` and can reach
+// nothing there at all.
 //
 // `registerConsoleCommand`, the singular, is deliberately absent; so is the
-// `CONSOLE_WHEN_CLAUSE_KEYS` tuple the clause types are derived FROM, so is
+// `CONSOLE_WHEN_CLAUSE_KEYS` tuple the clause types are derived FROM, and so is
 // `ConsoleWhenClauseKey` itself, which now has no reader outside this family at all —
 // `command-surface.ts` beside it scopes the frame's two shapes to the key and imports
-// it as a sibling — and so is `consoleFamilyKeyBindings`, whose one reader is that
-// same sibling. Every family that contributes contributes a SET, and every family
-// that writes a clause writes it against the CONTEXT. A door line for any of the four
-// would be a specifier no production module reaches, which the barrel census reports
-// rather than tolerates.
+// it as a sibling — and so are `consoleFamilyKeyBindings` and
+// `subscribeToConsoleFamilyContributions`, whose one reader is that same sibling.
+// Every family that contributes contributes a SET, and every family that writes a
+// clause writes it against the CONTEXT. A door line for any of the five would be a
+// specifier no production module reaches, which the barrel census reports rather than
+// tolerates.
 export {
   CONSOLE_CHORD_PLATFORM,
   consoleCommandSurface,
@@ -61,12 +62,29 @@ export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 // `frame/index.js` — the first is a cross-family deep import, the second closes a
 // cycle back through `families.ts`.
 //
-// What the frame installs is `consoleKeyBindings` — the frame's own chords with the
-// families' behind them. `FRAME_KEY_BINDINGS` itself is deliberately absent, and so is
-// `FrameKeyBinding` that types it: the array's only readers are the composer beside it
-// and that module's own suite, so a door line for either would be a specifier no
-// production module outside this family writes.
-export { consoleKeyBindings, RAIL_NAVIGATION_DETAILS } from "./command-surface.js";
+// What the window INSTALLS is `consoleKeyBindings` — the frame's own chords with the
+// families' behind them — read again on `subscribeToConsoleKeyBindings`, because a
+// family composed after the install would otherwise bind into a table nothing
+// re-reads. `FRAME_KEY_BINDINGS` stays published beside it: the frame's own half is
+// what a settings page prints as the shipped defaults a person's rebindings are
+// composed over, and that is a different question from what is bound right now.
+//
+// `FrameKeyBinding` is deliberately absent. `FRAME_KEY_BINDINGS` is typed by it and
+// every consumer reads the array, so a door line for the element type would be a
+// specifier no production module writes.
+export {
+  /**
+   * The frame's own half, which a settings page prints as the shipped defaults a
+   * person's rebindings are composed over — a different question from what is bound
+   * right now, which is `consoleKeyBindings`.
+   *
+   * @consumedBy T-023p-1C-4
+   */
+  FRAME_KEY_BINDINGS,
+  RAIL_NAVIGATION_DETAILS,
+  consoleKeyBindings,
+  subscribeToConsoleKeyBindings,
+} from "./command-surface.js";
 export type { FrameCommand } from "./command-surface.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the

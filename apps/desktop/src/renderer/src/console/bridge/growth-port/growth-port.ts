@@ -144,6 +144,34 @@ export function growthUnavailableFromRejection(
 }
 
 /**
+ * Run one growth call whose promise cannot reject.
+ *
+ * A `GrowthPort` method answers `served` or `unavailable`, and every caller in the
+ * console branches on that pair. A REJECTION is outside the pair: it leaves the
+ * caller's state where it was — no refusal rendered, no reading settled, a control
+ * that answers a press by doing nothing — and, because these calls are dispatched
+ * from effects and event handlers, it surfaces only as an unhandled rejection the
+ * runner reports and a shipped window does not.
+ *
+ * So the rejection is answered in the port's own vocabulary rather than in each
+ * caller's `catch`. The result is the same two-arm outcome, which means a caller has
+ * one path and not two, and the refusal carries {@link growthUnavailableFromRejection}'s
+ * `call-rejected` code — distinguishable from an unregistered wire, because a wire
+ * that answered badly and a wire that was never built are different facts about the
+ * build.
+ */
+export async function settledGrowthCall<TValue>(
+  operationId: GrowthOperationId,
+  call: () => Promise<GrowthOutcome<TValue>>,
+): Promise<GrowthOutcome<TValue>> {
+  try {
+    return await call();
+  } catch (rejection: unknown) {
+    return growthUnavailableFromRejection(operationId, rejection);
+  }
+}
+
+/**
  * The one construction all three refusals share: `core`'s refusal, widened with what
  * a growth refusal knows.
  *

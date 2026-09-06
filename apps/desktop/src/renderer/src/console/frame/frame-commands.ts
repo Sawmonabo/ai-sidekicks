@@ -27,6 +27,7 @@ import {
   consoleKeyBindings,
   publishConsoleActRefusalSink,
   registerConsoleCommands,
+  subscribeToConsoleKeyBindings,
   useBridgeCommands,
   type ConsoleCommand,
   type ConsoleWhenClauseContext,
@@ -144,7 +145,20 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
     // The frame's own chords AND the families'. The frame names no family — the
     // list is read from the door they contributed through, exactly as the surface
     // registry hands it the routes it renders.
-    keyBindings.setBindings(consoleKeyBindings());
+    //
+    // AND READ AGAIN WHENEVER THEY CHANGE. Composition is not over when this effect
+    // runs: a family composed later binds chords this table would otherwise never
+    // see, which is a keypress that does nothing and reports nothing. The revision
+    // moves with it, because the palette lists what the registry holds and the same
+    // contribution added the commands behind those chords.
+    const installBindings = (): void => {
+      keyBindings.setBindings(consoleKeyBindings());
+    };
+    installBindings();
+    const stopWatchingContributions = subscribeToConsoleKeyBindings(() => {
+      installBindings();
+      setCommandRevision((revision) => revision + 1);
+    });
     const uninstall = keyBindings.install(window);
     // And the banner a family's composition-time act states its refusal on. It is
     // published for this window's lifetime because that is how long the banner
@@ -154,6 +168,7 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
     return () => {
       uninstall();
       withdrawRefusalSink();
+      stopWatchingContributions();
       for (const command of windowCommands) {
         consoleCommands.unregister(command.id);
       }

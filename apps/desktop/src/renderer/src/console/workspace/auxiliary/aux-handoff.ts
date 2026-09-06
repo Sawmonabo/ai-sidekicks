@@ -53,6 +53,7 @@
 // the same pane being detached again — which puts its body back in a window and
 // makes a note about the last one a note about nothing.
 
+import { settledGrowthCall } from "../../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 import {
   AUXILIARY_ROUTE_LABELS,
@@ -65,6 +66,7 @@ import {
   auxiliaryTarget,
   formatAuxiliaryTargetOrRefuse,
   refuseHandoff,
+  refuseHandoffFromGrowth,
   type AuxiliaryHandoffOutcome,
   type AuxiliaryHandoffRefusal,
   type AuxiliaryHandoffRequest,
@@ -202,9 +204,15 @@ export class AuxiliaryHandoff {
       return { outcome: "refused", refusal: fragment.refusal };
     }
 
-    const answer = await this.#growth.windowDetachPane({ paneId: request.paneId });
+    // Through the settled call, so a wire that REJECTS lands in the same arm as a
+    // wire that was never registered. Without it a rejection left the detach half
+    // done — no window, no placeholder, no refusal, and the person's press answered
+    // by nothing at all — and surfaced only as an unhandled rejection.
+    const answer = await settledGrowthCall("windowDetachPane", () =>
+      this.#growth.windowDetachPane({ paneId: request.paneId }),
+    );
     if (answer.status === "unavailable") {
-      return { outcome: "refused", refusal: refuseHandoff("wire-unregistered", answer.detail) };
+      return { outcome: "refused", refusal: refuseHandoffFromGrowth(answer) };
     }
 
     const detached: DetachedPane = {
@@ -228,10 +236,10 @@ export class AuxiliaryHandoff {
     if (detached === undefined) {
       return undefined;
     }
-    const answer = await this.#growth.windowFocusAuxiliary({ windowId: detached.windowId });
-    return answer.status === "unavailable"
-      ? refuseHandoff("wire-unregistered", answer.detail)
-      : undefined;
+    const answer = await settledGrowthCall("windowFocusAuxiliary", () =>
+      this.#growth.windowFocusAuxiliary({ windowId: detached.windowId }),
+    );
+    return answer.status === "unavailable" ? refuseHandoffFromGrowth(answer) : undefined;
   }
 
   /**
@@ -249,10 +257,10 @@ export class AuxiliaryHandoff {
     }
     this.#detachedByPaneId.delete(paneId);
     this.#publish();
-    const answer = await this.#growth.windowCloseAuxiliary({ windowId: detached.windowId });
-    return answer.status === "unavailable"
-      ? refuseHandoff("wire-unregistered", answer.detail)
-      : undefined;
+    const answer = await settledGrowthCall("windowCloseAuxiliary", () =>
+      this.#growth.windowCloseAuxiliary({ windowId: detached.windowId }),
+    );
+    return answer.status === "unavailable" ? refuseHandoffFromGrowth(answer) : undefined;
   }
 
   /**

@@ -14,7 +14,8 @@ import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "../../persistence/index.js";
 import { SIDEBAR_DEFAULT_WIDTH_PERCENT } from "../workspace-bounds.js";
-import { GatedPersistenceAdapter, drainMicrotasks } from "../Workspace.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { GatedPersistenceAdapter } from "../Workspace.test-support.js";
 import { SIDEBAR_LAYOUT_RECORD_KEY, encodeSidebarLayout } from "./sidebar-model.js";
 import { useSidebarLayout, type SidebarLayout } from "./sidebar-state.js";
 

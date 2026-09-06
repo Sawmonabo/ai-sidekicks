@@ -83,8 +83,8 @@ export {
   type ConsoleRefusal,
   // The narrowing `refuse` returns. Through the door because a producer that owns a
   // closed code union declares its own refusal type as an instantiation of this one
-  // rather than re-declaring the same interface: five of them in `workspace/` alone,
-  // and five copies of one shape is where the shape starts to differ.
+  // rather than re-declaring the same interface: five of them in `workspace/`, and
+  // five copies of one shape is where the shape starts to differ.
   type NarrowedRefusal,
 } from "./refusal.js";
 // The registered widenings of that shape. Through the door because a family rendering

@@ -12,7 +12,8 @@
 // gates 2 and 4 are facts about the build and about the wire, which this file has no
 // way to know.
 
-import { refuse, type NarrowedRefusal } from "../../core/index.js";
+import { normalizeWireRejection, refuse, type NarrowedRefusal } from "../../core/index.js";
+import type { GrowthUnavailable } from "../../bridge/index.js";
 import {
   InvalidAuxiliaryRouteTargetError,
   formatAuxiliaryFragment,
@@ -21,7 +22,7 @@ import {
 import { type PaneKind } from "../../seats/index.js";
 
 /**
- * Why a hand-off was refused, or how one ended badly. Closed; a seventh is a decision.
+ * Why a hand-off was refused, or how one ended badly. Closed; an eighth is a decision.
  *
  * Two members are not an act being refused: nothing was asked for and nothing was
  * denied. `window-lost` is a window that was open and stopped being open, and
@@ -38,6 +39,7 @@ export const AUXILIARY_HANDOFF_REFUSAL_CODES = [
   "route-not-implemented",
   "signal-ended",
   "target-context-invalid",
+  "wire-rejected",
   "wire-unregistered",
   "window-lost",
 ] as const;
@@ -56,6 +58,39 @@ export function refuseHandoff(
   detail: string,
 ): AuxiliaryHandoffRefusal {
   return refuse(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, code, detail);
+}
+
+/**
+ * A growth answer that could not be served, in this subsystem's vocabulary.
+ *
+ * TWO CODES AND NOT ONE, because the port already knows which happened and throwing
+ * that away would put "this build never registered the wire" and "the wire answered
+ * with a fault" behind one word. The first is a fact about the build a person can do
+ * nothing about; the second is a failure that may not happen again on the next press.
+ * The sentence is the port's own either way — it names the wire and what went wrong
+ * with it, which is more than this subsystem knows.
+ */
+export function refuseHandoffFromGrowth(answer: GrowthUnavailable): AuxiliaryHandoffRefusal {
+  return refuseHandoff(
+    answer.code === "wire-unregistered" ? "wire-unregistered" : "wire-rejected",
+    answer.detail,
+  );
+}
+
+/**
+ * An act that rejected outright, in the same vocabulary — never a silent no-op.
+ *
+ * The backstop for a caller dispatching one of these acts from an effect or an event
+ * handler. Every wire call inside them settles into an answer rather than rejecting,
+ * so reaching this is a defect rather than a wire fault — and a defect that reaches a
+ * person as a stated refusal is strictly better than one that reaches nobody at all,
+ * which is what a bare `void` promise does with it.
+ */
+export function refuseHandoffFromRejection(rejection: unknown): AuxiliaryHandoffRefusal {
+  return refuseHandoff(
+    "wire-rejected",
+    normalizeWireRejection(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, rejection).detail,
+  );
 }
 
 /**

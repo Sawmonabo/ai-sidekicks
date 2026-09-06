@@ -82,6 +82,29 @@ const SURFACE_WAIT_BUDGET_MS = 30_000;
  */
 const PLANTED_PAINT_STALL_MS = 900;
 
+/**
+ * Why a launch produced no reading — one arm per place the page function gives up.
+ *
+ * Four arms rather than one `null`, because they are not one condition and they are
+ * not even one KIND of condition. The first two say the instrument was not ready:
+ * no start instant to measure from, or no scenario handle to deliver the script
+ * through. The last two say the console did not paint — a body that never mounted,
+ * or a body that mounted with no ledger row in it — which is precisely the
+ * regression this budget row exists to catch. Reported as one sentence they are
+ * indistinguishable, and the sentence a collapsed failure has to use is the harness
+ * one, which is the message an operator retries rather than investigates.
+ */
+type UnmeasuredLaunchCause =
+  | "no-paint-entry"
+  | "no-scenario-handle"
+  | "body-never-painted"
+  | "row-never-painted";
+
+/** A launch that produced no reading, and which of the four reasons it was. */
+interface UnmeasuredLaunch {
+  readonly unmeasured: UnmeasuredLaunchCause;
+}
+
 /** What one launch measured, on the renderer's own monotonic timeline. */
 interface FirstLedgerRowReading {
   /** `first-contentful-paint`, which is when the window was shown. */
@@ -93,6 +116,9 @@ interface FirstLedgerRowReading {
   readonly rowCount: number;
   readonly deliveredBeatCount: number;
 }
+
+/** One launch's outcome: the reading, or the reason there is none. */
+type FirstLedgerRowOutcome = FirstLedgerRowReading | UnmeasuredLaunch;
 
 /**
  * Open the flagship session, deliver its script, and time the first painted row.
@@ -106,7 +132,7 @@ interface FirstLedgerRowReading {
 async function measureFirstLedgerRow(
   consoleApplication: ConsoleApplication,
   plantedStallMilliseconds: number,
-): Promise<FirstLedgerRowReading | null> {
+): Promise<FirstLedgerRowOutcome> {
   const { stepMilliseconds, stepCount } = flagshipDeliverySchedule();
   return consoleApplication.window.evaluate(
     async ([
@@ -118,18 +144,30 @@ async function measureFirstLedgerRow(
       advanceCount,
       stallMilliseconds,
       surfaceWaitBudgetMs,
-    ]: [string, string, string, string, number, number, number, number]) => {
+    ]: [
+      string,
+      string,
+      string,
+      string,
+      number,
+      number,
+      number,
+      number,
+    ]): Promise<FirstLedgerRowOutcome> => {
       const paintEntry = performance
         .getEntriesByType("paint")
         .find((entry) => entry.name === "first-contentful-paint");
+      if (paintEntry === undefined) {
+        return { unmeasured: "no-paint-entry" };
+      }
       const scenarioControl = (
         globalThis as unknown as Record<
           string,
           { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
         >
       )[scenarioGlobalName];
-      if (paintEntry === undefined || scenarioControl === undefined) {
-        return null;
+      if (scenarioControl === undefined) {
+        return { unmeasured: "no-scenario-handle" };
       }
       const measurementStartedAtMs = performance.now();
 
@@ -138,27 +176,35 @@ async function measureFirstLedgerRow(
       // budget, which the caller reports as a failure rather than as a slow figure.
       const paintedAt = (selector: string): Promise<number | null> =>
         new Promise((resolve) => {
-          const settleOnFrame = (): void => {
+          const resolveOnNextFrame = (): void => {
             requestAnimationFrame(() => {
               resolve(performance.now());
             });
           };
+          // Already there: nothing is armed at all, so there is nothing to leave
+          // running either.
           if (document.querySelector(selector) !== null) {
-            settleOnFrame();
+            resolveOnNextFrame();
             return;
           }
+          // AND THE WAIT IS STOPPED ON THE PATH THAT SUCCEEDS, not only on the one
+          // that fires it. A resolved wait used to leave a 30 s timer armed for the
+          // rest of the launch — two of them per measured run, inside the very
+          // process whose steady-state heap and frame time the sibling endurance
+          // files read.
           const observer = new MutationObserver(() => {
             if (document.querySelector(selector) === null) {
               return;
             }
             observer.disconnect();
-            settleOnFrame();
+            clearTimeout(waitTimer);
+            resolveOnNextFrame();
           });
-          observer.observe(document.documentElement, { childList: true, subtree: true });
-          setTimeout(() => {
+          const waitTimer = setTimeout(() => {
             observer.disconnect();
             resolve(null);
           }, surfaceWaitBudgetMs);
+          observer.observe(document.documentElement, { childList: true, subtree: true });
         });
 
       // Armed before the navigation, so a row that arrives in the same commit as
@@ -168,7 +214,7 @@ async function measureFirstLedgerRow(
       globalThis.location.hash = sessionRouteHash;
       const bodyPainted = await paintedAt(bodySelector);
       if (bodyPainted === null) {
-        return null;
+        return { unmeasured: "body-never-painted" };
       }
 
       // The planted slow paint. A synchronous busy-wait on the main thread between
@@ -188,7 +234,7 @@ async function measureFirstLedgerRow(
 
       const firstRowPaintedAtMs = await firstRowPainted;
       if (firstRowPaintedAtMs === null) {
-        return null;
+        return { unmeasured: "row-never-painted" };
       }
       return {
         windowShownAtMs: paintEntry.startTime,
@@ -216,17 +262,41 @@ function elapsedFromWindowShow(reading: FirstLedgerRowReading): number {
   return reading.firstRowPaintedAtMs - reading.windowShownAtMs;
 }
 
-/** A reading, or a failure that says which half of the run did not happen. */
-function requireReading(reading: FirstLedgerRowReading | null): FirstLedgerRowReading {
-  expect(
-    reading,
-    "the launched console exposed no scenario handle, no paint entry, or never painted a ledger row, " +
-      "so nothing was timed and reporting a figure would be reporting the harness",
-  ).not.toBeNull();
-  if (reading === null) {
+/**
+ * What each unmeasured launch means, and — the load-bearing half — whose fault it is.
+ *
+ * The first two sentences say the figure would have been the harness's. The last two
+ * say the opposite in as many words: the instrument worked, the console did not
+ * paint, and that is the defect this row measures rather than a reason to re-run.
+ * Keyed by the cause so the set is closed here and a fifth arm is a compile error.
+ */
+const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string>> = {
+  "no-paint-entry":
+    "the launched console recorded no first-contentful-paint entry, so the interval has no start " +
+    "instant: nothing was timed, and reporting a figure would be reporting the harness",
+  "no-scenario-handle":
+    "the launched console exposed no scenario handle, so the flagship script was never delivered: " +
+    "nothing was timed, and reporting a figure would be reporting the harness",
+  "body-never-painted":
+    `the console never painted the workspace body inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+    "The instrument was ready and the console did not mount — this is a console failure, not a " +
+    "harness that was not there yet, and re-running it will not change the answer",
+  "row-never-painted":
+    `the console painted its workspace body but no ledger row inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+    "A console that mounts no ledger row at all is the regression this budget row exists to catch — " +
+    "this is a console failure, not a harness that was not there yet",
+};
+
+/** The reading, or a failure naming which of the four things did not happen. */
+function requireReading(outcome: FirstLedgerRowOutcome): FirstLedgerRowReading {
+  if ("unmeasured" in outcome) {
+    // The arm is the asserted value, so the diff line names it and the message
+    // explains it — a collapsed sentence is what made a console that mounts no
+    // ledger read as a harness that was not ready.
+    expect(outcome.unmeasured, UNMEASURED_LAUNCH_SENTENCES[outcome.unmeasured]).toBeUndefined();
     throw new Error("unreachable: the assertion above fails first");
   }
-  return reading;
+  return outcome;
 }
 
 /** One line per reading, printed whether it passed or failed. */

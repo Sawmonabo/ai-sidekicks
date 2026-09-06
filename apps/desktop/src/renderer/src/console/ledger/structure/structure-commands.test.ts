@@ -9,13 +9,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ConsoleRefusal } from "../../core/index.js";
-import { consoleKeyBindings } from "../../palette/index.js";
 import {
+  CommandRegistry,
+  KeyBindingTable,
   consoleCommandSurface,
   consoleCommands,
+  consoleKeyBindings,
   publishConsoleActRefusalSink,
+  type ConsoleCommand,
 } from "../../palette/index.js";
-import { CommandRegistry, KeyBindingTable, type ConsoleCommand } from "../../palette/index.js";
 import { MountedLedgerSeat, type LedgerStructureActs } from "./mounted-ledger.js";
 import {
   LEDGER_COMMAND_GROUP,

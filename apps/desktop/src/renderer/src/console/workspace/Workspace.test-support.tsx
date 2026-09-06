@@ -242,13 +242,6 @@ class SettlementGate {
   }
 }
 
-/** Let the write pump's `finally` chain run, without advancing any timer. */
-export async function drainMicrotasks(): Promise<void> {
-  for (let turn = 0; turn < 8; turn += 1) {
-    await Promise.resolve();
-  }
-}
-
 /** A saved arrangement for one session, written by the grammar that reads it back. */
 export async function saveLayout(
   store: UiStateStore,

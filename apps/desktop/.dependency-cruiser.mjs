@@ -239,9 +239,10 @@ export default {
         "about it and a view family could reach it while every gate stayed green — which " +
         "would put a second reader of a shared shape above the layer that owns it, exactly " +
         "the shape `console-view-family-isolation` forbids between two families. The console " +
-        "reaches shared code through the layer family that owns the concern, and today that " +
-        "is `core/`: every console consumer of `src/shared/` goes through it, so this rule " +
-        "pins what the tree already does rather than asking for a change. A view family that " +
+        "reaches shared code through a layer family that owns the concern — `core/` for the " +
+        "wire strings and the rejection readers, `routing/` for the auxiliary-route grammar — " +
+        "which is what this rule pins: not that one family owns every shared shape, but that " +
+        "no VIEW family reads one without a layer above it. A view family that " +
         "needs a shared symbol hoists its use into the lowest layer family that can own it " +
         "and imports THAT family's door.",
       severity: "error",

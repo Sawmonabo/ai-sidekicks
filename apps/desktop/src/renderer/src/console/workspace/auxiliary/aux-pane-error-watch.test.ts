@@ -12,18 +12,12 @@
 import { describe, expect, it } from "vitest";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/growth-port/growth-port.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import { lostWindowNotice, type LostAuxiliaryWindow } from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import { servingPort } from "./aux-handoff.test-support.js";
 
 describe("AuxiliaryHandoff — the crashed-window signal", () => {
-  /** Let a held request's continuation run, without advancing any timer. */
-  async function drainMicrotasks(): Promise<void> {
-    for (let turn = 0; turn < 8; turn += 1) {
-      await Promise.resolve();
-    }
-  }
-
   /**
    * A served pane-error stream that delivers exactly what the test lists.
    *

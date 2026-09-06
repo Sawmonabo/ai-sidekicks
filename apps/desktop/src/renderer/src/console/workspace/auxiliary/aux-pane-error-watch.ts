@@ -17,9 +17,14 @@
 // placeholder it belongs to: it does not mean "no crashes".
 
 import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
-import { type ConsoleBridge } from "../../bridge/index.js";
+import { settledGrowthCall, type ConsoleBridge } from "../../bridge/index.js";
 import { lossyStringify } from "../../core/index.js";
-import { refuseHandoff, type AuxiliaryHandoffRefusal } from "./aux-handoff-contract.js";
+import {
+  refuseHandoff,
+  refuseHandoffFromGrowth,
+  refuseHandoffFromRejection,
+  type AuxiliaryHandoffRefusal,
+} from "./aux-handoff-contract.js";
 
 /**
  * The growth port, reached as the bridge's own member rather than by importing the
@@ -133,10 +138,14 @@ export class PaneErrorWatch {
     }
 
     try {
-      const answer = await this.#growth.windowSubscribePaneErrors({});
+      // Settled, so a rejecting subscribe leaves a stated refusal in the placeholder
+      // rather than a watch that was never installed reporting calm.
+      const answer = await settledGrowthCall("windowSubscribePaneErrors", () =>
+        this.#growth.windowSubscribePaneErrors({}),
+      );
       const installed = claim.settle(() => {
         if (answer.status === "unavailable") {
-          this.#refusal = refuseHandoff("wire-unregistered", answer.detail);
+          this.#refusal = refuseHandoffFromGrowth(answer);
           this.#onChanged();
           return;
         }
@@ -154,6 +163,16 @@ export class PaneErrorWatch {
       if (answer.status === "served") {
         await this.#drain(answer.value, claim);
       }
+    } catch (rejection: unknown) {
+      // TOTAL, because the only caller is an effect. A rejection escaping here
+      // reached nobody: the placeholder reported calm over a signal that was never
+      // installed, and the fault surfaced as an unhandled rejection a shipped window
+      // does not report. The wire call above already settles, so this is the backstop
+      // for a defect — and one stated in the slot a person reads beats one recorded
+      // nowhere.
+      this.#refusal = refuseHandoffFromRejection(rejection);
+      this.#stream = undefined;
+      this.#onChanged();
     } finally {
       claim.release();
     }

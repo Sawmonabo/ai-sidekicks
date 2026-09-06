@@ -17,11 +17,11 @@ import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "../persistence/index.js";
 import { DECK_LAYOUT_RECORD_KEY } from "./layout/layout-persistence.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 import {
   GatedPersistenceAdapter,
   SESSION_B_ID,
   SESSION_ID,
-  drainMicrotasks,
   memoryStore,
   otherSession,
   renderWorkspace,

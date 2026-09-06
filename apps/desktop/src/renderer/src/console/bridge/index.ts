@@ -58,13 +58,13 @@ export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 // would be a surface that could parse a second time, differently.
 export {
   callDaemon,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
+  // Consumed by T-023p-1C-3
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon/daemon-reply.js";
 export type {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
+  // Consumed by T-023p-1C-3
   DaemonReply,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
+  // Consumed by T-023p-1C-3
   DaemonReplyRefusalCode,
 } from "./daemon/daemon-reply.js";
 export type {
@@ -88,7 +88,11 @@ export type {
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
+export {
+  growthUnavailable,
+  growthUnavailableFromRejection,
+  settledGrowthCall,
+} from "./growth-port/growth-port.js";
 export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";

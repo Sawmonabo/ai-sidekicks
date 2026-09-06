@@ -40,6 +40,7 @@ export {
   createRefusingGrowthPort,
   growthScriptedReplyUnavailable,
   growthUnavailable,
+  settledGrowthCall,
   type GrowthPort,
 } from "./growth-port.js";
 

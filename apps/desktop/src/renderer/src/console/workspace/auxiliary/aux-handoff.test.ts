@@ -11,7 +11,12 @@ import { describe, expect, it } from "vitest";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { IMPLEMENTED_AUXILIARY_ROUTES } from "../../routing/index.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
-import { servingPort } from "./aux-handoff.test-support.js";
+import {
+  WIRE_REJECTION_MESSAGE,
+  detachingThenRejectingPort,
+  rejectingPort,
+  servingPort,
+} from "./aux-handoff.test-support.js";
 
 describe("AuxiliaryHandoff — what can be detached at all", () => {
   it("answers for a route this build implements without attempting anything", () => {
@@ -201,5 +206,89 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     expect(await handoff.focus("pane-unknown")).toBeUndefined();
     expect(await handoff.returnToDeck("pane-unknown")).toBeUndefined();
     expect(handoff.noteWindowLost("pane-unknown", "gone")).toBeUndefined();
+  });
+});
+
+describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
+  // A `GrowthPort` method answers `served` or `unavailable`, and every caller above
+  // branches on that pair. A REJECTION is outside it, and is what a live bridge does
+  // when its transport is gone. Each case below drove a press that changed nothing
+  // and said nothing before the settled call landed: no window, no placeholder, no
+  // refusal — the fault reaching the console only as an unhandled rejection.
+  //
+  // All four calls the hand-off makes are here, the crashed-window subscription
+  // included, because what is being claimed is one rule rather than four: the class
+  // is the rejecting wire, not the operation that met it. The watch's own suite is
+  // about ORDER and keeps its ordering cases.
+
+  it("refuses the detach, in the same arm an unregistered wire lands in", async () => {
+    const handoff = new AuxiliaryHandoff({ growth: rejectingPort() });
+    const outcome = await handoff.detach({
+      paneId: "pane-1",
+      kind: "timeline",
+      sessionId: "session-1",
+    });
+    expect(outcome.outcome).toBe("refused");
+    expect(outcome.outcome === "refused" && outcome.refusal.code).toBe("wire-rejected");
+    // The two are distinguishable on purpose: a wire that answered badly and a wire
+    // that was never built are different facts about the build.
+    expect(outcome.outcome === "refused" && outcome.refusal.detail).toContain(
+      WIRE_REJECTION_MESSAGE,
+    );
+    expect(handoff.detached()).toHaveLength(0);
+  });
+
+  it("refuses the focus the placeholder offers, rather than reporting it done", async () => {
+    const handoff = new AuxiliaryHandoff({ growth: detachingThenRejectingPort() });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    const refusal = await handoff.focus("pane-1");
+
+    expect(refusal?.code).toBe("wire-rejected");
+    expect(refusal?.detail).toContain(WIRE_REJECTION_MESSAGE);
+  });
+
+  it("returns the pane to the deck anyway, and still says the close was refused", async () => {
+    // Both halves, because they are one rule: a window this process can no longer
+    // reach is a window whose pane must come back, and the person is still told the
+    // close did not land.
+    const handoff = new AuxiliaryHandoff({ growth: detachingThenRejectingPort() });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    const refusal = await handoff.returnToDeck("pane-1");
+
+    expect(refusal?.code).toBe("wire-rejected");
+    expect(handoff.detached()).toHaveLength(0);
+  });
+
+  it("keeps a refusal on the crashed-window watch, rather than reporting calm", async () => {
+    // The fourth call, and the one whose silence was worst: the watch installed no
+    // stream and wrote no refusal, so the placeholder reported that nothing was wrong
+    // over a crash signal that was never opened.
+    const handoff = new AuxiliaryHandoff({ growth: rejectingPort() });
+
+    await handoff.watchPaneErrors();
+
+    expect(handoff.paneErrorRefusal?.code).toBe("wire-rejected");
+    expect(handoff.paneErrorRefusal?.detail).toContain(WIRE_REJECTION_MESSAGE);
+  });
+
+  it("negative control: a wire that answers leaves no refusal on any of the four", async () => {
+    // Without this, every case above would pass over a hand-off that refused every
+    // call it made, which is the one implementation that could never work.
+    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const outcome = await handoff.detach({
+      paneId: "pane-1",
+      kind: "timeline",
+      sessionId: "session-1",
+    });
+
+    expect(outcome.outcome).toBe("detached");
+    expect(await handoff.focus("pane-1")).toBeUndefined();
+    expect(await handoff.returnToDeck("pane-1")).toBeUndefined();
+    // The watch answers `unavailable` on this port rather than rejecting, so its
+    // refusal is the unregistered one — a different fact, which is the point.
+    await handoff.watchPaneErrors();
+    expect(handoff.paneErrorRefusal?.code).toBe("wire-unregistered");
   });
 });
