@@ -261,6 +261,11 @@ export type { GrowthPort } from "./growth-port/growth-port.js";
 // leaves through `growth-port/growth-entry.js`, the module that declares it.
 export type { GrowthOperationId } from "./growth-port/growth-entry.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+// What a provider-session import reports as it runs. Published because the import
+// panel drains the progress subscription and renders the producer's own turn count
+// and state verbatim; a shape read only inside the fixture would leave the surface
+// narrowing an `unknown` it has no schema for.
+export type { GrowthImportProgress } from "./growth-values/sessions.js";
 // The attention projection's own vocabulary. Published because the notification
 // plane NARROWS against it: it used to declare a second copy of these six triggers
 // and two severities, which is two closed sets that agree until one of them is

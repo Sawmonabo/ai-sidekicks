@@ -79,6 +79,7 @@ export const PERSISTED_VALUE_CLASSES = [
   "expansion",
   "scheme",
   "keybinding",
+  "preference",
 ] as const;
 
 /** One admitted class. Derived from the enumeration, never restated beside it. */
@@ -252,6 +253,19 @@ const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = 
         ? undefined
         : invalid("a binding is a chord identifier or null for explicitly unbound"),
     "keybinding",
+  ),
+  /**
+   * A settings record: identifier-named switches to booleans, and nothing else.
+   *
+   * BOOLEANS ONLY, which is what keeps this from becoming the arbitrary-JSON class
+   * the enumeration exists to refuse. A preference that needed a string would be
+   * carrying a name, a path, or a sentence — the three things Spec-022 gives no
+   * durable home in the renderer — and a preference that needed a number would be a
+   * threshold, which is a constant with a rationale rather than a stored value.
+   */
+  preference: recordOf(
+    (value) => (typeof value === "boolean" ? undefined : invalid("a preference is on or off")),
+    "preference",
   ),
 };
 

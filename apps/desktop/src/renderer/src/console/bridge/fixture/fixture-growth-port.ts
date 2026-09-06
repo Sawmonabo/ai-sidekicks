@@ -37,6 +37,11 @@ import {
 } from "../growth-port/index.js";
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
 import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
+import {
+  PROVIDER_SESSION_IMPORT_BEGIN_CALL,
+  PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+  SHELL_NOTIFICATION_PERMISSION_CALL,
+} from "../scenarios/bring-your-history.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
@@ -232,6 +237,51 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "sidekick.peerInvocationSet",
         "sidekickPeerInvocationSet",
         request,
+      ),
+    // The shell's notification permission, from the script and from nowhere else. It
+    // is a READ with no empty form, which puts it beside the subject-addressed
+    // workflow reads rather than beside the enumerations: `granted`, `denied` and
+    // `not-determined` are three answers and none of them is "nobody asked", so a
+    // scenario that scripts nothing has left the question unasked and the read says
+    // so. Answering `granted` by default would be worse than refusing — the centre
+    // would stop saying it is the only surface, on a fixture where no notification
+    // can be delivered at all.
+    shellNotificationPermissionRead: async (request) =>
+      await answerFromScriptedReply(
+        engine,
+        SHELL_NOTIFICATION_PERMISSION_CALL,
+        "shellNotificationPermissionRead",
+        request,
+        () =>
+          growthUnscriptedReply(
+            "shellNotificationPermissionRead",
+            SHELL_NOTIFICATION_PERMISSION_CALL,
+          ),
+      ),
+    // The provider-session import, both halves from the script. The opening call is a
+    // WRITE — there is no "the import that began and produced nothing" — and the
+    // subscription is addressed by the import that call minted, so neither has an
+    // honest empty answer and both refuse under a scenario that scripts no import.
+    providerSessionImportBegin: async (request) =>
+      await answerFromScriptedReply(
+        engine,
+        PROVIDER_SESSION_IMPORT_BEGIN_CALL,
+        "providerSessionImportBegin",
+        request,
+        () =>
+          growthUnscriptedReply("providerSessionImportBegin", PROVIDER_SESSION_IMPORT_BEGIN_CALL),
+      ),
+    providerSessionImportSubscribe: async (request) =>
+      await answerFromScriptedReply(
+        engine,
+        PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+        "providerSessionImportSubscribe",
+        request,
+        () =>
+          growthUnscriptedReply(
+            "providerSessionImportSubscribe",
+            PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+          ),
       ),
   };
   return { ...createRefusingGrowthPort(), ...served };

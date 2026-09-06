@@ -73,6 +73,7 @@ export type {
   GrowthHealthReading,
   GrowthImportProgress,
   GrowthInviteSummary,
+  GrowthNotificationPermission,
   GrowthSessionSummary,
 } from "./sessions.js";
 

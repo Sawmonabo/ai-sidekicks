@@ -174,7 +174,7 @@
   gap: var(--meridian-space-2);
 }
 
-.meridian-session-row__tier {
+.meridian-session-row__menu-trigger {
   flex: none;
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border: 1px solid var(--meridian-edge);
@@ -188,17 +188,74 @@
   transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-session-row:hover .meridian-session-row__tier,
-.meridian-session-row:focus-within .meridian-session-row__tier {
+.meridian-session-row:hover .meridian-session-row__menu-trigger,
+.meridian-session-row:focus-within .meridian-session-row__menu-trigger,
+/* And while its own popup is open. Without this the trigger fades out the moment the
+   pointer moves off the row and onto the menu it just opened, leaving a popup with no
+   visible owner — the popup is portalled, so `:focus-within` on the row does not
+   cover it. */
+.meridian-session-row__menu-trigger[data-popup-open] {
   opacity: 1;
 }
 
 /* Reduced motion keeps the reveal but drops the fade, so the control still
    appears without an animation nobody asked for. */
 @media (prefers-reduced-motion: reduce) {
-  .meridian-session-row__tier {
+  .meridian-session-row__menu-trigger {
     transition: none;
   }
+}
+
+/* The row menu's popup. Portalled by Base UI, so it is styled by class rather than
+   by descent — nothing here may select through `.meridian-session-row`, because the
+   popup is not inside it in the document. */
+.meridian-session-row__menu-positioner {
+  z-index: 1;
+}
+
+.meridian-session-row__menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-session-row__menu-item,
+.meridian-session-row__menu-state {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The resting-place line is a fact rather than an act, so it carries neither the
+   pointer nor the hover the moves carry. */
+.meridian-session-row__menu-state {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: default;
+}
+
+.meridian-session-row__menu-item[data-highlighted] {
+  background: var(--meridian-surface);
+}
+
+/* The degradation line above the list: what the list is, while the window is not
+   following. Attention rather than failure, on the two-hue rule — a stale list is a
+   condition to know about and not a thing that broke. */
+.meridian-sessions__degraded {
+  margin: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-left: 2px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
 }
 
 /* The invitations shelf, in the destination's right column. */
@@ -259,7 +316,7 @@
 
 .meridian-invite-shelf__row-action:focus-visible,
 .meridian-sessions__start:focus-visible,
-.meridian-session-row__tier:focus-visible {
+.meridian-session-row__menu-trigger:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

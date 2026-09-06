@@ -156,7 +156,10 @@ export type GrowthOperationId =
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
-  | "orchestrationBudgetRead";
+  | "orchestrationBudgetRead"
+  // the shell's notification-permission reading, which decides whether the
+  // notification centre is the only surface these items reach a person on
+  | "shellNotificationPermissionRead";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

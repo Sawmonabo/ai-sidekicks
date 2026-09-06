@@ -139,6 +139,19 @@ export function contextWith(options: {
   readonly invitesBySessionId?: Readonly<Record<string, readonly unknown[]>>;
   /** The session each `invitesList` call named, appended in call order. */
   readonly invitesListCalls?: string[];
+  /**
+   * What the shell's notification-permission read answers. Refused unless named,
+   * which is what the live bridge does and therefore the default a case inherits.
+   */
+  readonly notificationPermission?: "granted" | "denied" | "not-determined";
+  /** One entry per `native.showNotification` call the surface made, in order. */
+  readonly emittedNotifications?: unknown[];
+  /** Whether the window has focus. Focused unless a case says otherwise. */
+  readonly isWindowFocused?: boolean;
+  /** The session the route names, for the emitter's audience rule. */
+  readonly activeSessionId?: string;
+  /** Every route the surface navigated to, appended in order. */
+  readonly navigations?: unknown[];
 }): ConsoleSurfaceContext {
   const directorySessionIds = options.directorySessionIds;
   return {
@@ -163,6 +176,12 @@ export function contextWith(options: {
               : { status: "served", value: { items } },
           );
         },
+        shellNotificationPermissionRead: () =>
+          Promise.resolve(
+            options.notificationPermission === undefined
+              ? refusedRead("shellNotificationPermissionRead", "notification-permission-read")
+              : { status: "served", value: { state: options.notificationPermission } },
+          ),
         sessionList: () =>
           Promise.resolve(
             directorySessionIds === undefined
@@ -176,8 +195,26 @@ export function contextWith(options: {
                 },
           ),
       },
+      // The one member of the shipped bridge this destination calls. Recorded rather
+      // than stubbed silently, so a case can assert that a banner was raised — and,
+      // more often, that one was not.
+      sidekicks: {
+        native: {
+          showNotification: (notificationOptions: unknown) => {
+            options.emittedNotifications?.push(notificationOptions);
+          },
+        },
+      },
     },
-    frameStore: { navigate: () => undefined },
+    frameStore: {
+      navigate: (route: unknown) => {
+        options.navigations?.push(route);
+      },
+      // Read imperatively by the emitter, exactly as the real store is: what decides
+      // a banner is where the window was when the item arrived.
+      getState: () => ({ isWindowFocused: options.isWindowFocused ?? true }),
+      activeSessionId: options.activeSessionId,
+    },
     sessionStore: options.sessionStore,
     sessionStoreRegistry: {
       openSessionIds: [

@@ -33,6 +33,19 @@
   color: var(--meridian-text-muted);
 }
 
+/* The panel saying it is the only surface. Carries the attention hue rather than the
+   failure one: a machine that shows no banners is a condition to know about, not a
+   thing that failed — the two-hue rule keeps red for what broke. */
+.meridian-attention__only-surface {
+  margin: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-left: 2px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
 .meridian-attention__groups,
 .meridian-attention__items {
   display: flex;

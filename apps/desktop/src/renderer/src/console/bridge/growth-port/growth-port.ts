@@ -386,5 +386,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
+    // the shell
+    shellNotificationPermissionRead: async () =>
+      growthUnavailable("shellNotificationPermissionRead"),
   };
 }

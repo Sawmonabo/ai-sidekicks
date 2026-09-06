@@ -22,6 +22,7 @@
 // that make sense with no family loaded; family scenarios follow in task order.
 
 import { AGENTS_SCENARIO } from "./agents.js";
+import { BRING_YOUR_HISTORY_SCENARIO } from "./bring-your-history.js";
 import { APPROVALS_SCENARIO } from "./approvals.js";
 import { BROWSER_SCENARIO } from "./browser.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
@@ -56,4 +57,5 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   BROWSER_SCENARIO,
   TERMINAL_SCENARIO,
   // T-023p-1C-8 gallery
+  BRING_YOUR_HISTORY_SCENARIO,
 ];

@@ -36,3 +36,24 @@ export interface GrowthImportProgress {
   readonly turnsSeen: number;
   readonly state: string;
 }
+
+/**
+ * Whether this machine will display an OS notification for this application.
+ *
+ * THREE ARMS AND NOT TWO, because the third is the one a fresh install is in.
+ * `granted` and `denied` are answers; `not-determined` is the state before anyone
+ * has been asked, and folding it onto `denied` would make the notification centre
+ * announce that it is the only surface for a machine that would happily show a
+ * notification the first time one is emitted.
+ *
+ * A CLOSED SET RATHER THAN A WIRE-VERBATIM STRING, which is the opposite of what
+ * `GrowthHealthReading.state` above does — and the difference is which side owns the
+ * vocabulary. A health state is a daemon's own word and the console renders it; this
+ * reading has no wire at all, so its slate row's eventual owner takes the console's
+ * three arms as the requirement rather than the console guessing at somebody else's
+ * enumeration. Each arm is rendered differently, which is what makes closing it worth
+ * anything: only `denied` says the centre is the only surface.
+ */
+export interface GrowthNotificationPermission {
+  readonly state: "granted" | "denied" | "not-determined";
+}

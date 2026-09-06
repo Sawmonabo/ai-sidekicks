@@ -15,9 +15,9 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionStoreRegistry, type SessionStore } from "../../store/index.js";
+import { SessionStoreRegistry, worstDegradedCause, type SessionStore } from "../../store/index.js";
 import { readsNothing } from "../../store/session-store-registry.test-support.js";
-import { OpenSessionRowProjection, useOpenSessionRows } from "./open-session-rows.js";
+import { OpenSessionRowProjection, useOpenSessionProjection } from "./open-session-rows.js";
 import type { SessionListRow } from "./session-rows.js";
 
 /** Establish a base state on an open store, the way a completed read would. */
@@ -161,12 +161,12 @@ describe("OpenSessionRowProjection", () => {
   });
 });
 
-describe("useOpenSessionRows", () => {
+describe("useOpenSessionProjection", () => {
   function OpenSessionRowsProbe(props: {
     readonly registry: SessionStoreRegistry;
     readonly seen: SessionListRow[][];
   }): React.JSX.Element {
-    const rows = useOpenSessionRows(props.registry);
+    const { rows } = useOpenSessionProjection(props.registry);
     props.seen.push([...rows]);
     return <p>{rows.map((row) => row.sessionId).join(",")}</p>;
   }
@@ -200,5 +200,50 @@ describe("useOpenSessionRows", () => {
     );
 
     expect(mounted.container.textContent).toBe("session-b");
+  });
+});
+
+describe("the degradation fold beside the rows", () => {
+  it("reports nothing standing while every open store is following", () => {
+    const projection = new OpenSessionRowProjection(registryHolding(["session-a", "session-b"]));
+
+    expect(projection.readDegradedCause()).toBeUndefined();
+  });
+
+  it("reports the worst cause standing across the open set, not the newest", () => {
+    // Two sessions degrade differently, and the destination has ONE line to say what
+    // the list is. Reporting the last one written would make the sentence depend on
+    // which store happened to fail second.
+    const registry = registryHolding(["session-a", "session-b"]);
+    registry.peek("session-a")?.markDegraded("read-failed");
+    registry.peek("session-b")?.markDegraded("stream-diverged");
+    const projection = new OpenSessionRowProjection(registry);
+
+    expect(projection.readDegradedCause()).toBe(
+      worstDegradedCause("read-failed", "stream-diverged"),
+    );
+  });
+
+  it("would notice a fold that reported one session's cause as none", () => {
+    // The negative control: one degraded store out of two still degrades the list,
+    // so the reading above is a fold rather than a lookup of the first store.
+    const registry = registryHolding(["session-a", "session-b"]);
+    registry.peek("session-b")?.markDegraded("subscription-closed");
+
+    expect(new OpenSessionRowProjection(registry).readDegradedCause()).toBe("subscription-closed");
+  });
+
+  it("re-reads when a store degrades under a live projection", () => {
+    const registry = registryHolding(["session-a"]);
+    const projection = new OpenSessionRowProjection(registry);
+    let notifications = 0;
+    projection.subscribe(() => {
+      notifications += 1;
+    });
+
+    registry.peek("session-a")?.markDegraded("sequence-gap");
+
+    expect(notifications).toBeGreaterThan(0);
+    expect(projection.readDegradedCause()).toBe("sequence-gap");
   });
 });

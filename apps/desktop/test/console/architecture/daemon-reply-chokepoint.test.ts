@@ -144,6 +144,10 @@ function isBridgeFamilyModule(module: string): boolean {
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
+ *  12. `console/sessions/acts/JoinSessionForm.tsx` — the sessions destination's join.
+ *      The first surface to bind `session.join`: the shipped Tier-1 probe calls it
+ *      from a mount effect through the raw bridge, and a form a person fills in is a
+ *      different act from a probe that joins on being rendered.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
  * none around it. The composer's half was six until its target chip stopped taking a
@@ -160,7 +164,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 11;
+const CALL_DOOR_CONSUMER_COUNT = 12;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

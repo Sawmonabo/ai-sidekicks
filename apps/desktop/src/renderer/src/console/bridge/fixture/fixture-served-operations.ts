@@ -181,6 +181,20 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE SHELL'S NOTIFICATION-PERMISSION READ IS SERVED FROM THE SCRIPT
+//
+// `native.showNotification` returns `void`, so the emission path reports nothing: a
+// machine that will not display a notification is indistinguishable, from inside the
+// renderer, from one that just did. The notification centre has an arm for exactly
+// that state — it is the only surface these items reach a person on, and it says so —
+// and no bridge member carries the fact, so the read is the growth port's.
+//
+// It is served here so a scenario can put the centre in that arm, and it REFUSES for
+// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
+// rather than the invite ledger's: a permission has no empty form. "Nobody asked"
+// is a true statement about a script that has not said, and answering `granted`
+// would be the fixture promising a notification nothing in the console can deliver.
+
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -223,6 +237,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "shellNotificationPermissionRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -265,6 +282,14 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // shell — whether this machine will display an OS notification, from a scenario
+  // that says so and refused from one that does not.
+  "shellNotificationPermissionRead",
+  // provider-session import — the opening call and the progress subscription it
+  // mints a subject for, both answered from a scenario that scripts the import and
+  // refused by one that does not.
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -298,4 +323,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "shellNotificationPermissionRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
 ];

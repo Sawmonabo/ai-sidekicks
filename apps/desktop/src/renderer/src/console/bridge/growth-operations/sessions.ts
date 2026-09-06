@@ -20,7 +20,7 @@ type SessionOperationId = Extract<
   | `session${string}`
   | `daemon${string}`
   | `onboarding${string}`
-  | `shellConfig${string}`
+  | `shell${string}`
   | `providerSessionImport${string}`
   | "invitesList"
   | "healthSubscribe"
@@ -160,5 +160,11 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "provider-session-import",
       "subscription",
       "progress for a running provider-session import",
+    ),
+    shellNotificationPermissionRead: op(
+      "shellNotificationPermissionRead",
+      "notification-permission-read",
+      "method",
+      "whether this machine will display an OS notification, so the notification centre can say when it is the only surface",
     ),
   };

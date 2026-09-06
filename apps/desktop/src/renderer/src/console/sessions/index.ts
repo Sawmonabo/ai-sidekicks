@@ -14,6 +14,7 @@
 // creates from its mount effect and the route lifecycle remounts this slot.
 
 import "./sessions.css";
+import "./acts/session-acts.css";
 
 import { createElement } from "react";
 

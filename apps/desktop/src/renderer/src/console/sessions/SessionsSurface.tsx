@@ -1,5 +1,5 @@
 // The sessions destination: what am I in the middle of, what is waiting on me, and
-// the one way to start something new.
+// the three ways work arrives — started here, joined, or imported.
 //
 // `Spec-023 §Console Design (Meridian)` §All-sessions list: "Answer 'what am I in
 // the middle of' in one screen, ordered so the thing you touched last is where you
@@ -22,7 +22,16 @@
 // No lifecycle control is drawn: rename, archive, close, and reactivate are all
 // unregistered, and an offered control with no wire behind it is the
 // capability-claimed-but-not-implemented shape the design forbids — drawing it
-// disabled is the same claim with a tooltip.
+// disabled is the same claim with a tooltip. The import IS drawn, and the difference
+// is which kind of absence it renders: its two operations are on the growth slate and
+// refuse by name, so a person who tries it is told nothing was asked and who owes the
+// wire, rather than being shown a control that quietly does nothing.
+//
+// WHILE THIS WINDOW IS NOT FOLLOWING THE DAEMON the list still renders — a stale list
+// a person can read beats an empty one — labeled as the last read, and both writes are
+// refused with the cause named. `session-list-degradation.ts` composes both sentences
+// from the store's own fold, so the disabled control and the line explaining it cannot
+// disagree.
 //
 // STARTING A SESSION IS AN ACT, NEVER A SIDE EFFECT OF LOOKING AT THE LIST
 //
@@ -54,18 +63,23 @@
 import { useMemo, useState } from "react";
 
 import type { ConsoleSurfaceContext } from "../seats/index.js";
-import { useConsoleClock, type GrowthPort } from "../bridge/index.js";
+import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/index.js";
 import {
   NotificationCenter,
   attentionProjectionReaderFor,
+  useAttentionNotifications,
   useAttentionProjection,
   useAttentionSettlementAnnouncement,
+  useOsNotificationDelivery,
 } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
 import { renderAbsorbedSessionProbe, useSessionDirectory } from "../seats/index.js";
 import { useOpenSessionIds } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
-import { useOpenSessionRows } from "./rows/open-session-rows.js";
+import { useOpenSessionProjection } from "./rows/open-session-rows.js";
+import { useSessionPreferences } from "./rows/session-preferences.js";
+import { sessionListDegradation } from "./session-list-degradation.js";
+import { SessionActs } from "./acts/SessionActs.js";
 import { mergeSessionRows } from "./rows/session-directory-rows.js";
 import { useSessionPins } from "./rows/session-pins.js";
 import type { SessionListRow } from "./rows/session-rows.js";
@@ -79,6 +93,7 @@ export interface SessionsSurfaceProps {
 export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element {
   const { context } = props;
   const pins = useSessionPins(context.uiStateStore);
+  const preferences = useSessionPreferences(context.uiStateStore);
   const directory = useSessionDirectory(context.bridge.growth);
   const windowSessionIds = useOpenSessionIds(context.sessionStoreRegistry);
   // Every open session's own projection, not the route's. This address names no
@@ -86,7 +101,13 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // surface — see `open-session-rows.ts` for what reading it cost. The route-scoped
   // store is still supplied and still read, by the surfaces mounted at addresses that
   // DO name one; this destination is simply not one of them.
-  const projectedRows = useOpenSessionRows(context.sessionStoreRegistry);
+  const openSessions = useOpenSessionProjection(context.sessionStoreRegistry);
+  const projectedRows = openSessions.rows;
+  // Whether this window is still following the daemon, and what that costs. The fold
+  // rides the projection's own subscription rather than a second one, and the two
+  // sentences are composed once from the cause — a control deciding for itself
+  // whether it is allowed would be a second source of truth for the store's fact.
+  const degradation = sessionListDegradation(openSessions.degradedCause);
   // The attention read is scoped to a session on the wire and this destination is
   // not, so it asks about every session the surface can NAME — the same set the
   // list is built from, derived here with no projected rows because the ids are all
@@ -110,6 +131,21 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // harnesses that render it with no announcer above them. The panel draws the same
   // read for everyone who can see it — this is the half for everyone who cannot.
   useAttentionSettlementAnnouncement(attention);
+  // Whether a banner raised from this read would reach anyone. Advisory: it changes
+  // what the centre SAYS and never whether the shell is asked, because the OS is the
+  // authority on delivery and a reading this console could not obtain would otherwise
+  // silence every notification on every host whose permission it cannot read.
+  const delivery = useOsNotificationDelivery(context.bridge.growth);
+  // The destination is where the read lives, so it is where the emission belongs: the
+  // centre is handed a reading and mounted in harnesses that hold none, and an
+  // emitter inside it would announce a projection twice on any surface that rendered
+  // two centres.
+  useAttentionNotifications({
+    reading: attention,
+    delivery,
+    frameStore: context.frameStore,
+    bridge: context.bridge,
+  });
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);
@@ -144,16 +180,27 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // identity belongs.
   const shelfClock = useConsoleClock();
 
+  // Both navigations are the same act — open the session this thing belongs to — and
+  // they are declared together so neither surface can drift into a second answer for
+  // "where does pressing this go". An attention item resolves nothing by being
+  // opened: `Spec-019 §Required Behavior` puts resolution in the daemon, and the
+  // centre offers no dismiss precisely because a client-side one would be a heuristic
+  // standing in for it.
+  const openSession = sessionOpenerFor(context.frameStore);
+  const openAttentionItem = (item: AttentionItem): void => {
+    openSession(item.sessionId);
+  };
+
   const startControl = (
-    <button
-      type="button"
-      className="meridian-sessions__start"
-      onClick={() => {
+    <SessionActs
+      bridge={context.bridge}
+      preferences={preferences}
+      onStart={() => {
         setStartRequestCount((previous) => previous + 1);
       }}
-    >
-      Start a session
-    </button>
+      onJoined={openSession}
+      blockedReason={degradation.blockedActSentence}
+    />
   );
 
   const listProps: SessionRowsProps = {
@@ -163,9 +210,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     attention,
     pins,
     startControl,
-    onOpen: (sessionId: string): void => {
-      context.frameStore.navigate({ kind: "workspace", sessionId });
-    },
+    onOpen: openSession,
   };
 
   return (
@@ -181,13 +226,23 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
 
       <div className="meridian-sessions__body">
         <div className="meridian-sessions__list" aria-label="Sessions on this node">
+          {degradation.lastReadSentence === undefined ? null : (
+            <p className="meridian-sessions__degraded" role="status">
+              {degradation.lastReadSentence}
+            </p>
+          )}
           {pins.lastRefusal === undefined ? null : <InlineRefusal {...pins.lastRefusal} />}
           <SessionRowsView {...listProps} />
         </div>
 
         <aside className="meridian-sessions__aside" aria-label="What is waiting on you">
           <InviteShelf read={readInvites} uiStateStore={context.uiStateStore} clock={shelfClock} />
-          <NotificationCenter reading={attention} onReopen={attentionProjection.retry} />
+          <NotificationCenter
+            reading={attention}
+            delivery={delivery}
+            onOpen={openAttentionItem}
+            onReopen={attentionProjection.retry}
+          />
         </aside>
       </div>
 
@@ -217,6 +272,24 @@ function inviteShelfReaderFor(
 ): InviteShelfReader {
   return async () =>
     await Promise.all(sessionIds.map(async (sessionId) => await growth.invitesList({ sessionId })));
+}
+
+/**
+ * The navigation both surfaces perform, bound to one frame store.
+ *
+ * Module-level and NOT a `useCallback`, on the rule `sessionIdOf` below already
+ * states: a mount-lifetime cell naming a session is the shape the console holds
+ * through its one subject-keyed holder, so a callback capturing a session id is the
+ * shape a reader — and `test/console/architecture/subject-state-chokepoint.test.ts` —
+ * has to stop and check. Nothing here needs a stable identity either: both consumers
+ * are rendered by this surface on every pass regardless.
+ */
+function sessionOpenerFor(
+  frameStore: ConsoleSurfaceContext["frameStore"],
+): (sessionId: string) => void {
+  return (sessionId: string): void => {
+    frameStore.navigate({ kind: "workspace", sessionId });
+  };
 }
 
 /**

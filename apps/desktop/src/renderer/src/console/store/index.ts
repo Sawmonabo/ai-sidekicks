@@ -227,3 +227,11 @@ export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hook
 // annotation widens the consumer's exhaustiveness silently and narrowing it to a
 // wrapper collapses that exhaustiveness outright.
 export type { SessionDegradedCause } from "./session-store.js";
+// The ladder itself, through the module that owns it. Published because the fold is
+// now performed over a SET of stores rather than inside one: the all-sessions
+// destination reports one degradation for the whole window, and picking the worst
+// standing cause is exactly the rule this function holds. A caller reducing the set
+// itself would be the "simpler" second assignment that module's own header warns
+// about — the one that silently downgrades a store that could not follow the stream
+// at all into one that merely failed a read.
+export { worstDegradedCause } from "./degradation.js";

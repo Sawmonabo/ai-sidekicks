@@ -6,14 +6,15 @@
 // given or cleared a goal here; beside it sit the surfaces a window has whether or
 // not a session is open —
 // the daemon's own status and control, onboarding, the shell's boolean settings,
-// the invite list, the health stream, and the provider-session import a new session
-// can be seeded from.
+// the invite list, the health stream, the provider-session import a new session can
+// be seeded from, and whether this machine will display an OS notification at all.
 
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type {
   GrowthHealthReading,
   GrowthImportProgress,
   GrowthInviteSummary,
+  GrowthNotificationPermission,
   GrowthSessionSummary,
 } from "../growth-values/index.js";
 import type { SessionSnapshot } from "../../store/index.js";
@@ -64,5 +65,12 @@ export interface SessionGrowthSignatures {
   providerSessionImportSubscribe: {
     request: { readonly importId: string };
     value: GrowthStream<GrowthImportProgress>;
+  };
+  // The shell's notification-permission reading. A READ and never a request for
+  // permission: asking for one is a prompt, which is an act on a person's machine
+  // that a panel rendering its own absence has no business performing.
+  shellNotificationPermissionRead: {
+    request: Record<string, never>;
+    value: GrowthNotificationPermission;
   };
 }

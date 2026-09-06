@@ -53,7 +53,8 @@ export type GrowthSlateRowId =
   | "sidekick-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
-  | "workflow-version-chain";
+  | "workflow-version-chain"
+  | "notification-permission-read";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -381,6 +382,15 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  // lane: cov-sessions
+  "notification-permission-read": {
+    id: "notification-permission-read",
+    wire: "the shell's own reading of whether this machine will display an OS notification for this application. `native.showNotification` is on the preload contract and returns void, so the renderer cannot observe a denial through it, and no bridge member reports the permission",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects)",
+    consumingSurface: "notification centre (the OS-notifications-denied arm)",
     wireRegistered: false,
   },
 };
