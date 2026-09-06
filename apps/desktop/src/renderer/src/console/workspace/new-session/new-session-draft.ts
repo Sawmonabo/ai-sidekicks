@@ -53,7 +53,7 @@
 
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { Emitter, refuse, type NarrowedRefusal, type Unsubscribe } from "../../core/index.js";
 
 /**
  * The posture axis a person picks, taken off the wire type rather than restated.
@@ -114,12 +114,10 @@ export type NewSessionDraftRefusalCode = (typeof NEW_SESSION_DRAFT_REFUSAL_CODES
 export const NEW_SESSION_DRAFT_REFUSAL_ORIGIN = "new-session-draft";
 
 /** A typed draft refusal — `core`'s one refusal shape, narrowed on `code`. */
-export interface NewSessionDraftRefusal extends ConsoleRefusal {
-  readonly code: NewSessionDraftRefusalCode;
-}
+export type NewSessionDraftRefusal = NarrowedRefusal<NewSessionDraftRefusalCode>;
 
 function refuseDraft(code: NewSessionDraftRefusalCode, detail: string): NewSessionDraftRefusal {
-  return { ...refuse(NEW_SESSION_DRAFT_REFUSAL_ORIGIN, code, detail), code };
+  return refuse(NEW_SESSION_DRAFT_REFUSAL_ORIGIN, code, detail);
 }
 
 /**

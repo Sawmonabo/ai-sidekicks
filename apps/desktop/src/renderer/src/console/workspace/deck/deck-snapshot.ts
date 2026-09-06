@@ -42,7 +42,7 @@
 // is what lets the grammar be tested against hand-written records — including ones
 // no version of this console would ever write.
 
-import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { isConsoleRefusal, isWireRecord, refuse, type NarrowedRefusal } from "../../core/index.js";
 import { isPaneKind, parseConsolePaneAddress } from "../../seats/index.js";
 import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../workspace-bounds.js";
 import { isDeckDensity } from "./density.js";
@@ -103,9 +103,7 @@ export type DeckRestoreRefusalCode = (typeof DECK_RESTORE_REFUSAL_CODES)[number]
 export const DECK_LAYOUT_REFUSAL_ORIGIN = "deck-layout";
 
 /** A typed restore refusal — `core`'s one refusal shape, narrowed on `code`. */
-export interface DeckRestoreRefusal extends ConsoleRefusal {
-  readonly code: DeckRestoreRefusalCode;
-}
+export type DeckRestoreRefusal = NarrowedRefusal<DeckRestoreRefusalCode>;
 
 /** What one restore did, and everything it refused. Rendered, never swallowed. */
 export interface DeckRestoreReport {
@@ -129,7 +127,7 @@ export interface DecodedDeckSnapshot {
  * look interchangeable when their refusal types are not.
  */
 function refuseDeckRestore(code: DeckRestoreRefusalCode, detail: string): DeckRestoreRefusal {
-  return { ...refuse(DECK_LAYOUT_REFUSAL_ORIGIN, code, detail), code };
+  return refuse(DECK_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
 /** Write a state out. Ephemeral panes are skipped, so a restart reopens no page. */
@@ -174,7 +172,7 @@ export function decodeDeckSnapshot(
   snapshot: unknown,
   restoredPaneCap: number,
 ): DecodedDeckSnapshot {
-  if (!isPlainRecord(snapshot)) {
+  if (!isWireRecord(snapshot)) {
     return emptyDecode(
       refuseDeckRestore(
         "snapshot-shape-invalid",
@@ -184,7 +182,7 @@ export function decodeDeckSnapshot(
   }
 
   const header = snapshot[DECK_SNAPSHOT_HEADER_KEY];
-  if (!isPlainRecord(header) || header["version"] !== DECK_LAYOUT_SNAPSHOT_VERSION) {
+  if (!isWireRecord(header) || header["version"] !== DECK_LAYOUT_SNAPSHOT_VERSION) {
     // Discarded WHOLE. A grammar this build does not know is a grammar whose
     // members it cannot interpret, and a partly-adopted deck hides which part
     // went missing.
@@ -202,7 +200,7 @@ export function decodeDeckSnapshot(
     if (paneId === DECK_SNAPSHOT_HEADER_KEY) {
       continue;
     }
-    if (!isPlainRecord(entry)) {
+    if (!isWireRecord(entry)) {
       refusals.push(
         refuseDeckRestore(
           "pane-shape-invalid",
@@ -335,10 +333,6 @@ function decodePane(
 }
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
-
-function isPlainRecord(value: unknown): value is UnknownRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function readPosition(entry: UnknownRecord): number {
   const position = entry["position"];

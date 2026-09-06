@@ -14,7 +14,7 @@
 
 import { useEffect, useState } from "react";
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { refuse, type ConsoleRefusal, type NarrowedRefusal } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
 import { type DeckLayout } from "../deck/deck-layout.js";
@@ -38,9 +38,7 @@ export type WorkspaceRefusalCode = (typeof WORKSPACE_REFUSAL_CODES)[number];
 export const WORKSPACE_REFUSAL_ORIGIN = "workspace";
 
 /** A typed workspace refusal — `core`'s one refusal shape, narrowed on `code`. */
-interface WorkspaceRefusal extends ConsoleRefusal {
-  readonly code: WorkspaceRefusalCode;
-}
+type WorkspaceRefusal = NarrowedRefusal<WorkspaceRefusalCode>;
 
 /**
  * Raise one, from the closed vocabulary above.
@@ -50,7 +48,7 @@ interface WorkspaceRefusal extends ConsoleRefusal {
  * refuses goes through here instead, where the union is what binds.
  */
 export function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): WorkspaceRefusal {
-  return { ...refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail), code };
+  return refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail);
 }
 
 /**

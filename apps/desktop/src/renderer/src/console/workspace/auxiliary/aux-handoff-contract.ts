@@ -12,7 +12,7 @@
 // gates 2 and 4 are facts about the build and about the wire, which this file has no
 // way to know.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { refuse, type NarrowedRefusal } from "../../core/index.js";
 import {
   InvalidAuxiliaryRouteTargetError,
   formatAuxiliaryFragment,
@@ -49,15 +49,13 @@ export type AuxiliaryHandoffRefusalCode = (typeof AUXILIARY_HANDOFF_REFUSAL_CODE
 export const AUXILIARY_HANDOFF_REFUSAL_ORIGIN = "aux-handoff";
 
 /** A typed hand-off refusal — `core`'s one refusal shape, narrowed on `code`. */
-export interface AuxiliaryHandoffRefusal extends ConsoleRefusal {
-  readonly code: AuxiliaryHandoffRefusalCode;
-}
+export type AuxiliaryHandoffRefusal = NarrowedRefusal<AuxiliaryHandoffRefusalCode>;
 
 export function refuseHandoff(
   code: AuxiliaryHandoffRefusalCode,
   detail: string,
 ): AuxiliaryHandoffRefusal {
-  return { ...refuse(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, code, detail), code };
+  return refuse(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, code, detail);
 }
 
 /**

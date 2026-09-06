@@ -34,7 +34,7 @@
 // every drop is a typed refusal the sidebar renders rather than a tripwire that throws
 // over a record last week's build wrote.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { isWireRecord, refuse, type NarrowedRefusal } from "../../core/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   type SidebarSectionDescriptor,
@@ -200,9 +200,7 @@ export const SIDEBAR_LAYOUT_REFUSAL_ORIGIN = "sidebar-layout";
  * against the union above rather than against `string`, so a code that is no longer
  * in the set is a compile error and not a branch that stops being taken.
  */
-export interface SidebarRestoreRefusal extends ConsoleRefusal {
-  readonly code: SidebarRestoreRefusalCode;
-}
+export type SidebarRestoreRefusal = NarrowedRefusal<SidebarRestoreRefusalCode>;
 
 /** A decoded record: the state to adopt, and everything the decode dropped. */
 export interface DecodedSidebarLayout {
@@ -221,7 +219,7 @@ function refuseSidebarRestore(
   code: SidebarRestoreRefusalCode,
   detail: string,
 ): SidebarRestoreRefusal {
-  return { ...refuse(SIDEBAR_LAYOUT_REFUSAL_ORIGIN, code, detail), code };
+  return refuse(SIDEBAR_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
 /** Write the sidebar's state out, under the one class the chokepoint admits. */
@@ -245,7 +243,7 @@ export function encodeSidebarLayout(state: SidebarLayoutState): PersistedLayoutR
  * opens with, and the drop is reported rather than silently applied.
  */
 export function decodeSidebarLayout(record: unknown): DecodedSidebarLayout {
-  if (!isPlainRecord(record)) {
+  if (!isWireRecord(record)) {
     return {
       state: INITIAL_SIDEBAR_LAYOUT_STATE,
       refusals: [
@@ -258,7 +256,7 @@ export function decodeSidebarLayout(record: unknown): DecodedSidebarLayout {
   }
 
   const header = record[SIDEBAR_SNAPSHOT_HEADER_KEY];
-  if (!isPlainRecord(header) || header["version"] !== SIDEBAR_LAYOUT_SNAPSHOT_VERSION) {
+  if (!isWireRecord(header) || header["version"] !== SIDEBAR_LAYOUT_SNAPSHOT_VERSION) {
     // Discarded WHOLE, on the deck's reasoning: a grammar this build does not know is
     // a grammar whose members it cannot interpret.
     return {
@@ -371,8 +369,4 @@ function isSidebarSectionId(candidate: unknown): candidate is SidebarSectionId {
   return (
     typeof candidate === "string" && (SIDEBAR_SECTION_IDS as readonly string[]).includes(candidate)
   );
-}
-
-function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

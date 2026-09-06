@@ -259,19 +259,23 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     // would have caused, and the flag that would have re-enabled Send under a draft
     // still waiting on its own reply.
     publishReport({ isSending: true, result: undefined });
-    void openDraft
-      .send()
-      .then((sendResult) => {
+    void openDraft.send().then(
+      (sendResult) => {
         publishReport({ isSending: false, result: sendResult });
-      })
-      .catch(() => {
+      },
+      () => {
         // A send that rejected outright USED to publish `NO_SEND_YET`, which cleared
         // the result: no banner, no announcement, no diagnostic, and a Send button
         // that answered a press by doing nothing. The draft names the fault in its own
         // vocabulary instead, so the refusal renders in the slot every other outcome
         // uses and the announce effect below says it out loud.
+        //
+        // `then`'s SECOND ARGUMENT rather than a `.catch` tail, which would also catch
+        // a throw from the arm above it and report a fault of this component's as the
+        // draft's send rejecting.
         publishReport({ isSending: false, result: refuseSendThatRejected() });
-      });
+      },
+    );
   }, [openDraft, publishReport]);
 
   // Said once, when a settlement LANDS, rather than from inside the continuation: a

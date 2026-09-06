@@ -76,7 +76,17 @@ export {
 // consumes each of them by calling the symbol beside it rather than by naming it.
 // A test asserting on either reaches the module that declares it.
 export { KeyedRegistry } from "./keyed-registry.js";
-export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
+export {
+  ConsoleRefusalError,
+  isConsoleRefusal,
+  refuse,
+  type ConsoleRefusal,
+  // The narrowing `refuse` returns. Through the door because a producer that owns a
+  // closed code union declares its own refusal type as an instantiation of this one
+  // rather than re-declaring the same interface: five of them in `workspace/` alone,
+  // and five copies of one shape is where the shape starts to differ.
+  type NarrowedRefusal,
+} from "./refusal.js";
 // The registered widenings of that shape. Through the door because a family rendering
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
