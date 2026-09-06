@@ -43,12 +43,10 @@
   },
   "include": [
     "test/console/console-harness.tsx",
-    // The scaffolding the browser tiers share across families. It lives beside them
-    // rather than inside any one of them, so it needs its own line — and it needs to
-    // be HERE rather than in the Node config for the same reason the tiers are: the
-    // next resident is a `.tsx` harness or a fixture reaching `console-harness.tsx`,
-    // which the Node config fails with TS6142 for the unset `--jsx` and TS2304 for
-    // `indexedDB`.
+    // One glob rather than a line per family: `test/console/surfaces/` is the mount
+    // helpers each view family's screenshot and accessibility suites drive, so a
+    // per-file entry here is a line every family branch has to remember to add and
+    // exactly one of them will not.
     "test/console/surfaces/**/*",
     "test/console/browser/**/*",
     "test/console/screenshot/**/*",

@@ -10,22 +10,12 @@
 import { describe, expect, it } from "vitest";
 
 import { MAX_REPAIRABLE_SEQUENCE_GAP } from "../core/index.js";
-import type { ConsoleSessionEvent } from "./entities.js";
+import { eventOfKind } from "./session-event.test-support.js";
 import {
   SequenceReconciler,
   isReconcilableSequence,
   orderBatchBySequence,
 } from "./sequence-reconciler.js";
-
-function eventAt(sequence: number): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: "session-1",
-    sequence,
-    kind: "run.starting",
-    occurredAt: "2026-01-01T00:00:00.000Z",
-  };
-}
 
 /** A reconciler re-based onto a read that answered at `cursor`, carrying no rows. */
 function reconcilerAt(cursor: number): SequenceReconciler {
@@ -53,7 +43,11 @@ describe("which sequences cursor arithmetic can survive", () => {
   });
 
   it("sorts what it cannot carry to the end, leaving the rest in order", () => {
-    const ordered = orderBatchBySequence([eventAt(3), eventAt(Number.NaN), eventAt(1)]);
+    const ordered = orderBatchBySequence([
+      eventOfKind("session-1", "run.starting", 3),
+      eventOfKind("session-1", "run.starting", Number.NaN),
+      eventOfKind("session-1", "run.starting", 1),
+    ]);
 
     // Under the obvious subtracting comparator this exact batch keeps its input
     // order, which appends 3 before 1 and records a hole the same batch then fills
