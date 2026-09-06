@@ -42,13 +42,20 @@
 // under the prior goal while the relayed event is still travelling.
 
 import { useCallback, useEffect, useId } from "react";
-import { ACCENT_FILL_CLASS, InlineRefusal, Nothing } from "../../../primitives/index.js";
-import { type ConsoleRefusal } from "../../../core/index.js";
+import {
+  ACCENT_FILL_CLASS,
+  InlineRefusal,
+  Nothing,
+  RemediedRefusal,
+  WireFigure,
+} from "../../../primitives/index.js";
+import { readRefusalExtensions, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { useSessionScopedState } from "../../../seats/index.js";
 import { isSendableGoalText } from "../../../bridge/index.js";
 import { SESSION_GOAL_MAX_LENGTH } from "../../../core/index.js";
-import { type SessionGoalProjection } from "./session-goal.js";
+import { type SessionGoalProjection } from "../../../bridge/index.js";
+import { canClearSessionGoal } from "./goal-authorization.js";
 import { GoalReading } from "./GoalReading.js";
 
 /**
@@ -198,11 +205,13 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
             >
               Save goal
             </button>
-            {/* Clearing lives inside the editor, never beside the read-only line. */}
+            {/* Clearing lives inside the editor, never beside the read-only line.
+                The enabling rule is `canClearSessionGoal`, the same predicate the
+                palette's clear row is offered on — one expression, two surfaces. */}
             <button
               className="meridian-goal__clear"
               type="button"
-              disabled={props.isMutating || goal.status !== "set"}
+              disabled={!canClearSessionGoal(goal, props.canMutate === true, props.isMutating)}
               onClick={props.onClear}
             >
               Clear the goal
@@ -230,7 +239,38 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
       {props.isMutating ? (
         <Nothing kind="computing" placement="inline" title="The goal change is settling." />
       ) : null}
-      {props.refusal === undefined ? null : <InlineRefusal {...props.refusal} />}
+      {props.refusal === undefined ? null : (
+        // The mutation's own refusal, with the console's next move beside it and —
+        // where `session.goal_delivery_failed` named them — the bindings the daemon
+        // reported failing. Those ride `data.fields.failedBindingIds` as registered
+        // identifiers, so they render as wire figures rather than folded into a
+        // sentence: "no goal change" without naming which legs refused leaves a
+        // person with nothing to check.
+        <RemediedRefusal refusal={props.refusal} detailAction={failedBindings(props.refusal)} />
+      )}
     </section>
+  );
+}
+
+/**
+ * The bindings a delivery failure named, or nothing.
+ *
+ * Read through the registered extension reader rather than off the refusal by hand:
+ * the reader is total over an unvalidated value and drops an element that is not an
+ * identifier, so a malformed envelope contributes no row instead of one naming
+ * nobody. A refusal that named none renders no list at all — an empty one would say
+ * the daemon reported no failing binding, which is a different fact.
+ */
+function failedBindings(refusal: ConsoleRefusal): React.ReactNode {
+  const { failedBindingIds } = readRefusalExtensions(refusal);
+  if (failedBindingIds === undefined) {
+    return undefined;
+  }
+  return (
+    <span className="meridian-goal__failed-bindings">
+      {failedBindingIds.map((bindingId) => (
+        <WireFigure key={bindingId} value={bindingId} />
+      ))}
+    </span>
   );
 }

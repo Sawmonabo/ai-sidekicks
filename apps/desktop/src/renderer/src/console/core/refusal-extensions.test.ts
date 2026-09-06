@@ -46,6 +46,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     // Hand-listed against the table, so a member added or removed is a deliberate edit
     // to a closed set rather than a silent change to what survives a rebuild.
     expect([...CONSOLE_REFUSAL_EXTENSION_MEMBERS].sort()).toStrictEqual([
+      "failedBindingIds",
       "operationId",
       "owningDocument",
       "retry",
@@ -78,6 +79,30 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     expect(readRefusalExtensions(everyTrapThrows())).toStrictEqual({});
     expect(readRefusalExtensions(undefined)).toStrictEqual({});
     expect(readRefusalExtensions("a thrown string")).toStrictEqual({});
+  });
+
+  it("reads the failed bindings a goal-delivery refusal names", () => {
+    // `error-contracts.md §Session` puts these on `data.fields` for
+    // `session.goal_delivery_failed`, and the goal card names them beside the remedy.
+    expect(readRefusalExtensions({ failedBindingIds: ["binding-a", "binding-b"] })).toStrictEqual({
+      failedBindingIds: ["binding-a", "binding-b"],
+    });
+  });
+
+  it("drops the elements it cannot read and keeps the ones it can", () => {
+    // A row naming nobody is worse than a shorter list: the surface renders one
+    // figure per element, and an unreadable element would render an empty figure.
+    expect(
+      readRefusalExtensions({ failedBindingIds: ["binding-a", "", 7, null, "binding-b"] }),
+    ).toStrictEqual({ failedBindingIds: ["binding-a", "binding-b"] });
+  });
+
+  it("answers absent rather than empty when no element survives", () => {
+    // An EMPTY list would say the daemon named no failing binding, which is a
+    // different fact from its having named none this console could read.
+    expect(readRefusalExtensions({ failedBindingIds: [] })).toStrictEqual({});
+    expect(readRefusalExtensions({ failedBindingIds: [7, null] })).toStrictEqual({});
+    expect(readRefusalExtensions({ failedBindingIds: "binding-a" })).toStrictEqual({});
   });
 
   it("leaves an absent retry bound absent rather than present and undefined", () => {

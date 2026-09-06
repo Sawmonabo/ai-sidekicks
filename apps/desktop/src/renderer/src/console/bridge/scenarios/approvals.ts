@@ -112,11 +112,41 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
       },
     },
     {
-      atMs: 200,
+      atMs: 120,
       event: {
         id: "019b7a33-3300-7e00-8110-e5e0c3350003",
         sessionId: SESSION_ID,
         sequence: 3,
+        // The run every request below was raised by, reaching `running`. The posture
+        // is stamped on THIS transition and on no other — the post-setup-gate spawn
+        // success, where the resolved workspace root and the effective posture are
+        // final — so the boundary a person is deciding under is a fact about this
+        // beat rather than a standing property of the run.
+        kind: "run.running",
+        occurredAt: "2026-01-01T13:30:00.120Z",
+        payload: {
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          runVersion: 2,
+          previousState: "starting",
+          newState: "running",
+          executionPosture: {
+            mode: "workspace-sandboxed",
+            credentialPolicyRef:
+              "sha256:7c4e1b93a52f6d08e14b7c93a52f6d08e14b7c93a52f6d08e14b7c93a52f6d08",
+            networkAccess: "allowed-domains",
+            allowedDomains: ["registry.npmjs.org", "github.com"],
+            writableRoots: ["/Users/dev/code/ai-sidekicks"],
+          },
+        },
+      },
+    },
+    {
+      atMs: 200,
+      event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350004",
+        sessionId: SESSION_ID,
+        sequence: 4,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.200Z",
         actorId: AGENT_IMPLEMENTER,
@@ -135,9 +165,9 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 420,
       event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350004",
+        id: "019b7a33-3300-7e00-8110-e5e0c3350005",
         sessionId: SESSION_ID,
-        sequence: 4,
+        sequence: 5,
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
         actorId: PARTICIPANT_YOU,
@@ -157,9 +187,9 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 600,
       event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350005",
+        id: "019b7a33-3300-7e00-8110-e5e0c3350006",
         sessionId: SESSION_ID,
-        sequence: 5,
+        sequence: 6,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.600Z",
         actorId: AGENT_IMPLEMENTER,
@@ -178,9 +208,9 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 780,
       event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350006",
+        id: "019b7a33-3300-7e00-8110-e5e0c3350007",
         sessionId: SESSION_ID,
-        sequence: 6,
+        sequence: 7,
         // Expiry never auto-approves, at any tier and any posture. The console
         // performs no expiry arithmetic of its own: this state arrives on the wire.
         kind: "approval.expired",
@@ -197,9 +227,9 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 900,
       event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350007",
+        id: "019b7a33-3300-7e00-8110-e5e0c3350008",
         sessionId: SESSION_ID,
-        sequence: 7,
+        sequence: 8,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.900Z",
         actorId: AGENT_IMPLEMENTER,
@@ -221,9 +251,9 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 1_100,
       event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350008",
+        id: "019b7a33-3300-7e00-8110-e5e0c3350009",
         sessionId: SESSION_ID,
-        sequence: 8,
+        sequence: 9,
         // The second pending request, and the one that arrived as a provider
         // permission ask: `askId` is the originating `driver_ask` identifier, and it
         // reaches the console HERE and on no read. The pane learns the origin by

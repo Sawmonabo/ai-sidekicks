@@ -8,6 +8,7 @@
 // all, which is what the exhaustive tails below are worth.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { compositeGuardReading } from "../controls/rollback-result.js";
 import {
   RUN_CONTROL_REFUSAL_ORIGIN,
   type RunControlOutcome,
@@ -37,8 +38,18 @@ export type ComposerSettlement =
  * get out of the way. Every other arm keeps the body, and the code a person sees is
  * the daemon's own: `rejectionReason` where the wire sent one, and the wire's state
  * otherwise. Nothing here paraphrases a wire code into console prose.
+ *
+ * `composite` is the dispatching record's own flag — whether the REQUEST carried
+ * `replacementSend` — and it gates the guard reading below for the reason
+ * `RunControlRecord.composite` states: the response echoes the replacement nowhere,
+ * so nothing in the answer can tell a composite apart from a bare rewind.
+ * Without it a bare rollback, or a steer the daemon rejected with `no_active_turn`,
+ * is answered with a remedy about a correction the dispatch never carried.
  */
-export function readComposerSettlement(outcome: RunControlOutcome): ComposerSettlement {
+export function readComposerSettlement(
+  outcome: RunControlOutcome,
+  composite: boolean,
+): ComposerSettlement {
   if (outcome.kind === "refused") {
     return { kind: "refused", notice: outcome.refusal };
   }
@@ -63,7 +74,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
         notice: refuse(
           RUN_CONTROL_REFUSAL_ORIGIN,
           response.rejectionReason ?? settledState,
-          "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.",
+          rejectedDetail(response.rejectionReason, composite),
         ),
       };
     case "expired":
@@ -88,6 +99,37 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
     default:
       return unreadableSettlement(settledState);
   }
+}
+
+/**
+ * What the form says beside a rejected settlement.
+ *
+ * The guard reading is offered ONLY where the request was a composite — the same
+ * gate, over the same source, that `InterventionBody.tsx` puts on the history half.
+ * One predicate written twice would be two answers to "was this a composite", and the
+ * wrong one here is the composite's own remedy rendered under a dispatch that carried
+ * no correction: a bare rewind, or a steer refused for a live turn.
+ *
+ * The four structural guards of the edit-and-resend composite each leave a different
+ * next move, and two of them are acts a person has to perform before this same
+ * request can ever be admitted — so where the daemon's reason names one, the form
+ * says the act rather than "change what it asks for", which for a pending queued send
+ * names nothing the participant can change in this box. Every other rejection keeps
+ * the general sentence, because that is the honest one when the console does not know
+ * what would make the request admissible.
+ *
+ * The wire code itself is the refusal's `code` on both paths and is rendered verbatim
+ * either way; this is only the sentence beside it.
+ */
+function rejectedDetail(rejectionReason: string | undefined, composite: boolean): string {
+  const guard =
+    !composite || rejectionReason === undefined
+      ? undefined
+      : compositeGuardReading(rejectionReason);
+  if (guard === undefined) {
+    return "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
+  }
+  return `${guard.refused} ${guard.remedy} What you typed is still here.`;
 }
 
 /**

@@ -79,6 +79,19 @@ export interface RunControlRecord {
   readonly runId: string;
   readonly control: RunControl;
   readonly outcome: RunControlOutcome;
+  /**
+   * Whether the REQUEST carried `replacementSend` — the atomic edit-and-resend.
+   *
+   * Carried on the record because the answer cannot supply it: the response echoes
+   * the replacement nowhere (`api-payload-contracts.md` marks the member
+   * request-side only), so a surface holding the settlement alone cannot tell a
+   * composite dispatch from a bare rewind. Reading it back off `rejectionReason`
+   * would be a guess, and a wrong one renders the composite's own refusal prose —
+   * drain the queue, pause the turn — for a rewind that carried no correction.
+   *
+   * `false` for all five other controls, and for a bare rollback.
+   */
+  readonly composite: boolean;
 }
 
 /**
@@ -114,7 +127,20 @@ export interface RunControlSurface {
     runId: string,
     control: RunControl,
     perform: (dispatcher: RunControlDispatcher) => Promise<RunControlOutcome>,
+    options?: RunControlDispatchOptions,
   ) => RunControlAdmission;
+}
+
+/**
+ * What the CALLER knows about its request that the answer will not carry back.
+ *
+ * One member today, and it is here rather than inferred for the reason
+ * {@link RunControlRecord.composite} gives. Omitting the argument records a
+ * non-composite dispatch, which is what every control but the rollback composer's
+ * edit-and-resend arm makes.
+ */
+export interface RunControlDispatchOptions {
+  readonly composite: boolean;
 }
 
 /** The key one in-flight dispatch is held under. One control per run at a time. */
@@ -166,6 +192,7 @@ export function useRunControlSurface(
       runId: string,
       control: RunControl,
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
+      options?: RunControlDispatchOptions,
     ): RunControlAdmission => {
       const key = inFlightKeyFor(runId, control);
       const claim = controlLatch.claim(bridge, key);
@@ -183,7 +210,13 @@ export function useRunControlSurface(
         return next;
       });
       const settle = (outcome: RunControlOutcome): void => {
-        const record: RunControlRecord = { recordId: dispatchToken, runId, control, outcome };
+        const record: RunControlRecord = {
+          recordId: dispatchToken,
+          runId,
+          control,
+          outcome,
+          composite: options?.composite === true,
+        };
         // Published inside the claim, so an answer to a call made on a transport that
         // has since been replaced — or by a mount React has already discarded — is
         // dropped rather than appended to a surface that never made it.

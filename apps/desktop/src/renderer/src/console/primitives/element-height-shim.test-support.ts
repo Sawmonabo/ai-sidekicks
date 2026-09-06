@@ -1,4 +1,4 @@
-// The one place this family shadows `offsetHeight`, and the only thing it decides is
+// The console's one place that shadows `offsetHeight`, and the only thing it decides is
 // install-and-restore.
 //
 // The console's unit tier runs under happy-dom, which has no layout engine and reports
@@ -10,12 +10,17 @@
 // anything about a rendered row has to say how tall its container is.
 //
 // PARAMETERIZED BY THE MEASUREMENT AND BY NOTHING ELSE. The diff pane and the restore
-// disclosure window different lists — different scroller class names, different row
+// disclosure sit in different families and window different lists — different scroller class names, different row
 // elements, different heights, and the diff additionally grows one row when the wrap
 // toggle is on — so the RULE is each caller's. What is not each caller's is the shadow:
 // this class writes a property on `HTMLElement.prototype`, which is global to the
 // environment, and two independent copies of that write are two chances for one of them
 // to leak a shadow into every later file in the same worker. Written twice, they were.
+//
+// IT LIVES IN `primitives/` BECAUSE ITS TWO READERS SIT IN DIFFERENT FAMILIES. It measures
+// what `WindowedListRow` and `useWindowedRovingIndex` window, which is this family's
+// concern; parked in either reader's family it would have been a module one view family
+// reached into another for.
 //
 // IT IS IMPORTED BY NO RENDERING PATH, and the FILE NAME is what says so. A shim of this
 // reach called from a rendering path would be a production surface monkey-patching the

@@ -166,6 +166,10 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ComposerSeatRenderer,
 } from "./composer-seat.js";
+// The other direction: a surface that told a person to type something asking the
+// mounted composer for the caret. Through the door because the asker and the answerer
+// are two view families that name each other nowhere.
+export { requestComposerFocus, subscribeToComposerFocus } from "./composer-focus.js";
 
 export {
   SIDEBAR_SECTION_IDS,

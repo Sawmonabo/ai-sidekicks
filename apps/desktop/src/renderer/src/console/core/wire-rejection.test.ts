@@ -15,6 +15,7 @@ import {
   readableOnce,
   revokedProxy,
 } from "../../../../shared/wire-errors.test-support.js";
+import { readRefusalExtensions } from "./refusal-extensions.js";
 import { ConsoleRefusalError, isConsoleRefusal, refuse } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
@@ -188,6 +189,35 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
       normalizeWireRejection("collaboration", { code: "x", message: "y", retryAfter: "soon" })
         .retry,
     ).toBeUndefined();
+  });
+});
+
+describe("normalizeWireRejection — the failed bindings a goal refusal names", () => {
+  it("reads the id list off the same `data.fields` payload the retry bound rides", () => {
+    const refusal = normalizeWireRejection("approvals", {
+      code: -32603,
+      message: "The goal was not delivered to every bound agent.",
+      data: {
+        type: "session.goal_delivery_failed",
+        fields: { failedBindingIds: ["binding-a", "binding-b"], driverCode: "driver.timeout" },
+      },
+    });
+    expect(readRefusalExtensions(refusal).failedBindingIds).toStrictEqual([
+      "binding-a",
+      "binding-b",
+    ]);
+  });
+
+  it("negative control: the sibling `driverCode` is not registered and does not survive", () => {
+    // The point of the registry: a member off `data.fields` reaches a surface only
+    // because a reader was registered for it, never because the wire carried it.
+    const refusal = normalizeWireRejection("approvals", {
+      code: -32603,
+      message: "…",
+      data: { type: "session.goal_delivery_failed", fields: { driverCode: "driver.timeout" } },
+    });
+    expect(Object.hasOwn(refusal, "driverCode")).toBe(false);
+    expect(readRefusalExtensions(refusal)).toStrictEqual({});
   });
 });
 

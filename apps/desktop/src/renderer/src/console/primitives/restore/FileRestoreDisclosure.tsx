@@ -1,7 +1,11 @@
 import { useId } from "react";
 import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
-import { Chip, DerivedFigure, Glyph, WireFigure, formatCount } from "../../primitives/index.js";
-import type { ChipTone } from "../../primitives/index.js";
+import { Chip } from "../Chip.js";
+import type { ChipTone } from "../Chip.js";
+import { DerivedFigure } from "../DerivedFigure.js";
+import { Glyph } from "../Glyph.js";
+import { WireFigure } from "../WireFigure.js";
+import { formatCount } from "../wire-figures.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
 import { RestoreEnumerationLists } from "./RestoreEnumerationLists.js";
 import { restoreEnumerations } from "./restore-enumerations.js";
@@ -86,8 +90,14 @@ const NO_BOUNDARY_POSITION_COPY =
 
 export interface FileRestoreDisclosureProps {
   readonly result: RollbackInterventionResult;
-  /** Open one enumerated path in the diff pane. Absent where no diff exists for it. */
+  /**
+   * What the mounting surface does with one enumerated path. Absent where it
+   * offers nothing, in which case every path renders as text rather than as a
+   * dead control.
+   */
   readonly onOpenPath?: ((path: string) => void) | undefined;
+  /** The verb in each path control's accessible name, supplied with the action. */
+  readonly pathActionLabel?: string | undefined;
 }
 
 export function FileRestoreDisclosure(props: FileRestoreDisclosureProps): React.JSX.Element {
@@ -149,6 +159,7 @@ export function FileRestoreDisclosure(props: FileRestoreDisclosureProps): React.
               : EMPTY_ENUMERATIONS_APPLIED
           }
           onOpenPath={props.onOpenPath}
+          pathActionLabel={props.pathActionLabel}
         />
       )}
     </section>

@@ -92,6 +92,17 @@ export interface ConsoleRefusalExtensions {
   readonly slateRow?: string;
   /** Registered by `bridge/growth-port/growth-port.ts`: which document owes the wire. */
   readonly owningDocument?: string;
+  /**
+   * Registered by `core/wire-rejection.ts`: the bindings a fan-out mutation failed on.
+   *
+   * `error-contracts.md §Session` puts `failedBindingIds` on `data.fields` for
+   * `session.goal_delivery_failed`, and a surface that says "no goal change" without
+   * naming which legs refused leaves a person with nothing to check. These are
+   * IDENTIFIERS rather than prose, which is what makes reading them off `data.fields`
+   * different from reading a sentence out of it: the envelope's `message` is the
+   * sentence and this is a list a surface renders as wire figures.
+   */
+  readonly failedBindingIds?: readonly string[];
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
@@ -166,6 +177,40 @@ function identifierMemberReader(memberName: string): (candidate: unknown) => str
 }
 
 /**
+ * A list of identifiers, or nothing.
+ *
+ * Every element goes through the same non-empty-string rule a single identifier
+ * member takes, and an element that fails it is dropped rather than rendered as a
+ * row naming nobody. A source that is not an array, or whose elements are all
+ * unreadable, answers `undefined` — an EMPTY list would tell a surface the daemon
+ * named no failing binding, which is a different fact from its having named none
+ * this console could read.
+ */
+function identifierListOf(source: unknown): readonly string[] | undefined {
+  if (!Array.isArray(source)) {
+    return undefined;
+  }
+  const identifiers = source.flatMap((element: unknown) => {
+    const identifier = readWireString(element);
+    return identifier === undefined ? [] : [identifier];
+  });
+  return identifiers.length === 0 ? undefined : identifiers;
+}
+
+/**
+ * The failed bindings a WIRE envelope named, as an extension.
+ *
+ * The `data.fields` sibling of {@link wireRetryExtension}, and separate from the
+ * registry reader beside it for the same reason: this takes the wire's own position
+ * on an envelope that is not a refusal, while the reader takes a member off a
+ * candidate that already is one.
+ */
+export function wireFailedBindingsExtension(source: unknown): ConsoleRefusalExtensions {
+  const failedBindingIds = identifierListOf(readGuardedProperty(source, "failedBindingIds"));
+  return failedBindingIds === undefined ? {} : { failedBindingIds };
+}
+
+/**
  * One reader per registered member, and the reason the set cannot drift.
  *
  * The mapped type over `Required<ConsoleRefusalExtensions>` is the mechanism: the
@@ -182,6 +227,8 @@ const REFUSAL_EXTENSION_READERS: {
   operationId: identifierMemberReader("operationId"),
   slateRow: identifierMemberReader("slateRow"),
   owningDocument: identifierMemberReader("owningDocument"),
+  failedBindingIds: (candidate: unknown) =>
+    identifierListOf(readGuardedProperty(candidate, "failedBindingIds")),
 };
 
 /** Every registered extension member, as a set a test can walk. */

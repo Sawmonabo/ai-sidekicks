@@ -142,7 +142,17 @@ export {
   type ExtendedConsoleRefusal,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
+  readRefusalExtensions,
 } from "./refusal-extensions.js";
+// What a surface DOES about a named refusal, beside rendering the daemon's words:
+// the shape its blast radius calls for, the operator's next move, and whether the
+// control it answered has anything left to do. Through the door because the codes
+// reach the composer, the runs pane, and the approvals pane alike, and one code
+// answered in three sets of words is a remedy a person cannot learn once. The
+// LOOKUP is what crosses the door and its two types are not: every reader outside
+// this family reads the answer's fields off the returned value, and a door line
+// nothing imports is a dead export the census fails.
+export { refusalRemedyFor } from "./refusal-remedies.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,

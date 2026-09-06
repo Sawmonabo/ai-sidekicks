@@ -19,6 +19,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import {
+  compositeGuardReading,
   readAppliedRollback,
   readDegradedRollback,
   resendSettlementSentence,
@@ -207,5 +208,136 @@ describe("the replacement leg", () => {
 
   it("says an unapplied replacement stays recoverable", () => {
     expect(resendSettlementSentence("unapplied")).toContain("recoverable");
+  });
+});
+
+describe("the four structural guards a composite is refused whole by", () => {
+  it.each([
+    ["no active turn", "composite.no_active_turn", "no-active-turn"],
+    ["an accepted-but-undelivered send", "rollback.no_pending_send", "no-pending-send"],
+    ["the contract's own spelling of it", "composite.noEarlierPendingSend", "no-pending-send"],
+    [
+      "an orchestration-authored boundary",
+      "target.not_a_participant_authored_boundary",
+      "participant-authored-boundary",
+    ],
+    [
+      "the spec's own spelling of it",
+      "This run has no participant-authored target of this run at that position.",
+      "participant-authored-boundary",
+    ],
+    ["a target that can never resume", "run.non_resumable_target", "resumable-target"],
+    ["a plain English sentence naming the check", "No active turn.", "no-active-turn"],
+  ])("recognises %s", (_name, rejectionReason, guard) => {
+    expect(compositeGuardReading(rejectionReason)?.guard).toBe(guard);
+  });
+
+  it.each([
+    ["no active turn", "no-active-turn"],
+    ["no earlier pending send", "no-pending-send"],
+    [
+      "a participant-authored `user.message` boundary of the target run",
+      "participant-authored-boundary",
+    ],
+    ["a resumable target", "resumable-target"],
+  ])("recognises the registered sentence %j", (rejectionReason, guard) => {
+    // The four guards exactly as `api-payload-contracts.md` writes them on the
+    // `replacementSend` member — the corpus's own enumeration, read back one at a
+    // time. The boundary one is why this case exists: that document puts
+    // `user.message` BETWEEN the adjective and the noun, so it normalizes to
+    // `participant-authored-user-message-boundary` and used to match neither of the
+    // two phrases the table carried, answering `undefined` for a guard the daemon had
+    // named outright. Checking the other three the same way is what makes that a
+    // MISS to fix rather than one spelling nobody had tried.
+    expect(compositeGuardReading(rejectionReason)?.guard).toBe(guard);
+  });
+
+  it("counts one guard named twice as one match, never as a collision", () => {
+    // The half the two-match rule does NOT forbid, and the reason `namedBy` is a
+    // `some` rather than a count: a reason spelling ONE guard both of the corpus's
+    // ways names one check, not two, and answering `undefined` there would withhold
+    // the remedy on the most explicit reason a daemon could send.
+    const reading = compositeGuardReading(
+      "no participant-authored-boundary: this run needs a participant-authored `user.message` boundary of the target run",
+    );
+
+    expect(reading?.guard).toBe("participant-authored-boundary");
+  });
+
+  it("recognises the check across the shapes a producer plausibly sends", () => {
+    // `rejectionReason` is a free-form wire string and no closed union is registered
+    // for these four, so what is matched is the check's WHOLE name rather than one
+    // guessed identifier — across snake case, camel case, and prose alike.
+    const guards = [
+      "no_pending_send",
+      "composite.noPendingSend",
+      "There is no pending send guard satisfied on this run.",
+    ].map((reason) => compositeGuardReading(reason)?.guard);
+
+    expect(guards).toStrictEqual(["no-pending-send", "no-pending-send", "no-pending-send"]);
+  });
+
+  it("names the pending-send remedy as an act, since nothing in the form can clear it", () => {
+    const reading = compositeGuardReading("composite.no_pending_send");
+
+    expect(reading?.remedy).toContain("Cancel the queued items");
+    expect(reading?.remedy).toContain("drain");
+  });
+
+  it("gives each guard its own words, so four refusals never read as one", () => {
+    const readings = [
+      "composite.no_active_turn",
+      "composite.no_pending_send",
+      "target.not_a_participant_authored_boundary",
+      "target.non_resumable_target",
+    ].map((reason) => compositeGuardReading(reason));
+    const remedies = readings.map((reading) => reading?.remedy);
+
+    expect(new Set(remedies).size).toBe(4);
+    for (const reading of readings) {
+      expect(reading?.refused.length ?? 0).toBeGreaterThan(20);
+    }
+  });
+
+  it.each([
+    ["a bare rollback's capability refusal", "driver.capability_unsupported"],
+    ["a stale comparand", "run.version_conflict"],
+    ["a transition the run does not admit", "run.invalid_transition"],
+    ["the empty string", ""],
+  ])("invents no guard for %s", (_name, rejectionReason) => {
+    // The negative control for the whole reading: telling a person to drain a queue
+    // that has nothing in it is worse than showing the wire code alone.
+    expect(compositeGuardReading(rejectionReason)).toBeUndefined();
+  });
+
+  it.each([
+    ["a released root that only mentions resumption", "run.execution_root_released_not_resumable"],
+    ["a sentence carrying the bare adjective", "The target run is not resumable."],
+    ["a queued-item sentence carrying the bare noun", "An earlier queued send is still pending."],
+    ["a boundary sentence carrying the bare adjective", "boundary.orchestration_authored"],
+    ["a rootless target named as such", "run.rootless"],
+  ])("answers nothing for %s, which names no whole guard", (_name, rejectionReason) => {
+    // The near-miss control. Every one of these carries a FRAGMENT of a guard's name
+    // and none of them carries the name: matching on the fragment is what made a
+    // bare rewind's refusal render the composite's own remedy.
+    expect(compositeGuardReading(rejectionReason)).toBeUndefined();
+  });
+
+  it.each([
+    ["two guards in one sentence", "Refused: no active turn, and no pending send either."],
+    ["two guards in one code", "composite.no_active_turn_and_no_pending_send"],
+    [
+      "a boundary guard beside a resumability guard",
+      "no participant-authored-boundary at a resumable-target",
+    ],
+    [
+      "the contract's boundary spelling beside a second guard",
+      "a participant-authored `user.message` boundary of the target run, and no active turn",
+    ],
+  ])("answers nothing for %s, since it cannot rank them", (_name, rejectionReason) => {
+    // The collision control. Two matches is two readings, and choosing the first
+    // entry of a hand-ordered table would be the console deciding which check
+    // refused — which is the daemon's decision and not a renderer's.
+    expect(compositeGuardReading(rejectionReason)).toBeUndefined();
   });
 });

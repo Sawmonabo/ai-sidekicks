@@ -224,6 +224,26 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         },
       },
     },
+    {
+      atMs: 540,
+      event: {
+        id: "019b7a11-1100-7e00-8110-e5e0c1150007",
+        sessionId: SESSION_ID,
+        sequence: 9,
+        // The session's one goal, as the log carries it — there is no goal store, so
+        // this event IS the goal and the sidebar's line is a fold over it. A person
+        // set it, so the beat carries an actor.
+        kind: "session.goal_updated",
+        occurredAt: "2026-01-01T11:05:00.540Z",
+        actorId: PARTICIPANT_YOU,
+        payload: {
+          sessionId: SESSION_ID,
+          goal: {
+            text: "Land the rate-limit wiring behind the enforcement legs, then close the backlog items it names.",
+          },
+        },
+      },
+    },
   ],
   replies: COMPOSER_REPLIES,
 };

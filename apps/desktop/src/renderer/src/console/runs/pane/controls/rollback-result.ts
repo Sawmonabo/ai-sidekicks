@@ -1,4 +1,4 @@
-// The nine rollback dispositions, read exhaustively.
+// What a settled rollback says: the nine dispositions, and the refusal that has none.
 //
 // THIS MODULE'S OWN RULE, because no committed document states it: one exhaustive
 // switch over nine arms with a `satisfies never` tail, so a tenth arm fails the
@@ -33,6 +33,11 @@
 //     the composite says the replacement is QUEUED and sends on the next resume —
 //     never "sent", because the composite admits the replacement run-bound and does
 //     not dispatch it.
+//
+// AND THE REFUSAL THAT CARRIES NO DISPOSITION. A rollback rejected by one of the
+// composite's four structural guards settles `rejected` with a `rejectionReason` and
+// no `result` at all, so none of the reading above reaches it. That arm is the second
+// half of this module, below.
 
 import type {
   RollbackAppliedResendOutcome,
@@ -229,6 +234,161 @@ export function resendSettlementSentence(
     return "Your replacement message was not admitted. It stays recoverable on the intervention record.";
   }
   return undefined;
+}
+
+// --------------------------------------------------------------------------
+// The four structural guards, and what a person does about each
+// --------------------------------------------------------------------------
+//
+// An edit-and-resend is refused whole by four checks, each fail-closed at admission
+// and pre-dispatch (`Spec-004 §Required Behavior`): no active turn, no pending send,
+// a participant-authored target boundary of this run, and a resumable target. Each
+// refuses for a different reason and each leaves the participant a different next
+// move, and until this reading existed the console showed one wire string and no move
+// at all — which is worst for the pending-send guard, whose remedy is an act the
+// person has to perform (cancel the queued items, or let them drain) before the same
+// request can ever succeed.
+//
+// IT IS RECOGNISED FROM THE DAEMON'S OWN REASON, AND NEVER DERIVED. The renderer
+// projects no eligibility: it does not decide which guard SHOULD have refused from
+// the run state it holds, because that is the daemon's decision and a second copy of
+// it would disagree the first time the two read a run differently. What this reading
+// does is recognise which check the daemon SAID refused.
+//
+// AND IT RECOGNISES A PHRASE RATHER THAN A TOKEN, because there is no token to key
+// on YET: `rejectionReason` is registered as a free-form `string`
+// (`api-payload-contracts.md`), and no closed union for these four is registered
+// anywhere in the corpus. A typed `rejectionGuard` member — an additive-optional
+// closed four-value union on the intervention response — is the reading that
+// SUPERSEDES this one: when it lands, this file switches to it and every phrase
+// below is deleted rather than kept beside it, because two answers to "which guard
+// refused" is exactly the drift this module refuses everywhere else.
+//
+// UNTIL THEN THE MATCH IS DELIBERATELY NARROW, and narrowness is the whole design.
+// It anchors on the guard's WHOLE name as the corpus writes it — "no active turn",
+// "no pending send", "participant-authored boundary", "resumable target" — and not
+// on a fragment of it, over a reason normalized to lowercase hyphens. A guard the
+// corpus spells more than one way carries every spelling, since the alternative to a
+// second whole name is a shorter one, which is the fragment this rule forbids. A fragment
+// match is the failure mode that matters: "resumable" alone is carried by the
+// sentence "the target run is not resumable", by every bare rollback refusal that
+// mentions resumption at all, and by half the vocabulary around a released
+// execution root — and answering any of them with the composite's remedy tells a
+// person to drain a queue that has nothing in it. So a near miss answers
+// `undefined`, which is what a renderer that cannot tell should say.
+//
+// AND A REASON NAMING TWO GUARDS ANSWERS `undefined` TOO. Phrase containment cannot
+// rank two matches: a sentence carrying both names is either a daemon reporting a
+// compound refusal or a reason this reading does not understand, and picking the
+// first entry in a hand-ordered table would be the console inventing which check
+// refused. `undefined` renders the daemon's own sentence and nothing beside it,
+// which is the honest answer to a reason with two readings.
+//
+// A REASON NAMING NONE OF THEM READS EXACTLY AS IT DOES WITHOUT THIS: the daemon's
+// own string, verbatim, with no move beside it. Answering `undefined` is the honest
+// result for a refusal that is not one of these four — a bare rollback's
+// `driver.capability_unsupported` among them — and inventing a nearest guard for it
+// would be the console telling a person to drain a queue that has nothing in it.
+
+/** One of the four structural checks an edit-and-resend is refused whole by. */
+export type CompositeRefusalGuard =
+  | "no-active-turn"
+  | "no-pending-send"
+  | "participant-authored-boundary"
+  | "resumable-target";
+
+/** What one guard refused, and the act that clears it. */
+export interface CompositeGuardReading {
+  readonly guard: CompositeRefusalGuard;
+  /** What this check refuses, in the console's words — never the daemon's sentence. */
+  readonly refused: string;
+  /** The participant's next move, which for two of the four is a real act. */
+  readonly remedy: string;
+}
+
+/** A guard, plus the spec's own names for it that a reason may carry. */
+interface CompositeGuardEntry extends CompositeGuardReading {
+  readonly namedBy: readonly string[];
+}
+
+const COMPOSITE_GUARDS: readonly CompositeGuardEntry[] = [
+  {
+    guard: "no-active-turn",
+    namedBy: ["no-active-turn"],
+    refused:
+      "The run is still answering the message you corrected. The rewind was refused outright rather than pausing a live turn to rewrite the prompt it is working from.",
+    remedy: "Pause or stop the run first, then correct the message again.",
+  },
+  {
+    guard: "no-pending-send",
+    // Two spellings of ONE name — `api-payload-contracts.md` writes the check as
+    // "no earlier pending send" where the spec writes "No pending send." — and never
+    // the bare fragment, which every sentence about a queued item carries.
+    namedBy: ["no-pending-send", "no-earlier-pending-send"],
+    refused:
+      "An earlier send is still pending on this run — accepted and not yet delivered, or queued and not yet drained — and it would reach the provider ahead of your correction.",
+    remedy:
+      "Cancel the queued items, or let them drain, and then send the correction again. Nothing here reorders the queue on your behalf.",
+  },
+  {
+    guard: "participant-authored-boundary",
+    // The noun the corpus pairs with the adjective, and the corpus writes it three
+    // ways: `Spec-004 §Required Behavior` guard (iii) heads it "A participant-authored
+    // target of this run.", `api-payload-contracts.md`'s `replacementSend` comment
+    // spells it "a participant-authored `user.message` boundary of the target run",
+    // and a producer echoing an identifier sends the bare "participant authored
+    // boundary". The middle one normalizes with `user-message` BETWEEN the adjective
+    // and the noun, so neither of the other two phrases contains it and it needs an
+    // entry of its own — the whole name as that document writes it, not a fragment.
+    namedBy: [
+      "participant-authored-boundary",
+      "participant-authored-target",
+      "participant-authored-user-message-boundary",
+    ],
+    refused:
+      "The boundary you targeted was not opened by a participant message of this run, so there is no participant send to replace. A workflow phase input and an orchestrated child run both land here.",
+    remedy:
+      "Rewind to that boundary without a correction, and change the input where it was authored.",
+  },
+  {
+    guard: "resumable-target",
+    // `non-resumable-target` and `not-resumable-target` both contain this, so the
+    // negated spellings need no entry of their own. The bare "resumable" does NOT
+    // appear here: it is carried by every sentence about a released execution root.
+    namedBy: ["resumable-target"],
+    refused:
+      "This run can never resume — its execution context is released with no working root — so a correction queued against it would never be delivered.",
+    remedy:
+      "Rewind without a correction to keep the history, then start a fresh run on the same branch carrying the corrected text.",
+  },
+];
+
+/**
+ * Which structural guard the daemon's reason names, where it names EXACTLY one.
+ *
+ * `undefined` for a reason that names none and for a reason that names two, which
+ * is the whole of what the console can honestly say about a refusal it does not
+ * recognise or cannot tell apart. Superseded by the typed `rejectionGuard` member
+ * the moment that lands: see this module's header.
+ */
+export function compositeGuardReading(rejectionReason: string): CompositeGuardReading | undefined {
+  // The camel-case split runs BEFORE the lowercase, because after it there is no
+  // boundary left to split on and `pendingSend` would normalize to one word that
+  // contains no phrase at all.
+  const normalized = rejectionReason
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+  // Every match, never the first: a reason naming two guards has two readings and
+  // this function has no ground to choose between them. See the module header.
+  const matched = COMPOSITE_GUARDS.filter((entry) =>
+    entry.namedBy.some((phrase) => normalized.includes(phrase)),
+  );
+  const only = matched.length === 1 ? matched[0] : undefined;
+  if (only === undefined) {
+    return undefined;
+  }
+  return { guard: only.guard, refused: only.refused, remedy: only.remedy };
 }
 
 /**

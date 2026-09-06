@@ -17,15 +17,22 @@
 // and the event commits only after all of them acknowledge, so the fold stays on
 // the prior goal until the event lands. A degraded driver result is not an
 // acknowledgement and takes the refusal path.
+//
+// IT LIVES IN `bridge/` BECAUSE TWO VIEW FAMILIES READ THE GOAL. The approvals
+// pane renders the card that edits it and the workspace sidebar renders the one
+// line that states it, and those two families may not import one another. Every
+// input this module has is below that: the two payload readers beside it, the
+// bridge itself for the two mutations, `core/`'s instant comparison, and the
+// store's event type. So this is the lowest family that owns them, and both
+// callers take the fold through this family's door rather than each folding the
+// timeline their own way — which is the second projection of one log the goal's
+// own rule forbids.
 
-import { compareInstants, parseInstant } from "../../../core/index.js";
-import {
-  readGoalOriginKeys,
-  readGoalPayloadText,
-  type ConsoleBridge,
-  type GrowthOutcome,
-} from "../../../bridge/index.js";
-import { type ConsoleSessionEvent } from "../../../store/index.js";
+import { compareInstants, parseInstant } from "../core/index.js";
+import { readGoalOriginKeys, readGoalPayloadText } from "./wire-shapes/session-goal-payloads.js";
+import { type ConsoleBridge } from "./console-bridge.js";
+import { type GrowthOutcome } from "./growth-port/growth-outcome.js";
+import { type ConsoleSessionEvent } from "../store/index.js";
 
 /** The two projection sources, wire-verbatim. */
 export const SESSION_GOAL_EVENT_KINDS = ["session.goal_updated", "session.goal_cleared"] as const;

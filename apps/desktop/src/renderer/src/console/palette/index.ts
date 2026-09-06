@@ -133,3 +133,10 @@ export { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 export { composeEffectiveBindings, type KeybindingOverrideMap } from "./keybinding-overrides.js";
 
 export { consoleKeybindingOverrides, useKeybindingSurface } from "./keybinding-override-store.js";
+
+// The lifecycle a VIEW family's commands take: contributed while a surface is on
+// screen, cleared when it goes. Published because the runs and approvals panes are
+// its readers and a view family may reach nothing else in this one — and because the
+// alternative, each pane writing its own register/unregister effect against
+// `registerConsoleCommands`, is a contribution the open palette never re-reads.
+export { useConsoleCommandSeat } from "./command-seat.js";

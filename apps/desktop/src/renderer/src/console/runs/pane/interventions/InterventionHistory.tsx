@@ -28,8 +28,15 @@
 // `rollback-result.ts`'s exhaustive reading, so a degraded disposition arrives with
 // its own words, its own daemon-supplied positions, and — on the three arms that
 // carry them — both never-silent file enumerations.
+//
+// A REWIND THAT TOUCHED THE WORKING TREE IS DISCLOSED HERE AND NOWHERE ELSE. The
+// three dispositions that carry enumerations ride this list, so this is the surface
+// that owes a person the two path lists — and every path in them is a control,
+// because a path a person can see and cannot take is a path they retype.
 
 import { Nothing } from "../../../primitives/index.js";
+import type { ConsoleBridge } from "../../../bridge/index.js";
+import { useEnumeratedPathAction } from "../controls/enumerated-path-action.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
 import { InterventionRow } from "./InterventionRow.js";
 
@@ -38,9 +45,15 @@ export interface InterventionHistoryProps {
   readonly records: readonly RunControlRecord[];
   /** Rows for this run alone. */
   readonly runId: string;
+  /** For the path action a settled rollback's enumerations offer. */
+  readonly bridge: ConsoleBridge;
 }
 
 export function InterventionHistory(props: InterventionHistoryProps): React.JSX.Element {
+  // Held for the whole history rather than per row: one host call is in flight at a
+  // time and one refusal is the answer to the last one, so a per-row copy would be
+  // as many identical pieces of state as the run has interventions.
+  const pathAction = useEnumeratedPathAction(props.bridge);
   const rows = props.records.filter((record) => record.runId === props.runId);
   if (rows.length === 0) {
     return (
@@ -55,7 +68,12 @@ export function InterventionHistory(props: InterventionHistoryProps): React.JSX.
   return (
     <ol className="meridian-interventions">
       {rows.map((record) => (
-        <InterventionRow key={record.recordId} record={record} />
+        <InterventionRow
+          key={record.recordId}
+          record={record}
+          onPathAction={pathAction.copyPath}
+          pathActionRefusal={pathAction.refusal}
+        />
       ))}
     </ol>
   );

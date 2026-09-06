@@ -165,9 +165,21 @@ describe("the runs scenario feeds both run subscriptions", () => {
   });
 
   it("negative control: a scenario with no run beats feeds neither stream", () => {
-    // The approvals scenario scripts approval lifecycle and nothing run-shaped, so
-    // the helper above is discriminating rather than answering "both" for anything.
-    expect([...streamsFedBy(APPROVALS_SCENARIO)]).toStrictEqual([]);
+    // Built by REMOVING the run beats from a real scenario rather than by naming one
+    // that happens to have none: the approvals scenario was that scenario until it
+    // grew the `run.running` beat its execution-boundary section reads a posture
+    // from, and a control whose premise is another file's contents goes stale the
+    // moment that file gains a beat. Derived like this it cannot.
+    const withoutRunBeats: ConsoleScenario = {
+      ...APPROVALS_SCENARIO,
+      id: "approvals-without-run-beats",
+      beats: APPROVALS_SCENARIO.beats.filter((beat) => !beat.event.kind.startsWith("run.")),
+    };
+
+    expect([...streamsFedBy(withoutRunBeats)]).toStrictEqual([]);
+    // And the scenario it was derived from does feed one, which is what makes the
+    // filter above the thing being tested rather than a no-op.
+    expect([...streamsFedBy(APPROVALS_SCENARIO)]).toStrictEqual([RUN_STATE_EVENT_STREAM]);
   });
 });
 

@@ -6,9 +6,10 @@
 // durable record — with the `origin` discriminator and the admitting principal —
 // is not something it can read, rather than inferring either.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { refuse } from "../../../core/index.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
@@ -21,6 +22,7 @@ function refusedRecord(recordId: string, runId: string): RunControlRecord {
     recordId,
     runId,
     control: "cancel",
+    composite: false,
     outcome: {
       kind: "refused",
       control: "cancel",
@@ -34,6 +36,7 @@ function degradedRollbackRecord(recordId: string): RunControlRecord {
     recordId,
     runId: RUN_ID,
     control: "rollback",
+    composite: false,
     outcome: {
       kind: "settled",
       control: "rollback",
@@ -53,7 +56,12 @@ function degradedRollbackRecord(recordId: string): RunControlRecord {
 }
 
 function renderHistory(records: readonly RunControlRecord[]): HTMLElement {
-  const { container } = render(<InterventionHistory records={records} runId={RUN_ID} />);
+  const { container } = render(
+    // A real fixture bridge rather than a stub: the list holds the path action a
+    // settled rollback's enumerations offer, and a hand-built object would let a
+    // change to that seam's shape pass here and fail in the window.
+    <InterventionHistory records={records} runId={RUN_ID} bridge={createFixture().bridge} />,
+  );
   return container;
 }
 
@@ -110,6 +118,7 @@ describe("a degraded settlement is never a success", () => {
         recordId: "six",
         runId: RUN_ID,
         control: "rollback",
+        composite: false,
         outcome: {
           kind: "settled",
           control: "rollback",
@@ -125,5 +134,114 @@ describe("a degraded settlement is never a success", () => {
     ]);
     expect(container.textContent).toContain("conversation-only");
     expect(container.textContent).not.toContain("run.compaction_boundary_diverged");
+  });
+});
+
+/** A settled rollback that restored files, with both enumerations non-empty. */
+function restoredRollbackRecord(recordId: string): RunControlRecord {
+  return {
+    recordId,
+    runId: RUN_ID,
+    control: "rollback",
+    composite: false,
+    outcome: {
+      kind: "settled",
+      control: "rollback",
+      response: {
+        interventionId: INTERVENTION_ID as never,
+        interventionType: "rollback",
+        state: "applied",
+        runVersion: 14,
+        result: {
+          disposition: "files-restored",
+          overwrittenIgnoredPaths: ["/Users/dev/code/one/.env.local"],
+          divergentGitlinks: ["/Users/dev/code/one/vendor/sdk"],
+        },
+      },
+    },
+  };
+}
+
+describe("a rewind that mutated the working tree is disclosed here", () => {
+  it("renders both never-silent enumerations for a restore", () => {
+    // The three dispositions that carry enumerations ride this list, so this is the
+    // surface that owes a person the two path lists. Before this mount the runs pane
+    // drew its own shorter copy and no path in it was reachable.
+    const container = renderHistory([restoredRollbackRecord("one")]);
+    expect(container.querySelector(".meridian-restore-disclosure")).not.toBeNull();
+    expect(container.textContent).toContain("Overwritten ignored paths");
+    expect(container.textContent).toContain("Divergent gitlinks");
+  });
+
+  it("makes every enumerated path a control that names what it does", async () => {
+    const container = renderHistory([restoredRollbackRecord("one")]);
+    const disclosures = [...container.querySelectorAll("details")];
+    const overwritten = disclosures[0];
+    if (overwritten === undefined) {
+      throw new Error("the restore disclosure rendered no enumeration to open");
+    }
+    overwritten.open = true;
+    fireEvent(overwritten, new Event("toggle"));
+    const link = container.querySelector<HTMLButtonElement>(
+      ".meridian-restore-disclosure__path-link",
+    );
+    expect(link).not.toBeNull();
+    // The verb AND the path: the path alone says what the control is about and
+    // never what activating it does.
+    expect(link?.getAttribute("aria-label")).toBe("Copy path /Users/dev/code/one/.env.local");
+  });
+
+  it("renders no working-tree section for a disposition that mutated no file", () => {
+    // The mount is on the reading's own "this arm carries enumerations" answer and
+    // never on a disposition name, and `boundary-diverged` carries none.
+    const container = renderHistory([degradedRollbackRecord("one")]);
+    expect(container.querySelector(".meridian-restore-disclosure")).toBeNull();
+  });
+});
+
+/**
+ * A rejected rollback whose reason names one of the composite's four guards.
+ *
+ * `composite` is the caller's own record of what it SENT, because the answer echoes
+ * the replacement nowhere — so the same reason on a bare rewind and on an
+ * edit-and-resend has to read differently, and only this flag can tell them apart.
+ */
+function rejectedRollbackRecord(recordId: string, composite: boolean): RunControlRecord {
+  return {
+    recordId,
+    runId: RUN_ID,
+    control: "rollback",
+    composite,
+    outcome: {
+      kind: "settled",
+      control: "rollback",
+      response: {
+        interventionId: INTERVENTION_ID as never,
+        interventionType: "rollback",
+        state: "rejected",
+        runVersion: 12,
+        rejectionReason: "composite.no_pending_send",
+      },
+    },
+  };
+}
+
+describe("the composite's guard prose reaches composite dispatches alone", () => {
+  it("names the check and its remedy for an edit-and-resend that was refused whole", () => {
+    const container = renderHistory([rejectedRollbackRecord("one", true)]);
+
+    expect(container.textContent).toContain("An earlier send is still pending on this run");
+    expect(container.textContent).toContain("Cancel the queued items");
+  });
+
+  it("negative control: a bare rewind with the same reason gets the daemon's words alone", () => {
+    // The four guards belong to the atomic edit-and-resend. A bare rewind carried no
+    // correction, so telling its author to drain a queue so the correction can land
+    // is advice about a message that does not exist.
+    const container = renderHistory([rejectedRollbackRecord("two", false)]);
+
+    expect(container.textContent).toContain("composite.no_pending_send");
+    expect(container.textContent).not.toContain("An earlier send is still pending on this run");
+    expect(container.textContent).not.toContain("Cancel the queued items");
   });
 });

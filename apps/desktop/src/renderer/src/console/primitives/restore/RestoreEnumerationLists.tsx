@@ -12,6 +12,7 @@ export function RestoreEnumerationLists(props: {
   readonly enumerations: RestoreEnumerations;
   readonly emptyCopy: string;
   readonly onOpenPath: ((path: string) => void) | undefined;
+  readonly pathActionLabel?: string | undefined;
 }): React.JSX.Element {
   const { enumerations } = props;
   const isEmptyPair =
@@ -23,11 +24,13 @@ export function RestoreEnumerationLists(props: {
         label="Overwritten ignored paths"
         paths={enumerations.overwrittenIgnoredPaths}
         onOpenPath={props.onOpenPath}
+        pathActionLabel={props.pathActionLabel}
       />
       <PathEnumeration
         label="Divergent gitlinks"
         paths={enumerations.divergentGitlinks}
         onOpenPath={props.onOpenPath}
+        pathActionLabel={props.pathActionLabel}
       />
       {isEmptyPair ? (
         <p className="meridian-restore-disclosure__not-all-clear">{props.emptyCopy}</p>

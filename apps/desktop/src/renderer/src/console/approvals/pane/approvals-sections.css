@@ -1,10 +1,17 @@
 /* The sections the approvals pane HOSTS, as opposed to the two reads it owns.
 
-   Split out of `approvals.css` because these are four separate surfaces that happen
-   to share a pane — execution posture, the daemon-hosted tool list, the session
-   goal, and the framing a provider's own permission ask renders inside an ordinary
-   card. None of them is an approval, none is read from the approvals projection,
-   and each is reachable on its own.
+   Split out of `approvals.css` because these are separate surfaces that happen to
+   share a pane — the daemon-hosted tool list, the session goal, and the framing a
+   provider's own permission ask renders inside an ordinary card. None of them is an
+   approval, none is read from the approvals projection, and each is reachable on
+   its own.
+
+   THE EXECUTION-POSTURE RULES LEFT WITH THEIR COMPONENT, which now lives in
+   `console/primitives/` because two view families render it. The one grouped
+   selector that spanned the split — the two posture lists and the schema-key list,
+   which shared a reset — is written twice rather than left here, because a family's
+   CSS is imported from that family's barrel and a posture rule reached through the
+   approvals door would arrive only for a pane that happens to be open.
 
    Imported from this subtree's door beside the pane's own sheet, so the bundler
    still sees one edge per file and a surface can no more arrive without its CSS
@@ -18,65 +25,25 @@
    Every value here is a Meridian token: no colour literal, no font stack, and no
    spacing number. */
 
-/* --- execution posture -------------------------------------------------- */
+/* --- the execution boundary a decision is about -------------------------- */
 
-.meridian-posture {
+/* One block per run the pending decisions name: the run's own identifier above the
+   boundary it executed under, so a person answering several requests can tell which
+   run each answer is about. */
+.meridian-approvals__posture {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3);
-  background: var(--meridian-surface-raised);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-md);
+  gap: var(--meridian-space-1);
 }
 
-/* Configured intent is visibly not a stamped boundary: a dashed edge says the
-   difference before any copy does. */
-.meridian-posture--intent {
-  border-style: dashed;
-}
+/* --- daemon-hosted tools ------------------------------------------------ */
 
-.meridian-posture__line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
-  align-items: center;
-}
-
-.meridian-posture__facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  gap: var(--meridian-space-2) var(--meridian-space-4);
-  margin: 0;
-}
-
-.meridian-posture__fact dt {
-  color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-posture__fact dd {
-  margin: 0;
-}
-
-.meridian-posture__roots,
-.meridian-posture__domains,
 .meridian-callback-tools__schema-keys {
   margin: 0;
   padding: 0;
   overflow-wrap: anywhere;
   list-style: none;
 }
-
-.meridian-posture__caveat {
-  max-width: 68ch;
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  line-height: 1.5;
-}
-
-/* --- daemon-hosted tools ------------------------------------------------ */
 
 .meridian-callback-tools {
   display: flex;
@@ -171,6 +138,19 @@
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-sm);
   resize: vertical;
+}
+
+/*
+ * The bindings a delivery failure named, inside the refusal's action slot.
+ *
+ * A wrapping row rather than a list, because each entry is a wire figure that
+ * carries its own mono treatment and the count is small — one per live provider leg
+ * that refused.
+ */
+.meridian-goal__failed-bindings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
 }
 
 .meridian-goal__effectiveness {

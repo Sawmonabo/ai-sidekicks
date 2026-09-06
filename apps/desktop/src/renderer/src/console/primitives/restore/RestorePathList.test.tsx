@@ -11,7 +11,7 @@
 // the scroller's height and each row's through `offsetHeight`, and against a
 // zero-height scroller it correctly answers with an empty window. So a case that
 // asserts anything about a rendered row has to say how tall the container is. The
-// shadow itself is `repos/element-height-shim.test-support.js`'s — one write on
+// shadow itself is `primitives/element-height-shim.test-support.js`'s — one write on
 // `HTMLElement.prototype` for the whole family, because that property is global to the
 // environment — and what stays here is the rule this list measures by.
 

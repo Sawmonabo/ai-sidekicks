@@ -120,9 +120,21 @@ export interface ConsoleFamilyCommandContribution {
   readonly keyBindings: readonly KeyBinding[];
 }
 
+/**
+ * Release one contribution, if it is still the live one for its owner.
+ *
+ * A no-op once the owner has been re-contributed: see
+ * {@link ConsoleFamilyContributions.contribute} for why a superseded contributor
+ * must not clear rows that belong to the one that replaced it.
+ */
+export type ConsoleContributionRelease = () => void;
+
+/** What a released owner contributes. Frozen, so a caller cannot make it grow. */
+const NO_CONTRIBUTION: readonly [] = Object.freeze([]);
+
 /** The door a family contributes its commands and chords through. */
 export interface ConsoleCommandSurface {
-  contribute(contribution: ConsoleFamilyCommandContribution): void;
+  contribute(contribution: ConsoleFamilyCommandContribution): ConsoleContributionRelease;
 }
 
 /**
@@ -144,17 +156,63 @@ export interface ConsoleCommandSurface {
  *
  * The frame's own commands do not come through here: they close over one window's
  * store, so they are registered from an effect and removed on unmount.
+ *
+ * EXPORTED FOR THE INSTANCE CLAIM. The window composes exactly one of these below
+ * and every family reaches it through the narrowed `consoleCommandSurface` handle,
+ * so nothing in production constructs a second — but "a second composition holds its
+ * own contributors" is a property of the class rather than of that one instance, and
+ * it is unprovable against a singleton. The class is not on `palette/index.ts` and
+ * must not be: a door line for a symbol no production module imports is one
+ * `barrel-census` fails.
  */
-class ConsoleFamilyContributions implements ConsoleCommandSurface {
+export class ConsoleFamilyContributions implements ConsoleCommandSurface {
   readonly #registry: CommandRegistry;
   readonly #contributionsByOwner = new Map<string, ConsoleFamilyCommandContribution>();
   readonly #changes = new Emitter<void>("console family contribution");
+  /**
+   * The token whose contribution is live, per owner.
+   *
+   * ON THE INSTANCE AND NEVER AT MODULE SCOPE. Owner-scoped replace is this
+   * object's rule, and the token that says which contributor won a race is the
+   * same fact — held anywhere else it would be shared by every instance, so a
+   * second composition (another window, a second test mount building its own
+   * registry) would supersede tokens for an owner it has no rows in and turn the
+   * other instance's release into a no-op.
+   */
+  readonly #liveTokenByOwner = new Map<string, symbol>();
 
   public constructor(registry: CommandRegistry) {
     this.#registry = registry;
   }
 
-  public contribute(contribution: ConsoleFamilyCommandContribution): void {
+  /**
+   * Replace `owner`'s rows, and hand back the release for THIS contribution.
+   *
+   * ONE LIVE CONTRIBUTOR PER OWNER, TRACKED BY TOKEN. Owner-scoped replace is
+   * exactly right for a surface re-contributing its own changed rows and exactly
+   * wrong for two mounts of one surface: the second replaces the first, and then
+   * the FIRST one's release would clear rows the second still owns, leaving a live
+   * surface whose commands are gone from the palette with nothing on screen to say
+   * so. So each contribution records the token that made it and the release clears
+   * the owner only while its own token is still the live one. A stale contributor's
+   * release is a no-op — the same rule `GenerationLatch` applies to a settlement
+   * arriving on a transport that has been replaced.
+   */
+  public contribute(contribution: ConsoleFamilyCommandContribution): ConsoleContributionRelease {
+    this.#replace(contribution);
+    const token = Symbol(contribution.owner);
+    this.#liveTokenByOwner.set(contribution.owner, token);
+    return () => {
+      if (this.#liveTokenByOwner.get(contribution.owner) !== token) {
+        return;
+      }
+      this.#liveTokenByOwner.delete(contribution.owner);
+      this.#replace({ owner: contribution.owner, commands: [], keyBindings: NO_CONTRIBUTION });
+    };
+  }
+
+  /** The replace itself, with no token bookkeeping: both paths above go through it. */
+  #replace(contribution: ConsoleFamilyCommandContribution): void {
     const previous = this.#contributionsByOwner.get(contribution.owner);
     for (const command of previous?.commands ?? []) {
       this.#registry.unregister(command.id);

@@ -6,7 +6,7 @@
 // fold ranks by are the origin's, and the projection says which entry it read.
 
 import { describe, expect, it } from "vitest";
-import { type ConsoleSessionEvent } from "../../../store/index.js";
+import { type ConsoleSessionEvent } from "../store/index.js";
 import { foldSessionGoal } from "./session-goal.js";
 import {
   event,

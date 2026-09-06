@@ -7,50 +7,20 @@
 // rendering half.
 
 import { describe, expect, it } from "vitest";
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import {
-  readingForRun,
-  withRunDriverBindings,
-  type DriverCapabilityReadout,
-} from "../../../bridge/index.js";
+import { readingForRun, withRunDriverBindings } from "../../../bridge/index.js";
 // The declaring modules rather than the door: both names are read only from this
 // suite, and a door line no production module imports is a dead export.
 import { foldRunDriverBindings } from "../../../bridge/driver-capabilities/run-driver-binding.js";
-import type { DeclaredDriverFlags } from "../../../bridge/driver-capabilities/driver-capability-read.js";
 import type { ConsoleEntity, ConsoleSessionEvent } from "../../../store/index.js";
-import { isControlOffered } from "./run-control-gating.js";
+import {
+  capabilityReadout as readout,
+  declaredFlags,
+} from "./driver-capability-readout.test-support.js";
+import { isControlOffered, offeredRunControls } from "./run-control-gating.js";
 
 const CLAUDE_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 const CODEX_RUN = "c4a1b2d3-5e6f-4071-8b82-0d3e4f506172";
-
-/**
- * One driver's record: the named flags true, every other flag false.
- *
- * Derived from the shipped closed set rather than hand-listed, exactly as the
- * fixture's own scenario does: `DriverCapabilities.flags` is a total record parsed
- * `.strict()`, so a hand list would go stale the day the set grows.
- */
-function declaredFlags(declared: readonly DriverCapabilityFlag[]): DeclaredDriverFlags {
-  const asserted = new Set<DriverCapabilityFlag>(declared);
-  return Object.fromEntries(
-    DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, asserted.has(flag)]),
-  ) as DeclaredDriverFlags;
-}
-
-/** A readout over the named reports, with the named run bindings. */
-function readout(
-  reports: readonly (readonly [string, readonly DriverCapabilityFlag[]])[],
-  bindings: readonly (readonly [string, string])[] = [],
-): DriverCapabilityReadout {
-  return {
-    flagsByDriverName: new Map(
-      reports.map(([driverName, declared]) => [driverName, declaredFlags(declared)]),
-    ),
-    driverNameByRunId: new Map(bindings),
-    readRefusal: undefined,
-  };
-}
 
 describe("capability gating resolves the run's own bound driver", () => {
   it("keeps Rewind on a Claude run while a Codex driver reports rollback false", () => {
@@ -209,5 +179,41 @@ describe("the session's own projection is what names a run's driver", () => {
     const unjoined = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), new Map());
     expect(isControlOffered("steer", unjoined, CLAUDE_RUN)).toBe(false);
     expect(isControlOffered("rollback", unjoined, CODEX_RUN)).toBe(false);
+  });
+});
+
+describe("the row's offer reading, which the palette contributes from", () => {
+  const CAPABLE = readout([["claude", ["steer", "rollback"]]], [[CLAUDE_RUN, "claude"]]);
+
+  it("offers pause and stop on a running run, and never pause beside resume", () => {
+    const offered = offeredRunControls({ runId: CLAUDE_RUN, state: "running" }, CAPABLE);
+
+    expect(offered.primary).toEqual(["pause", "interrupt"]);
+  });
+
+  it("offers resume in place of pause once the run is at rest", () => {
+    const offered = offeredRunControls({ runId: CLAUDE_RUN, state: "paused" }, CAPABLE);
+
+    expect(offered.primary).toEqual(["resume", "interrupt"]);
+  });
+
+  it("offers no pause, resume, or stop on a terminal run", () => {
+    const offered = offeredRunControls({ runId: CLAUDE_RUN, state: "completed" }, CAPABLE);
+
+    expect(offered.primary).toEqual([]);
+  });
+
+  it("keeps the gated pair off a run whose driver declared neither", () => {
+    const bare = readout([["codex", []]], [[CODEX_RUN, "codex"]]);
+
+    const offered = offeredRunControls({ runId: CODEX_RUN, state: "running" }, bare);
+
+    expect(offered.overflow).toEqual(["cancel"]);
+  });
+
+  it("keeps the gated pair off a run whose capabilities were never read", () => {
+    const offered = offeredRunControls({ runId: CLAUDE_RUN, state: "running" }, undefined);
+
+    expect(offered.overflow).toEqual(["cancel"]);
   });
 });

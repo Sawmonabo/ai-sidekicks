@@ -8,7 +8,7 @@
 // yet what the session's agents are working toward.
 
 import { DerivedFigure, Nothing } from "../../../primitives/index.js";
-import { type SessionGoalProjection } from "./session-goal.js";
+import { type SessionGoalProjection } from "../../../bridge/index.js";
 
 /** The read-only line: one goal, clamped to one measure, or an explicit absence. */
 export function GoalReading(props: { readonly goal: SessionGoalProjection }): React.JSX.Element {

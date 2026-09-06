@@ -31,11 +31,16 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { consoleClockFor, type ConsoleBridge, type GrowthOutcome } from "../../bridge/index.js";
+import {
+  clearSessionGoal,
+  consoleClockFor,
+  updateSessionGoal,
+  type ConsoleBridge,
+  type GrowthOutcome,
+} from "../../bridge/index.js";
 import { useSessionScopedState } from "../../seats/index.js";
 import { useGenerationLatch, useReadTriggers, type SessionStore } from "../../store/index.js";
 import { ApprovalsReader, type ApprovalsSnapshot } from "./approvals-reader.js";
-import { clearSessionGoal, updateSessionGoal } from "./goal/session-goal.js";
 
 /** The subsystem name every goal-mutation refusal this module raises carries. */
 export const SESSION_GOAL_REFUSAL_ORIGIN = "session-goal";
