@@ -15,11 +15,14 @@
 //   • The other three lanes spin up, and from the architect's `running` transition
 //     onward all four are streaming: thinking, messages, and tool calls interleaved
 //     across four run chapters rather than four runs taken in turn.
-//   • An approval lands MID-STREAM. The implementer's run enters
-//     `waiting_for_approval` while the other three keep talking, and returns through
-//     `running`. That is the whole of the approval story the log can tell — see the
-//     note below on why no `approval.*` beat is scripted.
-//   • The cost meter moves, four times, one per lane.
+//   • An approval lands MID-STREAM, in four beats: the request, the implementer's run
+//     entering `waiting_for_approval` while the other three keep talking, the grant,
+//     and the return through `running`.
+//   • A lane PARKS. A provider quota reading lands at 100% with the instant it resets
+//     at, and the scout's run suspends on it — so the frame carries a park with a
+//     countdown, and three lanes still streaming beside it.
+//   • The cost meter moves, four times, one per lane, and the session read answers the
+//     accountant's committed figure — the past-tense receipt of everything above.
 //   • A thread is drawn between two runs: the architect's turn spawns a helper run,
 //     whose birth beat carries `parentRunId`. It is queued and starting at the last
 //     tick, so the frame also has the one lane state a four-lane session otherwise
@@ -38,11 +41,16 @@
 //
 // THREE THINGS THIS SCRIPT DELIBERATELY DOES NOT SAY
 //
-//   • **An approval card.** `approval.requested` is a registered type, but the card
-//     it would draw belongs to the surface that renders approvals, and the run-state
-//     pair below is what the ledger reads: `run.waiting_for_approval` and the
-//     `run.running` that releases it. Scripting both would put two records of one
-//     approval in one session, and the ledger would have to decide which is true.
+//   • **A provider switch.** `agent.provider_switched` and
+//     `agent.provider_switch_failed` are registered in the taxonomy and are NOT in
+//     this workspace's `SessionEventType` census: the union under
+//     `// SessionEventType — the canonical event-type census` in
+//     `packages/contracts/src/event.ts` says so in its own words, registering the
+//     post-B18 156 and naming the two as a widening that has not landed. A beat for
+//     one would fail the census leg of the wire-truth predicate, and a screenshot of
+//     it would be a frame of a wire that does not exist. The seam a switch would draw
+//     is therefore absent from this composition by the same rule every other absence
+//     here follows, and it arrives the day that union does.
 //   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
 //     DESCRIPTION and never the body, which is sealed in `content_payload` and
 //     served by no bridge namespace. The cards render the named absence, which is
@@ -51,6 +59,16 @@
 //     TypeScript in this workspace declares, so the thread carries the two linkage
 //     members that do have types — `parentRunId` and `internalHelper` — and says
 //     nothing about which kind of link it is.
+//
+// AND ONE IT USED TO REFUSE AND NO LONGER DOES. This header once declined the
+// `approval.*` pair on the ground that scripting it beside the run-state pair "would
+// put two records of one approval in one session". Re-read against the contract, that
+// is not what the two pairs are: `approval_flow` records WHAT was asked, by whom, over
+// what resource, and who granted it, and `run_lifecycle` records what the RUN did
+// about it. Neither is derivable from the other — a run can block on an ask nobody
+// answers, and an approval can be granted for a run that has already ended — so a
+// session carrying only the run pair leaves the approvals surface nothing to render,
+// which is the state this scenario was in.
 //
 // TWO CONSEQUENCES A READER WILL NOTICE FIRST:
 //
@@ -147,11 +165,57 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
           id: SESSION_ID,
           state: "active",
           config: {},
-          metadata: {},
+          // The display title, which is metadata a session HAPPENS to carry: no
+          // registered session shape has a first-class name field, and
+          // `session.created` is `.strict()` with no title member at all. So the
+          // console reads one from here or renders the session by its identifier.
+          metadata: { title: "Ship the ledger" },
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T14:20:02.450Z",
         },
         timelineCursors: { latest: "flagship-cursor-45" },
+      },
+    },
+    {
+      // The node's health, which is a MEASUREMENT and so is scripted rather than
+      // folded out of beats: nothing in a session's log says whether the node's
+      // storage is healthy. Two components, one of them not — so the cast bar's
+      // compact mark has something to say, and the mark's own absence when
+      // everything is healthy is still reachable from any other scenario.
+      call: "health.statusRead",
+      result: {
+        overall: "degraded",
+        components: [
+          { component: "session-store", state: "healthy", observedAt: STARTED_AT_ISO },
+          { component: "relay", state: "degraded", observedAt: STARTED_AT_ISO },
+        ],
+      },
+    },
+    {
+      // The accountant's own committed figure — the ONE source of a spend number for
+      // every surface, and the reason the cast bar sums nothing. `priced` because
+      // every debit this session's four lanes raised was priced; the unpriced arm is
+      // a different session's story and a different scenario's to tell.
+      call: "orchestration.budgetRead",
+      result: {
+        sessionId: SESSION_ID,
+        costLimitCents: 500_00,
+        turnLimitPerAgent: 40,
+        maxExecutingChannels: 4,
+        maxQueueDepthPerChannel: 8,
+        maxPendingOrchestrationRuns: 4,
+        activeChildLimit: 2,
+        unpricedFamilyCaps: [],
+        // The decomposition is arithmetic the DAEMON did, mirrored here exactly:
+        // priced plus unpriced is observed, and observed plus reserved is the
+        // committed figure. A scenario whose members did not add up would teach a
+        // surface that the identity does not hold.
+        observedCostCents: 9_47,
+        reservedCostCents: 3_00,
+        observedPricedCostCents: 9_47,
+        observedUnpricedDebitCents: 0,
+        committedSpendCents: 12_47,
+        costStatus: "priced",
       },
     },
     {

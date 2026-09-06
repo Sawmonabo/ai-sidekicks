@@ -4,6 +4,9 @@
 // the script plays in. The two change for different reasons — a beat is added when a
 // surface needs one, and the session reads change when the wire does — and one file
 // holding both was 584 lines, which is what `apps/desktop/AGENTS.md` puts a ceiling on.
+// The two row builders this script needs left for `flagship-entries.ts` on the same
+// rule, at the same seam: they say what a row of a kind LOOKS like, and this file
+// says which rows play and when.
 
 import {
   createLedgerLaneEntries,
@@ -26,41 +29,15 @@ import {
   RUN_SCOUT,
   SESSION_ID,
 } from "./flagship-cast.js";
+import {
+  APPROVAL_SCOPE,
+  PROVIDER_ACCOUNT_ID,
+  approvalEntry,
+  costUpdateEntry,
+} from "./flagship-entries.js";
 
 /** The three entry builders, with this scenario's session bound in. */
 const lane = createLedgerLaneEntries(SESSION_ID);
-
-/**
- * One cost reading, in the shape `Spec-006 §Usage Telemetry (usage_telemetry)` registers for it.
- *
- * A local builder rather than one hoisted into the shared vocabulary: this is the
- * only scenario that meters a cost today, and `apps/desktop/AGENTS.md` hoists a
- * helper on its SECOND use. The three required members are carried in full —
- * `usage.cost_update` MUST set `costStatus` and `costSource`, and post-2026-08-26
- * emitters MUST set `effectivePrincipal` — because a partial row here would teach a
- * meter to read a shape no emitter produces, which is the defect
- * `scenarios/wire-truth.ts`' taxonomy-leg rule exists to prevent and which the code
- * leg cannot see: no strict variant is registered for this type yet.
- */
-function costUpdateEntry(input: {
-  readonly atMs: number;
-  readonly runId: string;
-  readonly costCents: number;
-  readonly causedBy: string;
-}): LedgerScriptEntry {
-  return {
-    atMs: input.atMs,
-    kind: "usage.cost_update",
-    payload: {
-      sessionId: SESSION_ID,
-      runId: input.runId,
-      costCents: input.costCents,
-      costStatus: "priced",
-      costSource: "provider_reported",
-      effectivePrincipal: { kind: "participant", participantId: input.causedBy },
-    },
-  };
-}
 
 export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
   // The opening, unchanged in shape: the room, the cast in join order, and the
@@ -231,6 +208,21 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
   // The approval, landing mid-stream: one lane blocks, and the other three carry on
   // talking through the whole block. That overlap is the point — an approval in a
   // one-lane session stops the session, and in this one it stops a quarter of it.
+  //
+  // FOUR BEATS AND NOT TWO. The request and its grant are `approval_flow` rows and the
+  // block and its release are `run_lifecycle` rows, and they are two different facts
+  // about one moment: the approval says WHAT was asked and by whom, and the run states
+  // say what the run did about it. A script carrying only the run pair leaves the card
+  // nothing to render, which is what it used to do.
+  approvalEntry({
+    atMs: 1_590,
+    kind: "approval.requested",
+    members: {
+      requestedBy: AGENT_IMPLEMENTER,
+      resourceDescriptor: { path: "packages/runtime-daemon/src/session/lifecycle.ts" },
+      expiryAt: "2026-01-01T14:35:00.000Z",
+    },
+  }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 1_600,
     runVersion: 4,
@@ -260,6 +252,12 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runId: RUN_REVIEWER,
     costCents: 21,
     causedBy: PARTICIPANT_PRIYA,
+  }),
+  approvalEntry({
+    atMs: 1_840,
+    kind: "approval.approved",
+    actorId: PARTICIPANT_YOU,
+    members: { approver: PARTICIPANT_YOU, effectiveScope: APPROVAL_SCOPE },
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 1_850,
@@ -310,6 +308,31 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     toolCallId: "call-scout-1",
     durationMs: 62,
     contentLength: 2_048,
+  }),
+  // The park. A provider quota reading lands with the instant it resets at, and the
+  // lane running on that account suspends — two beats, because they are two facts and
+  // the wire keeps them apart: the reading is account-plane and carries no `runId` at
+  // all, and the suspension is this one run's. The countdown a person reads comes off
+  // `resetsAt`, which is the only member on either row that names a future instant.
+  {
+    atMs: 2_225,
+    kind: "usage.rate_limit_update",
+    payload: {
+      sessionId: SESSION_ID,
+      provider: "claude",
+      providerAccountId: PROVIDER_ACCOUNT_ID,
+      credentialGeneration: 1,
+      limitId: "five-hour",
+      windowMins: 300,
+      usedPercent: 100,
+      resetsAt: "2026-01-01T18:32:00.000Z",
+    },
+  },
+  lane.transition(RUN_SCOUT, {
+    atMs: 2_235,
+    runVersion: 4,
+    previousState: "running",
+    newState: "paused",
   }),
   costUpdateEntry({
     atMs: 2_250,

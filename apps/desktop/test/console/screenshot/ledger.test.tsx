@@ -3,8 +3,8 @@
 // `Spec-023 §Console Test Tiers` puts "the flagship frame at its frozen tick" on
 // this tier, and the ledger is what makes that sentence worth anything — the frame
 // beside it is chrome around an empty surface until a session is open in it. So
-// this file captures the whole console window with the three-lane session loaded,
-// in both schemes, plus the one composition no loaded session can reach.
+// this file captures the whole console window with the FLAGSHIP session loaded, in
+// both schemes, plus the one composition no loaded session can reach.
 //
 // WHY THE WHOLE FRAME AND NOT THE LEDGER ALONE. The claim being pinned is a
 // COMPOSITION: the rail, the cast bar, the deck, the chapters, and the attribution
@@ -12,13 +12,20 @@
 // shot cropped to the ledger's own box would still be green the day the rail
 // overlapped it.
 //
-// WHY TWO SCENARIOS AND NOT ONE. `ledger.ts` is three lanes ending in three
-// different conditions — one finished behind a rewind boundary, one parked, one
-// still streaming — which is the frame a reader has to be able to take in at a
-// glance. `ledger-quiet.ts` is a session with a roster and an empty log, and it is
-// here because rule 8's EMPTY is the one kind of nothing a scripted stream can
-// never reach: every beat a script plays puts a row on screen. An empty state
-// nobody can look at is an empty state nobody designed.
+// WHY THE FLAGSHIP AND NOT THE THREE-LANE LEDGER. The tier's sentence names the
+// FLAGSHIP frame, and this capture used to pin `ledger.ts` instead — a fine frame,
+// and not the one the sentence is about. `flagship.ts` is the composition that
+// carries every signature surface at one tick: four lanes streaming in four hues
+// inside their own chapters, a cast of six with live verbs, an approval asked and
+// granted mid-stream, a lane parked on a provider quota with the instant it resets
+// at, a helper run threaded to the turn that spawned it, and the accountant's own
+// committed figure on the bar. Pinning the smaller session left four of those out of
+// the one image the frame is judged by.
+//
+// WHY A SECOND SCENARIO. `ledger-quiet.ts` is a session with a roster and an empty
+// log, and it is here because rule 8's EMPTY is the one kind of nothing a scripted
+// stream can never reach: every beat a script plays puts a row on screen. An empty
+// state nobody can look at is an empty state nobody designed.
 //
 // WHY THE CAPTURE IS PRECEDED BY ASSERTIONS. A screenshot of an empty ledger is a
 // perfectly stable image, so it mints a perfectly stable reference and compares
@@ -67,9 +74,10 @@ import {
   LEDGER_QUIET_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/ledger-quiet.js";
 import {
-  LEDGER_SCENARIO,
-  LEDGER_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
+  FLAGSHIP_SCENARIO,
+  FLAGSHIP_SCENARIO_ID,
+} from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+import { LEDGER_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
 
 /**
  * How many advances the whole script is walked in, and how many drain it.
@@ -185,7 +193,7 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("screenshot — the ledger under the three-lane scenario", () => {
+describe("screenshot — the console under the flagship scenario", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
   // Without it a skipped run reports a count and nothing else, which a reader
   // cannot tell from a tier that was quietly switched off.
@@ -196,16 +204,16 @@ describe("screenshot — the ledger under the three-lane scenario", () => {
       skipOffBaselineHost(context);
       await emulateSystemScheme(scheme);
       const { container, frame } = await openLedgerSession(
-        LEDGER_SCENARIO_ID,
-        LEDGER_SCENARIO.sessionId,
+        FLAGSHIP_SCENARIO_ID,
+        FLAGSHIP_SCENARIO.sessionId,
       );
 
-      const deliveredBeatCount = await playToFrozenTick(LEDGER_SCENARIO.beats.at(-1)?.atMs ?? 0);
+      const deliveredBeatCount = await playToFrozenTick(FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0);
       expect(
         deliveredBeatCount,
         "the whole script has to be in before the tick is frozen: a capture taken mid-script pins " +
           "a session that is still arriving, and the reference it mints moves with the loop above",
-      ).toBe(LEDGER_SCENARIO.beats.length);
+      ).toBe(FLAGSHIP_SCENARIO.beats.length);
 
       // Rows on screen, not merely events in a store. The projection, the window
       // fold, and the viewport's reconcile all sit between the two, and a capture
@@ -215,7 +223,7 @@ describe("screenshot — the ledger under the three-lane scenario", () => {
         "no ledger row reached the document, so this capture would pin an empty feed",
       ).toBeGreaterThan(0);
 
-      await expect(frame).toMatchScreenshot(`ledger-three-lanes-${scheme}`);
+      await expect(frame).toMatchScreenshot(`flagship-frame-${scheme}`);
     });
   }
 });
