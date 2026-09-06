@@ -140,7 +140,20 @@ export class PendingInviteFeeds {
     });
   }
 
-  /** Read one feed to its end, then release it so a later trigger can open a fresh one. */
+  /**
+   * Read one feed to its end, then release it so a later trigger can open a fresh one.
+   *
+   * A PRODUCER THAT THREW PART-WAY IS THE THIRD WAY A FEED ENDS, and the only one a
+   * person is owed a sentence about. Without the `catch` the drain — invoked as a
+   * floating `void` — settles as an unhandled rejection: {@link refusal} stays
+   * undefined, the surface above keeps drawing a channel that is down, and the
+   * handle is never closed, so the subscription and the producer behind it outlive
+   * the window's reading of them. `browser/pane/navigation-state.ts` closes the same
+   * failure the same way, and this follows it: the handle goes first and
+   * unconditionally, then the refusal reaches the reading above through the one
+   * grammar this module has, then `release()` clears the field so the next trigger
+   * can open a fresh feed rather than finding this dead one still installed.
+   */
   async #drain<TEvent>(
     feed: GrowthStream<TEvent>,
     apply: (event: TEvent) => void,
@@ -153,6 +166,9 @@ export class PendingInviteFeeds {
         }
         apply(event);
       }
+    } catch (failure: unknown) {
+      feed.close();
+      this.#noteRefusal(consoleRefusalFrom(failure, PENDING_INVITE_ORIGIN));
     } finally {
       release();
     }

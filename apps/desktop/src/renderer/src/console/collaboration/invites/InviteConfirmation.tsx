@@ -8,10 +8,7 @@
 // dispatched by `pending-invite.ts` on that reference. The main-side half of the
 // lifecycle is `T-023r-5-5`: the protocol handler, the bridge-event dispatcher, and
 // the reference table these references live in. `Plan-023 §Phase 6 — Renderer Shell,
-// Router, And Composer` T-023r-6-3 is the live-wiring leg, and it ADOPTS this body
-// rather than authoring a second one at the shell's own path — the shape T-023r-6-1
-// already takes for the composer, which the console likewise authors and the shell
-// mounts.
+// Router, And Composer` T-023r-6-3 is the live-wiring leg over this body.
 //
 // WHY THE SHIPPED ACCEPTANCE COMPONENT IS NOT MOUNTED HERE. `session-members/
 // invite-accept-view.tsx` takes the raw `token` as a prop and issues `invite.accept`

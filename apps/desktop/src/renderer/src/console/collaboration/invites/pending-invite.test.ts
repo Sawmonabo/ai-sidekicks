@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  createFixtureBridge,
+  type ConsoleBridge,
+  type GrowthPendingInvite,
+} from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { PendingInviteAdapter, isRetryableOutcome } from "./pending-invite.js";
@@ -301,6 +305,94 @@ describe("the deep-link lifecycle — a feed that could not be opened", () => {
     adapter.requestRead("subscribe");
     await settleFeeds();
     expect(adapter.snapshot().feedRefusal).toBeDefined();
+    adapter.dispose();
+  });
+});
+
+describe("the deep-link lifecycle — a feed that opened and then broke", () => {
+  /**
+   * A pending feed that hands over one invitation and then ends the way the caller
+   * decides — by throwing, or by running out.
+   *
+   * Hand-built rather than delegated to a second fixture port, which is the shape
+   * the re-open cases below use: a scenario scripts arrivals and a clean end, and a
+   * producer that fails PART-WAY is the one ending it cannot express. So this is the
+   * narrow exception, and it is built with both endings so the failing case has a
+   * negative control that differs from it in exactly one statement.
+   */
+  function feedEndingAfterOneInvite(ending: "throws" | "runs-out"): {
+    readonly bridge: ConsoleBridge;
+    /** How many times the handle was closed, so a leak is an assertion rather than a hope. */
+    readonly closes: () => number;
+  } {
+    let closes = 0;
+    const bridge = fixtureBridgeWithGrowth(scenarioWithArrivals(), {
+      invitePendingSubscribe: async () =>
+        await Promise.resolve({
+          status: "served",
+          value: {
+            events: (async function* serveOneThenEnd(): AsyncGenerator<GrowthPendingInvite> {
+              yield {
+                reference: FIRST_REFERENCE,
+                sessionId: FIRST_SESSION,
+                joinMode: "collaborator",
+                expiresAt: "2026-01-08T10:05:00.000Z",
+                sessionName: "Design review",
+                inviterDisplayName: "Priya Raman",
+              };
+              if (ending === "throws") {
+                throw new Error("the producer went away mid-stream");
+              }
+            })(),
+            close: (): void => {
+              closes += 1;
+            },
+          },
+        }),
+    });
+    return { bridge, closes: () => closes };
+  }
+
+  it("says a feed that threw part-way is down", async () => {
+    // Without the drain's `catch` this is an unhandled promise rejection and nothing
+    // else: the refusal is never recorded, so the section keeps drawing a channel
+    // that is down and an invitation nobody could deliver stays indistinguishable
+    // from one nobody sent — which is the exact confusion this lifecycle exists to
+    // remove for the ENDED case and had left open for the THREW one.
+    const { bridge } = feedEndingAfterOneInvite("throws");
+    const adapter = new PendingInviteAdapter(bridge);
+    adapter.requestRead("subscribe");
+    await settleFeeds();
+
+    expect(adapter.snapshot().invite?.reference).toBe(FIRST_REFERENCE);
+    expect(adapter.snapshot().feedRefusal).toBeDefined();
+    adapter.dispose();
+  });
+
+  it("closes the handle of a feed that threw part-way", async () => {
+    // A producer that threw is still a subscription somebody has to end. Dropping
+    // the handle leaves it and the producer behind it alive for the life of the
+    // window, once per open — and the triggers above re-open on every reconnect.
+    const { bridge, closes } = feedEndingAfterOneInvite("throws");
+    const adapter = new PendingInviteAdapter(bridge);
+    adapter.requestRead("subscribe");
+    await settleFeeds();
+
+    expect(closes()).toBe(1);
+    adapter.dispose();
+  });
+
+  it("negative control: a feed that simply ran out is not a failure", async () => {
+    // Without this the case above would pass over a drain that recorded a refusal
+    // for every ending, which would put a permanent banner under every feed that
+    // finished normally.
+    const { bridge } = feedEndingAfterOneInvite("runs-out");
+    const adapter = new PendingInviteAdapter(bridge);
+    adapter.requestRead("subscribe");
+    await settleFeeds();
+
+    expect(adapter.snapshot().invite?.reference).toBe(FIRST_REFERENCE);
+    expect(adapter.snapshot().feedRefusal).toBeUndefined();
     adapter.dispose();
   });
 });

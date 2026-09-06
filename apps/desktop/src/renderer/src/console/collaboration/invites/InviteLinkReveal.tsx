@@ -29,12 +29,18 @@ export type MintedInviteLink =
   | { readonly status: "composed"; readonly url: string }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
-/** What one mint produced. Held only until a person puts it away. */
+/**
+ * What one mint produced. Held only until a person puts it away.
+ *
+ * THE PLAINTEXT TOKEN IS DELIBERATELY NOT A MEMBER. The reveal renders it only
+ * inside the link {@link MintedInviteLink} already carries, which is composed once
+ * from the host read at the moment of the mint — so a second copy on this model
+ * would be a plaintext credential held for the life of the reveal that nothing
+ * reads, which is a longer life than the one thing that needs it.
+ */
 export interface MintedInvite {
   /** Wire-verbatim, from the create reply. */
   readonly inviteId: string;
-  /** The plaintext token. Rendered only as part of the link, and never stored. */
-  readonly token: string;
   /** ISO 8601, wire-verbatim — the reply's own, not the one that was asked for. */
   readonly expiresAt: string;
   /** What this invitation grants. The caller's own request, echoed for the reader. */

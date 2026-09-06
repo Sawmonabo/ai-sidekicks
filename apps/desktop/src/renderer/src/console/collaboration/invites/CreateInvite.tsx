@@ -206,7 +206,6 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
         }
         publishMinted({
           inviteId: settlement.inviteId,
-          token: settlement.token,
           expiresAt: settlement.expiresAt,
           joinMode,
           link: await readInviteLink(bridge, settlement.token),
