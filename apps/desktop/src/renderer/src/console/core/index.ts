@@ -45,6 +45,8 @@ export {
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
+  PHASE_GRAPH_MAX_ZOOM,
+  PHASE_GRAPH_MIN_ZOOM,
   POSITION_SIBLING_OBSERVER_CAP,
   PRE_INITIALISATION_BUFFER_CAP,
   PROJECTED_RUN_CAP,
@@ -73,6 +75,7 @@ export {
   TOOL_ALLOWLIST_NAMED_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
   WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
+  WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
@@ -106,15 +109,14 @@ export {
   MILLISECONDS_PER_HOUR,
   MILLISECONDS_PER_MINUTE,
   parseInstant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   type Instant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   type InstantOffsetPolicy,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   type InstantOrder,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type InstantReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   type MalformedInstant,
 } from "./instant.js";
 // The registry classes leave through this door; the two symbols only their own
@@ -134,11 +136,11 @@ export {
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
 export {
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type ConsoleRefusalExtensions,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type ExtendedConsoleRefusal,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
 } from "./refusal-extensions.js";
 export { reportTripwire } from "./tripwires.js";

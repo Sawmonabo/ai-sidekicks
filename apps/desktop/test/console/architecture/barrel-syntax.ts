@@ -282,7 +282,7 @@ function bindingsOnlyReexported(sourceFile: ts.SourceFile): ReadonlySet<string> 
  * the call inside a method body, the type inside a type argument — so the loop above
  * reads neither, and a door whose only reader is a lazy chunk's loader reads to the
  * census as a door no module imports at all. That is a reading defect of exactly the
- * kind this file exists to prevent: `panes/workflow-run/phase-graph/index.ts` is
+ * kind this file exists to prevent: `workflows/pane/run/phase-graph/index.ts` is
  * reached through `import()` AND THROUGH NOTHING ELSE by construction — the whole
  * point of the split point — so the census would have reported the one door the
  * bundle budget requires as the one door nothing consumes.

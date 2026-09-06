@@ -36,6 +36,12 @@ export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.j
 // test and not the number.
 export { isSingleNameIdentifierShaped } from "./identifier-grammar.js";
 
+// The console's one byte measurement, published for the caps ABOVE this family. It
+// lives here because the durable path's own cap is measured with it and a ruler
+// belongs beside the thing it measures; a second one beside a second cap is how two
+// bounds come to disagree about one sentence.
+export { measureUtf8ByteLength } from "./value-classes.js";
+
 export { MemoryPersistenceAdapter } from "./memory-adapter.js";
 
 export { UiStateStore } from "./ui-state-store.js";

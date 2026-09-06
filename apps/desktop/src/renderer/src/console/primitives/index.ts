@@ -30,6 +30,7 @@ import "./accent-fill.css";
 import "./glyph.css";
 import "./figure.css";
 import "./chip.css";
+import "./choice-list.css";
 import "./chord.css";
 import "./nothing.css";
 import "./refusal.css";
@@ -115,30 +116,30 @@ export { Nothing } from "./Nothing.js";
 // this case and the sentences disagreed, so a family that reached past the barrel for
 // a local copy would be one more of them.
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   PartialReadNotice,
   ReadingState,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   RefusalScope,
 } from "./partial-read.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   READING_STATE_KINDS,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   REFUSAL_SCOPES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   behindProducerReading,
   partialReadNotices,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   readingNoticeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   uncheckedCoverageReading,
   unreadableDeliveryReading,
 } from "./partial-read.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   PartialReadProps,
 } from "./PartialRead.js";
 export { PartialRead } from "./PartialRead.js";
@@ -210,12 +211,12 @@ export { RefusalCard } from "./RefusalCard.js";
 // the family that first imports a symbol deletes its tag in the same commit.
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ChipProps,
   ChipTone,
 } from "./Chip.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   CHIP_TONES,
   Chip,
 } from "./Chip.js";
@@ -269,28 +270,34 @@ export type {
 export { LedgerRow } from "./LedgerRow.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   DerivedFigureProps,
 } from "./DerivedFigure.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   WireFigureProps,
 } from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
 // Neither name carries a marker any more: `WireFigure` is rendered by
-// `frame/ContextPicker.tsx` and `frame/WireChoiceList.tsx`, and `DerivedFigure` by
-// the runs, approvals, and inspector panes, so a surviving tag would be the half of
-// the marker an importing change owed and did not pay — which
+// `frame/ContextPicker.tsx` and the `WireChoiceList` beside it, and `DerivedFigure`
+// by the runs, approvals, and inspector panes, so a surviving tag would be the half
+// of the marker an importing change owed and did not pay — which
 // `--treat-tag-hints-as-errors` reports.
 export { DerivedFigure } from "./DerivedFigure.js";
 export { WireFigure } from "./WireFigure.js";
 
+// The one row every surface that offers wire identifiers to choose between renders.
+// A primitive rather than a frame component because its input is a list of wire
+// strings and its only dependency is the figure above: the frame is not the lowest
+// family that owns that, and a view family cannot import the frame's door at all.
+export { WireChoiceList } from "./WireChoiceList.js";
+
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ByteUnitLabel,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
@@ -301,10 +308,10 @@ export {
   formatDuration,
   formatMoney,
   formatPercent,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatRate,
   formatRelativeTime,
   formatWireDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatWireString,
 } from "./wire-figures.js";

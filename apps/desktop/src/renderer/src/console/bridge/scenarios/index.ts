@@ -32,6 +32,7 @@ import { REPOS_SCENARIO } from "./repos.js";
 import { RUNS_SCENARIO } from "./runs.js";
 import { SETTINGS_SCENARIO } from "./settings.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
+import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
@@ -51,7 +52,7 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   AGENTS_SCENARIO,
   SETTINGS_SCENARIO,
   REPOS_SCENARIO, // T-023p-1C-5 repos
-  // T-023p-1C-6 workflows
+  WORKFLOWS_SCENARIO, // T-023p-1C-6 workflows
   BROWSER_SCENARIO,
   TERMINAL_SCENARIO,
   // T-023p-1C-8 gallery

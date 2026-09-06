@@ -65,7 +65,7 @@ function scenarioRefusingTheEnumeration(): ConsoleScenario {
 function enumerationThroughTheSeam(
   engine: ScenarioEngine,
 ): Promise<GrowthOutcome<DefinitionListValue>> {
-  return answerFromScriptedReply<DefinitionListValue>(
+  return answerFromScriptedReply(
     engine,
     "workflow.definitionList",
     "workflowDefinitionList",

@@ -10,8 +10,10 @@
 // of their own live beside it, because each fails in a way this one cannot —
 // `fixture-session-snapshot.ts` derives the base state one session opens with,
 // `fixture-session-directory.ts` derives what the node HAS,
-// `fixture-attention-derivation.ts` folds beats into an attention projection, and
-// `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
+// `fixture-attention-derivation.ts` folds beats into an attention projection,
+// `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
+// `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
+// them, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
 
 import {
@@ -22,6 +24,7 @@ import {
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
+import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
@@ -32,8 +35,8 @@ import {
   type GrowthOutcome,
   type GrowthPort,
 } from "../growth-port/index.js";
-import type { GrowthBranchContext } from "../growth-values/gitflow.js";
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
+import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
@@ -47,6 +50,9 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
+    // workflow — spread from the module that implements them, so the served ids next
+    // door and the handlers here are held to each other by the `Pick` above.
+    ...fixtureWorkflowReads(engine),
     sessionRead: async (request) => ({
       status: "served",
       value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
@@ -66,7 +72,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             { items: [] },
     }),
     // gitflow
-    gitflowBranchContextRead: async (request) => {
+    gitflowBranchContextRead: async (request) =>
       // Routed through the scripted-reply seam so a scenario that DOES script
       // `gitflow.branchContextRead` is answered from the script, on the frozen clock,
       // with the loading window and the two non-arrival refusals a real read has.
@@ -80,28 +86,21 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // The unscripted arm REFUSES. The registered reply is flat and carries no
       // absence to serve — a pair that resolves no row refuses on that wire — so the
       // honest answer for a script that has not said is the "not checked" refusal,
-      // and a fabricated empty context would be a shape no daemon sends.
+      // and a fabricated empty context would be a shape no daemon sends. The fallback
+      // this seam takes is a whole outcome, so that refusal is NAMED here rather than
+      // smuggled through an absent value and re-read by the caller.
       //
       // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
       // `answerScriptedWrite` below states in full: this fixture serves the
       // operation, so `wire-unregistered` would be false about the build and would
       // send a reader to a document owing a wire that already has a stand-in.
-      const scripted = await answerFromScriptedReply<GrowthBranchContext | undefined>(
+      answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
         request,
         () => growthUnscriptedReply("gitflowBranchContextRead", "gitflow.branchContextRead"),
-      );
-      if (scripted.status === "unavailable") {
-        return scripted;
-      }
-      // A script that resolved with no context at all is the same gap said a second
-      // way: the reply arrived and carried nothing the flat shape can serve.
-      return scripted.value === undefined
-        ? growthUnscriptedReply("gitflowBranchContextRead", "gitflow.branchContextRead")
-        : { status: "served", value: scripted.value };
-    },
+      ),
     // identity
     callerParticipantRead: async (request) => {
       const { viewingParticipantId } = engine.scenario;
@@ -260,7 +259,7 @@ async function answerApprovalRead<TRow>(
   narrow: (reply: unknown) => ParsedRows<TRow>,
 ): Promise<GrowthOutcome<ParsedRows<TRow>>> {
   return mapGrowthServed(
-    await answerFromScriptedReply<unknown>(engine, call, operationId, request, () =>
+    await answerFromScriptedReply(engine, call, operationId, request, () =>
       growthUnscriptedReply(operationId, call),
     ),
     narrow,
@@ -283,12 +282,12 @@ async function answerApprovalRead<TRow>(
  * left after the check is exactly the settlement the seam reports, so the parked,
  * abandoned, and over-cap arms all keep their own answers.
  */
-async function answerScriptedWrite<TValue>(
+async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
   engine: ScenarioEngine,
   call: string,
-  operationId: GrowthOperationId,
+  operationId: TOperationId,
   request: unknown,
-): Promise<GrowthOutcome<TValue>> {
+): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
   if (engine.replyFor(call) === undefined) {
     // The SCENARIO's gap and never the build's. `growthUnavailable` would compose
     // "this build does not carry the wire", which is false for an operation this
@@ -298,7 +297,7 @@ async function answerScriptedWrite<TValue>(
     // operation to.
     return growthUnscriptedReply(operationId, call);
   }
-  return await answerFromScriptedReply<TValue>(engine, call, operationId, request, () => {
+  return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
     // Unreachable: the guard above already refused every unscripted call, and the
     // seam reports `unscripted` only for exactly that. Named rather than cast, so a
     // later change that moves the guard fails here loudly instead of serving a value

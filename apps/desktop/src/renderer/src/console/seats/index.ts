@@ -213,6 +213,11 @@ export {
 // package standard pairs with exactly that case. `PaneControls` keeps its TAG: the
 // value a deck constructs is still nobody's until the deck lands, and that reader hands
 // the provider an inline object rather than naming the type.
+//
+// `OwnerSlotContract` carries NEITHER any more. A shipped family names the type on every
+// slot it declares, which is the event its tag reserved the export for, and a marker
+// that outlives its consumer fails the dead-code gate under `--treat-tag-hints-as-errors`
+// rather than exempt anything — so the tag leaves in the diff that imports the symbol.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {

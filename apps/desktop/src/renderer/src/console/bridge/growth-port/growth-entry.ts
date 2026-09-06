@@ -115,6 +115,14 @@ export type GrowthOperationId =
   | "workflowGateResolve"
   | "workflowHumanFormSubmit"
   | "workflowGateChainVerify"
+  // The run enumeration, which is NOT one of the thirteen above and folds to no wire
+  // method: it serves its own slate row, because every registered run operation
+  // addresses one run by an id the caller already holds.
+  | "workflowRunList"
+  // The version chain, on the same footing and for the mirror-image reason: the
+  // registry addresses a version by `(definitionId, versionNumber)`, so an id in hand
+  // resolves to nothing and the read that would resolve it folds to no wire method.
+  | "workflowVersionChainRead"
   // gitflow
   | "gitflowBranchContextRead"
   | "gitflowPrPrepare"

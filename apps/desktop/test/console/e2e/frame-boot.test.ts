@@ -52,6 +52,7 @@ import {
   CONSOLE_DATABASE_NAME,
   UI_STATE_STORE_NAME,
 } from "../../../src/renderer/src/console/persistence/indexeddb-adapter.js";
+import { FIRST_RUN_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
 import { withLaunchedConsole } from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../launch-body.js";
@@ -144,15 +145,24 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // the COMPOSED one, not a bare line, because a bare line at the top-left of
       // a real window is what a half-painted page looks like.
       //
-      // `#/workflows` rather than `#/settings`: the settings destination has an
-      // owner now — the collaboration family's settings frame — so probing there
-      // would assert the reserved arm against a slot that is filled, and would fail
-      // for the RIGHT reason on a console that was working. The reserved probe has
-      // to name a slot nobody has claimed, and it must be re-pointed again the day
-      // the workflows family lands rather than deleted.
-      await consoleWindow.evaluate(() => {
-        window.location.hash = "#/workflows";
-      });
+      // Re-pointed rather than deleted, which is the instruction the previous probe
+      // left behind: it moved off `#/settings` when the collaboration family took
+      // that destination, and the workflows family has now taken `#/workflows`. Of
+      // the seven declared surface slots exactly one is still unclaimed — `timeline`
+      // — so it is the only address left that can ask this question at all.
+      //
+      // It is an AUXILIARY address, and that costs a session id: a bare
+      // `#/window/timeline` names a window without naming what to show in it, and
+      // the frame answers with the context picker rather than with an absence. So
+      // the probe names the scenario's own session, which this shell is playing —
+      // the first-run DIRECTORY is empty, which is what the assertion above is
+      // about, while the session it holds is readable, which is what gets the store
+      // open and the route as far as the slot. Re-point it again — do not delete it
+      // — the day a family claims `timeline`, and if that leaves no unclaimed slot
+      // at all, this probe has to be told which one to reserve rather than guess.
+      await consoleWindow.evaluate((sessionId: string) => {
+        window.location.hash = `#/window/timeline/${sessionId}`;
+      }, FIRST_RUN_SCENARIO.sessionId);
       await consoleWindow.locator(".meridian-surface-absence .meridian-nothing--empty").waitFor({
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),

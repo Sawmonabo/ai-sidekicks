@@ -9,11 +9,13 @@
 // surface as an absent value, say — and the two are separate failures with separate
 // evidence.
 
-import type { GrowthOperationId } from "../growth-port/index.js";
-import type { GrowthOutcome } from "../growth-port/index.js";
-import { growthScriptedReplyUnavailable } from "../growth-port/index.js";
-import type { ScenarioEngine } from "../scenario-runtime/index.js";
-import { settleScriptedReply } from "../scenario-runtime/index.js";
+import {
+  growthScriptedReplyUnavailable,
+  type GrowthOperationId,
+  type GrowthOutcome,
+} from "../growth-port/index.js";
+import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
+import { settleScriptedReply, type ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
  * Answer one served operation from the scenario's script, or from its own absence.
@@ -36,12 +38,14 @@ import { settleScriptedReply } from "../scenario-runtime/index.js";
  *     than a value — because the honest reading differs per operation and neither
  *     arm may be forced on the other. The list reads' is a served EMPTY state: a
  *     session with no invites and a node with no saved sidekick definitions are
- *     ordinary, and a surface has to draw them. The approvals reads' and the branch
- *     read's is a refusal: a scenario that models no approvals has left the question
- *     unasked, and the registered branch-context reply is flat and carries no absence
- *     at all, so serving one for either would put "there is none" in front of a
- *     person for a fact nothing checked. So the parameter returns `GrowthOutcome` and
- *     this helper decides neither. A caller taking the refusing arm reaches for
+ *     ordinary, and a surface has to draw them. The approvals reads', the branch
+ *     read's, and every workflow read's is a refusal: a scenario that models no
+ *     approvals has left the question unasked, the registered branch-context reply is
+ *     flat and carries no absence at all, and a workflow run snapshot has no empty
+ *     form — an invented one is a run a pane would offer operator controls on — so
+ *     serving one for any of them would put "there is none" in front of a person for
+ *     a fact nothing checked. So the parameter returns `GrowthOutcome` and this
+ *     helper decides neither. A caller taking the refusing arm reaches for
  *     `growthUnscriptedReply` and never `growthUnavailable`, because this fixture
  *     SERVES these operations and the build does carry no less of the wire for a
  *     scenario that said nothing.
@@ -60,20 +64,32 @@ import { settleScriptedReply } from "../scenario-runtime/index.js";
  *     A rejection is also what the caller will get once the wire lands and the
  *     operation becomes an ordinary bridge call, so the fixture is not teaching a
  *     shape the real seam will not produce.
+ *
+ * THE GENERIC IS KEYED ON THE OPERATION ID rather than on a bare value type, because
+ * the caller now supplies a whole outcome and the discipline of this seam is that the
+ * outcome has to be honest for the value shape in question — an empty enumeration
+ * where an empty enumeration is a real reply, a refusal where the value has no empty
+ * form at all. Keyed this way the fallback is checked against
+ * `GrowthOperationSignatures[operationId]["value"]`, so one answering with a shape the
+ * operation cannot return is a type error rather than a fixture teaching a surface a
+ * value no daemon sends.
  */
-export async function answerFromScriptedReply<TValue>(
+export async function answerFromScriptedReply<TOperationId extends GrowthOperationId>(
   engine: ScenarioEngine,
   call: string,
-  operationId: GrowthOperationId,
+  operationId: TOperationId,
   request: unknown,
-  whenUnscripted: () => GrowthOutcome<TValue>,
-): Promise<GrowthOutcome<TValue>> {
+  whenUnscripted: () => GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>,
+): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
   const settlement = await settleScriptedReply(engine, call, request);
   switch (settlement.status) {
     case "unscripted":
       return whenUnscripted();
     case "resolved":
-      return { status: "served", value: settlement.value as TValue };
+      return {
+        status: "served",
+        value: settlement.value as GrowthOperationSignatures[TOperationId]["value"],
+      };
     case "unanswered":
       return growthScriptedReplyUnavailable(operationId, settlement.code, settlement.detail);
     case "refused":

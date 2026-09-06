@@ -275,6 +275,23 @@ function buildWireRefused(
  * type is per-operation and a generated object would need a cast that switches off
  * exactly the checking this table exists to provide. The `GrowthPort` annotation
  * makes a missing method a compile error.
+ *
+ * THIS MODULE IS ITS HOME FOR EVERY READER OUTSIDE `bridge/`, and the three other
+ * candidates are each closed for a reason rather than passed over. `live-bridge.ts`
+ * takes it through `growth-port/index.js` because that door publishes to its own
+ * family, which is what a sub-module door is; a `frame/`, `seats/` or view-family
+ * module may not read that door at all, so the leaf specifier is what those have.
+ * `bridge/index.ts` is not the answer even though `barrel-census` would pass a line
+ * there — it passes on the production readers INSIDE this family, every one of which
+ * reads the declaring module or the sub-module door and none of which could use the
+ * family door without closing a self-edge. A door publishes what a reader outside the
+ * family takes, and outside `bridge/` this symbol's every reader is a suite. That is
+ * the same reading `core/wire-rejection.ts` records for `WireErrorEnvelope`, which
+ * was held off `core/index.ts` while its readers were harnesses and took the door in
+ * the diff that gave it production readers reaching it THROUGH that door. And a
+ * re-export under `test/console/` would be the shim `apps/desktop/AGENTS.md` names
+ * where it says the deep edge is the remedy — one more module to keep in step with
+ * this signature, in exchange for a shorter specifier.
  */
 export function createRefusingGrowthPort(): GrowthPort {
   return {
@@ -346,6 +363,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     workflowGateResolve: async () => growthUnavailable("workflowGateResolve"),
     workflowHumanFormSubmit: async () => growthUnavailable("workflowHumanFormSubmit"),
     workflowGateChainVerify: async () => growthUnavailable("workflowGateChainVerify"),
+    workflowRunList: async () => growthUnavailable("workflowRunList"),
+    workflowVersionChainRead: async () => growthUnavailable("workflowVersionChainRead"),
     // gitflow
     gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
     gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),

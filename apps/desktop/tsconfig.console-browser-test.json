@@ -43,6 +43,7 @@
   },
   "include": [
     "test/console/console-harness.tsx",
+    "test/console/phase-graph-settled.ts",
     // One glob rather than a line per family: `test/console/surfaces/` is the mount
     // helpers each view family's screenshot and accessibility suites drive, so a
     // per-file entry here is a line every family branch has to remember to add and
