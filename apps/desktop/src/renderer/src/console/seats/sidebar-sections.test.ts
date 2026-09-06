@@ -17,7 +17,6 @@ import { DuplicateRegistrationError } from "../core/keyed-registry.js";
 import {
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,
-  registerSidebarSection,
   sidebarSectionRegistry,
   sidebarSectionRenderer,
   type SidebarSectionDescriptor,
@@ -119,7 +118,7 @@ describe("sidebar sections — the module-scope door", () => {
     // could be given props, and the section contract would then have two authors.
     const artifacts = descriptor("artifacts", "sidebar-sections-test");
     try {
-      registerSidebarSection(artifacts);
+      sidebarSectionRegistry.register(artifacts);
       expect(sidebarSectionRenderer("artifacts")).toBe(artifacts.render);
     } finally {
       sidebarSectionRegistry.unregister("artifacts");

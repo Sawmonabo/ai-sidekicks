@@ -15,7 +15,6 @@ import { PANE_KINDS, isDetachablePaneKind } from "./pane-kinds.js";
 import {
   ConsolePaneRegistry,
   consolePaneRegistry,
-  registerConsolePane,
   registeredPaneKinds,
   type ConsolePaneDescriptor,
   type ConsolePaneLink,
@@ -131,12 +130,15 @@ describe("pane registry — a descriptor cannot advertise a detach of its own", 
 
 describe("pane registry — the module-scope door", () => {
   it("claims a kind on the process-wide registry", () => {
-    // Driven here rather than left to its first caller to discover: no view
-    // family has shipped, so `registerConsolePane` is a contract that would
-    // otherwise rot unexercised — the same reason `surface-registry.test.ts`
-    // drives its own door.
+    // Driven here rather than left to its first caller to discover: no view family
+    // has shipped, so `registeredPaneKinds` is a contract that would otherwise rot
+    // unexercised — the same reason `surface-registry.test.ts` drives its own door.
+    // The claim goes in through the registry itself: the module-scope convenience
+    // that used to write here was deleted with the arity-five composition, because a
+    // family that called it would write into production from inside a composition
+    // that had handed it another board.
     try {
-      registerConsolePane(descriptor("workflow-builder", "pane-registry-test"));
+      consolePaneRegistry.register(descriptor("workflow-builder", "pane-registry-test"));
       expect(consolePaneRegistry.descriptorFor("workflow-builder")?.owner).toBe(
         "pane-registry-test",
       );
@@ -148,8 +150,8 @@ describe("pane registry — the module-scope door", () => {
 
   it("negative control: the kind is absent once released", () => {
     // Without this the case above would pass against a registry that had been
-    // holding the descriptor since some earlier file ran, and would keep passing
-    // if `registerConsolePane` stopped registering anything at all.
+    // holding the descriptor since some earlier file ran, and would keep passing if
+    // `registeredPaneKinds` stopped reading the registry at all.
     expect(consolePaneRegistry.descriptorFor("workflow-builder")).toBeUndefined();
     expect(registeredPaneKinds()).not.toContain("workflow-builder");
   });

@@ -122,8 +122,6 @@ export {
 export {
   ConsolePaneRegistry,
   consolePaneRegistry,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -152,11 +150,7 @@ export {
 export {
   /** @consumedBy T-023p-1C-3 */
   SIDEBAR_SECTION_IDS,
-  /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
-  registerSidebarSection,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
@@ -188,14 +182,10 @@ export {
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
-  /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
   /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-5 */
-  registerInlineCardBody,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type ArtifactInlineCardProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */

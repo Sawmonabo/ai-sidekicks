@@ -162,7 +162,6 @@ export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineC
   readonly render: (props: InlineCardPropsByKind[TKind]) => React.ReactNode;
 }
 
-// Consumed by T-023p-1C-2
 export class InlineCardSeatRegistry {
   // `"owner-scoped"`, for `surface-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
@@ -236,18 +235,8 @@ export class InlineCardSeatRegistry {
   }
 }
 
-// Consumed by T-023p-1C-2
 /** The process-wide registry the repos family calls at module scope. */
 export const inlineCardSeatRegistry: InlineCardSeatRegistry = new InlineCardSeatRegistry();
-
-// Consumed by T-023p-1C-5
-/** The call a family makes to fill one card kind's body. */
-export function registerInlineCardBody<TKind extends InlineCardKind>(
-  kind: TKind,
-  descriptor: InlineCardBodyDescriptor<TKind>,
-): void {
-  inlineCardSeatRegistry.register(kind, descriptor);
-}
 
 // Consumed by T-023p-1C-2
 /** One card kind's body, or `undefined` while nobody has filled it. */
