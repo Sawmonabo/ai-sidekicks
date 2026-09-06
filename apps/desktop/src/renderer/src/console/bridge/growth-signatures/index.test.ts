@@ -1,4 +1,4 @@
-// The composition itself: that nine plane modules still add up to one closed table.
+// The composition itself: that ten plane modules still add up to one closed table.
 //
 // The single file this directory replaced defended its length by arguing that
 // splitting it would split one closed set across two files, so a member landing in
@@ -60,6 +60,7 @@ describe("the growth signature table — composed from planes, closed as one set
     expectTypeOf<GrowthOperationSignatures["sidekickDefinitionDelete"]["value"]>().toEqualTypeOf<{
       readonly deleted: true;
     }>();
+    expectTypeOf<GrowthOperationSignatures["agentDetach"]["value"]>().toEqualTypeOf<void>();
     expectTypeOf<GrowthOperationSignatures["orchestrationBudgetRead"]["request"]>().toEqualTypeOf<{
       readonly sessionId: string;
     }>();

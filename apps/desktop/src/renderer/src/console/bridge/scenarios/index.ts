@@ -9,7 +9,11 @@
 // mode worth designing away rather than resolving carefully.
 //
 // So the manifest reads this list, and a family adds `bridge/scenarios/<family>.ts`
-// and replaces exactly the line bearing its own task id.
+// and its entries at the position its own task id marks. What is load-bearing is the
+// POSITION, not the comment: a family may keep its reserved line above its entries so
+// the picker's grouping stays legible, or replace it the way the first families did.
+// Both spellings are in the list below, and no census reads either — which is the
+// point, since a rule nothing enforces should not be stated as though it were one.
 //
 // ORDER IS PICKER ORDER
 //
@@ -17,10 +21,13 @@
 // person sees. The two substrate scenarios come first because they are the ones
 // that make sense with no family loaded; family scenarios follow in task order.
 
+import { AGENTS_SCENARIO } from "./agents.js";
 import { BROWSER_SCENARIO } from "./browser.js";
+import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { REPOS_SCENARIO } from "./repos.js";
+import { SETTINGS_SCENARIO } from "./settings.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
@@ -31,6 +38,9 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
+  COLLABORATION_SCENARIO,
+  AGENTS_SCENARIO,
+  SETTINGS_SCENARIO,
   REPOS_SCENARIO, // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   BROWSER_SCENARIO,

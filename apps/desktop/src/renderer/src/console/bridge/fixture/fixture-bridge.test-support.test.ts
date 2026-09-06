@@ -153,15 +153,19 @@ describe("fixtureBridgeWithGrowth — a scripted port over a real bridge", () =>
   it("hands the answering arm the request the caller sent", async () => {
     const seenRequests: unknown[] = [];
     const bridge = fixtureBridgeWithGrowth(FLAGSHIP_SCENARIO, {
-      [SCRIPTED_OPERATION]: growthAnswering((request) => {
+      [SCRIPTED_OPERATION]: growthAnswering(async (request) => {
         seenRequests.push(request);
-        return { status: "served", value: SERVED_BRANCH_CONTEXT };
+        return await Promise.resolve(SERVED_BRANCH_CONTEXT);
       }),
     });
 
-    await bridge.growth[SCRIPTED_OPERATION](BRANCH_CONTEXT_READ_REQUEST);
+    const outcome = await bridge.growth[SCRIPTED_OPERATION](BRANCH_CONTEXT_READ_REQUEST);
 
     expect(seenRequests).toStrictEqual([BRANCH_CONTEXT_READ_REQUEST]);
+    // The arm answers with what the callback COMPUTED, not with an outcome the
+    // callback assembled: a builder that passed a hand-made envelope through would
+    // let a suite claim a shape the port itself never composes.
+    expect(outcome).toStrictEqual({ status: "served", value: SERVED_BRANCH_CONTEXT });
   });
 
   it("composes the port's own refusal rather than a hand-written twin", async () => {

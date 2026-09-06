@@ -32,7 +32,11 @@ import {
   growthUnavailable,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port/growth-port.js";
-import { refuse, type ConsoleRefusal } from "../../../src/renderer/src/console/core/index.js";
+import {
+  MAXIMUM_LIVE_DRAFT_COUNT,
+  refuse,
+  type ConsoleRefusal,
+} from "../../../src/renderer/src/console/core/index.js";
 import { fixtureBridgeWithGrowth } from "../../../src/renderer/src/console/bridge/fixture/fixture-bridge.test-support.js";
 import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.test-support.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.test-support.js";
@@ -111,7 +115,7 @@ export function paneBinding(reached: {
     sessionStore: reached.sessionStore,
     frameStore: new FrameStore(),
     uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore(),
+    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     linkedSourcePaneId: undefined,
     focusHue: undefined,
   };

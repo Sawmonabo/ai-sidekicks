@@ -1,0 +1,74 @@
+/* The appearance page's colour-scheme choice.
+ *
+ * A sibling sheet rather than a block in `settings.css`: the three options are this
+ * page's control and nothing else draws them. The control is Base UI's radio, so the
+ * ring and the indicator are the console's own rather than the browser's.
+ */
+
+/* --- The colour-scheme choice ------------------------------------------- */
+/* Three options, no disclosure. The control is Base UI's radio, so the ring and
+   the dot are ours to draw and the semantics are the hidden input's. */
+
+.meridian-scheme-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-scheme-choice__option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-3);
+  max-width: 62ch;
+  cursor: pointer;
+}
+
+.meridian-scheme-choice__control {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: 999px;
+  background: var(--meridian-surface-raised);
+  cursor: pointer;
+}
+
+.meridian-scheme-choice__control[data-checked] {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-scheme-choice__control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-scheme-choice__indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--meridian-accent);
+}
+
+.meridian-scheme-choice__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-scheme-choice__label {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-scheme-choice__description {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}

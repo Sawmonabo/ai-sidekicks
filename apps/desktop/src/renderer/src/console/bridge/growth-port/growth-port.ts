@@ -318,10 +318,16 @@ export function createRefusingGrowthPort(): GrowthPort {
     callerParticipantRead: async () => growthUnavailable("callerParticipantRead"),
     callbackToolRegistryRead: async () => growthUnavailable("callbackToolRegistryRead"),
     // sidekick
+    agentList: async () => growthUnavailable("agentList"),
+    agentAttach: async () => growthUnavailable("agentAttach"),
+    agentConfigUpdate: async () => growthUnavailable("agentConfigUpdate"),
+    agentDetach: async () => growthUnavailable("agentDetach"),
+    orchestrationChildRunLinkRead: async () => growthUnavailable("orchestrationChildRunLinkRead"),
     sidekickDefinitionList: async () => growthUnavailable("sidekickDefinitionList"),
     sidekickDefinitionCreate: async () => growthUnavailable("sidekickDefinitionCreate"),
     sidekickDefinitionUpdate: async () => growthUnavailable("sidekickDefinitionUpdate"),
     sidekickDefinitionDelete: async () => growthUnavailable("sidekickDefinitionDelete"),
+    sidekickPeerInvocationSet: async () => growthUnavailable("sidekickPeerInvocationSet"),
     // event content, and the session cost plane
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),

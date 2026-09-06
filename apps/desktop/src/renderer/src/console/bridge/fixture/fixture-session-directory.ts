@@ -16,7 +16,7 @@
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError, refuse } from "../../core/index.js";
+import { ConsoleRefusalError, isWireRecord, refuse } from "../../core/index.js";
 import type { GrowthSessionSummary } from "../growth-values/index.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
@@ -135,11 +135,9 @@ function declaredSessionState(scenario: ConsoleScenario): string | undefined {
   return readSessionState(readMember(readMember(sessionRead?.result, "session"), "state"));
 }
 
-/** One member of a value that may not be an object at all. */
+/** One member of a value that may not be a record at all. */
 function readMember(value: unknown, member: string): unknown {
-  return typeof value === "object" && value !== null
-    ? (value as Readonly<Record<string, unknown>>)[member]
-    : undefined;
+  return isWireRecord(value) ? value[member] : undefined;
 }
 
 function readSessionState(value: unknown): string | undefined {

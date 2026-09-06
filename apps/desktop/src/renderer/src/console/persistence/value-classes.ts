@@ -45,11 +45,7 @@
 
 import { isWireRecord } from "../core/index.js";
 import { SCHEME_PREFERENCES, isSchemePreference } from "../tokens/index.js";
-import {
-  IDENTIFIER_MAX_LENGTH,
-  isIdentifierShaped,
-  validatePersistedAddress,
-} from "./identifier-grammar.js";
+import { isIdentifierShaped, validatePersistedAddress } from "./identifier-grammar.js";
 import {
   PERSISTENCE_REFUSAL_CODES,
   PERSISTENCE_REFUSAL_ORIGIN,
@@ -58,11 +54,12 @@ import {
 } from "./refusals.js";
 
 // Re-exported rather than only imported: the co-located `value-classes.test.ts`
-// reaches these five through this module, which is the surface it has always read
+// reaches these four through this module, which is the surface it has always read
 // them from. Nothing else re-exports through here — every other consumer in this
-// family imports the module that owns the symbol.
+// family imports the module that owns the symbol, and the identifier CEILING is not
+// among them at all: it is a bound, so its home is `core/constants.ts` and the test
+// reads it from the door it already reads `isConsoleRefusal` through.
 export {
-  IDENTIFIER_MAX_LENGTH,
   PERSISTENCE_REFUSAL_CODES,
   PERSISTENCE_REFUSAL_ORIGIN,
   refusePersistence,

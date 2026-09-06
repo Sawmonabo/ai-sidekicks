@@ -1,0 +1,79 @@
+/* The run linkage's own styles: the child-run list and its refusal disclosure.
+ *
+ * Beside the module rather than inside `agents.css`, on the
+ * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one file.
+ *
+ * WHAT IS NOT HERE. The linkage's open control and the focus ring on its refusal
+ * summary are drawn by grouped rules in the family sheet that also name the card and
+ * both forms, for that sheet's stated reason: one decision about how a control in
+ * this family looks, made once.
+ *
+ * Meridian tokens throughout. No literal colour, and the only literal lengths are
+ * the two indents that make a nested list read as nested. */
+
+/* --------------------------------------------------------------- run linkage */
+
+.meridian-linkage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-linkage__link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding-block: var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-linkage__link:last-child {
+  border-block-end: 0;
+}
+
+/* De-emphasized and never ejected: a helper row stays in audit history. */
+.meridian-linkage__link--helper {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-linkage__link-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  flex-wrap: wrap;
+}
+
+.meridian-linkage__link-meaning,
+.meridian-linkage__last-known,
+.meridian-linkage__refusal-depth,
+.meridian-linkage__refusal-detail,
+.meridian-linkage__refusal-target {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-linkage__refusals {
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-2);
+}
+
+.meridian-linkage__refusals-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-linkage__refusal-list {
+  max-height: 22rem;
+  overflow-y: auto;
+  margin-block-start: var(--meridian-space-2);
+}
+
+.meridian-linkage__refusal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  padding-block: var(--meridian-space-1);
+}

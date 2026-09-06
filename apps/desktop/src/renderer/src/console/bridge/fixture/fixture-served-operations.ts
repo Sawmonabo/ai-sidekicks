@@ -170,7 +170,43 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   // identity — answered from a scenario that states its own viewer, refused from one
   // that does not.
   "callerParticipantRead",
+  // invites
+  "invitesList",
+  // agent plane — five operations that were `daemon.call` strings until the call door
+  // closed. The scenarios that answer them are unchanged: each routes through the
+  // scripted-reply seam under its own wire method, so a scenario's `agent.list` entry
+  // answers `agentList` exactly as it answered the cast before.
+  "agentList",
+  "agentAttach",
+  "agentConfigUpdate",
+  "agentDetach",
+  "orchestrationChildRunLinkRead",
+  // sidekick — the definition picker's read, from the same script.
+  "sidekickDefinitionList",
+  "sidekickPeerInvocationSet",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
 export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERATION_IDS)[number];
+
+/**
+ * Which of those the port implements but can only answer FROM A SCRIPT.
+ *
+ * Every other served operation has an honest answer for a scenario that scripts
+ * nothing — an empty ledger, an empty roster, a workspace with no branch context —
+ * and answers `served` under any scenario at all. A WRITE has no such answer: there
+ * is no such thing as "the attach that happened and produced nothing", and serving a
+ * synthesized receipt would tell a surface the daemon did something no author said it
+ * did. So these are implemented, and refuse by name under a scenario that does not
+ * script them.
+ *
+ * A declared subset rather than a rule the sweep re-derives, because the sweep cannot
+ * see the difference: both arms answer through the same port method, and what
+ * separates them is whether an empty answer would be a lie.
+ */
+export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGrowthOperationId[] = [
+  "agentAttach",
+  "agentConfigUpdate",
+  "agentDetach",
+  "sidekickPeerInvocationSet",
+];

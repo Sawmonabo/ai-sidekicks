@@ -22,7 +22,10 @@ export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 // `ConsoleEntity` leaves the family because the two validating body reads live in
 // `bridge/daemon/entity-body-reads.ts`: a read that narrows a wire member has to sit where
 // the registered shapes may be imported, and it still takes and returns this
-// family's own entity.
+// family's own entity. It joins the reference and the event on the line below for a
+// second reader too: a family that reads a PARTITION of the projection — rather than
+// one entity by reference — has to name the row type to derive anything from it, as
+// the membership ledger and the agent console's session projection both do.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
@@ -61,6 +64,26 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./open-session-entry.js";
 
+// The refresh chokepoint, through the same door as the stores it feeds. A view
+// family that refreshes a wire read reaches this scheduler and no other timer:
+// `apps/desktop/AGENTS.md` puts every refresh through `store/scheduling.ts`, and a
+// chokepoint reachable only by deep-importing past this barrel is one a family
+// would route around rather than through.
+//
+// Open for the surfaces that perform their OWN reads as well as for the stores.
+// `SessionStoreRegistry` owns one scheduler per open session for the session
+// snapshot; a family reading a wire the snapshot does not carry — the repos
+// section's `repo.mountRead`, for one — still owes rule "no interval polling", and
+// this is the only implementation of it, so it is reachable through the door rather
+// than deep-imported around.
+export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+
+// The signal half of a push-driven read, beside the scheduler that coalesces it.
+// It leaves the family because its callers are view families, which are siblings
+// and cannot reach each other — so the second caller's only alternative to this
+// door was the second copy of the filter that this export replaces.
+export { subscribeToSessionEventKinds } from "./session-event-signal.js";
+
 // The selector hook, and the state its selector reads.
 //
 // `useOpenSessionStore` hands a caller the store; reading it is a second act, and
@@ -70,14 +93,6 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // ships through the door beside the store it reads.
 export type { SessionStoreState } from "./session-store.js";
 export { useSessionStore } from "./hooks.js";
-
-// The read side of the refresh policy, opened for the surfaces that perform their
-// own reads. `SessionStoreRegistry` owns one scheduler per open session for the
-// session snapshot; a family reading a wire the snapshot does not carry — the repos
-// section's `repo.mountRead`, for one — still owes rule "no interval polling", and
-// this is the only implementation of it. Exported so that obligation is reachable
-// through the door rather than deep-imported around.
-export { RefreshScheduler } from "./scheduling.js";
 
 // The three reasons a self-reading surface re-reads, beside the scheduler they are
 // requested against. Here rather than in a view family because the observations —
@@ -95,6 +110,7 @@ export {
   useLocationHash,
   useOpenSessionIds,
   useOpenSessionStore,
+  useSessionDegraded,
   useSessionInitialised,
   useSessionPartition,
 } from "./hooks.js";

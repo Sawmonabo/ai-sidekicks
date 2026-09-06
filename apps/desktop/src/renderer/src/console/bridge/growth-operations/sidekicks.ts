@@ -1,5 +1,6 @@
 // The sidekick-definition plane's ledger rows: the node-local registry's list,
-// create, update, and delete.
+// create, update, and delete, and the per-session peer-invocation grant beside
+// them.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. The section
 // comment below is the single table's own, kept with the rows it heads.
@@ -21,9 +22,9 @@ type SidekickOperationId = Extract<GrowthOperationId, `sidekick${string}`>;
 export const SIDEKICK_GROWTH_OPERATIONS: Readonly<
   Record<SidekickOperationId, GrowthOperationEntry>
 > = {
-  // sidekick — four of the five registered pairs, in the registry's own order. The
-  // fifth, the per-session peer-invocation opt-in, is not here: it is session state
-  // rather than a definition, and no surface on this substrate sets it.
+  // sidekick — the registry's own order, and now the fifth pair beside them: the
+  // per-session peer-invocation opt-in, which is session state rather than a
+  // definition and reached the ledger when the control that sets it landed.
   sidekickDefinitionList: op(
     "sidekickDefinitionList",
     "sidekick-definition-registry",
@@ -51,5 +52,12 @@ export const SIDEKICK_GROWTH_OPERATIONS: Readonly<
     "method",
     "delete a definition, which never touches an agent attached from it because attach copies rather than references",
     "sidekick.definitionDelete",
+  ),
+  sidekickPeerInvocationSet: op(
+    "sidekickPeerInvocationSet",
+    "sidekick-definition-registry",
+    "method",
+    "set the session-scoped peer-invocation grant, answering with the post-append projected value so a caller renders what the daemon recorded rather than what it asked for",
+    "sidekick.peerInvocationSet",
   ),
 };
