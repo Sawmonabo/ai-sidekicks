@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { formatRoute } from "../routing/index.js";
 import { FrameStore, useLocationHash } from "../store/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
-import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 
 const SESSIONS_HASH = "#/sessions";
 const SETTINGS_HASH = "#/settings";

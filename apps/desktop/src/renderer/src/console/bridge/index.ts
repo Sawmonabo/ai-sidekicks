@@ -36,7 +36,7 @@ export { consoleClockFor } from "./console-bridge.js";
 // `run.*` stream NAMES beside it in that table are still not re-exported: their
 // consumers so far are in this family, which reaches them directly, and a barrel
 // specifier no cross-family import uses is a dead export rather than a convenience.
-export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
+export { SESSION_EVENT_STREAM } from "./daemon/session-event-streams.js";
 
 // Which run state a `run.*` transition kind announces — the same table, on the
 // same rule, now that it has a cross-family consumer: the run-lifecycle projector
@@ -44,7 +44,7 @@ export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 // state. That check has to read THIS mapping rather than re-derive one, or the
 // console would hold two answers to which state a kind announces and the fold
 // would be measured against the wrong one.
-export { runStateForTransitionKind } from "./session-event-streams.js";
+export { runStateForTransitionKind } from "./daemon/session-event-streams.js";
 
 // The one widening of the daemon's branded `subscribe` signature, and the registered
 // stream names the console opens through it. Here rather than beside a caller because
@@ -173,7 +173,7 @@ export {
   useConsoleClock,
 } from "./BridgeProvider.js";
 
-export { createFixtureBridge } from "./fixture-bridge.js";
+export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 
 // The one door a daemon reply enters the console through. Exported as the CALL and
 // nothing else — deliberately not the registry, the bindings, the schemas behind
@@ -183,12 +183,12 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // one. A surface that could reach a schema would be a surface that could parse a
 // second time, differently; a surface that named a code would be one deciding which
 // refusals count.
-export { callDaemon } from "./daemon-reply.js";
+export { callDaemon } from "./daemon/daemon-reply.js";
 export type {
   ConsoleDaemonMethod,
   DaemonRequestOf,
   DaemonResponseOf,
-} from "./daemon-reply-registry.js";
+} from "./daemon/daemon-reply-registry.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
@@ -202,16 +202,16 @@ export type {
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable } from "./growth-port.js";
-export type { GrowthPort } from "./growth-port.js";
+export { growthUnavailable } from "./growth-port/growth-port.js";
+export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type {
   GrowthAgentPendingSwitch,
   GrowthAgentSummary,
   GrowthAgentSwitchBoundary,
 } from "./growth-values/agents.js";
-export { isUnbuiltWireRefusal } from "./growth-outcome.js";
-export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
+export { isUnbuiltWireRefusal } from "./growth-port/growth-outcome.js";
+export type { GrowthOutcome, GrowthUnavailable } from "./growth-port/growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
@@ -219,12 +219,12 @@ export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
 // family. `ScenarioFixtureControl` deliberately does NOT ship through here: its
 // only caller is the provider beside it, and its only reader is a driver in
 // another process that imports the module directly.
-export { ScenarioSelection } from "./scenario-selection.js";
+export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 
 // The decode boundary for a delivered session-event envelope. Through the door
 // because the frame's binder is the reader and the parse is this family's job: the
 // wire's own shapes are read here and nowhere above.
-export { readConsoleSessionEvent } from "./session-event-payload.js";
+export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 
 // The two body reads that narrow a wire shape, both through the door because both
 // have production readers above this family. `membershipRoleOf` is the injected
@@ -237,4 +237,4 @@ export { readConsoleSessionEvent } from "./session-event-payload.js";
 // type admitted a body with no `networkAccess`, and the chip then rendered an empty
 // label beside two full ones. This door line waited on a production consumer and
 // now has one.
-export { membershipRoleOf, stampedExecutionPostureOf } from "./entity-body-reads.js";
+export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";

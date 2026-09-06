@@ -9,7 +9,7 @@ import { type ConsoleBridge } from "../../../console/bridge/index.js";
 import {
   bridgeAnswering,
   type RecordedDaemonCall,
-} from "../../../console/bridge/fixture-bridge.test-support.js";
+} from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import {

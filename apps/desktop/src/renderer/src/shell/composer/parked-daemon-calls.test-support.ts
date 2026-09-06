@@ -37,7 +37,7 @@
 // puts anything the second use hoists.
 
 import type { ConsoleBridge } from "../../console/bridge/index.js";
-import { bridgeAnswering } from "../../console/bridge/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../console/bridge/scenarios/composer.js";
 
 /** One parked call's two ways out. */

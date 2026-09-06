@@ -35,7 +35,7 @@
 //     session read, and `session.renamed` is where a later change to it would
 //     arrive — never from the creation event.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
 

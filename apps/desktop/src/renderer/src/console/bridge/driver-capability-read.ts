@@ -80,7 +80,7 @@ import {
   type RefreshReason,
   type SessionStore,
 } from "../store/index.js";
-import { callDaemon } from "./daemon-reply.js";
+import { callDaemon } from "./daemon/daemon-reply.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
 /** One driver's declared flags, exactly as its own report carried them. */

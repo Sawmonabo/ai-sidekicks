@@ -19,14 +19,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureGrowthPort } from "../fixture-growth-port.js";
-import { ScenarioEngine } from "../scenario-engine.js";
-import { type ConsoleScenario } from "../scenario.js";
+import { createFixtureGrowthPort } from "../fixture/fixture-growth-port.js";
+import { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
+import { type ConsoleScenario } from "../scenario-runtime/scenario.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   subscriptionDeliversEventKind,
-} from "../session-event-streams.js";
+} from "../daemon/session-event-streams.js";
 import { APPROVALS_SCENARIO } from "./approvals.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
 import { RUNS_SCENARIO } from "./runs.js";

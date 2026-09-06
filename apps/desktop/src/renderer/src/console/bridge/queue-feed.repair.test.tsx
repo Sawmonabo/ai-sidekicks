@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { settleScheduledRead } from "./scheduled-read.test-support.js";
 
 import { SessionStore } from "../store/index.js";
-import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.test-support.js";
+import { bridgeAnswering, type BridgeUnderTest } from "./fixture/fixture-bridge.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
 import type { WireReadPhase } from "./reading-lifecycle.js";
 import type { ConsoleBridge } from "./console-bridge.js";

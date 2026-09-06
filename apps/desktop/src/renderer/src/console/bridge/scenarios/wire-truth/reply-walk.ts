@@ -24,12 +24,12 @@
 // its refusal on every provider-bound surface while the script sat unread. The
 // served set is imported rather than restated, so the two cannot disagree.
 
-import { CONSOLE_DAEMON_METHODS } from "../../daemon-reply-registry.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture-growth-port.js";
+import { CONSOLE_DAEMON_METHODS } from "../../daemon/daemon-reply-registry.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/fixture-growth-port.js";
 import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
-import type { GrowthOperationId } from "../../growth-entry.js";
+import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
 import type { ScenarioWireTruthDefect } from "./defect.js";
-import type { ConsoleScenario } from "../../scenario.js";
+import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
 
 /**
  * How a growth row with no registered wire method is keyed by a scripted reply.

@@ -6,7 +6,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import {
   FIRST_AGENT_ID,
   FIRST_RUN_ID,

@@ -6,7 +6,10 @@
 // about what a valid frame looks like.
 
 import { createElement, useEffect } from "react";
-import { createFixture, drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import {
+  createFixture,
+  drainMicrotasks,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { withRecordedStreamLifecycle } from "../../bridge/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import type { ConsoleBridge } from "../../bridge/index.js";

@@ -30,7 +30,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
-import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
+import type { ConsoleScenario } from "../../../console/bridge/scenario-runtime/scenario.js";
 import type { OwnerSlotContract } from "../../../console/seats/index.js";
 import {
   CompactionSlot,

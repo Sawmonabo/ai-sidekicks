@@ -17,7 +17,7 @@ import {
   createFixture,
   withCapturedStream,
   withDaemonCall,
-} from "./fixture-bridge.test-support.js";
+} from "./fixture/fixture-bridge.test-support.js";
 import { settleScheduledRead } from "./scheduled-read.test-support.js";
 import { useProviderQuotas } from "./provider-quota-feed.js";
 import type { ProviderQuotaReading } from "./provider-quota-fold.js";

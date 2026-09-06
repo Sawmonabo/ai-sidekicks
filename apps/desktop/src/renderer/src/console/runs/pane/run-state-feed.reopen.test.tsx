@@ -18,7 +18,10 @@ import { describe, expect, it } from "vitest";
 import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
 
 import { RUN_STATE_SUBSCRIBE_STREAM, type ConsoleBridge } from "../../bridge/index.js";
-import { createFixture, withCapturedStream } from "../../bridge/fixture-bridge.test-support.js";
+import {
+  createFixture,
+  withCapturedStream,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { withRecordedStreamLifecycle } from "../../bridge/daemon-streams.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { useRunFeed, type RunStateFeed } from "./run-state-feed.js";

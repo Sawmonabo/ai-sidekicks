@@ -30,7 +30,7 @@
 // cannot name what it holds would have to restate the shape to read it.
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 // `ConsoleEntity` leaves the family because the two validating body reads live in
-// `bridge/entity-body-reads.ts`: a read that narrows a wire member has to sit where
+// `bridge/daemon/entity-body-reads.ts`: a read that narrows a wire member has to sit where
 // the registered shapes may be imported, and it still takes and returns this
 // family's own entity. `ConsoleEntityKind` travels with it: the inspector's
 // entity-detail registry is keyed by the kind it renders.

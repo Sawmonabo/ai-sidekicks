@@ -20,8 +20,8 @@ import {
   recordingBridge,
   targetForAgent,
 } from "./provider-command-holder.test-support.js";
-import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 
 describe("ProviderCommandEnumeration — one reading, two readers", () => {
   it("puts one enumeration on the wire for both zones", async () => {

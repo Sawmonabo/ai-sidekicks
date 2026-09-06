@@ -16,7 +16,7 @@ import type {
   WorkflowPhaseState,
   WorkflowRunSnapshot,
   WorkflowRunState,
-} from "../workflow-projection.js";
+} from "../wire-shapes/index.js";
 
 export interface WorkflowGrowthSignatures {
   // workflow. Every state below is `Extract`ed from the vocabulary

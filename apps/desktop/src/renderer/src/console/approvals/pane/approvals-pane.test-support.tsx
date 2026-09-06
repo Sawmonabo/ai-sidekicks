@@ -15,11 +15,11 @@ import {
   type ConsoleBridge,
   type ParsedRows,
 } from "../../bridge/index.js";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
-import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
+import { drainMicrotasks } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { SessionStore } from "../../store/index.js";
-import { type ConsoleScenario } from "../../bridge/scenario.js";
+import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { type PaneContextOf } from "../../seats/index.js";
 import { paneContext } from "../../seats/pane-context.test-support.js";
 

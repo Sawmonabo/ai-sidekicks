@@ -24,7 +24,7 @@
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { QUEUE_REFUSAL_ORIGIN } from "./queue-refusals.js";
-import { callDaemon } from "./daemon-reply.js";
+import { callDaemon } from "./daemon/daemon-reply.js";
 import { readQueueItemId } from "./wire-identifiers.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 

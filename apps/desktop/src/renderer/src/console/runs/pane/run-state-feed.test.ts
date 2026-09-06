@@ -10,7 +10,7 @@ import {
   createFixture,
   drainMicrotasks,
   withCapturedStream,
-} from "../../bridge/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon-streams.js";
 import {
   withRecordedStreamSinks,

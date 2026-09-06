@@ -2,7 +2,7 @@
 //
 // THE CLAIM. Every daemon reply the console reads is parsed against the shape the
 // corpus registers for that method, because there is exactly one module that
-// reaches the bridge's call door — `console/bridge/daemon-reply.ts` — and exactly
+// reaches the bridge's call door — `console/bridge/daemon/daemon-reply.ts` — and exactly
 // one family that may hold a validator to parse with. Neither half is a property a
 // compiler can see: the bridge's `call` answers `unknown`, so a surface that reaches
 // it directly type-checks perfectly and reports success on a value nobody read.
@@ -88,7 +88,7 @@ const GOVERNED_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules({ 
  * A path rather than a naming convention, so moving the chokepoint is an edit a
  * reviewer sees in this file.
  */
-const CHOKEPOINT_MODULE = "console/bridge/daemon-reply.ts";
+const CHOKEPOINT_MODULE = "console/bridge/daemon/daemon-reply.ts";
 
 /**
  * The bridge family, which its own tests and support modules may drive directly.

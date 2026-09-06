@@ -27,7 +27,7 @@ import {
   createFixture,
   withDaemonCall,
   type BridgeUnderTest,
-} from "./fixture-bridge.test-support.js";
+} from "./fixture/fixture-bridge.test-support.js";
 import {
   AccountPlaneBridge,
   account,

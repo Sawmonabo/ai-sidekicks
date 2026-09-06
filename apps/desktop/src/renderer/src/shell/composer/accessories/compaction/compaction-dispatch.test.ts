@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../../console/bridge/index.js";
-import type { ConsoleScenario } from "../../../../console/bridge/scenario.js";
+import type { ConsoleScenario } from "../../../../console/bridge/scenario-runtime/scenario.js";
 import { settleCompaction } from "./compaction-dispatch.js";
 
 // Registered `SessionId` / `RunId` values (UUIDs). The dispatcher parses both before

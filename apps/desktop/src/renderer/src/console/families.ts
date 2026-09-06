@@ -17,8 +17,8 @@
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `frame/surface-registry.ts`, `bridge/scenario-manifest.ts`,
-// `bridge/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
+// A family never edits `frame/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
+// `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
 // six-way concurrent edit to any of them is a guaranteed conflict, and worse, a
 // merge that resolves cleanly while silently dropping one family's registration.
 // A family registers through its own `index.ts` and its own reserved lines — here,

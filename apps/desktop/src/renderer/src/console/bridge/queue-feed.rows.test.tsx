@@ -22,7 +22,7 @@ import {
   methodsOf,
   queueFeedBridge,
 } from "./queue-feed.test-support.js";
-import { drainMicrotasks } from "./fixture-bridge.test-support.js";
+import { drainMicrotasks } from "./fixture/fixture-bridge.test-support.js";
 
 describe("a queued item is cancelled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {

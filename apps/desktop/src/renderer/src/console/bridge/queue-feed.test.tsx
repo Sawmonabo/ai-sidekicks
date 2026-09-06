@@ -28,7 +28,7 @@ import {
   createFixture,
   withDaemonCall,
   type RecordedDaemonCall,
-} from "./fixture-bridge.test-support.js";
+} from "./fixture/fixture-bridge.test-support.js";
 import { settleScheduledRead } from "./scheduled-read.test-support.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import type { QueueFeed } from "./queue-reading.js";
@@ -43,7 +43,7 @@ import {
   openFeed,
   queueFeedBridge,
 } from "./queue-feed.test-support.js";
-import { drainMicrotasks } from "./fixture-bridge.test-support.js";
+import { drainMicrotasks } from "./fixture/fixture-bridge.test-support.js";
 
 describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {

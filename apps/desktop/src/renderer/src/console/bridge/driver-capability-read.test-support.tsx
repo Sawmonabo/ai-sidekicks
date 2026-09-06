@@ -8,7 +8,7 @@
 
 import { type ConsoleRefusal } from "../core/index.js";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
-import { bridgeAnswering, type RecordedDaemonCall } from "./fixture-bridge.test-support.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "./fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { useDriverCapabilities, type DriverCapabilityReadout } from "./driver-capability-read.js";
 

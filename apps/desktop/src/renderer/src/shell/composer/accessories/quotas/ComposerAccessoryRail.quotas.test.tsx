@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   withCapturedStream,
   type StreamUnderTest,
-} from "../../../../console/bridge/fixture-bridge.test-support.js";
+} from "../../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import {
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   createFixtureBridge,

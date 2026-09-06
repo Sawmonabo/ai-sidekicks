@@ -89,7 +89,7 @@
 // readable state at all, which upserted the run while PRESERVING the state its last
 // transition established. Nothing above the fold catches either.
 //
-// The kind's announced state is `bridge/session-event-streams.ts`'s
+// The kind's announced state is `bridge/daemon/session-event-streams.ts`'s
 // `runStateForTransitionKind`, read rather than re-derived — that module is the
 // one authority on which kind announces which state, and a second copy here is
 // exactly the drift it was written to end. Its domain is the eight transitions the
@@ -258,7 +258,7 @@ function statedStateFailsKind(eventKind: string, statedState: string | undefined
  *
  * The comparison is against the raw member rather than a read one, so a payload
  * naming a non-string `sessionId` fails here instead of being read as absence.
- * `bridge/run-stream-projection.ts` holds the rollback payload to the same rule for
+ * `bridge/run-streams/run-stream-projection.ts` holds the rollback payload to the same rule for
  * the same reason; this is that rule applied to the durable fold.
  */
 function payloadNamesThisSession(

@@ -95,7 +95,7 @@ import {
 } from "../store/index.js";
 import { QUEUE_SUBSCRIBE_STREAM, subscribeDaemon } from "./daemon-streams.js";
 import { WireReadLifecycle, type WireReadState } from "./reading-lifecycle.js";
-import { callDaemon } from "./daemon-reply.js";
+import { callDaemon } from "./daemon/daemon-reply.js";
 import { QueueOrder } from "./queue-order.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 

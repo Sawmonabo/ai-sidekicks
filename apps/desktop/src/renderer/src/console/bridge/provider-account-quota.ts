@@ -49,7 +49,7 @@ import {
 } from "../store/index.js";
 import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM, subscribeNodeDaemon } from "./daemon-streams.js";
 import { WireReadLifecycle, type WireReadState } from "./reading-lifecycle.js";
-import { callDaemon } from "./daemon-reply.js";
+import { callDaemon } from "./daemon/daemon-reply.js";
 import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
 import { ProviderQuotaDeliveries } from "./provider-quota-deliveries.js";
 import { PROVIDER_QUOTA_REFUSAL_ORIGIN, streamRefusalFor } from "./provider-quota-refusals.js";
