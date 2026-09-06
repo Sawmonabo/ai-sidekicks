@@ -1,21 +1,25 @@
-// The pane seat board holds reserved lines and nothing else.
+// The pane seat board holds one seat per task and nothing else.
 //
-// Its whole value is that six branches can each replace one line without touching
+// Its whole value is that six branches can each fill one seat without touching
 // another's. That property survives only while the file stays composition-only: a
-// condition, a shared local, or a registration made outside a family's own line
+// condition, a shared local, or a registration made outside a family's own seat
 // turns six one-line diffs back into six edits to one region.
 //
-// So this file reads the seat board's SOURCE. The behavioural checks below are the
-// stronger claim about what is registered today, but they say nothing about whether
-// the six seats still exist, in order, spelled the way the branches are cutting
-// against. A branch that renamed or reordered them would pass every behavioural
-// assertion and conflict with five other branches.
+// So this file reads the seat board's SOURCE. The behavioural check below — which
+// kinds composing claims — is the stronger claim about today, but it says nothing
+// about whether the seats still exist, in order, spelled the way the branches are
+// cutting against: a branch that renamed or reordered them would pass every
+// behavioural assertion and conflict with five other branches.
 //
-// THE SEAT TABLE IS PER TASK AND NOT PER LINE, so a family filling its own seat
-// needs no edit here. Each seat is satisfied by EITHER its reserved comment or that
-// family's own registration call — the two states a seat is ever in — which is what
-// keeps this test from becoming the second shared spine the first one exists to
-// avoid. What it still pins is the SET and the ORDER.
+// WHAT THIS FILE MAY NOT CONTAIN, WHICH IS WHY IT READS A CENSUS AND NOT A LIST.
+// Every one of those six branches carries this file, and they have to carry it
+// BYTE-IDENTICAL or the merge that was supposed to be six one-line diffs becomes
+// six divergent copies of the suite that polices them. Its first version compared
+// the body against an ordered literal of the exact seat lines, which is
+// family-specific by construction — each branch fills a different seat, so each
+// branch has to edit the literal. What replaced it is a census over the board's
+// GRAMMAR (`seat-census.test-support.ts`), which is the same text on every branch:
+// nothing below names a family, a pane kind, or which seats are filled today.
 //
 // `node:fs` is banned in renderer programs (`Spec-023 §Trust Stance`), so the
 // source arrives inlined at transform time through Vite's raw glob — the form
@@ -24,8 +28,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "../seats/index.js";
+import { ConsolePaneRegistry, consolePaneRegistry } from "../seats/index.js";
+import { registerFreePaneKindProbe } from "../seats/pane-probe.test-support.js";
 import { registerConsolePanes } from "./index.js";
+import {
+  filledSeatLine,
+  PANE_SEAT_TASK_ORDINALS,
+  readSeatBoardCensus,
+  reservedSeatLine,
+  seatBoardSourceFrom,
+  type SeatBoardOffence,
+  type SeatGroup,
+} from "./seat-census.test-support.js";
 
 declare global {
   interface ImportMeta {
@@ -45,121 +59,233 @@ const seatBoardSources = import.meta.glob("./index.ts", {
 /** The seat board's own text. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
-/** The six seats, in the order the branches cut against. */
-const RESERVED_LINES: readonly string[] = [
-  "// T-023p-1C-2 timeline",
-  "// T-023p-1C-3 runs approvals inspector",
-  "// T-023p-1C-4 agent-console",
-  "// T-023p-1C-5 diff artifact",
-  "// T-023p-1C-6 workflow-run workflow-builder",
-  "// T-023p-1C-7 browser terminal",
+/** What a synthetic seat line claims. Deliberately not a real pane kind. */
+const SYNTHETIC_KIND_WORDS = "seat-kind";
+
+/** A seat still holding its reserved comment, as a case expects to read it back. */
+function reserved(taskOrdinal: number): SeatGroup {
+  return { taskOrdinal, filled: false, lineCount: 1 };
+}
+
+/** A seat a family filled, spending `lineCount` lines on it. */
+function filled(taskOrdinal: number, lineCount: number): SeatGroup {
+  return { taskOrdinal, filled: true, lineCount };
+}
+
+/**
+ * A board body whose seats are reserved, except where `fills` names a line count.
+ *
+ * Fixture assembly rather than a second copy of the rule: what it produces is the
+ * INPUT, and every case below states the census it expects back by hand. A helper
+ * that derived the expectation from the same map would be comparing the fixture
+ * with itself.
+ */
+function boardBody(fills: ReadonlyMap<number, number>): readonly string[] {
+  return PANE_SEAT_TASK_ORDINALS.flatMap((taskOrdinal) => {
+    const lineCount = fills.get(taskOrdinal);
+    return lineCount === undefined
+      ? [reservedSeatLine(taskOrdinal, SYNTHETIC_KIND_WORDS)]
+      : Array.from({ length: lineCount }, () => filledSeatLine(taskOrdinal, SYNTHETIC_KIND_WORDS));
+  });
+}
+
+/** One board the census is expected to read cleanly, and what it should read as. */
+interface WellFormedBoardCase {
+  readonly name: string;
+  readonly body: readonly string[];
+  readonly seats: readonly SeatGroup[];
+}
+
+const WELL_FORMED_BOARDS: readonly WellFormedBoardCase[] = [
+  {
+    name: "every seat reserved",
+    body: boardBody(new Map()),
+    seats: [reserved(2), reserved(3), reserved(4), reserved(5), reserved(6), reserved(7)],
+  },
+  {
+    name: "one seat filled with a single line",
+    body: boardBody(new Map([[4, 1]])),
+    seats: [reserved(2), reserved(3), filled(4, 1), reserved(5), reserved(6), reserved(7)],
+  },
+  {
+    name: "one seat filled with three lines",
+    body: boardBody(new Map([[3, 3]])),
+    seats: [reserved(2), filled(3, 3), reserved(4), reserved(5), reserved(6), reserved(7)],
+  },
+  {
+    name: "two seats filled",
+    body: boardBody(
+      new Map([
+        [2, 1],
+        [7, 2],
+      ]),
+    ),
+    seats: [filled(2, 1), reserved(3), reserved(4), reserved(5), reserved(6), filled(7, 2)],
+  },
+  {
+    name: "every seat filled",
+    body: boardBody(
+      new Map(PANE_SEAT_TASK_ORDINALS.map((taskOrdinal): [number, number] => [taskOrdinal, 1])),
+    ),
+    seats: [filled(2, 1), filled(3, 1), filled(4, 1), filled(5, 1), filled(6, 1), filled(7, 1)],
+  },
 ];
 
-/**
- * A filled seat: one registration call, then the kinds that family claims.
- *
- * Anchored at both ends on purpose. An unanchored pattern would accept a line that
- * carried a condition or a second statement beside the call, which is the shape this
- * whole file exists to keep out of the seat board — and the tail it does admit is a
- * line COMMENT, which is neither.
- *
- * The kinds are part of the shape rather than decoration, because the board's own
- * contract is that "its line names the kinds it claims, so a reviewer can read the
- * whole deck off this file". A filled line that dropped them would take the deck's
- * census out of the file the moment a seat stopped being reserved, which is exactly
- * when a reviewer needs it.
- */
-const FILLED_SEAT =
-  /^register[A-Za-z]+Panes\(registry\); \/\/ (?<kinds>[a-z][a-z-]*(?: [a-z][a-z-]*)*)$/u;
-
-/**
- * The kinds a seat claims, read off its reserved line.
- *
- * Derived rather than listed a second time: the reserved lines already carry the kinds
- * beside the task that will claim them, so a filled seat is checked against what its
- * own reservation promised instead of against a table that could drift from it.
- */
-function claimedKinds(reserved: string): string {
-  return reserved.replace(/^\/\/ T-023p-1C-\d+ /u, "");
+/** One malformed board, and every offence the census is expected to name for it. */
+interface MalformedBoardCase {
+  readonly name: string;
+  readonly body: readonly string[];
+  readonly offences: readonly SeatBoardOffence[];
 }
 
-/** Whether a body line satisfies the seat at its position. */
-function satisfiesSeat(line: string, reserved: string): boolean {
-  if (line === reserved) {
-    return true;
-  }
-  return FILLED_SEAT.exec(line)?.groups?.["kinds"] === claimedKinds(reserved);
-}
+const MALFORMED_BOARDS: readonly MalformedBoardCase[] = [
+  {
+    name: "a registration carrying no task marker",
+    body: [...boardBody(new Map()), `  registerSeatPanes(registry); // ${SYNTHETIC_KIND_WORDS}`],
+    offences: ["unmarked-line"],
+  },
+  {
+    name: "a statement that is not a registration at all",
+    body: [...boardBody(new Map()), "  const seatCount = 0;"],
+    offences: ["unmarked-line"],
+  },
+  {
+    name: "two seats out of task order",
+    body: [2, 3, 4, 6, 5, 7].map((taskOrdinal) =>
+      reservedSeatLine(taskOrdinal, SYNTHETIC_KIND_WORDS),
+    ),
+    offences: ["task-out-of-order"],
+  },
+  {
+    name: "one task id spent on two seats",
+    body: [2, 3, 4, 5, 6, 7, 3].map((taskOrdinal) =>
+      reservedSeatLine(taskOrdinal, SYNTHETIC_KIND_WORDS),
+    ),
+    // Two groups carrying one ordinal cannot also be ascending, so both offences
+    // are the honest answer and asserting only one would be asserting less than
+    // the census says.
+    offences: ["task-out-of-order", "duplicate-task"],
+  },
+  {
+    name: "a task id the board reserves no seat for",
+    body: [...boardBody(new Map()), reservedSeatLine(9, SYNTHETIC_KIND_WORDS)],
+    offences: ["task-out-of-range"],
+  },
+  {
+    name: "a reserved seat deleted rather than filled",
+    body: [2, 3, 4, 6, 7].map((taskOrdinal) => reservedSeatLine(taskOrdinal, SYNTHETIC_KIND_WORDS)),
+    offences: ["missing-task"],
+  },
+  {
+    name: "one seat holding both forms at once",
+    body: [
+      reservedSeatLine(2, SYNTHETIC_KIND_WORDS),
+      reservedSeatLine(3, SYNTHETIC_KIND_WORDS),
+      reservedSeatLine(4, SYNTHETIC_KIND_WORDS),
+      filledSeatLine(4, SYNTHETIC_KIND_WORDS),
+      reservedSeatLine(5, SYNTHETIC_KIND_WORDS),
+      reservedSeatLine(6, SYNTHETIC_KIND_WORDS),
+      reservedSeatLine(7, SYNTHETIC_KIND_WORDS),
+    ],
+    offences: ["malformed-seat-group"],
+  },
+  {
+    name: "one reserved seat written twice",
+    body: [2, 3, 4, 5, 6, 6, 7].map((taskOrdinal) =>
+      reservedSeatLine(taskOrdinal, SYNTHETIC_KIND_WORDS),
+    ),
+    offences: ["malformed-seat-group"],
+  },
+];
 
-/** The body of `registerConsolePanes`, from its brace to the matching close. */
-function seatBoardFunctionBody(source: string): string {
-  const bodyMatch =
-    /export function registerConsolePanes\([^)]*\): void \{\n(?<body>[\s\S]*?)\n\}/u.exec(source);
-  if (bodyMatch?.groups?.["body"] === undefined) {
-    throw new Error("registerConsolePanes was not found in the seat board's source");
-  }
-  return bodyMatch.groups["body"];
-}
+describe("pane seat board — the grammar every branch cuts against", () => {
+  it.each(WELL_FORMED_BOARDS)("reads $name", ({ body, seats }) => {
+    const census = readSeatBoardCensus(seatBoardSourceFrom(body));
 
-describe("pane seat board — reserved lines only", () => {
+    expect(census.offences).toStrictEqual([]);
+    expect(census.seats).toStrictEqual(seats);
+  });
+
+  it.each(MALFORMED_BOARDS)("refuses $name", ({ body, offences }) => {
+    // The negative controls, one board per malformation. Without them the clean
+    // arms above would pass over a census that reported no offence whatever the
+    // board said, which is the failure this class of reader is most prone to.
+    const census = readSeatBoardCensus(seatBoardSourceFrom(body));
+
+    expect(census.offences).toStrictEqual(offences);
+  });
+
+  it("refuses a source with no seat board in it at all", () => {
+    expect(readSeatBoardCensus("export const seats = [];\n").offences).toStrictEqual([
+      "board-not-found",
+    ]);
+  });
+
+  it("reads the declaration and not a copy of it in a comment", () => {
+    // The boundary claim, which is what a line reader has to earn: the declaration
+    // is matched at column 0, so prose quoting an older board is not the board. A
+    // reader that searched for the text anywhere would take the comment's fake
+    // seats and report a one-seat board.
+    const quoted = [
+      "// The board used to read:",
+      "// export function registerConsolePanes(registry: ConsolePaneRegistry): void {",
+      `// ${reservedSeatLine(2, SYNTHETIC_KIND_WORDS).trim()}`,
+      "// }",
+      "",
+      seatBoardSourceFrom(boardBody(new Map())),
+    ].join("\n");
+
+    const census = readSeatBoardCensus(quoted);
+
+    expect(census.offences).toStrictEqual([]);
+    expect(census.seats).toHaveLength(PANE_SEAT_TASK_ORDINALS.length);
+  });
+});
+
+describe("pane seat board — the board this branch ships", () => {
   it("reads its own source", () => {
     // The glob would silently resolve to nothing if the pattern stopped matching,
-    // and every assertion below would then run against an empty string and pass
-    // vacuously. This case is what makes the rest of the file mean anything.
+    // and every assertion below would then run against an empty string. This case
+    // is what makes the rest of the file mean anything.
     expect(Object.keys(seatBoardSources)).toHaveLength(1);
     expect(seatBoardSource).toContain("export function registerConsolePanes");
   });
 
-  it("carries the six seats in task order, each reserved or filled", () => {
-    const lines = seatBoardFunctionBody(seatBoardSource)
-      .split("\n")
-      .map((line) => line.trim());
-    expect(lines).toHaveLength(RESERVED_LINES.length);
-    expect(
-      lines.map((line, seatIndex) => satisfiesSeat(line, RESERVED_LINES[seatIndex] ?? "")),
-    ).toStrictEqual(RESERVED_LINES.map(() => true));
-  });
+  it("holds one well-formed seat per reserved task, in task order", () => {
+    const census = readSeatBoardCensus(seatBoardSource);
 
-  it("negative control: a filled seat that names the wrong kinds is rejected", () => {
-    // Without this, the case above would pass over a `satisfiesSeat` that ignored the
-    // comment it reads — which is the whole of what makes a filled line still a census
-    // entry rather than a call a reviewer has to leave the file to understand.
-    expect(
-      satisfiesSeat("registerWorkflowPanes(registry); // timeline", RESERVED_LINES[4] ?? ""),
-    ).toBe(false);
-    expect(satisfiesSeat("registerWorkflowPanes(registry);", RESERVED_LINES[4] ?? "")).toBe(false);
-  });
-
-  it("negative control: a seventh line, or a line that is neither state, is rejected", () => {
-    // Without this, the case above would pass over an implementation of
-    // `seatBoardFunctionBody` that returned the seats whatever the file said, over a
-    // regex that matched a prefix of a longer body, and over a `satisfiesSeat` that
-    // answered `true` for anything.
-    const withStrayStatement = seatBoardSource.replace(
-      "  // T-023p-1C-2 timeline\n",
-      "  const registrations = registry;\n",
-    );
-    expect(withStrayStatement).not.toBe(seatBoardSource);
-    const lines = seatBoardFunctionBody(withStrayStatement)
-      .split("\n")
-      .map((line) => line.trim());
-    expect(
-      lines.map((line, seatIndex) => satisfiesSeat(line, RESERVED_LINES[seatIndex] ?? "")),
-    ).not.toStrictEqual(RESERVED_LINES.map(() => true));
+    expect(census.offences).toStrictEqual([]);
+    expect(census.seats.map((seat) => seat.taskOrdinal)).toStrictEqual([
+      ...PANE_SEAT_TASK_ORDINALS,
+    ]);
   });
 });
 
 describe("pane seat board — composing it today", () => {
-  it("claims each pane kind once, and files each descriptor under its own kind", () => {
-    // Which kinds are claimed is each family's own claim, asserted in that family's
-    // own test; what the BOARD owes is that composing it leaves no kind claimed
-    // twice and no descriptor filed under a kind it does not name — the two ways a
-    // seat line can be wrong without any family's own test noticing.
+  it("writes into the registry it was handed and into no singleton", () => {
+    // The probe is what keeps this from being vacuous, and it is registered AFTER
+    // the composition on a kind the composition left free — never before it on a
+    // kind named here. A named kind is claimed twice the day the family that owns
+    // it lands, and the closed set has no member left to name once all six have
+    // landed.
+    // On a board with every kind claimed the composition's own registrations are
+    // the probe, which is the arm `seats/pane-probe.test-support.test.ts` proves.
     const registry = new ConsolePaneRegistry();
+
     registerConsolePanes(registry);
-    const kinds = registry.registeredPaneKinds();
-    expect(new Set(kinds).size).toBe(kinds.length);
-    expect(kinds.map((kind) => registry.descriptorFor(kind)?.kind)).toStrictEqual([...kinds]);
+    registerFreePaneKindProbe(registry, "panes-test");
+
+    expect(registry.registeredPaneKinds().length).toBeGreaterThan(0);
+    // THE DISCRIMINATING ASSERTION, AND THE ONE THE PROBE CANNOT MAKE. A probe put
+    // straight into the owned board never travels through the composition, so a
+    // board registrar that reached for the module-scope singleton would leave this
+    // registry holding the probe alone — non-empty, and disjoint from a singleton
+    // holding the seats' claims, which is to say green over the leak. What names it
+    // is the production board being EXACTLY empty once a caller has composed its
+    // own: no family registers into it at import time, by this board's own
+    // contract, so anything in it after this line arrived through a composition
+    // that ignored the registry it was handed.
+    expect(consolePaneRegistry.registeredPaneKinds()).toStrictEqual([]);
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
@@ -170,25 +296,11 @@ describe("pane seat board — composing it today", () => {
     }).not.toThrow();
   });
 
-  it("composes into a registry the caller owns, not a singleton", () => {
-    // The seat signature takes a registry so a test can compose into its own and an
-    // auxiliary window can compose a subset. A family that reached for the
-    // module-scope singleton would leave this one empty while still "working".
-    const first = new ConsolePaneRegistry();
-    const second = new ConsolePaneRegistry();
-    registerConsolePanes(first);
-    expect(second.registeredPaneKinds()).toStrictEqual([]);
-    registerConsolePanes(second);
-    expect(second.registeredPaneKinds()).toStrictEqual(first.registeredPaneKinds());
-  });
-
-  it("negative control: the registry reports what was registered, and only that", () => {
-    // Every case above reads the registry back, so all of them would pass over a
-    // `registeredPaneKinds` that always answered `[]`, and over one that reported
-    // kinds nobody registered. Both vacuities, one on each side, close here.
-    const registry = new ConsolePaneRegistry();
-    expect(registry.registeredPaneKinds()).toStrictEqual([]);
-    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
-    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline"]);
+  it("negative control: a fresh registry reports only what was put in it", () => {
+    // Without it, the non-empty reading above could come from a
+    // `registeredPaneKinds` that answered from somewhere other than the instance it
+    // belongs to — the module-scope singleton, or a constant — and the emptiness
+    // claim beside it would be reading that same wrong place.
+    expect(new ConsolePaneRegistry().registeredPaneKinds()).toStrictEqual([]);
   });
 });

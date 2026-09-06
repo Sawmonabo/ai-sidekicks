@@ -55,6 +55,6 @@ export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-3 runs approvals inspector
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
-  registerWorkflowPanes(registry); // workflow-run workflow-builder
+  registerWorkflowPanes(registry); // T-023p-1C-6 workflow-run workflow-builder
   // T-023p-1C-7 browser terminal
 }
