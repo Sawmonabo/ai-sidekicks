@@ -23,33 +23,17 @@ import { StrictMode } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
-import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
 import { BrowserPane } from "./BrowserPane.js";
 import {
-  fixtureBrowserBridge,
   paneContext,
+  recordingBrowserBridge,
   releaseQueuedPaneFrames,
 } from "./BrowserPane.test-support.js";
-
-/** A fixture bridge whose scripted host takes every rectangle and records the pane. */
-function recordingBrowserBridge(publishedPaneIds: string[]): ConsoleBridge {
-  return {
-    ...fixtureBrowserBridge(),
-    paneViewHostScript: {
-      transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
-      holdsPane: (paneId) => {
-        publishedPaneIds.push(paneId);
-        return { holds: true };
-      },
-    },
-  };
-}
 
 describe("browser pane geometry — the publisher under a double mount", () => {
   it("publishes this pane's rectangle rather than holding the disposed one", async () => {
     const publishedPaneIds: string[] = [];
-    const built = paneContext(recordingBrowserBridge(publishedPaneIds));
+    const built = paneContext(recordingBrowserBridge((paneId) => publishedPaneIds.push(paneId)));
     await act(async () => {
       render(
         <StrictMode>

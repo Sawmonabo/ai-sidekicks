@@ -15,19 +15,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { POSITION_SIBLING_OBSERVER_CAP } from "../../core/index.js";
 import { installFakeResizeObserver } from "../../primitives/element-resize.test-support.js";
+import { detachAttachedRoots, trackAttachedRoot } from "./element-motion.test-support.js";
 import {
   readAncestrySiblings,
   readPositionAncestry,
   SiblingSizeObservers,
 } from "./position-ancestry.js";
 
-const attachedRoots: Element[] = [];
-
 afterEach(() => {
   vi.unstubAllGlobals();
-  for (const root of attachedRoots.splice(0)) {
-    root.remove();
-  }
+  detachAttachedRoots();
 });
 
 /**
@@ -53,7 +50,7 @@ function attachedFamily(): {
   ancestor.append(element, paneSibling);
   root.append(fixedSibling, ancestor);
   document.body.append(root);
-  attachedRoots.push(root);
+  trackAttachedRoot(root);
   return { root, ancestor, element, paneSibling, fixedSibling };
 }
 
@@ -125,7 +122,7 @@ describe("SiblingSizeObservers", () => {
     const unrelatedChild = document.createElement("div");
     unrelatedRoot.append(unrelatedChild);
     document.body.append(unrelatedRoot);
-    attachedRoots.push(unrelatedRoot);
+    trackAttachedRoot(unrelatedRoot);
 
     const onSizeChange = vi.fn();
     const observers = new SiblingSizeObservers(onSizeChange);

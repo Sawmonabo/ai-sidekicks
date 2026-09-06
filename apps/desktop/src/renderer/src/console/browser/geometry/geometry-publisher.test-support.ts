@@ -1,10 +1,12 @@
 // The four fixtures every geometry-publisher suite needs before it can ask anything.
 //
 // One home rather than a copy per suite, on this package's rule that shared
-// scaffolding lives once: the five suites beside this file all need a host that
-// records what it was handed, a box the test decides, and a way to move that box —
-// and a fixture copied five times is five fixtures that drift, with the one that
-// drifted being the one whose suite then passes for the wrong reason.
+// scaffolding lives once: every suite beside this file that publishes geometry needs a
+// host that records what it was handed, a box the test decides, and a way to move that
+// box — and a fixture copied per suite is a fixture that drifts, with the copy that
+// drifted being the one whose suite then passes for the wrong reason. The number of
+// suites is deliberately not stated: it moves with every case file the family adds,
+// and a count in prose is a claim nothing checks.
 //
 // A `.test-support.ts` and not a `.fixtures.ts`, which is what the package's own
 // conventions call this role: the layering gate exempts that suffix from its orphan

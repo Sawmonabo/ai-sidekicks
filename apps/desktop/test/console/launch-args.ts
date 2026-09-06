@@ -62,9 +62,31 @@ const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
  * (`--enable-unsafe-swiftshader` alone on this Mac still reports the Metal
  * renderer).
  *
- * It moves no figure either tier gates on. Both read `usedJSHeapSize`, which
- * counts the V8 JS heap and not a rasterizer's backing store, so what changes is
- * that the context EXISTS — not what the heap under it measures.
+ * IT MOVES NO HEAP FIGURE, AND IT DOES BEAR ON THE WALL-TIME BOUNDS. Both tiers'
+ * heap figures read `usedJSHeapSize`, which counts the V8 JS heap and not a
+ * rasterizer's backing store, so what changes there is that the context EXISTS and
+ * not what the heap under it measures. The four enforced wall-time bounds are a
+ * different matter: `console-launch-readiness` (30 000 ms) and
+ * `console-launch-frame-witness` (15 000 ms) time a cold start and the first frame
+ * after it, and `console-launch-body` (70 000 ms) and `console-endurance-body`
+ * (540 000 ms) bound the work between a settled launch and its cleanup. A renderer
+ * put on a CPU rasterizer starts its GPU process differently and paints on a
+ * different schedule, so a red check on any of the four AFTER this change is a
+ * candidate the reader must weigh rather than one this comment has excluded — and
+ * every one of them is measured under SwANGLE only on Linux, since the switch set is
+ * empty everywhere else.
+ *
+ * One of the four is UNMEASURED against the change rather than merely untightened.
+ * `console-launch-frame-witness` fails on a frame that never arrives and not on a
+ * late one — its own `budgets.json` row says so, and first-frame latency is bounded
+ * by nothing at this revision (`frame-time-p95-four-lanes` is `n/a`) — so a paint
+ * schedule this switch set slowed by any amount short of never would pass it
+ * silently. What stands in for the missing bound is the runner class the row is
+ * pinned to: the console tiers run only on `ubuntu-latest` (`.github/workflows/ci.yml`),
+ * so the frame interval `launch-readiness.ts` prints on every launch, passing ones
+ * included, is a figure from one hardware class and comparable across runs. It is
+ * evidence rather than a gate, and it is named here so a later regression is read
+ * off it instead of being attributed to nothing.
  */
 export const SOFTWARE_GRAPHICS_SWITCHES: readonly string[] = [
   "--use-gl=angle",

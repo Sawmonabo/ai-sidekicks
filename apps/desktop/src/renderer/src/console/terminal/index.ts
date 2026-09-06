@@ -26,8 +26,10 @@
 //     the three modules it composes — the addons and the renderer selection
 //     (`xterm-addons.ts`), both link paths (`xterm-links.ts`), and the host tie with
 //     its write gate (`xterm-host-binding.ts`) — the deferred edge into it
-//     (`emulator-loader.ts`), the page-wide WebGL slot allocator (`renderer-pool.ts`),
-//     the link scheme guard (`link-guard.ts`), and the mount point (`XtermHost.tsx`).
+//     (`emulator-loader.ts`) with the hook that turns that fetch into a reading a
+//     surface can render (`emulator-state.ts`), the page-wide WebGL slot allocator
+//     (`renderer-pool.ts`), the link scheme guard (`link-guard.ts`), and the mount
+//     point (`XtermHost.tsx`).
 //   • `lease/` — who holds the write lease and how a viewer asks for it: the fold
 //     (`lease-model.ts`) over the one-event reader beneath it (`lease-transition.ts`),
 //     the viewer's identity read (`viewer-identity.ts`), the acquisition terms

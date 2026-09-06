@@ -25,7 +25,8 @@
 // asserted rather than assumed — the renderer mode each instance REPORTS, the
 // canvas the WebGL renderer draws into, and the session store's admitted event
 // count — and each of them fails the run rather than degrading it. The window-side
-// instrument that produces those readings is `terminal-pane-harness.ts`.
+// instrument that opens and proves the panes is `terminal-pane-harness.ts`; the heap
+// reading itself is the tier's, from `heap-instrument.ts`.
 //
 // ONE SUBJECT, ONE VERDICT — AND WHY THE FIGURE IS A SUM
 //
@@ -75,7 +76,7 @@ import { withLaunchedConsole } from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
 import { HeapSampler } from "../heap-sampling.js";
 import { enduranceLaunchOptions } from "./console-workload.js";
-import { expectPreciseHeapInstrument } from "./heap-instrument.js";
+import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
 import {
   measureFullScrollbackRetainedBytes,
   requireHeapCollector,
@@ -85,7 +86,6 @@ import {
   closeEveryPane,
   openHarnessOnDeliveredSession,
   openPaneAndAwaitWebglReadiness,
-  RendererHeapProbe,
 } from "./terminal-pane-harness.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
 import {

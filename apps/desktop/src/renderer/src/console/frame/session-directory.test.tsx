@@ -6,12 +6,13 @@
 // facts a surface renders, and a stand-in port would agree with whatever the hook
 // did with it.
 
-import { act, cleanup, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
+import { settleReactWork } from "../primitives/act-settlement.test-support.js";
 import {
   offeredSessionIds,
   useSessionDirectory,
@@ -24,12 +25,6 @@ function DirectoryProbe(props: {
 }): React.JSX.Element {
   props.onObserve(useSessionDirectory(props.growth));
   return <></>;
-}
-
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
 function observeDirectory(growth: GrowthPort): SessionDirectoryState[] {
@@ -65,7 +60,7 @@ describe("useSessionDirectory — one read, three answers", () => {
     // would report an empty node for a read that had not happened.
     expect(observed[0]?.status).toBe("reading");
 
-    await settle();
+    await settleReactWork();
     const settled = lastState(observed);
     expect(settled.status).toBe("served");
     if (settled.status === "served") {
@@ -78,7 +73,7 @@ describe("useSessionDirectory — one read, three answers", () => {
   it("carries the refusal itself when the bridge does not serve the read", async () => {
     const observed = observeDirectory(createRefusingGrowthPort());
 
-    await settle();
+    await settleReactWork();
     const settled = lastState(observed);
     expect(settled.status).toBe("unavailable");
     if (settled.status === "unavailable") {
@@ -111,7 +106,7 @@ describe("useSessionDirectory — one read, three answers", () => {
         }}
       />,
     );
-    await settle();
+    await settleReactWork();
     view.rerender(
       <DirectoryProbe
         growth={counting}
@@ -120,7 +115,7 @@ describe("useSessionDirectory — one read, three answers", () => {
         }}
       />,
     );
-    await settle();
+    await settleReactWork();
 
     expect(readCount).toBe(1);
     expect(lastState(observed).status).toBe("served");

@@ -21,6 +21,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { settleReactWork } from "../../primitives/act-settlement.test-support.js";
 import { HeldLeaseWire, OTHER_SESSION_ID, SESSION_ID } from "./LeaseLine.test-support.js";
 import { useTerminalLeaseClaim, type TerminalLeaseClaim } from "./lease-claim.js";
 
@@ -78,13 +79,6 @@ function renderClaim(
   };
 }
 
-/** Let a settled wire promise reach the hook's own continuation. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
-}
-
 describe("the terminal lease claim, stamped to its subject", () => {
   it("hands the new session an idle control on its FIRST committed frame", async () => {
     const heldWire = new HeldLeaseWire();
@@ -106,7 +100,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(firstFrameOnTheNewSession.refusal).toBeUndefined();
 
     heldWire.rejectCall(0);
-    await settle();
+    await settleReactWork();
 
     // And the answer to the question about the session it left is never rendered
     // against the one it is on.
@@ -135,7 +129,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(log.newestFrame.isInFlight).toBe(true);
 
     heldWire.rejectCall(0);
-    await settle();
+    await settleReactWork();
 
     // The old session's settlement retires nothing: the new session's call is still
     // out, and its refusal is not the other session's.
@@ -143,7 +137,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(log.newestFrame.refusal).toBeUndefined();
 
     heldWire.rejectCall(1);
-    await settle();
+    await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(false);
     expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
@@ -182,7 +176,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     // holder has retired, so the returning visit's own call goes on being the one
     // the control is waiting for.
     heldWire.rejectCall(0);
-    await settle();
+    await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(true);
     expect(log.newestFrame.refusal).toBeUndefined();
@@ -199,7 +193,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
 
     view.unmount();
     heldWire.rejectCall(0);
-    await settle();
+    await settleReactWork();
 
     // No flag of its own: an unmounted hook has no committed state for a late
     // settlement to reach, so nothing renders and no frame is produced.
@@ -220,7 +214,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(log.newestFrame.isInFlight).toBe(true);
 
     heldWire.rejectCall(0);
-    await settle();
+    await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(false);
     expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
@@ -249,7 +243,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     // must not orphan the first, which is the failure a bare "ignore while busy"
     // guard makes when it forgets to release.
     heldWire.rejectCall(0);
-    await settle();
+    await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(false);
     expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);

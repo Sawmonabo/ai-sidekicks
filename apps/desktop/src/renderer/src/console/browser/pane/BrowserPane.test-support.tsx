@@ -88,6 +88,28 @@ export function paneViewHostRefusing(detail: string): ConsoleBridge {
 }
 
 /**
+ * A fixture bridge whose scripted host takes every rectangle and records who published.
+ *
+ * The recorder is a callback rather than an array because the two questions asked of
+ * this bridge are different questions about one act: which PANE published, and which
+ * WINDOW did. A second builder for the second question would be this one with a
+ * different line inside it — and the pair drifted the first time either grew, which
+ * is what the one home rule exists to stop.
+ */
+export function recordingBrowserBridge(recordPublish: (paneId: string) => void): ConsoleBridge {
+  return {
+    ...fixtureBrowserBridge(),
+    paneViewHostScript: {
+      transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
+      holdsPane: (paneId) => {
+        recordPublish(paneId);
+        return { holds: true };
+      },
+    },
+  };
+}
+
+/**
  * The context the deck hands this pane, built once for every suite that mounts it.
  *
  * Exported because a second suite mounts the pane itself rather than through the

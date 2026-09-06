@@ -282,34 +282,49 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
 }
 
 /**
- * The registries this process holds, one per window, held weakly by that window.
+ * Which registry each window holds, held weakly by that window.
  *
- * A `WeakMap` rather than a module-level instance because the instance could not be
- * constructed at all any more, and that is the correction rather than a consequence
- * of it: a registry minted at module load has no window to take a clock from, so it
- * took a `RealClock` — and under the fixture that put overlay motion sampling on wall
- * time inside a window whose scenario beats, refresh scheduler, and stores all ran on
- * the frozen one. Keyed on the BRIDGE and not on the clock, because
+ * A TABLE rather than a module-level registry instance, because the instance could
+ * not be constructed at all any more and that is the correction rather than a
+ * consequence of it: a registry minted at module load has no window to take a clock
+ * from, so it took a `RealClock` — and under the fixture that put overlay motion
+ * sampling on wall time inside a window whose scenario beats, refresh scheduler, and
+ * stores all ran on the frozen one. Keyed on the BRIDGE and not on the clock, because
  * `consoleClockFor` mints a fresh `RealClock` per caller on the live arm, so a
  * clock-keyed table would hand every pane in one window a registry of its own and the
  * view would yield to whichever overlays happened to register through the same one.
- */
-const occlusionRegistriesByWindow = new WeakMap<ConsoleBridge, PaneOcclusionRegistry>();
-
-/**
- * The one registry this window's overlays share, minted against this window's clock.
  *
- * ONE PER WINDOW, which is what "one per renderer process" meant when the console had
- * a single bridge: an auxiliary window is its own renderer process with its own
- * overlays, and a second bridge in one process — which every suite that builds two
- * fixture bridges has — is two windows for every purpose this registry serves.
+ * A class with a private field and not a bare module-level `WeakMap`, on this
+ * package's rule and on `store/generation-latch.ts`'s precedent for the identical
+ * role: the table is mutable state, and state a module owns in the open is state any
+ * later line in the module can reach around the one accessor that keeps its
+ * mint-once discipline.
  */
-export function consoleOcclusionRegistryFor(bridge: ConsoleBridge): PaneOcclusionRegistry {
-  const held = occlusionRegistriesByWindow.get(bridge);
-  if (held !== undefined) {
-    return held;
+class WindowOcclusionRegistries {
+  readonly #registriesByWindow = new WeakMap<ConsoleBridge, PaneOcclusionRegistry>();
+
+  /**
+   * The one registry this window's overlays share, minted against this window's clock.
+   *
+   * ONE PER WINDOW, which is what "one per renderer process" meant when the console
+   * had a single bridge: an auxiliary window is its own renderer process with its own
+   * overlays, and a second bridge in one process — which every suite that builds two
+   * fixture bridges has — is two windows for every purpose this registry serves.
+   */
+  public forWindow(bridge: ConsoleBridge): PaneOcclusionRegistry {
+    const held = this.#registriesByWindow.get(bridge);
+    if (held !== undefined) {
+      return held;
+    }
+    const created = new PaneOcclusionRegistry({ clock: consoleClockFor(bridge) });
+    this.#registriesByWindow.set(bridge, created);
+    return created;
   }
-  const created = new PaneOcclusionRegistry({ clock: consoleClockFor(bridge) });
-  occlusionRegistriesByWindow.set(bridge, created);
-  return created;
+}
+
+const windowOcclusionRegistries = new WindowOcclusionRegistries();
+
+/** The one registry this window's overlays share. See {@link WindowOcclusionRegistries}. */
+export function consoleOcclusionRegistryFor(bridge: ConsoleBridge): PaneOcclusionRegistry {
+  return windowOcclusionRegistries.forWindow(bridge);
 }

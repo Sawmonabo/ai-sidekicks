@@ -10,16 +10,8 @@ import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
 import { BrowserSettingsPage, type BrowserSettingsPageProps } from "./BrowserSettingsPage.js";
+import { servingAct } from "./PartitionClearControl.test-support.js";
 import type { BrowserSitePartition } from "./site-partitions.js";
-import type { SiteDataAct } from "./site-data-clear.js";
-
-/** A writer that succeeds, in the shape the page's two acts are declared in. */
-function servingAct(callLog: string[], name: string): SiteDataAct {
-  return (sessionId) => {
-    callLog.push(`${name}:${sessionId}`);
-    return Promise.resolve({ status: "done" });
-  };
-}
 
 const READ_SWITCHES: BrowserSettingsPageProps["switchReadings"] = {
   "file-boundary": { kind: "served", enabled: false },

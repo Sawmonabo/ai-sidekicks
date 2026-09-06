@@ -51,6 +51,44 @@ describe("the transition ledger — one click away, every reason its own line", 
     fireEvent.click(disclosureControl(container));
     expect(container.textContent).toContain("No transition has been read.");
     expect(container.textContent).toContain("not the same as the shell never having moved");
+    // The negative control for the case below: an empty ledger over a log that
+    // carried nothing claims the zero and renders no notice, so the notice there is
+    // the unreadable count and not a banner every empty ledger wears.
+    expect(container.querySelector(".meridian-partial-read")).toBeNull();
+  });
+
+  it("says an all-unreadable history is unreadable rather than claiming zero moves", async () => {
+    // The empty-rows state that is NOT "nothing arrived". Every `pty.control_changed`
+    // this log carried named a reason outside the closed set, so the fold pushed no
+    // row and counted each one — and the absence's other sentence would say the lease
+    // "has changed hands zero times" over deliveries the fold recorded, directly under
+    // a line on the same pane that says the shell DID change hands.
+    const { container } = renderLease(
+      leaseState({
+        transitions: [],
+        transitionCount: 0,
+        unreadableTransitionCount: 2,
+        unreadTransition: {
+          sequence: 2,
+          occurredAtIso: "2026-01-01T16:40:02.000Z",
+          reason: "quarantined_by_operator",
+        },
+      }),
+    );
+    fireEvent.click(disclosureControl(container));
+
+    // The count and the disposition, through the one incomplete-reading vocabulary.
+    const notice = container.querySelector(".meridian-partial-read");
+    expect(notice?.textContent).toContain("2");
+    expect(notice?.textContent).toContain("deliveries could not be read");
+    expect(container.textContent).toContain("arrived in a form this build cannot read");
+
+    // And the claim the ledger cannot make. The line above it renders the unread
+    // transition off the same fold, so the two would have contradicted each other.
+    expect(container.textContent).not.toContain("changed hands zero times");
+    expect(container.textContent).toContain(
+      "The shell changed hands under a transition this build cannot read",
+    );
   });
 
   it("says which transitions are missing when the fold dropped the oldest", async () => {
@@ -163,6 +201,38 @@ describe("the transition ledger — one click away, every reason its own line", 
     fireEvent.click(disclosureControl(container));
     expect(container.querySelector(".meridian-partial-read")).toBeNull();
     expect(container.querySelectorAll(".meridian-lease-line__sentence")).toHaveLength(5);
+  });
+
+  it("renders an orderable instant past the ninth row, where the seconds field carries", async () => {
+    // The cap is thirty-two rows, so every ledger case that fills one crosses ten.
+    // The builder's own instant used to be spelled with a one-digit seconds slot,
+    // which mints `16:40:010` at sequence 10 — not an instant, and `formatClockTime`
+    // answers an em dash for it. The failure is silent: the row still renders, in a
+    // column of dashes, so what the ledger cannot say is WHEN anything happened.
+    const acrossTheCarry = [
+      transitionAt(9, "taken"),
+      transitionAt(10, "released"),
+      transitionAt(11, "taken"),
+    ];
+    const { container } = renderLease(
+      leaseState({
+        holding: "unheld",
+        holderVouching: "vouched",
+        transitions: acrossTheCarry,
+        transitionCount: acrossTheCarry.length,
+      }),
+    );
+    fireEvent.click(disclosureControl(container));
+
+    const clockTimes = [
+      ...container.querySelectorAll(".meridian-ledger-row__gutter .meridian-figure"),
+    ].map((element) => element.textContent ?? "");
+    expect(clockTimes).toHaveLength(acrossTheCarry.length);
+    expect(clockTimes).not.toContain("—");
+    // Distinct AND ascending: an instant that merely parses would still be wrong if
+    // every row carried the same one, which is the other way a derived clock breaks.
+    expect(new Set(clockTimes).size).toBe(acrossTheCarry.length);
+    expect([...clockTimes].sort()).toStrictEqual(clockTimes);
   });
 
   it("negative control: a ledger that named one reason five times would collapse them", () => {

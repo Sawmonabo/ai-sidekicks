@@ -45,6 +45,12 @@ const LAUNCHER_DISPLAY_PATH = "test/console/electron-harness.ts";
 const PLAYWRIGHT_SPECIFIER = "@playwright/test";
 const ELECTRON_LAUNCH_BINDING = "_electron";
 
+/** The composer, the input that decides its whole software-GL arm, and the only
+ * expression that may fill it. */
+const COMPOSER_FUNCTION_NAME = "composeLaunchArgs";
+const PLATFORM_PROPERTY_NAME = "platform";
+const HOST_PLATFORM_EXPRESSION = "process.platform";
+
 /** Stand-ins for the two arguments the harness owns, so a failure names the shape. */
 const PROFILE_DIRECTORY = "/tmp/ai-sidekicks-console-probe";
 const MAIN_ENTRY_PATH = "/repo/apps/desktop/out/main/index.js";
@@ -115,6 +121,56 @@ function switchLiteralsIn(source: string, fileName: string): readonly string[] {
         : undefined;
     if (text !== undefined && text.startsWith("-")) {
       found.push(text);
+    }
+  });
+  return found;
+}
+
+/**
+ * The text of every `platform:` the module hands `composeLaunchArgs`.
+ *
+ * The composition claim above is about a FUNCTION, and a function is only as right
+ * as what it is called with: `softwareGraphicsSwitchesFor` decides the whole
+ * software-GL arm off this one property, so a call site that wrote a platform down
+ * would compose an empty switch set on every Linux launch while every case above
+ * stayed green. Nothing else in the file reaches that property — `switchLiteralsIn`
+ * collects literals starting with `-`, and `"darwin"` is not one — which is how the
+ * defect this reads for is invisible to the home claim beside it.
+ *
+ * The initializer's own text rather than a shape test, because the two failures worth
+ * separating are "a literal" and "some other expression": the first names the wrong
+ * host, the second may be a helper that resolves one, and a reviewer reading the
+ * failure needs to see which arrived.
+ */
+function composerPlatformInitializersIn(source: string, fileName: string): readonly string[] {
+  const parsed = parseSourceText(fileName, source);
+  const found: string[] = [];
+  forEachDescendant(parsed, (node) => {
+    if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) {
+      return;
+    }
+    if (node.expression.text !== COMPOSER_FUNCTION_NAME) {
+      return;
+    }
+    for (const argument of node.arguments) {
+      if (!ts.isObjectLiteralExpression(argument)) {
+        continue;
+      }
+      for (const property of argument.properties) {
+        if (!ts.isPropertyAssignment(property)) {
+          continue;
+        }
+        const propertyName = ts.isIdentifier(property.name)
+          ? property.name.text
+          : ts.isStringLiteral(property.name)
+            ? property.name.text
+            : undefined;
+        if (propertyName === PLATFORM_PROPERTY_NAME) {
+          found.push(
+            parsed.text.slice(property.initializer.getStart(parsed), property.initializer.end),
+          );
+        }
+      }
     }
   });
   return found;
@@ -201,6 +257,38 @@ describe("launch arguments — one home for every switch a launch passes", () =>
     expect(switchLiteralsIn(readConsoleSourceModule(launcher), launcher.displayPath)).toStrictEqual(
       [],
     );
+  });
+
+  it("feeds the composer the host it launches on rather than a platform written down", () => {
+    // The half the two claims above cannot make between them. The composition case
+    // proves `composeLaunchArgs("linux")` yields the stack, and the home case proves
+    // the launcher spells no switch of its own — and `platform: "darwin"` at the call
+    // site satisfies both while composing an empty switch set on every Linux launch,
+    // which is exactly the state that left the `terminal-instance-memory` row reading
+    // a DOM-rendered pane on the runner it is measured on.
+    const launcher = moduleNamed(modules, LAUNCHER_DISPLAY_PATH, "the shared Electron launcher");
+    expect(
+      composerPlatformInitializersIn(readConsoleSourceModule(launcher), launcher.displayPath),
+    ).toStrictEqual([HOST_PLATFORM_EXPRESSION]);
+  });
+
+  it("proves that needle against a launcher that writes its platform down", () => {
+    // The other half, and it is what makes the clean result above mean anything: a
+    // walk that found no call at all would answer `[]`, which no assertion written
+    // as "must be `process.platform`" could tell from a launcher that is correct.
+    expect(
+      composerPlatformInitializersIn(
+        [
+          "const args = composeLaunchArgs({",
+          "  profileDirectory: profile.directory,",
+          "  mainEntryPath: MAIN_ENTRY_PATH,",
+          "  isPreciseHeapReadingRequired: false,",
+          '  platform: "darwin",',
+          "});",
+        ].join("\n"),
+        "planted-launcher.ts",
+      ),
+    ).toStrictEqual(['"darwin"']);
   });
 
   it("proves the needle by driving it against a launcher that does", () => {
