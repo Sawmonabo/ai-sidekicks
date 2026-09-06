@@ -19,7 +19,39 @@ import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
 import { crossMacrotaskBoundary } from "../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
+import {
+  consolePaneRegistry,
+  consoleSurfaceRegistry,
+} from "../../src/renderer/src/console/seats/index.js";
 import { type ConsoleScheme } from "../../src/renderer/src/console/tokens/index.js";
+
+/**
+ * Load every deferred body the console's own boards are holding.
+ *
+ * WHY THE MOUNT DOES THIS AND NOT THE TIER. A loader-backed body arrives on its own
+ * chunk, and a dynamic import needs more than the one macrotask a render settle
+ * crosses — so a tier mounting `ConsoleRoot` at an address whose surface or pane is
+ * deferred settles onto the reserved region and reads, audits, or PHOTOGRAPHS that.
+ * Waiting for it in each spec is the shape that fails: three specs that wait and a
+ * fourth that races look identical in a diff, and the fourth is green.
+ *
+ * THE PROCESS-WIDE BOARDS AND NOT A FAMILY'S. A family mount builds its own registry
+ * and resolves one body through `surfaces/pane-body-resolution.ts`; this is the other
+ * path — a route commits, the frame opens whatever the address resolves to, and what
+ * has to be loaded is whatever the doors this file's importer pulled in registered.
+ * `unloadedKeys` is the boards' own answer to that, so nothing here enumerates kinds.
+ *
+ * Idempotent: each registration memoises its loader, so a warmed board resolves
+ * immediately and a second mount pays nothing.
+ */
+async function loadRegisteredBodies(): Promise<void> {
+  await Promise.all([
+    ...consolePaneRegistry.unloadedKeys().map(async (kind) => consolePaneRegistry.preload(kind)),
+    ...consoleSurfaceRegistry
+      .unloadedKeys()
+      .map(async (slot) => consoleSurfaceRegistry.preload(slot)),
+  ]);
+}
 
 /**
  * Type a key sequence and let React finish reacting to it.
@@ -102,6 +134,12 @@ export async function renderSettled(element: ReactElement): Promise<ConsoleMount
 
   await act(async () => {
     render(element, { container });
+    await crossMacrotaskBoundary();
+    // After the first settle rather than before it: a board is populated by the family
+    // doors an importer pulled in, and the deferred bodies are only worth loading once
+    // something has actually mounted against them. The second boundary is what lets the
+    // resolved bodies commit — the first one only got their modules in flight.
+    await loadRegisteredBodies();
     await crossMacrotaskBoundary();
   });
   return { container };

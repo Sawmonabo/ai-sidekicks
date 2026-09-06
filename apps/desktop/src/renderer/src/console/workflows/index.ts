@@ -45,10 +45,12 @@ import { createElement } from "react";
 // substrate hoisted both boards down to `seats/`, which sits below every view family,
 // so this is one edge through one door and the config carries no exemption for it.
 import {
+  paneBodyForKind,
   type ConsolePaneRegistration,
   type ConsolePaneRegistry,
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
+import { WorkflowRunPane } from "./pane/run/index.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**
@@ -84,16 +86,29 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
-    // BOTH KINDS ARE LOADER-BACKED. Neither is on the flagship first paint — the run
-    // pane opens from the sidebar or the workflows browser, the builder from the rail's
-    // own destination — so both travel as their own chunks and the launch pays for
-    // neither. The phase graph stays a nested lazy chunk inside the run pane's, so
-    // opening a run does not fetch the graph either.
-    body: () => import("./pane/workflow-run-pane-body.js"),
+    // THE ONE PANE IN THIS SWEEP THAT STAYS STATIC, and the reason is a stylesheet
+    // collision rather than a first-paint judgement. `pane/run/run-controls.css` and
+    // `runs/pane/runs.css` both declare `.meridian-run-controls` with different layout
+    // declarations and disjoint children, so which of the two sheets the browser saw
+    // LAST decides how this pane lays its operator controls out. Deferring this body
+    // moves its sheet to the end of the cascade and flips that: measured 2026-09-06,
+    // the committed `workflow-parked-run` reference is 1440×1751 with the controls
+    // stacked and the loader-backed arrangement renders 1440×1762 — the same content,
+    // a different surface. A bundle-boundary change must not decide that, so the pane
+    // waits for the collision to be settled deliberately, with whichever layout the
+    // console wants and a regenerated reference.
+    // `test/console/architecture/stylesheet-selector-owners.test.ts` holds the census
+    // that keeps a second collision from landing unnoticed.
+    render: paneBodyForKind("workflow-run", (context) =>
+      createElement(WorkflowRunPane, { context }),
+    ),
   },
   {
     kind: "workflow-builder",
     owner: WORKFLOWS_OWNER,
+    // The builder carries its own sheet, which no other family declares against, so
+    // its body travels as its own chunk: the rail's destination opens it and nothing
+    // paints it before a person asks.
     body: () => import("./pane/workflow-builder-pane-body.js"),
   },
 ];
