@@ -128,12 +128,14 @@ export {
 } from "./approvals/approval-vocabulary.js";
 export { registerApprovalFlowProjectors } from "./approvals/approval-flow-projection.js";
 
-// The goal payload readings and the two bounds a goal is refused against. Through
-// this door because the approvals surface is a view family and may hold no
-// validator: what it consumes is the ANSWER — a text, an origin pair, or a boolean
-// — and never the schema that produced one.
+// The goal payload readings. Through this door because the approvals surface is a
+// view family and may hold no validator: what it consumes is the ANSWER — a text, an
+// origin pair, or a boolean — and never the schema that produced one.
+//
+// The two BOUNDS a goal is refused against are deliberately not here. They are caps,
+// so `console/core/constants.ts` is their one home and `core/index.js` is the door a
+// surface reads them through — this family consumes them like any other caller.
 export {
-  SESSION_GOAL_MAX_LENGTH,
   isSendableGoalText,
   readGoalOriginKeys,
   readGoalPayloadText,

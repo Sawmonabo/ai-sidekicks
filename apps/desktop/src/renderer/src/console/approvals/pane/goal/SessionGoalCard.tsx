@@ -46,7 +46,8 @@ import { ACCENT_FILL_CLASS, InlineRefusal, Nothing } from "../../../primitives/i
 import { type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { useSessionScopedState } from "../../../seats/index.js";
-import { SESSION_GOAL_MAX_LENGTH, isSendableGoalText } from "../../../bridge/index.js";
+import { isSendableGoalText } from "../../../bridge/index.js";
+import { SESSION_GOAL_MAX_LENGTH } from "../../../core/index.js";
 import { type SessionGoalProjection } from "./session-goal.js";
 import { GoalReading } from "./GoalReading.js";
 

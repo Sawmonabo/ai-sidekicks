@@ -22,22 +22,7 @@ import { z } from "zod";
 
 import { EVENT_ENVELOPE_SEQUENCE_MAX } from "@ai-sidekicks/contracts";
 
-/**
- * The shortest a session goal may be.
- *
- * One rather than zero is what makes "an update with no goal is malformed" true at
- * the type level: clearing is a different operation, and an empty-text update is
- * never treated as one.
- */
-export const SESSION_GOAL_MIN_LENGTH = 1;
-
-/**
- * The longest a session goal may be.
- *
- * The daemon's own bound, restated so the field refuses on the same rule rather than
- * truncating and sending something the participant did not write.
- */
-export const SESSION_GOAL_MAX_LENGTH = 4096;
+import { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "../../core/index.js";
 
 /** The code point the bound rejects, written as an escape so no file carries one. */
 const NUL_CODE_POINT = "\u0000";

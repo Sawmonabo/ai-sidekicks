@@ -21,11 +21,11 @@ import { openStoreOver } from "../sessions.test-support.js";
 import { DurableViewBindingHolder, type DurableViewBinding } from "./durable-view-binding.js";
 import { HIDDEN_INVITES_KEY, useHiddenInvites } from "../invitations/hidden-invites.js";
 import { SESSION_PIN_TIERS_KEY, useSessionPins, type SessionPinMap } from "../rows/session-pins.js";
-import { settle as settlePasses } from "../../core/settle.test-support.js";
+import { settle as settleReactWork } from "../../core/settle.test-support.js";
 
 /** Let a durable read or write settle. Both are promises the acts do not await. */
 async function settle(): Promise<void> {
-  await settlePasses(4);
+  await settleReactWork();
 }
 
 /**

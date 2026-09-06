@@ -15,11 +15,11 @@
 //
 // AND IT IS NAMED FOR THE BOUNDARY IT ARMS. It was `drainMicrotasks`, in
 // `microtask-drain.test-support.ts`, which is the opposite of what `setTimeout` waits
-// for — and one suite imports it beside `settleReactWork`, which then really was a
-// counted number of microtask turns, so the two helpers' names were each the other's
-// meaning one line apart and repairing either in the obvious direction broke a suite.
-// That helper waits on this boundary now, inside React's scope, and the naming is what
-// kept the two legible to each other while one of them still counted turns.
+// for — and it was imported beside a settle that really did count microtask turns, so
+// the two helpers' names were each the other's meaning one line apart and repairing
+// either in the obvious direction broke a suite. `core/settle.test-support.ts` waits
+// on this boundary now, inside React's scope, so the two are one vocabulary with one
+// difference between them: whether the wait happens inside `act`.
 
 /**
  * Wait until the platform has run a task of its own.

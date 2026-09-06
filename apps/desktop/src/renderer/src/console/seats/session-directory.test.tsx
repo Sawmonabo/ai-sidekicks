@@ -31,7 +31,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
-import { settleReactWork } from "../core/act-settlement.test-support.js";
+import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { useSubjectScopedState } from "../store/index.js";
 import {
   offeredSessionIds,

@@ -12,6 +12,7 @@
 // reached the model, and nothing subscribed. The assertion is therefore that the
 // roster LOADS after the press, and not merely that a handler ran.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -81,7 +82,7 @@ async function settleRead(bridge: ConsoleBridge): Promise<void> {
   await act(async () => {
     bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
     for (let pass = 0; pass < 4; pass += 1) {
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     }
   });
 }

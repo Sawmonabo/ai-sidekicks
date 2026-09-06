@@ -36,14 +36,16 @@ export const COMPOSER_REPLIES: readonly ScenarioReply[] = [
         name: agent.name,
         driverName: agent.driverName,
         modelId: agent.modelId,
-        // Spread rather than written as `undefined`, so a row for an agent the
-        // provider's default account pays for OMITS the member exactly as the wire
-        // does — absence is the statement, and a present-but-empty member is a
-        // different one.
-        ...(agent.providerAccountId === undefined
-          ? {}
-          : { providerAccountId: agent.providerAccountId }),
-        config: {},
+        // The EFFECTIVE binding, which is where the wire carries the paying account
+        // — `bridge/wire-shapes/agent-plane.ts` declares it there and the roster
+        // reading reads it there. Spread rather than written as `undefined`, so a
+        // row for an agent the provider's default account pays for OMITS the member
+        // exactly as the wire does: absence is the statement, and a present-but-empty
+        // member is a different one.
+        config:
+          agent.providerAccountId === undefined
+            ? {}
+            : { providerAccountId: agent.providerAccountId },
         // `AgentState` is the four-state lifecycle — `configured` / `ready` /
         // `disabled` / `archived`. A run being blocked is a RUN state and is read
         // from the run, never folded into the agent row.

@@ -8,9 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "../../core/index.js";
 import {
-  SESSION_GOAL_MAX_LENGTH,
-  SESSION_GOAL_MIN_LENGTH,
   isSendableGoalText,
   readGoalOriginKeys,
   readGoalPayloadText,

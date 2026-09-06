@@ -292,7 +292,6 @@ export function withDaemonSubscribe(
  * family suite drives its OWN scenario — the composer's, the approvals pane's — and
  * without it each one had to reach for `createFixtureBridge` and rebuild the spread.
  */
-/** The shipped fixture over the flagship scenario, with that call arm on it. */
 export function bridgeAnswering(
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
   scenario?: ConsoleScenario,

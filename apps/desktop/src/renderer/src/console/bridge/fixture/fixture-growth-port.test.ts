@@ -77,25 +77,26 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // reading cannot tell an unimplemented arm from an unscripted one, and an
     // operation that silently stopped being served would read as compliant.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-    // The script-only writes are subtracted rather than special-cased in the loop:
-    // they ARE implemented, and this scenario scripts none of them, so they take the
-    // refusing arm here for the reason their own declaration gives — a write with no
-    // scripted answer has no honest empty state to serve. The subtraction is over the
-    // declared subset, so an operation that stopped being script-only fails here.
+    // The script-only writes are held to a DIFFERENT code rather than subtracted:
+    // they ARE implemented, and this scenario scripts none of them, so they refuse
+    // for the reason their own declaration gives — a write with no scripted answer
+    // has no honest empty state to serve. What that refusal may not say is that the
+    // wire is unbuilt, which would send a reader to a document owing a wire this
+    // bridge already stands in for; it names the SCENARIO's gap instead. The subset
+    // is read from its own declaration, so an operation that stopped being
+    // script-only changes arms here rather than going unchecked.
     const scriptOnly = new Set<string>(FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS);
-    const served = new Set<string>(
-      FIXTURE_SERVED_GROWTH_OPERATION_IDS.filter((operationId) => !scriptOnly.has(operationId)),
-    );
+    const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
-      if (served.has(operationId)) {
+      if (served.has(operationId) && !scriptOnly.has(operationId)) {
         continue;
       }
       const outcome = await callOperation(bridge.growth, operationId);
       expect(outcome.status, `${operationId} answered the wrong way`).toBe("unavailable");
       if (outcome.status === "unavailable") {
         expect(outcome.code, `${operationId} refused with the wrong code`).toBe(
-          "wire-unregistered",
+          scriptOnly.has(operationId) ? "reply-unscripted" : "wire-unregistered",
         );
       }
     }

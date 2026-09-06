@@ -4,6 +4,7 @@
 // that arrives after the surface has been re-addressed publishes nowhere, including
 // on the round-trip back to a session it has already been on, where the
 // `(bridge, sessionId)` pair compares equal on two different visits.
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -151,7 +152,7 @@ describe("sent invites — the session a row and a control belong to", () => {
         status: "served",
         value: [invite({ inviteId: INVITE_FROM_A })],
       });
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await settle();
 
@@ -201,7 +202,7 @@ describe("sent invites — the session a row and a control belong to", () => {
 
     await act(async () => {
       revokeControls(view.container)[0]?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(held.revokeRequests).toStrictEqual([{ sessionId: SESSION_B, inviteId: INVITE_FROM_B }]);
@@ -216,7 +217,7 @@ describe("sent invites — the session a row and a control belong to", () => {
     await settle();
     await act(async () => {
       revokeControls(view.container)[0]?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     expect(held.revokeRequests).toHaveLength(1);
 
@@ -241,7 +242,7 @@ describe("sent invites — the session a row and a control belong to", () => {
     await settle();
     await act(async () => {
       revokeControls(view.container)[0]?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     view.rerender(<SentInvites bridge={held.bridge} sessionId={SESSION_B} />);
     await settle();
@@ -250,7 +251,7 @@ describe("sent invites — the session a row and a control belong to", () => {
     // ledger that folded a superseded settlement would silently move.
     await act(async () => {
       held.settleRevoke(revokedReply(INVITE_FROM_A));
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await settle();
 

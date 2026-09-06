@@ -5,6 +5,7 @@
 // console holds rather than under a second read. What a person's HIDES survive and
 // which reader an answer belongs to is `InviteShelf.hiding.test.tsx`, over the one
 // cast in `invite-shelf.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { openStore } from "../sessions.test-support.js";
@@ -154,7 +155,7 @@ describe("an invitation that lapses while the console holds it", () => {
     // read is performed and none is needed: what changed is what time it is.
     await act(async () => {
       clock.advance(MILLISECONDS_PER_DAY + 1);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     const text = container.textContent ?? "";
@@ -177,7 +178,7 @@ describe("an invitation that lapses while the console holds it", () => {
 
     await act(async () => {
       clock.advance(MILLISECONDS_PER_DAY - 1);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(container.textContent ?? "").toContain("invite-1");
@@ -265,7 +266,7 @@ describe("an invitation that lapsed before the read that found it", () => {
 
     await act(async () => {
       clock.advance(MILLISECONDS_PER_HOUR);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     frames.length = 0;
 
@@ -273,7 +274,7 @@ describe("an invitation that lapsed before the read that found it", () => {
       heldRead.settle([
         served([invite({ inviteId: "lapsed-while-away", expiresAt: LAPSED_EXPIRY })]),
       ]);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await settle();
 
@@ -298,7 +299,7 @@ describe("an invitation that lapsed before the read that found it", () => {
 
     await act(async () => {
       heldRead.settle([served([invite({ inviteId: "still-waiting" })])]);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await settle();
 

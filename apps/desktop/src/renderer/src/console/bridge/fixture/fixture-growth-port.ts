@@ -277,7 +277,13 @@ async function answerScriptedWrite<TValue>(
   request: unknown,
 ): Promise<GrowthOutcome<TValue>> {
   if (engine.replyFor(call) === undefined) {
-    return growthUnavailable(operationId);
+    // The SCENARIO's gap and never the build's. `growthUnavailable` would compose
+    // "this build does not carry the wire", which is false for an operation this
+    // fixture serves and would send a reader to the document that owes a wire the
+    // fixture already stands in for — the distinction `growthUnscriptedReply`'s own
+    // header draws, and the one `fixture-growth-port.test.ts` holds every served
+    // operation to.
+    return growthUnscriptedReply(operationId, call);
   }
   return await answerFromScriptedReply<TValue>(engine, call, operationId, request, () => {
     // Unreachable: the guard above already refused every unscripted call, and the

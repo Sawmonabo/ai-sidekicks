@@ -60,6 +60,8 @@ const EXPECTED_READINGS: readonly string[] = [
   "BridgeCapabilityRead",
   "NodeProviderQuotaReading",
   "SessionQueueReading",
+  "ShellPreferenceStore",
+  "SidekickRegistryView",
 ];
 
 /** One class, judged against the rule. */

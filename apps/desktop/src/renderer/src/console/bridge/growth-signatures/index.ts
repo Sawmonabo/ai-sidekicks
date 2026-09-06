@@ -86,5 +86,4 @@ export interface GrowthOperationSignatures
     AgentGrowthSignatures,
     ApprovalGrowthSignatures,
     SidekickGrowthSignatures,
-    AgentGrowthSignatures,
     LedgerGrowthSignatures {}
