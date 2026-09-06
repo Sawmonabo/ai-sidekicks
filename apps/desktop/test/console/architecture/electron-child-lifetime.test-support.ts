@@ -21,6 +21,7 @@ import {
   type ManagedElectronChild,
   type ProcessTreeTerminator,
   type SettleTimeDisposer,
+  type SettleTimeRegistrar,
 } from "../../helpers/electron-child.js";
 import { processHasTerminated, terminateProcessTree } from "../../helpers/process-tree.js";
 
@@ -87,31 +88,130 @@ export class RecordingSettleRegistrar {
   }
 }
 
+/** One call the tree terminator received, as the suite reads it back. */
+export interface TerminationRequest {
+  readonly processId: number;
+  readonly signal: NodeJS.Signals;
+}
+
 /**
- * A tree terminator that refuses its first SIGKILL and then really terminates.
+ * A tree terminator that records every request and can refuse the first N kills.
+ *
+ * ONE CLASS FOR ONE ROLE. Two cases need this stand-in for two different
+ * reasons — one needs a platform that REFUSES on demand, the other needs to
+ * learn which pid the module asked to kill — and both are the same role:
+ * observing and optionally denying the call the module makes. A second class
+ * for the second reason would be a second home for the same fact.
  *
  * The refusal is the case no platform can be asked to produce on demand: a
- * `taskkill` that spawns, exits non-zero, and leaves a live tree behind. The
- * second call delegates to the real terminator rather than answering a bare
- * `true`, so the retry it drives is a retry that actually kills something and
- * the case leaves nothing running.
+ * `taskkill` that spawns, exits non-zero, and leaves a live tree behind. Once
+ * the refusals are used up the call delegates to the REAL terminator rather
+ * than answering a bare `true`, so the retry it drives is a retry that actually
+ * kills something and the case leaves nothing running.
  */
-export class RefuseFirstKillTerminator {
-  readonly #attempts: NodeJS.Signals[] = [];
-  #refusalsRemaining = 1;
+export class ObservedTreeTerminator {
+  readonly #requests: TerminationRequest[] = [];
+  #refusalsRemaining: number;
 
-  get attempts(): readonly NodeJS.Signals[] {
-    return this.#attempts;
+  constructor(refusedKills = 0) {
+    this.#refusalsRemaining = refusedKills;
+  }
+
+  get requests(): readonly TerminationRequest[] {
+    return this.#requests;
+  }
+
+  /**
+   * The pid of the first tree this terminator was asked about, or `0`.
+   *
+   * `0` for "nothing was asked" rather than `undefined`, which is the same
+   * convention `AbandonedPair` uses and for the same reason: `reap` refuses it,
+   * so an unrecorded pid can never be signalled — and on POSIX `0` addresses
+   * the CALLER's own process group.
+   */
+  get firstRequestedPid(): number {
+    return this.#requests[0]?.processId ?? 0;
   }
 
   readonly terminate: ProcessTreeTerminator = (processId, signal) => {
-    this.#attempts.push(signal);
+    this.#requests.push({ processId, signal });
     if (signal === "SIGKILL" && this.#refusalsRemaining > 0) {
       this.#refusalsRemaining -= 1;
       return false;
     }
     return terminateProcessTree(processId, signal);
   };
+}
+
+/** What a registrar that refuses registration throws, so a case can name it. */
+export const REGISTRAR_REFUSAL_MESSAGE = "onTestFinished() can only be called inside a test";
+
+/**
+ * A registrar that refuses, the way `onTestFinished` refuses outside a test.
+ *
+ * The misuse this stands in for is a spawn from `beforeAll`: legal-looking
+ * code, a real child, and a registrar that throws AFTER the child exists. Vitest
+ * cannot be asked to produce it from inside a running test — which is the same
+ * reason the refusing terminator above is injected rather than provoked.
+ */
+export class RefusingSettleRegistrar {
+  #registrationAttempts = 0;
+
+  get registrationAttempts(): number {
+    return this.#registrationAttempts;
+  }
+
+  readonly register: SettleTimeRegistrar = () => {
+    this.#registrationAttempts += 1;
+    throw new Error(REGISTRAR_REFUSAL_MESSAGE);
+  };
+}
+
+/**
+ * A child that will not exit on its own, and no grandchild.
+ *
+ * The misuse case reads the pid out of the terminator rather than out of a
+ * returned handle — there is no returned handle, which is the whole defect —
+ * and a grandchild whose pid nothing announced would be unobservable. The pid
+ * that IS observable is the root's, and the root is what the claim is about.
+ */
+const NON_TERMINATING_PROGRAM = "setInterval(() => {}, 60000);";
+
+/**
+ * A spawn through the real chokepoint whose settle-time registration refuses.
+ *
+ * Holds the two stand-ins so the case can read what the recovery did: whether
+ * the registrar was reached at all, and which pid — if any — the module handed
+ * the tree terminator on its way out.
+ */
+export class RefusedRegistrationSpawn {
+  readonly #registrar = new RefusingSettleRegistrar();
+  readonly #terminator = new ObservedTreeTerminator();
+
+  /** Spawn, and let the registrar's refusal come back out. */
+  readonly attempt = (): void => {
+    spawnManagedElectronChild({
+      command: process.execPath,
+      args: ["-e", NON_TERMINATING_PROGRAM],
+      cwd: process.cwd(),
+      env: process.env,
+      registerSettleTimeTermination: this.#registrar.register,
+      terminateProcessTree: this.#terminator.terminate,
+    });
+  };
+
+  get registrationAttempts(): number {
+    return this.#registrar.registrationAttempts;
+  }
+
+  get terminationRequests(): readonly TerminationRequest[] {
+    return this.#terminator.requests;
+  }
+
+  /** The pid the recovery asked the tree terminator to kill, or `0`. */
+  get abandonedPid(): number {
+    return this.#terminator.firstRequestedPid;
+  }
 }
 
 /** The pids of a pair whose setup threw, read by the case that follows it. */

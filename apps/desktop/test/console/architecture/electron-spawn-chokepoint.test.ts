@@ -1,24 +1,52 @@
 // One module spawns Electron, and this is what says so.
 //
-// The rule: no file under `apps/desktop/test/**` imports `spawn` from
-// `node:child_process` except `test/helpers/electron-child.ts`. A second spawn
-// site is a second child lifetime nobody owns, which is exactly how four
-// Electron processes carrying this package's own `sidekicks-gc-test-*` profile
-// prefix were found reparented to init long after their run had finished.
+// The rule: no file under `apps/desktop/test/**` reaches the asynchronous
+// `spawn` of `node:child_process` except `test/helpers/electron-child.ts`. A
+// second spawn site is a second child lifetime nobody owns, which is exactly how
+// four Electron processes carrying this package's own `sidekicks-gc-test-*`
+// profile prefix were found reparented to init long after their run had finished.
 //
-// WHY THE IMPORT AND NOT THE CALL
+// WHY THE REACH AND NOT THE CALL
 //
 // A rule keyed on the call would have to decide whether a given `spawn(...)`
 // launches Electron — through a variable holding a binary path, through
 // `xvfb-run` wrapping it, through a helper two files away. That is a judgment,
 // and a tripwire that makes judgments is a tripwire that can be argued with. The
-// import is a fact: a module that cannot name `spawn` cannot start a process
+// reach is a fact: a module that cannot NAME `spawn` cannot start a process
 // whose lifetime this package does not already own.
 //
+// WHY IT IS PARSED AND NOT MATCHED
+//
+// The first version of this rule read one shape — a braced named-import clause
+// with `node:child_process` on its right — and every other way of reaching the
+// same binding was invisible to it. `import * as childProcess from
+// "node:child_process"` then `childProcess.spawn(...)` carries no brace body;
+// `const { spawn } = require("node:child_process")` carries no `import` at all;
+// so does `await import("node:child_process")`; and `"child_process"` without
+// the `node:` prefix resolves to the same module and did not match the literal.
+// Each of those spellings was reported clean. They are not corner cases dug out
+// of a spec — the first is the ordinary CommonJS-interop idiom, and the second is
+// what a module writes when it needs the loader inside a function.
+//
+// One residual is accepted and named rather than papered over: a loader parked
+// in a variable first (`const load = require; load("node:child_process")`) is
+// not read, for the same reason property accesses are not resolved through an
+// alias — that is binding resolution, which is a judgment. What is closed is
+// every spelling a module actually writes.
+//
+// So the reach is read out of the PARSE, through this tier's one parse home. A
+// namespace, a default binding, a dynamic import and a `require` are each a
+// WHOLE-MODULE reach: they put every export of `node:child_process` in the
+// module's hands under a name no scan can enumerate, and `spawn` is one of them.
+// Reporting them is the same posture `source-walk-census.ts` already takes for
+// a namespace import of `node:fs`, and for the same reason — the alternative is
+// resolving property accesses through an alias, which is a judgment again.
+//
 // `spawnSync` is deliberately untouched. It cannot orphan anything — it returns
-// only once its child is gone — and three architecture tests plus
-// `process-tree.ts` use it. Narrowing the ban to the asynchronous form is what
-// keeps this rule about lifetimes rather than about a substring.
+// only once its child is gone — and four modules under `test/` use it. Narrowing
+// the ban to the asynchronous binding is what keeps this rule about lifetimes
+// rather than about a substring. A type-only reach is untouched for the same
+// class of reason: a type starts no process.
 //
 // Playwright's `_electron.launch` is not a `spawn` and is not banned here. It
 // has its own chokepoint (`withLaunchedConsole` is the one way in, and
@@ -30,24 +58,29 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
+
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TEST_ROOT = path.resolve(HERE, "..", "..");
 
-/** The one module allowed to name `spawn`, relative to `test/`. */
+/** The one module allowed to reach `spawn`, relative to `test/`. */
 const SPAWN_CHOKEPOINT = path.join("helpers", "electron-child.ts");
 
 /** The launcher that must reach the same settle-time door, relative to `test/`. */
 const PLAYWRIGHT_LAUNCHER = path.join("console", "electron-harness.ts");
 
 /**
- * This file, which carries planted import text as its own negative control.
+ * This file, which carries every planted control below as literal source text.
  *
- * Subtracted from the scan rather than dodged by obfuscating the controls: a
- * control written so the detector cannot see it is not a control. The
- * subtraction is itself asserted below, so it can never quietly become the
- * reason a real second spawner passes.
+ * NOT SUBTRACTED FROM THE SCAN, and that is a property of the reader rather than
+ * a decision made here: a planted shape inside a string literal is a string
+ * literal to the parser, so this file's own controls cannot make it look like a
+ * spawner. The regex this replaced could not tell the two apart and needed an
+ * exemption for exactly that reason — and an exemption is a hole that a real
+ * second spawner can one day fall into. The case below asserts the difference.
  */
 const CONTROL_FIXTURE_FILE = path.join(
   "console",
@@ -55,19 +88,125 @@ const CONTROL_FIXTURE_FILE = path.join(
   "electron-spawn-chokepoint.test.ts",
 );
 
-/** Every named-import clause taken from `node:child_process`, brace body captured. */
-const CHILD_PROCESS_IMPORT = /import\s*\{([^}]*)\}\s*from\s*["']node:child_process["']/g;
+/** Both specifiers that resolve to the same module. */
+const CHILD_PROCESS_SPECIFIERS: readonly string[] = ["node:child_process", "child_process"];
+
+/** The binding whose lifetime this package must own. */
+const ASYNCHRONOUS_SPAWN = "spawn";
+
+/** The call forms that hand a module object back whole. */
+const WHOLE_MODULE_CALLEES: readonly string[] = ["require", "createRequire"];
+
+function isChildProcessSpecifier(text: string): boolean {
+  return CHILD_PROCESS_SPECIFIERS.includes(text);
+}
 
 /**
- * Whether a source text imports the ASYNCHRONOUS `spawn` from `node:child_process`.
+ * Whether an import clause puts `spawn` in the module's hands.
  *
- * Decided per SPECIFIER rather than by a substring, which is the whole
- * discrimination this rule rests on: `spawnSync` contains `spawn` and is
- * deliberately allowed, and a local identifier named `spawn` — a Playwright
- * option object, a property on a driver contract — is not an import at all.
+ * Three arms, and only the last is a name-by-name question. A DEFAULT binding of
+ * a CommonJS module is the module object under interop, and a NAMESPACE binding
+ * is the module object by definition — both hold `spawn` under a name this scan
+ * would have to resolve property accesses to enumerate. A bare
+ * `import "node:child_process"` binds nothing and is not a reach.
  */
-function importsAsynchronousSpawn(source: string): boolean {
-  for (const clause of source.matchAll(CHILD_PROCESS_IMPORT)) {
+function importClauseReachesSpawn(clause: ts.ImportClause): boolean {
+  if (clause.isTypeOnly) {
+    return false;
+  }
+  if (clause.name !== undefined) {
+    return true;
+  }
+  const bindings = clause.namedBindings;
+  if (bindings === undefined) {
+    return false;
+  }
+  if (ts.isNamespaceImport(bindings)) {
+    return true;
+  }
+  return bindings.elements.some(
+    (element) =>
+      !element.isTypeOnly && (element.propertyName ?? element.name).text === ASYNCHRONOUS_SPAWN,
+  );
+}
+
+/**
+ * Whether a call expression loads `node:child_process` whole.
+ *
+ * `import("node:child_process")`, `require("node:child_process")`, and the
+ * `createRequire(...)("node:child_process")` form this package's own
+ * `scripts/materialize-electron.ts` uses — the third because a rule that knew
+ * the first two would name the third as the way around itself.
+ */
+function callLoadsChildProcess(node: ts.CallExpression): boolean {
+  const specifier = node.arguments[0];
+  if (specifier === undefined || !ts.isStringLiteralLike(specifier)) {
+    return false;
+  }
+  if (!isChildProcessSpecifier(specifier.text)) {
+    return false;
+  }
+  const callee = node.expression;
+  if (callee.kind === ts.SyntaxKind.ImportKeyword) {
+    return true;
+  }
+  if (ts.isIdentifier(callee)) {
+    return WHOLE_MODULE_CALLEES.includes(callee.text);
+  }
+  // `createRequire(import.meta.url)("node:child_process")` — the callee is
+  // itself the call that produced the loader.
+  return (
+    ts.isCallExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    WHOLE_MODULE_CALLEES.includes(callee.expression.text)
+  );
+}
+
+/**
+ * Whether `source` reaches the ASYNCHRONOUS `spawn` of `node:child_process`.
+ *
+ * Decided per DECLARATION rather than by a substring, which is the whole
+ * discrimination this rule rests on: `spawnSync` contains `spawn` and is
+ * deliberately allowed, a local identifier named `spawn` — a Playwright option
+ * object, a property on a driver contract — is not a reach at all, and a shape
+ * quoted inside a string is a string.
+ */
+function reachesAsynchronousSpawn(source: string, fileName: string): boolean {
+  let reaches = false;
+  forEachDescendant(parseSourceText(fileName, source), (node) => {
+    if (reaches) {
+      return;
+    }
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      isChildProcessSpecifier(node.moduleSpecifier.text) &&
+      node.importClause !== undefined &&
+      importClauseReachesSpawn(node.importClause)
+    ) {
+      reaches = true;
+      return;
+    }
+    if (ts.isCallExpression(node) && callLoadsChildProcess(node)) {
+      reaches = true;
+    }
+  });
+  return reaches;
+}
+
+/**
+ * The reader this file replaced, kept as the foil the controls are measured against.
+ *
+ * Not a second implementation of the rule — it is the SUPERSEDED one, and its
+ * only use is the case that shows what it could not see. A control that merely
+ * asserts the new reader fires would pass over a reader that fires on
+ * everything; a control that also asserts the old one did NOT fire is the one
+ * that says the walk bought something.
+ */
+const NAMED_IMPORT_CLAUSE = /import\s*\{([^}]*)\}\s*from\s*["']node:child_process["']/g;
+
+function supersededNamedImportReader(source: string): boolean {
+  for (const clause of source.matchAll(NAMED_IMPORT_CLAUSE)) {
     const braceBody = clause[1];
     if (braceBody === undefined) continue;
     const specifiers = braceBody.split(",").map((specifier) => specifier.trim());
@@ -96,9 +235,41 @@ function testSourceFiles(directory: string = TEST_ROOT): string[] {
   return collected;
 }
 
-function fileImportsSpawn(relativePath: string): boolean {
-  return importsAsynchronousSpawn(readFileSync(path.join(TEST_ROOT, relativePath), "utf8"));
+function readTestSource(relativePath: string): string {
+  return readFileSync(path.join(TEST_ROOT, relativePath), "utf8");
 }
+
+function fileReachesSpawn(relativePath: string): boolean {
+  return reachesAsynchronousSpawn(readTestSource(relativePath), relativePath);
+}
+
+/**
+ * The reaches the named-import reader could not see, each one a real spelling.
+ *
+ * The first is the ordinary CommonJS-interop idiom; the second is what a module
+ * writes when it needs the loader inside a function; the third is the same
+ * module under the prefix-less specifier; the fourth defers the load; the fifth
+ * is the escape a rule that knew only `require` would leave open.
+ */
+const REACHES_INVISIBLE_TO_THE_REGEX: readonly string[] = [
+  'import * as childProcess from "node:child_process";\nchildProcess.spawn("electron");',
+  'const { spawn } = require("node:child_process");',
+  'import { spawn } from "child_process";',
+  'const childProcess = await import("node:child_process");',
+  'const childProcess = createRequire(import.meta.url)("node:child_process");',
+  'import childProcess from "node:child_process";',
+];
+
+/** Shapes that name the module or the word and start no process. */
+const REACHES_THAT_ARE_NOT_ONE: readonly string[] = [
+  'import { spawnSync } from "node:child_process";',
+  'import { spawnSync, type ChildProcess } from "node:child_process";',
+  'import type { spawn } from "node:child_process";',
+  'import { type spawn } from "node:child_process";',
+  'import "node:child_process";',
+  "const spawn = launcher.spawn.bind(launcher);",
+  'const advice = "import { spawn } from \\"node:child_process\\"";',
+];
 
 describe("every Electron spawn under test/ goes through one owner", () => {
   const files = testSourceFiles();
@@ -108,57 +279,72 @@ describe("every Electron spawn under test/ goes through one owner", () => {
     // scanned nothing would report clean forever.
     expect(files.length).toBeGreaterThan(20);
     expect(files).toContain(SPAWN_CHOKEPOINT);
-  });
-
-  it("carries its own planted import text, which is why it is subtracted", () => {
-    // If this ever reads false the controls below have stopped being literal
-    // import text, and the subtraction on the next case is hiding nothing —
-    // which would also mean the detector was never proven against this tree.
     expect(files).toContain(CONTROL_FIXTURE_FILE);
-    expect(fileImportsSpawn(CONTROL_FIXTURE_FILE)).toBe(true);
   });
 
-  it("names exactly one module that imports the asynchronous spawn", () => {
-    const spawners = files
-      .filter((relativePath) => relativePath !== CONTROL_FIXTURE_FILE)
-      .filter(fileImportsSpawn);
+  it("names exactly one module that reaches the asynchronous spawn", () => {
+    const spawners = files.filter(fileReachesSpawn);
     expect(
       spawners,
-      "a second module under test/ imports `spawn` — route it through " +
+      "a second module under test/ reaches `spawn` — route it through " +
         "`spawnManagedElectronChild` so the child's lifetime is bound to the test",
     ).toStrictEqual([SPAWN_CHOKEPOINT]);
   });
 
-  it("fails on a planted import, so the clean result above is not vacuous", () => {
-    // The negative control. Three shapes a real regression takes, and the
-    // `spawnSync` line that must NOT trip — the discrimination the rule rests on.
-    expect(importsAsynchronousSpawn('import { spawn } from "node:child_process";')).toBe(true);
-    expect(importsAsynchronousSpawn('import { spawn, spawnSync } from "node:child_process";')).toBe(
+  it("scans this file too, because a quoted reach is not a reach", () => {
+    // Why the case above needs no exemption list. Every control in this file is
+    // literal source text, and the parser sees literals; the regex could not,
+    // which is why it needed this file subtracted — and a subtraction is a hole
+    // a real second spawner can fall into. The foil firing here is the proof
+    // that the controls really are the text they claim to be.
+    expect(fileReachesSpawn(CONTROL_FIXTURE_FILE)).toBe(false);
+    expect(
+      supersededNamedImportReader(readTestSource(CONTROL_FIXTURE_FILE)),
+      "the planted controls are no longer literal import text, so they prove nothing",
+    ).toBe(true);
+  });
+
+  it("catches every spelling the named-import reader reported clean", () => {
+    for (const planted of REACHES_INVISIBLE_TO_THE_REGEX) {
+      expect(reachesAsynchronousSpawn(planted, "planted.ts"), planted).toBe(true);
+    }
+    // The other half of the same control: each of these was invisible to the
+    // reader this replaced, so the walk is what closed them and not the tree
+    // happening to be clean.
+    for (const planted of REACHES_INVISIBLE_TO_THE_REGEX) {
+      expect(supersededNamedImportReader(planted), planted).toBe(false);
+    }
+  });
+
+  it("fails on a planted named import, so the clean result above is not vacuous", () => {
+    expect(reachesAsynchronousSpawn('import { spawn } from "node:child_process";', "p.ts")).toBe(
       true,
     );
     expect(
-      importsAsynchronousSpawn(
+      reachesAsynchronousSpawn('import { spawn, spawnSync } from "node:child_process";', "p.ts"),
+    ).toBe(true);
+    expect(
+      reachesAsynchronousSpawn(
         'import {\n  spawnSync,\n  spawn,\n  type ChildProcess,\n} from "node:child_process";',
+        "p.ts",
       ),
     ).toBe(true);
-    expect(importsAsynchronousSpawn('import { spawn as launch } from "node:child_process";')).toBe(
-      true,
-    );
-    expect(importsAsynchronousSpawn('import { spawnSync } from "node:child_process";')).toBe(false);
     expect(
-      importsAsynchronousSpawn(
-        'import { spawnSync, type ChildProcess } from "node:child_process";',
-      ),
-    ).toBe(false);
-    // Not an import of anything: the shape a call-keyed rule would have to judge.
-    expect(importsAsynchronousSpawn("const spawn = launcher.spawn.bind(launcher);")).toBe(false);
+      reachesAsynchronousSpawn('import { spawn as launch } from "node:child_process";', "p.ts"),
+    ).toBe(true);
+  });
+
+  it("still clears the forms that cannot start a process", () => {
+    for (const planted of REACHES_THAT_ARE_NOT_ONE) {
+      expect(reachesAsynchronousSpawn(planted, "planted.ts"), planted).toBe(false);
+    }
   });
 
   it("holds the Playwright launcher to the same settle-time door", () => {
     // It spawns nothing here, so the rule above cannot reach it — and it has the
     // identical hole: its close runs in the body's own settlement, and vitest's
     // per-test timeout does not run that.
-    const launcher = readFileSync(path.join(TEST_ROOT, PLAYWRIGHT_LAUNCHER), "utf8");
+    const launcher = readTestSource(PLAYWRIGHT_LAUNCHER);
     expect(
       launcher.includes("disposeWhenTestFinishes"),
       "`withLaunchedConsole` no longer registers a settle-time close — a tier that " +

@@ -262,13 +262,47 @@ export class ManagedElectronChild {
   }
 
   /**
+   * Whether the direct-handle backstop has been fired.
+   *
+   * The reading that makes the rule in `dispose` checkable rather than merely
+   * asserted in prose. The abort kills the ROOT and nothing beneath it, and the
+   * root is what a tree kill is addressed THROUGH — on Windows `taskkill /pid
+   * <root> /t` rediscovers the descendants by walking from it, and this process
+   * holds no other handle on them. So a child that has a pid must never see
+   * this become `true`, refused kill or delivered one, and a test can ask.
+   */
+  get directHandleReleased(): boolean {
+    return this.#abortController.signal.aborted;
+  }
+
+  /**
    * Release everything this child holds, now. Idempotent.
    *
    * Registered as the settle-time disposer, and also called by a harness that
-   * has finished with the child before the test has. The group kill runs first
-   * and the abort second: the abort reaches the direct handle alone, so running
-   * it first would take the shim down and orphan exactly the browser process
-   * the group kill exists to reach.
+   * has finished with the child before the test has.
+   *
+   * THE ABORT IS NOT A SECOND ATTEMPT AT THE TREE, and treating it as one was
+   * the hole. It reaches the direct handle ALONE, so it can do exactly two
+   * things here and neither is a backstop:
+   *
+   *   • After a REFUSED tree kill it destroys the only thing the retry has to
+   *     work with. A tree is addressed THROUGH its root — `taskkill /pid <root>
+   *     /t` walks the descendants from it, and this process holds no other
+   *     handle on them — so answering a refusal by killing the root leaves the
+   *     descendants running with nothing anywhere that can name them. The
+   *     `#killDelivered` marker staying false is what SCHEDULES the retry;
+   *     keeping the root alive is what gives the retry a tree to walk, and a
+   *     marker without the root is a retry that runs, finds nothing, and
+   *     reports success.
+   *   • After a DELIVERED one it re-signals a pid that is already gone, and
+   *     Node answers an abort by emitting `AbortError` on the handle — an
+   *     UNHANDLED exception for any caller that attached no `error` listener,
+   *     which is a failure invented by the cleanup rather than found by it.
+   *
+   * So the group kill is the whole mechanism whenever there is a group, and the
+   * abort runs only in the case the group kill cannot be asked about at all: a
+   * spawn that never received a pid, which leads no tree and has nothing but
+   * the direct handle. That is the same one case the class header names.
    *
    * Idempotent in the sense that matters and not in the lazier one: a call
    * after a DELIVERED kill signals nothing, and a call after a REFUSED one asks
@@ -279,8 +313,11 @@ export class ManagedElectronChild {
       clearTimeout(this.#escalationTimer);
       this.#escalationTimer = null;
     }
+    if (this.#child.pid === undefined) {
+      this.#abortController.abort();
+      return;
+    }
     this.terminate("SIGKILL");
-    this.#abortController.abort();
   }
 }
 
@@ -294,7 +331,11 @@ export class ManagedElectronChild {
  *
  * Must be called from inside a running test — `onTestFinished` is not legal
  * anywhere else, and a spawn in a `beforeAll` would be a child whose lifetime
- * outlives the hook that could kill it. The throw is the right failure.
+ * outlives the hook that could kill it. The throw is the right failure, and it
+ * is not the whole response: by the time the registrar refuses, the child is
+ * already running, already detached, and the only handle on it is about to be
+ * discarded with this stack frame. So the misuse path disposes before it
+ * rethrows — see below.
  */
 export function spawnManagedElectronChild(
   options: ElectronChildSpawnOptions,
@@ -317,8 +358,27 @@ export function spawnManagedElectronChild(
     killSignal: "SIGKILL",
   });
   const managed = new ManagedElectronChild(child, abortController, options.terminateProcessTree);
-  disposeWhenTestFinishes(() => {
+  try {
+    disposeWhenTestFinishes(() => {
+      managed.dispose();
+    }, options.registerSettleTimeTermination);
+  } catch (registrationRefusal: unknown) {
+    // THE REGISTRAR ITSELF REFUSED, which is what `onTestFinished` outside a
+    // running test does — a spawn from `beforeAll`, the shape this module's own
+    // header calls out. Every other failure in this function happens before the
+    // spawn; this one happens after it, and without this arm the caller gets a
+    // clear diagnostic while a detached child it was never handed keeps running
+    // with no kill path anywhere. Registering BEFORE the spawn was the other
+    // way out and is worse: the disposer would then have to read a slot that is
+    // empty until the spawn returns, and an empty-slot teardown is a branch
+    // nothing ever drives. Disposing here is driven on every run by the case in
+    // `electron-child-lifetime.test.ts`.
+    //
+    // A failure inside `dispose` is deliberately not swallowed to preserve the
+    // refusal below it: a tree kill that itself threw means the child's fate is
+    // unknown, which is the more urgent of the two things to say.
     managed.dispose();
-  }, options.registerSettleTimeTermination);
+    throw registrationRefusal;
+  }
   return managed;
 }

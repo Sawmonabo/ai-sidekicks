@@ -39,9 +39,11 @@ import {
   exitOf,
   expectTerminatedWithin,
   LIFETIME_TEST_TIMEOUT_MS,
+  ObservedTreeTerminator,
   reap,
   RecordingSettleRegistrar,
-  RefuseFirstKillTerminator,
+  RefusedRegistrationSpawn,
+  REGISTRAR_REFUSAL_MESSAGE,
   spawnChildWithGrandchild,
 } from "./electron-child-lifetime.test-support.js";
 
@@ -110,33 +112,79 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
   );
 
   it(
-    "asks again at the next settlement when a live tree refused the kill",
+    "keeps the root a refused kill left, and asks again at the next settlement",
     async () => {
       const registrar = new RecordingSettleRegistrar();
-      const terminator = new RefuseFirstKillTerminator();
+      const terminator = new ObservedTreeTerminator(1);
       const { managed, childPid, grandchildPid } = await spawnChildWithGrandchild(registrar, {
         terminateProcessTree: terminator.terminate,
       });
       try {
-        // THE REFUSED KILL. The marker used to be set before the call, so this
-        // settlement recorded a delivered SIGKILL that no process ever received,
-        // and every later disposer returned early on it — leaving the tree the
-        // platform refused to kill running, with nothing left that would ask
-        // again. The abort inside `dispose` reaches the direct handle alone,
-        // which is why the grandchild is the reading that shows it.
+        // THE REFUSED KILL, and the two things it has to leave behind. The
+        // marker used to be set before the call, so this settlement recorded a
+        // delivered SIGKILL that no process ever received and every later
+        // disposer returned early on it. The marker now records the verdict —
+        // but a marker alone still could not make the retry work, because the
+        // abort ran unconditionally and reaches the direct handle ALONE: it
+        // took the root down, and a tree is addressed THROUGH its root. The
+        // retry would have walked from a pid that no longer named the tree.
         await registrar.settle();
-        expect(terminator.attempts).toStrictEqual(["SIGKILL"]);
+        expect(terminator.requests).toStrictEqual([{ processId: childPid, signal: "SIGKILL" }]);
         expect(managed.isKilled, "a refused kill was recorded as delivered").toBe(false);
+        expect(
+          managed.directHandleReleased,
+          "the direct handle was released over a refused tree kill, so the retry has no root to walk",
+        ).toBe(false);
+        expect(
+          readProcessLiveness(childPid),
+          "the root the retry is addressed through was killed by the abort",
+        ).toBe("running");
         expect(readProcessLiveness(grandchildPid)).toBe("running");
 
-        // The retry the marker would have suppressed, through the same door.
+        // The retry the marker would have suppressed, walking the root the
+        // refusal preserved, through the same door.
         await registrar.settle();
-        expect(terminator.attempts).toStrictEqual(["SIGKILL", "SIGKILL"]);
+        expect(terminator.requests).toHaveLength(2);
         expect(managed.isKilled).toBe(true);
+        // Still false after the DELIVERED kill: the abort is not a second
+        // attempt at the tree, and a child with a pid never sees it fire.
+        expect(managed.directHandleReleased).toBe(false);
+        await expectTerminatedWithin(childPid, "the root the retry walked from");
         await expectTerminatedWithin(grandchildPid, "the grandchild the retry was for");
       } finally {
         reap(grandchildPid);
         reap(childPid);
+      }
+    },
+    LIFETIME_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "gives the child up when the settle-time registration itself refuses",
+    async () => {
+      // THE MISUSE WITH A CHILD IN IT. `onTestFinished` throws outside a running
+      // test, which is what a spawn from `beforeAll` reaches — and it throws
+      // AFTER the spawn, so the caller gets a clear diagnostic while a detached
+      // child it was never handed keeps running with no kill path anywhere. The
+      // pid is read out of the tree terminator because there is no returned
+      // handle to read it from: that absence is the defect.
+      const refused = new RefusedRegistrationSpawn();
+      expect(refused.attempt).toThrow(REGISTRAR_REFUSAL_MESSAGE);
+      expect(refused.registrationAttempts).toBe(1);
+
+      const abandonedPid = refused.abandonedPid;
+      try {
+        expect(
+          refused.terminationRequests,
+          "the refusal was rethrown without disposing — nothing was ever asked to kill the child",
+        ).toHaveLength(1);
+        expect(abandonedPid).toBeGreaterThan(0);
+        await expectTerminatedWithin(
+          abandonedPid,
+          "the child a refused registration abandoned, which no handle can reach, and it",
+        );
+      } finally {
+        reap(abandonedPid);
       }
     },
     LIFETIME_TEST_TIMEOUT_MS,
