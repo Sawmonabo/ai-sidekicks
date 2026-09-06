@@ -7,7 +7,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseInstant } from "../../core/index.js";
-import { consoleClockFor } from "../../bridge/index.js";
+import {
+  consoleClockFor,
+  foldSessionGoal,
+  readingForDriver,
+  readingForRun,
+  useDriverCapabilities,
+  type DriverCapabilityReading,
+} from "../../bridge/index.js";
 import {
   useDeadlineWake,
   useSessionPartition,
@@ -21,14 +28,15 @@ import { type PaneContextOf } from "../../seats/index.js";
 import { findApprovalCardAction } from "./card/ApprovalCard.js";
 import { ApprovalList } from "./card/ApprovalList.js";
 import { providerAskFor, type ProviderAsk } from "./card/provider-ask.js";
-import { ExecutionPostureChip } from "./posture/ExecutionPosture.js";
-import { CallbackTools } from "./posture/CallbackTools.js";
+import { ExecutionPostureChip, Nothing, WireFigure } from "../../primitives/index.js";
+import { addressedRunPostures } from "./posture/addressed-run-postures.js";
+import { CALLBACK_TOOLS_CAPABILITY, CallbackTools } from "./posture/CallbackTools.js";
+import { useCallbackToolRegistry } from "./posture/callback-tool-registry.js";
 import { SessionGoalCard } from "./goal/SessionGoalCard.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { useGoalMutationAuthorization } from "./goal/goal-authorization.js";
 import { type ApprovalRecord } from "../../bridge/index.js";
 import { type ReadPhase } from "./approvals-reader.js";
-import { foldSessionGoal } from "./goal/session-goal.js";
 import { RulesRead } from "./RulesRead.js";
 
 /** The composer's root class. Focus moves to a new card only from inside it. */
@@ -59,6 +67,28 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
   // second — so the two are joined here, by the id both spell, rather than either
   // one pretending to hold the whole request.
   const approvalEntities = useSessionPartition(props.sessionStore, "approval");
+  // The runs this pane's decisions are about, and the boundary each executed under.
+  // The partition is the store's own — the posture rides `run.running` into it like
+  // every other event — so no second subscription is opened for one member.
+  const runEntities = useSessionPartition(props.sessionStore, "run");
+  const addressedPostures = useMemo(
+    () => addressedRunPostures(pending, runEntities),
+    [pending, runEntities],
+  );
+  // The node's declarations, resolved for the run a decision is about — the same
+  // join the runs pane makes, because `driver.listCapabilities` names no run and a
+  // node with two drivers installed would otherwise answer for the wrong one.
+  const driverCapabilities = useDriverCapabilities(bridge);
+  // Asked of the run a decision is about where there is one, and of the node's sole
+  // declaration where there is not. The two are different questions and the empty
+  // string is not the second one: an id no binding names would read as an unbound
+  // run rather than as no run at all.
+  const addressedRunId = addressedPostures[0]?.runId;
+  const callbackToolCapability: DriverCapabilityReading =
+    addressedRunId === undefined
+      ? readingForDriver(driverCapabilities, undefined, CALLBACK_TOOLS_CAPABILITY)
+      : readingForRun(driverCapabilities, addressedRunId, CALLBACK_TOOLS_CAPABILITY);
+  const callbackToolRegistry = useCallbackToolRegistry(bridge, props.sessionStore.sessionId);
   const askByApprovalId = useMemo(() => providerAsksIn(approvalEntities), [approvalEntities]);
   // One clock, resolved once per bridge and read once per render. `consoleClockFor`
   // is the console's single answer to which clock a window reads — the fixture's
@@ -173,15 +203,30 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
 
       <section className="meridian-approvals__section" aria-label="Execution boundary">
         <h2 className="meridian-approvals__heading">Execution boundary</h2>
-        {/* A posture is stamped on `run.running` and travels on the run-state
-            subscription, which this pane does not open — the runs surface does.
-            So the absence is rendered rather than a boundary guessed at. */}
-        <ExecutionPostureChip posture={undefined} reading="stamped" />
+        {addressedPostures.length === 0 ? (
+          <Nothing
+            kind="empty"
+            placement="surface"
+            title="No decision is waiting, so no run's boundary is in question."
+            detail="A boundary is stamped when a run reaches running, and this section reads the runs that raised the requests above."
+          />
+        ) : (
+          addressedPostures.map((addressed) => (
+            <div className="meridian-approvals__posture" key={addressed.runId}>
+              <WireFigure value={addressed.runId} />
+              <ExecutionPostureChip
+                posture={addressed.posture}
+                reading="stamped"
+                runId={addressed.runId}
+              />
+            </div>
+          ))
+        )}
       </section>
 
       <section className="meridian-approvals__section" aria-label="Daemon-hosted tools">
         <h2 className="meridian-approvals__heading">Daemon-hosted tools</h2>
-        <CallbackTools capability="unknown" isWithheld={false} tools={[]} />
+        <CallbackTools capability={callbackToolCapability} registry={callbackToolRegistry} />
       </section>
     </div>
   );

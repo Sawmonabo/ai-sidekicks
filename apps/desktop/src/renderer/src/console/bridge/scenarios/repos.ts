@@ -12,7 +12,7 @@
 // against, each of which was previously unreachable: an execution root per agent
 // (`repos/mounts/RepoSection.tsx`'s two lists), a proposal waiting at the gate with the branch
 // context it is bound to (`repos/proposals/ProposalGate.tsx`), a run that was rewound after
-// publishing work (`repos/restore/FileRestoreDisclosure.tsx`), and three attachments whose
+// publishing work (`primitives/restore/FileRestoreDisclosure.tsx`), and three attachments whose
 // payloads stand in three different places
 // (`repos/attachments/AttachmentCard.tsx`'s unresolved arm). Every one of them is a beat or a
 // scripted reply, so

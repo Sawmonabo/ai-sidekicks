@@ -18,7 +18,11 @@ export function RestorePathList(props: RestorePathListProps): React.JSX.Element 
     <ul className="meridian-restore-disclosure__paths">
       {props.paths.map((path) => (
         <li key={path}>
-          <RestorePathCell path={path} onOpenPath={props.onOpenPath} />
+          <RestorePathCell
+            path={path}
+            onOpenPath={props.onOpenPath}
+            pathActionLabel={props.pathActionLabel}
+          />
         </li>
       ))}
     </ul>

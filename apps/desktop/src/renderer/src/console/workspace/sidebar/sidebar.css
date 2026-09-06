@@ -220,3 +220,45 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* --- the goal section ----------------------------------------------------- */
+
+.meridian-sidebar-goal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* One measure and one line. The text is the participant's own, so it is clamped
+   rather than shortened: the whole of it stays in the element and in its title. */
+.meridian-sidebar-goal__text {
+  margin: 0;
+  overflow: hidden;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.meridian-sidebar-goal__none {
+  margin: 0;
+}
+
+.meridian-sidebar-goal__open {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.meridian-sidebar-goal__open:hover {
+  color: var(--meridian-text);
+}
+
+.meridian-sidebar-goal__open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

@@ -63,8 +63,7 @@
 
 .meridian-rollback__summary,
 .meridian-rollback__resend,
-.meridian-rollback__standing,
-.meridian-rollback__enumeration-empty {
+.meridian-rollback__standing {
   margin: 0;
   font-size: var(--meridian-text-xs);
 }
@@ -74,8 +73,7 @@
 }
 
 .meridian-rollback__resend,
-.meridian-rollback__standing,
-.meridian-rollback__enumeration-empty {
+.meridian-rollback__standing {
   color: var(--meridian-text-muted);
 }
 
@@ -106,33 +104,13 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* The working-tree half is `FileRestoreDisclosure`'s, and so are its rules: this is
+   the slot it sits in and nothing more. The enumeration rules that used to live here
+   went with the second copy of the enumerations they styled. */
 .meridian-rollback__files {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
-}
-
-.meridian-rollback__enumeration-summary {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: baseline;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  cursor: pointer;
-}
-
-.meridian-rollback__enumeration-summary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-.meridian-rollback__enumeration-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  margin: var(--meridian-space-1) 0 0;
-  padding: 0;
-  list-style: none;
 }
 
 /* --- The steer and rewind composer ----------------------------------------- */

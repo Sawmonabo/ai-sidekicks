@@ -38,6 +38,8 @@ import "./ledger-row.css";
 import "./partial-read.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
+import "./posture.css";
+import "./restore/restore.css";
 
 // The sheet's one filled-accent face, named where TypeScript can see it. Two
 // surfaces outside this family wear it, so the name is declared once rather than
@@ -315,3 +317,14 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatWireString,
 } from "./wire-figures.js";
+
+// The stamped execution boundary, and the disclosure of what a rewind did to the
+// working tree. Both are in this family for the same reason and it is the layering
+// rule rather than a judgement about where they read best: the runs pane and the
+// approvals pane both render a posture, and the runs pane's intervention history
+// and the repos family's artifact record both render a restore — and in each pair
+// the two homes are VIEW families, which may not import one another. The lowest
+// family that owns their inputs is this one, so this is where they live and this
+// door is how both callers reach them.
+export { ExecutionPostureChip } from "./ExecutionPostureChip.js";
+export { FileRestoreDisclosure } from "./restore/FileRestoreDisclosure.js";

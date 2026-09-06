@@ -166,6 +166,20 @@ export const RUNS_SCENARIO: ConsoleScenario = {
           runVersion: 3,
           previousState: "starting",
           newState: "running",
+          // The boundary the run actually executed under, stamped on THIS transition
+          // and on no other: `run.starting` above carries none, and the row's chip
+          // therefore reads unknown until this beat lands and unknown again the
+          // moment the run leaves `running`. The sandboxed arm REQUIRES
+          // `credentialPolicyRef`, which is a content-addressed reference rather than
+          // a credential list — the posture says which policy bound the run without
+          // revealing the installation.
+          executionPosture: {
+            mode: "readonly-sandboxed",
+            credentialPolicyRef:
+              "sha256:4f2c8a17d3e05b96c84f2c8a17d3e05b96c84f2c8a17d3e05b96c84f2c8a17d3",
+            networkAccess: "none",
+            writableRoots: [],
+          },
         },
       },
     },

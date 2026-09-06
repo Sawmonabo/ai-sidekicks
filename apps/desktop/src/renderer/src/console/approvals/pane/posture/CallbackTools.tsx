@@ -17,6 +17,14 @@
 //   • **Exposed** — entries, described as daemon-constructed and daemon-trusted
 //     rather than provider output, each carrying the governance fact.
 //
+// TWO READINGS, NOT ONE. The capability flag and the registry are separate facts
+// with separate readers: the flag says whether this driver hosts a registry at all
+// and comes from `driver.listCapabilities`, while the entries and their exposure
+// come from `callback-tool-registry.ts`. Either can be unknown without the other
+// being, so each has its own arm here and neither stands in for the other — a
+// component that read one flag and inferred both would report an unread driver as a
+// registry that holds nothing.
+//
 // TWO THINGS THIS COMPONENT WILL NOT DO. It never synthesises the registry from
 // observed tool rows, which would report only tools that have already been called.
 // And it never presents a callback tool as ungoverned or as a provider tool: every
@@ -28,7 +36,8 @@ import { type DriverCapabilityFlag, type SessionCallbackTool } from "@ai-sidekic
 import { Collapsible } from "@base-ui/react/collapsible";
 
 import type { DriverCapabilityReading } from "../../../bridge/index.js";
-import { Chip, Nothing, WireFigure } from "../../../primitives/index.js";
+import { Chip, InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { type CallbackToolRegistryReading } from "./callback-tool-registry.js";
 
 /**
  * The flag this section is gated on, pinned to the registered union.
@@ -49,14 +58,15 @@ export interface CallbackToolsProps {
    */
   readonly capability: DriverCapabilityReading;
   /**
-   * Whether spawn withheld the registry.
+   * What the registry read settled on, or `undefined` while it is still in flight.
    *
-   * Separate from an empty `tools` list on purpose: withheld and empty are two of
-   * the three facts the header refuses to collapse, and a component that inferred
-   * one from the other could not tell them apart.
+   * A discriminated reading rather than a `tools` list beside an `isWithheld` flag:
+   * withheld and empty are two of the three facts the header refuses to collapse,
+   * and a pair of independent props admits the two combinations that mean neither.
+   * The read that produced it is `callback-tool-registry.ts`'s; this component is a
+   * rendering of its arms and derives none of them.
    */
-  readonly isWithheld: boolean;
-  readonly tools: readonly SessionCallbackTool[];
+  readonly registry: CallbackToolRegistryReading | undefined;
 }
 
 export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | null {
@@ -69,12 +79,26 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       <Nothing
         kind="not-checked"
         placement="surface"
-        title="The daemon-hosted tool registry has not been read."
-        detail="No registry-read method exists in the wire contract: the registry travels on the driver-facing spawn parameter and is not a client read. Until one lands the console shows nothing here rather than a list it assembled from tools that happen to have been called."
+        title="The bound driver's capability flags have not been read."
+        detail="Whether this session's agents can reach a daemon-hosted tool at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
       />
     );
   }
-  if (props.isWithheld) {
+  if (props.registry === undefined) {
+    return (
+      <Nothing
+        kind="not-loaded"
+        placement="surface"
+        title="Reading the daemon-hosted tool registry."
+      />
+    );
+  }
+  if (props.registry.kind === "unread") {
+    return (
+      <InlineRefusal code={props.registry.refusal.code} detail={props.registry.refusal.detail} />
+    );
+  }
+  if (props.registry.kind === "withheld") {
     return (
       <div className="meridian-callback-tools meridian-callback-tools--withheld">
         <p className="meridian-callback-tools__note">
@@ -84,17 +108,14 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
           diagnostic beside it — never completed without a policy decision, and never left
           unanswered.
         </p>
-        {props.tools.length === 0 ? null : (
-          <ul className="meridian-callback-tools__list">
-            {props.tools.map((tool) => (
-              <li className="meridian-callback-tools__row" key={tool.name}>
-                <WireFigure value={tool.name} />
-                <Chip label="denied" tone="failure" />
-                <span className="meridian-callback-tools__description">{tool.description}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ToolRows tools={props.registry.tools} deniedTone />
+        {/* The read this surface put, named rather than implied. It says nothing
+            about what the registry holds — the entries above are the ones the
+            contract registers — only that no wire answered a question about them. */}
+        <InlineRefusal
+          code={props.registry.unreadRefusal.code}
+          detail={props.registry.unreadRefusal.detail}
+        />
       </div>
     );
   }
@@ -105,31 +126,54 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
         is governed exactly as a provider tool is, its invocations land as ordinary tool rows, and
         none of them bypasses the approval pipeline.
       </p>
-      <ul className="meridian-callback-tools__list">
-        {props.tools.map((tool) => (
-          <li className="meridian-callback-tools__row" key={tool.name}>
-            <div className="meridian-callback-tools__line">
-              <WireFigure value={tool.name} />
-              <Chip label="daemon-hosted" />
-              <span className="meridian-callback-tools__description">{tool.description}</span>
-            </div>
-            <Collapsible.Root className="meridian-callback-tools__schema">
-              <Collapsible.Trigger className="meridian-callback-tools__schema-trigger">
-                Input schema
-              </Collapsible.Trigger>
-              <Collapsible.Panel className="meridian-callback-tools__schema-panel">
-                <ul className="meridian-callback-tools__schema-keys">
-                  {Object.keys(tool.inputSchema).map((key) => (
-                    <li key={key}>
-                      <WireFigure value={key} />
-                    </li>
-                  ))}
-                </ul>
-              </Collapsible.Panel>
-            </Collapsible.Root>
-          </li>
-        ))}
-      </ul>
+      <ToolRows tools={props.registry.tools} />
     </div>
+  );
+}
+
+/**
+ * One row per entry, with the schema one click away and never expanded.
+ *
+ * `deniedTone` is the withheld arm's: the entry is registered and unreachable, and
+ * the chip says which answer a stray invocation gets. It is a presentation of the
+ * arm the caller already narrowed, never a second decision about reachability.
+ */
+function ToolRows(props: {
+  readonly tools: readonly SessionCallbackTool[];
+  readonly deniedTone?: boolean;
+}): React.JSX.Element | null {
+  if (props.tools.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="meridian-callback-tools__list">
+      {props.tools.map((tool) => (
+        <li className="meridian-callback-tools__row" key={tool.name}>
+          <div className="meridian-callback-tools__line">
+            <WireFigure value={tool.name} />
+            {props.deniedTone === true ? (
+              <Chip label="denied" tone="failure" />
+            ) : (
+              <Chip label="daemon-hosted" />
+            )}
+            <span className="meridian-callback-tools__description">{tool.description}</span>
+          </div>
+          <Collapsible.Root className="meridian-callback-tools__schema">
+            <Collapsible.Trigger className="meridian-callback-tools__schema-trigger">
+              Input schema
+            </Collapsible.Trigger>
+            <Collapsible.Panel className="meridian-callback-tools__schema-panel">
+              <ul className="meridian-callback-tools__schema-keys">
+                {Object.keys(tool.inputSchema).map((key) => (
+                  <li key={key}>
+                    <WireFigure value={key} />
+                  </li>
+                ))}
+              </ul>
+            </Collapsible.Panel>
+          </Collapsible.Root>
+        </li>
+      ))}
+    </ul>
   );
 }

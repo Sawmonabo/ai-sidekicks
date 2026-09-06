@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { DerivedFigure, Nothing, formatCount } from "../../primitives/index.js";
+import { DerivedFigure } from "../DerivedFigure.js";
+import { Nothing } from "../Nothing.js";
+import { formatCount } from "../wire-figures.js";
 import { RestorePathList } from "./RestorePathList.js";
 
 /**
@@ -29,6 +31,7 @@ export function PathEnumeration(props: {
   readonly label: string;
   readonly paths: readonly string[];
   readonly onOpenPath: ((path: string) => void) | undefined;
+  readonly pathActionLabel?: string | undefined;
 }): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   if (props.paths.length === 0) {
@@ -50,7 +53,12 @@ export function PathEnumeration(props: {
         {props.label} <DerivedFigure text={formatCount(props.paths.length)} />
       </summary>
       {isOpen ? (
-        <RestorePathList label={props.label} paths={props.paths} onOpenPath={props.onOpenPath} />
+        <RestorePathList
+          label={props.label}
+          paths={props.paths}
+          onOpenPath={props.onOpenPath}
+          pathActionLabel={props.pathActionLabel}
+        />
       ) : null}
     </details>
   );

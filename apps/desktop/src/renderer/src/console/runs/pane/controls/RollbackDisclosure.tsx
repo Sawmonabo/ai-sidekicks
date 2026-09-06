@@ -9,19 +9,40 @@
 // count — including when that count is zero, which is a fact the participant needs
 // rather than a row to omit.
 //
-// THE COUNT CHIP READS ZERO HONESTLY. An empty enumeration means nothing was
-// overwritten and nothing diverged; an ABSENT one is a parse failure the registered
-// schema already refuses. Rendering "0 overwritten" is therefore a statement, and
-// hiding the row when the list is empty would put the reader back in the position
-// of not knowing which of the two they were looking at — the exact conflation
-// `Spec-010 §Turn-Boundary Snapshots` mandates against.
+// THE FILE HALF IS DELEGATED AND NOT RE-DRAWN. This component owns what the rewind
+// did to the RUN and the conversation — the settlement class, the sentence, the
+// replacement leg, the standing non-resumability, and the daemon's positions. What
+// it did to the working TREE is `FileRestoreDisclosure`'s, which renders both
+// never-silent enumerations with a control on every path, says what an empty pair
+// does and does not mean, and names the failed step. Two components rather than one
+// because the two questions have different readers, and one component rather than a
+// second copy of the enumerations because a second copy is how the two came to
+// disagree about whether an empty list is an all-clear.
+//
+// IT MOUNTS ON EXACTLY THE ARMS THAT CARRY ENUMERATIONS, which is the reading's own
+// answer (`files !== undefined`) and never a check on the disposition name: they ride
+// `files-restored`, `files-partially-restored`, and `resend-unapplied`, and a
+// disposition that mutated no file has no working tree to disclose.
 
-import { Chip, WireFigure } from "../../../primitives/index.js";
+import {
+  Chip,
+  FileRestoreDisclosure,
+  InlineRefusal,
+  WireFigure,
+} from "../../../primitives/index.js";
 import { resendSettlementSentence, type RollbackDispositionReading } from "./rollback-result.js";
-import { FileEnumeration } from "./FileEnumeration.js";
+import { ENUMERATED_PATH_ACTION_LABEL } from "./enumerated-path-action.js";
+import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
+import type { ConsoleRefusal } from "../../../core/index.js";
 
 export interface RollbackDisclosureProps {
   readonly reading: RollbackDispositionReading;
+  /** The wire result itself, for the working-tree half this component delegates. */
+  readonly result: RollbackInterventionResult;
+  /** What the mounting surface offers on one enumerated path. */
+  readonly onPathAction: ((path: string) => void) | undefined;
+  /** The host's refusal of that action, rendered beside the enumeration it failed. */
+  readonly pathActionRefusal: ConsoleRefusal | undefined;
 }
 
 export function RollbackDisclosure(props: RollbackDisclosureProps): React.JSX.Element {
@@ -71,11 +92,17 @@ export function RollbackDisclosure(props: RollbackDisclosureProps): React.JSX.El
       )}
       {reading.files === undefined ? null : (
         <div className="meridian-rollback__files">
-          <FileEnumeration
-            label="Overwritten ignored paths"
-            paths={reading.files.overwrittenIgnoredPaths}
+          <FileRestoreDisclosure
+            result={props.result}
+            onOpenPath={props.onPathAction}
+            pathActionLabel={ENUMERATED_PATH_ACTION_LABEL}
           />
-          <FileEnumeration label="Divergent gitlinks" paths={reading.files.divergentGitlinks} />
+          {props.pathActionRefusal === undefined ? null : (
+            <InlineRefusal
+              code={props.pathActionRefusal.code}
+              detail={props.pathActionRefusal.detail}
+            />
+          )}
         </div>
       )}
     </div>

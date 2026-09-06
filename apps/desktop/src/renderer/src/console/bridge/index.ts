@@ -454,3 +454,16 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // out — and the terminal's host-presence fold is the production reader that makes the
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
+
+// The session goal: the fold that says what it is, and the two operations that change
+// it. Through this door because two VIEW families read it — the approvals pane's card
+// and the workspace sidebar's one-line reading — and those two may not import one
+// another; the module's own header says why this is the lowest family that owns its
+// inputs.
+export type { SessionGoalProjection } from "./session-goal.js";
+export {
+  SESSION_GOAL_EVENT_KINDS,
+  clearSessionGoal,
+  foldSessionGoal,
+  updateSessionGoal,
+} from "./session-goal.js";

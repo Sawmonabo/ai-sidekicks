@@ -11,11 +11,11 @@
 // to the contract's cross-field invariants is a compile error here.
 
 import { type ExecutionPosture } from "@ai-sidekicks/contracts";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ExecutionPostureChip } from "./ExecutionPosture.js";
-import { BROAD_ALLOW_LIST_THRESHOLD } from "../../../core/index.js";
+import { ExecutionPostureChip } from "./ExecutionPostureChip.js";
+import { BROAD_ALLOW_LIST_THRESHOLD } from "../core/index.js";
 
 const TRUSTED: ExecutionPosture = {
   mode: "trusted",
@@ -152,5 +152,77 @@ describe("no composite security score", () => {
     // this component fabricated from them.
     expect(chipLabels).toStrictEqual(["readonly-sandboxed", "none"]);
     expect(screen.getByText(/does not imply uniform enforcement/u)).not.toBeNull();
+  });
+});
+
+describe("the row density shows the mode and the roots together, never one alone", () => {
+  const WRITABLE: ExecutionPosture = {
+    mode: "workspace-sandboxed",
+    networkAccess: "none",
+    writableRoots: ["/Users/dev/code/one", "/Users/dev/code/two"],
+    credentialPolicyRef: "policy/default-deny",
+  };
+
+  it("summarises the writable roots beside the mode while closed", () => {
+    // The rule this holds: `writableRoots` never appears without its `mode`,
+    // because an empty list means two opposite things. At row density the list is
+    // summarised rather than dropped, so the pair is never split.
+    render(<ExecutionPostureChip posture={WRITABLE} reading="stamped" presentation="row" />);
+    expect(screen.getByText("workspace-sandboxed")).not.toBeNull();
+    expect(screen.getByText("2 writable")).not.toBeNull();
+  });
+
+  it("says which of the two empty-list readings applies, from the mode beside it", () => {
+    render(<ExecutionPostureChip posture={SANDBOXED} reading="stamped" presentation="row" />);
+    expect(screen.getByText("nothing writable")).not.toBeNull();
+
+    render(<ExecutionPostureChip posture={TRUSTED} reading="stamped" presentation="row" />);
+    expect(screen.getByText("no writable root recorded")).not.toBeNull();
+  });
+
+  it("builds no definition list until a reader opens it", () => {
+    // A list of runs carries one of these per row. A closed `<details>` hides its
+    // children without stopping React from building them, so the density claim is
+    // paid for by rendering nothing rather than by hiding it.
+    const { container } = render(
+      <ExecutionPostureChip posture={WRITABLE} reading="stamped" presentation="row" />,
+    );
+    expect(container.querySelector(".meridian-posture__facts")).toBeNull();
+
+    const disclosure = container.querySelector("details");
+    if (disclosure === null) {
+      throw new Error("the row presentation rendered no disclosure to open");
+    }
+    disclosure.open = true;
+    fireEvent(disclosure, new Event("toggle"));
+    expect(container.querySelector(".meridian-posture__facts")).not.toBeNull();
+    expect(screen.getByText("/Users/dev/code/one")).not.toBeNull();
+  });
+
+  it("negative control: the card density opens every fact without being asked", () => {
+    const { container } = render(<ExecutionPostureChip posture={WRITABLE} reading="stamped" />);
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.querySelector(".meridian-posture__facts")).not.toBeNull();
+  });
+
+  it("renders the same facts at both densities, so the row drops no member", () => {
+    // The row is a presentation and never a subset: both arms render one
+    // `PostureFacts`, and this is the case that fails if one of them grows a
+    // shorter copy.
+    const card = render(<ExecutionPostureChip posture={WRITABLE} reading="stamped" />);
+    const cardTerms = [...card.container.querySelectorAll("dt")].map((term) => term.textContent);
+
+    const row = render(
+      <ExecutionPostureChip posture={WRITABLE} reading="stamped" presentation="row" />,
+    );
+    const disclosure = row.container.querySelector("details");
+    if (disclosure === null) {
+      throw new Error("the row presentation rendered no disclosure to open");
+    }
+    disclosure.open = true;
+    fireEvent(disclosure, new Event("toggle"));
+    const rowTerms = [...row.container.querySelectorAll("dt")].map((term) => term.textContent);
+
+    expect(rowTerms).toStrictEqual(cardTerms);
   });
 });

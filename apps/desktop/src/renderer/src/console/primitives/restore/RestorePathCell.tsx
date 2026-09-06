@@ -1,9 +1,12 @@
-import { WireFigure, type WindowedRowTargetProps } from "../../primitives/index.js";
+import { WireFigure } from "../WireFigure.js";
+import { type WindowedRowTargetProps } from "../WindowedListRow.js";
 
 /** One path, and the row's own statement about where its tab stop went. */
 export type RestorePathCellProps = {
   readonly path: string;
   readonly onOpenPath: ((path: string) => void) | undefined;
+  /** The verb in the control's accessible name. Defaults to the neutral one. */
+  readonly pathActionLabel?: string | undefined;
   /**
    * The roving stop and the target marker, where the row delegated them.
    *
@@ -14,8 +17,11 @@ export type RestorePathCellProps = {
   readonly targetProps?: WindowedRowTargetProps;
 };
 
+/** The verb a mount that supplies no name of its own gets. */
+const DEFAULT_PATH_ACTION_LABEL = "Open";
+
 /**
- * One path, as text or as the control that opens it.
+ * One path, as text or as the control the mounting surface offers on it.
  *
  * The link exists only where the mounting surface can honour it — a disclosure with
  * no diff behind it renders text rather than a dead control.
@@ -37,6 +43,9 @@ export function RestorePathCell(props: RestorePathCellProps): React.JSX.Element 
     <button
       type="button"
       className="meridian-restore-disclosure__path-link"
+      // The verb and the path together: the path alone says what the control is
+      // about and never what activating it does.
+      aria-label={`${props.pathActionLabel ?? DEFAULT_PATH_ACTION_LABEL} ${path}`}
       {...props.targetProps}
       onClick={() => {
         onOpenPath(path);

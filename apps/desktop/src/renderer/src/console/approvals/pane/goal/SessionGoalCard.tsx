@@ -48,7 +48,7 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import { useSessionScopedState } from "../../../seats/index.js";
 import { isSendableGoalText } from "../../../bridge/index.js";
 import { SESSION_GOAL_MAX_LENGTH } from "../../../core/index.js";
-import { type SessionGoalProjection } from "./session-goal.js";
+import { type SessionGoalProjection } from "../../../bridge/index.js";
 import { GoalReading } from "./GoalReading.js";
 
 /**

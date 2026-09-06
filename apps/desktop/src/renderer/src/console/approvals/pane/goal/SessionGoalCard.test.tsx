@@ -13,7 +13,7 @@ import { ACCENT_FILL_CLASS } from "../../../primitives/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
-import { type SessionGoalProjection } from "./session-goal.js";
+import { type SessionGoalProjection } from "../../../bridge/index.js";
 
 // The revisions below stand for whatever entry the fold read each projection from.
 // The card compares them and never parses them, so what they say does not matter and

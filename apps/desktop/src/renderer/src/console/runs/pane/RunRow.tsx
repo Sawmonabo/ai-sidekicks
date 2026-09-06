@@ -5,11 +5,13 @@
 // run with status, elapsed, and the posture chip, while queue, intervention
 // history, and per-run detail are collapsed and one click away — the shape
 // `Spec-023 §Meridian, the design language` rule 7 gives every console surface,
-// where "secondary controls live one click away". The posture chip is deliberately absent
-// here and not merely unimplemented: `RunStateChangeEvent.executionPosture` is
-// stamped only on `run.running`, so a row for a run in any other state has no
-// posture to show, and rendering the last one seen would claim a posture the run no
-// longer has.
+// where "secondary controls live one click away". The posture chip is on the row at
+// its ROW density: mode, network, and the writable-root count visible, the rest one
+// disclosure away. What is deliberately absent is a REMEMBERED posture —
+// `RunStateChangeEvent.executionPosture` is stamped only on `run.running`, the fold
+// carries the delivered transition's own member and no other, and a run in any other
+// state therefore renders the chip's unknown arm rather than the last boundary
+// anybody saw. Absence reads as unknown, never as unrestricted.
 //
 // THREE STATEMENTS THE ROW MAKES, EACH OF THEM THE WIRE'S.
 //
@@ -32,6 +34,7 @@ import type { ConsoleBridge, DriverCapabilityReadout } from "../../bridge/index.
 import {
   Chip,
   DerivedFigure,
+  ExecutionPostureChip,
   LedgerRow,
   WireFigure,
   formatDuration,
@@ -120,6 +123,15 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
           <Chip tone="attention" label={`rewound to ${String(run.rewoundToPosition)}`} />
         )}
       </div>
+      {/* The boundary this run executed under, at the row's density. Read-only and
+          offering nothing: no posture verb exists anywhere in the corpus, and a
+          posture change is a new run rather than a mutation of this one. */}
+      <ExecutionPostureChip
+        posture={run.executionPosture}
+        reading="stamped"
+        runId={run.runId}
+        presentation="row"
+      />
       {run.trigger === undefined ? null : (
         <p className="meridian-run-row__trigger">
           This run stopped because {RUN_TRIGGER_PHRASES[run.trigger]}.
@@ -171,7 +183,11 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
           aria-label={`Intervention history for run ${run.runId}`}
         >
           <h4 className="meridian-run-row__section-title">Interventions</h4>
-          <InterventionHistory records={props.surface.records} runId={run.runId} />
+          <InterventionHistory
+            records={props.surface.records}
+            runId={run.runId}
+            bridge={props.bridge}
+          />
         </section>
       </div>
     </LedgerRow>
