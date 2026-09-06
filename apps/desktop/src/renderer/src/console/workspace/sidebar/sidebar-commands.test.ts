@@ -14,8 +14,19 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  FRAME_KEY_BINDINGS,
+  KeyBindingTable,
+  RAIL_NAVIGATION_DETAILS,
+  type KeyBinding,
+} from "../../palette/index.js";
 import { SIDEBAR_SECTION_IDS, type ConsolePaneAddress } from "../../seats/index.js";
-import { SIDEBAR_COMMAND_IDS, SidebarKeyboard, sidebarCommands } from "./sidebar-commands.js";
+import {
+  SIDEBAR_COMMAND_IDS,
+  SIDEBAR_KEY_BINDINGS,
+  SidebarKeyboard,
+  sidebarCommands,
+} from "./sidebar-commands.js";
 import { SidebarModel } from "./sidebar-model.js";
 
 interface KeyboardHarness {
@@ -156,5 +167,83 @@ describe("sidebar chords — a held key is one act", () => {
       new KeyboardEvent("keydown", { code: "KeyJ", key: "j", repeat: true, bubbles: true }),
     );
     expect(model.snapshot.cursorSectionId).toBe(SIDEBAR_SECTION_IDS[0]);
+  });
+});
+
+// The window's chord table, named once so this claim moves with it. Today the frame
+// installs `FRAME_KEY_BINDINGS` on `window`; when the console's composed base lands
+// this is `consoleKeyBindings()` — frame plus every family's contribution — and the
+// claim below widens with no other edit.
+const WINDOW_KEY_BINDINGS: readonly KeyBinding[] = FRAME_KEY_BINDINGS;
+
+/**
+ * Which of `sidebarBindings` the window's table would eat, as one line each.
+ *
+ * `KeyBindingTable.conflictsIn` is the console's OWN comparator, run over the two
+ * tables as one candidate set — not a string equality over the chords. That matters
+ * twice: `$mod+1` and `$mod+Digit1` are one keystroke and only the comparator knows
+ * it, and a rule this file re-implemented would be a second answer to a question the
+ * palette already answers for every other binding in the console.
+ *
+ * Filtered to pairs that CROSS the two tables, because a conflict inside either one
+ * is that table's own affair and `keybinding-conflicts.test.ts` already owns it.
+ */
+function windowCollisionsWith(sidebarBindings: readonly KeyBinding[]): readonly string[] {
+  const sidebarCommandIds = new Set(sidebarBindings.map((binding) => binding.commandId));
+  return KeyBindingTable.conflictsIn([...WINDOW_KEY_BINDINGS, ...sidebarBindings])
+    .filter(
+      (conflict) =>
+        conflict.commandIds.some((commandId) => sidebarCommandIds.has(commandId)) &&
+        conflict.commandIds.some((commandId) => !sidebarCommandIds.has(commandId)),
+    )
+    .map((conflict) => `${conflict.chord}: ${conflict.commandIds.join(" then ")}`);
+}
+
+describe("sidebar chords — none of them is a chord the window already binds", () => {
+  it("binds no chord the window's table binds", () => {
+    // WHY THIS IS A GATE AND NOT A REVIEW NOTE. The sidebar's table is installed on
+    // the sidebar ELEMENT and the window's on `window`, and both install with
+    // `capture: true` — so the window's listener runs first on the way DOWN, and a
+    // match there calls `preventDefault` and `stopPropagation`. A sidebar chord equal
+    // to a window chord therefore never reaches the sidebar at all: the act simply
+    // stops happening, with nothing thrown, nothing logged, and no conflict reported,
+    // because the two tables validate separately and neither has ever seen the other.
+    expect(windowCollisionsWith(SIDEBAR_KEY_BINDINGS)).toStrictEqual([]);
+  });
+
+  it("planted control: a sidebar chord equal to a window chord is reported", () => {
+    // Without this the claim above would pass over a filter that reported nothing.
+    const planted: readonly KeyBinding[] = [
+      ...SIDEBAR_KEY_BINDINGS,
+      {
+        chord: RAIL_NAVIGATION_DETAILS.settings.chord,
+        commandId: SIDEBAR_COMMAND_IDS.cursorNext,
+      },
+    ];
+    expect(windowCollisionsWith(planted)).toStrictEqual([
+      `${RAIL_NAVIGATION_DETAILS.settings.chord}: frame.goToSettings then ${SIDEBAR_COMMAND_IDS.cursorNext}`,
+    ]);
+  });
+
+  it("planted control: a differently spelled collision is still one keystroke", () => {
+    // The half a string equality would miss, and the reason the comparator is
+    // borrowed rather than re-written here: the rail binds `$mod+1` and this binds
+    // `$mod+Digit1`, which are the same press typed two ways.
+    const planted: readonly KeyBinding[] = [
+      ...SIDEBAR_KEY_BINDINGS,
+      { chord: "$mod+Digit1", commandId: SIDEBAR_COMMAND_IDS.cursorPrevious },
+    ];
+    expect(windowCollisionsWith(planted)).toStrictEqual([
+      `${RAIL_NAVIGATION_DETAILS.sessions.chord}: frame.goToSessions then ${SIDEBAR_COMMAND_IDS.cursorPrevious}`,
+    ]);
+  });
+
+  it("negative control: a chord in neither table collides with nothing", () => {
+    // And the filter is not simply reporting every sidebar binding it is handed.
+    const planted: readonly KeyBinding[] = [
+      ...SIDEBAR_KEY_BINDINGS,
+      { chord: "$mod+KeyQ", commandId: SIDEBAR_COMMAND_IDS.toggleCursorSection },
+    ];
+    expect(windowCollisionsWith(planted)).toStrictEqual([]);
   });
 });
