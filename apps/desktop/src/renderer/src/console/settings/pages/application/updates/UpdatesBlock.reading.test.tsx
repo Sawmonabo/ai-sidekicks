@@ -8,6 +8,7 @@ import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "../../../../core/index.js";
+import { formatDateTime } from "../../../../primitives/index.js";
 import {
   bridgeHoldingItsRead,
   bridgePushing,
@@ -20,6 +21,21 @@ describe("the updates block — the five arms", () => {
   it("renders idle as nothing waiting", async () => {
     const { block: container } = await renderSettled(bridgeReporting({ status: "idle" }));
     expect(container.textContent ?? "").toContain("No update is waiting");
+  });
+
+  it("renders idle's last check where the updater sent one", async () => {
+    const { block: container } = await renderSettled(
+      bridgeReporting({ status: "idle", lastCheckedAt: "2026-01-01T09:30:00.000Z" }),
+    );
+    expect(container.textContent ?? "").toContain(formatDateTime("2026-01-01T09:30:00.000Z"));
+  });
+
+  it("renders idle's absent last check as the absence rather than as nothing", async () => {
+    // The arm the fixture serves by default and the shipped stub can never move off:
+    // a build nobody has checked on says so, instead of leaving the reader to guess
+    // whether the check happened and was silent.
+    const { block: container } = await renderSettled(bridgeReporting({ status: "idle" }));
+    expect(container.textContent ?? "").toContain("No check has finished in this installation.");
   });
 
   it("renders downloading with its own percent and a bar", async () => {

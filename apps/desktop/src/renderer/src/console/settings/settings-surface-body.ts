@@ -22,11 +22,15 @@
 import "./settings.css";
 import "./shared/settings-page.css";
 import "./shared/preference-toggle-row.css";
+import "./shared/settings-confirmation.css";
 import "./pages/appearance/appearance.css";
 import "./pages/cost/cost-receipt.css";
+import "./pages/diagnostics/diagnostics.css";
 import "./pages/keyboard/keyboard.css";
+import "./pages/mcp-servers/shell/mcp-servers-shell.css";
 import "./pages/mounts/mounts.css";
 import "./pages/notifications/notifications.css";
+import "./pages/provider-accounts/shell/provider-accounts-shell.css";
 
 import { createElement, useState } from "react";
 

@@ -3,8 +3,10 @@
 // was a cast, which has no refusing half at all.
 
 import { describe, expect, it } from "vitest";
+import type { RunState } from "@ai-sidekicks/contracts";
 
 import {
+  isLiveRunState,
   readChannelId,
   readRunId,
   readRunState,
@@ -47,5 +49,31 @@ describe("the run-state reader answers the closed union", () => {
     // `undefined` is what lets a surface say so rather than falling into whichever
     // arm its own branch happened to end on.
     expect(readRunState("hibernating")).toBeUndefined();
+  });
+});
+
+describe("the liveness predicate answers over the same closed union", () => {
+  it("treats every non-terminal state as live and every terminal as not", () => {
+    for (const state of ["queued", "starting", "running", "paused"] as const) {
+      expect(isLiveRunState(state)).toBe(true);
+    }
+    for (const state of ["completed", "interrupted", "failed"] as const) {
+      expect(isLiveRunState(state)).toBe(false);
+    }
+  });
+
+  it("counts the two waiting states as live", () => {
+    // A blocked run is still the daemon's to move, so an act addressed to it is
+    // still meaningful — a waiting run has a turn a restart would interrupt.
+    expect(isLiveRunState("waiting_for_approval")).toBe(true);
+    expect(isLiveRunState("waiting_for_input")).toBe(true);
+  });
+
+  it("negative control: a state this build has never heard is not called live", () => {
+    // The reason the set is written positively rather than as a negation of the
+    // three terminals. A tenth state lands outside it and is not asserted finished
+    // — and is not asserted live either, which is the honest answer for a word the
+    // console cannot read.
+    expect(isLiveRunState("hibernating" as RunState)).toBe(false);
   });
 });

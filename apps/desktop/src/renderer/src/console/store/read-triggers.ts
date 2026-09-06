@@ -27,6 +27,7 @@
 
 import { useEffect, useMemo } from "react";
 
+import type { TransportReconnectObservable } from "../core/index.js";
 import type { ConsoleSessionEvent } from "./entities.js";
 import { useSessionDegradedCause, useSessionStore } from "./hooks.js";
 import type { RefreshReason } from "./scheduling.js";
@@ -122,14 +123,28 @@ function selectTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[
 }
 
 /**
- * The two triggers that are properties of the WINDOW rather than of a session.
+ * The three triggers that are properties of the WINDOW rather than of a session.
  *
  * A node-scoped reading — this node's provider accounts, this node's declared driver
- * capabilities — wires exactly these: it holds no session, so no session's repair and
- * no session's timeline bear on it, and pretending otherwise would tie one node-wide
+ * capabilities, this machine's health — wires exactly these: it holds no session, so
+ * no session's timeline bears on it, and pretending otherwise would tie one node-wide
  * answer to whichever session happened to be open.
+ *
+ * THE TRANSPORT SIGNAL IS REQUIRED, and it is the half that was missing. Reconnect had
+ * exactly one producer in the console — the session store's own repair edge, wired by
+ * `useSessionReadTriggers` below — so a reading with no session had no reconnect at
+ * all: a node-wide list read once at mount stayed on screen through a wire outage with
+ * nothing saying it was old. It is a required parameter rather than an optional one on
+ * this module's own stated rule: a reading added later must not be able to ship with
+ * two of the three, and an optional signal is exactly how it would.
+ *
+ * A window-scoped reading whose transport has never gone away pays nothing for it. The
+ * signal emits on an EDGE, so a subscription that never sees one never wakes.
  */
-export function useWindowReadTriggers(reader: ReadTriggerTarget): void {
+export function useWindowReadTriggers(
+  reader: ReadTriggerTarget,
+  transportReconnect: TransportReconnectObservable,
+): void {
   useEffect(() => {
     // In an effect and not in the render body: a render React discards would
     // otherwise put a call on the wire for a surface nobody ever saw.
@@ -148,6 +163,14 @@ export function useWindowReadTriggers(reader: ReadTriggerTarget): void {
       window.removeEventListener("focus", onWindowFocused);
     };
   }, [reader]);
+
+  useEffect(
+    () =>
+      transportReconnect.subscribe(() => {
+        reader.requestRead("reconnect");
+      }),
+    [reader, transportReconnect],
+  );
 }
 
 /**
@@ -187,13 +210,25 @@ export function useSessionReadTriggers(
 }
 
 /**
- * All four, for a reading a session owns.
+ * All of them, for a reading a session owns.
  *
- * The composition and not a fifth implementation: a session-scoped reading is a
+ * The composition and not a further implementation: a session-scoped reading is a
  * window-scoped one that also has a session, and stating it that way is what keeps
  * the two halves from drifting into two vocabularies.
+ *
+ * TWO OBSERVATIONS CAN BOTH MEAN "RE-READ", AND THAT IS NOT A DUPLICATE. The window
+ * half wakes when the WIRE came back; the session half wakes when this session's
+ * PROJECTION became whole again after a repair read. They are different facts about
+ * different things and either can happen without the other — a store repairs a
+ * sequence gap on a wire that never went away, and a wire returns to a window whose
+ * store was never degraded. When they do coincide, the reading's own scheduler
+ * coalesces the pair into one read, which is what it is for.
  */
-export function useReadTriggers(reader: ReadTriggerTarget, sessionStore: SessionStore): void {
-  useWindowReadTriggers(reader);
+export function useReadTriggers(
+  reader: ReadTriggerTarget,
+  sessionStore: SessionStore,
+  transportReconnect: TransportReconnectObservable,
+): void {
+  useWindowReadTriggers(reader, transportReconnect);
   useSessionReadTriggers(reader, sessionStore);
 }

@@ -334,6 +334,14 @@ export function createRefusingGrowthPort(): GrowthPort {
     shellConfigWrite: async () => growthUnavailable("shellConfigWrite"),
     invitesList: async () => growthUnavailable("invitesList"),
     healthSubscribe: async () => growthUnavailable("healthSubscribe"),
+    // The five diagnostics reads. `healthSubscribe` above is a different wire on a
+    // different slate row; these are the page's own, and all five refuse under a live
+    // bridge exactly as everything else in this table does.
+    healthStatusRead: async () => growthUnavailable("healthStatusRead"),
+    healthFailureDetailRead: async () => growthUnavailable("healthFailureDetailRead"),
+    healthStuckRunInspect: async () => growthUnavailable("healthStuckRunInspect"),
+    healthRecoveryActionRequest: async () => growthUnavailable("healthRecoveryActionRequest"),
+    healthRedactionPolicyRead: async () => growthUnavailable("healthRedactionPolicyRead"),
     gitActionExecute: async () => growthUnavailable("gitActionExecute"),
     artifactIngestBegin: async () => growthUnavailable("artifactIngestBegin"),
     artifactIngestWriteChunk: async () => growthUnavailable("artifactIngestWriteChunk"),
@@ -386,5 +394,15 @@ export function createRefusingGrowthPort(): GrowthPort {
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
+    // provider accounts — the three the registry read and its tail do not cover.
+    // `providerAccount.list` and `providerAccount.subscribe` are bound elsewhere in
+    // this family and are deliberately not on this table.
+    providerAccountLogin: async () => growthUnavailable("providerAccountLogin"),
+    providerAccountLoginCancel: async () => growthUnavailable("providerAccountLoginCancel"),
+    providerAccountRegister: async () => growthUnavailable("providerAccountRegister"),
+    // MCP governance
+    mcpList: async () => growthUnavailable("mcpList"),
+    mcpSetEnabled: async () => growthUnavailable("mcpSetEnabled"),
+    mcpSetTrust: async () => growthUnavailable("mcpSetTrust"),
   };
 }

@@ -1,0 +1,189 @@
+/* The account shell's own styles: a registry list, a quota table, and two cards.
+ *
+ * A page-local sheet on the `pages/cost/cost-receipt.css` precedent — these rules
+ * serve one shell and a family-wide sheet is the file every page lane edits at once.
+ * It enters through `settings/settings-surface-body.ts`, the settings chunk root,
+ * with every other page sheet: this directory carries no door of its own, so the
+ * chunk that owns it is the one that owns the page.
+ *
+ * IT GOES WITH THE SHELL. The whole subtree is deleted by the owner's mounting PR,
+ * this file included, which is why nothing outside `meridian-accounts__` appears
+ * here — a rule this sheet added to a shared class would outlive the deletion.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale.
+ * The two dimensions named outright are the quota bar's width, sized so a column of
+ * bars shares one right edge rather than reflowing per row, and the register form's
+ * label column, sized to its longest label so the inputs line up.
+ */
+
+.meridian-accounts__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-accounts__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-accounts__row:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-accounts__row:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The selected row is marked by its edge and never by colour alone: the detail
+   section below it names the same account in its heading, so the pairing is
+   legible without relying on a hue anyone might not distinguish. */
+.meridian-accounts__row[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-accounts__row-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-accounts__row-label {
+  font-size: var(--meridian-text-md);
+  color: var(--meridian-text);
+}
+
+.meridian-accounts__row-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-accounts__row-observed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-accounts__readiness {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) 0;
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-accounts__readiness:last-child {
+  border-bottom: none;
+}
+
+.meridian-accounts__readiness-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-accounts__signin {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-2);
+  margin-top: var(--meridian-space-3);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-accent);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-accounts__quota {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-accounts__quota th,
+.meridian-accounts__quota td {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.meridian-accounts__quota thead th {
+  border-bottom: 1px solid var(--meridian-edge-strong);
+  color: var(--meridian-text-muted);
+  font-weight: 500;
+}
+
+.meridian-accounts__quota tbody th {
+  font-weight: 400;
+}
+
+.meridian-accounts__quota-bar {
+  display: block;
+  width: 7rem;
+  height: var(--meridian-space-2);
+  margin-bottom: var(--meridian-space-1);
+}
+
+.meridian-accounts__register {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--meridian-space-2) var(--meridian-space-3);
+}
+
+.meridian-accounts__register label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-accounts__register input,
+.meridian-accounts__register select {
+  min-width: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+  font: inherit;
+}
+
+.meridian-accounts__register input:focus-visible,
+.meridian-accounts__register select:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The prose, the button, and the outcome line each span both columns: none of them
+   is a field, and a control sitting in the value column would read as one. */
+.meridian-accounts__register > p,
+.meridian-accounts__register > button,
+.meridian-accounts__register > .meridian-settings-page__state {
+  grid-column: 1 / -1;
+}
+
+.meridian-accounts__register > button {
+  justify-self: start;
+}

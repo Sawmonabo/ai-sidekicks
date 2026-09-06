@@ -143,6 +143,15 @@
   color: var(--meridian-accent);
 }
 
+/* An act whose consequence is not undone by pressing it again — an abandoned run, a
+   restart mid-turn. Toned rather than shaped: it is the same button as its neighbours
+   because it sits in the same row, and what marks it is the colour the palette
+   reserves for a loss. */
+.meridian-settings-page__action--destructive {
+  border-color: var(--meridian-red-mark);
+  color: var(--meridian-red-text);
+}
+
 .meridian-settings-page__progress-label {
   color: var(--meridian-text);
 }

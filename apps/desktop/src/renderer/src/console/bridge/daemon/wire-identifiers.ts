@@ -84,3 +84,43 @@ export function readRunState(value: string): RunState | undefined {
   const parsed = RunStateSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
+
+/**
+ * The states in which a run is still the daemon's to move.
+ *
+ * The complement of the three terminals — `completed`, `interrupted`, `failed` — and
+ * written as the positive set rather than as a negation, so a tenth state added
+ * upstream lands OUTSIDE it: a run whose state this build has never heard of is not
+ * asserted to be finished.
+ *
+ * IT IS HERE AND NOT IN A VIEW FAMILY. It began in `runs/pane/run-status.ts`, and the
+ * second surface that needed it — the settings surface's restart confirmation, which
+ * has to name the runs a restart would interrupt — is a SIBLING view family, which
+ * may not import it from there (`apps/desktop/AGENTS.md`: view families are siblings,
+ * not a ladder). The remedy that file's own rule names is the hoist, and this module
+ * is where it lands: `bridge/` already owns the console's one reading of the wire's
+ * run-state vocabulary, and a predicate over that vocabulary belongs beside the
+ * reader that produces it rather than in whichever family asked first.
+ */
+const LIVE_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
+  "queued",
+  "starting",
+  "running",
+  "waiting_for_approval",
+  "waiting_for_input",
+  "paused",
+]);
+
+/**
+ * Whether a run is still moving, by the state the daemon last reported.
+ *
+ * Used to decide what a surface OFFERS or SAYS, never whether the daemon will admit
+ * anything: eligibility is the daemon's and reaches a surface as a typed refusal
+ * (`Spec-023 §Rules every console surface obeys` — "eligibility is never projected by
+ * the renderer"). What this answers is the narrower question of whether an act is
+ * meaningful at all — a `completed` run has no turn to interrupt, and a restart
+ * interrupts nothing by ending it.
+ */
+export function isLiveRunState(state: RunState): boolean {
+  return LIVE_RUN_STATES.has(state);
+}

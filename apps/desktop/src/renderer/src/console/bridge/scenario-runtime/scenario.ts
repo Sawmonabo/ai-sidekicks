@@ -18,7 +18,7 @@
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
 // and never reach the engine's teardown rules or its held-reply queue.
 
-import type { MembershipRole, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
+import type { MembershipRole, RuntimeNodeRosterEntry, UpdateState } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
@@ -217,6 +217,44 @@ export interface ConsoleScenario {
    * whose ANSWER is a function of the clock.
    */
   readonly runtimeNodeRoster?: readonly ScenarioRuntimeNodeRosterFrame[];
+  /**
+   * What the shell's updater reports, where the scenario states one.
+   *
+   * OPTIONAL, and the default is the one the fixture answered before this member
+   * existed: a bare `idle` carrying no last-check instant. That default is load-
+   * bearing rather than incidental — `UpdateState`'s `idle` arm carries an optional
+   * `lastCheckedAt`, and a fixture that supplied one on every scenario would make
+   * the never-checked arm unreachable in the deck, which is the arm a fresh install
+   * is actually in.
+   *
+   * The updater is a SHELL surface rather than a daemon one, so it is a scenario
+   * member and not a `replies` row: the reply table is keyed by daemon method or
+   * control-plane procedure name, and `update.getState` is neither.
+   */
+  readonly updaterState?: UpdateState;
+  /**
+   * When this window's transport is lost and when it comes back, in scenario time.
+   *
+   * The fixture's half of the console's one transport-reconnect signal
+   * (`bridge/transport/transport-reconnect.ts`): a scenario that names an outage
+   * drives the signal through `unreachable` and back, and every reading wired to it
+   * re-reads on the returning edge. A scenario that names none never reports a
+   * reconnect, which is the honest reading of a window whose wire never went away.
+   */
+  readonly transportOutages?: readonly ScenarioTransportOutage[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
+}
+
+/**
+ * One scripted transport outage: when the wire went away, and when it returned.
+ *
+ * Both instants are measured from scenario start, as a beat's `atMs` is. They are
+ * required together because an outage with no end is not a reconnect and would be
+ * scripted by simply never restoring — a member carrying one without the other is
+ * the shape that reads as an outage and produces no edge.
+ */
+export interface ScenarioTransportOutage {
+  readonly lostAtMs: number;
+  readonly restoredAtMs: number;
 }

@@ -156,7 +156,28 @@ export type GrowthOperationId =
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
-  | "orchestrationBudgetRead";
+  | "orchestrationBudgetRead"
+  // diagnostics — the registry's own order; each id is its wire method's tail with
+  // the root folded in, which `growth-operations/index.test.ts` holds every entry to.
+  // `healthSubscribe` above is deliberately NOT one of these: it is a stream serving
+  // a different slate row and a different surface.
+  | "healthStatusRead"
+  | "healthFailureDetailRead"
+  | "healthStuckRunInspect"
+  | "healthRecoveryActionRequest"
+  | "healthRedactionPolicyRead"
+  // provider accounts — the three the registry read and its tail do not cover. The
+  // list and the subscription are BOUND (`daemon/daemon-reply-registry.ts`,
+  // `daemon/daemon-streams.ts`), so they are deliberately absent from this union.
+  | "providerAccountLogin"
+  | "providerAccountLoginCancel"
+  | "providerAccountRegister"
+  // MCP governance — the inventory read and the two mutations the operator page
+  // sends. Each id is its wire method's tail with the root folded in, which
+  // `growth-operations/index.test.ts` holds every entry to.
+  | "mcpList"
+  | "mcpSetEnabled"
+  | "mcpSetTrust";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

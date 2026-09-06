@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import type { SessionStore } from "../store/index.js";
+import { SessionStore, type ConsoleEntity } from "../store/index.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import type { SettingsPageContext } from "./settings-page-registry.js";
 
@@ -91,4 +91,36 @@ export function renderMovablePage(
       rerender(tree(nextSessionId));
     },
   };
+}
+
+/**
+ * A session store holding a fixed set of entities, for a page that reads a partition.
+ *
+ * HERE RATHER THAN IN ONE PAGE'S HARNESS. Two suites in this family need a store to
+ * hand `settingsPageContextWith` — the restart confirmation, which names the runs a
+ * restart interrupts, and the diagnostics page, which picks which run it inspects —
+ * and the second one is what turns a four-line local helper into the second copy the
+ * package rule forbids. The context builder for this family already lives here, and a
+ * store the context carries belongs beside it.
+ */
+export function sessionStoreHolding(
+  sessionId: string,
+  entities: readonly ConsoleEntity[],
+): SessionStore {
+  const sessionStore = new SessionStore({ sessionId });
+  sessionStore.initialise({ cursor: 0, entities, participantJoinLog: [] });
+  return sessionStore;
+}
+
+/**
+ * One run entity in the shape the store's `run` partition holds.
+ *
+ * `state` is a bare string because that is what the store holds — the wire's own word,
+ * unvalidated — which is exactly what lets a case drive a state this build has never
+ * heard of and assert that the surface neither counts it nor asserts it finished.
+ */
+export function runEntity(id: string, state: string, touchedAt?: string): ConsoleEntity {
+  return touchedAt === undefined
+    ? { kind: "run", id, state }
+    : { kind: "run", id, state, touchedAt };
 }

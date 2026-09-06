@@ -26,14 +26,36 @@
 // render at all, and a seat that carried one would have leaked it before any body
 // arrived to decide otherwise.
 
+import { createElement } from "react";
+
+import { McpShell } from "./shell/McpShell.js";
 import type { OwnerSlotProps } from "../../../seats/index.js";
 import type { OwnerSlotPage, SettingsPageBody } from "../../settings-page-registry.js";
 
 /**
+ * The fixture shell, or nothing.
+ *
+ * `__SIDEKICKS_CONSOLE_FIXTURES__` is a build-time literal, so a release renderer folds
+ * this to `undefined`, the shell subtree is referenced from nothing, and it leaves the
+ * bundle — the treatment the fixture bridge, its scenarios, and the pane harness all
+ * get. The guard sits HERE rather than at the composition site because whether this
+ * seat has a stand-in body at all is this seat's decision, not the settings surface's.
+ *
+ * AND THE TWO RULES ABOVE STILL HOLD OF IT, which is what makes a shell admissible at
+ * this seat rather than merely convenient. It composes no status: the daemon's
+ * aggregate arrives on each row and is rendered, and the trust-unavailable arm renders
+ * as the absence it is rather than as an invented `unknown`. It decides no
+ * availability: every control is offered and the daemon's typed refusal renders under
+ * the one that raised it, which is the governing rule rather than a shortcut around it.
+ */
+const FIXTURE_MCP_SHELL: SettingsPageBody | undefined = __SIDEKICKS_CONSOLE_FIXTURES__
+  ? (context) => createElement(McpShell, { bridge: context.bridge })
+  : undefined;
+
+/**
  * The seat itself.
  *
- * `body` is `undefined` and this console does not author one. The three contract
- * members are developer-facing and reach no screen.
+ * The three contract members are developer-facing and reach no screen.
  */
 export const MCP_SERVERS_PAGE_SLOT: OwnerSlotProps<SettingsPageBody> = {
   contract: {
@@ -41,9 +63,10 @@ export const MCP_SERVERS_PAGE_SLOT: OwnerSlotProps<SettingsPageBody> = {
     owningTask: "Plan-028 (mounted through the settings page frame)",
     mountObligation:
       "the page frame, the section heading, and a SettingsPageContext carrying the console bridge; the body owns the inventory read, the live status subscription, every mutation and its idempotency key, the redacted read-back, and every refusal",
-    deleteShellIn: "the Plan-028 page-body task that fills this slot",
+    deleteShellIn:
+      "the Plan-028 page-body task that fills this slot, which deletes settings/pages/mcp-servers/shell/ whole",
   },
-  body: undefined,
+  body: FIXTURE_MCP_SHELL,
 };
 
 /** The seat and the sentence it renders while nobody has filled it. */

@@ -91,7 +91,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // smuggled through an absent value and re-read by the caller.
       //
       // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
-      // `answerScriptedWrite` below states in full: this fixture serves the
+      // `answerScriptOnly` below states in full: this fixture serves the
       // operation, so `wire-unregistered` would be false about the build and would
       // send a reader to a document owing a wire that already has a stand-in.
       answerFromScriptedReply(
@@ -199,11 +199,11 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     // something no scenario ever said it did — and an attach in particular is what
     // mints an identity every later read is keyed by.
     agentAttach: async (request) =>
-      await answerScriptedWrite(engine, "agent.attach", "agentAttach", request),
+      await answerScriptOnly(engine, "agent.attach", "agentAttach", request),
     agentConfigUpdate: async (request) =>
-      await answerScriptedWrite(engine, "agent.configUpdate", "agentConfigUpdate", request),
+      await answerScriptOnly(engine, "agent.configUpdate", "agentConfigUpdate", request),
     agentDetach: async (request) =>
-      await answerScriptedWrite(engine, "agent.detach", "agentDetach", request),
+      await answerScriptOnly(engine, "agent.detach", "agentDetach", request),
     orchestrationChildRunLinkRead: async (request) =>
       answerFromScriptedReply(
         engine,
@@ -227,12 +227,97 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         () => ({ status: "served", value: [] }),
       ),
     sidekickPeerInvocationSet: async (request) =>
-      await answerScriptedWrite(
+      await answerScriptOnly(
         engine,
         "sidekick.peerInvocationSet",
         "sidekickPeerInvocationSet",
         request,
       ),
+    // diagnostics
+    //
+    // The two that answer under any scenario are the two whose empty form is a real
+    // daemon reply, and neither is a fabrication: a status read that found no
+    // components is not a verdict about the machine — `healthy` over an empty set is
+    // what "nothing reported a problem" looks like on this wire — and the default
+    // redaction posture is a policy with no bucket overrides, outbound denied, and no
+    // retention override in force, which is the shape a fresh node is in.
+    healthStatusRead: async (request) =>
+      answerFromScriptedReply(engine, "health.statusRead", "healthStatusRead", request, () => ({
+        status: "served",
+        value: { overall: "healthy", components: [] },
+      })),
+    healthRedactionPolicyRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        "health.redactionPolicyRead",
+        "healthRedactionPolicyRead",
+        request,
+        () => ({
+          status: "served",
+          value: { buckets: [], outboundDefault: "deny", retentionPolicyOverrideActive: false },
+        }),
+      ),
+    // The three addressed by a subject, refusing by name without a script. A failure
+    // detail and a stall reading answer with facts ABOUT one named run, so an empty
+    // form would assert the run exists and that nothing is wrong with it; the recovery
+    // request is a write, and a synthesized receipt would report that the daemon moved
+    // a run no author ever declared.
+    healthFailureDetailRead: async (request) =>
+      await answerScriptOnly(
+        engine,
+        "health.failureDetailRead",
+        "healthFailureDetailRead",
+        request,
+      ),
+    healthStuckRunInspect: async (request) =>
+      await answerScriptOnly(engine, "health.stuckRunInspect", "healthStuckRunInspect", request),
+    healthRecoveryActionRequest: async (request) =>
+      await answerScriptOnly(
+        engine,
+        "health.recoveryActionRequest",
+        "healthRecoveryActionRequest",
+        request,
+      ),
+    // provider accounts — three writes, and all three script-only. A brokered sign-in
+    // answers with a verification URI and a daemon-minted attempt id; a cancel answers
+    // what became of one; a registration answers with the account it created. None of
+    // the three has an empty form: a synthesized attempt would put a URL on screen that
+    // leads nowhere, and a synthesized account would mint an identity every later
+    // registry read is keyed by. The registry READ they act on is not here at all — it
+    // is `providerAccount.list` over the bound call door, answered from the scenario's
+    // own scripted reply and parsed against the registered schema.
+    providerAccountLogin: async (request) =>
+      await answerScriptOnly(engine, "providerAccount.login", "providerAccountLogin", request),
+    providerAccountLoginCancel: async (request) =>
+      await answerScriptOnly(
+        engine,
+        "providerAccount.loginCancel",
+        "providerAccountLoginCancel",
+        request,
+      ),
+    providerAccountRegister: async (request) =>
+      await answerScriptOnly(
+        engine,
+        "providerAccount.register",
+        "providerAccountRegister",
+        request,
+      ),
+    // MCP governance — the inventory read answers the EMPTY inventory for a scenario
+    // that scripts nothing, on the invite ledger's rule: a node that governs no MCP
+    // servers is an ordinary node and the operator page draws that state, whereas "the
+    // inventory could not be read" is what a release build renders and is a different
+    // sentence. The two mutations are script-only: each answers with the row as it now
+    // stands plus per-leg outcomes, and a synthesized one would report that the daemon
+    // reconciled live sessions no author ever declared.
+    mcpList: async (request) =>
+      answerFromScriptedReply(engine, "mcp.list", "mcpList", request, () => ({
+        status: "served",
+        value: { servers: [] },
+      })),
+    mcpSetEnabled: async (request) =>
+      await answerScriptOnly(engine, "mcp.setEnabled", "mcpSetEnabled", request),
+    mcpSetTrust: async (request) =>
+      await answerScriptOnly(engine, "mcp.setTrust", "mcpSetTrust", request),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }
@@ -267,14 +352,20 @@ async function answerApprovalRead<TRow>(
 }
 
 /**
- * Answer one WRITE from the script, and refuse where the scenario scripts none.
+ * Answer one SCRIPT-ONLY operation from the script, and refuse where none is scripted.
  *
- * A read has an empty state and a write does not: "this session has no agents" is a
- * state the console draws, and there is no such thing as "the attach that happened
- * and produced nothing". So a write that no scenario answers cannot take the served
- * arm with a synthesized receipt — that would tell a surface the daemon did
- * something no author ever said it did, and for an attach it would mint an identity
- * every later read is keyed by.
+ * Two classes land here, and `fixture-served-operations.ts` names both because the
+ * membership decision is that module's. A WRITE: "this session has no agents" is a
+ * state the console draws and there is no such thing as "the attach that happened and
+ * produced nothing", so a synthesized receipt would tell a surface the daemon did
+ * something no author ever said it did — and for an attach it would mint an identity
+ * every later read is keyed by. And a READ ADDRESSED BY A SUBJECT: one run's failure
+ * detail, one run's stall reading, one run's snapshot — each answers with facts ABOUT
+ * a named thing, so an empty form would assert the thing exists and holds nothing,
+ * which for a run no author declared is the same invention as a receipt.
+ *
+ * The enumerations are deliberately not in either class: a list of none is a real
+ * answer to "what does this session hold", and those operations serve it.
  *
  * The precondition is checked here rather than inside the seam because it is a fact
  * about the SCENARIO rather than about the settlement — `callerParticipantRead` next
@@ -282,7 +373,7 @@ async function answerApprovalRead<TRow>(
  * left after the check is exactly the settlement the seam reports, so the parked,
  * abandoned, and over-cap arms all keep their own answers.
  */
-async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
+async function answerScriptOnly<TOperationId extends GrowthOperationId>(
   engine: ScenarioEngine,
   call: string,
   operationId: TOperationId,

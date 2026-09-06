@@ -30,7 +30,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 const OWNER = "collaboration-settings-application";
 
 export function ApplicationPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const { bridge } = props.context;
+  const { bridge, retainedSessionStore } = props.context;
   const { app } = bridge.sidekicks;
   return (
     <div className="meridian-settings-page">
@@ -61,7 +61,7 @@ export function ApplicationPage(props: { readonly context: SettingsPageContext }
         </div>
       </dl>
 
-      <UpdatesBlock bridge={bridge} />
+      <UpdatesBlock bridge={bridge} retainedSessionStore={retainedSessionStore} />
       <CrashReportingBlock bridge={bridge} />
     </div>
   );

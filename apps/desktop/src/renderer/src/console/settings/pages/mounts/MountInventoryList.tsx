@@ -55,8 +55,7 @@ export function MountInventoryList(props: {
   // that was away may have missed a mount going unreachable, and the request goes
   // through the read's own scheduler so a flurry of focus changes still costs one
   // read. The first is the session's own event stream, bound by the read itself
-  // (see `mount-inventory.ts`, which also says why the third — reconnect — is bound
-  // nowhere in this console).
+  // (see `mount-inventory.ts`).
   useEffect(() => {
     const onWindowFocus = (): void => {
       inventoryRead.refresh("window-focus");
@@ -66,6 +65,23 @@ export function MountInventoryList(props: {
       window.removeEventListener("focus", onWindowFocus);
     };
   }, [inventoryRead]);
+  // Reconnect is the third, and it is a DIFFERENT fact from the two beside it. A
+  // window that never lost focus and whose session never went degraded can still
+  // have had its transport drop and come back, and everything read across that gap
+  // is as stale as if nobody had been looking — with nothing on screen saying so.
+  //
+  // A SEPARATE EFFECT rather than a second listener inside the one above, because
+  // the two release differently: the focus listener is the window's and the
+  // reconnect subscription is the transport's, and a single cleanup that released
+  // both would be one identity for two lifetimes. The signal itself decides what a
+  // reconnect IS — this only asks for the read.
+  useEffect(
+    () =>
+      bridge.transportReconnect.subscribe(() => {
+        inventoryRead.refresh("reconnect");
+      }),
+    [bridge, inventoryRead],
+  );
 
   const state = usePushDrivenRead(inventoryRead);
   // Said once, when the inventory lands — and once more only if a later refresh
