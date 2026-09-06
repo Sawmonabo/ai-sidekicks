@@ -7,7 +7,7 @@ import {
   HIGHLIGHTABLE_LANGUAGES,
   highlightableLanguages,
   resolveHighlightableLanguage,
-} from "./code-tokenizer.js";
+} from "./highlight-languages.js";
 
 describe("resolving a fence's info string", () => {
   it("resolves a language the table names", () => {

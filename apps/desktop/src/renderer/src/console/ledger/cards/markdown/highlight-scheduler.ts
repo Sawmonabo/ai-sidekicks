@@ -27,7 +27,8 @@
 // without workers would break it exactly where nobody was measuring.
 
 import { ByteBoundedCache, measureUtf8ByteLength } from "./byte-bounded-cache.js";
-import type { CodeTokenLine, HighlightableLanguage } from "./code-tokenizer.js";
+import type { CodeTokenLine } from "./code-tokenizer.js";
+import type { HighlightableLanguage } from "./highlight-languages.js";
 import type { HighlightRequestMessage, HighlightResponseMessage } from "./highlight-protocol.js";
 
 /** Why a block carries no tokens. Closed — a nameless absence is one a card cannot explain. */

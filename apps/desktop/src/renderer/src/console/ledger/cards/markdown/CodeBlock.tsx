@@ -16,8 +16,8 @@
 
 import { useEffect, useState } from "react";
 
-import type { CodeTokenLine, HighlightableLanguage } from "./code-tokenizer.js";
-import { resolveHighlightableLanguage } from "./code-tokenizer.js";
+import type { CodeTokenLine } from "./code-tokenizer.js";
+import { resolveHighlightableLanguage, type HighlightableLanguage } from "./highlight-languages.js";
 import {
   consoleCodeHighlightScheduler,
   type CodeHighlightScheduler,

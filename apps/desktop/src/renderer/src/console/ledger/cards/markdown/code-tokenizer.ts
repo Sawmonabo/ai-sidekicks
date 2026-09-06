@@ -25,40 +25,20 @@
 // specifier built from a string would make the bundler emit a chunk for every one of
 // shiki's several hundred grammars, and would let a fence's info string — text from a
 // model — decide which module gets loaded. Both are answered by the same table.
+//
+// THE LANGUAGE VOCABULARY IS NOT HERE, and that is what makes the dynamic import above
+// effective rather than decorative. A component has to resolve a fence's info string
+// before it can decide whether to ask for a highlight at all, and one value import of
+// this module from a component merges it — and this file's whole graph — back into the
+// initial chunk, which the bundler reports as an ineffective dynamic import. So the
+// enumeration, its aliases, and the resolver live in `highlight-languages.ts`, which
+// imports nothing, and the table below is keyed by the type declared there: a language
+// added there without a loader here still fails to compile.
 
 import type { HighlighterCore, LanguageRegistration, ThemedToken } from "shiki/types";
 
+import type { HighlightableLanguage } from "./highlight-languages.js";
 import { meridianCodeTheme } from "./meridian-code-theme.js";
-
-/**
- * The languages a fenced block can be highlighted as. Closed, and each entry names its
- * own loader so no specifier is ever composed from message text.
- *
- * Fifteen, chosen as what a session about this repository actually contains. A fence in
- * any other language renders as plain mono text, which is the honest degrade: it is
- * still the code, set in the figure face, and nothing about it is wrong except that it
- * is not coloured.
- */
-export const HIGHLIGHTABLE_LANGUAGES = [
-  "bash",
-  "css",
-  "diff",
-  "go",
-  "html",
-  "javascript",
-  "json",
-  "jsx",
-  "markdown",
-  "python",
-  "rust",
-  "sql",
-  "tsx",
-  "typescript",
-  "yaml",
-] as const;
-
-/** One highlightable language. Derived from the enumeration, never restated. */
-export type HighlightableLanguage = (typeof HIGHLIGHTABLE_LANGUAGES)[number];
 
 /**
  * What a grammar module hands back: shiki's own registration list, under `default`.
@@ -71,8 +51,9 @@ export type HighlightableLanguage = (typeof HIGHLIGHTABLE_LANGUAGES)[number];
 type GrammarLoader = () => Promise<{ readonly default: LanguageRegistration[] }>;
 
 /**
- * The module each language is loaded from. Total over the enumeration by construction,
- * so a language added above without a loader fails to compile here.
+ * The module each language is loaded from. Total over `HighlightableLanguage` by
+ * construction — the `Record` key is the leaf's own union — so a language added to
+ * `highlight-languages.ts` without a loader here fails to compile.
  */
 const GRAMMAR_LOADERS: Readonly<Record<HighlightableLanguage, GrammarLoader>> = {
   bash: () => import("shiki/langs/bash.mjs"),
@@ -91,58 +72,6 @@ const GRAMMAR_LOADERS: Readonly<Record<HighlightableLanguage, GrammarLoader>> = 
   typescript: () => import("shiki/langs/typescript.mjs"),
   yaml: () => import("shiki/langs/yaml.mjs"),
 };
-
-/**
- * The aliases a fence's info string may use for a language this table has.
- *
- * Separate from the loader table on purpose: an alias is a naming fact and a loader is a
- * module, and folding them together would make the closed set of loadable modules
- * ambiguous. Every value here is a key there, which the co-located test asserts.
- */
-const LANGUAGE_ALIASES: Readonly<Record<string, HighlightableLanguage>> = {
-  js: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  ts: "typescript",
-  mts: "typescript",
-  sh: "bash",
-  shell: "bash",
-  zsh: "bash",
-  yml: "yaml",
-  py: "python",
-  rs: "rust",
-  md: "markdown",
-  patch: "diff",
-};
-
-/**
- * The language a fence's info string names, or `undefined` for one this build cannot
- * highlight.
- *
- * Lower-cased and cut at the first space, commonmark's own reading of an info string.
- */
-export function resolveHighlightableLanguage(
-  infoString: string | null | undefined,
-): HighlightableLanguage | undefined {
-  if (infoString === null || infoString === undefined) {
-    return undefined;
-  }
-  const [word] = infoString.trim().toLowerCase().split(/\s+/u);
-  if (word === undefined || word === "") {
-    return undefined;
-  }
-  if (Object.prototype.hasOwnProperty.call(GRAMMAR_LOADERS, word)) {
-    return word as HighlightableLanguage;
-  }
-  return Object.prototype.hasOwnProperty.call(LANGUAGE_ALIASES, word)
-    ? LANGUAGE_ALIASES[word]
-    : undefined;
-}
-
-/** Every language this build can highlight, for the co-located test and the mapper. */
-export function highlightableLanguages(): readonly HighlightableLanguage[] {
-  return HIGHLIGHTABLE_LANGUAGES;
-}
 
 /** One token, reduced to what the console's own span renderer needs. */
 export interface CodeToken {

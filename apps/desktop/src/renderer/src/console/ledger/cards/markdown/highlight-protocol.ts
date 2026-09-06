@@ -10,7 +10,8 @@
 // bundle does not acquire the scheduler, the `Worker` construction, or React by
 // importing the protocol it answers.
 
-import type { CodeTokenLine, HighlightableLanguage } from "./code-tokenizer.js";
+import type { CodeTokenLine } from "./code-tokenizer.js";
+import type { HighlightableLanguage } from "./highlight-languages.js";
 
 /** What the scheduler posts. `requestId` is the scheduler's, monotonic within a page. */
 export interface HighlightRequestMessage {
