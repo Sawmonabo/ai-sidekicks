@@ -24,7 +24,8 @@
 //
 // A group is a maximal run of consecutive body lines carrying one task ordinal. It
 // is either exactly one RESERVED line — the comment a family has not replaced yet —
-// or one or more FILLED lines, each a registration carrying that same ordinal. A
+// or one or more FILLED lines, each a registration handed the boards it writes into
+// and carrying that same ordinal. A
 // family shipping two doors spends its seat on two lines and one shipping three
 // spends it on three; both are one seat, which is what keeps the board's seat count
 // stable as families land.
@@ -145,6 +146,28 @@ const SEAT_TASK_MARKER_PREFIX = "T-023p-1C-";
 /** What a seat line names after its marker: the kinds that line claims. */
 const SEAT_KIND_WORDS = "[a-z][a-z-]*(?: [a-z][a-z-]*)*";
 
+/**
+ * What a registration is handed: the boards it writes into, named.
+ *
+ * A LIST AND NOT ONE ARGUMENT, because a board hands out as many registries as it
+ * owns and a family writes into every one it claims a place on. The pane board has a
+ * single parameter and its seats therefore pass one name; `console/families.ts` hands
+ * out five, so no parameter of it is called `registry` and each of its seats passes
+ * the subset that family needs. An earlier form pinned the literal `(registry)`,
+ * which reads the pane board and can never read the other: every family seat parsed
+ * as an unmarked line, the block began at the first still-reserved comment below it,
+ * and the census reported the filled ordinal `missing-task` — a board refusing the
+ * one edit it exists to accept.
+ *
+ * IDENTIFIERS AND NOT ARBITRARY TEXT, which is the half that keeps the grammar a
+ * grammar. What a seat may pass is the names its board was handed; a call expression,
+ * an object literal, or an empty list is not one, so each of those is an unmarked
+ * line and not a seat — the same verdict prose gets, and for the same reason. A seat
+ * needing a value that is not a board names it above the block, where the
+ * composition and its prose already live, and passes that name here.
+ */
+const SEAT_REGISTRY_ARGUMENTS = "[A-Za-z]+(?:, [A-Za-z]+)*";
+
 /** A seat still holding its reserved comment. */
 const RESERVED_SEAT_LINE = new RegExp(
   `^// ${SEAT_TASK_MARKER_PREFIX}(\\d+) ${SEAT_KIND_WORDS}$`,
@@ -153,7 +176,7 @@ const RESERVED_SEAT_LINE = new RegExp(
 
 /** A seat a family has filled: one registration, marked with that seat's task. */
 const FILLED_SEAT_LINE = new RegExp(
-  `^register[A-Za-z]+\\(registry\\); // ${SEAT_TASK_MARKER_PREFIX}(\\d+) ${SEAT_KIND_WORDS}$`,
+  `^register[A-Za-z]+\\(${SEAT_REGISTRY_ARGUMENTS}\\); // ${SEAT_TASK_MARKER_PREFIX}(\\d+) ${SEAT_KIND_WORDS}$`,
   "u",
 );
 
