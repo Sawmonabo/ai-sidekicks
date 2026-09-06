@@ -27,7 +27,7 @@
 //
 // IN `core/` AND NOT BESIDE EITHER CALLER. Its readers are view families, which are
 // siblings of one another, so the lowest family both may reach is the DAG floor — the
-// same placement `microtask-drain.test-support.ts` records for the settle boundary. It
+// same placement `macrotask-boundary.test-support.ts` records for the settle boundary. It
 // imports React, which `core/index.ts`'s header says the family does not: that sentence
 // is about what `core/` PUBLISHES and what its production modules depend on, and this is
 // a test-tier module the door does not publish and no production module imports, on the
