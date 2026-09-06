@@ -1,0 +1,60 @@
+// What a pinned channel run looks like, once there is one to draw.
+//
+// Split from the card beside it on the seam the console holds everywhere: that module
+// performs the read and decides whether anything is pinned, and this one draws what it
+// decided. The split is also what makes the drawing testable without a bridge — a
+// component that both read and drew could only be exercised through a provider, and
+// every claim about what is on screen would be carrying a fixture it does not need.
+//
+// The two figures and the park readings are the whole of it. Nothing here reads a
+// wire, nothing here decides eligibility, and the park badge is the one the run pane
+// draws, so a park never reads two ways in one window.
+
+import { Chip, WireFigure } from "../../primitives/index.js";
+import { ParkBadge } from "../parks/ParkBadge.js";
+import { type ChannelWorkflowProgress } from "./channel-progress.js";
+
+export interface PinnedRunCardProps {
+  readonly progress: ChannelWorkflowProgress;
+}
+
+/** The channel's pinned run: what it is, how far it has got, and what it waits on. */
+export function PinnedRunCard(props: PinnedRunCardProps): React.JSX.Element {
+  const { row, completedPhaseCount, totalPhaseCount } = props.progress;
+  return (
+    <article className="meridian-channel-progress">
+      <div className="meridian-channel-progress__head">
+        {/*
+          The definition's name where the enumeration carried one, and the run's own
+          identifier always — rule 4's provenance signature on the wire figure, and the
+          console's prose beside it. The name is optional on the row for the reason
+          `runs/run-list-rows.ts` gives, so a card that showed only a name would show
+          nothing for a run read that carried none.
+        */}
+        {row.run.definitionName === undefined ? null : (
+          <span className="meridian-channel-progress__definition">{row.run.definitionName}</span>
+        )}
+        <WireFigure value={row.run.workflowRunId} />
+        {/*
+          The run's own state word, as the wire spells it. Neutral always: the amber in
+          this card belongs to a park that is waiting on a person, and a second thing
+          wearing attention beside it would spend the palette's one loud mark twice for
+          one situation (`Spec-023 §Console Design (Meridian)` rule 3).
+        */}
+        <Chip tone="neutral" glyph="workflow" label={row.run.state} />
+      </div>
+      {/*
+        Completed of known, and both numbers on screen. A bar or a percentage would
+        hide the denominator, and this one moves: the phase list is what the run read
+        carried when it answered, so a fan-out that adds phases changes what "of" means
+        and a person can see that it did.
+      */}
+      <p className="meridian-channel-progress__phases">
+        {`${String(completedPhaseCount)} of ${String(totalPhaseCount)} phases completed`}
+      </p>
+      {row.parkedPhases.map((parked) => (
+        <ParkBadge key={parked.phaseId} parked={parked} />
+      ))}
+    </article>
+  );
+}

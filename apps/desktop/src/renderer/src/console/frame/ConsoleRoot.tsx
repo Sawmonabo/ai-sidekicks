@@ -19,6 +19,7 @@ import {
   consolePaneRegistry,
   consoleSurfaceRegistry,
   inlineCardSeatRegistry,
+  pinnedPaneRegionRegistry,
   sidebarSectionRegistry,
   type ConsoleSurfaceContext,
 } from "../seats/index.js";
@@ -40,7 +41,7 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 // registry refuses a second OWNER on one slot, so a hot reload replaces and a
 // collision raises.
 //
-// All five process-wide boards are named HERE rather than reached for inside the
+// All six process-wide boards are named HERE rather than reached for inside the
 // composition, which is what makes this the composition site: a test or an auxiliary
 // window calls the same function with boards of its own and touches none of these.
 //
@@ -49,6 +50,12 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 // writes into the singleton, so a family reaching for one would compose into
 // production from inside a composition that was handed something else. Passing them
 // here is what makes that reach unnecessary.
+//
+// The pinned-region board is named on the same terms, and it is the one board a family
+// already fills for a pane it does not own — the workflows family pins a channel's run
+// progress above the channel-scoped timeline. The chrome that draws that region falls
+// back to this same singleton when a host passes none, so this line is what makes the
+// production frame and the production composition the same board.
 //
 // The projector board is the third, and its ORDER against the window below is the
 // reason it is composed at module scope with the other two: a family claims the
@@ -62,6 +69,7 @@ registerConsoleFamilies(
   consoleEntityProjectorRegistry,
   sidebarSectionRegistry,
   inlineCardSeatRegistry,
+  pinnedPaneRegionRegistry,
 );
 
 export interface ConsoleRootProps {

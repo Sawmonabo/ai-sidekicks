@@ -244,6 +244,18 @@ export {
 // rather than exempt anything — so the tag leaves in the diff that imports the symbol.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
+// The block one pane pins above its body, and the board a family fills it through.
+// The registry and the board travel, exactly as the sidebar's and the inline cards' do:
+// the registry because `families.ts` names it in the composition's signature and a
+// family's registrar takes one, and the process-wide board because
+// `frame/ConsoleRoot.tsx` is the composition site that names every production board out
+// loud. A FAMILY still never reaches for the board — it is handed one — which is the
+// rule the composition's own header states. The context and descriptor types do NOT
+// travel: a registrar writes its descriptor as an object literal and reads its context
+// from the inferred parameter, so a door line for either would be one no production
+// module reads.
+export { PinnedPaneRegionRegistry, pinnedPaneRegionRegistry } from "./pinned-pane-regions.js";
+
 export {
   // Consumed by T-023p-1C-2
   PaneControlsContext,

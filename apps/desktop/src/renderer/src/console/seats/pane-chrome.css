@@ -171,3 +171,23 @@
   min-height: 0;
   overflow: auto;
 }
+
+/*
+ * The pinned region between the head and the body.
+ *
+ * It never scrolls and never grows: `flex: 0 0 auto` is what makes it PINNED rather
+ * than the first row of the body — a region that shared the body's scroller would
+ * leave the screen the moment a person read past the top of a feed, which is the one
+ * property this region exists to have. It carries the frame's own inline padding so
+ * a region body writes its own card and not its own gutter, and a hairline beneath it
+ * rather than above, because the head already draws its own edge and two rules
+ * stacked one line apart read as a mistake.
+ *
+ * No rule draws it when it is absent: the chrome emits no element at all for an
+ * unfilled region, so there is nothing here to collapse.
+ */
+.meridian-pane__pinned {
+  border-bottom: 1px solid var(--meridian-edge);
+  flex: 0 0 auto;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
