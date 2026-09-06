@@ -1,35 +1,12 @@
-// One documentation block per declaration, and it has to be attached to one.
+// One documentation block per declaration, and it has to be attached to one — asked of
+// every hand-written module in the package.
 //
-// A JSDoc block belongs to the declaration under it, and TypeScript attaches EVERY
-// leading block to that declaration. So two stacked blocks are not two comments — the
-// upper one has silently changed what it documents, and its subject is whatever the
-// editor moved in underneath it. Nothing reports that: the compiler is content, the
-// linter is content, and the block still reads correctly on its own, which is exactly
-// why it survives review.
+// THE READING IS NEXT DOOR. `stranded-documentation.ts` owns the three shapes, the
+// positions each is asked at, and why every one of them is a question for the parser
+// rather than for a pattern. What lives HERE is the scan: which roots it covers, what
+// one pass of it costs, and the controls that show the reading discriminates.
 //
-// The shape arrives two ways, and both are edits rather than authorship. A new
-// declaration is inserted between a block and the declaration it described, which
-// strands the block and leaves the old declaration undocumented. Or a block is copied
-// with the declaration it describes and the copy lands above one that already had
-// one. This gate has caught both in this tree.
-//
-// AND A SECOND SHAPE THE FIRST INSTRUMENT CANNOT SEE. A block written between
-// `export` and the declaration keyword documents NOTHING: the parser attaches no
-// JSDoc node to the declaration and resolves zero leading ranges for the statement,
-// so a gate reading only the statement's own start reported both "this declaration is
-// undocumented" and "there is no block here" — wrongly, and silently. Every editor
-// still renders the sentence, which is why the shape survives review; one family
-// branch carries seventeen of them. It is read from the last modifier's end, and from
-// BOTH of the compiler's comment readers, because it splits this one position between
-// them — see `documentationBlocksInModifiers`.
-//
-// THE FIRST STATEMENT IS EXEMPT FROM THE FIRST SHAPE, and the exemption is structural rather than a
-// grandfather clause: a module whose header is written as a block comment is a
-// leading block on whatever statement comes first, and a header describing the module
-// is not a second description of that statement. Every later statement has no such
-// excuse.
-//
-// SCANNED PACKAGE-WIDE, because neither arm of the defect is a console phenomenon. An
+// SCANNED PACKAGE-WIDE, because no arm of the defect is a console phenomenon. An
 // insertion under a block and a copied block both land wherever someone is editing:
 // `src/main/`, a co-located test, and above all a `.test-support.*` module, which is
 // the one place a block is routinely copied along WITH the declaration it describes.
@@ -39,13 +16,11 @@
 // what reaches all of it, and the case below asserts each class the narrower scan
 // missed rather than trusting a single count.
 //
-// Read by parse rather than by regex. Whether two blocks are stacked is a question
-// about what the parser ATTACHES — a blank line, an intervening statement, or a line
-// comment between them all change the answer, and none of those is visible to a
-// pattern that matches `*/` followed by `/**`. The detached shape is the same question
-// asked at a different position, and a pattern cannot ask it at all.
+// THE CONTROLS DRIVE THE REAL READING over corpora written by hand, which is what the
+// split buys: the predicates take source text, so a case can hold a fixture whose
+// verdict is known, and the walk that produces the real module set stays here where
+// `source-walk-chokepoint.test.ts` can see it.
 
-import ts from "typescript";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -53,107 +28,11 @@ import {
   DESKTOP_PROSE_ROOTS,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
-import { parseSourceText } from "../typescript-source.js";
-
-/** One declaration whose documentation is wrong, and which of the two ways it is. */
-interface StrandedDocumentation {
-  readonly displayPath: string;
-  readonly line: number;
-  /** `stacked`: more than one leading block. `detached`: a block inside the modifiers. */
-  readonly cause: "stacked" | "detached";
-  readonly blockCount: number;
-}
-
-/** Every JSDoc block among the comment ranges leading the position given. */
-function documentationBlocksAt(source: string, position: number): number {
-  return countDocumentation(source, ts.getLeadingCommentRanges(source, position));
-}
-
-/**
- * Every JSDoc block sitting between the modifiers and the declaration keyword.
- *
- * BOTH readers, because the compiler splits this one position between them and
- * neither half alone sees the shape. `getLeadingCommentRanges` collects nothing until
- * it has passed a line break — which is the whole of why `export /** … *\/ interface`
- * is invisible to a leading-range reader — while `getTrailingCommentRanges` collects
- * exactly the same-line case and stops at the first newline. A block written on the
- * line after `export` is the leading one. Measured against the compiler rather than
- * assumed: the two readers answered `undefined` and a range respectively for the
- * same-line form, and swapped for the next-line form.
- */
-function documentationBlocksInModifiers(source: string, position: number): number {
-  return (
-    countDocumentation(source, ts.getTrailingCommentRanges(source, position)) +
-    countDocumentation(source, ts.getLeadingCommentRanges(source, position))
-  );
-}
-
-/** How many of `ranges` open a JSDoc rather than a line or a plain block comment. */
-function countDocumentation(
-  source: string,
-  ranges: readonly ts.CommentRange[] | undefined,
-): number {
-  return (ranges ?? []).filter((range) => source.startsWith("/**", range.pos)).length;
-}
-
-/**
- * Every statement in `source` whose documentation does not describe it.
- *
- * TWO SHAPES, and the second is invisible to the first's instrument. STACKED is more
- * than one leading block: the count comes from the comment ranges the parser resolves
- * for the statement's own full start, filtered to blocks that open a JSDoc — a line
- * comment and a plain block comment are not documentation and do not participate.
- *
- * DETACHED is a block written INSIDE the modifiers, between `export` and the
- * declaration keyword, and it documents nothing at all: the parser attaches no JSDoc
- * node to the declaration and resolves zero leading ranges for the statement, so a
- * gate reading only the statement's own start reports the declaration as undocumented
- * and the block as absent — both wrongly, and both silently. Every editor and every
- * reader still shows the sentence, which is why the shape survives review. It is read
- * from the last modifier's end, which is the one position that trivia leads.
- *
- * The first statement is exempt from STACKED only. A module header written as a block
- * is a leading block on whatever comes first, and that is not a second description of
- * it; nothing makes a comment between `export` and `interface` a header.
- */
-function strandedDocumentationIn(
-  displayPath: string,
-  source: string,
-): readonly StrandedDocumentation[] {
-  const sourceFile = parseSourceText(displayPath, source);
-  const found: StrandedDocumentation[] = [];
-  const lineOf = (statement: ts.Statement): number =>
-    sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1;
-  sourceFile.statements.forEach((statement, index) => {
-    const stacked = index === 0 ? 0 : documentationBlocksAt(source, statement.getFullStart());
-    if (stacked > 1) {
-      found.push({ displayPath, line: lineOf(statement), cause: "stacked", blockCount: stacked });
-    }
-    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
-    const lastModifier = modifiers?.at(-1);
-    if (lastModifier === undefined) {
-      return;
-    }
-    const detached = documentationBlocksInModifiers(source, lastModifier.end);
-    if (detached > 0) {
-      found.push({
-        displayPath,
-        line: lineOf(statement),
-        cause: "detached",
-        blockCount: detached,
-      });
-    }
-  });
-  return found;
-}
-
-/** How a failure names one: where it is, which shape, and how many blocks. */
-function describeStranded(entry: StrandedDocumentation): string {
-  const blocks = `${String(entry.blockCount)} documentation block${entry.blockCount === 1 ? "" : "s"}`;
-  return entry.cause === "stacked"
-    ? `${entry.displayPath}:${String(entry.line)} carries ${blocks} on one declaration`
-    : `${entry.displayPath}:${String(entry.line)} carries ${blocks} inside its own modifiers, where the parser attaches it to nothing`;
-}
+import {
+  describeStranded,
+  statementPositionsOnly,
+  strandedDocumentationIn,
+} from "./stranded-documentation.js";
 
 /**
  * The budgets this file states rather than inherits, and why they differ.
@@ -320,5 +199,76 @@ describe("documentation — one block per declaration", () => {
       "}",
     ].join("\n");
     expect(strandedDocumentationIn("attached.ts", attached)).toStrictEqual([]);
+  });
+
+  it("negative control: a stack on a MEMBER is reported, and the statement walk missed it", () => {
+    // The shape the statements-only walk could not see at all. Every member position
+    // a family writes is here — an interface member, a member of a type literal
+    // nested inside another member's own type, a class member, and an enum member —
+    // because the container kinds differ and a reader keyed on one of them would
+    // miss the rest. The second assertion is the foil: the reading this gate
+    // performed before it walked members answers NOTHING over the same text, which
+    // is what makes the widening the claim rather than the fixture.
+    const members = [
+      "/** The module header. */",
+      "export interface Shape {",
+      "  /** The first block, stranded by an edit. */",
+      "  /** The block that belongs to the member. */",
+      "  readonly first: string;",
+      "  readonly nested: {",
+      "    /** Stranded inside a type literal nested in a member's own type. */",
+      "    /** The block that belongs to it. */",
+      "    readonly deep: number;",
+      "  };",
+      "}",
+      "export class Holder {",
+      "  /** Stranded on a class member. */",
+      "  /** The block that belongs to it. */",
+      "  public readonly held: number = 1;",
+      "}",
+      "export enum Kind {",
+      "  /** Stranded on an enum member. */",
+      "  /** The block that belongs to it. */",
+      "  One = 1,",
+      "}",
+    ].join("\n");
+
+    expect(strandedDocumentationIn("members.ts", members)).toStrictEqual([
+      { displayPath: "members.ts", line: 5, cause: "stacked", blockCount: 2 },
+      { displayPath: "members.ts", line: 9, cause: "stacked", blockCount: 2 },
+      { displayPath: "members.ts", line: 15, cause: "stacked", blockCount: 2 },
+      { displayPath: "members.ts", line: 20, cause: "stacked", blockCount: 2 },
+    ]);
+    expect(statementPositionsOnly("members.ts", members)).toStrictEqual([]);
+  });
+
+  it("negative control: the ordinary member shapes are not offences", () => {
+    // Without this the case above would also be satisfied by a walk that reported
+    // every member with any documentation at all. The first member of a container is
+    // included deliberately: it gets no header exemption, and one block on it is
+    // still one block. A member's detached shape is here too, since `readonly` is a
+    // modifier and a block after it documents nothing.
+    const attachedMembers = [
+      "/** The module header. */",
+      "export interface Shape {",
+      "  /** One block on the first member. */",
+      "  readonly first: string;",
+      "  /** One block, and a line comment is not documentation. */",
+      "  // An aside.",
+      "  readonly second: string;",
+      "  readonly third: { readonly deep: number };",
+      "}",
+    ].join("\n");
+    expect(strandedDocumentationIn("attached-members.ts", attachedMembers)).toStrictEqual([]);
+
+    const detachedMember = [
+      "/** The module header. */",
+      "export interface Shape {",
+      "  readonly /** Documents nothing. */ first: string;",
+      "}",
+    ].join("\n");
+    expect(strandedDocumentationIn("detached-member.ts", detachedMember)).toStrictEqual([
+      { displayPath: "detached-member.ts", line: 3, cause: "detached", blockCount: 1 },
+    ]);
   });
 });
