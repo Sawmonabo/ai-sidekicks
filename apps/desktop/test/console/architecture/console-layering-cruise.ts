@@ -47,6 +47,7 @@ export const PANE_BODY_RULE = "console-panes-hold-no-body";
 export const IMPORTED_PANE_BODY_RULE = "console-panes-hold-no-imported-body";
 export const OUTSIDE_DOOR_RULE = "renderer-reaches-console-through-doors";
 export const CONSOLE_ROOT_RULE = "console-root-is-composition-only";
+export const CONSOLE_NOT_SHELL_RULE = "console-not-shell";
 const OWNED_RULES: readonly string[] = [
   BARREL_CHAIN_RULE,
   VIEW_FAMILY_ISOLATION_RULE,
@@ -55,6 +56,7 @@ const OWNED_RULES: readonly string[] = [
   IMPORTED_PANE_BODY_RULE,
   OUTSIDE_DOOR_RULE,
   CONSOLE_ROOT_RULE,
+  CONSOLE_NOT_SHELL_RULE,
 ];
 
 /**

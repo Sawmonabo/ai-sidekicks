@@ -49,6 +49,7 @@ import { readGuardedProperty } from "../../../../shared/wire-errors.js";
 
 import { parseInstant } from "./instant.js";
 import type { ConsoleRefusal } from "./refusal.js";
+import { readWireString } from "./wire-strings.js";
 
 /**
  * When the refusing side said the caller may try again.
@@ -154,13 +155,14 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
  *
  * Non-EMPTY rather than merely a string, because an empty identifier is not one — it
  * would travel to a ledger renderer as a row naming nobody, which is worse than the
- * member being absent and honest about it.
+ * member being absent and honest about it. That is `wire-strings.ts`'s rule and this
+ * reads through it rather than restating the predicate: a private copy of one line is
+ * how the same rule came to have five spellings across the tree, and the guarded
+ * property read is the only part this module adds.
  */
 function identifierMemberReader(memberName: string): (candidate: unknown) => string | undefined {
-  return (candidate: unknown): string | undefined => {
-    const value = readGuardedProperty(candidate, memberName);
-    return typeof value === "string" && value.length > 0 ? value : undefined;
-  };
+  return (candidate: unknown): string | undefined =>
+    readWireString(readGuardedProperty(candidate, memberName));
 }
 
 /**

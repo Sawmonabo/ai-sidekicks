@@ -23,7 +23,7 @@
 //     being born and no document names the state it came from.
 //   • **Nothing scripts `session.list`.** No method registry in the corpus carries
 //     that name. The session directory reaches a surface through the growth
-//     operation `sessionList`, which `bridge/fixture-growth-port.ts` serves from
+//     operation `sessionList`, which `bridge/fixture/fixture-growth-port.ts` serves from
 //     the state this scenario's own `session.read` reply declares — so a scripted
 //     reply here would be a second, unreachable answer to a question the fixture
 //     already answers from the read below.

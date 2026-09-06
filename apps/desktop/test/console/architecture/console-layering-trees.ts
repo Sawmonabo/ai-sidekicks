@@ -226,6 +226,29 @@ export const CONSOLE_ROOT_TREE: PlantedTree = {
 };
 
 /**
+ * A console module importing the SHELL, beside the composition that legally may.
+ *
+ * The one upward edge no other rule here can see: every ladder is scoped inside
+ * `console/` on both endpoints, the mounted-plan-subtree rule enumerates six subtrees
+ * that do not include the shell, and `no-circular` fires only once the edge comes
+ * back. So the rule that forbids it landed with its `to` side unexercised — and its
+ * `from` side unexercised too, because its only live subject is the composition root
+ * its own `pathNot` subtracts.
+ *
+ * `families.ts` is planted writing the IDENTICAL edge and must not be reported, which
+ * is what makes the subtraction a claim rather than a hole: the shell composes its own
+ * registrar in through that file, and a subtraction widened past the enumerated
+ * composition sites would take the offending edge with it and leave this control
+ * reading an empty list.
+ */
+export const CONSOLE_NOT_SHELL_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "families.ts": `import type { ComposerSeat } from "../shell/index.js";\n\nexport type FamilySeat = ComposerSeat;\n`,
+  "repos/RepoMounts.ts": `import type { ComposerSeat } from "../../shell/index.js";\n\nexport type MountSeat = ComposerSeat;\n`,
+  "../shell/index.ts": `export interface ComposerSeat {\n  readonly sessionId: string;\n}\n`,
+};
+
+/**
  * Every tree that carries a rule control — the clean shape and the ten that offend.
  *
  * The aggregate case below reads this rather than naming three of them, so a control
@@ -245,6 +268,7 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   TEST_SUPPORT_SUBTRACTION_TREE,
   OUTSIDE_RENDERER_TREE,
   CONSOLE_ROOT_TREE,
+  CONSOLE_NOT_SHELL_TREE,
 ];
 
 /** Every tree this file plants. The memo control bounds the cruise count on it. */

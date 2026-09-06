@@ -34,6 +34,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   BARREL_CHAIN_RULE,
+  CONSOLE_NOT_SHELL_RULE,
   CONSOLE_ROOT,
   CONSOLE_ROOT_RULE,
   DEEP_IMPORT_RULE,
@@ -47,6 +48,7 @@ import {
 import {
   BARREL_CHAIN_TREE,
   CLEAN_TREE,
+  CONSOLE_NOT_SHELL_TREE,
   CONSOLE_ROOT_TREE,
   DEEP_IMPORT_TREE,
   DEEP_SOURCE_TREE,
@@ -260,6 +262,25 @@ describe("console layering rules", () => {
 
       expect(violations).toEqual([
         `${CONSOLE_ROOT_RULE}: ${join(CONSOLE_ROOT, "rogue-composition.ts")} → ${join(CONSOLE_ROOT, "repos/index.ts")}`,
+      ]);
+      expect(violations.filter((line) => line.includes("families.ts"))).toEqual([]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a console module that imports the shell",
+    async () => {
+      // The shell composes console seats, so it sits above the whole console DAG and an
+      // edge into it is an upward edge — the one upward edge every other rule here is
+      // blind to. `families.ts` writes the identical edge from the identical directory
+      // and is left alone, which is what makes the composition-site subtraction a claim:
+      // widened past the enumeration it would empty this list, and removed it would
+      // lengthen it by the composition's own edge.
+      const violations = await cruiseCache.violationsFor(CONSOLE_NOT_SHELL_TREE);
+
+      expect(violations).toEqual([
+        `${CONSOLE_NOT_SHELL_RULE}: ${join(CONSOLE_ROOT, "repos/RepoMounts.ts")} → ${join("src", "renderer", "src", "shell", "index.ts")}`,
       ]);
       expect(violations.filter((line) => line.includes("families.ts"))).toEqual([]);
     },

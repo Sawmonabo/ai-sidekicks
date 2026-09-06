@@ -24,7 +24,7 @@
 //
 // THE READ ITSELF IS THE BRIDGE'S, NOT THIS FAMILY'S. The declaration is addressed at
 // the node rather than at a run, and the composer's accessory rail gates its own
-// control on the same answer — so `bridge/driver-capability-read.ts` performs one
+// control on the same answer — so `bridge/driver-capabilities/driver-capability-read.ts` performs one
 // call per bridge and both families resolve against the readout it hands back. This
 // module keeps the half that is genuinely the runs pane's: which control is gated on
 // which flag, and which driver a RUN is bound to.
@@ -35,7 +35,7 @@
 // client read, and `run.running` carries the execution posture rather than the
 // binding. The AGENT does — `agent.attached` registers `driverName` on the persona,
 // and `run.queued` names the agent a run was created for — so the pair is joined
-// through the agent by `bridge/run-driver-binding.ts` and reaches this module as
+// through the agent by `bridge/driver-capabilities/run-driver-binding.ts` and reaches this module as
 // `driverNameByRunId`. That join is what makes a node with two drivers installed
 // answerable at all: it used to be empty, and the resolution below then fell through
 // to `undefined` for every run on such a node, taking Rewind and Steer off every row

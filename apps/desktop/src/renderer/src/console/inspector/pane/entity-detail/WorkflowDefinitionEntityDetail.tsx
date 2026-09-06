@@ -6,7 +6,7 @@
 // and which version of it a run would pin.
 //
 // The members are `WorkflowDefinitionSummary`'s, quoted by their registered names
-// (`bridge/workflow-projection.ts`, owned by `Spec-017 §Interfaces And Contracts`).
+// (`bridge/wire-shapes/workflow-projection.ts`, owned by `Spec-017 §Interfaces And Contracts`).
 // `scopeRef` is deliberately NOT among them: what a `project`-scoped reference
 // resolves against is the `workflow-definition-scope` row of the growth slate, and
 // a record that rendered the reference would be asserting a meaning the wire has

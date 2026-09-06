@@ -205,8 +205,6 @@ export {
   useSessionScopedState,
 } from "./session-subject.js";
 export type {
-  /** @consumedBy T-023p-1C-3 */
-  SessionScopedKey,
   /** @consumedBy T-023p-1C-4 */
   SessionSubject,
 } from "./session-subject.js";

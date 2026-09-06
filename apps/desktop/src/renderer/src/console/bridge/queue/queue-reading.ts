@@ -77,11 +77,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import {
-  QUEUE_REFUSAL_ORIGIN,
-  streamRefusalFor,
-  unreadableDeliveryRefusal,
-} from "./queue-refusals.js";
+import { QUEUE_REFUSAL_ORIGIN, unreadableDeliveryRefusal } from "./queue-refusals.js";
 import { QueueCancellations, type QueueCancellationState } from "./queue-cancellation.js";
 import { UnreadableDeliveryLedger, type UnreadableDeliveryReading } from "../readings/index.js";
 import {
@@ -91,7 +87,7 @@ import {
   type RefreshReason,
 } from "../../store/index.js";
 import { QUEUE_SUBSCRIBE_STREAM, subscribeDaemon } from "../daemon/daemon-streams.js";
-import { WireReadLifecycle, type WireReadState } from "../readings/index.js";
+import { streamRefusalFor, WireReadLifecycle, type WireReadState } from "../readings/index.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
 import { QueueOrder } from "./queue-order.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
@@ -323,7 +319,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
       // repair, a focus, or a fresh mount asks again, so the scheduler's `perform`
       // re-opens. Leaving the reading marked open was what made every one of those
       // triggers a guaranteed no-op for the life of the window.
-      this.#settleRefusedOpen(streamRefusalFor(streamRejection), "retryable");
+      this.#settleRefusedOpen(streamRefusalFor(QUEUE_REFUSAL_ORIGIN, streamRejection), "retryable");
       return;
     }
     this.#lifecycle.markOpen();

@@ -10,33 +10,11 @@
 // raise refusals in this subsystem's name — the wire, the tail, and this file — and a
 // constant declared beside one of them would make the other two import through it.
 
-import {
-  normalizeWireRejection,
-  refuse,
-  refusedMemberPaths,
-  type ConsoleRefusal,
-} from "../../core/index.js";
+import { refuse, refusedMemberPaths, type ConsoleRefusal } from "../../core/index.js";
 import type { UnreadableDeliveryIssues } from "../readings/index.js";
 
 /** The subsystem name every refusal the account-plane reading raises carries. */
 export const PROVIDER_QUOTA_REFUSAL_ORIGIN = "provider-account-quota";
-
-/**
- * The refusal an unopenable stream settles as.
- *
- * The console's ONE reading of a rejected promise, consumed rather than re-derived:
- * `normalizeWireRejection` unwraps a carried refusal structurally — which keeps the
- * subscription wrapper's own code intact rather than replacing it with this
- * subsystem's — and reads a typed envelope's dotted code off `data.type`, where a
- * `{ code: string }` guard cannot see it. All this module supplies is the origin.
- *
- * NO FALLBACK PAIR, on the queue family's rule next door: a stream that would not
- * open failed for a transport reason the transport itself states, and a house
- * sentence would displace the one diagnosis a person can act on.
- */
-export function streamRefusalFor(rejection: unknown): ConsoleRefusal {
-  return normalizeWireRejection(PROVIDER_QUOTA_REFUSAL_ORIGIN, rejection);
-}
 
 /**
  * One unreadable delivery as the refusal a surface renders.

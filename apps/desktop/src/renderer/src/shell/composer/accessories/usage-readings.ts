@@ -14,7 +14,7 @@
 // Binding And Node-Scope Anchoring` binds it to the reserved node-scope sentinel
 // session, so a live session store holds none of them and the chips could appear only
 // under a fixture that put one in a session's log. The fold moved whole to
-// `console/bridge/provider-account-quota.ts`, which reads the registry the wire
+// `console/bridge/quotas/provider-account-quota.ts`, which reads the registry the wire
 // actually publishes it on; the two readings this module still narrows are genuinely
 // session-scoped and stay.
 //
@@ -76,6 +76,7 @@
 // the store already holds, so one input always yields one reading and a test can
 // state the whole contract with three literals.
 
+import { readWireString } from "../../../console/core/index.js";
 import type { ConsoleSessionEvent } from "../../../console/store/index.js";
 
 /** The registered event type the context meter reads. Verbatim, never composed. */
@@ -151,7 +152,7 @@ export function newestContextWindowReading(
   timeline: readonly ConsoleSessionEvent[],
   targetRunId: string | undefined,
 ): ContextWindowReading | undefined {
-  const addressedRunId = nonEmptyString(targetRunId);
+  const addressedRunId = readWireString(targetRunId);
   if (addressedRunId === undefined) {
     return undefined;
   }
@@ -160,7 +161,7 @@ export function newestContextWindowReading(
     if (event.kind !== CONTEXT_WINDOW_EVENT_KIND) {
       continue;
     }
-    if (nonEmptyString(event.payload?.["runId"]) !== addressedRunId) {
+    if (readWireString(event.payload?.["runId"]) !== addressedRunId) {
       continue;
     }
     const reading = readContextWindow(event);
@@ -227,7 +228,7 @@ export function newestCompactionBoundarySequence(
   timeline: readonly ConsoleSessionEvent[],
   targetRunId: string | undefined,
 ): number | undefined {
-  return newestCompactionBoundary(timeline, nonEmptyString(targetRunId))?.sequence;
+  return newestCompactionBoundary(timeline, readWireString(targetRunId))?.sequence;
 }
 
 /** One recorded compaction: where it sits in the log, and what it left behind. */
@@ -257,7 +258,7 @@ function newestCompactionBoundary(
     if (event.kind !== CONTEXT_COMPACTED_EVENT_KIND) {
       continue;
     }
-    if (nonEmptyString(event.payload?.["runId"]) !== addressedRunId) {
+    if (readWireString(event.payload?.["runId"]) !== addressedRunId) {
       continue;
     }
     if (newest === undefined || event.sequence > newest.sequence) {
@@ -301,10 +302,6 @@ function contextWindowSource(value: unknown): ContextWindowSource | undefined {
 /** A boolean exactly as sent, or nothing. A truthy non-boolean is not a boolean. */
 function booleanOrUndefined(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 /** A non-negative integer count, or nothing. */

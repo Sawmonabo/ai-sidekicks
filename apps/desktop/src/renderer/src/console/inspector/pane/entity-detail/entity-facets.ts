@@ -18,7 +18,7 @@
 // the repo / workspace / worktree lifecycle payload's `repoMountId` /
 // `workspaceId` / `worktreeId` / `actor`, `RunStateChangeEvent`'s `runVersion` and
 // `previousState`), and where the console owns the vocabulary itself it quotes its
-// own (`bridge/growth-port.ts`'s artifact and navigation summaries). Nothing here
+// own (`bridge/growth-port/growth-port.ts`'s artifact and navigation summaries). Nothing here
 // invents a method string, an event type, or a wire member.
 //
 // AND WHY EVERY BUILDER HAS AN ABSENT ARM. A member the body does not carry is not

@@ -51,11 +51,11 @@ import {
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   subscribeNodeDaemon,
 } from "../daemon/daemon-streams.js";
-import { WireReadLifecycle, type WireReadState } from "../readings/index.js";
+import { streamRefusalFor, WireReadLifecycle, type WireReadState } from "../readings/index.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
 import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
 import { ProviderQuotaDeliveries } from "./provider-quota-deliveries.js";
-import { PROVIDER_QUOTA_REFUSAL_ORIGIN, streamRefusalFor } from "./provider-quota-refusals.js";
+import { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-quota-refusals.js";
 import type { UnreadableDeliveryReading } from "../readings/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
 
@@ -256,7 +256,10 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
       // scheduler re-opens instead of seeding a read behind a tail that is down.
       // Leaving the reading marked open let a later read serve and publish a
       // `read` phase over a stream nothing was listening on.
-      this.#settleRefusedOpen(streamRefusalFor(streamRejection), "retryable");
+      this.#settleRefusedOpen(
+        streamRefusalFor(PROVIDER_QUOTA_REFUSAL_ORIGIN, streamRejection),
+        "retryable",
+      );
       return;
     }
     this.#lifecycle.markOpen();

@@ -9,7 +9,7 @@
 // the wire supplies — id, state, priority, channel, and the two timestamps — and
 // nothing it does not.
 //
-// THE ORDER IS RENDERED, NEVER REORDERED. `bridge/queue-feed.ts` owns the fold that keeps
+// THE ORDER IS RENDERED, NEVER REORDERED. `bridge/queue/queue-feed.ts` owns the fold that keeps
 // the snapshot's canonical FIFO order; this file maps over it. There is no sort
 // here, no drag handle, no priority stepper, and no "move to front" — V1 defers
 // queue priority overrides, so front-inserting is not an available remedy anywhere.

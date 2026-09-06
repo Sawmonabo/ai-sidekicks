@@ -6,7 +6,7 @@
 // is the ADDRESSED run's or it is nobody's, and so is a compaction boundary.
 //
 // The rate-limit fold that used to be asserted here moved with the fold itself, to
-// `console/bridge/provider-account-quota.test.ts` — its readings come off the account
+// `console/bridge/quotas/provider-quota-fold.test.ts` — its readings come off the account
 // plane and never off a session timeline, so a case that built one out of a timeline
 // row was proving a path no daemon can drive.
 //
