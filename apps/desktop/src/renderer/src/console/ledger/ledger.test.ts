@@ -87,6 +87,25 @@ function renderedElement(node: ReactNode): {
   return { type: node.type, key: node.key, props: node.props };
 }
 
+/**
+ * The workspace body, picked out of the surface's children.
+ *
+ * The surface mounts TWO things — the resume absence above the room and the workspace
+ * itself — so `children` is a list and the body is the last of it. Read by position
+ * from the end rather than by index from the start, because the absence renders `null`
+ * on every arm but the refused one and a fixed index would read that `null` as the
+ * body on exactly the ordinary case.
+ */
+function workspaceBodyIn(shell: { props: Record<string, unknown> }): {
+  type: unknown;
+  key: string | null;
+  props: Record<string, unknown>;
+} {
+  const children = shell.props["children"];
+  const mounted = Array.isArray(children) ? children : [children];
+  return renderedElement(mounted[mounted.length - 1] as ReactNode);
+}
+
 /** The pane context the surface built, read off the element it produced. */
 function paneContextHandedTo(node: ReactNode): ConsolePaneContext {
   const shell = renderedElement(node);
@@ -144,7 +163,7 @@ describe("the ledger — what it mounts", () => {
     const registry = registeredLedger();
     const shell = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
     expect(shell.props["className"]).toBe("meridian-ledger-surface");
-    const workspace = renderedElement(shell.props["children"] as ReactNode);
+    const workspace = workspaceBodyIn(shell);
     expect(workspace.type).toBe(TestWorkspaceBody);
     expect(workspace.props["route"]).toStrictEqual({ kind: "workspace", sessionId: "session-7" });
   });
@@ -193,7 +212,7 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
   it("keys the workspace subtree on the route's session", () => {
     const registry = registeredLedger();
     const shell = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
-    expect(renderedElement(shell.props["children"] as ReactNode).key).toBe("session-7");
+    expect(workspaceBodyIn(shell).key).toBe("session-7");
   });
 
   it("keys the pane subtree on the route's session, the same way and for the same reason", () => {
@@ -222,14 +241,12 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
     const first = renderedElement(descriptor?.render(surfaceContext())).key;
     expect(renderedElement(descriptor?.render(surfaceContext())).key).toBe(first);
     const workspace = registry.descriptorFor("workspace");
-    const firstWorkspaceKey = renderedElement(
-      renderedElement(workspace?.render(surfaceContext())).props["children"] as ReactNode,
+    const firstWorkspaceKey = workspaceBodyIn(
+      renderedElement(workspace?.render(surfaceContext())),
     ).key;
-    expect(
-      renderedElement(
-        renderedElement(workspace?.render(surfaceContext())).props["children"] as ReactNode,
-      ).key,
-    ).toBe(firstWorkspaceKey);
+    expect(workspaceBodyIn(renderedElement(workspace?.render(surfaceContext()))).key).toBe(
+      firstWorkspaceKey,
+    );
   });
 
   it("falls back to a named key rather than an absent one when the route names no session", () => {
@@ -240,6 +257,6 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
         route: { kind: "settings" },
       } as unknown as ConsoleSurfaceContext),
     );
-    expect(renderedElement(shell.props["children"] as ReactNode).key).toBe("no-session");
+    expect(workspaceBodyIn(shell).key).toBe("no-session");
   });
 });
