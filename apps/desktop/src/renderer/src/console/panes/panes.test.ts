@@ -123,6 +123,19 @@ const WELL_FORMED_BOARDS: readonly WellFormedBoardCase[] = [
     seats: [filled(2, 1), reserved(3), reserved(4), reserved(5), reserved(6), filled(7, 2)],
   },
   {
+    // The family board's shape, read here rather than only off the live file: that
+    // board hands out five registries, so no parameter of it is named `registry` and
+    // a seat passes the subset the family writes into. The grammar is what every
+    // branch cuts against, so the case that proves it takes several boards belongs
+    // beside the ones that prove it takes one.
+    name: "a seat handed several boards at once",
+    body: [
+      `  registerSeatFamily(surfaces, panes, projectors); // T-023p-1C-2 ${SYNTHETIC_KIND_WORDS}`,
+      ...boardBody(new Map()).slice(1),
+    ],
+    seats: [filled(2, 1), reserved(3), reserved(4), reserved(5), reserved(6), reserved(7)],
+  },
+  {
     name: "every seat filled",
     body: boardBody(
       new Map(
@@ -149,6 +162,29 @@ const MALFORMED_BOARDS: readonly MalformedBoardCase[] = [
   {
     name: "a statement that is not a registration at all",
     body: [...boardBody(new Map()), "  const seatCount = 0;"],
+    offences: ["unmarked-line"],
+  },
+  {
+    // The first half of what keeps the widened argument list a GRAMMAR. A registrar
+    // handed nothing writes into whatever the module happens to hold, which is the
+    // one thing the boards-as-parameters rule exists to stop — so an empty list is
+    // not a seat, and a board carrying one is a board with a line nobody marked.
+    name: "a registration handed no board at all",
+    body: [
+      ...boardBody(new Map()),
+      `  registerSeatPanes(); // T-023p-1C-2 ${SYNTHETIC_KIND_WORDS}`,
+    ],
+    offences: ["unmarked-line"],
+  },
+  {
+    // The second half: what a seat passes are NAMES, so a call expression is refused
+    // however it is marked. Without this the widening would admit arbitrary text
+    // between the parentheses and the grammar would stop being one.
+    name: "a registration handed a call expression",
+    body: [
+      ...boardBody(new Map()),
+      `  registerSeatPanes(registryFor(kind)); // T-023p-1C-2 ${SYNTHETIC_KIND_WORDS}`,
+    ],
     offences: ["unmarked-line"],
   },
   {

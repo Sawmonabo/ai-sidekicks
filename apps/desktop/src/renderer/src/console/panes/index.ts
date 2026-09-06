@@ -20,9 +20,13 @@
 // the call rather than being dropped with the comment, so a filled seat is still a
 // seat and the board reads the same whether a family has landed or not. Each line
 // names the kinds it claims, so a reviewer can read the whole deck off this file.
-// A filled seat is therefore one or more `register<X>(registry); // T-023p-1C-<n>
+// A filled seat is therefore one or more `register<X>(<boards>); // T-023p-1C-<n>
 // <word…>` lines carrying that seat's task id and no other, every one of them
 // marked — the shape `panes.test.ts` reads this board as a census against.
+// `<boards>` is the comma-separated NAMES of the registries the seat writes into, and
+// on this board that is always the one this function was handed; the family board
+// hands out five, which is why the grammar admits a list rather than the single
+// parameter this file happens to have.
 //
 // THE BODY IS THE FAMILY'S, AND THIS DIRECTORY IS FLAT. A pane body renders one
 // family's vocabulary, so it lives in that family — `agents/agent-console/` for the
