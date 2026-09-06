@@ -178,3 +178,82 @@ describe("console families — the pane board a composition writes into", () => 
     expect(consoleEntityProjectorRegistry.ownerOf("run.running")).toBeUndefined();
   });
 });
+
+/**
+ * Every seat reserved at the foot of the composition, as the task each names.
+ *
+ * The list a branch replaces one line of, read off the board's own source: a seat is
+ * a comment until its family lands, so nothing in the compiler counts them and the
+ * header's count was kept in step by hand until this case.
+ */
+const RESERVED_SEAT_LINE = /^\s*\/\/ T-023p-1C-\d+ [a-z-]+$/gmu;
+
+/**
+ * Spelled cardinals, indexed by the number each spells.
+ *
+ * Spelled rather than numeric because that is how the header writes a count, and
+ * the header is what this compares against.
+ */
+const SPELLED_CARDINALS: readonly string[] = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+];
+
+/** The board's header: everything above the first import, which is its whole prose. */
+function seatBoardHeader(): string {
+  const firstImport = seatBoardSource.indexOf("\nimport ");
+  return firstImport === -1 ? seatBoardSource : seatBoardSource.slice(0, firstImport);
+}
+
+describe("console families — the header states the seat count, once", () => {
+  it("spells the number of reserved seats and no other number", () => {
+    // The defect this replaces: the header opened with "Seven surface families" and
+    // three lines later said six branches produce six diffs at six positions, while
+    // seven seats stood below — 1C-8 read as an audit task when it lands a family of
+    // its own. Nothing reported the disagreement, because a count in prose is a claim
+    // no compiler holds.
+    //
+    // So the rule is one count in one place, and this is what makes it one: the seat
+    // count is DERIVED by counting the lines, the header has to spell that number,
+    // and any OTHER cardinal in the header is an offence — which is what a second
+    // spelling would be, whether or not it agreed on the day it was written.
+    const seatCount = [...seatBoardSource.matchAll(RESERVED_SEAT_LINE)].length;
+    expect(seatCount).toBe(7);
+    const header = seatBoardHeader();
+    const spelled = SPELLED_CARDINALS[seatCount];
+    expect(header.toLowerCase()).toContain(`${spelled ?? "?"} surface families`);
+    const strays = SPELLED_CARDINALS.filter(
+      (word, value) =>
+        value > 1 && value !== seatCount && new RegExp(`\\b${word}\\b`, "iu").test(header),
+    );
+    expect(strays).toStrictEqual([]);
+  });
+
+  it("negative control: a second spelling of the count is an offence, agreeing or not", () => {
+    // Without this the clean result above could come from a regex that matches
+    // nothing. Both directions are planted: a header naming a different number, and
+    // one naming the same number twice in different words — the second is the shape
+    // the defect actually took, and it is caught because the rule is about the
+    // SPELLING being alone rather than about the numbers agreeing.
+    const strayIn = (header: string): readonly string[] =>
+      SPELLED_CARDINALS.filter(
+        (word, value) => value > 1 && value !== 7 && new RegExp(`\\b${word}\\b`, "iu").test(header),
+      );
+    expect(strayIn("// Seven surface families, and six branches that build them.")).toStrictEqual([
+      "six",
+    ]);
+    expect(strayIn("// Seven surface families. Seven branches, seven diffs.")).toStrictEqual([]);
+    expect(strayIn(seatBoardHeader())).toStrictEqual([]);
+  });
+});

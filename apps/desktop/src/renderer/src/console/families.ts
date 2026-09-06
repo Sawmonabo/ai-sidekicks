@@ -2,12 +2,19 @@
 //
 // WHY THIS FILE EXISTS AT ALL
 //
-// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that
-// run at the same time. Each has to become reachable from the entry point, and
-// there is exactly one way to do that without every branch editing the same
-// registry: give each family a SEAT — one line, reserved in advance, that only
-// that family replaces. Six branches then produce six one-line diffs at six
-// distinct positions and none of them conflicts.
+// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that run
+// at the same time. Each has to become reachable from the entry point, and there is
+// exactly one way to do that without every branch editing the same registry: give
+// each family a SEAT — one line, reserved in advance, that only that family
+// replaces. Each branch then produces one one-line diff at a position no other
+// branch touches, and none of them conflicts.
+//
+// SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
+// lines at the foot of the composition — asserted by `families.test.ts` rather than
+// kept in step by hand. It was not: this header spelled the count twice and the
+// spellings disagreed, because 1C-8 was read as an audit task when it lands a family
+// of its own. A second spelling of one count is a second thing to edit, and the one
+// that goes stale is the one nothing reads.
 //
 // WHAT A FAMILY DOES
 //
@@ -19,8 +26,9 @@
 //
 // A family never edits `frame/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
 // `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
-// six-way concurrent edit to any of them is a guaranteed conflict, and worse, a
-// merge that resolves cleanly while silently dropping one family's registration.
+// concurrent edit to any of them from every one of those branches at once is a
+// guaranteed conflict, and worse, a merge that resolves cleanly while silently
+// dropping one family's registration.
 // A family registers through its own `index.ts` and its own reserved lines — here,
 // and in `bridge/scenarios/index.ts` for its fixture scenario.
 //
