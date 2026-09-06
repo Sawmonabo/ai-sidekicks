@@ -95,12 +95,29 @@ function countedSettleLines(fileName: string, sourceText: string): readonly numb
   return lines;
 }
 
-describe("act-settling — a settle is a boundary, never a count", () => {
-  // Tests included, because they are what this rule is about, and the package-wide
-  // roots because the tier harnesses they run through are tests too.
-  const modules = consoleSourceModules({ roots: DESKTOP_PROSE_ROOTS, tests: true });
-  const displayPaths = modules.map((module) => module.displayPath);
+// Tests included, because they are what this rule is about, and the package-wide roots
+// because the tier harnesses they run through are tests too.
+const MODULES = consoleSourceModules({ roots: DESKTOP_PROSE_ROOTS, tests: true });
+const DISPLAY_PATHS: readonly string[] = MODULES.map((module) => module.displayPath);
 
+/**
+ * Every offending line in the package, read and parsed ONCE for the whole file.
+ *
+ * At module scope on `read-triggers.test.ts`' finding, which is this tier's and not a
+ * micro-optimisation: reading and parsing five hundred modules inside a case is charged
+ * to vitest's 5 s per-case default, and the file then passes alone and times out
+ * whenever the tier runs beside the others — green standalone and red in the suite,
+ * which is the worst way for a gate to be wrong. Collected here, the same work is the
+ * file's rather than one case's, and every case below is a comparison over it.
+ */
+const COUNTED_SETTLES: readonly string[] = MODULES.map((module) => ({
+  module: module.displayPath,
+  lines: countedSettleLines(module.displayPath, readConsoleSourceModule(module)),
+}))
+  .filter((entry) => entry.lines.length > 0)
+  .map((entry) => `${entry.module}: line(s) ${entry.lines.join(", ")}`);
+
+describe("act-settling — a settle is a boundary, never a count", () => {
   it("reaches every root a suite waits in, not the console alone", () => {
     // Without this a wrong root would scan nothing and the assertion below would pass
     // over the empty set — and, since this gate shipped scoped to the console once
@@ -109,22 +126,15 @@ describe("act-settling — a settle is a boundary, never a count", () => {
     // prompted the widening live; the co-located classes are named for the reason
     // `one-doc-per-declaration.test.ts` names its own — each is a separate way for
     // the walk to narrow back with nothing reporting the difference.
-    expect(displayPaths.length).toBeGreaterThan(400);
-    expect(displayPaths).toContain("test/console/console-harness.tsx");
-    expect(displayPaths).toContain("src/renderer/src/console/frame/ConsoleRoot.tsx");
-    expect(displayPaths.filter((path) => path.endsWith(".test.tsx"))).not.toStrictEqual([]);
-    expect(displayPaths.filter((path) => path.includes(".test-support."))).not.toStrictEqual([]);
+    expect(DISPLAY_PATHS.length).toBeGreaterThan(400);
+    expect(DISPLAY_PATHS).toContain("test/console/console-harness.tsx");
+    expect(DISPLAY_PATHS).toContain("src/renderer/src/console/frame/ConsoleRoot.tsx");
+    expect(DISPLAY_PATHS.filter((path) => path.endsWith(".test.tsx"))).not.toStrictEqual([]);
+    expect(DISPLAY_PATHS.filter((path) => path.includes(".test-support."))).not.toStrictEqual([]);
   });
 
   it("no act body waits on a counted microtask", () => {
-    const offenders = modules
-      .map((module) => ({
-        module: module.displayPath,
-        lines: countedSettleLines(module.displayPath, readConsoleSourceModule(module)),
-      }))
-      .filter((entry) => entry.lines.length > 0)
-      .map((entry) => `${entry.module}: line(s) ${entry.lines.join(", ")}`);
-    expect(offenders).toStrictEqual([]);
+    expect(COUNTED_SETTLES).toStrictEqual([]);
   });
 
   it("planted control: the shape is caught in the root this gate had not been reaching", () => {
@@ -135,7 +145,7 @@ describe("act-settling — a settle is a boundary, never a count", () => {
     // would not have this module's text to plant into, and `moduleNamed` would throw
     // before the assertion rather than passing over an empty set.
     const harness = moduleNamed(
-      modules,
+      MODULES,
       "test/console/console-harness.tsx",
       "the settle every browser-tier mount goes through",
     );
