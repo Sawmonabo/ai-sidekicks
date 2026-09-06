@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 
 /** A session the branded schema accepts that is not the one the flagship's beats travel on. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";

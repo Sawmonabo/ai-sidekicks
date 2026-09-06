@@ -21,7 +21,7 @@
 // members, which `store/entities.ts` names as the lane-4 change Phase 1C forbids.
 //
 // So each arm carries the identity its body fetches WITH, and the fetch goes
-// through `bridge/growth-port.ts`, which refuses by name until the wire lands. The
+// through `bridge/growth-port/growth-port.ts`, which refuses by name until the wire lands. The
 // day Plan-014 registers the typed attachment reference, the local
 // `InlineCardAttachmentRef` below is deleted and the contract type imported in its
 // place — one edit, in the PR that removes the slate rows.

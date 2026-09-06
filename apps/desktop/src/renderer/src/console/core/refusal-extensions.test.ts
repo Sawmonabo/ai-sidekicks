@@ -27,7 +27,7 @@ import { normalizeWireRejection } from "./wire-rejection.js";
 /**
  * The growth port's refusal, as that port builds one.
  *
- * Written as data rather than imported: `bridge/growth-port.ts` sits above this family
+ * Written as data rather than imported: `bridge/growth-port/growth-port.ts` sits above this family
  * and `core/` names none of it. What is asserted is the SHAPE that port produces, and
  * the registry's own doc names it as the producer of these three members.
  */

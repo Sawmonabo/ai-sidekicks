@@ -1,7 +1,7 @@
 // The values a wire-error reader has to survive, built once for both readers.
 //
 // ONE HOME FOR THE ROLES BOTH SUITES PLAY, on the precedent
-// `console/bridge/fixture-bridge.test-support.ts` set for the fixture bridge. These
+// `console/bridge/fixture/fixture-bridge.test-support.ts` set for the fixture bridge. These
 // four were written four times under three names across `src/shared/wire-errors.test.ts`
 // and `console/core/wire-rejection.test.ts`: `readableOnce` twice with different
 // member sets, `revokedProxy` once as a named helper and once inline, and a third

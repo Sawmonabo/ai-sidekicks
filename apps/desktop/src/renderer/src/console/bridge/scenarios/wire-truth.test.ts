@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 import { CONSOLE_SCENARIOS } from "./index.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 
 /** Someone this session never joins, spelled as the branded id type declares. */
 const STRANGER_PARTICIPANT_ID = "019b79ee-0280-79a4-8110-cca0117a9999";

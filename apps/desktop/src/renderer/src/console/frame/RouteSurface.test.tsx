@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { GrowthPort } from "../bridge/index.js";
 import { createFixtureBridge } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { type ConsoleRoute } from "../routing/index.js";

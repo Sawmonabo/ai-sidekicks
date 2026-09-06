@@ -3,7 +3,7 @@
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`.
 
-import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
 
 /**
