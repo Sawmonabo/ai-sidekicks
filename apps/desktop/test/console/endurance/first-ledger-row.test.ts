@@ -154,10 +154,45 @@ async function measureFirstLedgerRow(
       number,
       number,
     ]): Promise<FirstLedgerRowOutcome> => {
-      const paintEntry = performance
-        .getEntriesByType("paint")
-        .find((entry) => entry.name === "first-contentful-paint");
-      if (paintEntry === undefined) {
+      // THE START INSTANT IS WAITED FOR, NOT READ ONCE. `first-contentful-paint`
+      // is recorded when the renderer first paints content, and this page
+      // function can begin before that has happened: the launch handshake
+      // settles on the window being READY, which is a different moment. Read
+      // once, the entry was therefore missing on whichever of this file's two
+      // launches won the race — which one it was varied run to run — and a
+      // console that was about to supply a start instant was reported as
+      // having none. Waiting costs the measurement nothing: the entry carries
+      // the instant it happened rather than the instant it was read, so the
+      // figure is the same one, and the row being timed cannot paint before
+      // the document that holds it does.
+      const windowShownAtMs = await new Promise<number | null>((resolve) => {
+        const recordedPaint = (): PerformanceEntry | undefined =>
+          performance
+            .getEntriesByType("paint")
+            .find((entry) => entry.name === "first-contentful-paint");
+        const alreadyRecorded = recordedPaint();
+        if (alreadyRecorded !== undefined) {
+          resolve(alreadyRecorded.startTime);
+          return;
+        }
+        const observer = new PerformanceObserver(() => {
+          const entry = recordedPaint();
+          if (entry === undefined) {
+            return;
+          }
+          observer.disconnect();
+          clearTimeout(paintWaitTimer);
+          resolve(entry.startTime);
+        });
+        const paintWaitTimer = setTimeout(() => {
+          observer.disconnect();
+          resolve(null);
+        }, surfaceWaitBudgetMs);
+        // `buffered` so an entry recorded between the read above and this call
+        // is delivered rather than lost in the gap between the two.
+        observer.observe({ type: "paint", buffered: true });
+      });
+      if (windowShownAtMs === null) {
         return { unmeasured: "no-paint-entry" };
       }
       const scenarioControl = (
@@ -237,7 +272,7 @@ async function measureFirstLedgerRow(
         return { unmeasured: "row-never-painted" };
       }
       return {
-        windowShownAtMs: paintEntry.startTime,
+        windowShownAtMs,
         measurementStartedAtMs,
         firstRowPaintedAtMs,
         rowCount: document.querySelectorAll(rowSelector).length,
@@ -272,8 +307,9 @@ function elapsedFromWindowShow(reading: FirstLedgerRowReading): number {
  */
 const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string>> = {
   "no-paint-entry":
-    "the launched console recorded no first-contentful-paint entry, so the interval has no start " +
-    "instant: nothing was timed, and reporting a figure would be reporting the harness",
+    `the launched console recorded no first-contentful-paint entry inside ${String(SURFACE_WAIT_BUDGET_MS)} ms, ` +
+    "so the interval has no start instant: nothing was timed, and reporting a figure would be " +
+    "reporting the harness",
   "no-scenario-handle":
     "the launched console exposed no scenario handle, so the flagship script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
