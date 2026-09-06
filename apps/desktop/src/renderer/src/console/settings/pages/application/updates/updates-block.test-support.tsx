@@ -5,6 +5,7 @@
 // same refusing preference carrier, and the same settled render. A second copy of the
 // updater stub is two files disagreeing about what the shipped bridge serves.
 
+import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 
@@ -154,8 +155,8 @@ export async function pressCheckNow(block: HTMLElement): Promise<void> {
   );
   await act(async () => {
     check?.click();
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -202,8 +203,8 @@ export async function renderSettled(bridge: ConsoleBridge): Promise<{
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(treeFor(bridge));
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
+    await crossMacrotaskBoundary();
   });
   const mounted = rendered as ReturnType<typeof render>;
   return {
@@ -217,8 +218,8 @@ export async function renderSettled(bridge: ConsoleBridge): Promise<{
     swapBridge: async (next: ConsoleBridge) => {
       await act(async () => {
         mounted.rerender(treeFor(next));
-        await Promise.resolve();
-        await Promise.resolve();
+        await crossMacrotaskBoundary();
+        await crossMacrotaskBoundary();
       });
     },
     unmount: () => {

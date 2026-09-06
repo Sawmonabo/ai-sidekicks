@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { consoleClockFor } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { LeaseLine } from "./LeaseLine.js";
 import { UNREAD_TERMINAL_LEASE } from "./lease-model.js";
 import {
@@ -135,7 +136,7 @@ describe("the claim control — one affordance, and three things it never does",
     await act(async () => {
       clock.advance(RETRY_HORIZON_MS);
       clock.runFrame();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     // Nothing is armed at all, at any delay — and the refusal is still on screen and

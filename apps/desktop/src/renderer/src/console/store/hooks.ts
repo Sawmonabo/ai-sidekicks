@@ -35,6 +35,7 @@ import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entit
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
 import type { SessionStoreRegistry } from "./session-store-registry.js";
 import { selectEntity, selectPartition, type SessionStore } from "./session-store.js";
+import type { SessionDegradedCause } from "./session-store.js";
 import type { SessionStoreState } from "./session-store.js";
 
 /**
@@ -347,11 +348,12 @@ function readInitialised(state: SessionStoreState): boolean {
  * subscription — moved the flag and re-rendered nothing, so the warning stayed
  * absent, or stayed on screen after a re-pull had cleared it.
  *
- * A boolean rather than the cause, because both readers ask only whether one is
+ * A boolean rather than the cause, because these readers ask only whether one is
  * standing, and a primitive is compared by value under zustand v5's `Object.is` —
  * so a transition between two causes costs no render to a surface that renders
- * neither. A reader that renders the cause itself takes {@link useSessionStore} with
- * a selector that returns the stored value.
+ * neither. A reader that renders the cause itself takes
+ * {@link useSessionDegradedCause} below, which is the same subscription narrowed one
+ * step less.
  */
 export function useSessionDegraded(store: SessionStore): boolean {
   return useStore(store.readable, readDegraded);
@@ -359,6 +361,24 @@ export function useSessionDegraded(store: SessionStore): boolean {
 
 function readDegraded(state: SessionStoreState): boolean {
   return state.degradedCause !== undefined;
+}
+
+/**
+ * Why the projection is known-incomplete, or `undefined` while it is whole.
+ *
+ * A hook of its own rather than a `useSessionStore` call at each surface, for the
+ * reason this family's header gives: the selector has to return a stored
+ * reference, and one written per surface is one more chance to build a value and
+ * re-render every frame. A sidebar section renders "unavailable" from this rather
+ * than rendering a zero, which is the distinction `Spec-023 §Console Design
+ * (Meridian)` draws between an answered empty read and a read that never landed.
+ */
+export function useSessionDegradedCause(store: SessionStore): SessionDegradedCause | undefined {
+  return useStore(store.readable, readDegradedCause);
+}
+
+function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
+  return state.degradedCause;
 }
 
 /** Select from the frame store. */

@@ -177,6 +177,12 @@ describe("the fixture's workflow reads — answered from the script, never inven
     // an absent value. There is no empty `WorkflowRunSnapshot` and no phase this
     // fixture could name as finished, so an answer here would be an invented run and
     // an invented phase — and a run pane offers operator controls on what it holds.
+    //
+    // The CODE is the instrument rather than the bare status, because these two are
+    // SERVED operations: what they may not say is that the wire is unbuilt, which
+    // would send a reader to a document owing a wire this fixture already stands in
+    // for. They name the scenario's own gap instead, and the ledger row still travels
+    // so a refusal stays attributable to the row that owes its wire.
     const port = fixturePort();
 
     for (const outcome of [
@@ -188,7 +194,7 @@ describe("the fixture's workflow reads — answered from the script, never inven
     ]) {
       expect(outcome.status).toBe("unavailable");
       if (outcome.status === "unavailable") {
-        expect(outcome.code).toBe("wire-unregistered");
+        expect(outcome.code).toBe("reply-unscripted");
         expect(outcome.slateRow).toBe("workflow-run-control");
       }
       expect(outcome).not.toHaveProperty("value");

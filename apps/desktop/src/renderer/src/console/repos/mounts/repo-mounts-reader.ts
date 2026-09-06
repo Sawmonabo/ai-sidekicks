@@ -8,9 +8,10 @@
 // arms a timer of its own; the scheduler coalesces a burst of reasons into one read
 // and serializes reads so two never overlap. All FOUR of that rule's reasons are wired:
 // `subscribe` by this class's own `start`, and the other three by
-// the shared `SessionRefreshTriggers` this class builds over the family's kind set,
-// `repo-lifecycle-events.ts`, whose terminal event is a
-// `workspace.stale` frame. This class owns the read and that one owns when.
+// the shared `SessionRefreshTriggers`, which this class hands ITSELF — the kind set it
+// declares from `repo-lifecycle-events.ts` and the `requestRead` behind which the
+// scheduler sits are the two members that wiring reads. This class owns the read and
+// that one owns when.
 //
 // THE ROOTS COME FROM THEIR OWN READ, and it is the only one that names a worktree.
 // A workspace row carries no worktree id, so `repo.worktreeStatusRead` — session
@@ -64,7 +65,13 @@ import {
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
-import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
+import {
+  RefreshScheduler,
+  SessionRefreshTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
+  type SessionStore,
+} from "../../store/index.js";
 import {
   ExecutionModeSelections,
   type ExecutionModeSelectionHost,
@@ -104,7 +111,20 @@ export interface RepoMountsReaderOptions {
   readonly clock: ConsoleClock;
 }
 
-export class RepoMountsReader {
+export class RepoMountsReader implements ReadTriggerTarget {
+  /**
+   * The frames whose arrival owes this section a fresh read.
+   *
+   * DECLARED HERE rather than handed to the trigger wiring, because which events
+   * change an answer is a property of the question: the gate next door reads the same
+   * rows, and a kind list passed in at each call site is how two readers of one answer
+   * come to watch different frames. The family's census is
+   * `repo-lifecycle-events.ts`, which derives it from the contract's own registry and
+   * is where the `SessionEventType` check lives.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
+    REPO_LIFECYCLE_EVENT_KINDS,
+  );
   readonly #bridge: ConsoleBridge;
   readonly #sessionStore: SessionStore;
   readonly #sessionId: string;
@@ -142,13 +162,11 @@ export class RepoMountsReader {
         });
       },
     });
-    // The three reasons to read again. They reach this reader only through the scheduler.
+    // The three reasons to read again. They reach this reader through `requestRead`
+    // and the scheduler behind it, and through nothing else.
     this.#triggers = new SessionRefreshTriggers({
-      scheduler: this.#scheduler,
+      target: this,
       sessionStore: options.sessionStore,
-      // The family's own answer to which frames matter, shared by both readers so
-      // neither can watch a different frame while reading the same rows.
-      terminalEventKinds: REPO_LIFECYCLE_EVENT_KINDS,
     });
     this.#selections = new ExecutionModeSelections({
       bridge: options.bridge,
@@ -214,8 +232,23 @@ export class RepoMountsReader {
       return;
     }
     this.#started = true;
-    this.#scheduler.request("subscribe");
+    this.requestRead("subscribe");
     this.#triggers.start();
+  }
+
+  /**
+   * Ask for a read. Coalescing, debouncing, and the call itself stay the scheduler's.
+   *
+   * The ONE way a reason reaches this reader, which is why the trigger wiring beside
+   * it is given this object rather than the scheduler: a second entry point would be a
+   * second place for a reason to be dropped, renamed, or double-counted, and the
+   * `performCount` this class publishes would stop being the whole record of what ran.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#scheduler.request(reason);
   }
 
   /** Record one explicit mode switch. The act next door owns what that means. */
@@ -243,7 +276,7 @@ export class RepoMountsReader {
         this.#publish(reading);
       },
       requestRefreshAfterSelect: () => {
-        this.#scheduler.request("terminal-event");
+        this.requestRead("terminal-event");
       },
     };
   }

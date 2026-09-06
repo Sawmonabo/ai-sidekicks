@@ -16,15 +16,20 @@
 // another.
 
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
-import { SCRIPTED_REPLY_REFUSAL_CODES } from "../scenario-runtime/index.js";
+import {
+  SCRIPT_ABSENT_REFUSAL_CODE,
+  SCRIPTED_REPLY_REFUSAL_CODES,
+} from "../scenario-runtime/index.js";
 
 /**
  * Why the fixture could not answer. Rendered verbatim; never swallowed.
  *
- * The last two are spread in from `scripted-reply.ts` rather than spelled again
- * here: they name a reply the frozen clock never released, which is a fact about the
- * seam both fixture surfaces share, and the growth port's own closed set spreads the
- * same two. Two independent spellings would be a rename waiting to go half-applied.
+ * The first and the last two come from `scripted-reply.ts` rather than being spelled
+ * again here: the last two name a reply the frozen clock never released, which is a
+ * fact about the seam both fixture surfaces share, and the growth port's own closed
+ * set spreads the same two. The first is that module's `SCRIPT_ABSENT_REFUSAL_CODE`,
+ * which `growth-port.ts` and `growth-outcome.ts` also read by name, so the value is
+ * written once and the two vocabularies cannot drift apart under a rename.
  *
  * `beat-unprojectable` is a SCENARIO authoring error rather than a wire one: the
  * beat named a kind a narrowed stream carries and then could not supply what that
@@ -41,13 +46,13 @@ import { SCRIPTED_REPLY_REFUSAL_CODES } from "../scenario-runtime/index.js";
  * projection arm above exists to prevent, arriving through the call door.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
-  "reply-unscripted",
+  typeof SCRIPT_ABSENT_REFUSAL_CODE,
   "capability-absent",
   "beat-unprojectable",
   "reply-off-contract",
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
 ] = [
-  "reply-unscripted",
+  SCRIPT_ABSENT_REFUSAL_CODE,
   "capability-absent",
   "beat-unprojectable",
   "reply-off-contract",

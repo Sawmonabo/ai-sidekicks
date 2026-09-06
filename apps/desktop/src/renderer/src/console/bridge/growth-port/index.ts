@@ -34,12 +34,13 @@ export type {
   GrowthPrerequisiteEntry,
 } from "./growth-entry.js";
 
-export type { GrowthOutcome } from "./growth-outcome.js";
+export { mapGrowthServed, type GrowthOutcome } from "./growth-outcome.js";
 
 export {
   createRefusingGrowthPort,
   growthScriptedReplyUnavailable,
   growthUnavailable,
+  growthUnscriptedReply,
   type GrowthPort,
 } from "./growth-port.js";
 

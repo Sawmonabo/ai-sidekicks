@@ -39,6 +39,11 @@ import "./partial-read.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
 
+// The sheet's one filled-accent face, named where TypeScript can see it. Two
+// surfaces outside this family wear it, so the name is declared once rather than
+// spelled at each of them.
+export { ACCENT_FILL_CLASS } from "./accent-fill.js";
+
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
 
@@ -191,8 +196,9 @@ export {
 
 // No marker: `InlineRefusal` has its consumers — `seats/ConsolePaneChrome.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
-// address, and the settings, collaboration, sessions, and agents rows that render a
-// row-scoped refusal — so a surviving tag would fail the run under
+// address, and the composer, sidebar, runs, approvals, inspector, settings,
+// collaboration, sessions, and agents surfaces, which render a row-scoped refusal
+// through it — so a surviving tag would fail the run under
 // `--treat-tag-hints-as-errors`.
 export { InlineRefusal } from "./InlineRefusal.js";
 export { RefusalBanner } from "./RefusalBanner.js";
@@ -274,14 +280,13 @@ export type {
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
+// Neither name carries a marker any more: `WireFigure` is rendered by
+// `frame/ContextPicker.tsx` and the `WireChoiceList` beside it, and `DerivedFigure`
+// by the runs, approvals, and inspector panes, so a surviving tag would be the half
+// of the marker an importing change owed and did not pay — which
+// `--treat-tag-hints-as-errors` reports.
 export { DerivedFigure } from "./DerivedFigure.js";
-export {
-  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and the
-  // `WireChoiceList` beside it both render identifiers through it — so the tag that
-  // stood here was the half of the marker its importing change owed and did not
-  // pay. `--treat-tag-hints-as-errors` is what reported the debt.
-  WireFigure,
-} from "./WireFigure.js";
+export { WireFigure } from "./WireFigure.js";
 
 // The one row every surface that offers wire identifiers to choose between renders.
 // A primitive rather than a frame component because its input is a list of wire
@@ -306,6 +311,7 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatRate,
   formatRelativeTime,
+  formatWireDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatWireString,
 } from "./wire-figures.js";

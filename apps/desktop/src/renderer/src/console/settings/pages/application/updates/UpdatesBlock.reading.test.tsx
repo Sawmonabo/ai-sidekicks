@@ -4,6 +4,7 @@
 // transition pushed while it is still in flight, and the one polite announcement the
 // settled read makes. What a control does with any of it is
 // `UpdatesBlock.controls.test.tsx`, over the one cast in `updates-block.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "../../../../core/index.js";
@@ -75,8 +76,8 @@ describe("the updates block — the two sources are sequenced", () => {
     await act(async () => {
       held.push({ status: "ready" });
       held.settleRead({ status: "checking" });
-      await Promise.resolve();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
+      await crossMacrotaskBoundary();
     });
 
     const text = block.textContent ?? "";
@@ -95,8 +96,8 @@ describe("the updates block — the two sources are sequenced", () => {
 
     await act(async () => {
       held.settleRead({ status: "idle" });
-      await Promise.resolve();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
+      await crossMacrotaskBoundary();
     });
 
     expect(block.textContent ?? "").toContain("No update is waiting");
@@ -128,13 +129,13 @@ describe("the updates block — the read says it landed, once", () => {
 
     await act(async () => {
       clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     expect(politeText()).toBe("");
 
     await act(async () => {
       pushing.push({ status: "downloading", percent: 43 });
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     // The block really did re-render on the push, so the silence is the hook's doing

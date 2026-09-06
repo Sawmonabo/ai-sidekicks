@@ -5,6 +5,7 @@
 // the budget wire this page never reads. What the page DRAWS is
 // `CostReceiptPage.reading.test.tsx`, over the one cast in
 // `cost-receipt-page.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge, growthUnavailable } from "../../../bridge/index.js";
@@ -93,7 +94,7 @@ describe("the cost page — what it says out loud", () => {
           <CostReceiptPage context={context} />
         </LiveAnnouncerProvider>,
       );
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     expect(answered.readReceipt).toHaveBeenCalledTimes(1);
     expect(politeText(view.container)).toBe(

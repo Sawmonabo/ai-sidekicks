@@ -18,6 +18,7 @@ import { cdp, userEvent } from "vitest/browser";
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
+import { crossMacrotaskBoundary } from "../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { type ConsoleScheme } from "../../src/renderer/src/console/tokens/index.js";
 
 /**
@@ -77,9 +78,21 @@ export interface ConsoleMount {
  * lays out at the height of its text, which makes a geometry assertion measure
  * the wrong box and a screenshot baseline a thumbnail of the top-left corner.
  *
- * Two promise flushes, not one: the persistence upgrade resolves a promise whose
- * continuation schedules another (open the database, then read the partition
- * back), and a single flush would return between the two.
+ * A BOUNDARY and not a count of flushes: the persistence upgrade resolves a promise
+ * whose continuation schedules another (open the database, then read the partition
+ * back), so a counted pair was tuned against exactly that depth — and the chain that
+ * grows one link deeper stops being waited for, silently, in the direction where the
+ * case then reports the ABSENCE of an answer still in flight. `crossMacrotaskBoundary`
+ * resolves on a macrotask boundary, so every pending chain has run whatever its
+ * depth; `test/console/architecture/act-settling.test.ts` is the gate that holds
+ * this file and every other to it.
+ *
+ * It waits on the CLOCK for nothing, which is the other half of settling and is not
+ * this function's: a surface built over a fixture scenario schedules its reads on that
+ * scenario's frozen clock, and `bridge/readings/scheduled-read.test-support.ts` is
+ * what advances one. A caller holding a bridge settles both
+ * (`surfaces/composer.tsx`); a caller mounting `ConsoleRoot`, which builds its own
+ * bridge, has only this.
  */
 export async function renderSettled(element: ReactElement): Promise<ConsoleMount> {
   const container: HTMLElement = document.createElement("div");
@@ -89,8 +102,7 @@ export async function renderSettled(element: ReactElement): Promise<ConsoleMount
 
   await act(async () => {
     render(element, { container });
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   return { container };
 }

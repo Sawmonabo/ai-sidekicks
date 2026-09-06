@@ -25,7 +25,12 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { useSubjectScopedState } from "../../../store/index.js";
+import {
+  NO_TRIGGERING_EVENT_KINDS,
+  useSubjectScopedState,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+} from "../../../store/index.js";
 import { ShellPreferenceStore } from "./shell-preferences-store.js";
 import {
   NOTHING_CHOSEN,
@@ -119,6 +124,20 @@ class ShellPreferenceStoreHolder {
 export const consoleShellPreferences: ShellPreferenceStoreHolder = new ShellPreferenceStoreHolder();
 
 /**
+ * The target the window triggers are wired to while no store is held.
+ *
+ * A hook may not be called conditionally and the acquired store is `undefined` for
+ * the render that first sees a new bridge, so the triggers need something to hold in
+ * that frame. Asking it for a read does nothing, which is the honest answer: there is
+ * no transport to ask. At module scope so the hook's dependency compares one identity
+ * across renders rather than a fresh literal each pass.
+ */
+const NO_STORE_HELD: ReadTriggerTarget = {
+  triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
+  requestRead: () => undefined,
+};
+
+/**
  * Bind this window's shell preferences.
  *
  * THE STORE IS ACQUIRED IN AN EFFECT AND ONLY READ DURING RENDER. It was acquired
@@ -163,6 +182,10 @@ export function useShellPreferences(bridge: ConsoleBridge): ShellPreferenceBindi
 
   const liveStore = consoleShellPreferences.storeIfCurrent(bridge);
   const store = acquiredStore === liveStore ? acquiredStore : undefined;
+
+  // The window half only: the preferences are per user rather than per session, so
+  // no session's repair and no session's timeline bear on them.
+  useWindowReadTriggers(store ?? NO_STORE_HELD);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => store?.subscribe(onStoreChange) ?? noPreferenceSubscription,

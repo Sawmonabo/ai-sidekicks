@@ -32,13 +32,15 @@ describe("the conversational start is reserved, not stubbed", () => {
 
   it("renders none of the contract's governance prose", () => {
     const { container } = render(<ChatStartSlot sessionId={PROBE_SESSION_ID} />);
-    expect(container.textContent ?? "").not.toContain("Plan-017");
+    expect(container.textContent ?? "").not.toContain(WORKFLOW_CHAT_START_SLOT.owningTask);
   });
 
   it("negative control: the contract really does carry that prose, so the case is not vacuous", () => {
     // Without this, the case above would hold over a component that rendered the
-    // whole contract verbatim, had the contract simply named nobody.
-    expect(WORKFLOW_CHAT_START_SLOT.owningTask).toContain("Plan-017");
+    // whole contract verbatim, had the contract simply named nobody. It names the
+    // owner by SUBJECT rather than by number, which is what a runtime string in this
+    // tree may carry, so that is what the control reads.
+    expect(WORKFLOW_CHAT_START_SLOT.owningTask).toContain("workflow authoring and execution plan");
   });
 });
 

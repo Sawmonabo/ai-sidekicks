@@ -19,7 +19,9 @@ export {
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
+  AWAITING_RUN_IDS_NAMED_CAP,
   BOUNDED_ENUMERATION_MAX_ROWS,
+  BROAD_ALLOW_LIST_THRESHOLD,
   COMPOSING_NAMED_CAP,
   COMPOSING_RECEIVED_STALE_MS,
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
@@ -31,6 +33,7 @@ export {
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
+  INTERVENTION_OUTCOME_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAXIMUM_LIVE_DRAFT_COUNT,
@@ -46,16 +49,26 @@ export {
   PHASE_GRAPH_MIN_ZOOM,
   POSITION_SIBLING_OBSERVER_CAP,
   PRE_INITIALISATION_BUFFER_CAP,
+  PROJECTED_RUN_CAP,
+  PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP,
+  QUEUE_ROWS_RENDERED_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
   RESOLVED_PROSE_INLINE_CAP,
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
   RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
+  RUN_STATUS_ROW_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
+  SEATED_KNOWN_RUN_CAP,
   SESSION_BACK_TIER_VISIBLE_CAP,
+  SESSION_GOAL_MAX_LENGTH,
+  SESSION_GOAL_MIN_LENGTH,
   SETTLED_INVITE_VISIBLE_CAP,
+  SIDEBAR_DEFAULT_WIDTH_PX,
+  SIDEBAR_MAX_WIDTH_PX,
+  SIDEBAR_MIN_WIDTH_PX,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
@@ -112,7 +125,13 @@ export {
 // consumes each of them by calling the symbol beside it rather than by naming it.
 // A test asserting on either reaches the module that declares it.
 export { KeyedRegistry } from "./keyed-registry.js";
-export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
+export {
+  ConsoleRefusalError,
+  isConsoleRefusal,
+  refuse,
+  refusedMemberPaths,
+  type ConsoleRefusal,
+} from "./refusal.js";
 // The registered widenings of that shape. Through the door because a family rendering
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
@@ -131,13 +150,13 @@ export {
   type WireRefusal,
   type WireErrorEnvelope,
 } from "./wire-rejection.js";
-// The two predicates a reading of an untyped wire value starts from, each written
-// separately by the families that needed it. They ship through this door rather than
+// The three predicates a reading of an untyped wire value starts from, each written
+// separately by the families that needed one. They ship through this door rather than
 // from the family that happened to need one first, because their readers sit at three
 // different heights on the DAG — `persistence/`, `bridge/`, `frame/` — and two of
 // those cannot reach the third, so the floor is the only home all of them share.
 export { isWireRecord } from "./wire-record.js";
-export { readWireString } from "./wire-strings.js";
+export { readWireNumber, readWireString } from "./wire-strings.js";
 // The total stringifier, re-published rather than re-declared. It is DECLARED in
 // `src/shared/wire-errors.ts`, which both processes compile, and `core/wire-rejection.ts`
 // already states that this layer — not that one — is the console's home for turning an

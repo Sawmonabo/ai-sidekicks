@@ -32,6 +32,7 @@ import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 import { createLiveBridge } from "../live-bridge.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { AGENTS_SCENARIO, AGENTS_SCENARIO_SWITCH_LATENCY_MS } from "../scenarios/agents.js";
+import { APPROVALS_SCENARIO } from "../scenarios/approvals.js";
 import { FIRST_RUN_SCENARIO } from "../scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { WORKFLOWS_SCENARIO } from "../scenarios/workflows.js";
@@ -77,9 +78,10 @@ function scenarioDeclaring(state: string): ConsoleScenario {
  * scenario has something for it to answer with. The branch-context read is the one
  * such operation under the flagship scenario, which scripts none: the registered reply
  * is flat and carries no absence, so there is nothing honest to serve and the read
- * refuses. Named here rather than folded into the sweep so the sweep keeps saying
- * exactly what it said, and so this exemption fails the moment it stops being true —
- * the case below asserts the refusal rather than merely skipping the operation.
+ * refuses. Named rather than left implicit in the sweep, which reaches only the
+ * operations the port does NOT serve: without this set nothing would say out loud
+ * that a served operation may still refuse, and the case below asserts that refusal
+ * rather than merely leaving the operation unscanned.
  */
 const SCENARIO_CONDITIONAL_SERVED_OPERATIONS: ReadonlySet<GrowthOperationId> = new Set([
   "gitflowBranchContextRead",
@@ -99,26 +101,71 @@ const SUBJECT_ADDRESSED_WORKFLOW_READS = FIXTURE_SERVED_WORKFLOW_OPERATION_IDS.f
 );
 
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
-  it("answers every operation its bridge claims to serve, and refuses every other", async () => {
+  it("refuses every operation it does not serve, and names the unbuilt wire", async () => {
+    // The `wire-unregistered` code is the instrument rather than the bare
+    // `unavailable` status, and it has to be: a SERVED operation refuses too — for a
+    // scenario that models nothing it could be answered from — so a status-only
+    // reading cannot tell an unimplemented arm from an unscripted one, and an
+    // operation that silently stopped being served would read as compliant.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-    // The script-only writes are subtracted rather than special-cased in the loop:
-    // they ARE implemented, and this scenario scripts none of them, so they take the
-    // refusing arm here for the reason their own declaration gives — a write with no
-    // scripted answer has no honest empty state to serve. The subtraction is over the
-    // declared subset, so an operation that stopped being script-only fails here.
+    // The script-only writes are held to a DIFFERENT code rather than subtracted:
+    // they ARE implemented, and this scenario scripts none of them, so they refuse
+    // for the reason their own declaration gives — a write with no scripted answer
+    // has no honest empty state to serve. What that refusal may not say is that the
+    // wire is unbuilt, which would send a reader to a document owing a wire this
+    // bridge already stands in for; it names the SCENARIO's gap instead. The subset
+    // is read from its own declaration, so an operation that stopped being
+    // script-only changes arms here rather than going unchecked.
     const scriptOnly = new Set<string>(FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS);
-    const served = new Set<string>(
-      FIXTURE_SERVED_GROWTH_OPERATION_IDS.filter((operationId) => !scriptOnly.has(operationId)),
-    );
+    const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
-      if (SCENARIO_CONDITIONAL_SERVED_OPERATIONS.has(operationId)) {
+      if (served.has(operationId) && !scriptOnly.has(operationId)) {
         continue;
       }
       const outcome = await callOperation(bridge.growth, operationId);
-      expect(outcome.status, `${operationId} answered the wrong way`).toBe(
-        served.has(operationId) ? "served" : "unavailable",
-      );
+      expect(outcome.status, `${operationId} answered the wrong way`).toBe("unavailable");
+      if (outcome.status === "unavailable") {
+        expect(outcome.code, `${operationId} refused with the wrong code`).toBe(
+          scriptOnly.has(operationId) ? "reply-unscripted" : "wire-unregistered",
+        );
+      }
+    }
+  });
+
+  it("answers, or names the scenario's own gap, for every operation it serves", async () => {
+    // The other side of the same claim. Over the flagship, eight of the seventeen
+    // served operations answer; the four approvals ones, the branch-context read, and
+    // the four script-only writes do not, because that scenario scripts none of them —
+    // and what makes each of those a served arm rather than an absent one is that it
+    // refuses with the fixture's `reply-unscripted` and never with `wire-unregistered`,
+    // which would send a reader to a document that owes a wire this bridge already
+    // stands in for.
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+
+    for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {
+      const outcome = await callOperation(bridge.growth, operationId);
+      if (outcome.status === "unavailable") {
+        expect(outcome.code, `${operationId} refused as an unbuilt wire`).not.toBe(
+          "wire-unregistered",
+        );
+      }
+    }
+  });
+
+  it("answers all four approvals reads and mutations from the scenario that scripts them", async () => {
+    // The positive control the flagship cannot give: without it the case above holds
+    // over a port whose four approvals arms refuse under every scenario there is.
+    const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
+
+    for (const operationId of [
+      "approvalProjectionRead",
+      "approvalRuleList",
+      "approvalResolve",
+      "approvalRuleRevoke",
+    ] as const) {
+      const outcome = await callOperation(bridge.growth, operationId, APPROVALS_SCENARIO.sessionId);
+      expect(outcome.status, `${operationId} did not answer`).toBe("served");
     }
   });
 

@@ -13,6 +13,7 @@ import {
   growthServing,
   unscriptedScenario,
 } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 import { ShellPreferenceStore } from "./shell-preferences-store.js";
 import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preference-snapshot.js";
 import type { GrowthPort } from "../../../bridge/index.js";
@@ -44,10 +45,10 @@ const REFUSING_CARRIER: Partial<GrowthPort> = {
 
 describe("shell preferences — a carrier nobody asked", () => {
   it("reads as unavailable rather than as an empty preference set", async () => {
-    const store = new ShellPreferenceStore(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const store = new ShellPreferenceStore(bridge);
     store.start();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleScheduledRead(bridge);
     expect(store.snapshot().reading.kind).toBe("unavailable");
   });
 
@@ -76,29 +77,25 @@ describe("shell preferences — a carrier nobody asked", () => {
 
 describe("shell preferences — a carrier that answers", () => {
   it("prefers the carrier's stored value over the default", async () => {
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({ "diagnostics.crashReports": false }),
-        shellConfigWrite: growthServing(undefined),
-      }),
-    );
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
+      shellConfigRead: growthServing({ "diagnostics.crashReports": false }),
+      shellConfigWrite: growthServing(undefined),
+    });
+    const store = new ShellPreferenceStore(bridge);
     store.start();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleScheduledRead(bridge);
     expect(effectivePreference(store.snapshot(), "diagnostics.crashReports")).toBe(false);
   });
 
   it("applies a served write into the carrier's own record, holding nothing locally", async () => {
     const write = vi.fn(growthServing(undefined));
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({}),
-        shellConfigWrite: write,
-      }),
-    );
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
+      shellConfigRead: growthServing({}),
+      shellConfigWrite: write,
+    });
+    const store = new ShellPreferenceStore(bridge);
     store.start();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleScheduledRead(bridge);
     await store.choose("notifications.osToastsMuted", true);
     const snapshot = store.snapshot();
     expect(write).toHaveBeenCalledWith({ key: "notifications.osToastsMuted", enabled: true });
@@ -107,15 +104,13 @@ describe("shell preferences — a carrier that answers", () => {
   });
 
   it("leaves the stored value and renders the code when a present carrier refuses", async () => {
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({ "updates.automatic": true }),
-        shellConfigWrite: () => Promise.reject(new Error("the preference store is read-only")),
-      }),
-    );
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
+      shellConfigRead: growthServing({ "updates.automatic": true }),
+      shellConfigWrite: () => Promise.reject(new Error("the preference store is read-only")),
+    });
+    const store = new ShellPreferenceStore(bridge);
     store.start();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleScheduledRead(bridge);
     await store.choose("updates.automatic", false);
     const snapshot = store.snapshot();
     expect(effectivePreference(snapshot, "updates.automatic")).toBe(true);
@@ -229,13 +224,13 @@ describe("shell preferences — the opening read never lands on a newer choice",
     // read's continuation then replaced the whole record with the snapshot from
     // before the choice — so the switch reverted moments after it was saved.
     const opening = heldRead();
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: opening.answer,
-        shellConfigWrite: growthServing(undefined),
-      }),
-    );
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
+      shellConfigRead: opening.answer,
+      shellConfigWrite: growthServing(undefined),
+    });
+    const store = new ShellPreferenceStore(bridge);
     store.start();
+    await settleScheduledRead(bridge);
 
     await store.choose("updates.automatic", false);
     opening.serve({ "updates.automatic": true });
@@ -247,13 +242,13 @@ describe("shell preferences — the opening read never lands on a newer choice",
 
   it("installs a read that settled with no choice against it", async () => {
     const opening = heldRead();
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: opening.answer,
-        shellConfigWrite: growthServing(undefined),
-      }),
-    );
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
+      shellConfigRead: opening.answer,
+      shellConfigWrite: growthServing(undefined),
+    });
+    const store = new ShellPreferenceStore(bridge);
     store.start();
+    await settleScheduledRead(bridge);
 
     opening.serve({ "updates.automatic": false });
     await Promise.resolve();
@@ -268,13 +263,13 @@ describe("shell preferences — the opening read never lands on a newer choice",
     // read — including one that settled before anybody chose — which would make the
     // carrier's record unreachable rather than merely superseded.
     const opening = heldRead();
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: opening.answer,
-        shellConfigWrite: growthServing(undefined),
-      }),
-    );
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
+      shellConfigRead: opening.answer,
+      shellConfigWrite: growthServing(undefined),
+    });
+    const store = new ShellPreferenceStore(bridge);
     store.start();
+    await settleScheduledRead(bridge);
 
     opening.serve({ "diagnostics.crashReports": false });
     await Promise.resolve();

@@ -120,10 +120,12 @@ describe("a plan-owned slot's mount", () => {
         {...RESERVED_COPY}
       />,
     );
-    expect(seatless.container.textContent ?? "").not.toContain("Plan-017");
-    expect(filled.container.textContent ?? "").not.toContain("Plan-017");
+    expect(seatless.container.textContent ?? "").not.toContain(WORKFLOW_CHAT_START_SLOT.owningTask);
+    expect(filled.container.textContent ?? "").not.toContain(WORKFLOW_CHAT_START_SLOT.owningTask);
     // Negative control: the seat really does carry that prose, so neither case above
-    // holds over a contract that named nobody.
-    expect(WORKFLOW_CHAT_START_SLOT.owningTask).toContain("Plan-017");
+    // holds over a contract that named nobody. It names the owner by SUBJECT rather
+    // than by number, which is what a runtime string in this tree may carry, so that
+    // is what the control reads.
+    expect(WORKFLOW_CHAT_START_SLOT.owningTask).toContain("workflow authoring and execution plan");
   });
 });

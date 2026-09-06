@@ -9,6 +9,7 @@
 // The lifetime half — who holds these reads and what disposes them — is
 // `agent-console-model.test.ts`.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -41,7 +42,7 @@ async function settleReads(clock: ManualClock): Promise<void> {
   await act(async () => {
     clock.advance(REFRESH_MAX_WAIT_MS);
     for (let pass = 0; pass < 4; pass += 1) {
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     }
   });
 }

@@ -24,9 +24,16 @@
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
-import { GenerationLatch } from "../../store/index.js";
+import {
+  GenerationLatch,
+  NO_TRIGGERING_EVENT_KINDS,
+  RefreshScheduler,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
+} from "../../store/index.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import {
   describeDefinitionSettlement,
@@ -80,7 +87,17 @@ const REGISTRY_READ_KEY = "registry-read";
  * therefore both the lock and the record of which delete is running — one field, so
  * the guard and the page's own disabled controls cannot disagree.
  */
-export class SidekickRegistryView {
+export class SidekickRegistryView implements ReadTriggerTarget {
+  /**
+   * No terminal event refreshes this read, and the empty set states it.
+   *
+   * The definition registry is node-local and its verbs are growth operations: the
+   * corpus registers no `sidekick.*` event type, so there is no kind a store could
+   * admit and none this view could listen for. The window triggers are therefore the
+   * whole refresh story — which is why the read goes through a scheduler rather than
+   * firing once from `start` and never again.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
   readonly #changes = new Emitter<SidekickRegistrySnapshot>("sidekick registry change");
   #snapshot: SidekickRegistrySnapshot = NOTHING_READ;
@@ -94,9 +111,20 @@ export class SidekickRegistryView {
    * register holds nothing between reads.
    */
   readonly #reads = new GenerationLatch();
+  readonly #scheduler: RefreshScheduler;
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
+    this.#scheduler = new RefreshScheduler({
+      clock: consoleClockFor(bridge),
+      perform: async () => {
+        await this.#read();
+      },
+      // `#read` publishes the port's refusal itself and never rejects, so this arm
+      // is for a defect in the publish rather than for anything about the wire —
+      // the console's other readings carry it for the same reason.
+      onError: () => undefined,
+    });
   }
 
   public snapshot(): SidekickRegistrySnapshot {
@@ -107,18 +135,34 @@ export class SidekickRegistryView {
     return this.#changes.subscribe(sink);
   }
 
-  /** Read the registry once. Idempotent: strict mode mounts an effect twice. */
+  /** Read the registry on mount. Idempotent: strict mode mounts an effect twice. */
   public start(): void {
-    if (this.#hasStarted || this.#isDisposed) {
+    if (this.#hasStarted) {
       return;
     }
     this.#hasStarted = true;
-    void this.#read();
+    this.requestRead("subscribe");
+  }
+
+  /**
+   * Ask for a read.
+   *
+   * `subscribe` on mount and `window-focus` on return — the two reasons that reach a
+   * registry nothing evented. A definition created by another window, by the CLI, or
+   * by a peer is invisible to this page until one of them fires, which is a staleness
+   * a once-only read had no path out of at all.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (this.#isDisposed) {
+      return;
+    }
+    this.#scheduler.request(reason);
   }
 
   /** Terminal. A reply landing after this writes nothing. */
   public dispose(): void {
     this.#isDisposed = true;
+    this.#scheduler.dispose();
     this.#reads.supersedeAll();
   }
 
@@ -290,6 +334,9 @@ export function useSidekickRegistryView(bridge: ConsoleBridge): {
       view.dispose();
     };
   }, [view]);
+  // The window half only: this registry has no session and no triggering event kind,
+  // so the session half would have nothing to listen to.
+  useWindowReadTriggers(view);
   const snapshot = useSyncExternalStore(
     (onStoreChange: () => void) => view.subscribe(onStoreChange),
     () => view.snapshot(),

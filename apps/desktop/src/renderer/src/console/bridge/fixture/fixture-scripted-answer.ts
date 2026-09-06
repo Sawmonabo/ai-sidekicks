@@ -34,15 +34,21 @@ import { settleScriptedReply, type ScenarioEngine } from "../scenario-runtime/in
  * there. Required and positional, so a handler that serves an entity-scoped operation
  * cannot quietly omit it: the compiler asks for it at every call site.
  *
- *   • **Unscripted** is not a failure on this port, and it is not automatically a
- *     served absence either. It is whatever the OPERATION's own honest answer is for a
- *     scenario that has said nothing, so the caller hands back the whole outcome: the
- *     branch-context read serves the absence, because "this workspace has no branch
- *     context" is a state a repos surface has to draw, while the workflow run read
- *     refuses, because a run snapshot has no empty form and an invented one is a run a
- *     pane would offer operator controls on. `reply-unscripted` therefore stays what it
- *     has always been: `fixture-bridge.ts`'s authoring error, raised where a call really
- *     has no answer at all.
+ *   • **Unscripted** is the CALLER's to answer, and its answer is an outcome rather
+ *     than a value — because the honest reading differs per operation and neither
+ *     arm may be forced on the other. The list reads' is a served EMPTY state: a
+ *     session with no invites and a node with no saved sidekick definitions are
+ *     ordinary, and a surface has to draw them. The approvals reads', the branch
+ *     read's, and every workflow read's is a refusal: a scenario that models no
+ *     approvals has left the question unasked, the registered branch-context reply is
+ *     flat and carries no absence at all, and a workflow run snapshot has no empty
+ *     form — an invented one is a run a pane would offer operator controls on — so
+ *     serving one for any of them would put "there is none" in front of a person for
+ *     a fact nothing checked. So the parameter returns `GrowthOutcome` and this
+ *     helper decides neither. A caller taking the refusing arm reaches for
+ *     `growthUnscriptedReply` and never `growthUnavailable`, because this fixture
+ *     SERVES these operations and the build does carry no less of the wire for a
+ *     scenario that said nothing.
  *   • **Resolved** is served verbatim. The cast is the seam's own property rather than
  *     a shortcut: a `ScenarioReply` carries `unknown`, exactly as it does for the
  *     bridge's `daemon.call`, and there is no registered reply schema to narrow it

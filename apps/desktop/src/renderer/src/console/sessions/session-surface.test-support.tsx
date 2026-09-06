@@ -10,7 +10,10 @@
 import { act, render } from "@testing-library/react";
 
 import { ManualClock } from "../core/index.js";
-import { PAST_REFRESH_DEBOUNCE_MS, settle as settlePasses } from "../core/settle.test-support.js";
+import {
+  PAST_REFRESH_DEBOUNCE_MS,
+  settle as settleReactWork,
+} from "../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
 import { politeText } from "../primitives/live-region.test-support.js";
 import { SidekicksBridgeProvider } from "../bridge/index.js";
@@ -34,7 +37,7 @@ import type { ConsoleSurfaceContext } from "../seats/index.js";
  * surface driven against the real fixture advances the frozen clock instead.
  */
 export async function settle(): Promise<void> {
-  await settlePasses(4);
+  await settleReactWork();
   await act(async () => {
     await new Promise((resolveAfterDebounce) => {
       setTimeout(resolveAfterDebounce, PAST_REFRESH_DEBOUNCE_MS);

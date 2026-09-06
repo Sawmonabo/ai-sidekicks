@@ -17,8 +17,15 @@
 // second is driven by a stub port in this module's own test.
 
 import { Emitter, type Unsubscribe } from "../../../core/index.js";
-import { GenerationLatch, type GenerationClaim } from "../../../store/index.js";
-import type { ConsoleBridge } from "../../../bridge/index.js";
+import {
+  GenerationLatch,
+  NO_TRIGGERING_EVENT_KINDS,
+  RefreshScheduler,
+  type GenerationClaim,
+  type ReadTriggerTarget,
+  type RefreshReason,
+} from "../../../store/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
 // The console's ONE rejection-to-refusal converter. This module held a second copy
 // of it — the same two verbatim arms over a different fallback code — and a second
 // copy is what `apps/desktop/AGENTS.md` calls a duplicate refusal constructor. The
@@ -46,7 +53,16 @@ import {
  * it owns a read, a write generation, and a teardown. {@link useShellPreferences} is
  * the React binding and holds nothing of its own.
  */
-export class ShellPreferenceStore {
+export class ShellPreferenceStore implements ReadTriggerTarget {
+  /**
+   * No terminal event refreshes this read, and the empty set states it.
+   *
+   * The shell config is per-user durable state behind a growth carrier, and the
+   * corpus registers no event for a preference write — so there is no kind a store
+   * could admit. The window triggers are the whole refresh story, which is what
+   * makes a second window's choice reach this one at all.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
   readonly #changes = new Emitter<void>("shell preference change");
   #snapshot: ShellPreferenceSnapshot = NOTHING_CHOSEN;
@@ -78,9 +94,20 @@ export class ShellPreferenceStore {
    * and cannot name them, so a surface that renders per row needs the set.
    */
   readonly #pendingWriteKeys = new Set<ShellPreferenceKey>();
+  readonly #scheduler: RefreshScheduler;
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
+    this.#scheduler = new RefreshScheduler({
+      clock: consoleClockFor(bridge),
+      perform: async () => {
+        await this.#read();
+      },
+      // `#read` folds the carrier's own refusal into the snapshot and never rejects,
+      // so this arm is for a defect in that fold rather than for anything about the
+      // wire — the console's other readings carry it for the same reason.
+      onError: () => undefined,
+    });
   }
 
   public snapshot(): ShellPreferenceSnapshot {
@@ -92,23 +119,38 @@ export class ShellPreferenceStore {
   }
 
   /**
-   * Read the carrier once.
+   * Read the carrier on mount.
    *
-   * Idempotent, because React mounts an effect twice under strict mode. One read and
-   * no refresh: the wire behind this seam refuses today, so a repeat would re-ask a
-   * question with no answer, and `store/scheduling.ts` is where a real re-read lands.
+   * Idempotent, because React mounts an effect twice under strict mode — and the
+   * scheduler behind {@link requestRead} collapses the pair in any case.
    */
   public start(): void {
-    if (this.#started || this.#disposed) {
+    if (this.#started) {
       return;
     }
     this.#started = true;
-    void this.#read();
+    this.requestRead("subscribe");
+  }
+
+  /**
+   * Ask for a read.
+   *
+   * `subscribe` on mount and `window-focus` on return. The settings page is an
+   * auxiliary window and the preferences are per USER rather than per window, so a
+   * choice made in one window left every other window's copy stale for its whole
+   * lifetime — which is the staleness a once-only read has no path out of.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#scheduler.request(reason);
   }
 
   /** Terminal. A reply landing after this writes nothing. */
   public dispose(): void {
     this.#disposed = true;
+    this.#scheduler.dispose();
   }
 
   /** Whether this store has been superseded. Read by the holder's own test. */

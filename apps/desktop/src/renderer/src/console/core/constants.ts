@@ -244,6 +244,22 @@ export const LIVE_ANNOUNCEMENT_QUEUE_CAP = 8;
  */
 export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
 
+/**
+ * Account-plane notifications held while that registry's OPENING read is in
+ * flight.
+ *
+ * The tail opens before the read, and the read's reply restates the whole
+ * registry at an instant the tail has already moved past — so a removal or a
+ * credential-generation bump that arrives in that window has to be replayed
+ * AFTER the snapshot seats or the snapshot silently undoes it. The buffer's
+ * lifetime is therefore one round trip, and its size is whatever the tail bursts
+ * inside one: a node's accounts and their limit windows are a handful, so this is
+ * a memory bound rather than a policy. Past it the reading stops buffering,
+ * applies what it holds live, and takes a FRESH read — nothing is dropped,
+ * because the tail emits no second notification for a mutation it already
+ * reported.
+ */
+export const PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP = 64;
 // --- Attachment ingest ----------------------------------------------------
 //
 // `Spec-014 §Bounds (normative defaults; operator-tunable)` registers all four of
@@ -508,6 +524,146 @@ export const POSITION_SIBLING_OBSERVER_CAP = 64;
  */
 export const PARTITION_FOLD_THRESHOLD = 10;
 
+// ── The runs pane's bounds ────────────────────────────────────────────────────
+//
+// Every one bounds a value the WIRE controls: a session's runs, a run's status
+// history, and a session's queue are all as long as the daemon says they are, and a
+// surface holding all of any of them would be the unbounded cache
+// `Spec-023 §Console Design (Meridian)` forbids in its budget rules. They were
+// declared in the runs family beside their readers, which `apps/desktop/AGENTS.md`
+// §Config single-sourcing and `cap-constant-home.test.ts` between them do not allow:
+// a bound declared in a view family is a ceiling nobody audits.
+
+/**
+ * Status rows retained per run.
+ *
+ * A run's transition history is what the pane's expanded detail reads, and thirty
+ * two rows is several minutes of an active run at the rate a driver transitions —
+ * far past what a person scrolls back through in a live view, and small enough
+ * that a hundred concurrent runs cost thousands of rows rather than millions. The
+ * durable record is the session log, which is not this.
+ */
+export const RUN_STATUS_ROW_CAP = 32;
+
+/**
+ * Runs projected from the state stream at once.
+ *
+ * A session's runs accumulate for as long as the session is open, and terminal
+ * runs never leave the stream's history. The oldest-touched run is dropped first,
+ * so what survives is what is moving — the reading a live pane exists to give.
+ */
+export const PROJECTED_RUN_CAP = 200;
+
+/**
+ * Rows seated from the session's own record before the remainder is a count.
+ *
+ * Deliberately well under `PROJECTED_RUN_CAP`, and for a different reason than that
+ * bound has. The projection cap bounds a live reading of what is MOVING; these rows
+ * are runs the live stream has said nothing about, seated from the session's `run`
+ * partition — which is folded from the log, never evicted, and so as long as the
+ * session is old. They are appended after every projected row, which puts them at
+ * the bottom of a pane that already holds up to two hundred, and each one carries
+ * less than a projected row does: no confirmed run version, no status history, no
+ * controls. Fifty is past what a person scrolls to at the end of that list, and the
+ * order is newest-touched first, so the ones that fall off are the coldest.
+ */
+export const SEATED_KNOWN_RUN_CAP = 50;
+
+/**
+ * Run ids named in the awaiting-projection sentence before the rest is a count.
+ *
+ * The sentence exists so a person can tell WHICH of the rows in front of them is not
+ * live, and that is a lookup: past a handful of ids it stops being one and becomes a
+ * paragraph of hex nobody reads. The count still names every run, seated or not, so
+ * nothing disappears from the reading — only from the enumeration.
+ */
+export const AWAITING_RUN_IDS_NAMED_CAP = 6;
+
+/**
+ * Intervention outcomes retained.
+ *
+ * The pane records what it dispatched and what came back; it is not the durable
+ * audit record, which lives on the `interventions` table and has no registered
+ * read. Sixteen is more than a person issues in one sitting and bounds a list that
+ * would otherwise grow for the window's whole life.
+ */
+export const INTERVENTION_OUTCOME_CAP = 16;
+
+/**
+ * Queue rows rendered before the remainder is folded into a count.
+ *
+ * The cap is spent by a `slice` and a withheld count, which is the whole mechanism:
+ * that family windows nothing and imports no windowing layer, so a comment promising
+ * virtualization would describe a component that does not exist. Below the cap the
+ * list is a plain block; above it the surface says how many rows it is not drawing
+ * rather than drawing them all. The queue is FIFO and the head is what matters, so
+ * the ceiling truncates the tail and never the front.
+ */
+export const QUEUE_ROWS_RENDERED_CAP = 50;
+
+// ── The approvals pane's posture chip ─────────────────────────────────────────
+
+/**
+ * Allowed domains past which the list is called broad.
+ *
+ * THE SURFACE'S OWN RULE, because no committed document states it: the copy says a
+ * broad allow-list is domain-fronting-weak, and what counts as broad is this number.
+ * Eight is the point at which the list stops reading as a named set of endpoints and
+ * starts reading as a policy nobody audits row by row — which is exactly when the
+ * caveat earns its space, and below which it would be noise on a two-domain
+ * allow-list. A threshold over what the daemon SENT, unlike the goal bounds the
+ * bridge family holds, which bound what a participant may TYPE.
+ */
+export const BROAD_ALLOW_LIST_THRESHOLD = 8;
+
+// ── The sidebar's width range ─────────────────────────────────────────────────
+//
+// `SIDEBAR_MAX_WIDTH_PX` is the bound of the three and is what brought them here; the
+// other two came with it because the width is clamped between them on every read, and
+// a range split across two modules is a clamp a reviewer opens two files to check.
+
+/**
+ * How wide the sidebar opens when nobody has resized it. Wide enough for a section
+ * title plus its count without wrapping at the default type scale.
+ */
+export const SIDEBAR_DEFAULT_WIDTH_PX = 288;
+
+/**
+ * The narrowest the sidebar may be dragged. Below this the disclosure glyph, the
+ * section glyph, and a two-word title stop fitting on one line, and the sidebar
+ * becomes a column of ellipses rather than a navigation.
+ */
+export const SIDEBAR_MIN_WIDTH_PX = 208;
+
+/**
+ * The widest. Past this the sidebar is competing with the deck for the window rather
+ * than pointing into it, and that sidebar's density rule is counts, not lists.
+ */
+export const SIDEBAR_MAX_WIDTH_PX = 480;
+
+// ── The session goal's length range ───────────────────────────────────────────
+//
+// `SESSION_GOAL_MAX_LENGTH` is the bound of the two and is what brought them here;
+// the minimum came with it on the sidebar range's rule above, because one schema
+// clamps between them and a range split across two modules is a clamp a reviewer
+// opens two files to check.
+
+/**
+ * The shortest a session goal may be.
+ *
+ * One rather than zero is what makes "an update with no goal is malformed" true at
+ * the type level: clearing is a different operation, and an empty-text update is
+ * never treated as one.
+ */
+export const SESSION_GOAL_MIN_LENGTH = 1;
+
+/**
+ * The longest a session goal may be.
+ *
+ * The daemon's own bound, restated so the field refuses on the same rule rather than
+ * truncating and sending something the participant did not write.
+ */
+export const SESSION_GOAL_MAX_LENGTH = 4096;
 // ── The diff surfaces ────────────────────────────────────────────────────────
 
 /**

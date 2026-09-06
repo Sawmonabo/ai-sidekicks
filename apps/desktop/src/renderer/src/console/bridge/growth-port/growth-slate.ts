@@ -29,6 +29,7 @@ export type GrowthSlateRowId =
   | "health-subscribe"
   | "agent-snapshot-axes"
   | "child-run-linkage"
+  | "agent-provider-switch-failure"
   | "gitflow-actions"
   | "artifact-ingest-and-crud"
   | "artifact-allowlist-and-abort"
@@ -37,8 +38,10 @@ export type GrowthSlateRowId =
   | "workflow-definition-scope"
   | "timeline-epoch-attestation"
   | "timeline-path-reference"
+  | "approval-method-payloads"
   | "approval-remembered-rule"
   | "approval-amendment-arm"
+  | "session-goal-methods"
   | "session-search"
   | "window-control-namespace"
   | "provider-session-import"
@@ -181,6 +184,13 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "agent console run-linkage panel",
     wireRegistered: false,
   },
+  "agent-provider-switch-failure": {
+    id: "agent-provider-switch-failure",
+    wire: "the `agent.provider_switch_failed` event type, so a deferred switch that could not be applied reaches a client that did not issue the mutation",
+    owningDocument: "Spec-006, Plan-016",
+    consumingSurface: "composer (the target chip)",
+    wireRegistered: false,
+  },
   "gitflow-actions": {
     id: "gitflow-actions",
     wire: "the branch-context read, the PR-preparation call, the git action-execute vocabulary, and the gitflow error namespace",
@@ -252,6 +262,13 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "timeline pane",
     wireRegistered: false,
   },
+  "approval-method-payloads": {
+    id: "approval-method-payloads",
+    wire: "registered request and reply payload shapes for the four `approval.*` methods the pane calls",
+    owningDocument: "Plan-012",
+    consumingSurface: "approvals pane",
+    wireRegistered: false,
+  },
   "approval-remembered-rule": {
     id: "approval-remembered-rule",
     wire: "per-row remembered-rule match on approval rows",
@@ -264,6 +281,13 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the approval amendment arm",
     owningDocument: "Spec-012",
     consumingSurface: "approvals pane",
+    wireRegistered: false,
+  },
+  "session-goal-methods": {
+    id: "session-goal-methods",
+    wire: "registered request and reply payload shapes for `session.goalUpdate` and `session.goalClear`",
+    owningDocument: "Plan-016",
+    consumingSurface: "approvals pane (the session goal card)",
     wireRegistered: false,
   },
   "session-search": {

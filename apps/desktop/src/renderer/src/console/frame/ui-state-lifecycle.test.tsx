@@ -43,17 +43,10 @@ import {
 import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.js";
-import { settleReactWork } from "../core/act-settlement.test-support.js";
+import { settle as settleReactWork } from "../core/settle.test-support.js";
 
-/**
- * How deep this suite's own settlement runs.
- *
- * The store's open is awaited and the state write it causes is awaited after it, so
- * one continuation returns before the commit under test — this suite is the reason
- * the shared helper takes a depth at all rather than fixing it at one.
- */
-const TWO_CONTINUATIONS = 2;
 import { useUiStateStore } from "./ui-state-lifecycle.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 interface StoreProbeProps {
   readonly onStore: (store: UiStateStore) => void;
@@ -97,8 +90,7 @@ async function mountProbe(strict: boolean): Promise<{
   let mounted: ReturnType<typeof render> | undefined;
   await act(async () => {
     mounted = render(strict ? <StrictMode>{tree}</StrictMode> : tree);
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   if (mounted === undefined) {
     throw new Error("the probe never mounted");
@@ -132,7 +124,7 @@ describe("useUiStateStore — the connection is closed with the window", () => {
     }
 
     probe.unmount();
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
 
     expect(store.isClosed).toBe(true);
     const result = await store.writeGlobal(SCHEME_PREFERENCE_KEY, "scheme", "dark");
@@ -155,7 +147,7 @@ describe("useUiStateStore — the connection is closed with the window", () => {
     await expect(acceptsAWrite(store)).resolves.toBe(true);
 
     probe.unmount();
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
   });
 });
 
@@ -179,7 +171,7 @@ describe("useUiStateStore — a StrictMode double mount leaves exactly one open 
     await expect(acceptsAWrite(surviving)).resolves.toBe(true);
 
     probe.unmount();
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
     expect(probe.stores.every((store) => store.isClosed)).toBe(true);
   });
 });
@@ -228,8 +220,7 @@ function mountSwappable(bridge: ConsoleBridge): {
     renderAgainst: async (next: ConsoleBridge): Promise<void> => {
       await act(async () => {
         mounted.rerender(hostFor(next));
-        await Promise.resolve();
-        await Promise.resolve();
+        await crossMacrotaskBoundary();
       });
     },
     unmount: (): void => {
@@ -275,7 +266,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     const flagship = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
     const firstRun = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const probe = mountSwappable(flagship);
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
 
     await probe.renderAgainst(firstRun);
     await probe.renderAgainst(flagship);
@@ -283,14 +274,14 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     expect(storesSharedAcrossBridges(probe.observed)).toStrictEqual([]);
 
     probe.unmount();
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
   });
 
   it("opens a store on the new bridge's clock and closes the one it replaced", async () => {
     const flagship = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
     const firstRun = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const probe = mountSwappable(flagship);
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
     const retired = probe.stores().at(-1);
     expect(retired).toBeDefined();
     if (retired === undefined) {
@@ -317,7 +308,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     await expect(acceptsAWrite(current)).resolves.toBe(true);
 
     probe.unmount();
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
   });
 
   it("answers a re-render under the same bridge with the same store", async () => {
@@ -326,7 +317,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     // reverse.
     const flagship = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
     const probe = mountSwappable(flagship);
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
 
     await probe.renderAgainst(flagship);
     await probe.renderAgainst(flagship);
@@ -342,7 +333,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     await expect(acceptsAWrite(only)).resolves.toBe(true);
 
     probe.unmount();
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
   });
 
   it("re-opens on the way back, rather than reviving the store it closed", async () => {
@@ -352,7 +343,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     const flagship = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
     const firstRun = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const probe = mountSwappable(flagship);
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
     const first = probe.stores().at(-1);
 
     await probe.renderAgainst(firstRun);
@@ -371,6 +362,6 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     expect(stores.slice(0, 2).every((store) => store.isClosed)).toBe(true);
 
     probe.unmount();
-    await settleReactWork(TWO_CONTINUATIONS);
+    await settleReactWork();
   });
 });

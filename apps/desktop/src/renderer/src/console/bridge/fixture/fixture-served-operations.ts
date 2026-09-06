@@ -145,6 +145,48 @@
 // `findScenariosNaming` beside this file pins the callback-tool premise the way the
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
+//
+// WHY THE FOUR `approval.*` OPERATIONS ARE SERVED, AND THE TWO GOAL ONES ARE NOT
+//
+// The approvals scenario scripts all four calls — two reads with the rows a person
+// answers, and the two mutations with the replies the wire would send — so the rule
+// is met by the same evidence the gitflow read is measured against, and the pane can
+// be built against a projection it actually renders rather than against a refusal.
+// The narrowing is this port's, not the pane's: the scripted reply is `unknown` and
+// the corpus registers no shape for these methods, so `assertScriptedReplyOnContract`
+// on the call arm has nothing to check and would pass anything through. What binds
+// the script here is the console's OWN reading in `approvals/approval-records.ts` —
+// the one parser both this fixture and the eventual `callDaemon` seam narrow with, so
+// a scenario cannot teach the pane a row shape the surface will not accept later.
+//
+// A scenario that scripts none of them refuses rather than serving an empty
+// projection, which is the `callerParticipantRead` disposition and not the branch
+// read's: an empty approvals list is a claim that nothing is waiting on a decision,
+// and a scenario that models no approvals has not made it.
+//
+// WHY THE AGENT ROSTER READ IS SERVED
+//
+// Four shipped scenarios script `agent.list` and no caller could reach any of them
+// while the operation refused: the composer's target chip took its refused arm on
+// EVERY provider-bound composer — including the two reference surfaces built on a
+// real fixture bridge — and the paying account, the pending switch, and the
+// account-plane label join were unreachable through any scenario, screenshot, or
+// bridge-driven test. A surface whose only reachable state is its refusal is a
+// surface nothing has drawn.
+//
+// ITS UNSCRIPTED ARM IS THE INVITE LEDGER'S AND NOT THE APPROVALS READS', and the
+// agent plane's own section in `fixture-growth-port.ts` gives the reason: a session
+// with no agents attached is what a fresh session IS, so the empty roster is a state
+// the agent console and this chip both have to draw rather than a claim no script
+// made. The chip reads that answer as knowing nothing about a binding, which is a
+// different rendering from its refused arm.
+//
+// The two session-goal operations are on neither list and refuse under both bridges.
+// No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
+// `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
+// mutation the fixture pretended to accept would leave the card waiting for a
+// projection event the log will never grow. The refusal names Plan-016, which is the
+// true state of that wire.
 
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
@@ -169,6 +211,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   ...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
   "gitflowBranchContextRead",
   "callerParticipantRead",
+  "approvalProjectionRead",
+  "approvalRuleList",
+  "approvalResolve",
+  "approvalRuleRevoke",
   "invitesList",
   "agentList",
   "agentAttach",
@@ -198,6 +244,13 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // identity — answered from a scenario that states its own viewer, refused from one
   // that does not.
   "callerParticipantRead",
+  // approvals — the four calls the approvals scenario scripts, each answered from the
+  // script and refused by a scenario that models no approvals. The two session-goal
+  // operations are deliberately absent: see the header.
+  "approvalProjectionRead",
+  "approvalRuleList",
+  "approvalResolve",
+  "approvalRuleRevoke",
   // invites
   "invitesList",
   // agent plane — five operations that were `daemon.call` strings until the call door

@@ -75,6 +75,8 @@ import {
   GenerationLatch,
   RefreshScheduler,
   SessionRefreshTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
   type SessionStore,
 } from "../../store/index.js";
 import { ArtifactPaneActions } from "./artifact-actions.js";
@@ -130,7 +132,18 @@ export interface ArtifactPaneReaderOptions {
   readonly clock: ConsoleClock;
 }
 
-export class ArtifactPaneReader {
+export class ArtifactPaneReader implements ReadTriggerTarget {
+  /**
+   * The frames whose arrival owes this pane a fresh read.
+   *
+   * The artifact half of the family's census in `repo-lifecycle-events.ts`, declared
+   * here so the trigger wiring reads it off the reading rather than being handed it:
+   * which frames change an artifact list is a property of the question, and a pane on
+   * a bare route asks the same question with no session to ask it under.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
+    ARTIFACT_TERMINAL_EVENT_KINDS,
+  );
   readonly #bridge: ConsoleBridge;
   readonly #clock: ConsoleClock;
   readonly #sessionStore: SessionStore | undefined;
@@ -185,11 +198,7 @@ export class ArtifactPaneReader {
     this.#triggers =
       options.sessionStore === undefined
         ? undefined
-        : new SessionRefreshTriggers({
-            scheduler: this.#scheduler,
-            sessionStore: options.sessionStore,
-            terminalEventKinds: ARTIFACT_TERMINAL_EVENT_KINDS,
-          });
+        : new SessionRefreshTriggers({ target: this, sessionStore: options.sessionStore });
     this.#actions = new ArtifactPaneActions({ bridge: options.bridge, host: this.#actionHost() });
   }
 
@@ -248,8 +257,24 @@ export class ArtifactPaneReader {
       return;
     }
     this.#started = true;
-    this.#scheduler.request("subscribe");
+    this.requestRead("subscribe");
     this.#triggers?.start();
+  }
+
+  /**
+   * Ask for a read. Coalescing, debouncing, and the call itself stay the scheduler's.
+   *
+   * The ONE way a reason reaches this reader — the trigger wiring's three, the
+   * subscription's one, and the participant press below all arrive here — so the
+   * bare-route guard is written once. A pane with no session has nothing to read
+   * artifacts under and no frames to be told about, which is why the same condition
+   * withholds the trigger wiring in the constructor.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (this.#disposed || this.#sessionId === undefined) {
+      return;
+    }
+    this.#scheduler.request(reason);
   }
 
   /**
@@ -271,10 +296,7 @@ export class ArtifactPaneReader {
    * that never opened, which is the fabricated reason that module's own doc forbids.
    */
   public refresh(): void {
-    if (this.#disposed || this.#sessionId === undefined) {
-      return;
-    }
-    this.#scheduler.request("participant-request");
+    this.requestRead("participant-request");
   }
 
   /**
@@ -329,7 +351,7 @@ export class ArtifactPaneReader {
       scheduledReadClaim: () => this.#reads.currentClaim(this, SCHEDULED_READ_KEY),
       isDisposed: () => this.#disposed,
       requestRefreshAfterAct: () => {
-        this.#scheduler.request("terminal-event");
+        this.requestRead("terminal-event");
       },
     };
   }

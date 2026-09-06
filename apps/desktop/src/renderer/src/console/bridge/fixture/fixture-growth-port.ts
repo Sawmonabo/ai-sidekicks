@@ -16,22 +16,28 @@
 // them, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
 
+import {
+  readApprovalProjection,
+  readRememberedRuleList,
+  type ParsedRows,
+} from "../approvals/index.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
-import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
   createRefusingGrowthPort,
   growthUnavailable,
+  growthUnscriptedReply,
+  mapGrowthServed,
+  type GrowthOutcome,
   type GrowthPort,
 } from "../growth-port/index.js";
-import type { ScenarioEngine } from "../scenario-runtime/index.js";
-
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
 import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
+import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
  * Build the fixture's growth port for one running scenario.
@@ -83,12 +89,17 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // and a fabricated empty context would be a shape no daemon sends. The fallback
       // this seam takes is a whole outcome, so that refusal is NAMED here rather than
       // smuggled through an absent value and re-read by the caller.
+      //
+      // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
+      // `answerScriptedWrite` below states in full: this fixture serves the
+      // operation, so `wire-unregistered` would be false about the build and would
+      // send a reader to a document owing a wire that already has a stand-in.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
         request,
-        () => growthUnavailable("gitflowBranchContextRead"),
+        () => growthUnscriptedReply("gitflowBranchContextRead", "gitflow.branchContextRead"),
       ),
     // identity
     callerParticipantRead: async (request) => {
@@ -110,6 +121,45 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       }
       return { status: "served", value: { participantId: viewingParticipantId } };
     },
+    // approvals
+    approvalProjectionRead: async (request) =>
+      answerApprovalRead(
+        engine,
+        "approval.projectionRead",
+        "approvalProjectionRead",
+        request,
+        readApprovalProjection,
+      ),
+    approvalRuleList: async (request) =>
+      answerApprovalRead(
+        engine,
+        "approval.ruleList",
+        "approvalRuleList",
+        request,
+        readRememberedRuleList,
+      ),
+    // The two mutations answer with nothing, and that is the wire's own shape rather
+    // than a shortcut: what a record BECAME is the next projection read's answer, so
+    // a reply carrying a state would invite a card to settle itself. What the script
+    // decides here is only WHETHER the call was accepted.
+    approvalResolve: async (request) =>
+      mapGrowthServed(
+        await answerFromScriptedReply(engine, "approval.resolve", "approvalResolve", request, () =>
+          growthUnscriptedReply("approvalResolve", "approval.resolve"),
+        ),
+        () => undefined,
+      ),
+    approvalRuleRevoke: async (request) =>
+      mapGrowthServed(
+        await answerFromScriptedReply(
+          engine,
+          "approval.ruleRevoke",
+          "approvalRuleRevoke",
+          request,
+          () => growthUnscriptedReply("approvalRuleRevoke", "approval.ruleRevoke"),
+        ),
+        () => undefined,
+      ),
     // invites
     invitesList: async (request) =>
       // Routed through the scripted-reply seam on the branch-context read's rule, and
@@ -188,6 +238,35 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
 }
 
 /**
+ * Answer one approvals READ from the script, narrowed by the console's own reader.
+ *
+ * The two reads differ only in which call they consult and which narrowing they
+ * apply, so they share this rather than repeating the four-line settle-then-narrow
+ * shape twice — and sharing it is what keeps the unscripted disposition the same for
+ * both, which is the half a second copy would drift on.
+ *
+ * The narrowing THROWS for a reply that is not even shaped like the read, and that
+ * rejection is left to travel. It is a scenario authoring error of exactly the class
+ * `assertScriptedReplyOnContract` raises on the call arm — a script teaching a surface
+ * a frame the daemon cannot send — and the caller renders it as a refusal, which is
+ * what it would do for the live wire's own rejection too.
+ */
+async function answerApprovalRead<TRow>(
+  engine: ScenarioEngine,
+  call: string,
+  operationId: "approvalProjectionRead" | "approvalRuleList",
+  request: unknown,
+  narrow: (reply: unknown) => ParsedRows<TRow>,
+): Promise<GrowthOutcome<ParsedRows<TRow>>> {
+  return mapGrowthServed(
+    await answerFromScriptedReply(engine, call, operationId, request, () =>
+      growthUnscriptedReply(operationId, call),
+    ),
+    narrow,
+  );
+}
+
+/**
  * Answer one WRITE from the script, and refuse where the scenario scripts none.
  *
  * A read has an empty state and a write does not: "this session has no agents" is a
@@ -210,7 +289,13 @@ async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
   request: unknown,
 ): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
   if (engine.replyFor(call) === undefined) {
-    return growthUnavailable(operationId);
+    // The SCENARIO's gap and never the build's. `growthUnavailable` would compose
+    // "this build does not carry the wire", which is false for an operation this
+    // fixture serves and would send a reader to the document that owes a wire the
+    // fixture already stands in for — the distinction `growthUnscriptedReply`'s own
+    // header draws, and the one `fixture-growth-port.test.ts` holds every served
+    // operation to.
+    return growthUnscriptedReply(operationId, call);
   }
   return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
     // Unreachable: the guard above already refused every unscripted call, and the

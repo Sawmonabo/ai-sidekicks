@@ -16,6 +16,7 @@
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { consoleCommandSurface, type ConsoleCommand } from "../palette/index.js";
 import { mountConsole } from "./ConsoleRoot.test-support.js";
 
@@ -73,7 +74,7 @@ describe("frame command surface — chords contributed after the table was insta
         commands: [contributedCommand],
         keyBindings: [{ chord: CONTRIBUTED_CHORD, commandId: CONTRIBUTED_COMMAND_ID }],
       });
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     pressContributedChord();
 

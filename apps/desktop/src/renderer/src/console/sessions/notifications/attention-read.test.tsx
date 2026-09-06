@@ -11,6 +11,7 @@
 // so a case that did not advance a clock would be asserting about a read that has not
 // happened yet rather than about one that never will.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -28,7 +29,7 @@ import type {
   AttentionProjectionReader,
 } from "./attention-projection-read.js";
 import { useAttentionProjection } from "./attention-read.js";
-import { settle as settlePasses } from "../../core/settle.test-support.js";
+import { settle as settleReactWork } from "../../core/settle.test-support.js";
 
 const FIRST_SESSION_ID = "session-attention-one";
 const SECOND_SESSION_ID = "session-attention-two";
@@ -136,7 +137,7 @@ function renderProbe(
 
 /** Let the read's promise settle after the frozen clock released it. */
 async function settle(): Promise<void> {
-  await settlePasses(3);
+  await settleReactWork();
 }
 
 /** Move past the coalescing window and let whatever it released land. */
@@ -190,7 +191,7 @@ describe("the attention read — a session change is what re-reads it", () => {
           <AttentionProbe read={read} registry={registry} />
         </SidekicksBridgeProvider>,
       );
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await releaseCoalescedRead(second.clock);
 
@@ -214,7 +215,7 @@ describe("the attention read — a session change is what re-reads it", () => {
           <AttentionProbe read={read} registry={registry} />
         </SidekicksBridgeProvider>,
       );
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await releaseCoalescedRead(clock);
 

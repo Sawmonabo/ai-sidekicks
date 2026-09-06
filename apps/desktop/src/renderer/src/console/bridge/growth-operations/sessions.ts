@@ -134,6 +134,21 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "method",
       "search sessions from the palette and the all-sessions list",
     ),
+    // session goals — the owner/collaborator pair the goal card drives.
+    sessionGoalUpdate: op(
+      "sessionGoalUpdate",
+      "session-goal-methods",
+      "method",
+      "set the session's goal, which the daemon appends as `session.goal_updated` and every surface then reads off the log",
+      "session.goalUpdate",
+    ),
+    sessionGoalClear: op(
+      "sessionGoalClear",
+      "session-goal-methods",
+      "method",
+      "clear the session's goal — the distinct operation, never an update carrying empty text",
+      "session.goalClear",
+    ),
     providerSessionImportBegin: op(
       "providerSessionImportBegin",
       "provider-session-import",

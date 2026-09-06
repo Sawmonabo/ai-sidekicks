@@ -66,6 +66,131 @@ export { SESSION_EVENT_STREAM } from "./daemon/session-event-streams.js";
 // would be measured against the wrong one.
 export { runStateForTransitionKind } from "./daemon/session-event-streams.js";
 
+// The one widening of the daemon's branded `subscribe` signature, and the registered
+// stream names the console opens through it. Here rather than beside a caller because
+// two families need it and neither may import the other — `daemon-streams.ts` records
+// the whole reasoning, including why a subscription is a different seam from a call.
+export {
+  PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
+  QUEUE_SUBSCRIBE_STREAM,
+  RUN_STATE_SUBSCRIBE_STREAM,
+  subscribeDaemon,
+  subscribeNodeDaemon,
+} from "./daemon/daemon-streams.js";
+
+// The wire's own readings of an identifier and of a run-state frame. Here because a
+// schema is the wire's and `console/bridge/**` is the wire's edge: a family above
+// this one consumes a typed reader that answers the value or `undefined`, and never
+// a validator. Seven surfaces used to reach for the schema themselves, which is one
+// parse per call site of exactly the kind the call door next door exists to end.
+export {
+  readChannelId,
+  readQueueItemId,
+  readRunId,
+  readRunState,
+  readSessionId,
+  readWorkspaceId,
+} from "./daemon/wire-identifiers.js";
+export { readRunRolledBack, readRunStateChange } from "./run-streams/run-state-events.js";
+export {
+  readInterruptRunParams,
+  readInterventionRequest,
+  readQueueItemCreateRequest,
+} from "./daemon/wire-requests.js";
+
+// The approvals surface's wire readings: the two reply narrowings, the resolve
+// request they pair with, and the vocabulary that classifies the wire strings both
+// carry. Here rather than beside the pane because `packages/contracts` publishes no
+// approval payload at all, so these ARE validators, and the console's one validator
+// family is this one — the pane may hold none. The projector beside them folds the
+// same wire's events; a surface consumes the ANSWER and never the schema.
+export {
+  hasCompleteResolvedQuad,
+  isResolvedState,
+  type ApprovalRecord,
+  type ApprovalResolveRequest,
+  type ParsedRows,
+  type RememberedRule,
+} from "./approvals/approval-records.js";
+export {
+  CATEGORY_PHRASE,
+  REMEMBERED_SCOPE_KINDS,
+  SCOPE_KIND_PHRASE,
+  STATE_PHRASE,
+  STATE_TONE,
+  TRIGGER_PHRASE,
+  asApprovalCategory,
+  asApprovalState,
+  asInvalidationTrigger,
+  asRememberedScopeKind,
+  rememberedScopeKindPhrase,
+  type RememberedScopeKind,
+} from "./approvals/approval-vocabulary.js";
+export { registerApprovalFlowProjectors } from "./approvals/approval-flow-projection.js";
+
+// The goal payload readings. Through this door because the approvals surface is a
+// view family and may hold no validator: what it consumes is the ANSWER — a text, an
+// origin pair, or a boolean — and never the schema that produced one.
+//
+// The two BOUNDS a goal is refused against are deliberately not here. They are caps,
+// so `console/core/constants.ts` is their one home and `core/index.js` is the door a
+// surface reads them through — this family consumes them like any other caller.
+export {
+  isSendableGoalText,
+  readGoalOriginKeys,
+  readGoalPayloadText,
+} from "./wire-shapes/session-goal-payloads.js";
+
+// The declared-capability read, and the two shapes its consumers resolve against.
+// Here rather than beside either consumer because two view families gate controls on
+// it and neither may import the other — one read per bridge serves both, and a hook
+// living in one of them would make the other's copy a second call on one wire.
+export {
+  useDriverCapabilities,
+  useDriverCapabilityRepairRead,
+} from "./driver-capabilities/driver-capability-read.js";
+export { useRunDriverBindings } from "./driver-capabilities/run-driver-binding.js";
+export type { DriverCapabilityReadout } from "./driver-capabilities/driver-capability-read.js";
+// The pure readers over that readout, from the module that declares them: the wire
+// and the questions asked of its answer are two subjects, and a door line pointing at
+// whichever file used to hold both would say otherwise.
+export {
+  readingForDriver,
+  readingForRun,
+  withRunDriverBindings,
+} from "./driver-capabilities/driver-capability-readings.js";
+export type { DriverCapabilityReading } from "./driver-capabilities/driver-capability-readings.js";
+
+// How far a reading got and why it got no further — the pair both wire readings
+// below publish, and the accessor a surface reads the refusal through. One home,
+// because two copies of the pair had drifted into two answers about when a refusal
+// stops being true.
+export { readRefusalOf } from "./readings/reading-lifecycle.js";
+export type { WireReadState } from "./readings/reading-lifecycle.js";
+
+// The session's one queue reading. Here for the same reason the capability read is:
+// the runs pane and the composer's shelf ask two questions of one list, and each
+// used to ask its own down its own subscription.
+export { useQueueFeed, useQueueRepairRead } from "./queue/queue-feed.js";
+export type { QueueFeed } from "./queue/queue-reading.js";
+
+// The node's provider-account quotas: one read, one tail, one fold per bridge.
+//
+// Here rather than in the composer because the readings are the NODE's and not a
+// session's — `usage.rate_limit_update` is bound to the node-scope sentinel session,
+// so no session store ever held one and the composer's timeline fold could only ever
+// have rendered a fixture. A settings surface listing accounts asks the same
+// question of the same registry, so the read lives at the bridge where both reach it.
+//
+// Three modules, and the door re-exports each symbol from the one that DECLARES it:
+// `provider-quota-fold.ts` owns which reading is current and what a surface renders
+// for it, `provider-account-quota.ts` owns the wire that feeds it, and
+// `provider-quota-feed.ts` owns how many readings there are and how long each lives.
+export { useProviderQuotas } from "./quotas/provider-quota-feed.js";
+export type { ProviderQuotaReadout } from "./quotas/provider-account-quota.js";
+export { remainingPercentOf } from "./quotas/provider-quota-fold.js";
+export type { ProviderQuotaReading } from "./quotas/provider-quota-fold.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,
@@ -82,7 +207,7 @@ export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 // would be a surface that could parse a second time, differently.
 export {
   callDaemon,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
+  // Consumed by T-023p-1C-2
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon/daemon-reply.js";
 export type { DaemonReply, DaemonReplyRefusalCode } from "./daemon/daemon-reply.js";
@@ -308,18 +433,20 @@ export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 // wire's own shapes are read here and nowhere above.
 export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 
-// `membershipRoleOf` is the injected lookup `useCallerMembershipRole` takes: the
-// store's roster holds the role and deliberately names no wire member, so the read
-// that narrows one lives here and travels through the door to the surfaces that
-// gate a control on the caller's role — `terminal/pane/BoundTerminalPane.tsx`, which
-// takes it through `useCallerMembershipRole` to decide whether this viewer may hold
-// the write lease, is the reader today and the reason the line is a door line. Its
-// sibling `stampedExecutionPostureOf` is NOT published: the stamped posture waits on
-// the projector that carries the member into a run body, and a door line whose only
-// importer is a test is the class `test/console/architecture/barrel-census.test.ts`
-// fails — its suite reads the declaring module, which is the disposition that census
-// names for exactly this state.
-export { membershipRoleOf } from "./daemon/entity-body-reads.js";
+// The three body reads that narrow a wire shape, all through the door because each
+// has a production reader above this family. `membershipRoleOf` is the injected
+// lookup `useCallerMembershipRole` takes: the store's roster holds the role and
+// deliberately names no wire member, so the read that narrows one lives here and
+// travels to the surfaces that gate a control on the caller's role — the approvals
+// goal editor and `terminal/pane/BoundTerminalPane.tsx`, which takes it through
+// `useCallerMembershipRole` to decide whether this viewer may hold the write lease.
+// `stampedExecutionPostureOf` is the composer's posture chip's: it parses the
+// candidate against the registered `RunStateChangeEvent` shape, which is the whole
+// point — a surface checking two members loosely and asserting the type admitted a
+// body with no `networkAccess`, and the chip then rendered an empty label beside two
+// full ones. This door line waited on a production consumer and now has one, in
+// `shell/composer/chips/chip-models.ts`.
+export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
 
 // The reported node state a payload member carries. Through the door for the reason
 // the line above is: the narrowing runs against the contract's own schema, which this
