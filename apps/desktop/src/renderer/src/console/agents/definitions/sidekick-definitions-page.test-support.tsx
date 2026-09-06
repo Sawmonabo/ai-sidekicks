@@ -187,10 +187,6 @@ export async function settle(): Promise<void> {
   await settlePasses(DEFINITIONS_SETTLE_PASSES);
 }
 
-export function politeText(container: HTMLElement): string {
-  return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
-}
-
 export function savedRegionOf(container: HTMLElement): Element {
   const region = container.querySelector('[aria-label="Saved sidekicks"]');
   if (region === null) {

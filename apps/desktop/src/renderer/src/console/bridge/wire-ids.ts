@@ -5,8 +5,11 @@
 // arrive from route params, from authored scenario data, and off rendered rows,
 // none of which carries a brand. So every caller that sends one has to widen at the
 // seam where a held id meets a registered request, and the console has been writing
-// that widening — plus a paragraph explaining it — once per call site. The shipped
-// `frame/legacy-surfaces.ts` carries one; the sent-invite ledger carried a second.
+// that widening — plus a paragraph explaining it — once per call site. The sent-invite
+// ledger carried one and the repo-mount inventory a second; both take this function
+// now. `collaboration/members/MembershipActionsMenu.tsx` still widens by hand, and
+// correctly so: it brands a row's own id for a callback rather than for a request,
+// which is the one case this module deliberately does not serve.
 //
 // WHY IT SITS BESIDE THE CALL DOOR AND NOWHERE ELSE. `callDaemon` parses the whole
 // request through the contracts schema before anything is sent, and that schema is

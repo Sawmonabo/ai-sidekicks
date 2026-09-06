@@ -3,7 +3,7 @@
 // Split from the wire half on the seam `attach-request.ts` draws: this file drives the
 // declaration block, the resolved receipt, and the attachment-target reset — what the
 // view renders. What it SENDS and how a reply settles is
-// `AttachFlow.request.test.tsx`, over the one cast in `attach-flow.test-support.tsx`.
+// `AttachFlow.request.test.tsx`, over the one cast in `attach-flow.test-support.ts`.
 //
 // Spec coverage:
 //   • `Spec-003 §Acceptance Criteria` AC1 (a participant attaches a local runtime node

@@ -18,20 +18,23 @@
 // shares, which is what that section names ("through the shell-config preference
 // carrier on the growth slate … held renderer-side until that carrier lands").
 //
+// It lives under that page's directory and is named for what it is, because a
+// directory of its own under `pages/` registered nothing and read as a page.
+//
 // This is one BLOCK of the application page rather than a page of its own: the
 // closed section set has no crash-reporting section, and crash reporting is a fact
 // about this application, which is where `ApplicationPage.tsx` composes it.
 
 import type { ReactNode } from "react";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
-import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
+import type { ConsoleBridge } from "../../../../bridge/index.js";
+import { PreferenceToggleRow } from "../../../shared/PreferenceToggleRow.js";
+import { useShellPreferences } from "../../../shared/shell-preferences/shell-preferences-holder.js";
 
 /** The one key this block spends. Named once so the row and its note cannot drift. */
 const CRASH_REPORT_KEY = "diagnostics.crashReports";
 
-export function CrashReportingPage(props: { readonly bridge: ConsoleBridge }): ReactNode {
+export function CrashReportingBlock(props: { readonly bridge: ConsoleBridge }): ReactNode {
   const preferences = useShellPreferences(props.bridge);
   const isEnabled = preferences.isEnabled(CRASH_REPORT_KEY);
   return (

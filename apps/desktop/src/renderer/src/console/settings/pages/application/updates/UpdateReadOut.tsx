@@ -5,7 +5,7 @@ import {
   Nothing,
   WireFigure,
   formatPercent,
-} from "../../../primitives/index.js";
+} from "../../../../primitives/index.js";
 import { type UpdateReading } from "./updater-reading.js";
 
 /** The five arms, plus the conversation's own absence. One render per arm. */

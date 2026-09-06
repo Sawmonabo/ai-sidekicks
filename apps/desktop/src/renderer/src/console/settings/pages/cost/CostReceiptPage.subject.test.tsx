@@ -18,7 +18,7 @@ import {
   SESSION_ID,
   balancedReceipt,
   bridgeServing,
-  renderMovablePage,
+  renderMovableCostPage,
   settle,
 } from "./cost-receipt-page.test-support.js";
 
@@ -29,7 +29,7 @@ const SERVED_RUN_ID = "run-alpha";
 
 describe("the cost page — the session a figure belongs to", () => {
   it("commits no frame carrying the previous session's rows under the new one", async () => {
-    const page = renderMovablePage(bridgeServing(balancedReceipt()), SESSION_ID);
+    const page = renderMovableCostPage(bridgeServing(balancedReceipt()), SESSION_ID);
     await settle();
     expect(page.container.textContent ?? "").toContain(SERVED_RUN_ID);
 
@@ -46,14 +46,14 @@ describe("the cost page — the session a figure belongs to", () => {
     // Without this, the case above would hold for a recorder that captured nothing,
     // and the frame it exists to inspect would go unexamined while the suite stayed
     // green.
-    const page = renderMovablePage(bridgeServing(balancedReceipt()), SESSION_ID);
+    const page = renderMovableCostPage(bridgeServing(balancedReceipt()), SESSION_ID);
     await settle();
 
     expect(page.frames.filter((frame) => frame.includes(SERVED_RUN_ID))).not.toStrictEqual([]);
   });
 
   it("reads the new session's receipt once the frame after it settles", async () => {
-    const page = renderMovablePage(bridgeServing(balancedReceipt()), SESSION_ID);
+    const page = renderMovableCostPage(bridgeServing(balancedReceipt()), SESSION_ID);
     await settle();
     page.showSession(OTHER_SESSION_ID);
     await settle();

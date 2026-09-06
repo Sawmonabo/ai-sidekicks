@@ -295,8 +295,20 @@ describe("the agent console's models — the exact bridge and store they answer 
 
 // --- A model reads on the bridge's clock, never on one it minted --------------
 
-/** Drain microtasks without touching any clock, so only a due timer can fire. */
-async function drainMicrotasks(): Promise<void> {
+/**
+ * Let continuations run WITHOUT crossing a macrotask boundary.
+ *
+ * Deliberately not the shared drain in `bridge/fixture-bridge.test-support.ts`, and
+ * deliberately not under its name: that one is a `setTimeout(…, 0)` boundary, and
+ * every case below asserts that nothing fell due while the bridge's clock stood still.
+ * Yielding to the macrotask queue is exactly what would let a due timer fire, so it
+ * would settle the reads these cases claim are unscheduled and each one would pass
+ * with its subject removed. A counted number of passes is the price of that: four,
+ * one more than the deepest `.then` chain a model opening a read arms, and a count
+ * this file may tune because what it bounds is its own settling rather than the
+ * implementation's.
+ */
+async function settleWithoutCrossingATimer(): Promise<void> {
   for (let pass = 0; pass < 4; pass += 1) {
     await Promise.resolve();
   }
@@ -312,11 +324,11 @@ describe("the agent console's models — whose clock their reads run on", () => 
     const bridge = unscriptedBridge("agent-models-clock");
     const sessionStore = initialisedStore("session-clock");
     const models = new AgentConsoleModels(bridge, sessionStore);
-    await drainMicrotasks();
+    await settleWithoutCrossingATimer();
     expect(models.roster.readCount).toBe(0);
 
     bridge.scenarioEngine?.advance(REFRESH_MAX_WAIT_MS);
-    await drainMicrotasks();
+    await settleWithoutCrossingATimer();
 
     expect(models.roster.readCount).toBe(1);
     models.dispose();
@@ -330,8 +342,8 @@ describe("the agent console's models — whose clock their reads run on", () => 
     const sessionStore = initialisedStore("session-clock-held");
     const models = new AgentConsoleModels(bridge, sessionStore);
 
-    await drainMicrotasks();
-    await drainMicrotasks();
+    await settleWithoutCrossingATimer();
+    await settleWithoutCrossingATimer();
 
     expect(models.roster.readCount).toBe(0);
     expect(models.driverCatalog.readCount).toBe(0);

@@ -1,7 +1,7 @@
 // How every agent-console suite lets a scheduled read land.
 //
-// FOUR IDENTICAL COPIES BEFORE THIS MODULE. `AgentConsoleBody.test.tsx`,
-// `AgentBindingColumn.test.tsx`, and `AgentConsoleBody.peer-invocation.test.tsx` each
+// FOUR IDENTICAL COPIES BEFORE THIS MODULE. The body suites, the binding-column
+// suites, and `AgentConsoleBody.peer-invocation.test.tsx` each
 // declared the same eight-line `settleReads`, and `session-projection.test.ts`
 // declared the same body without the `act` wrapper it has no tree for. They agreed
 // only because nobody had touched one of them: a change to the refresh chokepoint

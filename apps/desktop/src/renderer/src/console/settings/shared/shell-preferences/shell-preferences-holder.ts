@@ -10,9 +10,13 @@
 // WHY THE STORE IS THE WINDOW'S AND NOT A PAGE'S
 //
 // A held value's note is a promise, and a store built per calling component cannot
-// keep it: three pages read these keys, each would own a separate store, and the
-// store would die with the page — so switching settings sections destroyed a choice
-// while the row still said it was held for the window. {@link consoleShellPreferences}
+// keep it: more than one surface reads these keys, each would own a separate store,
+// and the store would die with the page — so switching settings sections destroyed a
+// choice while the row still said it was held for the window. That plurality is also
+// why these three modules live in `settings/shared/` rather than under `pages/`,
+// beside `PreferenceToggleRow.tsx`, which is the family's home for exactly this: a
+// directory under `pages/` that registers no page reads as a page to anyone counting
+// the registrars, and this one never was one. {@link consoleShellPreferences}
 // is the one holder, on the precedent `palette/keybinding-override-store.ts` states in
 // its own words: module scope IS window scope here, because an auxiliary window is
 // its own renderer process and no channel joins two windows' module graphs.

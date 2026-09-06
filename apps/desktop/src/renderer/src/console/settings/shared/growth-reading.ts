@@ -16,9 +16,12 @@
 //
 // GENERIC IN THE OUTCOME because the shape is the same for every one-shot read and
 // two copies of it would be two vocabularies for one fact. It lives in `settings/`
-// beside the two pages that hold it today; the collaboration and sessions families
-// carry the same shape for their own reads, and the home all three could share is
-// `bridge/`, beside `GrowthOutcome` itself.
+// beside the two pages that hold it today; `collaboration/invites/invite-ledger.ts`
+// declares the same two arms for its own read, and the home those two could share is
+// `bridge/`, beside `GrowthOutcome` itself. The SESSIONS family is deliberately not
+// counted in: `sessions/invitations/invite-shelf-reading.ts` folds a fan-out over many
+// sessions into a completeness scope, which is a different shape and not a third copy
+// of this one.
 
 import type { ConsoleRefusal } from "../../core/index.js";
 

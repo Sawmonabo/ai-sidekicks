@@ -12,6 +12,7 @@ import { act, render } from "@testing-library/react";
 import { ManualClock } from "../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle as settlePasses } from "../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
+import { politeText } from "../primitives/live-region.test-support.js";
 import { SidekicksBridgeProvider } from "../bridge/index.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 import { openStore } from "./sessions.test-support.js";
@@ -201,7 +202,8 @@ export function contextWith(options: {
  * inside one.
  *
  * THE SURFACE'S OWN ELEMENT IS RETURNED, not the render container — the
- * `settings/pages/updates/UpdatesPage.test.tsx` shape, and here it is load-bearing rather
+ * `settings/pages/application/updates/UpdatesBlock.reading.test.tsx` shape, and here it is
+ * load-bearing rather
  * than tidy. The provider's two live regions are siblings ABOVE this surface, and
  * they carry the settlement sentence, so a case asserting the panel does not say
  * "Nothing needs you." would otherwise be reading the announcement of exactly that
@@ -228,6 +230,6 @@ export function renderSurface(context: ConsoleSurfaceContext): {
   }
   return {
     container: surfaceRoot,
-    politeText: () => mounted.querySelector('[data-live-region="polite"]')?.textContent ?? "",
+    politeText: () => politeText(mounted),
   };
 }

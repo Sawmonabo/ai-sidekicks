@@ -19,7 +19,8 @@ import {
   OVERLAPPING_DRIVER_CATALOG_FIXTURE,
 } from "../driver-catalog.test-support.js";
 import type { DriverCatalogReading } from "../driver-catalog.js";
-import { ATTACH_FIELDS, AttachSidekickForm, type AttachField } from "./attach-model.js";
+import { AttachSidekickForm } from "./attach-model.js";
+import { ATTACH_FIELDS, type AttachField } from "./attach-readiness.js";
 import { DEFINITION, SESSION_ID, namedForm } from "./attach-model.test-support.js";
 
 /**

@@ -19,7 +19,7 @@
 // RETURNING a value that already is the console's refusal shape
 // (`bridge/growth-outcome.ts` extends `ConsoleRefusal`). Routing one through the
 // other would mean raising a refusal in order to parse it back into what it started
-// as. `settings/pages/shell-preferences/shell-preferences-store.ts` is the precedent followed instead: a
+// as. `settings/shared/shell-preferences/shell-preferences-store.ts` is the precedent followed instead: a
 // growth-port carrier owning its own pending key, refusal map, and generation.
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";

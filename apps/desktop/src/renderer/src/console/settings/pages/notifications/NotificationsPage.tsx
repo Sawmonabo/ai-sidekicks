@@ -71,7 +71,7 @@ import {
 } from "./attention-preference-model.js";
 import { NotificationPreferenceWriter } from "./notification-preference-writer.js";
 import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
-import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
+import { useShellPreferences } from "../../shared/shell-preferences/shell-preferences-holder.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 import { StoredPreferences } from "./StoredPreferences.js";
 import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";

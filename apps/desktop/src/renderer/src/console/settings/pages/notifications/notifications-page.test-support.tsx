@@ -14,14 +14,17 @@ import {
   unscriptedScenario,
 } from "../../../bridge/fixture-bridge.test-support.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
-import { CommittedFrameRecorder } from "../../committed-frame.test-support.js";
+import {
+  renderMovablePage,
+  settingsPageContextWith,
+  type MountedMovablePage,
+} from "../../settings-page-mount.test-support.js";
 import { NotificationsPage } from "./NotificationsPage.js";
 import type {
   AttentionPreference,
   AttentionPreferenceReadOutcome,
   CallerParticipantOutcome,
 } from "./attention-preference-model.js";
-import { type SettingsPageContext } from "../../settings-page-registry.js";
 import { settle as settlePasses } from "../../../core/settle.test-support.js";
 
 import type { ConsoleScenario } from "../../../bridge/scenario.js";
@@ -52,18 +55,6 @@ export function servedPreferences(
   return { status: "served", value: { preferences } };
 }
 
-export function contextWith(
-  bridge: ConsoleBridge,
-  retainedSessionId: string | undefined,
-): SettingsPageContext {
-  return {
-    bridge,
-    openSection: () => undefined,
-    retainedSessionId,
-    retainedSessionStore: undefined,
-  } satisfies SettingsPageContext;
-}
-
 /** Let the chained reads, the write, and the re-read all land. */
 export async function settle(): Promise<void> {
   await settlePasses(8);
@@ -82,49 +73,16 @@ export async function renderSettledPage(bridge: ConsoleBridge): Promise<HTMLElem
   return container;
 }
 
-/** What one mounted page exposes to a case that moves it between sessions. */
-export interface MountedNotificationsPage {
-  readonly container: HTMLElement;
-  /** Every frame committed since the last {@link MountedNotificationsPage.forgetFrames}. */
-  readonly frames: readonly string[];
-  readonly forgetFrames: () => void;
-  readonly showSession: (retainedSessionId: string | undefined) => void;
-}
-
-/**
- * Mount the page beside a recorder, so a case can read the frames it committed.
- *
- * The subject move this supports is one commit long — see
- * `settings/committed-frame.test-support.tsx` — so the case cannot look at the DOM
- * afterwards and see it.
- */
-export function renderMovablePage(
+/** Mount the notifications page beside a recorder. See the family's shared harness. */
+export function renderMovableNotificationsPage(
   bridge: ConsoleBridge,
   retainedSessionId: string | undefined,
-): MountedNotificationsPage {
-  const frames: string[] = [];
-  const tree = (sessionId: string | undefined): React.JSX.Element => (
-    <LiveAnnouncerProvider>
-      <CommittedFrameRecorder
-        onFrame={(committedText) => {
-          frames.push(committedText);
-        }}
-      >
-        <NotificationsPage context={contextWith(bridge, sessionId)} />
-      </CommittedFrameRecorder>
-    </LiveAnnouncerProvider>
+): MountedMovablePage {
+  return renderMovablePage(
+    (context) => <NotificationsPage context={context} />,
+    bridge,
+    retainedSessionId,
   );
-  const { container, rerender } = render(tree(retainedSessionId));
-  return {
-    container,
-    frames,
-    forgetFrames: () => {
-      frames.length = 0;
-    },
-    showSession: (nextSessionId) => {
-      rerender(tree(nextSessionId));
-    },
-  };
 }
 
 export function renderPageAt(
@@ -133,14 +91,10 @@ export function renderPageAt(
 ): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <NotificationsPage context={contextWith(bridge, retainedSessionId)} />
+      <NotificationsPage context={settingsPageContextWith(bridge, retainedSessionId)} />
     </LiveAnnouncerProvider>,
   );
   return container;
-}
-
-export function politeAnnouncement(container: HTMLElement): string {
-  return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
 }
 
 export function storedSwitches(container: HTMLElement): HTMLElement[] {

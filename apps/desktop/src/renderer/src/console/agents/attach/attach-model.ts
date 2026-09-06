@@ -1,5 +1,9 @@
 // The attach form's state: two arms of one form, and a per-field override mark.
 //
+// The RULE half — the field vocabulary, the request the wire takes, and whether a
+// filled form is submittable — is `attach-readiness.ts` beside it. This file is what a
+// caller may DO to the form; that one is what the entries mean.
+//
 // `Spec-023 §Console Design (Meridian)` §Attaching a sidekick makes this a FORM and
 // not a wizard, and the shape of the request is what forces that: the union refuses
 // exactly one thing, a request naming neither a definition nor a driver-and-model
@@ -63,68 +67,22 @@
 // render.
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
-import type { AgentAttachRequest } from "../../bridge/index.js";
-import { PROVIDER_AXES, type ProviderAxis, type SidekickDefinitionSummary } from "../agent-wire.js";
+import type { SidekickDefinitionSummary } from "../agent-wire.js";
 import {
-  unvouchedAxesOf,
   DEPENDENT_AXES,
   type DependentAxis,
   type ResolvedAxisChain,
 } from "../dependent-axis-chain.js";
 import type { DriverCatalogReading } from "../driver-catalog.js";
-
-/** Which arm the caller is filling. The definition arm needs only an id. */
-export const ATTACH_ARMS = ["definition", "inline"] as const;
-export type AttachArm = (typeof ATTACH_ARMS)[number];
-
-/**
- * The fields either arm may carry — the wire's own axis set less the one it cannot.
- *
- * A SUBTRACTION from {@link PROVIDER_AXES} rather than a list beside it, so a sixth
- * provider axis reaches this form's entered map, its per-field accessors, and the
- * request it composes through the filter and not through an edit here. `outputSpeed`
- * is the one exclusion because the attach request's configuration half is
- * `AgentResolvedConfiguration`, which carries no member for it — an attach stamps the
- * four snapshot axes and the speed axis is moved by `agent.configUpdate`.
- */
-export type AttachField = Exclude<ProviderAxis, "outputSpeed">;
-export const ATTACH_FIELDS: readonly AttachField[] = PROVIDER_AXES.filter(
-  (axis): axis is AttachField => axis !== "outputSpeed",
-);
-
-/**
- * What each chain axis is called where the form says what is still needed.
- *
- * Words rather than field names, because this is read by a person: the chain rule
- * answers which axis no vocabulary carries and this says what to call it. The keys
- * are the chain's own, so an axis added there is a compile error here rather than an
- * axis that silently reports nothing.
- */
-const UNVOUCHED_AXIS_WORDS: Record<DependentAxis, string> = {
-  driverName: "a driver this catalog carries",
-  modelId: "a model this driver carries",
-  effort: "an effort this model carries",
-};
-
-/**
- * What the form would send, once it is complete: the wire's request, name required.
- *
- * DERIVED FROM THE REGISTERED REQUEST RATHER THAN RESTATED, for the reason
- * {@link AgentAttachRequest} gives on its own declaration: written out a second time,
- * the two drifted the first time an axis landed on one and not the other, and because
- * a hand-written copy is a structural SUBSET the compiler had nothing to say when the
- * form stopped being able to send an axis the wire had grown. What this adds is the
- * form's one narrowing — `name` is required here while the wire leaves it optional,
- * because a request missing it is refused by any conforming daemon whatever else it
- * carries. The session is not the form's to know: it is bound by the caller at
- * {@link AttachSidekickForm.readiness}, and the name is the AGENT's rather than the
- * definition's, which is why no arm ever fills it in.
- */
-export type AttachRequest = AgentAttachRequest & { readonly name: string };
-
-export type AttachReadiness =
-  | { readonly status: "ready"; readonly request: AttachRequest }
-  | { readonly status: "incomplete"; readonly missing: readonly string[] };
+import {
+  ATTACH_FIELDS,
+  attachReadinessFor,
+  unvouchedAttachAxes,
+  type AttachArm,
+  type AttachField,
+  type AttachFormReading,
+  type AttachReadiness,
+} from "./attach-readiness.js";
 
 export class AttachSidekickForm {
   readonly #changes = new Emitter<void>("attach form");
@@ -249,63 +207,24 @@ export class AttachSidekickForm {
   }
 
   /**
-   * The request, or what is still missing.
+   * The request, or what is still missing — through `attach-readiness.ts`'s one rule.
    *
-   * The definition arm sends the id plus ONLY the fields the caller entered, which is
-   * what makes the merge per-field at the daemon rather than a whole-record replace
-   * composed here.
-   *
-   * Presence is not enough, and neither is the entered half. Every axis of the
-   * RESOLVED chain has to be a member of the vocabulary its parent publishes,
-   * because {@link setField}'s chain cannot be the only guard: a catalog refresh can
-   * retire a model or an effort level under a form nobody touched, and an override
-   * lands in the middle of a chain whose other axes came from the definition. So
-   * this is a second reading of the same rule rather than a repetition of one act.
-   *
-   * The session and the catalog are ARGUMENTS rather than fields: this form is opened
-   * over whatever session the surface is showing and against whatever the catalog
-   * read currently answers, and a copy of either held here would be a second answer
-   * to a question the models already own.
+   * The form supplies a reading of itself and decides nothing: what a resolved chain
+   * has to satisfy is the rule's, and a second reading composed here would be a second
+   * answer to whether this form may be submitted.
    */
   public readiness(sessionId: string, catalog: DriverCatalogReading | undefined): AttachReadiness {
-    const name = this.#name.trim();
-    const missing: string[] = [];
-    if (name === "") {
-      missing.push("a name");
-    }
-    const unvouched = this.#axesNoVocabularyCarries(catalog);
-    if (this.#arm === "definition") {
-      const definitionId = this.#definition?.definitionId;
-      if (definitionId === undefined) {
-        missing.push("a definition");
-      }
-      missing.push(...unvouched);
-      if (name === "" || definitionId === undefined || unvouched.length > 0) {
-        return { status: "incomplete", missing };
-      }
-      return {
-        status: "ready",
-        request: { sessionId, name, definitionId, ...this.#enteredConfiguration() },
-      };
-    }
-    const driverName = this.#entered.get("driverName");
-    const modelId = this.#entered.get("modelId");
-    if (driverName === undefined) {
-      missing.push("a driver");
-    }
-    if (modelId === undefined) {
-      missing.push("a model");
-    }
-    missing.push(...unvouched);
-    if (name === "" || driverName === undefined || modelId === undefined || unvouched.length > 0) {
-      return { status: "incomplete", missing };
-    }
+    return attachReadinessFor(this.#reading(), sessionId, catalog);
+  }
+
+  /** This form, in the shape the readiness rule and the chain guard both read. */
+  #reading(): AttachFormReading {
     return {
-      status: "ready",
-      // The driver and model this arm requires are entered values, so the walk below
-      // already carries them; naming them again here would be a second copy of the
-      // same two members that could disagree with the first.
-      request: { sessionId, name, ...this.#enteredConfiguration() },
+      arm: this.#arm,
+      name: this.#name.trim(),
+      definitionId: this.#definition?.definitionId,
+      entered: this.#enteredConfiguration(),
+      resolvedChain: this.#resolvedChain(),
     };
   }
 
@@ -365,30 +284,9 @@ export class AttachSidekickForm {
     }
   }
 
-  /**
-   * Which axes of the resolved chain no published vocabulary vouches for, as words.
-   *
-   * A form carrying no ENTRY among the three needs no catalog at all — which is what
-   * keeps the definition arm submittable while the catalog read is still in flight,
-   * since the daemon resolves a definition's own driver and model itself and a
-   * definition is internally coherent by construction. The moment one IS entered the
-   * whole chain is in question, because an entry can retire the vocabulary an
-   * inherited axis was published under; an unread catalog is then named as the thing
-   * still missing rather than treated as permission.
-   */
-  #axesNoVocabularyCarries(catalog: DriverCatalogReading | undefined): readonly string[] {
-    if (!DEPENDENT_AXES.some((axis) => this.#entered.has(axis))) {
-      return [];
-    }
-    if (catalog === undefined) {
-      return ["the model catalog"];
-    }
-    return this.#unvouchedAxes(catalog).map((axis) => UNVOUCHED_AXIS_WORDS[axis]);
-  }
-
   /** The chain rule over this form's own resolved reading. */
   #unvouchedAxes(catalog: DriverCatalogReading | undefined): readonly DependentAxis[] {
-    return unvouchedAxesOf(this.#resolvedChain(), catalog);
+    return unvouchedAttachAxes(this.#reading(), catalog);
   }
 
   /**

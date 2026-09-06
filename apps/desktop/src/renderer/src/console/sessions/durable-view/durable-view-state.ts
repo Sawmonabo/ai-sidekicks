@@ -28,7 +28,7 @@
 // is still in flight; `commit` installs immediately, so the record that then comes
 // back is older than what is on screen. The mutation generation is the ordering the
 // store itself supplies — `hydrate` captures it before its read and applies the
-// record only if it is still current, exactly as `settings/pages/shell-preferences/shell-preferences-store.ts`
+// record only if it is still current, exactly as `settings/shared/shell-preferences/shell-preferences-store.ts`
 // ignores a superseded reply. It still marks the state hydrated, because the read
 // DID settle and a remount must not re-ask; what is discarded is the value, not the
 // fact that the question was answered.

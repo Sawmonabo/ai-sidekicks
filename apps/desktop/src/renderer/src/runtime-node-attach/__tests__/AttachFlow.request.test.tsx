@@ -4,7 +4,7 @@
 // the composed request, the four settlement paths a bridge reply can take, and the
 // CP-003-3 source tripwire over both of the view's modules. What the operator SEES on
 // each of those states is `AttachFlow.render.test.tsx`, over the one cast in
-// `attach-flow.test-support.tsx`.
+// `attach-flow.test-support.ts`.
 //
 // Spec coverage:
 //   • `Spec-003 §Required Behavior` (attach carries node identity, declared

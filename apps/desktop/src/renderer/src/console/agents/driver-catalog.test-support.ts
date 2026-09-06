@@ -1,7 +1,7 @@
 // The two catalog readings this family's suites drive against.
 //
 // Hoisted on their second use rather than copied: `driver-catalog.test.ts` measures
-// the selectors over the first and `ProviderSwitch.test.tsx` measures which controls
+// the selectors over the first and `ProviderSwitch.controls.test.tsx` measures which controls
 // it produces, and two copies would eventually disagree about which driver declares
 // what — which is the exact distinction both suites exist to hold.
 //

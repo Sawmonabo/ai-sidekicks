@@ -24,25 +24,21 @@
 // This is one BLOCK of the application page rather than a page of its own: the
 // section set `Spec-023 §Console Design (Meridian)` fixes has no updates section,
 // and `ApplicationPage.tsx` is where the two blocks about the application itself
-// are composed.
+// are composed. It lives UNDER that page's directory and is named for what it is,
+// because a directory of its own under `pages/` registered nothing and read as a
+// twelfth page to anyone counting the registrars.
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "../../../core/index.js";
-import { InlineRefusal, useSettlementAnnouncement } from "../../../primitives/index.js";
-import { consoleRefusalFrom } from "../../../seats/index.js";
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
-import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
+import type { ConsoleRefusal } from "../../../../core/index.js";
+import { InlineRefusal, useSettlementAnnouncement } from "../../../../primitives/index.js";
+import { consoleRefusalFrom } from "../../../../seats/index.js";
+import type { ConsoleBridge } from "../../../../bridge/index.js";
+import { useSubjectScopedState } from "../../../../store/index.js";
+import { PreferenceToggleRow } from "../../../shared/PreferenceToggleRow.js";
+import { useShellPreferences } from "../../../shared/shell-preferences/shell-preferences-holder.js";
 import { UpdaterReadingHolder, type UpdateReading } from "./updater-reading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 
@@ -123,7 +119,7 @@ function updateSettlementSentence(reading: UpdateReading): string | undefined {
   }
 }
 
-export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNode {
+export function UpdatesBlock(props: { readonly bridge: ConsoleBridge }): ReactNode {
   const { bridge } = props;
   const reading = useUpdateReading(bridge);
   // Said once, when the updater read lands. The preference carrier this block also
@@ -132,7 +128,15 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
   // there is no settlement on screen for an announcement to be the spoken half of.
   useSettlementAnnouncement(updateSettlementSentence(reading));
   const preferences = useShellPreferences(bridge);
-  const [requestRefusal, setRequestRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  // HELD FOR THE TRANSPORT IT WAS REFUSED BY, through the family's one holder, which
+  // is what the two sibling pages already do. A plain state cell outlived a bridge
+  // swap, so a line the previous transport wrote stayed on screen underneath one that
+  // never refused anything — and the controls beside it now reach a different
+  // updater. The key is `undefined` because this block is about no session: the
+  // subject alone is what the line may never outlive.
+  const { value: requestRefusal, publish: publishRequestRefusal } = useSubjectScopedState<
+    ConsoleRefusal | undefined
+  >(bridge, undefined, () => undefined);
   const isAutomatic = preferences.isEnabled(AUTOMATIC_UPDATE_KEY);
   const isReady = reading.kind === "state" && reading.state.status === "ready";
   // One place a control's failure becomes a line on screen. The two controls below
@@ -147,20 +151,23 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
   // the refusal line never drawn on the one build a person actually runs. Calling
   // `perform` inside the `try` puts both failures on one path, so there is one
   // handler here rather than two branches saying the same sentence.
-  const runControl = useCallback(async (perform: () => Promise<void>): Promise<void> => {
-    setRequestRefusal(undefined);
-    try {
-      await perform();
-    } catch (rejection: unknown) {
-      // Through the console's one converter, so a daemon code reaches the screen.
-      // `wireRejectionToError` puts that code on `Error.name` and this site read only
-      // `.message`, which discarded every registered code the updater namespace can
-      // refuse with — the one part of a refusal rule 9 requires verbatim.
-      setRequestRefusal(
-        consoleRefusalFrom(rejection, UPDATE_CONTROL_ORIGIN, UPDATE_CONTROL_FAILED),
-      );
-    }
-  }, []);
+  const runControl = useCallback(
+    async (perform: () => Promise<void>): Promise<void> => {
+      publishRequestRefusal(undefined);
+      try {
+        await perform();
+      } catch (rejection: unknown) {
+        // Through the console's one converter, so a daemon code reaches the screen.
+        // `wireRejectionToError` puts that code on `Error.name` and this site read only
+        // `.message`, which discarded every registered code the updater namespace can
+        // refuse with — the one part of a refusal rule 9 requires verbatim.
+        publishRequestRefusal(
+          consoleRefusalFrom(rejection, UPDATE_CONTROL_ORIGIN, UPDATE_CONTROL_FAILED),
+        );
+      }
+    },
+    [publishRequestRefusal],
+  );
 
   return (
     <section className="meridian-settings-page__block" aria-label="Application updates">

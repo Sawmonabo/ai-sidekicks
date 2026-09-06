@@ -9,6 +9,8 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge, growthUnavailable } from "../../../bridge/index.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
+import { politeText } from "../../../primitives/live-region.test-support.js";
+import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";
 import { CostReceiptPage, registerCostReceiptPage } from "./CostReceiptPage.js";
 import type { CostReceipt, CostReceiptOutcome } from "./cost-receipt-model.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";
@@ -18,8 +20,6 @@ import {
   balancedReceipt,
   bridgeAnswering,
   bridgeServing,
-  contextWith,
-  politeAnnouncement,
   renderSettledPage,
   sectionText,
   settle,
@@ -63,7 +63,7 @@ describe("the cost page — a split that does not account for the figure", () =>
 describe("the cost page — what it says out loud", () => {
   it("announces the settlement once, politely, with what it read", async () => {
     const container = await renderSettledPage(bridgeServing(balancedReceipt()), SESSION_ID);
-    expect(politeAnnouncement(container)).toBe(
+    expect(politeText(container)).toBe(
       "Cost receipt read. Rows: 2 by run, 2 by party, 1 by account.",
     );
   });
@@ -71,14 +71,14 @@ describe("the cost page — what it says out loud", () => {
   it("announces the refusal's own sentence rather than a paraphrase", async () => {
     const refusal = growthUnavailable("orchestrationCostReceiptRead");
     const container = await renderSettledPage(bridgeAnswering(refusal).bridge, SESSION_ID);
-    expect(politeAnnouncement(container)).toBe(refusal.detail);
+    expect(politeText(container)).toBe(refusal.detail);
   });
 
   it("negative control: a re-render neither re-reads nor speaks again", async () => {
     // One read is one announcement, so the assertion that nothing is said twice is
     // the assertion that nothing is asked twice.
     const answered = bridgeAnswering({ status: "served", value: balancedReceipt() });
-    const context = contextWith(answered.bridge, SESSION_ID);
+    const context = settingsPageContextWith(answered.bridge, SESSION_ID);
     const view = render(
       <LiveAnnouncerProvider>
         <CostReceiptPage context={context} />
@@ -96,7 +96,7 @@ describe("the cost page — what it says out loud", () => {
       await Promise.resolve();
     });
     expect(answered.readReceipt).toHaveBeenCalledTimes(1);
-    expect(politeAnnouncement(view.container)).toBe(
+    expect(politeText(view.container)).toBe(
       "Cost receipt read. Rows: 2 by run, 2 by party, 1 by account.",
     );
   });
