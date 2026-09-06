@@ -260,3 +260,25 @@ export type {
   /** @consumedBy T-023p-1C-4 */
   SessionSubject,
 } from "./session-subject.js";
+
+// The node's session directory — the read, and the offer a picker draws from it.
+//
+// In this family because its one input is the growth port and `seats/` is the lowest
+// family above `bridge/`. It was authored in `frame/` when the frame was its only
+// reader; it has readers on both sides of the frame now, and neither `frame/` nor its
+// door is reachable from below.
+export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+export type { SessionDirectoryState } from "./session-directory.js";
+
+// The mounts for the three shipped Tier-1 families the console absorbed, each with
+// the bridge-source guard that decides whether it may be mounted at all.
+//
+// In this family because a mount reads a bridge source and two primitives and nothing
+// above `bridge/`, and on this door because the surfaces that mount them are view
+// families — `frame/legacy-surfaces.ts` holds the slot table and reaches them here
+// like every other consumer.
+export {
+  renderAbsorbedNodeRoster,
+  renderAbsorbedParticipantRoster,
+  renderAbsorbedSessionProbe,
+} from "./absorbed-surfaces.js";

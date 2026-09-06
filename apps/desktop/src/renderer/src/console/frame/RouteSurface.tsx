@@ -20,12 +20,11 @@
 //     surface has not been built, which is true, rather than rendering an empty pane
 //     that reads as a broken feature.
 //
-// Three of the four reach the screen through the palette family's `SurfaceAbsence`,
-// which is the console's one centring wrapper; `legacy-surfaces.ts` raises two more
+// Three of the four reach the screen through the `SurfaceAbsence` primitive, which
+// is the console's one centring wrapper; `seats/absorbed-surfaces.ts` raises two more
 // through the same component, which is why it is a module and not a block in here.
 
-import { SurfaceAbsence } from "../palette/index.js";
-import { Nothing } from "../primitives/index.js";
+import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
 import { ContextPicker } from "./ContextPicker.js";
 import {

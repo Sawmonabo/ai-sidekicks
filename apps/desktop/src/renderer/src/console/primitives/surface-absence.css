@@ -2,8 +2,9 @@
  * A whole-surface absence — the wrapper `SurfaceAbsence.tsx` beside this file draws.
  *
  * In this family with its component, which moved here from `frame/` when the door
- * rule made the frame unreachable from a view family. The class stem moved with it:
- * `meridian-frame__absence` named a family that no longer owns the rules.
+ * rule made the frame unreachable from a view family and from below. The class stem
+ * moved with it: `meridian-frame__absence` named a family that no longer owns the
+ * rules.
  */
 
 /*
@@ -31,7 +32,7 @@
 
 /* Left-aligned inside a centred block: the title is one line and the detail is two
    or three, and centred prose makes a reader re-find the left edge on every line. */
-.meridian-surface-absence-body {
+.meridian-surface-absence__body {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -39,7 +40,7 @@
   text-align: start;
 }
 
-.meridian-surface-absence-hint {
+.meridian-surface-absence__hint {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);

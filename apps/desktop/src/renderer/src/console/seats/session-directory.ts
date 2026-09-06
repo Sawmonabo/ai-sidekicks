@@ -7,12 +7,20 @@
 // node with six sessions and a window that has opened none of them is not an empty
 // node.
 //
-// WHY IT LIVES IN `frame/` AND NOT IN `store/`
+// WHY IT LIVES IN `seats/`, AND NEITHER IN `store/` NOR IN `frame/`
 //
 // It reads the growth port, and `store/` sits BELOW `bridge/` in the console's
 // family DAG precisely so a store cannot reach a wire. `useOpenSessionIds` stays
 // where it is and stays the seam for what this WINDOW holds; this is its
 // neighbour, not its replacement, and the two surfaces compose them.
+//
+// That argument puts a floor under it and not a ceiling, and it was authored in
+// `frame/` because the frame was its only reader. `seats/` is the LOWEST family
+// above `bridge/`, so it is the floor exactly, and the difference matters now that a
+// view family lists the node's sessions too: a view family can reach neither
+// `frame/session-directory.js`, which is a cross-family deep import, nor
+// `frame/index.js`, whose `ConsoleRoot` composes every view family through
+// `families.ts` and closes a cycle on the way back.
 //
 // ONE READ PER MOUNT, AND NO POLLING
 //

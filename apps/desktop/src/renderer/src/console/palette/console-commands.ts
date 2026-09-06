@@ -21,7 +21,7 @@
 //
 // and the console's other consumer — the composer's shell half, which sits ABOVE the
 // console entirely — closes the same one, because `families.ts` composes its registrar
-// in. So both wrote a deep specifier into `frame/command-surface.js` instead, which
+// in. So both wrote a deep specifier into the frame module that held it instead, which
 // `console-cross-family-deep-import` and `renderer-reaches-console-through-doors`
 // report; and a second registry built to avoid the import would be a second answer to
 // which commands this window holds. Hoisting to the lowest family that owns the inputs
@@ -29,9 +29,9 @@
 //
 // The frame's OWN commands are not registered here. They close over a live store,
 // which module scope cannot reach, so `ConsoleRoot` registers them in an effect and
-// removes them on unmount. What stays in `frame/command-surface.ts` is the frame's
-// own vocabulary: its command and binding shapes, its rail navigation table, and the
-// chords it binds itself.
+// removes them on unmount. Its own vocabulary — its command and binding shapes, its
+// rail navigation table, and the chords it binds itself — is `command-surface.ts`
+// beside this file, which followed the same rule here for the same reason.
 
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 import { CommandRegistry } from "./command-registry.js";

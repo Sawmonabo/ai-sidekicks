@@ -1,7 +1,9 @@
 // The frame's own commands, and the palette wiring that carries them.
 //
 // The registry and the `when` vocabulary are the palette's, reached through its door;
-// `command-surface.ts` next door holds the frame's own shapes and the chords it binds.
+// `palette/command-surface.ts` holds the frame's own shapes and the chords it binds:
+// every input those take is the palette's or below it, and a settings page renders
+// them, so they sit where both readers can reach them.
 // This module is what the frame contributes THROUGH that registry,
 // and it is a hook rather than a table for the same reason those commands cannot be
 // declared at module scope: every one of them closes over this window's store, so
@@ -19,12 +21,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import {
+  FRAME_KEY_BINDINGS,
   KeyBindingTable,
+  RAIL_NAVIGATION_DETAILS,
   consoleCommands,
   registerConsoleCommands,
   useBridgeCommands,
   type ConsoleCommand,
   type ConsoleWhenClauseContext,
+  type FrameCommand,
   type WhenClauseContext,
 } from "../palette/index.js";
 import {
@@ -35,11 +40,6 @@ import {
 } from "../routing/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
-import {
-  FRAME_KEY_BINDINGS,
-  RAIL_NAVIGATION_DETAILS,
-  type FrameCommand,
-} from "./command-surface.js";
 import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
 import { routeForDestination } from "./rail-navigation.js";
 

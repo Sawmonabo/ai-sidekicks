@@ -18,11 +18,7 @@
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 
-export type {
-  ConsoleBridge,
-  // Consumed by T-023p-1C-4
-  ConsoleBridgeSource,
-} from "./console-bridge.js";
+export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
 // The one answer to "which clock does this window run on". Exported because the
 // two composition roots that build a clocked subsystem — the session registry and
