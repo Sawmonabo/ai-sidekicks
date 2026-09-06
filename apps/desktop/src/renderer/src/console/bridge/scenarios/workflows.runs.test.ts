@@ -10,7 +10,10 @@ import { describe, expect, it } from "vitest";
 
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import { WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
-import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../workflow-projection.js";
+import type {
+  WorkflowPhaseState,
+  WorkflowRunSnapshot,
+} from "../wire-shapes/workflow-projection.js";
 
 /** Every phase across every run, so a claim about parks can be made over all of them. */
 function everyPhase(): readonly WorkflowPhaseState[] {

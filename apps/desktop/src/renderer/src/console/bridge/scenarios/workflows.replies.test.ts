@@ -17,9 +17,12 @@ import {
 } from "./workflow-fixture-phase-outputs.js";
 import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
 import { WORKFLOWS_RUN_ENUMERATION_CALL, WORKFLOWS_SCENARIO } from "./workflows.js";
-import { ScenarioEngine } from "../scenario-engine.js";
-import { settleScriptedReply } from "../scripted-reply.js";
-import type { WorkflowRunListEntry, WorkflowRunSnapshot } from "../workflow-projection.js";
+import { ScenarioEngine } from "../scenario-runtime/index.js";
+import { settleScriptedReply } from "../scenario-runtime/index.js";
+import type {
+  WorkflowRunListEntry,
+  WorkflowRunSnapshot,
+} from "../wire-shapes/workflow-projection.js";
 
 /** A run id this scenario's table does not carry, standing in for "some other run". */
 const UNLISTED_RUN_ID = "019b7a10-0280-7b33-8100-000000000000";

@@ -3,7 +3,7 @@
 // One of the workflow fixture's four data modules; `workflow-fixture-ids.ts` carries
 // the framing all four share and the phase id this table's read is addressed by.
 
-import type { WorkflowPhaseOutput } from "../workflow-projection.js";
+import type { WorkflowPhaseOutput } from "../wire-shapes/workflow-projection.js";
 
 import { PHASE_DRAFT } from "./workflow-fixture-ids.js";
 

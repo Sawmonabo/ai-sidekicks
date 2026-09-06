@@ -4,7 +4,7 @@
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. The section
 // comment below is the single table's own, kept with the rows it heads.
 
-import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
 
 /**

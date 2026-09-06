@@ -49,12 +49,12 @@
 // nothing had asked. The reads below were already addressed by the port; these two are
 // the choices MADE from them, and a choice outliving the answer it was made from is
 // the same conflation one level up. Both therefore re-mint during the render that
-// brings the new port, exactly as `bridge/session-directory.ts` re-reads in it.
+// brings the new port, exactly as `seats/session-directory.ts` re-reads in it.
 
 import { useCallback } from "react";
 
 import type { ConsolePaneAddress } from "../seats/index.js";
-import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useFrameStore, useSubjectScopedState } from "../store/index.js";
 import { OpenPaneBody } from "./OpenPaneBody.js";
 import {

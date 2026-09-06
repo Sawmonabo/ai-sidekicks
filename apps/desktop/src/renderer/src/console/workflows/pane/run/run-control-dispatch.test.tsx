@@ -18,11 +18,8 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  createRefusingGrowthPort,
-  growthUnavailable,
-  type GrowthPort,
-} from "../../../bridge/index.js";
+import { growthUnavailable, type GrowthPort } from "../../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
 import {
   DAEMON_REFUSAL,
   RUN_A,

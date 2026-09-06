@@ -52,7 +52,7 @@ import { createElement } from "react";
 // `to` end, so nothing reports the count either way — and that config says the
 // exemption goes away "at which point this rule covers the whole console", which
 // makes this the list whoever performs that deletion comes here to find.
-import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceRegistry } from "../seats/index.js";
 import {
   paneBodyForKind,
   type ConsolePaneDescriptor,

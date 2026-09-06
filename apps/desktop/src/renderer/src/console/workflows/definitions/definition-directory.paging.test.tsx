@@ -4,7 +4,7 @@
 // These cases cannot use a scenario the way the settlement suite next door does. The
 // engine matches a scripted reply on the call name alone, so one scenario serves
 // exactly one page and a second is unscriptable there. They answer from the real port
-// with one method replaced instead, the shape `bridge/session-directory.test.tsx`
+// with one method replaced instead, the shape `seats/session-directory.test.tsx`
 // already uses to count reads — the value returned is still the registered one, so a
 // page this fixture serves is a page the wire could send.
 

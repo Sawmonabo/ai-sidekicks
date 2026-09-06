@@ -13,7 +13,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort } from "../bridge/index.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import {
   SECOND_PAGE_CURSOR,
   definition,

@@ -34,7 +34,7 @@ export { TRIPWIRE_FIXTURE_GLOBAL } from "../../src/renderer/src/console/core/tri
 export {
   SCENARIO_FIXTURE_GLOBAL,
   type ScenarioFixtureHandle,
-} from "../../src/renderer/src/console/bridge/scenario-selection.js";
+} from "../../src/renderer/src/console/bridge/scenario-runtime/scenario-selection.js";
 
 /**
  * The session-store diagnostics, and their shape.

@@ -4,7 +4,7 @@
 // the framing all four share and the version ids this table and the run table must
 // agree on.
 
-import type { WorkflowDefinitionSummary } from "../workflow-projection.js";
+import type { WorkflowDefinitionSummary } from "../wire-shapes/workflow-projection.js";
 
 import {
   VERSION_INCIDENT_TRIAGE_LATEST,

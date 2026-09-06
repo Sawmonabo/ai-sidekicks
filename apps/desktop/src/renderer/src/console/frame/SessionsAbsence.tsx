@@ -16,7 +16,7 @@
 import { type ReactNode } from "react";
 
 import { Nothing } from "../primitives/index.js";
-import { type SessionDirectoryState } from "../bridge/index.js";
+import { type SessionDirectoryState } from "../seats/index.js";
 
 interface SessionsAbsenceProps {
   readonly directory: SessionDirectoryState;

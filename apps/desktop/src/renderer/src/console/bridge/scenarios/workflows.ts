@@ -67,7 +67,7 @@ import {
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import { WORKFLOWS_PARTICIPANT_YOU, WORKFLOWS_SESSION_ID } from "./workflow-fixture-ids.js";
 import { phaseOutputsFor, runListEntries, runSnapshotFor } from "./workflow-fixture-replies.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const WORKFLOWS_SCENARIO_ID = "workflows";
 

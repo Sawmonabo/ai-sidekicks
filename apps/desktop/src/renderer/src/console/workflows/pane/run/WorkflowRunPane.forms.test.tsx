@@ -20,7 +20,7 @@ import {
   type WorkflowPhaseState,
   type WorkflowRunSnapshot,
 } from "../../../bridge/index.js";
-import type { ConsoleScenario } from "../../../bridge/scenario.js";
+import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
 import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";

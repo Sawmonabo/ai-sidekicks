@@ -15,7 +15,7 @@
 // scenario that scripts a daemon refusal throws it verbatim, and the live seam will
 // throw the same shape once the wire lands — so a fulfilment handler alone left the
 // rejection unhandled and this pane spinning on an answer that had already arrived.
-// `bridge/read-settlement.ts` owns that settlement and is reached through the bridge
+// `bridge/readings/read-settlement.ts` owns that settlement and is reached through the bridge
 // door, which is where it lives: it settles a promise the growth port returned and
 // knows nothing about a run.
 //

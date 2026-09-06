@@ -13,12 +13,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  createFixtureBridge,
-  createRefusingGrowthPort,
-  type GrowthPort,
-} from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario.js";
+import { createFixtureBridge, type GrowthPort } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
+import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import {
   WORKFLOWS_RUN_ENUMERATION_CALL,
   WORKFLOWS_SCENARIO,
@@ -30,7 +27,7 @@ import {
 } from "../../bridge/scenarios/workflow-fixture-runs.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { READ_SETTLEMENT_REFUSAL_ORIGIN } from "../../bridge/read-settlement.js";
+import { READ_SETTLEMENT_REFUSAL_ORIGIN } from "../../bridge/readings/read-settlement.js";
 import { settle } from "../WorkflowsBrowser.test-support.js";
 import { WorkflowRuns } from "./WorkflowRuns.js";
 

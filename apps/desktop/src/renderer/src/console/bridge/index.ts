@@ -18,11 +18,7 @@
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 
-export type {
-  ConsoleBridge,
-  // Consumed by T-023p-1C-4
-  ConsoleBridgeSource,
-} from "./console-bridge.js";
+export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
 // The one answer to "which clock does this window run on". Exported because the
 // two composition roots that build a clocked subsystem — the session registry and
@@ -36,7 +32,7 @@ export { consoleClockFor } from "./console-bridge.js";
 // `run.*` stream NAMES beside it in that table are still not re-exported: their
 // consumers so far are in this family, which reaches them directly, and a barrel
 // specifier no cross-family import uses is a dead export rather than a convenience.
-export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
+export { SESSION_EVENT_STREAM } from "./daemon/session-event-streams.js";
 
 // Which run state a `run.*` transition kind announces — the same table, on the
 // same rule, now that it has a cross-family consumer: the run-lifecycle projector
@@ -44,7 +40,7 @@ export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 // state. That check has to read THIS mapping rather than re-derive one, or the
 // console would hold two answers to which state a kind announces and the fold
 // would be measured against the wrong one.
-export { runStateForTransitionKind } from "./session-event-streams.js";
+export { runStateForTransitionKind } from "./daemon/session-event-streams.js";
 
 export {
   SidekicksBridgeProvider,
@@ -53,7 +49,7 @@ export {
   useConsoleClock,
 } from "./BridgeProvider.js";
 
-export { createFixtureBridge } from "./fixture-bridge.js";
+export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 
 // The one door a daemon reply enters the console through. Exported as the CALL
 // plus the answer it gives and the method set it admits — and deliberately not the
@@ -65,68 +61,88 @@ export {
   callDaemon,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DAEMON_REPLY_REFUSAL_ORIGIN,
-} from "./daemon-reply.js";
+} from "./daemon/daemon-reply.js";
 export type {
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DaemonReply,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DaemonReplyRefusalCode,
-} from "./daemon-reply.js";
+} from "./daemon/daemon-reply.js";
 export type {
   ConsoleDaemonMethod,
   DaemonRequestOf,
   DaemonResponseOf,
-} from "./daemon-reply-registry.js";
+} from "./daemon/daemon-reply-registry.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and every surface that offers sessions reads the directory through
-// it, so the port type, the one summary shape those surfaces render, the refusal
-// they render instead, and the builder that mints one all leave through this door —
-// the same door the bridge itself does, because a growth refusal IS what this bridge
-// answers for a wire the corpus has not registered.
+// `seats/`, so the port type, the one summary shape those surfaces render, the
+// refusal they render instead, and the two builders that mint one all leave through
+// this door — the same door the bridge itself does, because a growth refusal IS what
+// this bridge answers for a wire the corpus has not registered. The second builder is
+// for the arm a caller cannot answer for itself: a call that REJECTED rather than
+// resolving, whose refusal has to keep this port's `origin` and this port's code
+// rather than one the caller invented.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
 // reached deep by the three modules inside this family that read several planes at
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
-export type { GrowthPort } from "./growth-port.js";
+export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
+export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
-export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-outcome.js";
-export type { GrowthUnavailable } from "./growth-outcome.js";
+export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
+// The two-arm reading a surface holds for one such call — the port's answer, or the
+// refusal a call that produced none was read as. Through this door and deliberately
+// not through `growth-port/index.js`: no sibling inside `bridge/` takes it, and an
+// inner barrel line no sibling reaches is a dead export `structure:dead-code` reports,
+// which is how two speculative lines came off that door already.
+//
+// The claim is the line-comment spelling and not a `@consumedBy` JSDoc tag, measured
+// rather than chosen: knip does not report a specifier on THIS door at all — a planted
+// dead type re-exported here raised nothing, where the same type re-exported through
+// `seats/index.ts` was reported at both its declaration and its specifier — so a JSDoc
+// tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on it.
+// `barrel-census.test.ts` is the gate that does report it, and it reads either
+// spelling, so the line comment satisfies the instrument that has the claim.
+export type {
+  // Consumed by T-023p-1C-4
+  GrowthReading,
+} from "./growth-port/growth-outcome.js";
+
+// The code a refusing port answers with, published because one view family's own
+// refusal union is declared as this code widened by its own — so the union is built
+// from the port's word for it rather than from a second literal that would drift.
+export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js";
 
 // How a growth read ENDS when its seam can also REJECT. It lives in this family
 // because it settles a promise the growth port returned and knows nothing about any
-// surface — and it leaves through this door because three view-family reads and the
-// run pane's snapshot read consume it, while the directory read next door reaches it
-// directly. `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door: its
-// only readers are the two suites that assert who a synthesized refusal names, and a
-// door line no production reader uses is a dead export rather than a convenience.
-export { settleGrowthRead, useSettledGrowthRead } from "./read-settlement.js";
-export type { SettledReadRefusal } from "./read-settlement.js";
-
-// The node's session directory, read through that port. It lives in this family
-// rather than in the frame that first needed it because this is the lowest family
-// that owns its input: the hook calls the growth port, and a view family asking the
-// same question can reach the port's own door while it cannot reach the frame's,
-// which composes the view families and so closes a cycle when one imports it.
-export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
-export type { SessionDirectoryState } from "./session-directory.js";
+// surface, and in `readings/` because what it is about is the READING rather than any
+// one wire. It leaves through this door and through no inner one: every reader is a
+// view family, so a `readings/index.ts` would publish a name no sibling inside
+// `bridge/` reaches, which is the dead export `structure:dead-code` reports.
+// `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door for the same
+// rule from the other side: its only readers are the suites that assert who a
+// synthesized refusal names, and a door line no production reader uses is a dead
+// export rather than a convenience.
+export { settleGrowthRead, useSettledGrowthRead } from "./readings/read-settlement.js";
+export type { SettledReadRefusal } from "./readings/read-settlement.js";
 
 // The workflow plane's read shapes, for the family that renders them. Declared on
 // this substrate because no code package registers a `workflow.*` type yet, and
 // re-exported here rather than deep-imported because a view family reaches another
 // family only through its door. Every one of them goes when `packages/contracts`
-// registers the plane and `workflow-projection.ts` is deleted with its slate row.
-export { WORKFLOW_DEFINITION_SCOPES } from "./workflow-projection.js";
+// registers the plane and `wire-shapes/workflow-projection.ts` is deleted with its
+// slate row.
+export { WORKFLOW_DEFINITION_SCOPES } from "./wire-shapes/workflow-projection.js";
 export type {
   WorkflowDefinitionScope,
   WorkflowDefinitionSummary,
   WorkflowPhaseState,
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
-} from "./workflow-projection.js";
+} from "./wire-shapes/workflow-projection.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
@@ -134,12 +150,12 @@ export type {
 // family. `ScenarioFixtureControl` deliberately does NOT ship through here: its
 // only caller is the provider beside it, and its only reader is a driver in
 // another process that imports the module directly.
-export { ScenarioSelection } from "./scenario-selection.js";
+export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 
 // The decode boundary for a delivered session-event envelope. Through the door
 // because the frame's binder is the reader and the parse is this family's job: the
 // wire's own shapes are read here and nowhere above.
-export { readConsoleSessionEvent } from "./session-event-payload.js";
+export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 
 // `entity-body-reads.ts` is deliberately NOT published here. Its two reads have no
 // production consumer yet — the composition root will hand `membershipRoleOf` to

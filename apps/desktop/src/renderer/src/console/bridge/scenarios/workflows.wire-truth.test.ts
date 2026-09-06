@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 describe("the workflows scenario — wire truth", () => {
   it("plays only registered event types, with the payloads those types register", () => {

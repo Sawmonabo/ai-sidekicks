@@ -20,7 +20,7 @@ import { render } from "@testing-library/react";
  * What a read is addressed at: the source it is put through, and its subject.
  *
  * `TKey` DEFAULTS TO `undefined`, which is the keyless read — one addressed by its
- * source and by nothing else, `bridge/session-directory.ts` being the console's. A
+ * source and by nothing else, `seats/session-directory.ts` being the console's. A
  * keyed read supplies the key type and the probe follows it, so what a read is
  * addressed BY is a fact the type carries rather than a sentence beside the call.
  * The member stays required on both: an address is a pair, and a probe that let half

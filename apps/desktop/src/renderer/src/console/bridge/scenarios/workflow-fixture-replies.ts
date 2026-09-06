@@ -38,13 +38,13 @@ import {
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
 } from "./workflow-fixture-phase-outputs.js";
 import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
-import { workflowSubjectNotFound } from "../fixture-workflow-scope.js";
-import { readUnknownStringMember } from "../unknown-member.js";
+import { workflowSubjectNotFound } from "../fixture/fixture-workflow-scope.js";
+import { readUnknownStringMember } from "../scenario-runtime/index.js";
 import type {
   WorkflowDefinitionSummary,
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
-} from "../workflow-projection.js";
+} from "../wire-shapes/workflow-projection.js";
 
 /**
  * Which definition each scripted run was started from, by the version it is pinned to.
@@ -125,7 +125,7 @@ export function runListEntries(): readonly WorkflowRunListEntry[] {
  * request-less probe, and `undefined` settles it exactly as an unscripted call settles
  * — the seam's own rule for a computed reply asked about nothing. A call naming a run
  * this fixture holds no snapshot for is a read the daemon would refuse, so it refuses,
- * with the code and sentence `fixture-workflow-scope.ts` owns for every workflow
+ * with the code and sentence `fixture/fixture-workflow-scope.ts` owns for every workflow
  * subject a scenario cannot answer for.
  */
 export function runSnapshotFor(request: unknown): WorkflowRunSnapshot | undefined {

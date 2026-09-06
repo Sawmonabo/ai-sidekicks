@@ -12,7 +12,7 @@
 // resolution rule in one module and the only decision it governs in another.
 
 import type { ConsolePaneAddress, ConsolePaneContext } from "../seats/index.js";
-import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
 

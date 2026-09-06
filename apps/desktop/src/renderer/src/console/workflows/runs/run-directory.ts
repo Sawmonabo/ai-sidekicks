@@ -30,7 +30,7 @@
 // throws verbatim rather than folding into the outcome union — deliberately, so a
 // fixture never paraphrases a daemon's `{code, message}` into a growth vocabulary.
 // A hook that attached only a fulfilment handler would leave the second one
-// unhandled and the surface reading forever. `read-settlement.ts` turns every ending
+// unhandled and the surface reading forever. `readings/read-settlement.ts` turns every ending
 // into one value, so what arrives here is an answer or a refusal and never a promise
 // nobody is waiting on — and the refusal's `origin` is what still says which of the
 // two authors raised it.

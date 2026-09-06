@@ -32,10 +32,9 @@
 // this; the prop contract is declared here, beside the body that reads every member
 // of it, and re-exported there under the name callers type against.
 
-import { RefusalBanner } from "../primitives/index.js";
+import { RefusalBanner, SurfaceErrorBoundary } from "../primitives/index.js";
 import { type FrameBanner } from "../store/index.js";
 import { useRefusalBannerAnnouncements } from "./banner-announcements.js";
-import { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 import { IconRail, type RailEntry } from "./IconRail.js";
 import {
   formatRoute,

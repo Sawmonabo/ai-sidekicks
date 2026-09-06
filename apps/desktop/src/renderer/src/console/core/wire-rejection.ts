@@ -58,6 +58,14 @@ import {
   UNREPRESENTABLE_VALUE_TEXT,
 } from "../../../../shared/wire-errors.js";
 
+// The envelope shape itself, re-published rather than re-declared. `src/shared/` sits
+// on no rung of the console's family DAG, so a view family reaching it directly is the
+// edge `console-view-family-shared-through-core` reports; this module is already the
+// console's reading of that envelope, so it is the layer family that owns the shape
+// for everything above it. Re-export and not a second interface: two declarations of
+// one wire shape is exactly the drift the rule exists to stop.
+export type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
+
 import {
   readRefusalExtensions,
   wireRetryExtension,

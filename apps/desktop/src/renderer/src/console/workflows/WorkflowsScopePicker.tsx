@@ -12,7 +12,7 @@
 // different authorities and either can hold what the other does not — a node with
 // six sessions and a window that has opened none of them is not an empty node, and a
 // session created a moment ago may not be on the node's list yet.
-// `bridge/session-directory.ts` owns both the read and the union, so neither is
+// `seats/session-directory.ts` owns both the read and the union, so neither is
 // written a second time here.
 //
 // THE ABSENCES ARE THE READ'S, NOT THIS SURFACE'S GUESS AT IT. A directory read in
@@ -54,7 +54,8 @@
 
 import { useId } from "react";
 
-import { offeredSessionIds, useSessionDirectory, type GrowthPort } from "../bridge/index.js";
+import type { GrowthPort } from "../bridge/index.js";
+import { offeredSessionIds, useSessionDirectory } from "../seats/index.js";
 import { InlineRefusal, Nothing, PartialRead, WireChoiceList } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStoreRegistry } from "../store/index.js";
 

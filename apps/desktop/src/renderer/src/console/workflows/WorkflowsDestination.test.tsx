@@ -11,7 +11,8 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, createRefusingGrowthPort } from "../bridge/index.js";
+import { createFixtureBridge } from "../bridge/index.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../bridge/scenarios/workflow-fixture-definitions.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";

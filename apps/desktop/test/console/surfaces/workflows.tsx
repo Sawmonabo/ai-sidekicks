@@ -73,7 +73,7 @@ import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/s
 import {
   ConsoleSurfaceRegistry,
   type ConsoleSurfaceContext,
-} from "../../../src/renderer/src/console/frame/surface-registry.js";
+} from "../../../src/renderer/src/console/seats/surface-registry.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {

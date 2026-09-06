@@ -18,7 +18,8 @@
 
 import { render } from "@testing-library/react";
 
-import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/index.js";
+import { type GrowthPort } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { definition, SECOND_PAGE_CURSOR } from "../WorkflowsBrowser.test-support.js";
 import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {

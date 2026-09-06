@@ -13,7 +13,8 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/index.js";
+import { type GrowthPort } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import {
   latestCommitted,
   observeSubjectRead,

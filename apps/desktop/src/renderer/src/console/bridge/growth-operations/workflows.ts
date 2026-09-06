@@ -6,7 +6,7 @@
 // comment below is the single table's own, kept with the rows it heads — and it is
 // the claim `index.test.ts` beside it checks by counting this block's entries.
 
-import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
 
 /**

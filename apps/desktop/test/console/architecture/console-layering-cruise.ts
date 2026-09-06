@@ -47,6 +47,20 @@ export const PANE_BODY_RULE = "console-panes-hold-no-body";
 export const IMPORTED_PANE_BODY_RULE = "console-panes-hold-no-imported-body";
 export const OUTSIDE_DOOR_RULE = "renderer-reaches-console-through-doors";
 export const CONSOLE_ROOT_RULE = "console-root-is-composition-only";
+/**
+ * One of the eight per-family ordering rules, named because one control needs it.
+ *
+ * `upwardEdge` mints a rule per family and this tier judges one of them: the store's,
+ * because the shape that has to be held is a module in a LOW family reaching a high
+ * one, and `store/` → `bridge/` is that shape with a family on each side of it. The
+ * other seven are the identical rule over a different pair, so naming them all here
+ * would restate the family list this file deliberately does not carry.
+ */
+export const STATE_UPWARD_EDGE_RULE = "console-layering-store-persistence";
+/** The edge rule that makes the two test-support source subtractions safe to hold. */
+export const TEST_SUPPORT_READER_RULE = "test-support-has-no-shipping-reader";
+/** The rule that keeps the cross-process leaf behind a layer family. */
+export const SHARED_THROUGH_CORE_RULE = "console-view-family-shared-through-core";
 const OWNED_RULES: readonly string[] = [
   BARREL_CHAIN_RULE,
   VIEW_FAMILY_ISOLATION_RULE,
@@ -55,6 +69,9 @@ const OWNED_RULES: readonly string[] = [
   IMPORTED_PANE_BODY_RULE,
   OUTSIDE_DOOR_RULE,
   CONSOLE_ROOT_RULE,
+  STATE_UPWARD_EDGE_RULE,
+  TEST_SUPPORT_READER_RULE,
+  SHARED_THROUGH_CORE_RULE,
 ];
 
 /**

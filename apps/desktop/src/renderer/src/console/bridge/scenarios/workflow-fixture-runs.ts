@@ -4,7 +4,7 @@
 // the framing all four share, the phase ids this table sequences, and the version ids
 // it has to agree with the definition table about.
 
-import type { WorkflowRunSnapshot } from "../workflow-projection.js";
+import type { WorkflowRunSnapshot } from "../wire-shapes/workflow-projection.js";
 
 import {
   PHASE_BUILD,

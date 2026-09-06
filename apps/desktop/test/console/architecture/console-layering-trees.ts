@@ -8,12 +8,12 @@
 // `stylesheet-edge-graph.ts`: the corpus in a module of its own, the suite that
 // judges it next door.
 //
-// The split is what keeps any of the three readable. Every rule the tier owns needs
-// at least one tree, each carrying the paragraph that says which rule it is the
-// control for and why it offends the set it does — and a file holding those beside the
-// harness, the budgets and the cases was doing three jobs at ~650 lines. The count is
-// deliberately not written down: it moves whenever a rule gains a control, and a
-// number in a comment is the one part of that move nothing reports.
+// The split is what keeps any of the three readable. Every rule needs a tree and
+// several need more than one, each carrying the paragraph that says which rule it is
+// the control for and why it offends the set it does — and a file holding those
+// beside the harness, the budgets and the cases was doing three jobs at ~650 lines.
+// The counts are deliberately not written down: a branch adds a rule and its tree in
+// one diff, and a cardinal in this header would be the thing it forgot to move.
 //
 // WHY THESE ARE OBJECTS AND NOT FILES ON DISK. A tree is planted into a fresh
 // temporary directory by the harness and removed when the case that read it ends, so
@@ -24,8 +24,8 @@
 export type PlantedTree = Readonly<Record<string, string>>;
 
 /**
- * The shape the console has AFTER this change, reduced to the modules the tier's rules
- * can see.
+ * The shape the console has AFTER this change, reduced to the modules the rules can
+ * see.
  *
  * Every member is here because a rule could misfire on it: the sub-module door that
  * must stay legal, the family door that must reach past it to the declaring module,
@@ -46,12 +46,12 @@ export const CLEAN_TREE: PlantedTree = {
   "bridge/growth-signatures.ts": `import type { GrowthSessionSummary } from "./growth-values/index.js";\n\nexport type SessionDirectoryReply = readonly GrowthSessionSummary[];\n`,
   "bridge/index.ts": `export type { GrowthSessionSummary } from "./growth-values/sessions.js";\nexport type { SessionDirectoryReply } from "./growth-signatures.js";\n`,
   "seats/pane-address.ts": `export interface ConsolePaneRegistry {\n  readonly size: number;\n}\n`,
-  "seats/index.ts": `export type { ConsolePaneRegistry } from "./pane-address.js";\n`,
-  "frame/surface-registry.ts": `export interface ConsoleSurfaceContext {\n  readonly slot: string;\n}\n`,
+  "seats/surface-registry.ts": `export interface ConsoleSurfaceContext {\n  readonly slot: string;\n}\n`,
+  "seats/index.ts": `export type { ConsolePaneRegistry } from "./pane-address.js";\nexport type { ConsoleSurfaceContext } from "./surface-registry.js";\n`,
   "frame/session-lifecycle.ts": `export interface ActiveSession {\n  readonly sessionId: string;\n}\n`,
   "frame/index.ts": `export type { ActiveSession } from "./session-lifecycle.js";\n`,
   "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  return registry.size;\n}\n`,
-  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../frame/surface-registry.js";\n\nexport type InviteRefusal = ConsoleRefusal & { readonly context: ConsoleSurfaceContext };\n`,
+  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../seats/index.js";\n\nexport type InviteRefusal = ConsoleRefusal & { readonly context: ConsoleSurfaceContext };\n`,
   "repos/RepoList.ts": `import type { ConsoleRefusal } from "../core/index.js";\n\nexport type RepoRefusal = ConsoleRefusal;\n`,
   "repos/index.ts": `export type { RepoRefusal } from "./RepoList.js";\n`,
 };
@@ -76,16 +76,24 @@ export const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
 
 /**
  * The shape the door rule was added for: a view family reaching a layer family's
- * MODULE, beside the one deep specifier the rule exempts by name.
+ * MODULE, beside the DOOR import it is allowed to write.
  *
  * Both edges leave the same file, which is what makes this one tree two controls: the
- * `frame/session-lifecycle.js` specifier must be reported, and the exempted
- * `frame/surface-registry.js` specifier — carried over from the clean tree — must not.
- * An exemption written against the family rather than the module would report neither.
+ * `frame/session-lifecycle.js` specifier must be reported, and the `seats/index.js`
+ * door import — carried over from the clean tree — must not. One edge alone would
+ * prove only that the rule fires, not that it leaves the legal shape alone.
+ *
+ * A THIRD edge carries what used to be the rule's one named exemption. While the
+ * surface registry lived in `frame/`, `frame/surface-registry.ts` was subtracted from
+ * this rule's targets by name — a view family needs it and cannot import the frame's
+ * door — so a deep specifier to it was reported as nothing. The module now lives in
+ * `seats/`, the family whose contracts it is one of; the subtraction is gone, and a
+ * deep specifier to it is an ordinary violation. That is the claim the third import
+ * plants: the rule covers the whole console with no module exempted by name.
  */
 export const DEEP_IMPORT_TREE: PlantedTree = {
   ...CLEAN_TREE,
-  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../frame/surface-registry.js";\nimport type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type InviteRefusal = ConsoleRefusal & {\n  readonly context: ConsoleSurfaceContext;\n  readonly session: ActiveSession;\n};\n`,
+  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../seats/index.js";\nimport type { ConsoleSurfaceContext as DeepContext } from "../seats/surface-registry.js";\nimport type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type InviteRefusal = ConsoleRefusal & {\n  readonly context: ConsoleSurfaceContext;\n  readonly deep: DeepContext;\n  readonly session: ActiveSession;\n};\n`,
 };
 
 /**
@@ -186,6 +194,40 @@ export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
 };
 
 /**
+ * A harness in a LOW family reaching a family above it, beside an ordinary module
+ * writing the identical edge.
+ *
+ * THE CLASS THE DOOR RULE'S SUBTRACTION MUST NOT REACH. `.test-support.*` is
+ * subtracted from `console-cross-family-deep-import` and from nothing else, and the
+ * tree above proves that subtraction exists. This one proves where it stops: the
+ * family ORDERING has no such subtraction, because a harness reaching upward is the
+ * same inversion an ordinary module's edge is — the symbol it wants lives above the
+ * family that needs it, and the remedy is to hoist the symbol rather than to exempt
+ * the reader. `drainMicrotasks` was exactly this shape in production: a timing helper
+ * parked in `bridge/fixture/fixture-bridge.test-support.ts` that `store/` and `frame/`
+ * suites both waited on, hoisted by this branch to
+ * `core/microtask-drain.test-support.ts`.
+ *
+ * WHY A `.test-support.*` MODULE RATHER THAN THE SUITE THAT FOUND THE DEFECT. The
+ * suite is a `.test.tsx`, and `options.exclude` in `.dependency-cruiser.mjs` removes
+ * every `.test.(ts|tsx)` from the graph BEFORE any rule runs — deliberately, because
+ * a `console-unit` test legitimately reaches across families to drive the module it
+ * covers. So the importer that surfaced the mis-homing is invisible to this cruise by
+ * design, and the class that is not is the harness beside it, which stays in the
+ * graph and is a subject of every ordering rule.
+ *
+ * THE EDGE IS WRITTEN THROUGH THE DOOR, so this tree offends exactly one rule. A deep
+ * specifier would offend the door rule as well on the ordinary module and not on the
+ * harness, and a control that trips two rules asymmetrically cannot say which of them
+ * bit.
+ */
+export const TEST_SUPPORT_UPWARD_EDGE_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "store/settle.test-support.ts": `import type { SessionDirectoryReply } from "../bridge/index.js";\n\nexport type SettledDirectory = SessionDirectoryReply;\n`,
+  "store/session-directory-store.ts": `import type { SessionDirectoryReply } from "../bridge/index.js";\n\nexport type StoredDirectory = SessionDirectoryReply;\n`,
+};
+
+/**
  * A renderer subtree BESIDE the console reaching past a family door.
  *
  * Every other rule here is `from`-scoped to `console/`, so an importer that lives
@@ -193,10 +235,20 @@ export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
  * `console/store/subject-scoped-state.js` specifier while three gates reported clean.
  * The door import beside it is the other half of the control: an outside subtree
  * reaching the DOOR is the shape the console offers and must stay legal.
+ *
+ * A HARNESS WRITES THE OFFENDING EDGE TOO, and is exempt for the reason the
+ * intra-console deep-import rule exempts one: a `.test-support` module is part of a
+ * suite rather than something that ships, and neither remedy the rule offers is open
+ * to it — a door cannot publish a fixture helper (`barrel-census` fails a specifier no
+ * production module reads) and there is nowhere below to hoist one to. Three modules,
+ * one edge written twice and the legal shape once: a subtraction widened past
+ * `.test-support` takes the production violation with it and this control reads an
+ * empty list.
  */
 export const OUTSIDE_RENDERER_TREE: PlantedTree = {
   ...CLEAN_TREE,
   "../session-bootstrap/SessionBootstrap.ts": `import type { ActiveSession } from "../console/frame/session-lifecycle.js";\n\nexport type BootstrapSession = ActiveSession;\n`,
+  "../session-bootstrap/seeded.test-support.ts": `import type { ActiveSession } from "../console/frame/session-lifecycle.js";\n\nexport type SeededBootstrap = ActiveSession;\n`,
   "../session-members/SessionMembers.ts": `import type { RepoRefusal } from "../console/repos/index.js";\n\nexport type MemberRefusal = RepoRefusal;\n`,
 };
 
@@ -219,9 +271,54 @@ export const CONSOLE_ROOT_TREE: PlantedTree = {
 };
 
 /**
- * Every tree that carries a rule control — the clean shape and each one that offends.
+ * A module that SHIPS importing a `.test-support` sibling, beside a harness doing it.
  *
- * The aggregate case below reads this rather than naming its members, so a control
+ * WHAT MAKES THE TEST-SUPPORT SUBTRACTIONS SAFE, planted rather than argued. Two rules
+ * subtract `.test-support.*` from their source side, so a production module that
+ * imported one would reach whatever that harness reaches with neither of them
+ * reporting anything. What closes that is a rule on the edge itself, and this is its
+ * control.
+ *
+ * TWO MODULES WRITE THE SAME EDGE, on the discriminating shape the two trees above
+ * take: the ordinary module is reported and the harness beside it is not, so a source
+ * subtraction dropped from the rule empties the harness expectation and a subtraction
+ * widened to every importer empties the ordinary one.
+ *
+ * BOTH EDGES ARE INTRA-FAMILY, so this tree offends exactly one rule: a cross-family
+ * specifier would trip the door rule as well, on the ordinary module only, and a
+ * control that fires two rules asymmetrically cannot say which of them bit.
+ */
+export const SHIPPING_TEST_SUPPORT_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "store/settle.test-support.ts": `export interface SettledDirectory {\n  readonly settled: boolean;\n}\n`,
+  "store/session-directory-store.ts": `import type { SettledDirectory } from "./settle.test-support.js";\n\nexport type StoredDirectory = SettledDirectory;\n`,
+  "store/seeded.test-support.ts": `import type { SettledDirectory } from "./settle.test-support.js";\n\nexport type SeededDirectory = SettledDirectory;\n`,
+};
+
+/**
+ * A VIEW family importing the cross-process leaf, beside a LAYER family doing it.
+ *
+ * `src/shared/` is not a console family and sits on no rung of the DAG, so every
+ * ordering rule is silent about it. The console's own answer is that a layer family
+ * owns the shared shape and everything above it reads the console's, and this tree is
+ * that answer's control: the two modules write the same edge and only the view
+ * family's is reported.
+ *
+ * THE EDGE LEAVES THE CONSOLE, so the specifier climbs out of the planted root the
+ * way `OUTSIDE_RENDERER_TREE`'s does — the harness plants relative to
+ * `src/renderer/src/console`, and `src/shared/` is three directories above it.
+ */
+export const VIEW_FAMILY_SHARED_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "../../../shared/wire-errors.ts": `export interface WireRejection {\n  readonly code: string;\n}\n`,
+  "core/wire-rejection.ts": `import type { WireRejection } from "../../../../shared/wire-errors.js";\n\nexport type ConsoleWireRejection = WireRejection;\n`,
+  "repos/RepoList.ts": `import type { WireRejection } from "../../../../shared/wire-errors.js";\n\nexport type RepoRefusal = WireRejection;\n`,
+};
+
+/**
+ * Every tree that carries a rule control — the clean shape and the ones that offend.
+ *
+ * The aggregate case below reads this rather than naming three of them, so a control
  * added for a further rule joins that case's quantifier by construction. `PROOF_TREE`
  * is deliberately not here: the cleanup case that plants it is the one case whose
  * claim is that no earlier case named it.
@@ -236,6 +333,9 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   PANE_BOARD_DEEP_IMPORT_TREE,
   DEEP_SOURCE_TREE,
   TEST_SUPPORT_SUBTRACTION_TREE,
+  TEST_SUPPORT_UPWARD_EDGE_TREE,
+  SHIPPING_TEST_SUPPORT_TREE,
+  VIEW_FAMILY_SHARED_TREE,
   OUTSIDE_RENDERER_TREE,
   CONSOLE_ROOT_TREE,
 ];

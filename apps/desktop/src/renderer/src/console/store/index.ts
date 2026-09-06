@@ -20,7 +20,7 @@
 // which is how repo and invite went missing from the inspector's scope.
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 // `ConsoleEntity` leaves the family because the two validating body reads live in
-// `bridge/entity-body-reads.ts`: a read that narrows a wire member has to sit where
+// `bridge/daemon/entity-body-reads.ts`: a read that narrows a wire member has to sit where
 // the registered shapes may be imported, and it still takes and returns this
 // family's own entity.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
@@ -127,7 +127,7 @@ export { useSubjectScopedResource } from "./subject-scoped-resource.js";
 // it, so a door line for each would be a name nothing outside this family ever types.
 export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 // The subject key and the publisher a settled read hands its answer through. Both
-// claims retired: `bridge/read-settlement.ts`'s `useSettledGrowthRead` — the one read
+// claims retired: `bridge/readings/read-settlement.ts`'s `useSettledGrowthRead` — the one read
 // hook the four growth reads on this seam now share — names both in its signature.
 export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";

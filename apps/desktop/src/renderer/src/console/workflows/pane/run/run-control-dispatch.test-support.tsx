@@ -12,8 +12,9 @@
 
 import { render } from "@testing-library/react";
 
-import { createRefusingGrowthPort, type GrowthPort } from "../../../bridge/index.js";
-import type { WireErrorEnvelope } from "../../../../../../shared/wire-errors.js";
+import { type GrowthPort } from "../../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
+import type { WireErrorEnvelope } from "../../../core/index.js";
 import { useRunControlDispatch, type WorkflowRunControls } from "./run-control-dispatch.js";
 import type { WorkflowRunCancelReply } from "./run-controls.js";
 

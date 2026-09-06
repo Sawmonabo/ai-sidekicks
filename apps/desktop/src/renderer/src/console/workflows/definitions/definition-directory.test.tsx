@@ -12,8 +12,9 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, createRefusingGrowthPort } from "../../bridge/index.js";
-import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
+import { createFixtureBridge } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
+import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario-runtime/scenario.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
 import {
   PROBE_PARTICIPANT_ID,
