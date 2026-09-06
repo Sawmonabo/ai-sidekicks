@@ -18,6 +18,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { refuse } from "../core/index.js";
 import {
   CALLER_IDENTITY_READ_FAILED,
@@ -220,7 +221,7 @@ describe("useCallerMembershipRole — a reader that rejects rather than refusing
       await body();
       // An unhandled rejection is reported a macrotask after the microtask queue
       // drains, so a body that only awaited microtasks would report clean either way.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await drainMicrotasks();
     } finally {
       runnerHost.process.off("unhandledRejection", record);
     }
