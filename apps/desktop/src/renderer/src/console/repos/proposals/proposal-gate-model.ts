@@ -164,9 +164,10 @@ export type ProposalGateSubject =
  *
  * TYPED FROM THE UNION'S OWN DISCRIMINANT rather than declared a second time: the
  * union above is where the set lives, and this is the walkable enumeration of it a
- * test iterates. A member here the union does not carry is a compile error. The
- * annotation is explicit rather than inferred through `as const`, because
- * `isolatedDeclarations` requires one on every exported binding.
+ * test iterates. A member here the union does not carry is a compile error — which is
+ * what the explicit annotation buys, and the reason it is written rather than inferred
+ * through `as const`: an `as const` array's type is its own literal members, so it
+ * would say what this list HOLDS instead of tying it to the union it walks.
  */
 export const PROPOSAL_GATE_SUBJECT_KINDS: readonly ProposalGateSubject["kind"][] = [
   "worktree",
@@ -321,7 +322,7 @@ export type AnnouncedGateSettlement = (typeof ANNOUNCED_GATE_SETTLEMENTS)[number
 /**
  * Everything one execution root's gate renders from, in one immutable value.
  *
- * `refusal` is a FIELD rather than a seventh arm because two of the six arms carry no
+ * `refusal` is a FIELD rather than a sixth arm because two of the five arms carry no
  * message of their own: `not-checked` is the arm a wire-unregistered refusal produces
  * and it says nothing about which wire, so the refusal travels beside it and the
  * surface renders it through the same `RefusalCard` the repos section uses for a

@@ -286,7 +286,7 @@ export class ProposalGateReader {
    * AN ADAPTER RATHER THAN A PUBLIC `implements` CLAUSE, because every member writes
    * state this class owns — `publish` alone would let any caller put an arbitrary
    * reading on the gate — and implementing the port on the class would have to make
-   * all six public to do it. The port stays one declaration, the acts stay unable to
+   * all seven public to do it. The port stays one declaration, the acts stay unable to
    * reach anything it does not name, and this class's public surface is what it was.
    */
   #actionHost(): ProposalGateActionHost {

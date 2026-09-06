@@ -4,7 +4,7 @@
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
 // accessibility tier both need the same surfaces this family ships, and a per-tier copy
 // of the mount would be two chances to compose them differently and then read the
-// results as if they were comparable. Four modules divide that job: `console-harness.tsx`
+// results as if they were comparable. Five modules divide that job: `console-harness.tsx`
 // owns HOW the console is mounted, `repos-mount-harness.ts` owns what SETTLED means and
 // how a tier waits for it, `repos-fixtures.ts` owns what the surfaces are drawn against,
 // and the mounts themselves are split between this module and `repos-artifact.tsx` —
@@ -157,9 +157,8 @@ export async function mountRepoSectionWithOpenGate(): Promise<MountedFamilySurfa
 /** The diff pane over a parsed change set: attribution, compared states, rows. */
 export async function mountDiffPane(): Promise<MountedFamilySurface> {
   const { bridge, sessionStore } = scenarioCollaborators();
-  const DiffPaneBody = DiffPane;
   const { container } = await renderSettled(
-    <DiffPaneBody
+    <DiffPane
       context={{
         kind: "diff",
         // The scenario's own git workspace, which is what a diff over this session's

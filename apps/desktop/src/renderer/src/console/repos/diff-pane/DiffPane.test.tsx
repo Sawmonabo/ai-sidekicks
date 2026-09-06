@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "./diff-fixture.test-support.js";
 import {
-  RUN_ATTRIBUTION,
+  RUN_ATTRIBUTED_ATTRIBUTION,
   SMALL_DIFF_SHAPE,
   WORKSPACE_FALLBACK_ATTRIBUTION,
 } from "./diff-fixture-shapes.test-support.js";
@@ -170,7 +170,7 @@ describe("diff pane — the header a diff gives it", () => {
     // A workspace fallback is a lower attribution quality — not a failure and not
     // something a person must act on. Amber or red here would be the two-hue rule
     // broken in the one place it is tempting.
-    for (const attribution of [RUN_ATTRIBUTION, WORKSPACE_FALLBACK_ATTRIBUTION]) {
+    for (const attribution of [RUN_ATTRIBUTED_ATTRIBUTION, WORKSPACE_FALLBACK_ATTRIBUTION]) {
       const { container } = render(
         <DiffPane
           context={contextFor(WORKSPACE_ENTITY)}

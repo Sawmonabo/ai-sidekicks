@@ -23,6 +23,7 @@ import { diffLineText, type ConsoleDiffModel, type DiffLine } from "./diff-model
 import type { DiffLineRow } from "./diff-row-model.js";
 import { IntralineSegmentCache } from "./intraline-segments.js";
 import { parseUnifiedPatch } from "./patch-parse.js";
+import { COMPARED_STATES, RUN_ATTRIBUTION } from "./patch-parse.test-support.js";
 
 const wordDiffCalls = vi.hoisted(() => vi.fn());
 
@@ -41,9 +42,6 @@ vi.mock("diff", async (importOriginal) => {
     },
   };
 });
-
-const RUN_ATTRIBUTION = { mode: "run_attributed", runId: "run-1" } as const;
-const COMPARED_STATES = { baseRef: "main", headRef: "feat/thing" } as const;
 
 beforeEach(() => {
   wordDiffCalls.mockClear();

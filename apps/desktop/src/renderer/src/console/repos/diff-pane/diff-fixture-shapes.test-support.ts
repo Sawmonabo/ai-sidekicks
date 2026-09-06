@@ -140,7 +140,7 @@ export const TERMINAL_NEWLINE_FIXTURE_FILE = {
 } as const;
 
 /** The run-attributed arm, for the case the badge renders as accountable to a run. */
-export const RUN_ATTRIBUTION: DiffAttribution = {
+export const RUN_ATTRIBUTED_ATTRIBUTION: DiffAttribution = {
   mode: "run_attributed",
   runId: "run-rate-limit-wiring",
 };
@@ -150,5 +150,3 @@ export const WORKSPACE_FALLBACK_ATTRIBUTION: DiffAttribution = {
   mode: "workspace_fallback",
   workspaceId: "workspace-sidekicks",
 };
-
-/** The compared states every generated change set names. */

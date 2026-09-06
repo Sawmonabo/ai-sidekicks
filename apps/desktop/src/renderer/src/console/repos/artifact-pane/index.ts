@@ -6,9 +6,9 @@
 // NO STYLESHEET IS IMPORTED HERE, and that is the same rule this directory's sibling
 // keeps. This directory and `repos/diff-pane/` are two of the repos family's seven
 // sub-modules, and a family's CSS is imported from that family's DOOR — which is
-// `repos/index.ts`, not this sub-module barrel. It imports `repos/repos.css`,
-// `repos/diff-pane/diff.css`, and this directory's own `artifact.css`, so every sheet
-// arrives together whenever any sub-module renders. Imported from here instead, the
+// `repos/index.ts`, not this sub-module barrel. That door imports every one of the
+// family's eight sheets, this directory's own `artifact.css` included, so all of them
+// arrive together whenever any sub-module renders. Imported from here instead, the
 // sheet arrived only on the paths that reach THIS barrel, so a surface composing the
 // pane through the family door alone would draw it unstyled.
 //

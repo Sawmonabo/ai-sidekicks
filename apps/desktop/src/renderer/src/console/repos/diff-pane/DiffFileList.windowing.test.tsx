@@ -37,7 +37,6 @@ afterEach(() => {
   layout.restore();
 });
 
-/** The change note on one path's entry, or `undefined` where it drew none. */
 describe("diff file list — a change set too long to mount", () => {
   /**
    * The mounted-entry ceiling one window may reach.

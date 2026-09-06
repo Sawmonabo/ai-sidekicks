@@ -41,7 +41,9 @@ import { growthUnavailable } from "../../bridge/index.js";
 // Re-exported so a suite scripting this pane's port names one import rather than two.
 // A type alias, so this is not the barrel chain `console-no-barrel-chain` forbids —
 // that rule is about a DOOR forwarding another door's symbols, and this module is a
-// leaf the suites beside it read.
+// leaf the suites beside it read. THE ONLY re-export of it in this directory: the
+// mount module carried a second, so the type had three import homes and a suite could
+// name whichever one it happened to be importing something else from.
 export type { GrowthPortAnswer };
 import {
   drainMicrotasks,

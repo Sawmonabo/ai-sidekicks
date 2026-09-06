@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "./diff-fixture.test-support.js";
 import {
-  RUN_ATTRIBUTION,
+  RUN_ATTRIBUTED_ATTRIBUTION,
   SMALL_DIFF_SHAPE,
   WORKSPACE_FALLBACK_ATTRIBUTION,
 } from "./diff-fixture-shapes.test-support.js";
@@ -32,7 +32,7 @@ describe("diff model — the closed sets", () => {
 
 describe("diff model — attribution", () => {
   it("names the run on the run-attributed arm and the workspace on the other", () => {
-    expect(diffAttributionSubjectId(RUN_ATTRIBUTION)).toBe("run-rate-limit-wiring");
+    expect(diffAttributionSubjectId(RUN_ATTRIBUTED_ATTRIBUTION)).toBe("run-rate-limit-wiring");
     expect(diffAttributionSubjectId(WORKSPACE_FALLBACK_ATTRIBUTION)).toBe("workspace-sidekicks");
   });
 
@@ -41,7 +41,7 @@ describe("diff model — attribution", () => {
     // diff is run-attributed — is enforced by the union's shape rather than by a
     // renderer's discipline, and this is what says so at runtime.
     expect(Object.hasOwn(WORKSPACE_FALLBACK_ATTRIBUTION, "runId")).toBe(false);
-    expect(Object.hasOwn(RUN_ATTRIBUTION, "workspaceId")).toBe(false);
+    expect(Object.hasOwn(RUN_ATTRIBUTED_ATTRIBUTION, "workspaceId")).toBe(false);
   });
 });
 

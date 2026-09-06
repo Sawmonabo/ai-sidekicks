@@ -1,9 +1,9 @@
-// The harness three mount modules share: what a mounted surface IS, and the waits that
-// say it has settled.
+// The harness the two mount modules share: what a mounted surface IS, and the waits
+// that say it has settled.
 //
 // SPLIT OUT SO THE MOUNTS DO NOT SHARE A FILE WITH THE MACHINERY. `repos.tsx` and
-// `repos-artifact.tsx` each hold surfaces and nothing else, and both reach for exactly
-// these five things — so the alternative was one of them exporting its own privates to
+// `repos-artifact.tsx` each hold surfaces and nothing else, and both reach into this
+// module's exports — so the alternative was one of them exporting its own privates to
 // the other, which would have made a mount module the harness's home by accident.
 //
 // EVERY WAIT HERE THROWS RATHER THAN RETURNING FALSE. A tier that timed out silently

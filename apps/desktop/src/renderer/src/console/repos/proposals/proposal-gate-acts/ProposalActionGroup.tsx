@@ -7,7 +7,7 @@
 // and a file carrying both was carrying the gate's composition and its one piece of
 // interaction memory at once.
 //
-// IT SITS IN A DIRECTORY WITH THE MODEL IT READS rather than beside ninety siblings:
+// IT SITS IN A DIRECTORY WITH THE MODEL IT READS rather than flat in `proposals/`:
 // the group and `proposal-confirmation-scope.ts` are one concern — what an approval is
 // an approval OF — and the door next door is what the gate imports.
 

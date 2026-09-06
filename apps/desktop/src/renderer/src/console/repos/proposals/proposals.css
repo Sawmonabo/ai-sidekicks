@@ -4,9 +4,9 @@
  * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
  * why, and for the import rule every sheet in this family obeys.
  *
- * The gate's own act rows are here rather than in a sixth sheet: `proposal-gate-acts/`
- * is a sub-directory of this one, and a sheet per nesting level would put two files
- * between a reader and one surface's rules.
+ * The gate's own act rows are here rather than in a sheet of their own:
+ * `proposal-gate-acts/` is a sub-directory of this one, and a sheet per nesting level
+ * would put two files between a reader and one surface's rules.
  */
 
 /*

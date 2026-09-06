@@ -18,13 +18,6 @@ import { fireEvent, render } from "@testing-library/react";
 import { StrictMode, createElement, type ReactElement } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import type { GrowthPortAnswer } from "../../bridge/growth-port.js";
-
-// Re-exported so a suite scripting this pane's port names one import rather than two.
-// A type alias, so this is not the barrel chain `console-no-barrel-chain` forbids —
-// that rule is about a DOOR forwarding another door's symbols, and this module is a
-// leaf the suites beside it read.
-export type { GrowthPortAnswer };
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
