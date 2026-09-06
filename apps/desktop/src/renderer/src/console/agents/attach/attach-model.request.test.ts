@@ -16,7 +16,8 @@ import { describe, expect, it } from "vitest";
 
 import { PROVIDER_AXES } from "../agent-wire.js";
 import { DRIVER_CATALOG_FIXTURE } from "../driver-catalog.test-support.js";
-import { ATTACH_FIELDS, AttachSidekickForm, type AttachRequest } from "./attach-model.js";
+import { AttachSidekickForm } from "./attach-model.js";
+import { ATTACH_FIELDS, type AttachRequest } from "./attach-readiness.js";
 import { DEFINITION, SESSION_ID, namedForm } from "./attach-model.test-support.js";
 
 /**

@@ -29,7 +29,8 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
 import { AxisCombobox } from "../AxisCombobox.js";
-import { ATTACH_ARMS, type AttachArm, type AttachSidekickForm } from "./attach-model.js";
+import { type AttachSidekickForm } from "./attach-model.js";
+import { ATTACH_ARMS, type AttachArm } from "./attach-readiness.js";
 import {
   driverNamesOf,
   effortLevelsFor,
