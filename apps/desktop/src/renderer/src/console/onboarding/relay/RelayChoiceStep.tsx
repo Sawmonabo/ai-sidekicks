@@ -21,8 +21,8 @@
 // non-dismissibility rule leaves is enforced where it belongs, on the container: the
 // walkthrough cannot be dismissed while this step is unresolved.
 
-import { InlineRefusal, Nothing } from "../primitives/index.js";
-import type { RelayChoiceReading } from "./onboarding-flow.js";
+import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import type { RelayChoiceReading } from "../onboarding-flow.js";
 import { RELAY_METHOD_OPTIONS_IN_ORDER } from "./relay-choice.js";
 import { RelayConnectionMount } from "./RelayConnectionMount.js";
 import { RELAY_CONNECTION_SLOT } from "./RelayConnectionShell.js";
@@ -81,6 +81,7 @@ function renderReading(reading: RelayChoiceReading): React.ReactNode {
         <RelayConnectionMount
           {...RELAY_CONNECTION_SLOT}
           methodId={undefined}
+          relayUrl={undefined}
           hasCredentialHandle={false}
         />
       );
@@ -98,6 +99,7 @@ function renderReading(reading: RelayChoiceReading): React.ReactNode {
         <RelayConnectionMount
           {...RELAY_CONNECTION_SLOT}
           methodId={reading.methodId}
+          relayUrl={reading.relayUrl}
           hasCredentialHandle={reading.hasCredentialHandle}
         />
       );

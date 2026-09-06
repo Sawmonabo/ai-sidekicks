@@ -51,10 +51,19 @@ export interface OnboardingStepDescriptor {
   /**
    * Whether a person may leave this step without answering it.
    *
-   * `false` for the relay choice, which `Spec-026 §Desktop Surface` makes
-   * non-dismissible "until a choice is made or that invite is explicitly cancelled";
-   * `true` for telemetry, whose default is off and whose answer is explicit; `true`
-   * for providers, which is offered and never demanded.
+   * EXACTLY ONE STEP IS SKIPPABLE, and it is the provider step: `Spec-026 §Provider
+   * Authentication (Group B)` makes it "offered and never demanded", and onboarding
+   * completes with zero registered accounts. The other two are not. The relay choice
+   * is non-dismissible "until a choice is made or that invite is explicitly
+   * cancelled" (`Spec-026 §Desktop Surface`), and telemetry — which this field once
+   * called skippable — is the step that spec is most explicit about: "The flow must
+   * not proceed past telemetry opt-in without an explicit choice; no silent default"
+   * (`Spec-026 §Telemetry Opt-In`). Default-OFF is what the answer defaults to, not
+   * permission to leave without giving one.
+   *
+   * READ BY THE WALKTHROUGH AND BY NOTHING ELSE, which is what keeps it honest: the
+   * skip control is offered from this field, so a step marked unskippable has no way
+   * to be skipped rather than a second rule somewhere saying it must not be.
    */
   readonly isSkippable: boolean;
 }
@@ -80,7 +89,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     group: "relay",
     label: "Telemetry",
     summary: "Its own question, asked after the relay choice and answered explicitly.",
-    isSkippable: true,
+    isSkippable: false,
   },
   providers: {
     id: "providers",

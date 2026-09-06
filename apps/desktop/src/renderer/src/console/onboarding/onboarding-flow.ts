@@ -55,8 +55,8 @@ import {
   type ReadTriggerTarget,
   type RefreshReason,
 } from "../store/index.js";
-import { readRelayMethodId, type RelayMethodId } from "./relay-choice.js";
-import { completedStepsFrom, type OnboardingStepId } from "./step-model.js";
+import { readRelayMethodId, type RelayMethodId } from "./relay/relay-choice.js";
+import { completedStepsFrom, type OnboardingStepId } from "./steps/step-model.js";
 
 /** What the walkthrough knows about where this node is. Closed; every arm renders. */
 export type OnboardingReading =
@@ -75,6 +75,15 @@ export type RelayChoiceReading =
   | {
       readonly kind: "chosen";
       readonly methodId: RelayMethodId;
+      /**
+       * The address this node relays through, as the daemon's config holds it.
+       *
+       * Rendered as a value and not as presence, which is the opposite of the handle
+       * below and for the opposite reason: `Spec-026 §Persistence` keeps `relay_url`
+       * in plaintext config, and Option 1's own required prompt is that the current
+       * published address be displayed rather than described.
+       */
+      readonly relayUrl: string;
       /** Opaque; names a secret main holds. Rendered as presence, never as a value. */
       readonly hasCredentialHandle: boolean;
     }
@@ -213,6 +222,7 @@ export class OnboardingFlow implements ReadTriggerTarget {
     this.#publishRelayChoice({
       kind: "chosen",
       methodId,
+      relayUrl: settlement.value.relayUrl,
       hasCredentialHandle: settlement.value.credentialHandle !== undefined,
     });
     await this.advance("relay");

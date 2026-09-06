@@ -25,12 +25,22 @@
 // and what happens where nothing has been chosen are two components, and this tree
 // gives each `.tsx` module exactly one.
 
-import type { OwnerSlotContract, OwnerSlotProps } from "../seats/index.js";
+import { WireFigure } from "../../primitives/index.js";
+import type { OwnerSlotContract, OwnerSlotProps } from "../../seats/index.js";
 import { RELAY_METHOD_OPTIONS, type RelayMethodId } from "./relay-choice.js";
 
 /** What the step hands the connection body once a method has been chosen. */
 export interface RelayConnectionBodyProps {
   readonly methodId: RelayMethodId;
+  /**
+   * The address this node relays through, as the daemon's own config holds it.
+   *
+   * A VALUE and not a presence flag, which is what separates it from the handle
+   * below: `Spec-026 §Persistence` keeps `relay_url` in plaintext config beside the
+   * choice id, and `Spec-026 §Three-Way Choice Semantics` requires the current
+   * published address to be DISPLAYED for the default option rather than described.
+   */
+  readonly relayUrl: string;
   /**
    * Whether main is holding a secret for this connection.
    *
@@ -53,7 +63,7 @@ export type RelayConnectionBody = (props: RelayConnectionBodyProps) => React.Rea
 export const RELAY_CONNECTION_SLOT_CONTRACT: OwnerSlotContract = {
   owningTask: "the first-run plan's relay-connection orchestration (its main-process modules)",
   mountObligation:
-    "The step supplies the chosen relay identifier and whether a credential handle came back, and mounts the body only after a choice has resolved. Every input the connection needs — the relay address, the join token, the fingerprint confirmation, the hosted sign-in — is collected in the main process; this window neither collects nor forwards any of them.",
+    "The step supplies the chosen relay identifier, the address it resolved to, and whether a credential handle came back, and mounts the body only after a choice has resolved. Every input the connection needs — the relay address, the join token, the fingerprint confirmation, the hosted sign-in — is collected in the main process; this window neither collects nor forwards any of them.",
   deleteShellIn:
     "The first-run task that authors the connection body deletes this shell rather than leaving it beside the body.",
 };
@@ -70,6 +80,9 @@ export function RelayConnectionShell(props: RelayConnectionBodyProps): React.JSX
   return (
     <div className="meridian-onboarding__connection">
       <p className="meridian-onboarding__note">{option.consequence}</p>
+      <p className="meridian-onboarding__note">
+        This node relays through <WireFigure value={props.relayUrl} />.
+      </p>
       <p className="meridian-onboarding__note">
         {props.hasCredentialHandle
           ? "A credential for this relay is held by the host process. It was typed in a window this one cannot read and never reached here."

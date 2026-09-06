@@ -27,7 +27,7 @@
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
-import { Nothing, RefusalCard } from "../primitives/index.js";
+import { Nothing, RefusalCard } from "../../primitives/index.js";
 import { ProviderRow } from "./ProviderRow.js";
 import {
   accountsForProvider,
@@ -41,7 +41,15 @@ export interface ProviderReadinessStepProps {
   readonly onSignIn: (providerName: string) => void;
   readonly onRecheck: (providerName: string, accountId: ProviderAccountId) => void;
   readonly onOpenAccountRegistry: () => void;
-  readonly onSkip: () => void;
+  /**
+   * Skip this step, where the rail's model says it may be skipped.
+   *
+   * OPTIONAL, AND THAT IS THE SINGLE SOURCE. `step-model.ts` decides which steps a
+   * person may leave unanswered; the walkthrough hands this in from that decision and
+   * withholds it otherwise. A boolean prop beside a mandatory handler would be a
+   * second place the same rule was written, and the two would eventually disagree.
+   */
+  readonly onSkip: (() => void) | undefined;
 }
 
 export function ProviderReadinessStep(props: ProviderReadinessStepProps): React.JSX.Element {
@@ -60,13 +68,15 @@ export function ProviderReadinessStep(props: ProviderReadinessStepProps): React.
         >
           Open the account registry
         </button>
-        <button
-          type="button"
-          className="meridian-onboarding__act meridian-onboarding__act--secondary"
-          onClick={props.onSkip}
-        >
-          Skip this step
-        </button>
+        {props.onSkip === undefined ? null : (
+          <button
+            type="button"
+            className="meridian-onboarding__act meridian-onboarding__act--secondary"
+            onClick={props.onSkip}
+          >
+            Skip this step
+          </button>
+        )}
       </div>
     </section>
   );

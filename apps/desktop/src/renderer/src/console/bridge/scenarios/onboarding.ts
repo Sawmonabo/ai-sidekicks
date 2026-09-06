@@ -165,7 +165,11 @@ export const ONBOARDING_SCENARIO: ConsoleScenario = {
     },
     {
       call: "growth:onboardingPresentChoice",
-      result: { relayMethodId: "self-host", credentialHandle: "keystore:relay-join-token" },
+      result: {
+        relayMethodId: "self-host",
+        relayUrl: "https://relay.internal.example/",
+        credentialHandle: "keystore:relay-join-token",
+      },
     },
     { call: "growth:onboardingTelemetryPrompt", result: { enabled: false } },
     { call: "growth:onboardingStepAdvance", result: null },

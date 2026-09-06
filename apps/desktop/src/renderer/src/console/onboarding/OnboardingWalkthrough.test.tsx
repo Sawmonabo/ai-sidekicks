@@ -20,9 +20,9 @@ import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
-import { ProviderReadinessModel } from "./provider-readiness.js";
-import { RELAY_METHOD_OPTIONS_IN_ORDER } from "./relay-choice.js";
-import type { OnboardingStepId } from "./step-model.js";
+import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
+import { RELAY_METHOD_OPTIONS_IN_ORDER } from "./relay/relay-choice.js";
+import type { OnboardingStepId } from "./steps/step-model.js";
 
 async function mountAt(openAtStep: OnboardingStepId): Promise<HTMLElement> {
   const bridge = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });

@@ -17,7 +17,7 @@
 
 import type { ProviderAccountId, ProviderReadiness } from "@ai-sidekicks/contracts";
 
-import { InlineRefusal, Nothing, WireFigure } from "../primitives/index.js";
+import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import {
   OBSERVED_AT_UNSET_NOTE,
   READINESS_STATE_LABELS,

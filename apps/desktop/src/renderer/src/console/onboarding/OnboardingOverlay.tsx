@@ -36,8 +36,8 @@ import { useSubjectScopedResource, type SubjectScopedDisposal } from "../store/i
 import { onboardingActivation, type OnboardingActivation } from "./onboarding-activation.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
-import { ProviderReadinessModel } from "./provider-readiness.js";
-import { firstUnresolvedStep, type OnboardingStepId } from "./step-model.js";
+import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
+import { firstUnresolvedStep, type OnboardingStepId } from "./steps/step-model.js";
 
 /** The command ids this family owns. Namespaced by family, per the command rules. */
 const OPEN_COMMAND_ID = "onboarding.open";

@@ -5,14 +5,16 @@
 // question — what the step renders when there is no connection to describe yet — and
 // it is a component of its own because this tree gives each `.tsx` module exactly one.
 
-import { Nothing } from "../primitives/index.js";
-import type { OwnerSlotProps } from "../seats/index.js";
+import { Nothing } from "../../primitives/index.js";
+import type { OwnerSlotProps } from "../../seats/index.js";
 import type { RelayConnectionBody } from "./RelayConnectionShell.js";
 import type { RelayMethodId } from "./relay-choice.js";
 
 export interface RelayConnectionMountProps extends OwnerSlotProps<RelayConnectionBody> {
   /** `undefined` until a choice has resolved — nothing to connect with yet. */
   readonly methodId: RelayMethodId | undefined;
+  /** Absent for the same reason as the method: no choice, no resolved address. */
+  readonly relayUrl: string | undefined;
   readonly hasCredentialHandle: boolean;
 }
 
@@ -23,8 +25,8 @@ export interface RelayConnectionMountProps extends OwnerSlotProps<RelayConnectio
  * node, and until a choice resolves nothing has asked the question at all.
  */
 export function RelayConnectionMount(props: RelayConnectionMountProps): React.JSX.Element {
-  const { body, methodId } = props;
-  if (body === undefined || methodId === undefined) {
+  const { body, methodId, relayUrl } = props;
+  if (body === undefined || methodId === undefined || relayUrl === undefined) {
     return (
       <Nothing
         kind="not-checked"
@@ -34,5 +36,5 @@ export function RelayConnectionMount(props: RelayConnectionMountProps): React.JS
       />
     );
   }
-  return <>{body({ methodId, hasCredentialHandle: props.hasCredentialHandle })}</>;
+  return <>{body({ methodId, relayUrl, hasCredentialHandle: props.hasCredentialHandle })}</>;
 }

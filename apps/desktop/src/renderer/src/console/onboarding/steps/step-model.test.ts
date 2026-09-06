@@ -59,8 +59,12 @@ describe("the steps as data", () => {
     }
   });
 
-  it("makes the relay choice the one step that cannot be skipped", () => {
-    const unskippable = ONBOARDING_STEPS_IN_ORDER.filter((step) => !step.isSkippable);
-    expect(unskippable.map((step) => step.id)).toStrictEqual(["relay"]);
+  it("makes the provider step the one step that can be skipped", () => {
+    // Stated as the positive set rather than its complement, because that is the set
+    // `Spec-026` closes: group B is offered and never demanded, and BOTH group-A
+    // steps refuse to be left unanswered — the relay choice by being non-dismissible
+    // and telemetry by admitting no silent default.
+    const skippable = ONBOARDING_STEPS_IN_ORDER.filter((step) => step.isSkippable);
+    expect(skippable.map((step) => step.id)).toStrictEqual(["providers"]);
   });
 });

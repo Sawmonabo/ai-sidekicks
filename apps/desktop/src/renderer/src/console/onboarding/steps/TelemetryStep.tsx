@@ -19,8 +19,8 @@
 // question, so this step offers the act and renders what came back. There is no
 // toggle in this file, which is why the default cannot be silently applied by it.
 
-import { InlineRefusal, Nothing } from "../primitives/index.js";
-import type { TelemetryReading } from "./onboarding-flow.js";
+import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import type { TelemetryReading } from "../onboarding-flow.js";
 
 /** What telemetry carries, from the section that fixes it. Rendered as a list. */
 const COLLECTED: readonly string[] = [

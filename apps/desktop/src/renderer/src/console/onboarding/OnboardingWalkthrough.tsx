@@ -27,12 +27,15 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { RefusalCard } from "../primitives/index.js";
 import { CompletionSummary } from "./CompletionSummary.js";
 import type { OnboardingFlow, OnboardingSnapshot } from "./onboarding-flow.js";
-import { ProviderReadinessStep } from "./ProviderReadinessStep.js";
-import type { ProviderReadinessModel, ProviderReadinessReading } from "./provider-readiness.js";
-import { RelayChoiceStep } from "./RelayChoiceStep.js";
-import { StepRail } from "./StepRail.js";
-import { ONBOARDING_STEPS, type OnboardingStepId } from "./step-model.js";
-import { TelemetryStep } from "./TelemetryStep.js";
+import { ProviderReadinessStep } from "./provider-readiness/ProviderReadinessStep.js";
+import type {
+  ProviderReadinessModel,
+  ProviderReadinessReading,
+} from "./provider-readiness/provider-readiness.js";
+import { RelayChoiceStep } from "./relay/RelayChoiceStep.js";
+import { StepRail } from "./steps/StepRail.js";
+import { ONBOARDING_STEPS, type OnboardingStepId } from "./steps/step-model.js";
+import { TelemetryStep } from "./steps/TelemetryStep.js";
 
 export interface OnboardingWalkthroughProps {
   readonly flow: OnboardingFlow;
@@ -160,9 +163,17 @@ function renderStep(
             void readiness.recheck(providerName, accountId, accountScope);
           }}
           onOpenAccountRegistry={props.onOpenAccountRegistry}
-          onSkip={() => {
-            void flow.skip("providers");
-          }}
+          // From the rail's model rather than from this arm: `Spec-026` makes exactly
+          // one step skippable, `step-model.ts` records which, and a handler written
+          // unconditionally here would be a second answer to that question living
+          // beside the first.
+          onSkip={
+            ONBOARDING_STEPS[stepId].isSkippable
+              ? () => {
+                  void flow.skip(stepId);
+                }
+              : undefined
+          }
         />
       );
   }

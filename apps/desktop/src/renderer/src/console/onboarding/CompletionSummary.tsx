@@ -12,9 +12,9 @@
 // sentence a person cannot act on; the provider names are what they take away.
 
 import { WireFigure } from "../primitives/index.js";
-import { ZERO_ACCOUNTS_NOTE } from "./provider-readiness-copy.js";
-import type { ProviderReadinessReading } from "./provider-readiness.js";
-import { providersNotReady } from "./provider-readiness.js";
+import { ZERO_ACCOUNTS_NOTE } from "./provider-readiness/provider-readiness-copy.js";
+import type { ProviderReadinessReading } from "./provider-readiness/provider-readiness.js";
+import { providersNotReady } from "./provider-readiness/provider-readiness.js";
 
 export interface CompletionSummaryProps {
   readonly reading: ProviderReadinessReading;

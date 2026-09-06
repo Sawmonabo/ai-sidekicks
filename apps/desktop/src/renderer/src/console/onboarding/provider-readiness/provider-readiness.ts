@@ -13,6 +13,21 @@
 // compared against a clock. A re-check is a deliberate act a person performs, which
 // is why `providerAccount.probe` is reached only from a control.
 //
+// AND THE READ GOES THROUGH THE ONE SCHEDULER, which is what separates "nothing
+// polls" from "nothing can ask again". This model used to read once from the step's
+// own arrival and hold whatever that answered for the life of the window: current at
+// mount and stale from the first reconnect, with nothing on screen saying so. It is a
+// `ReadTriggerTarget` now, so the three reasons the console supplies from outside — a
+// window regaining focus, a repaired connection, a surface arriving — reach it
+// through `requestRead` and are coalesced by `RefreshScheduler`, exactly as
+// `onboarding-flow.ts` next door takes them.
+//
+// THE ARRIVAL IS THE SCOPE-BEARING CALL, and that is why `read` stays public beside
+// `requestRead`. An activation names which account the readiness read is addressed
+// at, and a scheduler keyed on nothing could not tell two scopes apart — so the
+// walkthrough's arrival supplies the scope, this model remembers it, and every later
+// reason re-reads THAT scope rather than silently widening to the provider default.
+//
 // THE THREE ACTS THIS MODEL PERFORMS, and why there is no fourth. Sign-in hands the
 // participant to the provider's own first-party flow through the growth port — the
 // daemon spawns the unmodified login binary and this console reads nothing it writes.
@@ -32,8 +47,19 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts";
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import { callDaemon, settleGrowthRead, type ConsoleBridge } from "../bridge/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import {
+  callDaemon,
+  consoleClockFor,
+  settleGrowthRead,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
+import {
+  NO_TRIGGERING_EVENT_KINDS,
+  RefreshScheduler,
+  type ReadTriggerTarget,
+  type RefreshReason,
+} from "../../store/index.js";
 
 /** What the step knows about this node's providers. Closed; every arm renders. */
 export type ProviderReadinessReading =
@@ -56,19 +82,71 @@ export type ProviderActionReading =
 /** The idle reading, shared rather than rebuilt, so an untouched row is one object. */
 const IDLE: ProviderActionReading = { kind: "idle" };
 
-export class ProviderReadinessModel {
+export class ProviderReadinessModel implements ReadTriggerTarget {
+  /**
+   * Nothing in any session's timeline says this node's provider accounts changed.
+   *
+   * The empty set is a claim read off the contract rather than an omission: the
+   * provider-account registry is un-evented by design — its own subscribe verb
+   * "carries a WIRE-ONLY notification and NEVER an `EventEnvelope`", because a
+   * node-local operator act on a node-local registry has no session to belong to. So
+   * there is no session event kind that could legitimately re-trigger this read, and
+   * the sign-in completion is one of those wire notifications rather than an event.
+   * This reading goes stale when the window has been away, and never because one
+   * session appended something — which is exactly what the account plane's other
+   * reading, `NodeProviderQuotaReading`, states at the same field.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
+  readonly #refresh: RefreshScheduler;
   readonly #changes = new Emitter<void>("provider readiness");
   readonly #actionsByProvider = new Map<string, ProviderActionReading>();
   #reading: ProviderReadinessReading = { kind: "reading" };
+  /**
+   * The scope the newest read was addressed at. Re-read by every later reason.
+   *
+   * Held rather than re-derived, because the activation that named it is gone by the
+   * time a reconnect asks for a fresh read — and a refresh that quietly widened to
+   * the provider default would answer about a different account from the one the
+   * person is looking at.
+   */
+  #accountScope: ProviderAccountId | undefined = undefined;
   #generation = 0;
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
+    this.#refresh = new RefreshScheduler({
+      // The fixture's frozen clock wherever a scenario is playing and the real one
+      // otherwise, resolved once per model.
+      clock: consoleClockFor(bridge),
+      perform: async () => {
+        await this.read(this.#accountScope);
+      },
+      // A refused read is already this model's own `unreadable` arm, so re-throwing
+      // would surface the same fact a second time as an unhandled rejection.
+      onError: () => undefined,
+    });
   }
 
   public get reading(): ProviderReadinessReading {
     return this.#reading;
+  }
+
+  /**
+   * Ask for a fresh readiness read, at whatever scope the arrival named.
+   *
+   * The ARRIVAL reads immediately, on `onboarding-flow.ts`' rule and for its reason:
+   * this reading has no tail keeping it current and the fixture's clock is frozen, so
+   * a first read parked behind the debounce window would never happen at all. Every
+   * other reason arrives in bursts — a window regaining focus, a repaired connection
+   * — and is the scheduler's to coalesce.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (reason === "subscribe") {
+      void this.read(this.#accountScope);
+      return;
+    }
+    this.#refresh.request(reason);
   }
 
   /** What this window has done about one provider. Never `undefined` — idle is real. */
@@ -83,6 +161,7 @@ export class ProviderReadinessModel {
   /** Drop this model's claim on anything unsettled. Nothing published after this. */
   public supersede(): void {
     this.#generation += 1;
+    this.#refresh.dispose();
   }
 
   /**
@@ -90,10 +169,12 @@ export class ProviderReadinessModel {
    *
    * The scope exists for the post-refusal path alone: a run bound to a per-run
    * account override was refused about THAT account, and an unscoped read would hand
-   * back the provider default's remedy — a different account, possibly healthy.
+   * back the provider default's remedy — a different account, possibly healthy. It is
+   * REMEMBERED here, which is what lets every later trigger re-read the same scope.
    */
   public async read(accountScope: ProviderAccountId | undefined): Promise<void> {
     const generation = this.#generation;
+    this.#accountScope = accountScope;
     const reply = await callDaemon(
       this.#bridge,
       "providerAccount.list",

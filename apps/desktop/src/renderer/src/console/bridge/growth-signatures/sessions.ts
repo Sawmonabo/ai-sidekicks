@@ -51,9 +51,19 @@ export interface SessionGrowthSignatures {
   // identifiers are `Spec-026 §Three-Way Choice Semantics`', and the console narrows
   // against its own copy of them fail-closed at the step — an id this build does not
   // recognise renders as the unrecognised row rather than as one of the three.
+  //
+  // `relayUrl` is on the reply because `Spec-026 §Desktop Surface` declares it there
+  // and `Spec-026 §Persistence` records it as plaintext config rather than a secret —
+  // and because Option 1's own required prompt is that the current published relay
+  // address is displayed. Without it this console could describe the consequence of a
+  // choice and never name the address it resolved to.
   onboardingPresentChoice: {
     request: Record<string, never>;
-    value: { readonly relayMethodId: string; readonly credentialHandle: string | undefined };
+    value: {
+      readonly relayMethodId: string;
+      readonly relayUrl: string;
+      readonly credentialHandle: string | undefined;
+    };
   };
   onboardingTelemetryPrompt: {
     request: Record<string, never>;

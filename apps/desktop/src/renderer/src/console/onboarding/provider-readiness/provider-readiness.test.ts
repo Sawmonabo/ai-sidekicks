@@ -10,8 +10,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../../bridge/index.js";
+import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   ProviderReadinessModel,
   accountsForProvider,
@@ -126,6 +127,28 @@ describe("the acts the step performs", () => {
       return;
     }
     expect(action.refusal.code).toBe("wire-unregistered");
+  });
+
+  it("re-reads at the scope the arrival named when a trigger asks again", async () => {
+    // The trigger contract is not decoration. `read-triggers.test.ts` holds that the
+    // two members are declared; this holds that the routed entry point reaches the
+    // wire — a `requestRead` that published nothing would satisfy the gate and leave
+    // the reading exactly as stale as it was before it existed.
+    const model = modelOver(fixture());
+    await model.read(undefined);
+    const reading = model.reading;
+    if (reading.kind !== "read") {
+      throw new Error("the fixture did not serve a readiness projection");
+    }
+    const scope = reading.entries[1]?.resolvedAccountId;
+    if (scope === undefined) {
+      throw new Error("the fixture did not resolve an account for the signed-out provider");
+    }
+    await model.read(scope);
+    model.requestRead("subscribe");
+    await crossMacrotaskBoundary();
+
+    expect(model.reading.kind).toBe("read");
   });
 
   it("publishes nothing after the step was retired", async () => {

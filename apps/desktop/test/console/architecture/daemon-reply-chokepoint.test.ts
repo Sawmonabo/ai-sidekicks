@@ -148,9 +148,10 @@ function isBridgeFamilyModule(module: string): boolean {
  *      The first surface to bind `session.join`: the shipped Tier-1 probe calls it
  *      from a mount effect through the raw bridge, and a form a person fills in is a
  *      different act from a probe that joins on being rendered.
- *  13. `console/onboarding/provider-readiness.ts` — the onboarding walkthrough's
- *      provider-readiness step, which reads the account plane's `providerAccount.list`
- *      readiness projection and re-probes one account through `providerAccount.probe`.
+ *  13. `console/onboarding/provider-readiness/provider-readiness.ts` — the
+ *      onboarding walkthrough's provider-readiness step, which reads the account
+ *      plane's `providerAccount.list` readiness projection and re-probes one account
+ *      through `providerAccount.probe`.
  *      It is a VIEW over that plane and mints nothing: registration and defaults stay
  *      the settings page's, so the two reads are the whole of its reach.
  *

@@ -27,17 +27,31 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { readProviderAccountId } from "../bridge/index.js";
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import type { OnboardingStepId } from "./step-model.js";
+import type { OnboardingStepId } from "./steps/step-model.js";
 
 /**
- * The account-plane refusals a provider run can meet at admission.
+ * The account-plane refusals that should open the provider step.
  *
- * Exactly the five codes `error-contracts.md` registers for run admission against the
- * provider-account plane, transcribed rather than derived because no renderer module
- * can read that table. Every one of them is a state the provider step has a remedy
- * for, and no other account-plane code is: a permission refusal, a default-conflict
- * race, and a seal refusal are all real failures whose remedy is elsewhere, so
- * offering the step for them would send a person somewhere that cannot help.
+ * A DELIBERATE SUBSET, and the rule that selects it is a conjunction: the code is
+ * reachable when a provider RUN is refused at admission, AND the readiness projection
+ * carries a remedy arm that closes it — `register`, `choose_default`, or `sign_in`,
+ * which is the whole of `ProviderRemedy`. Both halves are needed, because a
+ * walkthrough opened over a failure it has no remedy for is worse than no walkthrough
+ * at all. Transcribed rather than derived, because no renderer module can read the
+ * error table.
+ *
+ * The account plane registers twelve codes. The other seven are excluded on one
+ * conjunct or the other, and naming which is what keeps this list checkable:
+ *
+ *   • `default_conflict`, `signin_unsupported`, `signin_in_flight`,
+ *     `token_class_refused`, and `credential_seal_refused` refuse a registry mutation
+ *     or a sign-in call, never a run — so the first conjunct fails and a run never
+ *     meets them.
+ *   • `permission_denied` and `provider_version_below_floor` ARE run-admission
+ *     refusals, and they fail the second: the remedy for the first is node-operator
+ *     authority and for the second a host binary upgrade, and the readiness
+ *     projection has an arm for neither. Opening the step for either would show a
+ *     person three remedies, none of which is theirs.
  */
 export const ACCOUNT_PLANE_RUN_REFUSAL_CODES: readonly string[] = [
   "provideraccount.not_registered",
@@ -98,6 +112,7 @@ export const onboardingActivation: OnboardingActivationSignal = new OnboardingAc
  * scope that does not parse becomes an unscoped read rather than a refused activation:
  * the provider step is still worth opening, it just describes the default account.
  */
+// Consumed by T-023p-1C-3 — the runs pane's run-failure routing.
 export function activationForRunRefusal(
   refusal: ConsoleRefusal,
   accountId: string | undefined,

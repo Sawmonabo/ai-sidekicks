@@ -13,6 +13,17 @@
 // label, a billing mode, an observed email, or a credential home that exists on disk
 // is not evidence — `Spec-026 §Provider Authentication (Group B)` says so, and the
 // five other sentences below each say plainly that the provider cannot run yet.
+//
+// WHY THIS IS THE SECOND TABLE OVER THIS UNION, AND NOT A DUPLICATE. The
+// provider-accounts settings page carries its own sentences for the same six arms,
+// and the two are kept apart on REGISTER rather than merged: that page is a registry
+// operator's reference and states what run admission WOULD do about each arm; this is
+// a first-run walkthrough and states what is true of this provider RIGHT NOW, in the
+// second person, for somebody who has not met the registry yet. The closed set has
+// one home — `packages/contracts` — so an arm added upstream is a compile error in
+// both places; what differs is the voice, and hoisting one table would put an
+// operator's reference into a setup step or a setup step's reassurance into a
+// reference. The neighbour is named here so a later reader finds both.
 
 import type { ProviderReadinessState, ProviderRemedy } from "@ai-sidekicks/contracts";
 

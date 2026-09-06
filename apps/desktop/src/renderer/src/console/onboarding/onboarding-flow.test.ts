@@ -63,6 +63,10 @@ describe("the relay choice", () => {
     expect(relayChoice).toStrictEqual({
       kind: "chosen",
       methodId: "self-host",
+      // Carried as a VALUE: `Spec-026 §Persistence` keeps the relay address in
+      // plaintext config, and the connection body displays it rather than describing
+      // it — which is the opposite disposition from the handle beside it.
+      relayUrl: "https://relay.internal.example/",
       hasCredentialHandle: true,
     });
   });
