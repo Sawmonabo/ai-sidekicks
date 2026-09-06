@@ -30,6 +30,17 @@ import { Workspace } from "./Workspace.js";
 
 export const SESSION_ID = "session-workspace";
 
+/**
+ * The pane the workspace's fallback timeline lands in.
+ *
+ * The follow seat is keyed by pane, so a case that fills it has to name one.
+ * `DeckLayout` mints `pane-1` for the first pane it opens and the workspace opens
+ * exactly one — the fallback ledger — so this is that pane's id and not a guess. The
+ * case that uses it asserts the deck holds a single pane first, which is what keeps
+ * the derivation checkable rather than assumed.
+ */
+export const WORKSPACE_TIMELINE_PANE_ID = "pane-1";
+
 export const SCENARIO: ConsoleScenario = {
   id: "workspace",
   label: "Workspace",

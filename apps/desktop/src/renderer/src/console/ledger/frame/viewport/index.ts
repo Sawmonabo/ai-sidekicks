@@ -8,11 +8,13 @@
 // wanted the anchor without the chokepoint would be asking to decide where a reader is
 // standing and then be unable to keep them there.
 //
-// WHAT LEAVES. The four shapes a reader of the window speaks — the visible range, one
-// row, the whole snapshot, and the binding. The controller, the prune cycle, the cap and
-// the virtualizer seams stop here; the family door publishes the two hooks and the
-// component from their own declaring modules, which is what keeps a symbol's home one hop
-// away rather than two.
+// WHAT LEAVES. The three shapes a reader of the window speaks — the visible range, one
+// row, and the whole snapshot. The binding itself does NOT: the only thing that holds one
+// is the component declared beside it, which reaches it directly, and a door line no
+// reader outside this seam consumes is a symbol published ahead of its consumer. The
+// controller, the prune cycle, the cap and the virtualizer seams stop here too; the
+// family door publishes the two hooks and the component from their own declaring modules,
+// which is what keeps a symbol's home one hop away rather than two.
 
-export { type LedgerViewportBinding, type LedgerVisibleRowRange } from "./viewport-binding.js";
+export { type LedgerVisibleRowRange } from "./viewport-binding.js";
 export { type LedgerViewportRow, type LedgerViewportSnapshot } from "./viewport-snapshot.js";

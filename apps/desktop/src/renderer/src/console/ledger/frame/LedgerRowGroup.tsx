@@ -43,7 +43,7 @@ function rowProjectionRefusal(groupLabel: string, error: Error): ConsoleRefusal 
  * One row group's boundary.
  *
  * A group rather than the whole feed: a single row that throws must not blank the
- * log around it, which is the same reasoning `frame/ErrorBoundary.tsx` gives for
+ * log around it, which is the same reasoning `primitives/ErrorBoundary.tsx` gives for
  * one boundary per surface rather than one per window, applied one level down.
  *
  * The failure is rendered RED and NAMED (rule 8) through the console's one refusal

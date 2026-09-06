@@ -42,9 +42,8 @@
 // is what lets the grammar be tested against hand-written records — including ones
 // no version of this console would ever write.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "../../store/index.js";
-import { isPaneKind } from "../../seats/index.js";
+import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { isPaneKind, parseConsolePaneAddress } from "../../seats/index.js";
 import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../workspace-bounds.js";
 import { isDeckDensity } from "./density.js";
 import {
@@ -280,19 +279,12 @@ function decodePane(
   refusals: DeckRestoreRefusal[],
 ): DeckPane | undefined {
   const kind = entry["kind"];
-  if (!isPaneKind(kind)) {
-    refusals.push(
-      refuseDeckRestore(
-        "pane-kind-unknown",
-        "One saved pane is a kind this version of the console does not have, so it was left closed.",
-      ),
-    );
-    return undefined;
-  }
-  if (EPHEMERAL_PANE_KINDS.includes(kind)) {
+  if (isPaneKind(kind) && EPHEMERAL_PANE_KINDS.includes(kind)) {
     // Nothing this build writes can produce one, so its presence means the record
     // was written by something else. Refused for the same reason it is never
-    // written: a restart must not reopen a page nobody asked for.
+    // written: a restart must not reopen a page nobody asked for. Ahead of the
+    // grammar below, which would admit it — an ephemeral pane's address is a valid
+    // address, and what is wrong with it is that it was SAVED.
     refusals.push(
       refuseDeckRestore(
         "pane-kind-unknown",
@@ -302,13 +294,28 @@ function decodePane(
     return undefined;
   }
 
-  const entity = readEntity(entry);
-  if (entity === "invalid") {
+  // THE ADMISSION IS THE CONSOLE'S ONE PANE-ADDRESS GRAMMAR, and not a reading of
+  // its own. A weaker one here — any known entity kind, any non-empty id — admits a
+  // `timeline` opened over an artifact and an id like `bad/id`, and the body that
+  // mounts the row then refuses it: an unusable pane holding one of the cap's slots,
+  // written straight back out on the next save and surviving every restart. The
+  // grammar knows both things this one cannot: WHICH entity kinds each pane kind is
+  // a view of, and what an identifier is allowed to look like.
+  const address = parseConsolePaneAddress(kind, readEntityCandidate(entry));
+  if (isConsoleRefusal(address)) {
+    // Two sentences for five parse codes, because what a person can do about a
+    // dropped pane is the same either way, and this module's own vocabulary is
+    // closed. The parse's code is the precise one and stays where it was raised.
     refusals.push(
-      refuseDeckRestore(
-        "pane-entity-invalid",
-        "One saved pane named something the console could not resolve, so it was left closed.",
-      ),
+      address.code === "pane-kind-unknown"
+        ? refuseDeckRestore(
+            "pane-kind-unknown",
+            "One saved pane is a kind this version of the console does not have, so it was left closed.",
+          )
+        : refuseDeckRestore(
+            "pane-entity-invalid",
+            "One saved pane named something the console could not resolve, so it was left closed.",
+          ),
     );
     return undefined;
   }
@@ -316,8 +323,8 @@ function decodePane(
   const sizePermille = entry["sizePermille"];
   return {
     paneId,
-    kind,
-    entity,
+    kind: address.kind,
+    entity: "entity" in address ? address.entity : undefined,
     sizePermille:
       typeof sizePermille === "number" && Number.isFinite(sizePermille) && sizePermille > 0
         ? sizePermille
@@ -341,33 +348,20 @@ function readPosition(entry: UnknownRecord): number {
 }
 
 /**
- * The pane's entity, `undefined` for a session-scoped pane, or `"invalid"`.
+ * The record's two flat entity members, gathered into the shape the grammar reads.
+ *
+ * The snapshot stores `entityKind` and `entityId` side by side at the top of a pane
+ * entry, because a record is flat; the pane-address grammar takes one candidate
+ * object. This is that translation and nothing else — it decides nothing about
+ * whether either value is any good, which is the whole point of handing them on.
  *
  * All-or-nothing, on `src/shared/auxiliary-routes.ts`' reasoning about its own
- * context grammar: a half-supplied entity is the shape that lets a writer and a
- * reader agree by luck, so one member without the other is refused rather than
- * dropped.
+ * context grammar: absent BOTH members is a session-scoped pane, and either member
+ * alone is a candidate the grammar refuses rather than a pane the reader guesses the
+ * rest of.
  */
-function readEntity(entry: UnknownRecord): ConsoleEntityRef | undefined | "invalid" {
+function readEntityCandidate(entry: UnknownRecord): unknown {
   const kind = entry["entityKind"];
   const id = entry["entityId"];
-  if (kind === undefined && id === undefined) {
-    return undefined;
-  }
-  if (!isConsoleEntityKind(kind) || typeof id !== "string" || id === "") {
-    return "invalid";
-  }
-  return { kind, id };
-}
-
-/**
- * Whether `value` names one of the console's entity kinds.
- *
- * Reads the one declaration in `store/entities.ts` rather than restating it, so the
- * predicate cannot fall behind the set. It exists because a restored entity ref
- * arrives as two strings off disk, and constructing a `ConsoleEntityRef` from an
- * unchecked string would be a cast standing where a check belongs.
- */
-function isConsoleEntityKind(value: unknown): value is ConsoleEntityRef["kind"] {
-  return typeof value === "string" && (CONSOLE_ENTITY_KINDS as readonly string[]).includes(value);
+  return kind === undefined && id === undefined ? undefined : { kind, id };
 }

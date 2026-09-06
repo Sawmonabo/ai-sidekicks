@@ -30,6 +30,10 @@ export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 // reaches `ConsoleRoot` and through it every family, so that edge closes a cycle.
 // `consoleFamilyKeyBindings` is read by the frame alone, which prepends its own rail
 // chords and publishes the whole table.
+// The singular `registerConsoleCommand` and the contribution SHAPE are deliberately
+// not among them: every caller outside this family registers a batch, and every one
+// of them builds its contribution inline against the interface below, so a door line
+// for either would publish a name nothing outside the family types.
 export {
   CONSOLE_CHORD_PLATFORM,
   consoleCommandSurface,
@@ -37,10 +41,8 @@ export {
   consoleFamilyKeyBindings,
   publishConsoleActRefusalSink,
   raiseConsoleActRefusal,
-  registerConsoleCommand,
   registerConsoleCommands,
   type ConsoleCommandSurface,
-  type ConsoleFamilyCommandContribution,
 } from "./console-commands.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the

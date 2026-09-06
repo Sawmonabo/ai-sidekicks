@@ -17,6 +17,8 @@ import { LedgerFeed } from "./LedgerFeed.js";
 
 export interface TimelineRowHostProps extends OwnerSlotProps<TimelineRowRenderer> {
   readonly sessionStore: SessionStore | undefined;
+  /** The deck pane this body fills, for the seat the feed claims under it. */
+  readonly paneId: string;
   readonly channelId?: string;
 }
 
@@ -59,6 +61,7 @@ export function TimelineRowHost(props: TimelineRowHostProps): React.JSX.Element 
   return (
     <LedgerFeed
       sessionStore={props.sessionStore}
+      paneId={props.paneId}
       renderTimelineRow={body}
       // Named for what the feed is a log of, because the label is what a screen
       // reader announces when it enters the box — and "Session timeline" over a

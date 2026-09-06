@@ -94,6 +94,14 @@ function paneKinds(layout: DeckLayout): readonly string[] {
   return layout.snapshot().panes.map((pane) => pane.kind);
 }
 
+/** The widths on screen, in the order the panes sit in. */
+function paneWidths(layout: DeckLayout): readonly number[] {
+  return layout.snapshot().panes.map((pane) => pane.sizePermille);
+}
+
+/** A width floor loose enough that nothing in these fixtures is clamped by it. */
+const UNCLAMPED_WIDTH_FLOOR_PERMILLE = 100;
+
 /** How many panes the saved record holds. Its one non-pane key is `$deck`. */
 async function savedPaneCount(store: UiStateStore): Promise<number> {
   const record = await store.read(RESTORE_SESSION, DECK_LAYOUT_RECORD_KEY);
@@ -160,6 +168,68 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     await drain();
 
     expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
+  });
+
+  it("leaves a pane the person closed during the read closed", async () => {
+    // A close made while the record is in flight leaves no trace in the deck's
+    // snapshot — the pane is simply gone — so a reconciliation that diffs the deck
+    // cannot see it, and the record puts the pane straight back. The person watches a
+    // pane they just closed return, and the write that follows files it as theirs.
+    const store = uiStateStore();
+    await saveDeck(store, ["timeline", "runs"]);
+    const layout = deckLayout();
+
+    mountPersistence(layout, store);
+    act(() => {
+      const paneId = layout.open({ kind: "runs", entity: undefined });
+      layout.close(paneId);
+    });
+    await drain();
+
+    expect(paneKinds(layout)).toStrictEqual(["timeline"]);
+    expect(await savedPaneCount(store)).toBe(1);
+  });
+
+  it("keeps the widths the person set during the read", async () => {
+    // The record carries widths of its own, and a wholesale restore adopts them over
+    // a drag the person has just finished. Nothing here needs adopting from the
+    // record — every address it names is already on screen — so the drag stands.
+    const store = uiStateStore();
+    await saveDeck(store, ["timeline"]);
+    const layout = deckLayout();
+
+    mountPersistence(layout, store);
+    act(() => {
+      const timelinePaneId = layout.open({ kind: "timeline", entity: undefined });
+      const runsPaneId = layout.open({ kind: "runs", entity: undefined });
+      layout.applyLayout(
+        { [timelinePaneId]: 70, [runsPaneId]: 30 },
+        UNCLAMPED_WIDTH_FLOOR_PERMILLE,
+      );
+    });
+    await drain();
+
+    expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
+    expect(paneWidths(layout)).toStrictEqual([700, 300]);
+  });
+
+  it("keeps the order the person set during the read", async () => {
+    // Same two panes in both the record and the deck, in opposite orders. A wholesale
+    // restore has no way to prefer one, so it takes the record's and the reorder the
+    // person just performed is undone under their hands.
+    const store = uiStateStore();
+    await saveDeck(store, ["timeline", "runs"]);
+    const layout = deckLayout();
+
+    mountPersistence(layout, store);
+    act(() => {
+      layout.open({ kind: "timeline", entity: undefined });
+      const runsPaneId = layout.open({ kind: "runs", entity: undefined });
+      layout.movePane(runsPaneId, -1);
+    });
+    await drain();
+
+    expect(paneKinds(layout)).toStrictEqual(["runs", "timeline"]);
   });
 
   it("negative control: an untouched read restores the record and writes nothing back", async () => {

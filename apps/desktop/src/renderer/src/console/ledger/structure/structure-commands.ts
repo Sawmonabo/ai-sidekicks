@@ -7,9 +7,9 @@
 // command through `palette/contributions.ts` and never through a second command
 // registry.
 //
-// THE VALUES ARE BUILT HERE AND CONTRIBUTED THROUGH THE FRAME'S OWN DOOR.
+// THE VALUES ARE BUILT HERE AND CONTRIBUTED THROUGH THE ONE COMMAND DOOR.
 // `ConsoleCommand` and `KeyBinding` come from the palette's contribution types, and
-// `registerLedgerCommands` hands both to `frame/command-surface.ts` — the same door
+// `registerLedgerCommands` hands both to `palette/console-commands.ts` — the same door
 // the frame's own commands go through, and the same shape as this family's surface
 // and pane claims: the family registers itself, and the frame names no family.
 // Building the list and contributing it stay separate functions, because a caller

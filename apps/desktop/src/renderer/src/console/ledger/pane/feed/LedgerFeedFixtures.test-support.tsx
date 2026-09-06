@@ -32,6 +32,9 @@ import { type TimelineRowSlotProps } from "../../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
+
+/** The deck pane every fixture feed is the body of, so its seat is read under one key. */
+export const LEDGER_FIXTURE_PANE_ID = "pane-ledger-fixture";
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 export const LONG_LOG_EVENT_COUNT = 300;
 export const REPLAY_LOG_EVENT_COUNT = 10;
@@ -72,6 +75,7 @@ export function renderFeed(
     <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       <LedgerFeed
         sessionStore={sessionStore}
+        paneId={LEDGER_FIXTURE_PANE_ID}
         renderTimelineRow={(mount) => {
           onRowMounted?.(mount);
           return renderRowBody === undefined ? <p>{mount.row.summary}</p> : renderRowBody(mount);

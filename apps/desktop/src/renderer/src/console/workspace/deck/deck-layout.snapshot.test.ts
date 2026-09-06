@@ -27,11 +27,11 @@ function emptyLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one run-scoped inspector. */
+/** A layout holding one session-scoped timeline and one participant-scoped inspector. */
 function twoPaneLayout(): DeckLayout {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "inspector", entity: { kind: "run", id: "run-01" } });
+  layout.open({ kind: "inspector", entity: { kind: "participant", id: "participant-01" } });
   return layout;
 }
 
@@ -51,7 +51,10 @@ describe("DeckLayout — what a snapshot carries", () => {
       "timeline",
       "inspector",
     ]);
-    expect(restored.snapshot().panes[1]?.entity).toStrictEqual({ kind: "run", id: "run-01" });
+    expect(restored.snapshot().panes[1]?.entity).toStrictEqual({
+      kind: "participant",
+      id: "participant-01",
+    });
     expect(restored.snapshot().focusedPaneId).toBe(second?.paneId);
     expect(restored.snapshot().density).toBe("compact");
   });
@@ -128,7 +131,12 @@ describe("DeckLayout — what a restore refuses", () => {
 
   it("drops a pane whose entity is half-supplied rather than guessing the rest", () => {
     const snapshot = twoPaneLayout().toSnapshot();
-    snapshot["pane-97"] = { position: 5, kind: "inspector", sizePermille: 300, entityId: "run-02" };
+    snapshot["pane-97"] = {
+      position: 5,
+      kind: "inspector",
+      sizePermille: 300,
+      entityId: "participant-02",
+    };
 
     const report = emptyLayout().restore(snapshot);
 
@@ -148,12 +156,90 @@ describe("DeckLayout — what a restore refuses", () => {
     expect(emptyLayout().restore(snapshot).restoredPaneCount).toBe(2);
   });
 
+  it("drops a pane whose entity kind that pane kind is not a view of", () => {
+    // `timeline` is a view of a channel or of the session; an artifact is neither.
+    // A weaker admission here passes the row on to a body that refuses it later,
+    // leaving a pane nothing can render sitting in one of the cap's slots — and
+    // written straight back out on the next save, so it survives every restart.
+    const snapshot = twoPaneLayout().toSnapshot();
+    snapshot["pane-95"] = {
+      position: 5,
+      kind: "timeline",
+      sizePermille: 300,
+      entityKind: "artifact",
+      entityId: "artifact-02",
+    };
+
+    const report = emptyLayout().restore(snapshot);
+
+    expect(report.restoredPaneCount).toBe(2);
+    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
+  });
+
+  it("drops a pane whose entity id is not identifier-shaped", () => {
+    // A non-empty id is not a valid one. A path separator makes a store key that can
+    // never exist, and the console holds this value to one grammar everywhere else.
+    const snapshot = twoPaneLayout().toSnapshot();
+    snapshot["pane-94"] = {
+      position: 5,
+      kind: "inspector",
+      sizePermille: 300,
+      entityKind: "participant",
+      entityId: "bad/id",
+    };
+
+    const report = emptyLayout().restore(snapshot);
+
+    expect(report.restoredPaneCount).toBe(2);
+    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
+  });
+
+  it("drops a pane that must name an entity and names none", () => {
+    const snapshot = twoPaneLayout().toSnapshot();
+    snapshot["pane-93"] = { position: 5, kind: "inspector", sizePermille: 300 };
+
+    const report = emptyLayout().restore(snapshot);
+
+    expect(report.restoredPaneCount).toBe(2);
+    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
+  });
+
+  it("drops a session-scoped pane the record opened over an entity", () => {
+    const snapshot = twoPaneLayout().toSnapshot();
+    snapshot["pane-92"] = {
+      position: 5,
+      kind: "runs",
+      sizePermille: 300,
+      entityKind: "participant",
+      entityId: "participant-02",
+    };
+
+    const report = emptyLayout().restore(snapshot);
+
+    expect(report.restoredPaneCount).toBe(2);
+    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
+  });
+
+  it("negative control: the same pane kinds over the entities they ARE views of restore", () => {
+    // Without this, every case above would pass over an admission that had simply
+    // stopped admitting anything with an entity on it.
+    const layout = emptyLayout();
+    layout.open({ kind: "timeline", entity: { kind: "channel", id: "channel-01" } });
+    layout.open({ kind: "artifact", entity: { kind: "artifact", id: "artifact-01" } });
+    layout.open({ kind: "runs", entity: undefined });
+
+    expect(emptyLayout().restore(layout.toSnapshot()).restoredPaneCount).toBe(3);
+  });
+
   it("caps how many panes one record can mount", () => {
     const layout = emptyLayout();
     const cap = 3;
     const capped = new DeckLayout({ restoredPaneCap: cap });
     for (let index = 0; index < cap + 2; index += 1) {
-      layout.open({ kind: "inspector", entity: { kind: "run", id: `run-${String(index)}` } });
+      layout.open({
+        kind: "inspector",
+        entity: { kind: "participant", id: `participant-${String(index)}` },
+      });
     }
 
     const report = capped.restore(layout.toSnapshot());
@@ -171,8 +257,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "run",
-      entityId: "run-01",
+      entityKind: "participant",
+      entityId: "participant-01",
     };
 
     const restored = emptyLayout();
@@ -193,15 +279,18 @@ describe("DeckLayout — what a restore refuses", () => {
     const cap = 3;
     const source = emptyLayout();
     for (let index = 0; index < cap; index += 1) {
-      source.open({ kind: "inspector", entity: { kind: "run", id: `run-${String(index)}` } });
+      source.open({
+        kind: "inspector",
+        entity: { kind: "participant", id: `participant-${String(index)}` },
+      });
     }
     const snapshot = source.toSnapshot();
     snapshot["pane-duplicate"] = {
       position: 1.5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "run",
-      entityId: "run-0",
+      entityKind: "participant",
+      entityId: "participant-0",
     };
 
     const report = new DeckLayout({ restoredPaneCap: cap }).restore(snapshot);
@@ -222,8 +311,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "run",
-      entityId: "run-02",
+      entityKind: "participant",
+      entityId: "participant-02",
     };
 
     const report = emptyLayout().restore(snapshot);

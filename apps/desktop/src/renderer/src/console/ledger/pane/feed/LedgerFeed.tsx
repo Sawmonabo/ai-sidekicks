@@ -107,6 +107,13 @@ import { useLedgerReplay, useReplayAnchorRowId, useReplayRevealedRows } from "..
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
   /**
+   * The deck pane this feed is the body of.
+   *
+   * Carried rather than derived, because the follow seat is keyed by it: a deck can
+   * hold this feed beside a second one, and a chip press names the pane it focused.
+   */
+  readonly paneId: string;
+  /**
    * The channel this feed is a log OF, when it is a log of one.
    *
    * Absent, the feed is the whole session — which is what a bare timeline address
@@ -264,7 +271,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     ledgerFilter,
     replayAnchorRowId,
   });
-  useActorFollowSeat({ visibleRows: visible.rows, jumpToRow });
+  useActorFollowSeat({ paneId: props.paneId, visibleRows: visible.rows, jumpToRow });
 
   return (
     <div className="meridian-ledger">

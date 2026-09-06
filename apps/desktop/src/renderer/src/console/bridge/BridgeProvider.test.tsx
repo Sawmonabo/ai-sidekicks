@@ -212,6 +212,11 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     createFixtureBridge({ scenario: consoleScenario(FIRST_RUN_SCENARIO_ID) });
 
   it("re-resolves on a bridge replacement, on the first committed render", () => {
+    // The READING is what moves, not the identity. One `ForwardingConsoleClock` per
+    // mount is the whole point — every `[clock]` re-mint arm downstream would fire on
+    // a scenario switch if the hook handed back a new object — so what the case has
+    // to show is that the one object it does hand back stops reading the retired
+    // bridge's time the moment the replacement is committed.
     const bridgeA = flagshipBridge();
     const bridgeB = firstRunBridge();
     const observed: ConsoleClock[] = [];
@@ -220,15 +225,19 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
       </SidekicksBridgeProvider>,
     );
-    expect(lastClock(observed)).toBe(engineOf(bridgeA).clock);
+    expect(lastClock(observed).now()).toBe(engineOf(bridgeA).clock.now());
 
+    engineOf(bridgeB).tick();
     rerender(
       <SidekicksBridgeProvider bridge={bridgeB}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
       </SidekicksBridgeProvider>,
     );
 
-    expect(lastClock(observed)).toBe(engineOf(bridgeB).clock);
+    expect(lastClock(observed).now()).toBe(engineOf(bridgeB).clock.now());
+    expect(lastClock(observed).now()).not.toBe(engineOf(bridgeA).clock.now());
+    // And it is still the same object every reader was handed at mount.
+    expect(new Set(observed).size).toBe(1);
   });
 
   it("negative control: the mount-pinned form keeps the retired bridge's clock", () => {

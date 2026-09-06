@@ -30,6 +30,7 @@ import {
 import {
   INITIAL_SIDEBAR_LAYOUT_STATE,
   SIDEBAR_LAYOUT_RECORD_KEY,
+  adoptOverActs,
   chooseSectionOnPress,
   clampSidebarWidthPercent,
   decodeSidebarLayout,
@@ -186,17 +187,30 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
     restore.start();
     let superseded = false;
     void (async () => {
+      // WHAT THE SIDEBAR HELD WHEN THE READ STARTED, so an act the person makes while
+      // it is in flight can be told from the arrangement being read. On a navigation
+      // between two open sessions this is the previous session's arrangement rather
+      // than the opening defaults, which is exactly why it is captured and not assumed.
+      const stateBeforeRead = layout.snapshot().state;
       const record = await uiStateStore.read(sessionId, SIDEBAR_LAYOUT_RECORD_KEY);
       if (superseded) {
         return;
       }
       restore.settle();
-      if (record === undefined) {
-        layout.adopt(INITIAL_SIDEBAR_LAYOUT_STATE, []);
-        return;
-      }
-      const decoded = decodeSidebarLayout(record.value);
-      layout.adopt(decoded.state, decoded.refusals);
+      const decoded =
+        record === undefined
+          ? { state: INITIAL_SIDEBAR_LAYOUT_STATE, refusals: [] }
+          : decodeSidebarLayout(record.value);
+      // Per axis, so a collapse made during the read is not paid for with the width
+      // and the open section the record still holds the person's answer for.
+      layout.adopt(
+        adoptOverActs({
+          restored: decoded.state,
+          beforeRead: stateBeforeRead,
+          live: layout.snapshot().state,
+        }),
+        decoded.refusals,
+      );
     })();
     return () => {
       superseded = true;

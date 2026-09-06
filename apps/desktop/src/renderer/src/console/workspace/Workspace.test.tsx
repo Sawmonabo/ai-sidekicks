@@ -18,6 +18,7 @@ import { Workspace } from "./Workspace.js";
 import {
   SCENARIO,
   SESSION_ID,
+  WORKSPACE_TIMELINE_PANE_ID,
   memoryStore,
   renderWorkspace,
   sessionStore,
@@ -114,7 +115,7 @@ describe("Workspace — the sidebar it composes beside the deck", () => {
 
 describe("Workspace — following an actor from the cast bar", () => {
   afterEach(() => {
-    unregisterActorFollowHandler();
+    unregisterActorFollowHandler(WORKSPACE_TIMELINE_PANE_ID);
   });
 
   /** Press the first chip in the bar, the way a person does. */
@@ -136,12 +137,15 @@ describe("Workspace — following an actor from the cast bar", () => {
     // The defect: the press only focused a pane, and in a deck holding one timeline
     // that pane was already focused — so following an actor moved nothing at all.
     const follow = vi.fn().mockReturnValue("revealed");
-    registerActorFollowHandler("workspace-test", follow);
+    registerActorFollowHandler(WORKSPACE_TIMELINE_PANE_ID, follow);
     const { container } = renderWorkspace(memoryStore(), sessionStoreWithRows());
     await waitFor(() => {
       expect(container.querySelector(".meridian-cast-chip")).not.toBeNull();
     });
 
+    // The seat is keyed by pane, so the constant above is only right while the deck
+    // holds the one pane the workspace opened. Asserted rather than assumed.
+    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
     pressFirstChip(container);
 
     expect(follow).toHaveBeenCalledWith({
@@ -153,7 +157,7 @@ describe("Workspace — following an actor from the cast bar", () => {
 
   it("says so rather than doing nothing when the participant has no row", async () => {
     const follow = vi.fn().mockReturnValue("revealed");
-    registerActorFollowHandler("workspace-test", follow);
+    registerActorFollowHandler(WORKSPACE_TIMELINE_PANE_ID, follow);
     const { container } = renderWorkspace(memoryStore());
     await waitFor(() => {
       expect(container.querySelector(".meridian-cast-chip")).not.toBeNull();

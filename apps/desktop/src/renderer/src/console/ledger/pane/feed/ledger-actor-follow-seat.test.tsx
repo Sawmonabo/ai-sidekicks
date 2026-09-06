@@ -36,7 +36,7 @@ import { type ConsoleSessionEvent } from "../../../store/index.js";
 import {
   buildActorFollowHandler,
   useActorFollowSeat,
-  type ActorFollowInputs,
+  type ActorFollowSeatInputs,
 } from "./ledger-actor-follow-seat.js";
 import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow } from "../window/ledger-window.js";
@@ -44,6 +44,8 @@ import { deriveLedgerWindow } from "../window/ledger-window.js";
 const SESSION_ID = "session-ledger-follow-seat";
 const LOG_EVENT_COUNT = 6;
 const PARTICIPANT_ID = "participant-alba";
+/** The deck pane both probes claim, so the seat is read back under one key. */
+const SEAT_PANE_ID = "pane-follow-seat";
 
 /** What one case watched happen, in the order it happened. */
 type ActTrace = string[];
@@ -115,11 +117,11 @@ describe("the follow handler — resolving a cast chip against this window", () 
 
 /** What both probes below take, so the claim and its control run one script. */
 interface FollowSeatProbeProps {
-  readonly inputs: ActorFollowInputs;
+  readonly inputs: ActorFollowSeatInputs;
   /** Present on the pass React parks: the probe suspends on it after the hook ran. */
   readonly suspendOn: Promise<void> | undefined;
   /** Called once per render body, which is what proves the parked pass really ran. */
-  readonly onRendered: (inputs: ActorFollowInputs) => void;
+  readonly onRendered: (inputs: ActorFollowSeatInputs) => void;
 }
 
 /** The seat, filled through its own door. */
@@ -146,10 +148,10 @@ function BodyWrittenRefProbe(props: FollowSeatProbeProps): ReactElement {
     [],
   );
   useEffect(() => {
-    registerActorFollowHandler("ledger", forwarding);
+    registerActorFollowHandler(SEAT_PANE_ID, forwarding);
     return () => {
-      if (actorFollowHandler() === forwarding) {
-        unregisterActorFollowHandler();
+      if (actorFollowHandler(SEAT_PANE_ID) === forwarding) {
+        unregisterActorFollowHandler(SEAT_PANE_ID);
       }
     };
   }, [forwarding]);
@@ -181,7 +183,8 @@ describe("the follow seat — which window the palette can reach through it", ()
     const committedTrace: ActTrace = [];
     const parkedTrace: ActTrace = [];
     const renderedWindowSizes: number[] = [];
-    const committedInputs: ActorFollowInputs = {
+    const committedInputs: ActorFollowSeatInputs = {
+      paneId: SEAT_PANE_ID,
       visibleRows: rows,
       jumpToRow: (rowId) => {
         committedTrace.push(rowId);
@@ -189,14 +192,15 @@ describe("the follow seat — which window the palette can reach through it", ()
     };
     // A window holding NO row the sequence names, so the two arms answer differently:
     // the committed window reveals the newest row and this one cannot.
-    const parkedInputs: ActorFollowInputs = {
+    const parkedInputs: ActorFollowSeatInputs = {
+      paneId: SEAT_PANE_ID,
       visibleRows: [],
       jumpToRow: (rowId) => {
         parkedTrace.push(rowId);
       },
     };
     const treeAt = (
-      inputs: ActorFollowInputs,
+      inputs: ActorFollowSeatInputs,
       suspendOn: Promise<void> | undefined,
     ): ReactElement => (
       <Suspense fallback={<p>the pass that was parked</p>}>
@@ -220,7 +224,7 @@ describe("the follow seat — which window the palette can reach through it", ()
     // Read the seat WHILE the pass is parked, which is the only moment the question
     // has an answer: a later render at the committed window would write the ref back
     // under either arrangement and both arms would pass.
-    const handler = actorFollowHandler();
+    const handler = actorFollowHandler(SEAT_PANE_ID);
     if (handler === undefined) {
       throw new Error("the mounted probe filled no follow seat");
     }

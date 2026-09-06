@@ -126,7 +126,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * daemon at all — and a scan reporting the tree compliant for THAT reason is not
  * making the claim this file's title makes.
  *
- * `console/workspace/new-session-draft.ts` is the one, and it is what moved the
+ * `console/workspace/new-session/new-session-draft.ts` is the one, and it is what moved the
  * number: it held its own `DaemonMethod` cast and its own structural read of the
  * create reply, and it now sends through `callDaemon` like everything after it will.
  * The pin is what made that visible in a diff rather than as a silent zero, and it

@@ -116,6 +116,46 @@ export const INITIAL_SIDEBAR_LAYOUT_STATE: SidebarLayoutState = {
   chosenSectionId: undefined,
 };
 
+/**
+ * The arrangement to adopt when a restore lands on a sidebar the person has touched.
+ *
+ * The store sits behind a process boundary, so its read takes real time, and on a
+ * navigation between two open sessions the sidebar is on screen and usable for every
+ * millisecond of it. A wholesale adopt there undoes a collapse, a drag, or a section
+ * press the person has just performed — no error, no refusal, and a screen that
+ * simply reverts under their hands.
+ *
+ * PER AXIS, BECAUSE THE THREE ARE INDEPENDENT. Collapsing the sidebar says nothing
+ * about the width the person wants, so an act on one axis must not spend the record's
+ * answer on the other two. An axis whose live value still equals what it was when the
+ * read began was not touched, and takes the record's; one that moved is theirs.
+ *
+ * The residual is stated rather than hidden: an act that lands on exactly the value
+ * the axis already held is indistinguishable from no act, and takes the record's. It
+ * is also invisible — the axis is already showing what the person asked for.
+ *
+ * Written as a field-by-field literal rather than a spread, so a fourth axis on
+ * {@link SidebarLayoutState} fails to compile here instead of being silently adopted
+ * from whichever side the spread happened to put last.
+ */
+export function adoptOverActs(options: {
+  readonly restored: SidebarLayoutState;
+  readonly beforeRead: SidebarLayoutState;
+  readonly live: SidebarLayoutState;
+}): SidebarLayoutState {
+  const { restored, beforeRead, live } = options;
+  return {
+    widthPercent:
+      live.widthPercent === beforeRead.widthPercent ? restored.widthPercent : live.widthPercent,
+    isCollapsed:
+      live.isCollapsed === beforeRead.isCollapsed ? restored.isCollapsed : live.isCollapsed,
+    chosenSectionId:
+      live.chosenSectionId === beforeRead.chosenSectionId
+        ? restored.chosenSectionId
+        : live.chosenSectionId,
+  };
+}
+
 /** Why a restore dropped something. Closed, so a fourth cause is a decision. */
 export const SIDEBAR_RESTORE_REFUSAL_CODES = [
   "snapshot-shape-invalid",
