@@ -23,8 +23,16 @@ import { SCRIPTED_REPLY_REFUSAL_CODES } from "../scenario-runtime/index.js";
  *
  *   • `wire-unregistered` — nobody asked, because the wire this operation needs is
  *     not registered anywhere in the corpus. The refusal names who owes it. This is
- *     the only code a LIVE bridge produces, and it is the "not checked" kind of
- *     nothing rather than an empty result.
+ *     the only code a LIVE bridge produces on its own behalf, and it is the "not
+ *     checked" kind of nothing rather than an empty result.
+ *   • `call-rejected` — the call was made and its promise REJECTED rather than
+ *     answering. No port in this build does that on purpose: every operation resolves
+ *     to one of the two arms below, and the live one resolves to a refusal. It is a
+ *     code because the rejection channel of a promise exists whether a contract uses
+ *     it or not, and a caller that reads only the fulfilment arm leaves its surface
+ *     pinned on the read-in-flight state for the life of the mount. A caller minting
+ *     its own refusal for this instead would put a second `origin` on a failure of
+ *     THIS port, which is the vocabulary sprawl `core/refusal.ts` was written to end.
  *   • `reply-abandoned` — the fixture asked, and the scenario engine was torn down
  *     before the frozen clock reached the answer.
  *   • `reply-backlog-full` — the fixture asked, and the engine was already holding
@@ -41,8 +49,9 @@ import { SCRIPTED_REPLY_REFUSAL_CODES } from "../scenario-runtime/index.js";
  */
 export const GROWTH_PORT_REFUSAL_CODES: readonly [
   "wire-unregistered",
+  "call-rejected",
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
-] = ["wire-unregistered", ...SCRIPTED_REPLY_REFUSAL_CODES];
+] = ["wire-unregistered", "call-rejected", ...SCRIPTED_REPLY_REFUSAL_CODES];
 
 /** One growth-port refusal code. Derived, so the vocabulary is declared once. */
 export type GrowthPortRefusalCode = (typeof GROWTH_PORT_REFUSAL_CODES)[number];

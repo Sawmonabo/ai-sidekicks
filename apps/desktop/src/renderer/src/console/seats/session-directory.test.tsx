@@ -5,8 +5,16 @@
 // shaped like one. The hook's whole job is to turn one port call into the three
 // facts a surface renders, and a stand-in port would agree with whatever the hook
 // did with it.
+//
+// The one case that cannot drive a shipped port is the REJECTING one, because no port
+// in this build rejects: the arm under test is the fail-closed guard for a channel a
+// promise carries whether the contract uses it or not. That case wraps a real port and
+// replaces exactly one method with a rejection, and its control is the pre-change
+// effect itself, kept runnable below so the claim "this used to pin `reading`" is
+// measured rather than remembered.
 
 import { act, cleanup, render } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
@@ -18,11 +26,67 @@ import {
   type SessionDirectoryState,
 } from "./session-directory.js";
 
+/** What the rejecting port throws, so the case can read it back out of the sentence. */
+const REJECTION_MESSAGE = "the bridge channel closed before the reply";
+
+/** A real port with exactly one method replaced by a rejection. */
+function rejectingDirectoryPort(): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    sessionList: () => Promise.reject(new Error(REJECTION_MESSAGE)),
+  };
+}
+
+/**
+ * The hook as it was before the rejection arm, kept runnable so the control is real.
+ *
+ * The effect body is the shipped one with the second `then` argument removed, which is
+ * the whole of the change under test. The `.catch` tail is NOT part of that shape: it
+ * is on the derived promise, outside the state machine, and it exists so the runner
+ * does not report the foil's own unhandled rejection instead of running the case. What
+ * the case reads is the state, and the state is untouched by it.
+ */
+function useSessionDirectoryWithoutRejectionArm(growth: GrowthPort): SessionDirectoryState {
+  const [state, setState] = useState<SessionDirectoryState>({ status: "reading" });
+  useEffect(() => {
+    setState({ status: "reading" });
+    let isMounted = true;
+    void growth
+      .sessionList({})
+      .then((outcome) => {
+        if (!isMounted) {
+          return;
+        }
+        setState(
+          outcome.status === "served"
+            ? { status: "served", sessions: outcome.value }
+            : { status: "unavailable", refusal: outcome },
+        );
+      })
+      .catch(() => {
+        // Deliberately empty; see this function's own header.
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [growth]);
+  return state;
+}
+
 function DirectoryProbe(props: {
   readonly growth: GrowthPort;
   readonly onObserve: (state: SessionDirectoryState) => void;
 }): React.JSX.Element {
   props.onObserve(useSessionDirectory(props.growth));
+  return <></>;
+}
+
+/** The same probe over the pre-change hook, so both are driven the same way. */
+function PreChangeDirectoryProbe(props: {
+  readonly growth: GrowthPort;
+  readonly onObserve: (state: SessionDirectoryState) => void;
+}): React.JSX.Element {
+  props.onObserve(useSessionDirectoryWithoutRejectionArm(props.growth));
   return <></>;
 }
 
@@ -88,6 +152,47 @@ describe("useSessionDirectory — one read, three answers", () => {
       expect(settled.refusal.slateRow).toBe("session-directory-read");
       expect(settled.refusal.detail).toContain("Not checked");
     }
+  });
+
+  it("settles unavailable when the port rejects rather than answering", async () => {
+    const observed = observeDirectory(rejectingDirectoryPort());
+
+    await settle();
+    const settled = lastState(observed);
+    expect(settled.status).toBe("unavailable");
+    if (settled.status === "unavailable") {
+      // The refusal is the PORT's, not one this hook invented: its origin names the
+      // port and its code is a member of the port's own closed vocabulary, so a
+      // surface rendering it beside any other growth refusal reads one shape.
+      expect(settled.refusal.origin).toBe("growth-port");
+      expect(settled.refusal.code).toBe("call-rejected");
+      expect(settled.refusal.operationId).toBe("sessionList");
+      expect(settled.refusal.slateRow).toBe("session-directory-read");
+      // What the rejection said reaches the sentence, through the one total reading
+      // of an unestablished value rather than a stringification at this seam.
+      expect(settled.refusal.detail).toContain(REJECTION_MESSAGE);
+    }
+  });
+
+  it("negative control: the pre-change effect pins the surface on `reading` forever", async () => {
+    // The control for the case above, and it drives the real defect rather than
+    // describing it: with no rejection arm the state machine has no transition out of
+    // `reading`, so the surface says "still reading" for the life of the mount with
+    // nothing on screen that could ever say otherwise.
+    const observed: SessionDirectoryState[] = [];
+    render(
+      <PreChangeDirectoryProbe
+        growth={rejectingDirectoryPort()}
+        onObserve={(state) => {
+          observed.push(state);
+        }}
+      />,
+    );
+
+    await settle();
+    await settle();
+    expect(lastState(observed).status).toBe("reading");
+    expect(observed.every((state) => state.status === "reading")).toBe(true);
   });
 
   it("reads once per mount, and not again on a re-render", async () => {

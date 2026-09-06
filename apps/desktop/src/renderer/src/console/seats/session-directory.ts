@@ -39,10 +39,26 @@
 // ask, because no wire answers. Collapsing any two of them is exactly the
 // conflation `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to
 // prevent.
+//
+// AND THE READ HAS TWO CHANNELS, NOT ONE
+//
+// Every growth-port operation is typed to RESOLVE to an outcome, and every port in
+// this build does. A promise carries a rejection channel regardless, and reading only
+// the fulfilment arm is not a bet that the port keeps its word — it is a state
+// machine with no transition out of `reading`, so a port that rejects for any reason
+// at all leaves the surface saying "still reading" for the life of the mount, with
+// nothing on screen that could ever say otherwise. The arm is therefore the guard and
+// not an expectation: it settles `unavailable`, carrying a refusal the PORT mints, so
+// this hook does not become a second author of growth refusals.
 
 import { useEffect, useState } from "react";
 
-import type { GrowthPort, GrowthSessionSummary, GrowthUnavailable } from "../bridge/index.js";
+import {
+  growthUnavailableFromRejection,
+  type GrowthPort,
+  type GrowthSessionSummary,
+  type GrowthUnavailable,
+} from "../bridge/index.js";
 
 /** What a surface knows about the node's sessions at one moment. */
 export type SessionDirectoryState =
@@ -65,20 +81,38 @@ export function useSessionDirectory(growth: GrowthPort): SessionDirectoryState {
     // a current one, and nothing about it says otherwise.
     setState({ status: "reading" });
     let isMounted = true;
-    void growth.sessionList({}).then((outcome) => {
-      if (!isMounted) {
-        // The unmount already happened. Dropping the answer is the whole point:
-        // `setState` on an unmounted caller is the leak this tier's endurance run
-        // exists to catch, and a directory read outliving its surface by one
-        // navigation is the ordinary case rather than the rare one.
-        return;
-      }
-      setState(
-        outcome.status === "served"
-          ? { status: "served", sessions: outcome.value }
-          : { status: "unavailable", refusal: outcome },
-      );
-    });
+    void growth.sessionList({}).then(
+      (outcome) => {
+        if (!isMounted) {
+          // The unmount already happened. Dropping the answer is the whole point:
+          // `setState` on an unmounted caller is the leak this tier's endurance run
+          // exists to catch, and a directory read outliving its surface by one
+          // navigation is the ordinary case rather than the rare one.
+          return;
+        }
+        setState(
+          outcome.status === "served"
+            ? { status: "served", sessions: outcome.value }
+            : { status: "unavailable", refusal: outcome },
+        );
+      },
+      // The rejection handler rides `then` rather than a `.catch` tail, and the
+      // difference is which failures it answers for: a tail would also catch a throw
+      // from the fulfilment arm above — a `setState` fault, a bad render queued by it
+      // — and report it as the port refusing, which is a false author on a failure
+      // that was this hook's. This arm sees the port's rejection and nothing else.
+      (rejection: unknown) => {
+        if (!isMounted) {
+          return;
+        }
+        // Never read, never stringified here: the value is unestablished, and the one
+        // total reading of one lives behind the port's own builder.
+        setState({
+          status: "unavailable",
+          refusal: growthUnavailableFromRejection("sessionList", rejection),
+        });
+      },
+    );
     return () => {
       isMounted = false;
     };
