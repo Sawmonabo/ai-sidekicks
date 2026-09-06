@@ -23,8 +23,20 @@
 // MEMOISED PER PAIR, BOUNDED BOTH WAYS. A scroll re-renders its window on every tick,
 // so a row asked for twice must not be computed twice — and a reader who scrolls a
 // large change set end to end must not accumulate one segment list per changed line.
-// The register below is keyed by hunk and line index and holds
+// The register below is keyed by hunk and PAIR and holds
 // `DIFF_INTRALINE_CACHE_ENTRY_CAP` entries, dropping the least recently read.
+//
+// THE PAIR AND NOT THE LINE, which for a while it was not. Keyed by line index the
+// delete row and its insert row were two entries, each running its own comparison and
+// discarding the half it did not need: double the word-diff work for every changed
+// pair on screen, and two of the register's entries per pair, halving the scrollback
+// its cap buys. One comparison produces both sides — that is what makes the two sides
+// agree at all — so one comparison is what is held, under the pair's own key.
+//
+// WHICH COSTS ONE RUN WALK ON A CACHE HIT, because the pair's key is not known until
+// `pairedLineIndexFor` has answered. That walk is bounded by the run the line sits in
+// and was already paid by every line the register did not hold; paying it on the hit
+// too is what buys the halved compute and the doubled effective scrollback.
 //
 // THE SIZE BOUND IS A FALLBACK AND NEVER A FAILURE. Past
 // `DIFF_INTRALINE_LINE_CHARACTER_CAP` on either line, or
@@ -49,7 +61,6 @@ import {
   type ConsoleDiffModel,
   type DiffIntralineSegment,
   type DiffLine,
-  type DiffLineKind,
 } from "./diff-model.js";
 import { pairedLineIndexFor } from "./hunk-row-layout.js";
 import type { DiffLineRow } from "./diff-row-model.js";
@@ -66,6 +77,18 @@ import { intralineSegments } from "./patch-parse.js";
 export interface IntralineReading {
   readonly segments: readonly DiffIntralineSegment[];
   readonly skipped: boolean;
+}
+
+/**
+ * Both sides of one comparison, which is what one comparison produces.
+ *
+ * HELD AS A PAIR RATHER THAN AS TWO ENTRIES: `intralineSegments` answers about an
+ * alignment, and the deleted line's reading and the inserted line's are two views of
+ * that one answer. Splitting them across two register entries made them two answers.
+ */
+interface IntralinePairReading {
+  readonly deleted: IntralineReading;
+  readonly inserted: IntralineReading;
 }
 
 /** The line a missing address reads as. Declared once so no branch builds its own. */
@@ -94,7 +117,7 @@ export class IntralineSegmentCache {
    * order as long as a read re-inserts, which is what `#remember` does. Held on the
    * instance and never at module level, so two diffs open at once cannot share one.
    */
-  readonly #readingByPair = new Map<string, IntralineReading>();
+  readonly #readingByPair = new Map<string, IntralinePairReading>();
   #computeCount = 0;
 
   public constructor(model: ConsoleDiffModel) {
@@ -134,43 +157,58 @@ export class IntralineSegmentCache {
     if (line === undefined) {
       return wholeLineReading("");
     }
-    const key = `${String(row.fileIndex)}:${String(row.hunkIndex)}:${String(lineIndex)}`;
-    const remembered = this.#readingByPair.get(key);
-    if (remembered !== undefined) {
-      return this.#remember(key, remembered);
-    }
     const pairedIndex = pairedLineIndexFor(hunk.lines, lineIndex);
-    const paired = pairedIndex === undefined ? undefined : hunk.lines[pairedIndex];
     const text = diffLineText(line);
-    if (paired === undefined) {
+    const paired = pairedIndex === undefined ? undefined : hunk.lines[pairedIndex];
+    if (paired === undefined || pairedIndex === undefined) {
       // Unpaired: a plain addition or removal, which is what a whole-line highlight
       // already says. Not cached — deriving it is one string join.
       return wholeLineReading(text);
     }
-    return this.#remember(key, this.#computed(line.kind, text, diffLineText(paired)));
+    // The pair's own key, which is the lower of the two indices — the delete line's,
+    // since a delete run always precedes the insert run it pairs with. Written as the
+    // minimum rather than as the delete index so the key states the rule it depends on.
+    const pairStart = Math.min(lineIndex, pairedIndex);
+    const key = `${String(row.fileIndex)}:${String(row.hunkIndex)}:${String(pairStart)}`;
+    const remembered = this.#readingByPair.get(key);
+    const pair =
+      remembered ??
+      this.#computedPair(
+        line.kind === "delete" ? text : diffLineText(paired),
+        line.kind === "delete" ? diffLineText(paired) : text,
+      );
+    this.#remember(key, pair);
+    return line.kind === "delete" ? pair.deleted : pair.inserted;
   }
 
   /** One pair's comparison, or the fallback where computing it is out of bounds. */
-  #computed(kind: DiffLineKind, text: string, pairedText: string): IntralineReading {
+  #computedPair(deletedText: string, insertedText: string): IntralinePairReading {
     if (
-      text.length > DIFF_INTRALINE_LINE_CHARACTER_CAP ||
-      pairedText.length > DIFF_INTRALINE_LINE_CHARACTER_CAP ||
-      text.length * pairedText.length > DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP
+      deletedText.length > DIFF_INTRALINE_LINE_CHARACTER_CAP ||
+      insertedText.length > DIFF_INTRALINE_LINE_CHARACTER_CAP ||
+      deletedText.length * insertedText.length > DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP
     ) {
-      return { segments: wholeLineSegments(text), skipped: true };
+      return {
+        deleted: { segments: wholeLineSegments(deletedText), skipped: true },
+        inserted: { segments: wholeLineSegments(insertedText), skipped: true },
+      };
     }
     this.#computeCount += 1;
     // ONE COMPARISON ANSWERS BOTH SIDES, which is why the deleted line is always the
     // first argument: the two sides of an intraline diff are two readings of the same
     // alignment, and computing them from two comparisons would let the deleted line's
-    // highlight disagree with the inserted line's about which words survived.
-    const pair =
-      kind === "delete" ? intralineSegments(text, pairedText) : intralineSegments(pairedText, text);
-    return { segments: kind === "delete" ? pair.deleted : pair.inserted, skipped: false };
+    // highlight disagree with the inserted line's about which words survived. Both
+    // readings are RETURNED rather than one of them selected, which is what makes that
+    // sentence true of the register as well as of this call.
+    const pair = intralineSegments(deletedText, insertedText);
+    return {
+      deleted: { segments: pair.deleted, skipped: false },
+      inserted: { segments: pair.inserted, skipped: false },
+    };
   }
 
-  /** Hold one reading as the most recently read, dropping the oldest past the cap. */
-  #remember(key: string, reading: IntralineReading): IntralineReading {
+  /** Hold one pair as the most recently read, dropping the oldest past the cap. */
+  #remember(key: string, reading: IntralinePairReading): void {
     this.#readingByPair.delete(key);
     this.#readingByPair.set(key, reading);
     if (this.#readingByPair.size > DIFF_INTRALINE_CACHE_ENTRY_CAP) {
@@ -179,6 +217,5 @@ export class IntralineSegmentCache {
         this.#readingByPair.delete(oldest.value);
       }
     }
-    return reading;
   }
 }

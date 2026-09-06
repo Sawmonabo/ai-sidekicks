@@ -90,6 +90,20 @@ function modifiedPair(padding: string): readonly string[] {
 
 const MODIFIED_PAIR_BODY = modifiedPair("");
 
+/**
+ * Two modified pairs in one hunk: a delete run of two, then an insert run of two.
+ *
+ * Pairing is positional within the runs, so body line 0 pairs with 2 and 1 with 3 —
+ * which is what lets a case read two lines that are two PAIRS rather than two sides of
+ * one, the distinction the register is keyed on.
+ */
+const TWO_MODIFIED_PAIRS_BODY = [
+  "-const first = previousBudget;",
+  "-const second = previousCeiling;",
+  "+const first = nextBudget;",
+  "+const second = nextCeiling;",
+];
+
 describe("intraline segmentation — when the word diff runs", () => {
   it("runs none while a patch is parsed", () => {
     // The whole bound: the parser used to segment every pair in the change set
@@ -112,10 +126,33 @@ describe("intraline segmentation — when the word diff runs", () => {
     expect(cache.computeCount).toBe(1);
   });
 
-  it("negative control: a second row is a second computation", () => {
-    // Without this the memoisation case above would pass over a register that
-    // answered every address with the first reading it ever computed.
+  it("serves both rows of one pair from the single comparison that made them", () => {
+    // The register was keyed by LINE, so this read two entries and ran two word diffs
+    // over one alignment, each discarding the half it did not need — double the work
+    // for every changed pair on screen, and two of the register's entries per pair.
+    // This case asserted `computeCount === 2` and passed, which is how it survived.
     const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
+    const deleted = cache.readingFor(bodyRow(0), 0);
+    const inserted = cache.readingFor(bodyRow(1), 1);
+
+    expect(wordDiffCalls).toHaveBeenCalledTimes(1);
+    expect(cache.computeCount).toBe(1);
+    // And the two rows are still the two SIDES of that comparison: one answer, two
+    // readings — a register that served one reading to both would highlight the
+    // deleted line's words on the inserted line.
+    expect(deleted.segments.filter((segment) => segment.changed)).toStrictEqual([
+      { text: "previousBudget", changed: true },
+    ]);
+    expect(inserted.segments.filter((segment) => segment.changed)).toStrictEqual([
+      { text: "nextBudget", changed: true },
+    ]);
+  });
+
+  it("negative control: a row of a DIFFERENT pair is a second computation", () => {
+    // Without this the case above would pass over a register that answered every
+    // address with the first reading it ever computed. Body lines 0 and 1 are two
+    // delete lines of two different pairs, so nothing here is one alignment.
+    const cache = new IntralineSegmentCache(modelOf(TWO_MODIFIED_PAIRS_BODY));
     cache.readingFor(bodyRow(0), 0);
     cache.readingFor(bodyRow(1), 1);
     expect(cache.computeCount).toBe(2);
