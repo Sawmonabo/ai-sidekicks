@@ -32,12 +32,24 @@ describe("AuxiliaryHandoff — what can be detached at all", () => {
   });
 
   it("says no to a route this build has not implemented yet", () => {
-    // `agent-console` is a route in the closed set and is deliberately absent from
-    // the implemented list until its body lands. The two facts are separate, and
-    // this is the case that proves the second one is consulted.
-    expect(IMPLEMENTED_AUXILIARY_ROUTES).not.toContain("agent-console");
-    const handoff = new AuxiliaryHandoff({ growth: createRefusingGrowthPort() });
+    // Being in the closed route set and being implemented in THIS build are two
+    // separate facts, and this is the case that proves the second one is consulted.
+    //
+    // Driven through the constructor seam rather than against the module constant,
+    // because BOTH routes are implemented on this build — the ledger's `timeline`
+    // and the agents family's `agent-console` — so there is no member left to point
+    // at, and a case that asserted the constant's contents would now be asserting
+    // the opposite of what it was written to prove. The seam moves the FACT and
+    // owns no copy of the rule.
+    expect(IMPLEMENTED_AUXILIARY_ROUTES).toStrictEqual(["timeline", "agent-console"]);
+    const handoff = new AuxiliaryHandoff({
+      growth: createRefusingGrowthPort(),
+      implementedRoutes: ["timeline"],
+    });
     expect(handoff.canDetach("agent-console")).toBe(false);
+    // The other side of the same read, so a seam wired to a constant list rather
+    // than to the one it was handed would fail here.
+    expect(handoff.canDetach("timeline")).toBe(true);
   });
 });
 
@@ -54,7 +66,13 @@ describe("AuxiliaryHandoff — the four gates, in order", () => {
   });
 
   it("refuses a route whose body has not shipped, before touching the wire", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    // `servingPort()` would answer the detach, so an ordering defect here shows up
+    // as a SERVED outcome rather than as a different refusal — which is the claim
+    // the case name makes. The route is unimplemented by the seam, not by the build.
+    const handoff = new AuxiliaryHandoff({
+      growth: servingPort(),
+      implementedRoutes: ["timeline"],
+    });
     const outcome = await handoff.detach({
       paneId: "pane-1",
       kind: "agent-console",

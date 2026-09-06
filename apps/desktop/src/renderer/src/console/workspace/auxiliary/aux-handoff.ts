@@ -59,6 +59,7 @@ import {
   AUXILIARY_ROUTE_LABELS,
   IMPLEMENTED_AUXILIARY_ROUTES,
   isAuxiliaryRouteName,
+  type AuxiliaryRouteName,
 } from "../../routing/index.js";
 import { type PaneKind } from "../../seats/index.js";
 import { PaneErrorWatch, type ConsoleGrowthPort } from "./aux-pane-error-watch.js";
@@ -95,9 +96,26 @@ export class AuxiliaryHandoff {
    * hand-written arm cannot drift into two spellings of one act.
    */
   readonly #paneErrors: PaneErrorWatch;
+  /**
+   * Which routes this build implements, as gate 2 reads them.
+   *
+   * A CONSTRUCTOR SEAM rather than a direct read of the module constant, and the
+   * `Workspace` registry prop beside it is the same shape for the same reason: the
+   * constant is a build-time fact that shrinks and grows, and every route in the
+   * closed set is implemented on this build — so gate 2's refusal is unreachable
+   * through the public API today and would be covered by nothing until a third
+   * route lands unimplemented. Production passes nothing and gets the constant;
+   * this is the only seam in the class, and it holds a LIST rather than a decision,
+   * so a test can move the fact without owning a second copy of the rule.
+   */
+  readonly #implementedRoutes: readonly AuxiliaryRouteName[];
 
-  public constructor(options: { readonly growth: ConsoleGrowthPort }) {
+  public constructor(options: {
+    readonly growth: ConsoleGrowthPort;
+    readonly implementedRoutes?: readonly AuxiliaryRouteName[];
+  }) {
     this.#growth = options.growth;
+    this.#implementedRoutes = options.implementedRoutes ?? IMPLEMENTED_AUXILIARY_ROUTES;
     this.#paneErrors = new PaneErrorWatch({
       growth: options.growth,
       onWindowLost: (paneId, reason) => {
@@ -170,7 +188,7 @@ export class AuxiliaryHandoff {
    * answered at the moment of the act.
    */
   public canDetach(kind: PaneKind): boolean {
-    return isAuxiliaryRouteName(kind) && IMPLEMENTED_AUXILIARY_ROUTES.includes(kind);
+    return isAuxiliaryRouteName(kind) && this.#implementedRoutes.includes(kind);
   }
 
   /** The label the control uses, or `undefined` where the kind is not detachable. */
@@ -189,7 +207,7 @@ export class AuxiliaryHandoff {
         ),
       };
     }
-    if (!IMPLEMENTED_AUXILIARY_ROUTES.includes(request.kind)) {
+    if (!this.#implementedRoutes.includes(request.kind)) {
       return {
         outcome: "refused",
         refusal: refuseHandoff(
