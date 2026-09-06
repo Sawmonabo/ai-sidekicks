@@ -2492,6 +2492,22 @@ interface RollbackDegradedResendOutcome {
 type RollbackInterventionResult =
   | (RollbackAppliedResult & RollbackAppliedResendOutcome)
   | (RollbackDegradedResult & RollbackDegradedResendOutcome);
+// The atomic edit-and-resend composite's four structural refusal guards, typed (2026-09-06 amendment).
+// Spec-004 §Required Behavior states all four and this registry previously settled them as `rejected`
+// results carrying `rejectionReason` alone, which is a free-form human sentence: a renderer wanting to
+// show a per-guard remedy had to phrase-match that sentence, and the match breaks the moment a daemon
+// author rewords it. The four literals are that paragraph's own guard names — "No active turn", "No
+// pending send", "A participant-authored target of this run", "A resumable target" — kebab-cased with the
+// leading article dropped, so each names the CONDITION THE GUARD REQUIRES rather than restating the
+// failure. Closed: a fifth guard is an amendment of Spec-004 §Required Behavior and of this type, never a
+// free string the daemon invents. The union is the wire vocabulary only — the eligibility predicate that
+// evaluates the guards is the daemon's (Plan-004 T3.17), and the affordance's client-side projection of
+// it (I-004-24) stays a fail-closed projection, never a second source of eligibility truth.
+type RollbackCompositeRejectionGuard =
+  | "no-active-turn"
+  | "no-pending-send"
+  | "participant-authored-target"
+  | "resumable-target";
 // The response is discriminated on `interventionType` (campaign B9, Codex round 2) so the SDK-seam +
 // daemon Zod schema parse `result` STRICTLY per type: a `rollback` response validates `result` as
 // RollbackInterventionResult and a malformed rollback result FAILS validation — it never falls through a
@@ -2505,7 +2521,9 @@ type RollbackInterventionResult =
 // disposition-less terminal response fails parse, and so does a state/disposition mismatch (`applied` +
 // `files-unrestored` would otherwise exit-map 0 while rendering a failed restore, since the CLI derives
 // the POSIX code from `state`). `rejected` REQUIRES `rejectionReason` (round 5 — every refusal family of
-// Queue And Intervention Model §Intervention State Transition Table carries its machine-readable cause);
+// Queue And Intervention Model §Intervention State Transition Table carries its machine-readable cause),
+// and since 2026-09-06 that arm additionally carries the additive-optional `rejectionGuard` when the
+// refusal came from one of the composite's four structural guards (the arm comment below);
 // the non-disposition states (`requested` / `accepted` / `rejected` / `expired`) carry no `result`.
 interface InterventionResponseBase {
   interventionId: InterventionId;
@@ -2528,6 +2546,7 @@ type InterventionRequestResponse =
       interventionType: "rollback";
       state: "rejected"; // pre-dispatch refusal — the machine-readable cause is MANDATORY (round 5)
       rejectionReason: string;
+      rejectionGuard?: RollbackCompositeRejectionGuard; // 2026-09-06 typed-composite-guard amendment (Spec-004 §Required Behavior's four-structural-refusal-guards paragraph; Plan-004 I-004-21, mirrored by T1.3 and produced by T3.17). ADDITIVE-OPTIONAL and ARM-SCOPED: declared HERE and not on InterventionResponseBase, because only a `rollback` request can be a composite and only a `rejected` composite settles on one of these guards — a strict parse then REFUSES the member on a steer / interrupt / cancel rejection and on every non-`rejected` state, rather than admitting a guard on an arm that can never raise one. PRODUCER-OBLIGATED within the arm, the `resendDisposition` shape: no member of a `rejected` response identifies its request as composite (`replacementSend` is request-side and the response does not echo it), so requiredness is not expressible at the strict-parse boundary; the daemon's tested obligation is that a refusal raised by one of the four guards ALWAYS populates it and every other refusal family (capability, authorization, target-domain, compaction-boundary) never does. `rejectionReason` stays the human sentence and is unchanged — the member exists so a renderer maps guard -> remedy without phrase-matching prose a daemon author may reword. NO error code is minted: these guards settle as `rejected` RESULTS, never as `JsonRpcError` envelopes.
       result?: never;
     })
   | (InterventionResponseBase & {

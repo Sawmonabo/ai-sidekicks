@@ -630,6 +630,37 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 // on the rollback `rejected` arm (every refusal family there carries its cause
 // and the daemon persists all of them) and optional on the base for the
 // remaining states and non-rollback types.
+//
+// `rejectionGuard` names WHICH of the atomic edit-and-resend composite's four
+// structural refusal guards refused, when one of them did. `rejectionReason`
+// stays the human sentence; without a typed sibling a renderer wanting to show
+// a per-guard remedy has to phrase-match that sentence, which breaks the moment
+// a daemon author rewords it. The four literals are the guard names of
+// `Spec-004 §Required Behavior` (its four-structural-refusal-guards paragraph)
+// kebab-cased with the leading article dropped, so each names the condition the
+// guard requires rather than a restatement of the failure.
+//
+// ARM-SCOPED, NOT BASE-SCOPED. Only the composite raises these guards, and only
+// a `rollback` request can be a composite, so the member is declared on the
+// rollback `rejected` arm alone — `.strict()` then REFUSES it on a steer /
+// interrupt / cancel rejection and on every non-`rejected` state, instead of a
+// base-level optional that would parse a guard on an arm that can never raise
+// one. Within that arm it is additive-OPTIONAL and PRODUCER-OBLIGATED, the
+// `resendDisposition` shape: no member of a `rejected` response identifies its
+// request as composite (`replacementSend` is request-side and the response does
+// not echo it), so requiredness is not expressible at the strict-parse boundary.
+// The daemon's tested obligation is that a refusal raised by one of the four
+// guards always populates it and every other refusal family never does; the
+// obligation is asserted by the composite's settlement tests (Plan-004 T3.17).
+
+export type RollbackCompositeRejectionGuard =
+  | "no-active-turn"
+  | "no-pending-send"
+  | "participant-authored-target"
+  | "resumable-target";
+
+export const RollbackCompositeRejectionGuardSchema: z.ZodType<RollbackCompositeRejectionGuard> =
+  z.enum(["no-active-turn", "no-pending-send", "participant-authored-target", "resumable-target"]);
 
 export interface InterventionResponseBase {
   interventionId: InterventionId;
@@ -658,6 +689,10 @@ export type InterventionRequestResponse =
       interventionType: "rollback";
       state: "rejected";
       rejectionReason: string;
+      // Present exactly when one of the composite's four structural refusal
+      // guards refused; absent on every other refusal family (see the block
+      // above the base interface).
+      rejectionGuard?: RollbackCompositeRejectionGuard | undefined;
       // The doc declares `result?: never` on this arm. Without it, structural
       // assignability lets a producer-side variable carry a stray `result`
       // that compiles and then fails the strict runtime parse.
@@ -717,6 +752,7 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
             DRIVER_WIRE_HANDLE_MAX_LEN,
             "InterventionResponseBase.rejectionReason",
           ),
+          rejectionGuard: RollbackCompositeRejectionGuardSchema.optional(),
         })
         .strict(),
       z

@@ -65,6 +65,7 @@ import {
   QueueItemStateSchema,
   QueueItemSummarySchema,
   RollbackAppliedResultSchema,
+  RollbackCompositeRejectionGuardSchema,
   RollbackDegradedResultSchema,
   RollbackInterventionResultSchema,
   RunControlAckSchema,
@@ -713,6 +714,76 @@ describe("InterventionRequestResponse", () => {
     expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
   });
 
+  describe("the rejectionGuard member", () => {
+    // The composite's four structural refusal guards, typed so a renderer maps
+    // guard -> remedy instead of phrase-matching `rejectionReason`.
+    const guards = [
+      "no-active-turn",
+      "no-pending-send",
+      "participant-authored-target",
+      "resumable-target",
+    ] as const;
+
+    it.each(guards)("admits %s beside the rejection reason", (guard) => {
+      const rejected = {
+        ...responseBase,
+        interventionType: "rollback",
+        state: "rejected",
+        rejectionReason: "the replacement leg refuses a running target",
+        rejectionGuard: guard,
+      };
+      expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
+      expect(RollbackCompositeRejectionGuardSchema.parse(guard)).toBe(guard);
+    });
+
+    it("is optional — a non-composite refusal carries none", () => {
+      const rejected = {
+        ...responseBase,
+        interventionType: "rollback",
+        state: "rejected",
+        rejectionReason: "driver.capability_unsupported",
+      };
+      expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
+    });
+
+    it("refuses a guard value outside the closed four", () => {
+      // Negative control: a free string would make the member as unreadable as
+      // the sentence it exists to replace.
+      expect(() => RollbackCompositeRejectionGuardSchema.parse("no-active-run")).toThrow();
+      expect(() =>
+        InterventionRequestResponseSchema.parse({
+          ...responseBase,
+          interventionType: "rollback",
+          state: "rejected",
+          rejectionReason: "the replacement leg refuses a running target",
+          rejectionGuard: "no-active-run",
+        }),
+      ).toThrow();
+    });
+
+    it("refuses the member on arms that can never raise a composite guard", () => {
+      // Arm-scoped, not base-scoped: only a rollback request can be a
+      // composite, and only a `rejected` rollback settles on a guard.
+      expect(() =>
+        InterventionRequestResponseSchema.parse({
+          ...responseBase,
+          interventionType: "steer",
+          state: "rejected",
+          rejectionReason: "not a composite",
+          rejectionGuard: "no-active-turn",
+        }),
+      ).toThrow();
+      expect(() =>
+        InterventionRequestResponseSchema.parse({
+          ...responseBase,
+          interventionType: "rollback",
+          state: "expired",
+          rejectionGuard: "no-active-turn",
+        }),
+      ).toThrow();
+    });
+  });
+
   it("refuses a result on rejected and on the three non-disposition states", () => {
     expect(() =>
       InterventionRequestResponseSchema.parse({
@@ -1215,6 +1286,7 @@ describe("index.ts re-exports the Plan-004 run-control contracts", () => {
     ["QueueItemCancelResponseSchema", contracts.QueueItemCancelResponseSchema],
     ["InterventionRequestPayloadSchema", contracts.InterventionRequestPayloadSchema],
     ["RollbackAppliedResultSchema", contracts.RollbackAppliedResultSchema],
+    ["RollbackCompositeRejectionGuardSchema", contracts.RollbackCompositeRejectionGuardSchema],
     ["RollbackDegradedResultSchema", contracts.RollbackDegradedResultSchema],
     ["RollbackInterventionResultSchema", contracts.RollbackInterventionResultSchema],
     ["InterventionRequestResponseSchema", contracts.InterventionRequestResponseSchema],
