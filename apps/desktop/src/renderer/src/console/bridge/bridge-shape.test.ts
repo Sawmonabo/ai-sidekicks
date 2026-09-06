@@ -45,10 +45,7 @@ import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
 import { growthSlateRow } from "./growth-port/growth-slate.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import {
-  CONSOLE_SCENARIO_MANIFEST,
-  consoleScenario,
-} from "./scenario-runtime/scenario-manifest.js";
+import { consoleScenario, consoleScenarioManifest } from "./scenario-runtime/scenario-manifest.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 
 /**
@@ -206,7 +203,7 @@ describe("I-023-13 — the growth ledger's live status is checked against the sl
     const fixture = fixtureBridge();
     expect(live).toBeDefined();
 
-    for (const entry of CONSOLE_SCENARIO_MANIFEST.growthOperations) {
+    for (const entry of consoleScenarioManifest().growthOperations) {
       expect(Object.keys(fixture.growth)).toContain(entry.id);
       if (live !== undefined) {
         expect(Object.keys(live.growth)).toContain(entry.id);
@@ -216,15 +213,15 @@ describe("I-023-13 — the growth ledger's live status is checked against the sl
 
   it("keeps prerequisites off the port, since a method that dispatches nothing is a fiction", () => {
     const portMethodNames = new Set(Object.keys(fixtureBridge().growth));
-    for (const entry of CONSOLE_SCENARIO_MANIFEST.prerequisites) {
+    for (const entry of consoleScenarioManifest().prerequisites) {
       expect(portMethodNames.has(entry.id)).toBe(false);
     }
   });
 
   it("resolves every slate row a ledger entry names", () => {
     for (const entry of [
-      ...CONSOLE_SCENARIO_MANIFEST.growthOperations,
-      ...CONSOLE_SCENARIO_MANIFEST.prerequisites,
+      ...consoleScenarioManifest().growthOperations,
+      ...consoleScenarioManifest().prerequisites,
     ]) {
       expect(growthSlateRow(entry.slateRow).id).toBe(entry.slateRow);
     }
@@ -234,7 +231,7 @@ describe("I-023-13 — the growth ledger's live status is checked against the sl
     // `fixtureServedOperations` is the fixture's claim about which growth wires it
     // scripts. An id here that the ledger does not carry would be a served wire
     // with no slate row and therefore no owner.
-    for (const operationId of CONSOLE_SCENARIO_MANIFEST.fixtureServedOperations) {
+    for (const operationId of consoleScenarioManifest().fixtureServedOperations) {
       expect(Object.keys(GROWTH_OPERATIONS)).toContain(operationId);
     }
   });
@@ -252,7 +249,7 @@ describe("I-023-13 — the growth ledger's live status is checked against the sl
   });
 
   it("resolves every scenario the manifest lists", () => {
-    for (const scenario of CONSOLE_SCENARIO_MANIFEST.scenarios) {
+    for (const scenario of consoleScenarioManifest().scenarios) {
       expect(consoleScenario(scenario.id).id).toBe(scenario.id);
     }
   });

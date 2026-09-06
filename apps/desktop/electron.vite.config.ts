@@ -92,6 +92,31 @@ import {
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
 
+/**
+ * The directories that make up the console's fixture corpus.
+ *
+ * Three, and they are the three `Spec-023 §Console Design (Meridian)` §The fixture
+ * bridge names: the scenario INSTANCES, the fixture bridge that serves them, and the
+ * scenario vocabulary and engine a scenario is written in and played by.
+ */
+const FIXTURE_CORPUS_DIRECTORIES: readonly string[] = [
+  "/src/renderer/src/console/bridge/scenarios/",
+  "/src/renderer/src/console/bridge/fixture/",
+  "/src/renderer/src/console/bridge/scenario-runtime/",
+];
+
+/**
+ * Does this module belong to the fixture corpus?
+ *
+ * Path-scoped rather than a package-wide `sideEffects` claim, because the claim is
+ * only true here: the console installs its token sheet and its tripwires at module
+ * scope elsewhere, and a blanket declaration would invite the bundler to drop those.
+ */
+function isFixtureCorpusModule(moduleId: string): boolean {
+  const normalized = moduleId.split("\\").join("/");
+  return FIXTURE_CORPUS_DIRECTORIES.some((directory) => normalized.includes(directory));
+}
+
 // Annotated rather than inferred: `isolatedDeclarations` is repo-wide, and
 // this module is imported by `src/main/renderer-scheme.test.ts` — which asserts
 // the dev server emits the same Content-Security-Policy the protocol handler
@@ -228,6 +253,37 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
         rollupOptions: {
           input: {
             index: "src/renderer/index.html",
+          },
+          // The second half of the fixture gate, and without it the first half
+          // does not finish the job it claims to.
+          //
+          // The `define` above folds every fixture CALL SITE to nothing, which is
+          // what drops `createFixtureBridge`, `ScenarioSelection`, and the pane
+          // harness. It does not remove the static IMPORT edges that reach the
+          // corpus — `BridgeProvider.tsx` imports the fixture bridge, the manifest,
+          // and a scenario id at module scope — and a module the graph still
+          // reaches keeps every top-level statement the bundler cannot prove pure.
+          // A scenario is built by calling builders at module scope, so none of
+          // those statements is provably pure and all of them were retained.
+          //
+          // Measured on the release artifact before this option: `"Browsing agent"`,
+          // `artifact-capture-staging-header`, `scenarios:`, and
+          // `fixtureServedOperations` were all present in `index-*.js`, against a
+          // spec sentence that says a release bundle carries none of it.
+          //
+          // So the corpus declares what is true of it: those three directories hold
+          // pure data and pure builders and run nothing at import time. With that
+          // declared, the unreferenced bindings go and the modules go with them.
+          // The claim is path-scoped rather than a package-wide `sideEffects: false`,
+          // which would also invite the bundler to drop the token-sheet install and
+          // the tripwire registrations that legitimately run at module scope.
+          //
+          // It is not mode-scoped, and does not need to be: in a fixture build the
+          // corpus is referenced, so nothing about it is unused and nothing is
+          // dropped. `test/console/budget/release-absence.test.ts` gates the outcome
+          // on the built artifact, with a planted negative control.
+          treeshake: {
+            moduleSideEffects: (moduleId: string) => !isFixtureCorpusModule(moduleId),
           },
         },
       },
