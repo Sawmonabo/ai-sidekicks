@@ -11,7 +11,7 @@ import { render } from "@testing-library/react";
 import { useContext } from "react";
 import { expect } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
+import { DECK_RESTORED_PANE_CAP, MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import {
   SidekicksBridgeProvider,
   createFixtureBridge,
@@ -163,7 +163,7 @@ export function workspaceFor(
           }
           sessionStore={session.store}
           uiStateStore={uiStateStore}
-          draftStore={new DraftStore()}
+          draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
           route={{ kind: "workspace", sessionId: session.sessionId }}
           registry={testRegistry()}
         />

@@ -15,21 +15,28 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 export {
   ANSI_SPAN_RENDER_CAP,
   APPLY_COALESCE_MS,
+  BOUNDED_ENUMERATION_MAX_ROWS,
   CAST_BAR_CHIP_CAP,
   CHAPTER_VISIBLE_ROW_CAP,
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
   CODE_TOKEN_CACHE_BYTE_CAP,
   CODE_WORKER_THRESHOLD_BYTES,
+  COMPOSING_NAMED_CAP,
+  COMPOSING_RECEIVED_STALE_MS,
   DECK_RESTORED_PANE_CAP,
   FIND_MATCH_CAP,
   FOOTNOTE_DEFINITION_CAP,
+  HIDDEN_INVITE_CAP,
+  IDENTIFIER_MAX_LENGTH,
   LEDGER_MAX_ELEMENT_HEIGHT_PX,
   LEDGER_PARKED_LEASE_CAP,
   LEDGER_WINDOW_ROW_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MARKDOWN_BLOCK_CACHE_BYTE_CAP,
+  MAXIMUM_LIVE_DRAFT_COUNT,
   MAX_REPAIRABLE_SEQUENCE_GAP,
+  MOUNT_INVENTORY_READ_CAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
   PARTITION_FOLD_THRESHOLD,
@@ -42,17 +49,22 @@ export {
   RAIL_MAX_TICKS_PER_PIXEL,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  RESOLVED_PROSE_INLINE_CAP,
   REVEAL_CHECKPOINT_TAIL_CAP,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
+  SESSION_BACK_TIER_VISIBLE_CAP,
+  SETTLED_INVITE_VISIBLE_CAP,
   SIDEBAR_MAXIMUM_WIDTH_PERCENT,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
+  TOOL_ALLOWLIST_NAMED_CAP,
   TOOL_SUMMARY_MAX_CHARACTERS,
   WHEN_CLAUSE_MAX_DEPTH,
+  WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
@@ -72,16 +84,19 @@ export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./f
 // from who might want a duration. A `core/` sibling reaches `./instant.js` and a
 // suite reaches the declaring module, so neither is a reader a door line can be
 // retired by, and a claim naming one could never be discharged.
+//
+// `MILLISECONDS_PER_SECOND` is absent for exactly that reason, measured over the same
+// six tips: none of them carries a reader of it. `instant.ts` derives the minute from
+// it inside the module that declares it and `instant.test.ts` reaches `./instant.js`,
+// so the claim this line used to carry named a task that could never discharge it —
+// and because the tag is what suppresses the dead-code finding, the line was invisible
+// to the gate that would otherwise have reported it. A symbol no task will name is
+// deleted from the door rather than tagged.
 export {
   compareInstants,
-  /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_DAY,
-  /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_HOUR,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   MILLISECONDS_PER_MINUTE,
-  /** @consumedBy T-023p-1C-4 */
-  MILLISECONDS_PER_SECOND,
   parseInstant,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type Instant,

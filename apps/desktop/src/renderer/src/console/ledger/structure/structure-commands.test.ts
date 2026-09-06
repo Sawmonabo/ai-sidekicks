@@ -14,7 +14,7 @@ import {
   KeyBindingTable,
   consoleCommandSurface,
   consoleCommands,
-  consoleKeyBindings,
+  consoleKeybindingOverrides,
   publishConsoleActRefusalSink,
   type ConsoleCommand,
 } from "../../palette/index.js";
@@ -198,7 +198,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
       registry: consoleCommands,
       readContext: () => ({ sessionActive: true }),
     });
-    table.setBindings(consoleKeyBindings());
+    table.setBindings(consoleKeybindingOverrides.surface.bindings);
     return table;
   }
 
@@ -276,7 +276,9 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     // precisely what this family did NOT have.
     withdrawLedgerContribution();
     expect(consoleCommands.has("ledger.find")).toBe(false);
-    expect(consoleKeyBindings().map((binding) => binding.commandId)).not.toContain("ledger.find");
+    expect(
+      consoleKeybindingOverrides.surface.bindings.map((binding) => binding.commandId),
+    ).not.toContain("ledger.find");
     const fired: string[] = [];
     const seat = new MountedLedgerSeat();
     seat.adopt(recordingActs(fired));

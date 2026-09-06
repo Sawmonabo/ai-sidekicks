@@ -254,11 +254,17 @@ describe("the application menu", () => {
       "../shared/auxiliary-routes.js",
     );
 
-    expect(actual.IMPLEMENTED_AUXILIARY_ROUTES).toEqual(["timeline"]);
+    expect(actual.IMPLEMENTED_AUXILIARY_ROUTES).toEqual(["timeline", "agent-console"]);
     expect(actual.BARE_LAUNCHABLE_AUXILIARY_ROUTES).toEqual([]);
     // ...while the closed set itself is unchanged: both lists are claims about
     // this build, not about which routes exist.
     expect(actual.AUXILIARY_ROUTE_NAMES).toEqual(["timeline", "agent-console"]);
+    // Negative control on the claim above: an implemented route is always a
+    // member of the closed set, and this case would pass over a build that had
+    // put a name in the list that no route grammar knows.
+    for (const route of actual.IMPLEMENTED_AUXILIARY_ROUTES) {
+      expect(actual.AUXILIARY_ROUTE_NAMES).toContain(route);
+    }
   });
 });
 

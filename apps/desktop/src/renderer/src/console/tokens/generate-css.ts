@@ -37,7 +37,7 @@ import { formatOklch } from "./color.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
   BODY_LINE_HEIGHT,
-  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
+  BOUNDED_ENUMERATION_HEIGHT_REM,
   FONT_STACKS,
   MOTION_DURATIONS_MS,
   MOTION_EASE_SETTLE,
@@ -105,7 +105,7 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
   lines.push(declaration("attribution-edge", `${ATTRIBUTION_EDGE_WIDTH_PX}px`));
-  lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_MAX_HEIGHT_REM}rem`));
+  lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
 
   lines.push("");
   lines.push("  /* Motion — settles, never bounces. */");

@@ -18,6 +18,15 @@
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 //
+// HOW A CLAIM IS SPELLED HERE. A line published ahead of its importer carries the
+// `// Consumed by T-023p-1C-<n>` line comment and never a `@consumedBy` JSDoc tag —
+// measured rather than chosen: knip does not report a specifier on THIS door at all.
+// A planted dead type re-exported here raised nothing, where the same type re-exported
+// through `seats/index.ts` was reported at both its declaration and its specifier, so
+// a JSDoc tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on
+// it. `barrel-census.test.ts` is the gate that does report such a line, and it reads
+// either spelling, so the line comment satisfies the instrument that has the claim.
+//
 // Nor is the scripted pane view host — not its type, not its factory, not its
 // transport marker. `console-bridge.ts` names the type on the contract and reaches
 // it by its own specifier; the browser family reads the script structurally off
@@ -77,7 +86,6 @@ export {
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon/daemon-reply.js";
 export type {
-  // Consumed by T-023p-1C-3
   DaemonReply,
   // Consumed by T-023p-1C-3
   DaemonReplyRefusalCode,
@@ -87,6 +95,11 @@ export type {
   DaemonRequestOf,
   DaemonResponseOf,
 } from "./daemon/daemon-reply-registry.js";
+
+// One widening from a held id string to a registered request's branded id, beside the
+// door whose request parse is what makes it a checked widening rather than a claim.
+export { heldIdAsWireId } from "./daemon/wire-ids.js";
+
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and every surface that offers sessions reads the directory through
 // `seats/`, so the port type, the one summary shape those surfaces render, the
@@ -114,6 +127,65 @@ export { growthUnavailable, settledGrowthCall } from "./growth-port/growth-port.
 export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
 export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+// The attention projection's own vocabulary. Published because the notification
+// plane NARROWS against it: it used to declare a second copy of these six triggers
+// and two severities, which is two closed sets that agree until one of them is
+// widened and nothing notices.
+export {
+  ATTENTION_SEVERITIES,
+  ATTENTION_TRIGGERS,
+  type AttentionItem,
+  type AttentionProjection,
+  type AttentionSeverity,
+  type AttentionTrigger,
+} from "./wire-shapes/attention-projection.js";
+// The outcome union itself. A caller outside this family narrows on it; its refusal
+// ARM does not travel, for the reason stated above the growth-port block.
+export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
+
+// The `invitesList` outcome and its served row. Published because TWO sibling view
+// families read that one operation — the sent ledger and the received shelf — and a
+// view family may not import its sibling, so each had declared the pair itself under
+// a name of its own. Derived off the growth signature here, once.
+export type {
+  InvitesListOutcome,
+  InvitesListRefusal,
+  ServedInvite,
+} from "./growth-port/invites-outcome.js";
+
+// The saved definition the registry serves. Published because the definition picker
+// in the agent console projects one onto its own row shape, and a projection cannot
+// be written against a type it cannot name. It is declared on the substrate rather
+// than in a view family — see `wire-shapes/agent-plane.ts`'s header — and it leaves
+// through the module that DECLARES it, never through `wire-shapes/index.js`, on the
+// `console-no-barrel-chain` rule the `GrowthSessionSummary` block above states.
+export type { SidekickDefinition } from "./wire-shapes/sidekick-definition.js";
+
+// The agent plane's reply and request shapes. Published because the agent console
+// and the cast bar RENDER them: they are declared on the substrate rather than in a
+// view family — see `wire-shapes/agent-plane.ts`'s header — so the family that draws
+// a roster card reads its shape through this door like any other cross-family import.
+// They leave through the module that declares them on the same rule as the line
+// above.
+export type {
+  AgentAttachReading,
+  AgentAttachRequest,
+  AgentConfigUpdateReading,
+  AgentConfigUpdateRequest,
+  AgentDetachRequest,
+  AgentListRequest,
+  AgentPendingSwitch,
+  AgentResolvedConfiguration,
+  AgentRosterEntry,
+  AgentRosterReading,
+  AgentSwitchSettlement,
+  ChildRunLink,
+  ChildRunLinkReadRequest,
+  ChildRunLinkReading,
+  ChildRunRejection,
+  PeerInvocationReading,
+  PeerInvocationSetRequest,
+} from "./wire-shapes/agent-plane.js";
 
 // Which kind of nothing a growth refusal IS — the console never asked, or the asking
 // failed. Every surface that offers the node's sessions has to answer it before it
@@ -126,18 +198,7 @@ export { isUnbuiltWireRefusal } from "./growth-port/growth-outcome.js";
 // not through `growth-port/index.js`: no sibling inside `bridge/` takes it, and an
 // inner barrel line no sibling reaches is a dead export `structure:dead-code` reports,
 // which is how two speculative lines came off that door already.
-//
-// The claim is the line-comment spelling and not a `@consumedBy` JSDoc tag, measured
-// rather than chosen: knip does not report a specifier on THIS door at all — a planted
-// dead type re-exported here raised nothing, where the same type re-exported through
-// `seats/index.ts` was reported at both its declaration and its specifier — so a JSDoc
-// tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on it.
-// `barrel-census.test.ts` is the gate that does report it, and it reads either
-// spelling, so the line comment satisfies the instrument that has the claim.
-export type {
-  // Consumed by T-023p-1C-4
-  GrowthReading,
-} from "./growth-port/growth-outcome.js";
+export type { GrowthReading } from "./growth-port/growth-outcome.js";
 
 // The growth ledger's row lookup, through the door this file's header already claims
 // it for ("the ledger that makes those refusals checkable"). A view family that must

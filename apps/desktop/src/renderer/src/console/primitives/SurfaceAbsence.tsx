@@ -11,10 +11,10 @@
 // ITS OWN MODULE because it has more than one producer and never had only one:
 // `frame/RouteSurface.tsx` raises three of these — the unknown address, the session
 // still opening, and the slot nobody has claimed — and `seats/absorbed-surfaces.ts`
-// raises two more, the fixture-source refusal and the address-names-no-session
-// refusal. A second centring wrapper in either would be two renderings of one idea,
-// drifting apart the first time either measure changed, and only the screenshot
-// tier would ever see it.
+// raises three more, the fixture-source refusal, the address-names-no-session
+// refusal, and the roster mount that was handed no bridge. A second centring wrapper
+// in either would be two renderings of one idea, drifting apart the first time either
+// measure changed, and only the screenshot tier would ever see it.
 //
 // IN `primitives/` RATHER THAN IN `frame/`, WHICH IS WHERE ITS FIRST PRODUCER PUT IT.
 // It was authored beside the route surface because that was its only caller, and the

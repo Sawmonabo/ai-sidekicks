@@ -47,20 +47,20 @@ export const FRAME = `${CONSOLE}/frame/`;
 // from importing a sibling could import both families from a NEW file at the console
 // root and the gate stayed green, because the wildcard admitted any root file as a
 // composition site — subtracted from the view-family set and from both endpoints of the
-// isolation rule at once. The enumeration makes a second root module a gate failure that
-// names itself.
+// isolation rule at once. The enumeration makes an unenumerated root module a gate failure
+// that names itself.
 //
 // A FAMILY THAT LANDS ITS OWN ROOT REGISTRAR ADDS ONE ALTERNATIVE HERE and rewrites no
 // prose anywhere: this comment, `apps/desktop/AGENTS.md`, and the isolation rule below
 // all say "the enumerated root modules" rather than a count, so the six concurrent
 // family branches each produce a one-line, self-naming diff at this list.
 //
-// `console-env.d.ts` is the console root's other resident and is deliberately absent.
+// `console-env.d.ts` is the console root's remaining resident and is deliberately absent.
 // It declares ambient types: no module imports it and it imports none, so it is an
 // endpoint of no edge any rule here judges, and `no-orphans` exempts declaration files
 // by extension already. Co-located tests are absent for the stronger reason that
 // `options.exclude` removes them from the graph before any rule runs.
-export const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families)\\.ts$`;
+export const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|collaboration-family|sidekicks-settings-page)\\.ts$`;
 // The pane board is the FILES directly under `panes/`, not the directory. After the
 // pane-body rule below, `panes/` holds composition and nothing else, so a
 // `panes/<something>/` subtree is not a composition site and must not inherit the

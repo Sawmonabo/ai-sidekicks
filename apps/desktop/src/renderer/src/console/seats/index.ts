@@ -59,7 +59,15 @@
 // arrives as `children` from the family that owns it. Its stylesheet is imported below,
 // where every console family imports its own.
 //
-// NOTHING ELSE HERE RENDERS. No store, no scenario, no second component.
+// NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
+//
+// `absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
+// component it builds is owned by a renderer subtree outside the console: the four
+// shipped Tier-1 families the console absorbed by import. That is not a sibling's
+// body — it is a component with no owner left to mount it, handed to whichever
+// console surface absorbed it. Four view families reach for one of those mounts, so
+// the mounts sit here for exactly the reason every other seat does.
+//
 //
 // THE `@consumedBy` TAGS BELOW are the dead-code gate's one exemption, on the terms
 // `apps/desktop/AGENTS.md` sets: every seat is reached by a task that has not landed,
@@ -153,7 +161,6 @@ export {
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionContext,
   type SidebarSectionDescriptor,
   type SidebarSectionId,
@@ -193,10 +200,12 @@ export {
 } from "./inline-card-seats.js";
 
 // The pane chrome and the seam its two host controls travel on. No marker on any of
-// these lines, and both halves of the reason have now happened: shipped pane bodies
-// import the chrome and narrow through `paneBodyForKind`, and the deck — the one host
-// that provides the two controls — ships and mounts every pane inside
-// `PaneControlsContext`. A surviving tag would fail the run under
+// these lines, and every half of the reason has now happened: shipped pane bodies
+// import the chrome and narrow through `paneBodyForKind`; the deck — the one host that
+// provides the two controls — ships and mounts every pane inside `PaneControlsContext`,
+// so the agent console's detach control is drawn through the seam a deck provides it
+// through rather than asserted by a test; and the ledger's message card and timeline
+// pane read the owner slot's contract. A surviving tag would fail the run under
 // `--treat-tag-hints-as-errors`; the pane-body tasks still to land are consumers of
 // exports that already have one.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
@@ -215,15 +224,10 @@ export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 // orphan — which is why the census below is the thing that says who owes the rebind.
 // The hook's claim is retired: the ledger's pane holds its chapter disclosure and
 // both of its row-retention tables through this line.
-export {
-  /** @consumedBy T-023p-1C-4 */
-  isCurrentSessionSubject,
-  useSessionScopedState,
-} from "./session-subject.js";
+export { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
 export type {
   /** @consumedBy T-023p-1C-3 */
   SessionScopedKey,
-  /** @consumedBy T-023p-1C-4 */
   SessionSubject,
 } from "./session-subject.js";
 
@@ -236,22 +240,42 @@ export type {
 export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
 export type { SessionDirectoryState } from "./session-directory.js";
 
-// The mounts for the three shipped Tier-1 families the console absorbed, each with
-// the bridge-source guard that decides whether it may be mounted at all.
-//
-// In this family because a mount reads a bridge source and two primitives and nothing
-// above `bridge/`, and on this door because the surfaces that mount them are view
-// families — `frame/legacy-surfaces.ts` holds the slot table and reaches them here
-// like every other consumer.
+// The read discipline every live wire read in this console follows — subscribe
+// first, answer a push with a fresh read, one read per burst through the refresh
+// chokepoint, never a flicker. It sits here rather than in the family that wrote it
+// because four view families now hold one, and a second copy would be a second set
+// of answers to when a surface re-reads.
+// The failure-code vocabulary, the options shape, and the codes' derived union stay
+// inside this family: their readers are the module itself and the suite beside it,
+// and a barrel specifier no cross-family import uses is a dead export rather than a
+// convenience.
 export {
+  PushDrivenRead,
+  consoleRefusalFrom,
+  servedGrowthValueOrRaise,
+  servedValueOrRaise,
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "./push-driven-read.js";
+
+// The console's single copy of the daemon-EVENT cast. The brand
+// `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
+// it, and every caller casts; one module casts, and the day the brand narrows one
+// file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
+// methods and parses both directions, so no seat casts a call any more.
+export { subscribeDaemonEvent } from "./wire-access.js";
+
+// The mounts for three of the four shipped Tier-1 families the console absorbed, two of
+// them carrying the bridge-source guard that decides whether they may be mounted at all.
+// The fourth, the participant roster, is superseded rather than unhomed — the module
+// beside this door says by what, and why keeping a mount for it would be keeping one no
+// surface can call.
+//
+// In this family because a mount reads a bridge source, two primitives and the console's
+// own bridge, and nothing above `bridge/`, and on this door because the surfaces that
+// mount them are view families, which reach them here like every other consumer.
+export {
+  renderAbsorbedInviteAcceptance,
   renderAbsorbedNodeRoster,
-  /**
-   * The `workspace` slot that used to mount this is the ledger family's from
-   * T-023p-1C-2 on, and that family does not re-mount the roster: the roster's own
-   * console home is a sidebar section the collaboration family owns.
-   *
-   * @consumedBy T-023p-1C-4
-   */
-  renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";

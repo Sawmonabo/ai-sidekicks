@@ -9,6 +9,7 @@ import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../bridge/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStore } from "../store/index.js";
@@ -99,7 +100,7 @@ describe("Workspace — the sidebar it composes beside the deck", () => {
             frameStore={new FrameStore({ initialRoute: { kind: "sessions" } })}
             sessionStore={undefined}
             uiStateStore={memoryStore()}
-            draftStore={new DraftStore()}
+            draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
             route={{ kind: "sessions" }}
             registry={testRegistry()}
           />

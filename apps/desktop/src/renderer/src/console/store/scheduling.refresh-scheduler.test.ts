@@ -17,13 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../core/index.js";
 import { RefreshScheduler, type RefreshReason } from "./scheduling.js";
-
-/** Let every queued continuation run. The scheduler settles across microtasks. */
-async function settleMicrotasks(): Promise<void> {
-  for (let tick = 0; tick < 8; tick += 1) {
-    await Promise.resolve();
-  }
-}
+import { settleMicrotasks } from "./session-store-registry.test-support.js";
 
 describe("RefreshScheduler — one read per burst, and one under a stream", () => {
   it("fires at the absolute deadline when requests never stop arriving", async () => {

@@ -16,6 +16,8 @@
 
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
+import type { GrowthOperationId } from "../growth-port/growth-entry.js";
+import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
@@ -103,6 +105,107 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       }
       return { status: "served", value: { participantId: viewingParticipantId } };
     },
+    // invites
+    invitesList: async (request) =>
+      // Routed through the scripted-reply seam on the branch-context read's rule, and
+      // answered with the EMPTY LEDGER when a scenario scripts nothing. The two facts
+      // are different and the surface draws them differently: "the read is not
+      // registered" is what a release build renders, and "this session has sent
+      // nobody an invitation" is a state the sent-invite ledger and the received-
+      // invite shelf both have to draw and could reach from no scenario at all while
+      // this operation refused.
+      //
+      // The REQUEST travels with the call for the reason the seam states: a scenario
+      // answers through `resultFor`, which is handed exactly what the caller sent, and
+      // a helper called without it computes every answer about no session at all.
+      //
+      // An empty array is a legitimate daemon answer here in a way it is NOT for the
+      // callback-tool registry next door: an invite ledger with no rows is an ordinary
+      // session, whereas a withheld tool registry and an empty one are different
+      // answers to different questions.
+      answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => []),
+    // agent plane
+    //
+    // Each unscripted arm answers the EMPTY state of its own read rather than a
+    // refusal, on the invite ledger's rule above: a session with no agents attached
+    // and a session whose roster could not be read are different answers, and the
+    // agent console draws them differently. A scenario that scripts nothing here has
+    // a session with nobody in it, which is what a fresh session IS.
+    agentList: async (request) =>
+      answerFromScriptedReply(engine, "agent.list", "agentList", request, () => ({ agents: [] })),
+    // The three WRITES have no empty state, and their unscripted arm says so. A write
+    // that answered a synthesized receipt would tell a surface the daemon did
+    // something no scenario ever said it did — and an attach in particular is what
+    // mints an identity every later read is keyed by.
+    agentAttach: async (request) =>
+      await answerScriptedWrite(engine, "agent.attach", "agentAttach", request),
+    agentConfigUpdate: async (request) =>
+      await answerScriptedWrite(engine, "agent.configUpdate", "agentConfigUpdate", request),
+    agentDetach: async (request) =>
+      await answerScriptedWrite(engine, "agent.detach", "agentDetach", request),
+    orchestrationChildRunLinkRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        "orchestration.childRunLinkRead",
+        "orchestrationChildRunLinkRead",
+        request,
+        // A parent run with no children and no refused creates is the ordinary case,
+        // and both halves are empty rather than absent: a fold with no rows is a
+        // statement that nothing was refused, which is exactly what the panel draws.
+        () => ({ links: [], rejectedCreates: [] }),
+      ),
+    sidekickDefinitionList: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        "sidekick.definitionList",
+        "sidekickDefinitionList",
+        request,
+        // A node with no saved definitions is an ordinary node — the attach form's
+        // inline arm needs none — so the picker draws the empty registry rather than
+        // a refusal.
+        () => [],
+      ),
+    sidekickPeerInvocationSet: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "sidekick.peerInvocationSet",
+        "sidekickPeerInvocationSet",
+        request,
+      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
+}
+
+/**
+ * Answer one WRITE from the script, and refuse where the scenario scripts none.
+ *
+ * A read has an empty state and a write does not: "this session has no agents" is a
+ * state the console draws, and there is no such thing as "the attach that happened
+ * and produced nothing". So a write that no scenario answers cannot take the served
+ * arm with a synthesized receipt — that would tell a surface the daemon did
+ * something no author ever said it did, and for an attach it would mint an identity
+ * every later read is keyed by.
+ *
+ * The precondition is checked here rather than inside the seam because it is a fact
+ * about the SCENARIO rather than about the settlement — `callerParticipantRead` next
+ * door reads its own precondition off `engine.scenario` for the same reason. What is
+ * left after the check is exactly the settlement the seam reports, so the parked,
+ * abandoned, and over-cap arms all keep their own answers.
+ */
+async function answerScriptedWrite<TValue>(
+  engine: ScenarioEngine,
+  call: string,
+  operationId: GrowthOperationId,
+  request: unknown,
+): Promise<GrowthOutcome<TValue>> {
+  if (engine.replyFor(call) === undefined) {
+    return growthUnavailable(operationId);
+  }
+  return await answerFromScriptedReply<TValue>(engine, call, operationId, request, () => {
+    // Unreachable: the guard above already refused every unscripted call, and the
+    // seam reports `unscripted` only for exactly that. Named rather than cast, so a
+    // later change that moves the guard fails here loudly instead of serving a value
+    // that was never scripted.
+    throw new Error(`${call} reached the unscripted arm behind its own scripted guard`);
+  });
 }

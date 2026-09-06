@@ -11,7 +11,7 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { liveRegionText, politeText } from "./live-region.test-support.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
-import { useReadingAnnouncement } from "./reading-announcement.js";
+import { useAnnounceOncePerSentence, useReadingAnnouncement } from "./reading-announcement.js";
 import { uncheckedCoverageReading, type ReadingState } from "./partial-read.js";
 import { PARSE_REFUSAL, READING_SUBJECT } from "./partial-read.test-support.js";
 
@@ -163,5 +163,76 @@ describe("useReadingAnnouncement — one sentence, once, within the pass as well
     // region, which is what makes the second one nothing new to say.
     expect(renderAnnouncing([STALE]).polite()).toBe(renderAnnouncing([STALE, STALE]).polite());
     expect(renderAnnouncing([STALE, STALE]).polite()).not.toBe("");
+  });
+});
+
+describe("useAnnounceOncePerSentence — the two arms of the latch's memory", () => {
+  function LatchedSurface(props: { readonly sentences: readonly string[] | undefined }): null {
+    useAnnounceOncePerSentence(props.sentences);
+    return null;
+  }
+
+  /** The latch driven directly, over the same announcer on the same frozen clock. */
+  function renderLatched(sentences: readonly string[] | undefined): {
+    readonly polite: () => string;
+    readonly rerender: (next: readonly string[] | undefined) => void;
+    readonly settle: () => void;
+  } {
+    const clock = new ManualClock(0);
+    const announcer = new LiveAnnouncer({ clock });
+    const { container, rerender } = render(
+      <LiveAnnouncerProvider announcer={announcer}>
+        <LatchedSurface sentences={sentences} />
+      </LiveAnnouncerProvider>,
+    );
+    return {
+      polite: () => politeText(container),
+      rerender: (next) => {
+        rerender(
+          <LiveAnnouncerProvider announcer={announcer}>
+            <LatchedSurface sentences={next} />
+          </LiveAnnouncerProvider>,
+        );
+      },
+      settle: () => {
+        act(() => {
+          clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
+        });
+      },
+    };
+  }
+
+  it("forgets a sentence an empty pass dropped, and says it again when it returns", () => {
+    // The SET arity's rule, and the reason `useReadingAnnouncement` hands over `[]`
+    // rather than nothing when a reading completes: an empty pass is the positive
+    // claim that nothing is incomplete, so a reading that goes back to incomplete
+    // after serving is a second, real announcement.
+    const announced = renderLatched(["Two deliveries could not be read."]);
+    expect(announced.polite()).toBe("Two deliveries could not be read.");
+    announced.settle();
+
+    announced.rerender([]);
+    announced.settle();
+    expect(announced.polite()).toBe("");
+
+    announced.rerender(["Two deliveries could not be read."]);
+    expect(announced.polite()).toBe("Two deliveries could not be read.");
+  });
+
+  it("negative control: holds a sentence across a pass that makes no claim at all", () => {
+    // The SCALAR arity's rule, and the case that fails the moment `undefined` is folded
+    // into `[]`. A read that has not settled is not a read that settled to nothing, so
+    // its pass forgets nothing — otherwise one settlement is audible twice, which is the
+    // whole defect `settlement-announcement.ts` exists to prevent.
+    const announced = renderLatched(["Four mounts were read."]);
+    expect(announced.polite()).toBe("Four mounts were read.");
+    announced.settle();
+
+    announced.rerender(undefined);
+    announced.settle();
+    expect(announced.polite()).toBe("");
+
+    announced.rerender(["Four mounts were read."]);
+    expect(announced.polite()).toBe("");
   });
 });

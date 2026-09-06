@@ -1,0 +1,166 @@
+/* What the collaboration family SHARES, and the live line it draws itself.
+ *
+ * The three sub-families carry their own sheets — `channels/channels.css`,
+ * `members/members.css`, `invites/invites.css`. What is left here is the shape no one
+ * of them owns: the shell the channel list and the roster both take, the card chrome
+ * and the one control shape the memberships and the invite ledger both take, and the
+ * live line, which is the family's own. A selector list spanning two sub-families
+ * lives at the door rather than being copied into both, because two copies agree only
+ * until one of them is restyled.
+ *
+ * Hand-authored composition over generated values, like every other console sheet —
+ * no literal colour below, and the only literal lengths are the two-pixel identity
+ * mark (rule 1's attribution width, carried on the roster the same way the ledger row
+ * carries it) and the hairlines that separate rows.
+ *
+ * Three decisions the design forces:
+ *
+ *   • **A channel row is a ledger line, not a list item.** Flush left, one measure,
+ *     the name and its marks on one baseline, and the live line below it in the same
+ *     column rather than pushed to a second block. What makes it a row rather than a
+ *     card is that nothing is boxed: the separation is a hairline, so twelve rows
+ *     read as a log.
+ *   • **Identity is an edge, never a fill.** The roster's participant hue is a 2 px
+ *     mark down the row's leading edge, dashed / ticked / dotted by wrap lap the way
+ *     the ledger row does it. A hue behind text would put an identity colour under a
+ *     glyph, which rule 3 forbids in terms.
+ *   • **The live line takes no space when there is nothing live.** It is a sibling
+ *     that renders or does not; no reserved height, no min-height, so an idle channel
+ *     list has no gaps in it.
+ */
+
+/* The collaboration family's own styles: channels, the roster, and the live line.
+ *
+ * Hand-authored composition over generated values, like every other console sheet —
+ * no literal colour below, and the only literal lengths are the two-pixel identity
+ * mark (rule 1's attribution width, carried on the roster the same way the ledger
+ * row carries it) and the hairlines that separate rows.
+ *
+ * Three decisions the design forces:
+ *
+ *   • **A channel row is a ledger line, not a list item.** Flush left, one measure,
+ *     the name and its marks on one baseline, and the live line below it in the same
+ *     column rather than pushed to a second block. What makes it a row rather than a
+ *     card is that nothing is boxed: the separation is a hairline, so twelve rows
+ *     read as a log.
+ *   • **Identity is an edge, never a fill.** The roster's participant hue is a 2 px
+ *     mark down the row's leading edge, dashed / ticked / dotted by wrap lap the way
+ *     the ledger row does it. A hue behind text would put an identity colour under a
+ *     glyph, which rule 3 forbids in terms.
+ *   • **The live line takes no space when there is nothing live.** It is a sibling
+ *     that renders or does not; no reserved height, no min-height, so an idle
+ *     channel list has no gaps in it.
+ */
+
+.meridian-channels,
+.meridian-roster {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-channels__degraded,
+.meridian-roster__degraded {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-channels__list,
+.meridian-roster__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ----------------------------------------------------------- the live line */
+
+.meridian-activity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding-inline: var(--meridian-space-1);
+  padding-block-end: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-activity__part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-members__lede,
+.meridian-invites__lede {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-members__rows,
+.meridian-invites__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-members__row-facts,
+.meridian-invites__row-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-members__manage,
+.meridian-members__revoke,
+.meridian-invites__row-action,
+.meridian-invite-confirmation__dismiss,
+.meridian-members__dialog-cancel,
+.meridian-members__dialog-confirm,
+.meridian-members__refusal-dismiss,
+.meridian-invites__refusal-dismiss {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-members__manage:hover:enabled,
+.meridian-members__revoke:hover:enabled,
+.meridian-invites__row-action:hover:enabled {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-members__manage:disabled,
+.meridian-members__revoke:disabled,
+.meridian-invites__row-action:disabled {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+/* Focus is visible on every control here, with one rule rather than one per
+ * class, so a control added later cannot arrive without it. */
+.meridian-members :focus-visible,
+.meridian-invites :focus-visible,
+.meridian-invite-confirmation :focus-visible,
+.meridian-members__menu :focus-visible,
+.meridian-members__dialog :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

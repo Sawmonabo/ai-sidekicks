@@ -1,8 +1,9 @@
 // The base state the fixture's session read establishes.
 //
 // Beside `fixture-growth-port.ts` on the same terms its three other neighbours are:
-// that module owns the DECISION — which operations are served — and each answer with
-// a job of its own lives here, because each fails in a way the decision cannot.
+// the DECISION — which operations are served — is declared in
+// `fixture-served-operations.ts` and composed by the port, while each answer with a
+// job of its own lives here, because each fails in a way the decision cannot.
 // `fixture-session-directory.ts` derives what the node HAS; this one derives what one
 // session already CONTAINS at the moment a store opens on it.
 //

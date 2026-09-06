@@ -1,0 +1,56 @@
+/* The workspace-mounts page's inventory list.
+ *
+ * A sibling sheet rather than a block in `settings.css`: one mount's row, its path,
+ * its root and probe lines and its axes are this page's shape and nothing else draws
+ * them.
+ */
+
+/* --- The mount inventory ------------------------------------------------- */
+/* One line per mount, with the two health axes side by side. Detail belongs to the
+   workspace surface; this list is scannable or it is nothing. */
+
+.meridian-mount-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-mount-list__item {
+  padding-bottom: var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-mount-list__item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.meridian-mount-list__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-mount-list__path {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.meridian-mount-list__root,
+.meridian-mount-list__probe {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.meridian-mount-list__axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  margin-top: var(--meridian-space-1);
+}

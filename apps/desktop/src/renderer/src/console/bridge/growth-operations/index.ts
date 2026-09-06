@@ -43,6 +43,7 @@
 // the console comes through.
 
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
+import { AGENT_GROWTH_OPERATIONS } from "./agents.js";
 import { ARTIFACT_GROWTH_OPERATIONS } from "./artifacts.js";
 import { ATTENTION_GROWTH_OPERATIONS } from "./attention.js";
 import { GITFLOW_GROWTH_OPERATIONS } from "./gitflow.js";
@@ -71,6 +72,7 @@ export const GROWTH_OPERATION_PLANES: readonly Readonly<
   WORKFLOW_GROWTH_OPERATIONS,
   IDENTITY_GROWTH_OPERATIONS,
   SIDEKICK_GROWTH_OPERATIONS,
+  AGENT_GROWTH_OPERATIONS,
   LEDGER_GROWTH_OPERATIONS,
 ];
 
@@ -87,5 +89,6 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...WORKFLOW_GROWTH_OPERATIONS,
   ...IDENTITY_GROWTH_OPERATIONS,
   ...SIDEKICK_GROWTH_OPERATIONS,
+  ...AGENT_GROWTH_OPERATIONS,
   ...LEDGER_GROWTH_OPERATIONS,
 };

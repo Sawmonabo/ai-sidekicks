@@ -16,6 +16,17 @@
 // two effects registering into one module-scoped registry, whose duplicate-id
 // refusal turns any ordering mistake into a raise at mount rather than a shadowed
 // command. One effect, one list, one revision bump.
+//
+// WHAT IS INSTALLED IS THE EFFECTIVE TABLE, AND WHY THAT IS THREE EFFECTS
+//
+// The chords this window installs are `FRAME_KEY_BINDINGS` with a person's overrides
+// composed onto them, read through the one accessor
+// (`palette/keybinding-override-store.ts`). Registration, the binding set, and the listener
+// then move on three different clocks — the commands change when this window's store
+// or bridge acts do, the set changes when somebody rebinds, and the listener comes
+// and goes while a chord is being recorded — so they are three effects rather than
+// one. Folding them back together would tear down and re-register every command each
+// time a person pressed a key into the recorder.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -24,11 +35,12 @@ import {
   KeyBindingTable,
   RAIL_NAVIGATION_DETAILS,
   consoleCommands,
-  consoleKeyBindings,
+  consoleKeybindingOverrides,
   publishConsoleActRefusalSink,
   registerConsoleCommands,
   subscribeToConsoleKeyBindings,
   useBridgeCommands,
+  useKeybindingSurface,
   type ConsoleCommand,
   type ConsoleWhenClauseContext,
   type FrameCommand,
@@ -40,6 +52,7 @@ import {
   routeSessionId,
   type ConsoleRoute,
 } from "../routing/index.js";
+import type { UiStateStore } from "../persistence/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
@@ -56,6 +69,14 @@ export interface FrameCommandSurfaceInput {
    */
   readonly lastOpenedSessionId: string | undefined;
   readonly frameStore: FrameStore;
+  /**
+   * This window's durable store, for the keybinding overrides alone.
+   *
+   * The frame reads the overrides back here rather than from the Keyboard page,
+   * because a chord a person rebound has to be installed whether or not anybody
+   * opens the page that shows it.
+   */
+  readonly uiStateStore: UiStateStore;
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 
@@ -69,7 +90,7 @@ export interface FrameCommandSurface {
 }
 
 export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCommandSurface {
-  const { route, lastOpenedSessionId, frameStore, chooseScheme } = input;
+  const { route, lastOpenedSessionId, frameStore, uiStateStore, chooseScheme } = input;
 
   // What a command's `when` clause is evaluated against. Derived from the route
   // rather than stored, so there is one answer to "where am I" and the palette
@@ -119,6 +140,10 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   // the registration effect below runs once rather than per pass.
   const bridgeCommands = useBridgeCommands(raiseRefusalBanner);
 
+  // What this window installs: the shipped chords with this person's overrides
+  // composed onto them, and whether the keyboard is suspended for a recording.
+  const keybindingSurface = useKeybindingSurface(consoleKeybindingOverrides);
+
   const keyBindingsRef = useRef<KeyBindingTable>(undefined);
   keyBindingsRef.current ??= new KeyBindingTable({
     registry: consoleCommands,
@@ -142,38 +167,58 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
     // is atomic, so a duplicate anywhere in the list adds none of it and the
     // cleanup below cannot unregister a command another mount owns.
     registerConsoleCommands(windowCommands);
-    // The frame's own chords AND the families'. The frame names no family — the
-    // list is read from the door they contributed through, exactly as the surface
-    // registry hands it the routes it renders.
+    // AND THE PALETTE IS TOLD WHENEVER THEY CHANGE. Composition is not over when
+    // this effect runs: a family composed later contributes commands this window
+    // would otherwise never list, which is a palette that is missing entries and
+    // reports nothing. The revision moves with the contribution, because the palette
+    // lists what the registry holds.
     //
-    // AND READ AGAIN WHENEVER THEY CHANGE. Composition is not over when this effect
-    // runs: a family composed later binds chords this table would otherwise never
-    // see, which is a keypress that does nothing and reports nothing. The revision
-    // moves with it, because the palette lists what the registry holds and the same
-    // contribution added the commands behind those chords.
-    const installBindings = (): void => {
-      keyBindings.setBindings(consoleKeyBindings());
-    };
-    installBindings();
+    // The CHORDS behind them are not installed here. The override store reads the
+    // composed table as its own defaults and republishes on this same signal, so a
+    // late family reaches the key-binding table through the effective-table effect
+    // below — one installer, and not a second one racing it on the same table.
     const stopWatchingContributions = subscribeToConsoleKeyBindings(() => {
-      installBindings();
       setCommandRevision((revision) => revision + 1);
     });
-    const uninstall = keyBindings.install(window);
     // And the banner a family's composition-time act states its refusal on. It is
-    // published for this window's lifetime because that is how long the banner
-    // exists: an act contributed at module scope cannot close over one.
+    // published for as long as this window's commands are registered, because that is
+    // the same lifetime: an act contributed at module scope cannot close over one.
     const withdrawRefusalSink = publishConsoleActRefusalSink(raiseRefusalBanner);
     setCommandRevision((revision) => revision + 1);
     return () => {
-      uninstall();
       withdrawRefusalSink();
       stopWatchingContributions();
       for (const command of windowCommands) {
         consoleCommands.unregister(command.id);
       }
     };
-  }, [bridgeCommands, chooseScheme, frameStore, keyBindings, raiseRefusalBanner]);
+  }, [bridgeCommands, chooseScheme, frameStore, raiseRefusalBanner]);
+
+  // The overrides a person authored, read back once per window. Fired without
+  // awaiting: `hydrateFrom` swallows a failed read the way the store does — a
+  // preference the console cannot read is the "not loaded" kind of nothing — so a
+  // rejection escaping here would be a defect, and an unhandled one is how it is
+  // found.
+  useEffect(() => {
+    void consoleKeybindingOverrides.hydrateFrom(uiStateStore);
+  }, [uiStateStore]);
+
+  // The effective table, replaced in place. `setBindings` swaps the state one
+  // listener reads, so a rebinding never detaches and re-attaches a listener —
+  // which is what makes the install below independent of this.
+  useEffect(() => {
+    keyBindings.setBindings(keybindingSurface.bindings);
+  }, [keyBindings, keybindingSurface]);
+
+  // THE listener, absent for exactly as long as a chord is being recorded. The
+  // table listens on the window in the capture phase, so leaving it installed would
+  // mean a person recording `$mod+1` navigated to Sessions instead of binding it.
+  useEffect(() => {
+    if (keybindingSurface.recording) {
+      return undefined;
+    }
+    return keyBindings.install(window);
+  }, [keyBindings, keybindingSurface]);
 
   const changePaletteOpen = useCallback((open: boolean) => {
     setPaletteOpen(open);

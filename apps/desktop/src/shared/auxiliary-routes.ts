@@ -66,10 +66,10 @@ export const AUXILIARY_ROUTE_LABELS: Record<AuxiliaryRouteName, string> = {
  * absent-not-disabled rule that keeps Plan-026's `Session` entries out of the
  * menu until its walkthrough host exists.
  *
- * `timeline` joins it in the same commit as its route body: the console's ledger
- * family claims the `timeline` surface slot, so `#/window/timeline` now resolves
- * to a rendered pane rather than to nothing. `agent-console` is still absent for
- * the reason above — its route body has not landed.
+ * Each joins it in the same commit as its route body. `timeline` is the console's
+ * ledger family claiming the `timeline` surface slot, so `#/window/timeline`
+ * resolves to a rendered pane rather than to nothing; `agent-console` is the agents
+ * family's console claiming its own, from T-023p-1C-4.
  *
  * Membership here admits a launch that SUPPLIES context — the deck's detach
  * control, and a hand-typed hash route. It does not by itself admit a BARE
@@ -78,7 +78,10 @@ export const AUXILIARY_ROUTE_LABELS: Record<AuxiliaryRouteName, string> = {
  * An array rather than a `Set` because a `Set`'s iteration order is its
  * insertion order, which would make every consumer's order an accident.
  */
-export const IMPLEMENTED_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = ["timeline"];
+export const IMPLEMENTED_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = [
+  "timeline",
+  "agent-console",
+];
 
 /**
  * The subset of the implemented routes whose BARE launch can reach a subject in

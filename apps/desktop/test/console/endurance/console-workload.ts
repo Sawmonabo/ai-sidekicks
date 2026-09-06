@@ -21,20 +21,17 @@
 // `steady-state.test.ts` — the assertion that fails the day either one goes back
 // to naming the shell.
 //
-// Both are production markup, and neither is a `Nothing` KIND any more. The pair
-// used to name two kinds of absence — the settings slot reserved (`empty`) and the
-// workspace not-checked — and that stopped being route-exclusive the moment the
-// ledger family shipped the session workspace for real: the ledger renders its own
-// `empty` when a session has no rows yet, which is exactly the state a churn cycle
-// observes between opening the route and advancing the clock.
+// Both are production markup, and neither is a test-only attribute added to the
+// renderer to make this observable.
 //
-// So each locator now names a STRUCTURE only its own route mounts. The settings
-// route resolves to a slot no family has registered, which the frame renders inside
-// its own centred absence wrapper; the session workspace mounts the ledger, whose
-// body is the scroll container the whole surface is built around. A `Nothing` of any
-// kind inside the ledger is therefore invisible to the settings wait, and the
-// absence wrapper is never mounted inside a ledger body. No test-only attribute is
-// added to the renderer to make either observable.
+// Each locator names a STRUCTURE only its own route mounts, and both routes have
+// shipped their surface now. The settings destination is the collaboration family's
+// settings frame, so its locator is that frame's own section rail; the session
+// workspace is the ledger, so its locator is the scroll container the whole surface
+// is built around. Neither was always so: each was an absence class while its
+// surface was a reserved slot, and the pair stopped being route-exclusive the moment
+// either family shipped — the ledger renders its own `empty` when a session has no
+// rows yet, and the settings pages render `not-checked` absences of their own.
 //
 // When either surface changes shape, its locator stops matching and this tier fails
 // on a wait timeout naming the selector. That is the right direction: a driver that
@@ -91,12 +88,18 @@ export const SETTINGS_ROUTE: string = "#/settings";
 /**
  * What the settings route renders and the session workspace does not.
  *
- * Anchored under the frame's surface slot AND under the frame's own absence
- * wrapper, so a `Nothing` of the same kind mounted in a pane, the rail, a banner,
- * or an overlay cannot satisfy the wait for a surface that never mounted.
+ * Anchored under the frame's surface slot, so an element of the same class mounted
+ * in the rail, a banner, or an overlay cannot satisfy the wait for a surface that
+ * never mounted.
+ *
+ * The section rail rather than one of the surface's absences: the pages inside the
+ * settings frame render absences of their own — several of them `not-checked`,
+ * because the reads behind them are unregistered — so an absence-kind selector here
+ * would no longer be route-exclusive against the workspace's. The rail is the one
+ * piece of markup that exists if and only if this surface mounted.
  */
 export const SETTINGS_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-surface-absence .meridian-nothing--empty";
+  ".meridian-frame__surface .meridian-settings__rail";
 
 /**
  * What the session workspace renders and the settings route does not.

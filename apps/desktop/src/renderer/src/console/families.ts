@@ -43,6 +43,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
@@ -97,13 +98,6 @@ export function registerConsoleFamilies(
   surfaces: ConsoleSurfaceRegistry,
   panes: ConsolePaneRegistry,
   projectors: ConsoleEntityProjectorRegistry,
-  /* eslint-disable-next-line @typescript-eslint/no-unused-vars --
-     Unused until the first family that fills a sidebar section lands, and named
-     `sidebarSections` rather than `_sidebarSections` for `panes/index.ts`'s reason:
-     the line that reads it is a seat below, which is the one line every other family
-     also edits, so the underscore form would make whichever family arrives first
-     rename it there. The directive is deleted by that same family, when the parameter
-     is read. */
   sidebarSections: SidebarSectionRegistry,
   /* eslint-disable-next-line @typescript-eslint/no-unused-vars --
      Unused until the first family that fills an inline card lands, on the reason
@@ -117,13 +111,7 @@ export function registerConsoleFamilies(
   // order decide which surface mounts, so a seat added without the deletion is a
   // conflict the composition test names by slot rather than a silent swap.
   //
-  // The second argument is a COMPOSITION argument rather than a board: the sessions
-  // destination offers a composed new-session draft beside the shipped probe, and
-  // that control is the workspace family's — above the frame in the DAG, so the
-  // frame takes it as a parameter rather than importing it. Naming it here is the
-  // same act as naming a family below: which component fills a place, decided in
-  // one file.
-  registerLegacySurfaces(surfaces, { newSessionControl: NewSessionControl });
+  registerLegacySurfaces(surfaces);
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
   // whole console, and it takes the pane registry this function was HANDED —
@@ -166,6 +154,11 @@ export function registerConsoleFamilies(
   // seat, because a seat line passes identifiers and nothing else, which is what lets
   // `seat-census.test-support.ts` read this block as a grammar rather than parse it.
   const ledgerComposition = { workspace: Workspace };
+  // The sessions destination's composition, named on the same terms: that surface is
+  // the collaboration family's and the composed new-session draft is the workspace
+  // family's, and one view family may not import another — so the root says which
+  // component fills the place beside the shipped probe.
+  const sessionsComposition = { newSessionControl: NewSessionControl };
   //
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
@@ -173,7 +166,7 @@ export function registerConsoleFamilies(
   // reads the block as a census and refuses anything that is not a seat.
   registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
-  // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections, sessionsComposition); // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

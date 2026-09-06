@@ -1,0 +1,90 @@
+/* The one preference row, and the switch it draws.
+ *
+ * The component's own sheet, imported by the component: a page that draws a
+ * preference row gets these styles because it rendered the row, rather than because
+ * the family door happened to load a sheet holding them.
+ */
+
+/* --- One preference row -------------------------------------------------- */
+
+.meridian-settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-settings-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+  max-width: 56ch;
+}
+
+.meridian-settings-row__label {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.meridian-settings-row__description,
+.meridian-settings-row__note {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-settings-row__note {
+  color: var(--meridian-text-faint);
+}
+
+/* The switch is a `<span>` with a hidden `<input>` beside it, so the track and the
+   thumb are ours to draw and the semantics are the input's. */
+.meridian-settings-row__switch {
+  flex: 0 0 auto;
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: 999px;
+  background: var(--meridian-surface-raised);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings-row__switch[data-checked] {
+  background: var(--meridian-accent);
+  border-color: var(--meridian-accent);
+}
+
+.meridian-settings-row__switch[data-disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.meridian-settings-row__switch:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-settings-row__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--meridian-text);
+  transition: transform var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings-row__thumb[data-checked] {
+  transform: translateX(14px);
+  background: var(--meridian-surface);
+}

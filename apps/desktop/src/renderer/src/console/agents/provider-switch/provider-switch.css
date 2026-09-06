@@ -1,0 +1,50 @@
+/* The provider switch's own styles: the draft's caution line and its settlement.
+ *
+ * Beside the module rather than inside `agents.css`, on the
+ * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one file, so
+ * a reader looking for what a settlement draws is not scrolling past the agent card
+ * and the attach dialog to find it.
+ *
+ * WHAT IS NOT HERE. The switch's apply button, its actions row, and its cache note
+ * are drawn by grouped rules in the family sheet that also name the card's action,
+ * the attach form's arm, and the linkage's open control. Those are one decision
+ * about how a control in this family looks, and a copy of one here would be a second
+ * decision that agrees with the first until it stops.
+ *
+ * Meridian tokens throughout. No literal colour, no literal length outside the
+ * space scale. */
+
+/* ------------------------------------------------------------------ switching */
+
+.meridian-switch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-switch__supersedes,
+.meridian-switch__driver-move {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+/* ---------------------------------------------------------------- settlement */
+
+.meridian-settlement {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  padding-inline-start: var(--meridian-space-3);
+  border-inline-start: 2px solid var(--meridian-edge-strong);
+}
+
+.meridian-settlement--caution {
+  border-inline-start-color: var(--meridian-red-mark);
+}
+
+.meridian-settlement__continuity,
+.meridian-settlement__losses,
+.meridian-settlement__superseded {
+  color: var(--meridian-text-muted);
+}

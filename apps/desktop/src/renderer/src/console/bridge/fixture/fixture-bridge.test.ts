@@ -26,8 +26,8 @@
 // type and the whole-session stream. The two narrowed run streams deliver a
 // registered projection instead, which is a different claim with a different failure
 // mode, and it lives in `fixture-bridge.run-streams.test.ts`. The remaining concerns
-// have their own files too: `fixture-bridge.latency.test.ts` and
-// `fixture-bridge.refusals.test.ts`.
+// have their own files too: `fixture-bridge.latency.test.ts`,
+// `fixture-bridge.refusals.test.ts`, and `fixture-bridge.runtime-nodes.test.ts`.
 //
 // Every case drives the REAL fixture bridge over a real scenario and the real
 // engine. A hand-written stand-in for either would pass over exactly the seam

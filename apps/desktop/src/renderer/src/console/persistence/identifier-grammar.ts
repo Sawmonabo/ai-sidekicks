@@ -24,13 +24,8 @@
 // the ceiling, the path-separator exclusion — is the half a reviewer has to be able
 // to read on one screen without the seven class shapes around it.
 
+import { IDENTIFIER_MAX_LENGTH } from "../core/index.js";
 import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
-
-/**
- * The longest identifier the store admits. A UUID is 36 characters and a
- * namespaced command id is well under this; prose is not.
- */
-export const IDENTIFIER_MAX_LENGTH = 128;
 
 /**
  * The identifier charset: no whitespace, no quotes, no brackets. Chosen from what

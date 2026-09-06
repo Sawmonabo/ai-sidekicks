@@ -101,6 +101,18 @@ export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 // hands the result to the drag monitor, which is a hook and cannot read it twice.
 export type { Announce, AnnouncementPoliteness } from "./live-announcer.js";
 
+// The announcer itself, because `LiveAnnouncerProvider`'s `announcer` prop is part of
+// that component's public shape: a caller that supplies one — the frame does not, a
+// surface's own tier does — has to be able to build one, and reaching past the barrel
+// for the class while taking the provider through it would be one seam entered two ways.
+export { LiveAnnouncer } from "./live-announcer.js";
+
+// The one way a surface says its read landed. Through this door beside the announcer
+// itself, because the two are one seam: a family that reached for `useAnnounce`
+// directly to say a settlement would be re-writing the once-per-sentence rule, and
+// the rule is the whole reason this hook exists rather than a bare call.
+export { useSettlementAnnouncement } from "./settlement-announcement.js";
+
 export { Nothing } from "./Nothing.js";
 
 // The incomplete-reading vocabulary and its one notice. Through the door for the
@@ -123,7 +135,6 @@ export {
   REFUSAL_SCOPES,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   behindProducerReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   partialReadNotices,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   readingNoticeFor,
@@ -184,9 +195,11 @@ export type {
 } from "./WindowAbsences.js";
 export { WindowAbsences } from "./WindowAbsences.js";
 
-// No marker: `InlineRefusal` has its consumer — `seats/ConsolePaneChrome.tsx`, whose
+// No marker: `InlineRefusal` has its consumers — `seats/ConsolePaneChrome.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
-// address — so a surviving tag would fail the run under `--treat-tag-hints-as-errors`.
+// address, and the settings, collaboration, sessions, and agents rows that render a
+// row-scoped refusal — so a surviving tag would fail the run under
+// `--treat-tag-hints-as-errors`.
 export { InlineRefusal } from "./InlineRefusal.js";
 export { RefusalBanner } from "./RefusalBanner.js";
 export { RefusalCard } from "./RefusalCard.js";
@@ -279,12 +292,12 @@ export {
   formatByteQuantity,
   formatClockTime,
   formatCount,
+  formatDateTime,
   formatDuration,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   formatMoney,
+  formatPercent,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   formatRate,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   formatRelativeTime,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   formatWireString,
