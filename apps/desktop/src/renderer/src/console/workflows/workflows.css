@@ -74,6 +74,7 @@
 @import "./definitions/definitions-browser.css";
 @import "./runs/run-list.css";
 @import "./parks/park-badge.css";
+@import "./channel-progress/channel-progress.css";
 
 /* --------------------------------------------- the destination's own frame */
 

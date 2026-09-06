@@ -40,13 +40,10 @@
 // the one piece of chrome a reader cannot get out of the way. Served with a live run:
 // the card. Parked: the card, with one park reading per parked phase.
 
-import "./channel-progress.css";
-
 import { useConsoleBridge } from "../../bridge/index.js";
-import { Chip, WireFigure } from "../../primitives/index.js";
-import { ParkBadge } from "../parks/ParkBadge.js";
 import { useWorkflowRunDirectory } from "../runs/run-directory.js";
-import { channelWorkflowProgress, type ChannelWorkflowProgress } from "./channel-progress.js";
+import { channelWorkflowProgress } from "./channel-progress.js";
+import { PinnedRunCard } from "./PinnedRunCard.js";
 
 export interface ChannelWorkflowProgressCardProps {
   /** The session whose runs are read. No session, no question to put. */
@@ -74,45 +71,4 @@ export function ChannelWorkflowProgressCard(
       ? channelWorkflowProgress(directory.runs, props.channelId)
       : undefined;
   return progress === undefined ? null : <PinnedRunCard progress={progress} />;
-}
-
-/** The card itself, once there is a run to draw. */
-function PinnedRunCard(props: { readonly progress: ChannelWorkflowProgress }): React.JSX.Element {
-  const { row, completedPhaseCount, totalPhaseCount } = props.progress;
-  return (
-    <article className="meridian-channel-progress">
-      <div className="meridian-channel-progress__head">
-        {/*
-          The definition's name where the enumeration carried one, and the run's own
-          identifier always — rule 4's provenance signature on the wire figure, and the
-          console's prose beside it. The name is optional on the row for the reason
-          `runs/run-list-rows.ts` gives, so a card that showed only a name would show
-          nothing for a run read that carried none.
-        */}
-        {row.run.definitionName === undefined ? null : (
-          <span className="meridian-channel-progress__definition">{row.run.definitionName}</span>
-        )}
-        <WireFigure value={row.run.workflowRunId} />
-        {/*
-          The run's own state word, as the wire spells it. Neutral always: the amber in
-          this card belongs to a park that is waiting on a person, and a second thing
-          wearing attention beside it would spend the palette's one loud mark twice for
-          one situation (`Spec-023 §Console Design (Meridian)` rule 3).
-        */}
-        <Chip tone="neutral" glyph="workflow" label={row.run.state} />
-      </div>
-      {/*
-        Completed of known, and both numbers on screen. A bar or a percentage would
-        hide the denominator, and this one moves: the phase list is what the run read
-        carried when it answered, so a fan-out that adds phases changes what "of" means
-        and a person can see that it did.
-      */}
-      <p className="meridian-channel-progress__phases">
-        {`${String(completedPhaseCount)} of ${String(totalPhaseCount)} phases completed`}
-      </p>
-      {row.parkedPhases.map((parked) => (
-        <ParkBadge key={parked.phaseId} parked={parked} />
-      ))}
-    </article>
-  );
 }
