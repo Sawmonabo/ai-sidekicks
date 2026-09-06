@@ -48,7 +48,9 @@ import {
   type ConsolePaneRegistration,
   type ConsolePaneRegistry,
   type ConsoleSurfaceRegistry,
+  type PinnedPaneRegionRegistry,
 } from "../seats/index.js";
+import { ChannelWorkflowProgressCard } from "./channel-progress/ChannelWorkflowProgressCard.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**
@@ -123,8 +125,18 @@ export function registerWorkflowPanes(registry: ConsolePaneRegistry): void {
  * The descriptor is built here rather than kept in a table beside the pane
  * descriptors: there is exactly one of it, and a one-row table is a shape that
  * invites a second row nobody decided to add.
+ *
+ * IT ALSO CLAIMS ONE PINNED REGION, and both claims travel on one seat because both
+ * are this family's. A channel-scoped `timeline` pane pins this family's run progress
+ * above its body: the pane belongs to another family, the fold belongs to this one,
+ * and `apps/desktop/AGENTS.md` refuses the sibling import that would otherwise join
+ * them — so the join is the seat, and the family that owns the DATA is the family that
+ * registers. The board is a parameter for the same reason the two above it are.
  */
-export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void {
+export function registerWorkflowSurfaces(
+  registry: ConsoleSurfaceRegistry,
+  pinnedRegions: PinnedPaneRegionRegistry,
+): void {
   registry.register({
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
@@ -142,5 +154,23 @@ export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void
     // inputs would mean handing it six the day it composes that context, which is
     // today.
     render: (context) => createElement(WorkflowsPaneHost, { context }),
+  });
+  // `timeline` and no other kind. The card is about a CHANNEL's workflow, and the
+  // channel-scoped timeline is the pane a channel's conversation happens in; a region
+  // registered for `runs` or `workflow-run` would be this family pinning its own fold
+  // above its own body, which is a body's job.
+  //
+  // The narrowing to a channel is the CARD's rather than this registration's: the seat
+  // is keyed by pane kind, a `timeline` pane is session- or channel-scoped, and a
+  // registration that could only say "this kind" would have had to be re-asked on every
+  // render anyway. The card renders nothing on a session-scoped pane, which is the same
+  // nothing it renders for a channel that started no workflow.
+  pinnedRegions.register("timeline", {
+    owner: WORKFLOWS_OWNER,
+    render: (context) =>
+      createElement(ChannelWorkflowProgressCard, {
+        sessionId: context.sessionId,
+        channelId: context.channelId,
+      }),
   });
 }

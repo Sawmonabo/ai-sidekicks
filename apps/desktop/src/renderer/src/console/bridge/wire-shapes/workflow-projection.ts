@@ -189,6 +189,24 @@ export interface WorkflowRunListEntry extends WorkflowRunSnapshot {
    * and inviting a repair the daemon would refuse.
    */
   readonly definitionLatestWorkflowVersionId?: string;
+  /**
+   * The channel a chat-borne start named, where one did.
+   *
+   * `workflowRunStart` already carries `channelId` as provenance — derived by the
+   * client from the originating channel on the human path and by the daemon from the
+   * invoking turn on the agent path, and never an input to the role adjudication
+   * (`Spec-017 §Chat-start surface (SA-38)`). What no read carries is that provenance
+   * BACK, so a channel-scoped surface has no way to ask which of a session's runs
+   * belongs to it: the run read addresses one run by an id such a surface does not
+   * hold, and the enumeration is keyed by session and answers with every run.
+   *
+   * Additive-optional, on the reading the member above it takes: a run started
+   * anywhere but a channel has none, and a daemon that does not send it leaves a
+   * channel-scoped surface showing nothing rather than claiming a run it cannot place.
+   * Absent is therefore "not this channel's", which is the fail-closed direction —
+   * pinning somebody else's run above a channel is a worse error than pinning none.
+   */
+  readonly channelId?: string;
 }
 
 /**

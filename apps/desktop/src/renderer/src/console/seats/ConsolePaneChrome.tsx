@@ -52,6 +52,13 @@
 // `display: contents` on it to stop the deck seeing a box; the prop below is what it
 // was standing in for.
 //
+// AND BETWEEN THE HEAD AND THE BODY THERE IS ONE PINNED REGION, filled through
+// `seats/pinned-pane-regions.ts` rather than by a prop. A pane can carry a block above
+// its body that belongs to a family that does not own the pane — channel-scoped
+// workflow progress on a channel-scoped timeline is the first — and a sibling import
+// is what the layering rules refuse. An unfilled region draws no element at all, so a
+// pane nobody pinned anything on is a head directly above a body.
+//
 // ITS STYLESHEET IS IMPORTED BY THE FAMILY DOOR, `seats/index.ts`, which is where
 // every other console family imports its own — `primitives/index.ts` and
 // `frame/index.ts` are the precedent and `apps/desktop/AGENTS.md` is the rule. The
@@ -67,6 +74,7 @@ import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./pane-controls.js";
 import { isDetachablePaneKind, type PaneKind } from "./pane-kinds.js";
 import { type ConsolePaneContext } from "./pane-context.js";
+import { pinnedPaneRegionRegistry, type PinnedPaneRegionRegistry } from "./pinned-pane-regions.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set.
@@ -239,6 +247,18 @@ export interface ConsolePaneChromeProps {
   readonly focusHue: string | undefined;
   /** The kind's own actions, rendered before the two host controls. */
   readonly actions?: React.ReactNode;
+  /**
+   * Which board the pinned region above the body is resolved out of.
+   *
+   * Optional and defaulted to the process-wide board, on the shape
+   * `workspace/sidebar/Sidebar.tsx` already takes for the sidebar's sections: every
+   * production host draws the console's own composition, and a test — or an auxiliary
+   * window composing a subset — passes the board it owns rather than reaching around
+   * this frame to register into production. It is a BOARD rather than a node, because
+   * a node prop would put every host of every pane in the business of couriering a
+   * body from a family it may not import.
+   */
+  readonly pinnedRegions?: PinnedPaneRegionRegistry;
   /** Overrides the host's close, where the caller owns this pane's lifetime. */
   readonly onClose?: () => void;
   /**
@@ -301,6 +321,17 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
   const onOpenInWindow = isDetachablePaneKind(props.kind) ? requestedOpenInWindow : undefined;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
+  // Resolved during the render that draws the frame, and handed the pane's own
+  // address: a region keyed on a channel answers by rendering nothing on a pane
+  // addressed at a session, and the seat collapses "nobody filled this kind" and
+  // "the body had nothing to say here" into one answer so the branch below is one
+  // question rather than two.
+  const pinnedRegion = (props.pinnedRegions ?? pinnedPaneRegionRegistry).render({
+    kind: props.kind,
+    sessionId: props.sessionId,
+    channelId: props.channelId,
+    runId: props.runId,
+  });
   const focusRingStyle: PaneFocusRingStyle | undefined =
     props.focusHue === undefined ? undefined : { "--meridian-pane-hue": props.focusHue };
 
@@ -348,6 +379,9 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
           )}
         </span>
       </header>
+      {pinnedRegion === undefined ? null : (
+        <div className="meridian-pane__pinned">{pinnedRegion}</div>
+      )}
       <div className="meridian-pane__body">{props.children}</div>
     </section>
   );
