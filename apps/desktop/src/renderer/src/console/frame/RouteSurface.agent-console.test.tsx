@@ -20,7 +20,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import {
   FrameStore,
   SessionStoreRegistry,
@@ -32,7 +32,7 @@ import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { BARE_TIMELINE_ROUTE, settle } from "./RouteSurface.test-support.js";
 import { type ConsoleSurfaceContext } from "./surface-registry.js";
-import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 
 /** The bare route whose grammar takes an agent WITH its session or not at all. */
 const BARE_AGENT_CONSOLE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "agent-console" };

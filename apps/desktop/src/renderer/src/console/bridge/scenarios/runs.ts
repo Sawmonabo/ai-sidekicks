@@ -24,7 +24,7 @@
 // `{sessionId, runId, runVersion, previousState, newState}` transition rather than a
 // bare `{runId}`; and `agent.attached` carries `name`, not `displayName`.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   AGENT_IMPLEMENTER,
   PARTICIPANT_YOU,

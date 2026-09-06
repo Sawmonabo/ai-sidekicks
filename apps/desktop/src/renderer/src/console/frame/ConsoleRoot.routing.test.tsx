@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { formatRoute, type ConsoleRoute } from "../routing/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
-import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 
 /** An auxiliary window's address: a route the sessions list is not. */
 const AUXILIARY_HASH = "#/window/timeline/session-alpha";

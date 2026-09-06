@@ -8,7 +8,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { refuse } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerChannelTarget } from "../chips/chip-models.js";

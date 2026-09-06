@@ -16,7 +16,7 @@ import {
   createFixture,
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../../bridge/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { RUN_ID } from "../runs-pane.test-support.js";
 
 /** What the stub daemon answers one call with. Throwing is the refusal arm. */

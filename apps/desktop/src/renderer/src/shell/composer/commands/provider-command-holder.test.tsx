@@ -21,7 +21,7 @@ import {
 import {
   drainMicrotasks,
   type RecordedDaemonCall,
-} from "../../../console/bridge/fixture-bridge.test-support.js";
+} from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 
 describe("useProviderCommandEnumeration", () => {
   it("asks nothing until the discovery surface is open", async () => {

@@ -8,7 +8,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { consoleCommands } from "../../../console/frame/command-surface.js";
+import { consoleCommands } from "../../../console/palette/index.js";
 import {
   EMPTY_STATE_SENTENCE,
   TEST_COMMAND_ID,
@@ -22,10 +22,10 @@ import {
   registeredIds,
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
-import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
 import { ProviderCommandEnumeration } from "./provider-command-holder.js";
-import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 
 describe("ProviderCommandAutocomplete", () => {
   it("stays closed until a leading slash is typed", async () => {

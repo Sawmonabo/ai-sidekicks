@@ -42,7 +42,7 @@
 // intra-family specifiers, so `bridge/index.ts` remains the single door the rest of
 // the console comes through.
 
-import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { AGENT_GROWTH_OPERATIONS } from "./agents.js";
 import { APPROVAL_GROWTH_OPERATIONS } from "./approvals.js";
 import { ARTIFACT_GROWTH_OPERATIONS } from "./artifacts.js";

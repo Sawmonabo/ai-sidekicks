@@ -28,7 +28,7 @@ import {
   useRunControlSurface,
   type RunControlAdmission,
 } from "./run-control-surface.js";
-import { bridgeAnswering } from "../../../bridge/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { OTHER_RUN_ID, RUN_ID } from "../runs-pane.test-support.js";
 
 /**

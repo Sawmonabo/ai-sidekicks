@@ -22,7 +22,7 @@ import { StrictMode, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { NamedFixtureSubject } from "./subject-fixtures.test-support.js";
-import { useSubjectScopedResource } from "./subject-scoped-resource.js";
+import { useSubjectScopedResource, type SubjectScopedDisposal } from "./subject-scoped-resource.js";
 import {
   DISCARDED_SUBJECT,
   ResourceLedger,
@@ -52,8 +52,9 @@ function RemintProbe(props: RemintProbeProps): ReactElement {
     props.subject,
     undefined,
     () => ledger.open(props.subject.name),
-    ledger.close,
-    props.declaresTerminalClose ? ledger.isClosed : undefined,
+    props.declaresTerminalClose
+      ? { dispose: ledger.close, isClosed: ledger.isClosed }
+      : { release: ledger.close },
   );
   props.onResource(value);
   return <output>{value.name}</output>;
@@ -173,5 +174,41 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     expect(ledger.opened).toStrictEqual(["settled", "discarded"]);
     expect(ledger.closed).toStrictEqual(["settled"]);
     expect(heldBy(seen).name).toBe("discarded");
+  });
+});
+
+describe("useSubjectScopedResource — a terminal disposal cannot omit its reading", () => {
+  it("refuses `{ dispose }` with no `isClosed`, at compile time and not at runtime", () => {
+    // THE CONTROL IS THE DIRECTIVE, AND IT IS CHECKED BY `tsc` RATHER THAN BY VITEST.
+    // This is the whole reason the disposal is one argument: the reading used to be a
+    // fifth positional parameter, so a caller whose `close` was one-way could simply
+    // not pass it and the omission was invisible — the corpse this file is about,
+    // arrived at by leaving something out. As a member of a union arm it cannot be
+    // left out, and `@ts-expect-error` fails the typecheck the moment that stops
+    // being true, because an unused directive is itself an error. Proven by planting
+    // the valid shape here, which reported exactly that.
+    //
+    // The directive sits on the DECLARATION rather than on the missing member,
+    // because that is where an assignability failure over an object literal is
+    // reported — one line down and it would be an unused directive beside a real
+    // error, which is a red typecheck saying the wrong thing.
+    // @ts-expect-error a terminal disposal has to say how a closed resource reads
+    const refusedDisposal: SubjectScopedDisposal<OpenResource> = {
+      dispose: () => undefined,
+    };
+
+    expect(refusedDisposal).toBeTypeOf("object");
+  });
+
+  it("accepts the two arms it does declare", () => {
+    // The other side of the same line: neither shape is refused, so the control above
+    // is discriminating between the arms rather than rejecting the argument outright.
+    const released: SubjectScopedDisposal<OpenResource> = { release: () => undefined };
+    const disposed: SubjectScopedDisposal<OpenResource> = {
+      dispose: () => undefined,
+      isClosed: () => true,
+    };
+
+    expect([released, disposed]).toHaveLength(2);
   });
 });

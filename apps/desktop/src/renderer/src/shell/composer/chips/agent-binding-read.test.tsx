@@ -14,7 +14,7 @@ import {
   type GrowthAgentSummary,
   type GrowthOutcome,
 } from "../../../console/bridge/index.js";
-import { withDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { settleScheduledRead } from "../../../console/bridge/scheduled-read.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import { SessionStore } from "../../../console/store/index.js";

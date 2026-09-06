@@ -27,7 +27,7 @@
 // sites are subtracted from its endpoints so that `panes/index.ts` may name every
 // family.
 //
-// IT IS NOT `bridge/entity-body-reads.ts`, which is why it does not share that name.
+// IT IS NOT `bridge/daemon/entity-body-reads.ts`, which is why it does not share that name.
 // Those two reads answer a REGISTERED wire shape and must narrow against the schema
 // the corpus registers, which is what puts them where the canonical shapes may be
 // imported. This one registers nothing and parses nothing — it is the string

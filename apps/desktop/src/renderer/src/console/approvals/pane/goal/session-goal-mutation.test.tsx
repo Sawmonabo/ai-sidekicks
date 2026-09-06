@@ -12,11 +12,14 @@ import {
   type GrowthOutcome,
   type GrowthUnavailable,
 } from "../../../bridge/index.js";
-import { createRefusingGrowthPort, growthUnavailable } from "../../../bridge/growth-port.js";
-import { createFixture } from "../../../bridge/fixture-bridge.test-support.js";
+import {
+  createRefusingGrowthPort,
+  growthUnavailable,
+} from "../../../bridge/growth-port/growth-port.js";
+import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { useSessionGoalMutation } from "../approvals-hooks.js";
 import { SECOND_SESSION_ID, SESSION_ID } from "../approvals-hooks.test-support.js";
-import { drainMicrotasks } from "../../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 
 describe("the goal mutation is keyed to the session it mutates", () => {
   /**

@@ -22,9 +22,9 @@ import {
   bridgeAnswering,
   drainMicrotasks,
   type RecordedDaemonCall,
-} from "../../../console/bridge/fixture-bridge.test-support.js";
+} from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
-import { consoleCommands } from "../../../console/frame/command-surface.js";
+import { consoleCommands } from "../../../console/palette/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../console/frame/run-lifecycle-projector.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";

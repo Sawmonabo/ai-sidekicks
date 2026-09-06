@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 import { ApprovalsPane } from "./ApprovalsPane.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
-import { type ConsoleScenario } from "../../bridge/scenario.js";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import { drainMicrotasks } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import {
   approvalsPaneContext,
   boundStore,

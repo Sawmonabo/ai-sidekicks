@@ -85,11 +85,11 @@ export interface WireRetryHint {
 export interface ConsoleRefusalExtensions {
   /** Registered by `core/wire-rejection.ts`: when a retry is allowed. */
   readonly retry?: WireRetryHint;
-  /** Registered by `bridge/growth-port.ts`: which growth operation was called. */
+  /** Registered by `bridge/growth-port/growth-port.ts`: which growth operation was called. */
   readonly operationId?: string;
-  /** Registered by `bridge/growth-port.ts`: which growth-slate row it serves. */
+  /** Registered by `bridge/growth-port/growth-port.ts`: which growth-slate row it serves. */
   readonly slateRow?: string;
-  /** Registered by `bridge/growth-port.ts`: which document owes the wire. */
+  /** Registered by `bridge/growth-port/growth-port.ts`: which document owes the wire. */
   readonly owningDocument?: string;
 }
 

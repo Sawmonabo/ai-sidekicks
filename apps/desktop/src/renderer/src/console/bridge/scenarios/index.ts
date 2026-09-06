@@ -22,7 +22,7 @@ import { COMPOSER_SCENARIO } from "./composer.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { RUNS_SCENARIO } from "./runs.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
 export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [

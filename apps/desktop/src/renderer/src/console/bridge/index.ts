@@ -36,7 +36,7 @@ export { consoleClockFor } from "./console-bridge.js";
 // `run.*` stream NAMES beside it in that table are still not re-exported: their
 // consumers so far are in this family, which reaches them directly, and a barrel
 // specifier no cross-family import uses is a dead export rather than a convenience.
-export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
+export { SESSION_EVENT_STREAM } from "./daemon/session-event-streams.js";
 
 // Which run state a `run.*` transition kind announces — the same table, on the
 // same rule, now that it has a cross-family consumer: the run-lifecycle projector
@@ -44,7 +44,7 @@ export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 // state. That check has to read THIS mapping rather than re-derive one, or the
 // console would hold two answers to which state a kind announces and the fold
 // would be measured against the wrong one.
-export { runStateForTransitionKind } from "./session-event-streams.js";
+export { runStateForTransitionKind } from "./daemon/session-event-streams.js";
 
 // The one widening of the daemon's branded `subscribe` signature, and the registered
 // stream names the console opens through it. Here rather than beside a caller because
@@ -56,7 +56,7 @@ export {
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
   subscribeNodeDaemon,
-} from "./daemon-streams.js";
+} from "./daemon/daemon-streams.js";
 
 // The wire's own readings of an identifier and of a run-state frame. Here because a
 // schema is the wire's and `console/bridge/**` is the wire's edge: a family above
@@ -70,13 +70,13 @@ export {
   readRunState,
   readSessionId,
   readWorkspaceId,
-} from "./wire-identifiers.js";
-export { readRunRolledBack, readRunStateChange } from "./run-state-events.js";
+} from "./daemon/wire-identifiers.js";
+export { readRunRolledBack, readRunStateChange } from "./run-streams/run-state-events.js";
 export {
   readInterruptRunParams,
   readInterventionRequest,
   readQueueItemCreateRequest,
-} from "./wire-requests.js";
+} from "./daemon/wire-requests.js";
 
 // The approvals surface's wire readings: the two reply narrowings, the resolve
 // request they pair with, and the vocabulary that classifies the wire strings both
@@ -117,15 +117,18 @@ export {
   isSendableGoalText,
   readGoalOriginKeys,
   readGoalPayloadText,
-} from "./session-goal-payloads.js";
+} from "./wire-shapes/session-goal-payloads.js";
 
 // The declared-capability read, and the two shapes its consumers resolve against.
 // Here rather than beside either consumer because two view families gate controls on
 // it and neither may import the other — one read per bridge serves both, and a hook
 // living in one of them would make the other's copy a second call on one wire.
-export { useDriverCapabilities, useDriverCapabilityRepairRead } from "./driver-capability-read.js";
-export { useRunDriverBindings } from "./run-driver-binding.js";
-export type { DriverCapabilityReadout } from "./driver-capability-read.js";
+export {
+  useDriverCapabilities,
+  useDriverCapabilityRepairRead,
+} from "./driver-capabilities/driver-capability-read.js";
+export { useRunDriverBindings } from "./driver-capabilities/run-driver-binding.js";
+export type { DriverCapabilityReadout } from "./driver-capabilities/driver-capability-read.js";
 // The pure readers over that readout, from the module that declares them: the wire
 // and the questions asked of its answer are two subjects, and a door line pointing at
 // whichever file used to hold both would say otherwise.
@@ -133,21 +136,21 @@ export {
   readingForDriver,
   readingForRun,
   withRunDriverBindings,
-} from "./driver-capability-readings.js";
-export type { DriverCapabilityReading } from "./driver-capability-readings.js";
+} from "./driver-capabilities/driver-capability-readings.js";
+export type { DriverCapabilityReading } from "./driver-capabilities/driver-capability-readings.js";
 
 // How far a reading got and why it got no further — the pair both wire readings
 // below publish, and the accessor a surface reads the refusal through. One home,
 // because two copies of the pair had drifted into two answers about when a refusal
 // stops being true.
-export { readRefusalOf } from "./reading-lifecycle.js";
-export type { WireReadState } from "./reading-lifecycle.js";
+export { readRefusalOf } from "./readings/reading-lifecycle.js";
+export type { WireReadState } from "./readings/reading-lifecycle.js";
 
 // The session's one queue reading. Here for the same reason the capability read is:
 // the runs pane and the composer's shelf ask two questions of one list, and each
 // used to ask its own down its own subscription.
-export { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
-export type { QueueFeed } from "./queue-reading.js";
+export { useQueueFeed, useQueueRepairRead } from "./queue/queue-feed.js";
+export type { QueueFeed } from "./queue/queue-reading.js";
 
 // The node's provider-account quotas: one read, one tail, one fold per bridge.
 //
@@ -161,10 +164,10 @@ export type { QueueFeed } from "./queue-reading.js";
 // `provider-quota-fold.ts` owns which reading is current and what a surface renders
 // for it, `provider-account-quota.ts` owns the wire that feeds it, and
 // `provider-quota-feed.ts` owns how many readings there are and how long each lives.
-export { useProviderQuotas } from "./provider-quota-feed.js";
-export type { ProviderQuotaReadout } from "./provider-account-quota.js";
-export { remainingPercentOf } from "./provider-quota-fold.js";
-export type { ProviderQuotaReading } from "./provider-quota-fold.js";
+export { useProviderQuotas } from "./quotas/provider-quota-feed.js";
+export type { ProviderQuotaReadout } from "./quotas/provider-account-quota.js";
+export { remainingPercentOf } from "./quotas/provider-quota-fold.js";
+export type { ProviderQuotaReading } from "./quotas/provider-quota-fold.js";
 
 export {
   SidekicksBridgeProvider,
@@ -173,7 +176,7 @@ export {
   useConsoleClock,
 } from "./BridgeProvider.js";
 
-export { createFixtureBridge } from "./fixture-bridge.js";
+export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 
 // The one door a daemon reply enters the console through. Exported as the CALL and
 // nothing else — deliberately not the registry, the bindings, the schemas behind
@@ -183,12 +186,12 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // one. A surface that could reach a schema would be a surface that could parse a
 // second time, differently; a surface that named a code would be one deciding which
 // refusals count.
-export { callDaemon } from "./daemon-reply.js";
+export { callDaemon } from "./daemon/daemon-reply.js";
 export type {
   ConsoleDaemonMethod,
   DaemonRequestOf,
   DaemonResponseOf,
-} from "./daemon-reply-registry.js";
+} from "./daemon/daemon-reply-registry.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
@@ -202,16 +205,16 @@ export type {
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable } from "./growth-port.js";
-export type { GrowthPort } from "./growth-port.js";
+export { growthUnavailable } from "./growth-port/growth-port.js";
+export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type {
   GrowthAgentPendingSwitch,
   GrowthAgentSummary,
   GrowthAgentSwitchBoundary,
 } from "./growth-values/agents.js";
-export { isUnbuiltWireRefusal } from "./growth-outcome.js";
-export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
+export { isUnbuiltWireRefusal } from "./growth-port/growth-outcome.js";
+export type { GrowthOutcome, GrowthUnavailable } from "./growth-port/growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
@@ -219,12 +222,12 @@ export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
 // family. `ScenarioFixtureControl` deliberately does NOT ship through here: its
 // only caller is the provider beside it, and its only reader is a driver in
 // another process that imports the module directly.
-export { ScenarioSelection } from "./scenario-selection.js";
+export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 
 // The decode boundary for a delivered session-event envelope. Through the door
 // because the frame's binder is the reader and the parse is this family's job: the
 // wire's own shapes are read here and nowhere above.
-export { readConsoleSessionEvent } from "./session-event-payload.js";
+export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 
 // The two body reads that narrow a wire shape, both through the door because both
 // have production readers above this family. `membershipRoleOf` is the injected
@@ -237,4 +240,4 @@ export { readConsoleSessionEvent } from "./session-event-payload.js";
 // type admitted a body with no `networkAccess`, and the chip then rendered an empty
 // label beside two full ones. This door line waited on a production consumer and
 // now has one.
-export { membershipRoleOf, stampedExecutionPostureOf } from "./entity-body-reads.js";
+export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";

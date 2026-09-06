@@ -8,29 +8,31 @@
 // the reserved `/` prefix a prefix that reserves nothing, which is the state this
 // module ends.
 //
-// WHY THE REGISTRY IS DEEP-IMPORTED. `consoleCommands` is the frame family's
-// window-scoped registry and the frame's barrel publishes only `ConsoleRoot` and the
-// token installation. The precedent is in-tree and reasoned the same way:
-// `test/console/surfaces/composer.tsx` deep-imports `frame/run-lifecycle-projector.js`
-// "rather than taken off the frame barrel, which does not publish it", because a
-// consumer that built its own would be a second answer to a question one module
-// already owns. Building a second registry here would be exactly that: a person's
+// WHERE THE REGISTRY COMES FROM. `consoleCommands` is the window-scoped registry
+// the palette family declares, and this module takes it off `palette/index.js` like
+// any other console symbol. It used to be the FRAME's, deep-imported past a barrel
+// that did not publish it — and it could not be published there: this module is
+// production shell code, `frame/index.ts` re-exports `ConsoleRoot`, `ConsoleRoot`
+// reaches `console/families.ts`, and `families.ts` composes this half's own
+// registrar in, so the door that would have offered it closes four cycles. Building
+// a second registry here to avoid the import would be worse than either: a person's
 // `/frame.goToSettings` would reach a list the palette has never heard of.
 //
 // WHY THE `when` CONTEXT IS TYPED RATHER THAN SPELLED. Eligibility in the palette is
-// a `when` clause over `FRAME_WHEN_CLAUSE_KEYS`, and a clause naming a key the
+// a `when` clause over `CONSOLE_WHEN_CLAUSE_KEYS`, and a clause naming a key the
 // context does not carry evaluates FALSE. So a composer that hand-wrote five of six
 // keys would silently hide whichever command used the sixth. The context below is
-// typed as `FrameWhenClauseContext`, which is derived from that tuple — a key added
+// typed as `ConsoleWhenClauseContext`, which is derived from that tuple — a key added
 // to the frame's vocabulary is a compile error here rather than a command that
 // quietly stops being offered.
 
-import type { CommandRegistry, ConsoleCommand } from "../../../console/palette/index.js";
-import { isAuxiliaryRoute, type ConsoleRoute } from "../../../console/routing/index.js";
 import {
   consoleCommands,
-  type FrameWhenClauseContext,
-} from "../../../console/frame/command-surface.js";
+  type CommandRegistry,
+  type ConsoleCommand,
+  type ConsoleWhenClauseContext,
+} from "../../../console/palette/index.js";
+import { isAuxiliaryRoute, type ConsoleRoute } from "../../../console/routing/index.js";
 
 /**
  * What the registry answers when a caller asks it to run something.
@@ -93,7 +95,7 @@ export function composerCommandSurface(route: ConsoleRoute): ComposerCommandSurf
  * composer is mounted under the workspace deck and does not render on the sessions
  * list, the workflows builder, or the settings pages.
  */
-function composerWhenContext(route: ConsoleRoute): FrameWhenClauseContext {
+function composerWhenContext(route: ConsoleRoute): ConsoleWhenClauseContext {
   return {
     sessionActive: true,
     onSessions: false,

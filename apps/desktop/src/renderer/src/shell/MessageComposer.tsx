@@ -46,7 +46,7 @@
 import { useId, useRef } from "react";
 
 import { type ComposerSeatProps } from "../console/seats/index.js";
-import { useSubjectScopedResource } from "../console/store/index.js";
+import { useSubjectScopedResource, type SubjectScopedDisposal } from "../console/store/index.js";
 import { ComposerAccessoryRail } from "./composer/accessories/index.js";
 import { ComposerChipRail } from "./composer/chips/index.js";
 import { ProviderCommandAutocomplete } from "./composer/commands/index.js";
@@ -58,9 +58,23 @@ function openEnumeration(): ProviderCommandEnumeration {
   return new ProviderCommandEnumeration();
 }
 
-function closeEnumeration(enumeration: ProviderCommandEnumeration): void {
-  enumeration.close();
-}
+/**
+ * The RELEASING arm, because this holder's `close()` is not terminal.
+ *
+ * It drops the open key, supersedes whatever read was outstanding, and publishes the
+ * unchecked reading — after which `open()` reads again exactly as it did before. So
+ * there is no closed state to recognise and none to supply: a `{ dispose, isClosed }`
+ * here would claim a lifetime that ends, and the reading beside it would have to be a
+ * constant `false`, which is a claim written down twice and true in neither place.
+ *
+ * At module level so the hook's dependency lists compare stable identities across
+ * renders rather than a fresh literal each pass.
+ */
+const enumerationDisposal: SubjectScopedDisposal<ProviderCommandEnumeration> = {
+  release: (enumeration: ProviderCommandEnumeration): void => {
+    enumeration.close();
+  },
+};
 
 /**
  * The composer, addressed within one session.
@@ -85,7 +99,7 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
     props.sessionStore,
     props.sessionStore.sessionId,
     openEnumeration,
-    closeEnumeration,
+    enumerationDisposal,
   );
   return (
     <section

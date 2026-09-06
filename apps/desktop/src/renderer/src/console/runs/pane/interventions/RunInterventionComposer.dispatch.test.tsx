@@ -24,7 +24,7 @@ import {
   type ScriptedAnswer,
   typeInto,
 } from "./run-intervention-composer.test-support.js";
-import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
+import type { RecordedDaemonCall } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 
 describe("the composer outlives its dispatch", () => {
   const REJECTED_ROLLBACK: ScriptedAnswer = () => ({

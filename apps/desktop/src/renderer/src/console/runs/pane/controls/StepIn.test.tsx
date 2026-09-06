@@ -16,8 +16,11 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { drainMicrotasks, withDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
-import type { ConsoleScenario } from "../../../bridge/scenario.js";
+import {
+  drainMicrotasks,
+  withDaemonCall,
+} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 import { StepIn } from "./StepIn.js";
 
 /** A real UUID, because the registered run identifier is a branded UUID. */

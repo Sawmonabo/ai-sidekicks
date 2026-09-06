@@ -10,7 +10,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 
 import { ConsoleRoot, type ConsoleRootProps } from "./ConsoleRoot.js";
 import { type ConsoleSurfaceContext } from "./surface-registry.js";
-import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 
 /** Where a window with no particular address lands. */
 export const SESSIONS_HASH = "#/sessions";

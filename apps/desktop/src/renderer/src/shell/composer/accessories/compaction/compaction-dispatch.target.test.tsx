@@ -11,14 +11,14 @@ import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "../../parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "../../../../console/bridge/index.js";
-import { createFixture } from "../../../../console/bridge/fixture-bridge.test-support.js";
+import { createFixture } from "../../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import {
   isSameCompactionTarget,
   useCompactionDispatch,
   type CompactionDispatch,
   type CompactionTarget,
 } from "./compaction-dispatch.js";
-import { drainMicrotasks } from "../../../../console/bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../../console/bridge/fixture/fixture-bridge.test-support.js";
 
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const RUN_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";

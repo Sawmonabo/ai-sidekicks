@@ -8,7 +8,7 @@
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
-import { consoleCommands } from "../../../console/frame/command-surface.js";
+import { consoleCommands } from "../../../console/palette/index.js";
 import {
   type MountedComposer,
   NOT_RUNNABLE_FRAGMENT,
@@ -29,7 +29,7 @@ import {
   stepIntoList,
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
-import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
 
 describe("ProviderCommandAutocomplete — one binding's entries reach the list", () => {

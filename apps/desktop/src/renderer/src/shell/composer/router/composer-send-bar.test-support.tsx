@@ -7,7 +7,7 @@
 
 import { render, type RenderResult } from "@testing-library/react";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore } from "../../../console/store/index.js";

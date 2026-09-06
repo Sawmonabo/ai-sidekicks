@@ -67,14 +67,14 @@ import { z } from "zod";
 import type { ZodType } from "zod";
 
 import { describeSchemaIssue } from "./defect.js";
-import { projectRunStreamDelivery } from "../../run-stream-projection.js";
-import type { ScenarioBeat } from "../../scenario.js";
+import { projectRunStreamDelivery } from "../../run-streams/index.js";
+import type { ScenarioBeat } from "../../scenario-runtime/index.js";
 import {
   RUN_STATE_EVENT_STREAM,
   runQueueStreamStateFor,
   runStateStreamArmFor,
   type RunStateStreamKind,
-} from "../../session-event-streams.js";
+} from "../../daemon/index.js";
 
 /**
  * What one beat gets wrong about the run or queue rule its kind is under, or

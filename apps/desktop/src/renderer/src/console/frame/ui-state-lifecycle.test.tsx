@@ -44,7 +44,7 @@ import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.js";
 import { useUiStateStore } from "./ui-state-lifecycle.js";
-import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 
 interface StoreProbeProps {
   readonly onStore: (store: UiStateStore) => void;

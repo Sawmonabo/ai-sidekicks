@@ -16,7 +16,7 @@ import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import {
   createFixture,
   withDaemonCall,
-} from "../../../console/bridge/fixture-bridge.test-support.js";
+} from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import type { ComposerChannelTarget, ComposerRunTarget } from "../chips/chip-models.js";
 import { ComposerSendRouter } from "./send-router.js";
 

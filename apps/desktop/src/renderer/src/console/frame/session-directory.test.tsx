@@ -10,14 +10,14 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import {
   offeredSessionIds,
   useSessionDirectory,
   type SessionDirectoryState,
 } from "./session-directory.js";
-import { drainMicrotasks } from "../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 
 function DirectoryProbe(props: {
   readonly growth: GrowthPort;

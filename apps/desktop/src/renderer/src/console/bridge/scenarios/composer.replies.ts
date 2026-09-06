@@ -6,7 +6,7 @@
 // the file's own — this scenario's replies carry their own scripted latencies, which
 // is a property of a call and meaningless for a frame.
 
-import type { ScenarioReply } from "../scenario.js";
+import type { ScenarioReply } from "../scenario-runtime/index.js";
 import { COMPOSER_AGENTS, RUN_ID, SESSION_ID } from "./composer.identifiers.js";
 
 /** Every call the composer scenario answers, and what it answers with. */

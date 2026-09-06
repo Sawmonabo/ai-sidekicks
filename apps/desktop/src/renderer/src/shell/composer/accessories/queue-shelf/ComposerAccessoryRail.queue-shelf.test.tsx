@@ -12,7 +12,7 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { withCapturedStream } from "../../../../console/bridge/fixture-bridge.test-support.js";
+import { withCapturedStream } from "../../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { QUEUE_SUBSCRIBE_STREAM } from "../../../../console/bridge/index.js";
 import { mountRailSettled, railBridgeAnswering } from "../rail.test-support.js";
 

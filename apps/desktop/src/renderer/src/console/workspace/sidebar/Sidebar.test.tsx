@@ -26,7 +26,7 @@ import {
 } from "../../seats/index.js";
 import { SIDEBAR_MIN_WIDTH_PX } from "./sidebar-constants.js";
 import { Sidebar } from "./Sidebar.js";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../bridge/fixture/fixture-bridge.test-support.js";
 
 const SECTION_OWNER = "sidebar-frame-test";
 

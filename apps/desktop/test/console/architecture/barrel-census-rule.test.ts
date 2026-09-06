@@ -89,7 +89,7 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
     // is most likely to assume some other gate covers. It does not: knip counts a
     // TYPE re-export as referenced from the declaring module, and the declaring
     // module is genuinely read — `SidekickPostureMode` is used twice inside
-    // `bridge/sidekick-definition.ts` — so nothing outside this census can tell that
+    // `bridge/wire-shapes/sidekick-definition.ts` — so nothing outside this census can tell that
     // the DOOR LINE publishing it reaches nobody. The disposition is the door line,
     // never the symbol: retiring the type would break its own module.
     const declaringWithLocalReaders = syntheticModule(
@@ -103,7 +103,7 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
     );
     const doorPublishingIt = syntheticModule(
       `${CONSOLE_PREFIX}/bridge/index.ts`,
-      'export type { PostureMode } from "./sidekick-definition.js";\n',
+      'export type { PostureMode } from "../../../src/renderer/src/console/bridge/wire-shapes/sidekick-definition.js";\n',
     );
 
     expect(censusFindings([declaringWithLocalReaders, doorPublishingIt])).toStrictEqual([

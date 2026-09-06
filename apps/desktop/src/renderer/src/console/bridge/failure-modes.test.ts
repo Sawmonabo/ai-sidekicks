@@ -20,19 +20,20 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { SCENARIO_TICK_MS } from "../core/index.js";
 import { consoleTripwires } from "../core/tripwires.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
-import { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
-import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
-import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-slate.js";
+import { createRefusingGrowthPort, growthUnavailable } from "./growth-port/growth-port.js";
+import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
+import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-port/growth-slate.js";
 import {
   CONSOLE_SCENARIO_MANIFEST,
   findOrphanedLedgerRowIds,
   mapSlateRowCoverage,
   type ConsoleScenarioManifest,
-} from "./scenario-manifest.js";
-import { ScenarioEngine } from "./scenario-engine.js";
+} from "./scenario-runtime/scenario-manifest.js";
+import { ScenarioEngine } from "./scenario-runtime/scenario-engine.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 
 // Tripwires throw in development so a breach is impossible to ignore. Under test
@@ -52,8 +53,15 @@ describe("failure matrix — a scenario tick arrives after teardown", () => {
     });
 
     engine.dispose();
+    // BOTH entry points, because they are two ways into one drop and a case that
+    // exercised one would leave the other free to deliver into the disposed store:
+    // `tick()` is what a live engine's own timer calls, and `advance` is what a
+    // caller holding a duration calls. The duration is the engine's own tick
+    // interval rather than a number chosen here — the magnitude decides nothing
+    // after teardown, and a literal invites a reader to look for the meaning it has
+    // in the live path.
     engine.tick();
-    engine.advance(500);
+    engine.advance(SCENARIO_TICK_MS);
 
     expect(delivered).toHaveLength(0);
     expect(engine.droppedTickCount).toBe(2);

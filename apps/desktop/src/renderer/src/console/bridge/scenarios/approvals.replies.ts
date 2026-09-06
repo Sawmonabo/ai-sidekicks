@@ -6,7 +6,7 @@
 // its queue through the growth port and watches it change through the tail, so the
 // two halves answer two different questions about the same six requests.
 
-import type { ScenarioReply } from "../scenario.js";
+import type { ScenarioReply } from "../scenario-runtime/index.js";
 import {
   SESSION_ID,
   PARTICIPANT_YOU,

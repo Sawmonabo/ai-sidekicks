@@ -50,7 +50,7 @@
 // refusal would be unreachable rather than conditional. That arm is driven in the
 // command zone's own unit, over a bridge whose scenario refuses this call.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,

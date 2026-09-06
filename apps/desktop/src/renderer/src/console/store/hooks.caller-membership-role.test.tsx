@@ -48,7 +48,7 @@ function storeWithRoster(rolesByParticipantId: Readonly<Record<string, string>>)
  * The hook under test chains an identity read to a roster lookup and decides neither
  * — which participant it is comes from the injected reader, and what a body member
  * means comes from the injected lookup. The real lookup narrows against the
- * registered wire shape and is driven by `bridge/entity-body-reads.test.ts`; driving
+ * registered wire shape and is driven by `bridge/daemon/entity-body-reads.test.ts`; driving
  * it here as well would test that module twice and this one not at all.
  */
 const readRosterRole: MembershipRoleReader = (participant) => {

@@ -8,14 +8,14 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { type ConsoleBridge, type GrowthOutcome, type ParsedRows } from "../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { useApprovalsReader } from "./approvals-hooks.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
 import {
   createFixture,
   type RecordedDaemonCall,
-} from "../../bridge/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 
 export const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 export const SECOND_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";

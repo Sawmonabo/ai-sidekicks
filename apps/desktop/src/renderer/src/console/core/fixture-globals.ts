@@ -17,7 +17,7 @@
 //
 // WHY THIS IS A LEAF WITH NO IMPORTS. It sits at the bottom of `core/`, which is
 // itself the bottom of the console's family DAG, because its three consumers are
-// in three different families — `core/tripwires.ts`, `bridge/scenario-selection.ts`,
+// in three different families — `core/tripwires.ts`, `bridge/scenario-runtime/scenario-selection.ts`,
 // and `frame/session-event-binder.ts` — and the budget tier, which compiles under a
 // Node-context config with no DOM lib and no `jsx`. Those producer modules reach
 // React, the DOM, and `.tsx` through their own graphs, so a test that imported any

@@ -10,7 +10,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { createFixture } from "../../bridge/fixture-bridge.test-support.js";
+import { createFixture } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { ConsolePaneRegistry } from "../../seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.

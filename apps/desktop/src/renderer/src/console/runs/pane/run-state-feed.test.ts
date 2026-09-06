@@ -10,12 +10,12 @@ import {
   createFixture,
   drainMicrotasks,
   withCapturedStream,
-} from "../../bridge/fixture-bridge.test-support.js";
-import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon-streams.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon/daemon-streams.js";
 import {
   withRecordedStreamSinks,
   withUnopenableStream,
-} from "../../bridge/daemon-streams.test-support.js";
+} from "../../bridge/daemon/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";

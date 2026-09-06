@@ -8,7 +8,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { consoleCommands } from "../../../console/frame/command-surface.js";
+import { consoleCommands } from "../../../console/palette/index.js";
 import {
   type MountedComposer,
   QUEUE_CREATED,
@@ -20,7 +20,7 @@ import {
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
-import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 
 describe("ProviderCommandAutocomplete — the surface follows every write to the draft", () => {
   /** Whether the discovery popover is on screen at all. */

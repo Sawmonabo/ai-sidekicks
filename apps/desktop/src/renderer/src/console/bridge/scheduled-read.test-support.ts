@@ -15,7 +15,7 @@
 import { act } from "@testing-library/react";
 
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../core/index.js";
-import { drainMicrotasks } from "./fixture-bridge.test-support.js";
+import { drainMicrotasks } from "./fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 /**

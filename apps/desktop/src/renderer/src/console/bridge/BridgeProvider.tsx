@@ -38,13 +38,20 @@
 // rendering. Replacement and teardown are therefore explicit below, and scoped:
 // the provider disposes only an engine it BUILT, never one a caller handed it.
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { type ConsoleClock } from "../core/index.js";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import { ForwardingConsoleClock, type ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture-bridge.js";
+import { createFixtureBridge } from "./fixture/index.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { consoleScenario } from "./scenario-manifest.js";
-import { ScenarioFixtureControl } from "./scenario-selection.js";
+import { consoleScenario } from "./scenario-runtime/scenario-manifest.js";
+import { ScenarioFixtureControl } from "./scenario-runtime/scenario-selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 
 /** Why the console has no bridge at all. Rendered as the "error" kind of nothing. */
@@ -270,14 +277,27 @@ export function useConsoleBridge(): ConsoleBridge {
  * render. So the resolution is `useState` for the same reason the bridge resolution
  * itself is — a resource identity is state and is never recomputed.
  *
- * A window's clock cannot change under it: the fixture arm reads the running
- * engine's frozen clock, which the provider replaces only by remounting the tree
- * below it, and every `RealClock` reads the same wall clock. So pinning loses
- * nothing.
+ * A WINDOW'S CLOCK DOES CHANGE UNDER IT, WHICH IS WHY THE PIN IS AN OBJECT AND NOT A
+ * READING. The provider above replaces its resolution IN PLACE — `setResolved`, with
+ * no remount of the tree below — so a bridge carrying a different scenario engine
+ * arrives under a live mount, and a pinned reading would go on answering from the
+ * retired engine's frozen clock. `ForwardingConsoleClock` is one identity whose
+ * methods answer from whichever clock the window holds now, and whose `cancel` routes
+ * to the clock that armed the work rather than to the current one — the announcer
+ * arms a hold deadline and cancels it, across exactly this replacement.
+ *
+ * The clock is handed over from the LAYOUT phase for the reason the resource
+ * substrate states about a disposal: every layout effect for a commit runs before any
+ * passive effect for it, so a consumer's effect reads the clock that commit resolved.
+ * The one render that first sees a new bridge still answers from the old clock, which
+ * costs nothing here — every consumer of this hook reads time from an effect.
  */
 export function useConsoleClock(): ConsoleClock {
   const bridge = useConsoleBridge();
-  const [clock] = useState<ConsoleClock>(() => consoleClockFor(bridge));
+  const [clock] = useState(() => new ForwardingConsoleClock(consoleClockFor(bridge)));
+  useLayoutEffect(() => {
+    clock.holdClock(consoleClockFor(bridge));
+  }, [clock, bridge]);
   return clock;
 }
 
