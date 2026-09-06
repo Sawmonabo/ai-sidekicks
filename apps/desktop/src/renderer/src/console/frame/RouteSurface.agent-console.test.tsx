@@ -20,8 +20,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { settleReactWork } from "../core/act-settlement.test-support.js";
 import {
   FrameStore,

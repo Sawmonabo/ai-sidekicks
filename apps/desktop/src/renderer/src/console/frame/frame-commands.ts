@@ -21,11 +21,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import {
-  FRAME_KEY_BINDINGS,
   KeyBindingTable,
   RAIL_NAVIGATION_DETAILS,
   consoleCommands,
+  consoleKeyBindings,
   registerConsoleCommands,
+  subscribeToConsoleKeyBindings,
   useBridgeCommands,
   type ConsoleCommand,
   type ConsoleWhenClauseContext,
@@ -140,11 +141,28 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
     // is atomic, so a duplicate anywhere in the list adds none of it and the
     // cleanup below cannot unregister a command another mount owns.
     registerConsoleCommands(windowCommands);
-    keyBindings.setBindings(FRAME_KEY_BINDINGS);
+    // The frame's own chords AND the families'. The frame names no family — the
+    // list is read from the door they contributed through, exactly as the surface
+    // registry hands it the routes it renders.
+    //
+    // AND READ AGAIN WHENEVER THEY CHANGE. Composition is not over when this effect
+    // runs: a family composed later binds chords this table would otherwise never
+    // see, which is a keypress that does nothing and reports nothing. The revision
+    // moves with it, because the palette lists what the registry holds and the same
+    // contribution added the commands behind those chords.
+    const installBindings = (): void => {
+      keyBindings.setBindings(consoleKeyBindings());
+    };
+    installBindings();
+    const stopWatchingContributions = subscribeToConsoleKeyBindings(() => {
+      installBindings();
+      setCommandRevision((revision) => revision + 1);
+    });
     const uninstall = keyBindings.install(window);
     setCommandRevision((revision) => revision + 1);
     return () => {
       uninstall();
+      stopWatchingContributions();
       for (const command of windowCommands) {
         consoleCommands.unregister(command.id);
       }
