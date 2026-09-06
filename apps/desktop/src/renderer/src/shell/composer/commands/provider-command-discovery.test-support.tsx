@@ -26,6 +26,7 @@ import { crossMacrotaskBoundary } from "../../../console/core/macrotask-boundary
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import { consoleCommands } from "../../../console/palette/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../console/frame/run-lifecycle-projector.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
@@ -222,7 +223,7 @@ export async function mountComposer(options: {
   readonly focusedPane: ConsolePaneAddress | undefined;
 }): Promise<MountedComposer> {
   const sessionStore = composerSessionStore();
-  const draftStore = new DraftStore();
+  const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
   const route = { kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId } as const;
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {

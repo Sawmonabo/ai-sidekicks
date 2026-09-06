@@ -54,8 +54,8 @@ import {
   consoleClockFor,
   readRefusalOf,
   useProviderQuotas,
+  type AgentPendingSwitch,
   type ConsoleBridge,
-  type GrowthAgentPendingSwitch,
 } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import {
@@ -102,7 +102,7 @@ export interface AgentBindingReading {
   /** True when the roster served and named no account for this agent. */
   readonly isProviderDefaultAccount: boolean;
   /** The switch accepted and not yet applied, wire-verbatim. */
-  readonly pendingSwitch: GrowthAgentPendingSwitch | undefined;
+  readonly pendingSwitch: AgentPendingSwitch | undefined;
   /** Why the binding could not be read. Carried, never swallowed. */
   readonly refusal: ConsoleRefusal | undefined;
 }

@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   KeyBindingTable,
   RAIL_NAVIGATION_DETAILS,
-  consoleKeyBindings,
+  consoleKeybindingOverrides,
   type KeyBinding,
 } from "../../palette/index.js";
 import { SIDEBAR_SECTION_IDS, type ConsolePaneAddress } from "../../seats/index.js";
@@ -170,15 +170,17 @@ describe("sidebar chords — a held key is one act", () => {
   });
 });
 
-// The window's chord table, read the way the frame reads it: `consoleKeyBindings()`
-// is what `frame-commands.ts` installs on `window`, and it is the frame's own chords
-// followed by every family's contribution.
+// The window's chord table, read where the window itself reads it: the override
+// seam's `surface.bindings` is what the frame installs, and it is the frame's own
+// chords followed by every family's contribution with a person's rebindings composed
+// over the top.
 //
-// CALLED, NOT HOISTED INTO A CONSTANT, for that function's own reason: the families'
-// half is not known when a module is evaluated, so a constant read here would pin
-// whatever had been composed by the time this file was imported — an ordering nobody
-// declared and nothing reports, and one that would make this claim quietly narrower
-// than the table the window actually installs.
+// THE SEAM AND NOT THE RAW COMPOSITION, because the raw one is not on the palette's
+// door and should not be: no production module outside that family reads it, and the
+// table a person actually types against is the composed one. This is also why it is
+// READ INSIDE THE HELPER rather than hoisted into a constant — the families' half is
+// not known when a module is evaluated, and the seam republishes when one contributes
+// late, so a constant read here would pin an ordering nobody declared.
 
 /**
  * Which of `sidebarBindings` the window's table would eat, as one line each.
@@ -194,7 +196,10 @@ describe("sidebar chords — a held key is one act", () => {
  */
 function windowCollisionsWith(sidebarBindings: readonly KeyBinding[]): readonly string[] {
   const sidebarCommandIds = new Set(sidebarBindings.map((binding) => binding.commandId));
-  return KeyBindingTable.conflictsIn([...consoleKeyBindings(), ...sidebarBindings])
+  return KeyBindingTable.conflictsIn([
+    ...consoleKeybindingOverrides.surface.bindings,
+    ...sidebarBindings,
+  ])
     .filter(
       (conflict) =>
         conflict.commandIds.some((commandId) => sidebarCommandIds.has(commandId)) &&

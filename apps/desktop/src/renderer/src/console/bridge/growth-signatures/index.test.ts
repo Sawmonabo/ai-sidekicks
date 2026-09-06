@@ -65,6 +65,7 @@ describe("the growth signature table — composed from planes, closed as one set
     expectTypeOf<GrowthOperationSignatures["sidekickDefinitionDelete"]["value"]>().toEqualTypeOf<{
       readonly deleted: true;
     }>();
+    expectTypeOf<GrowthOperationSignatures["agentDetach"]["value"]>().toEqualTypeOf<void>();
     expectTypeOf<GrowthOperationSignatures["orchestrationBudgetRead"]["request"]>().toEqualTypeOf<{
       readonly sessionId: string;
     }>();

@@ -26,6 +26,7 @@
 // `ConsolePaneContext` beside the type it builds.
 
 import { type ConsoleBridge } from "../bridge/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 import { type PaneKind } from "./pane-kinds.js";
@@ -88,7 +89,7 @@ export function paneContext<TKind extends PaneKind>(
     // An adapter that never settles: no pane in this family performs a UI-state read,
     // so one that grew one hangs here rather than passing against a stub.
     uiStateStore: new UiStateStore({ adapter: new Promise(() => undefined) }),
-    draftStore: new DraftStore(),
+    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     focusHue: undefined,
   };
 }

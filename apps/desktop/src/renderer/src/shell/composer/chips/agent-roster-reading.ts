@@ -35,7 +35,7 @@
 // it as this reading's `refused` phase, which is what makes that claim true and what
 // the console's four other readings already do.
 
-import type { GrowthAgentPendingSwitch } from "../../../console/bridge/index.js";
+import type { AgentPendingSwitch } from "../../../console/bridge/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import {
   normalizeWireRejection,
@@ -74,7 +74,7 @@ export interface AgentRosterReadout {
   /** The daemon-minted handle the roster named, before any label is joined to it. */
   readonly payingAccountId: string | undefined;
   readonly isProviderDefaultAccount: boolean;
-  readonly pendingSwitch: GrowthAgentPendingSwitch | undefined;
+  readonly pendingSwitch: AgentPendingSwitch | undefined;
   readonly refusal: ConsoleRefusal | undefined;
 }
 
@@ -237,7 +237,7 @@ export class AgentRosterReading implements ReadTriggerTarget {
       this.#publish({ ...NOTHING_ASKED, phase: "refused", refusal: roster });
       return;
     }
-    const summary = roster.value.find((candidate) => candidate.agentId === agentId);
+    const summary = roster.value.agents.find((candidate) => candidate.agentId === agentId);
     if (summary === undefined) {
       // The roster served and this agent is not on it. A reading and not a refusal:
       // the daemon answered, and what it answered is that this session holds no such
@@ -246,10 +246,16 @@ export class AgentRosterReading implements ReadTriggerTarget {
       this.#publish({ ...NOTHING_ASKED, phase: "read" });
       return;
     }
+    // THE EFFECTIVE BINDING AND NEVER THE PENDING ONE. `config` carries what the
+    // agent runs under now; a row that carries no binding half at all is the same
+    // fact as one whose binding names no account, and both mean the provider's
+    // registered default is paying — which is why the two absences fold here rather
+    // than being told apart by a surface that has no different sentence for them.
+    const payingAccountId = summary.config?.providerAccountId;
     this.#publish({
       phase: "read",
-      payingAccountId: summary.providerAccountId,
-      isProviderDefaultAccount: summary.providerAccountId === undefined,
+      payingAccountId,
+      isProviderDefaultAccount: payingAccountId === undefined,
       pendingSwitch: summary.pendingSwitch,
       refusal: undefined,
     });

@@ -20,6 +20,7 @@ import {
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario-runtime/scenario.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import {
   SessionStore,
@@ -170,7 +171,7 @@ export function mountRail(
     <ComposerAccessoryRail
       sessionStore={sessionStore}
       bridge={addressing.bridge ?? createFixtureBridge({ scenario: RAIL_SCENARIO })}
-      draftStore={new DraftStore()}
+      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       route={DEFAULT_ROUTE}
       focusedPane={addressing.focusedPane}
     />,

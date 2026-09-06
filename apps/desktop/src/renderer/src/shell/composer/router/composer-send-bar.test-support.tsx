@@ -9,6 +9,7 @@ import { render, type RenderResult } from "@testing-library/react";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
@@ -125,7 +126,10 @@ export interface AddressableBar {
 
 /** One mounted bar whose focused pane the case moves, without remounting it. */
 export function mountAddressable(bridge: ConsoleBridge): AddressableBar {
-  const draftStore = new DraftStore({ restartNoticePending: false });
+  const draftStore = new DraftStore({
+    maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+    restartNoticePending: false,
+  });
   const sessionStore = storeWithTwoTrippedAgents();
   const enumeration = new ProviderCommandEnumeration();
   const barFor = (agentId: string): React.JSX.Element => (

@@ -21,7 +21,12 @@
 // four cycles `no-circular` fails. Both are reached by their own deep specifier, the
 // same remedy `fixture-refusal.ts` records for the same shape.
 
-export type { ConsoleScenario, ScenarioBeat, ScenarioReply } from "./scenario.js";
+export type {
+  ConsoleScenario,
+  ScenarioBeat,
+  ScenarioReply,
+  ScenarioRuntimeNodeRosterFrame,
+} from "./scenario.js";
 
 export { ScenarioEngine } from "./scenario-engine.js";
 

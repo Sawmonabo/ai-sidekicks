@@ -43,6 +43,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerComposerFamily } from "../shell/index.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
@@ -157,7 +158,7 @@ export function registerConsoleFamilies(
   // reads the block as a census and refuses anything that is not a seat.
   // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
-  // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections); // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

@@ -24,7 +24,7 @@
 // name: a rebuilt `SessionStore` for the same session passes an id comparison on the
 // first committed render after the replacement and hands back models bound to a
 // projection that was just retired. Those holders are registries rather than render
-// state (`collaboration/session-models.ts`, `agents/agent-console-model.ts`), they run
+// state (`collaboration/session-models.ts`, `agents/run-console/agent-console-model.ts`), they run
 // outside React, and what they need is the predicate and not the storage. It states
 // the same rule in the same terms and holds nothing.
 

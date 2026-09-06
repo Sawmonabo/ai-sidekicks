@@ -6,6 +6,12 @@
 // because the tier's whole claim is that a red run names the rule and the node
 // rather than saying a number went up. Both live here once.
 //
+// It runs INSIDE the browser-mode page rather than through `@axe-core/playwright`,
+// which wants a `@playwright/test` `Page` handle Vitest browser mode hands only to
+// server-side custom commands, never to test code, and which is the orchestrator
+// page rather than the tester iframe — same engine, same rule set, one less
+// indirection.
+//
 // (`axe-core` is MPL-2.0 and is admitted as a never-distributed test dependency by
 // ADR-020's Decision Log; it must not reach a shipped bundle, which is why it is
 // imported under `test/` and nowhere under `src/`.)

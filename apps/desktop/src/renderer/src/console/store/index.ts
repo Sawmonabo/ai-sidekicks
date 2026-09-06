@@ -32,8 +32,11 @@ export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 // `ConsoleEntity` leaves the family because the two validating body reads live in
 // `bridge/daemon/entity-body-reads.ts`: a read that narrows a wire member has to sit where
 // the registered shapes may be imported, and it still takes and returns this
-// family's own entity. `ConsoleEntityKind` travels with it: the inspector's
-// entity-detail registry is keyed by the kind it renders.
+// family's own entity. It joins the reference and the event on the line below for two
+// more readers: the inspector's entity-detail registry is keyed by the KIND it
+// renders, and a family that reads a PARTITION of the projection — rather than one
+// entity by reference — has to name the row type to derive anything from it, as the
+// membership ledger and the agent console's session projection both do.
 export type {
   ConsoleEntity,
   ConsoleEntityKind,
@@ -77,14 +80,20 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./open-session-entry.js";
 
-// The refresh chokepoint, on the family door because the rule it realises binds
-// every family above this one: `Spec-023 §Console Design (Meridian)` §The eight
-// rules puts every read behind one scheduler, and a view family that could not
-// reach it through this barrel would have to arm a timer of its own — which is
-// exactly what the rule forbids. `ApplyQueue` stays off the door: its only caller
-// is `SessionStoreRegistry`, and a second one would be a second writer into the
-// apply chokepoint.
+// The refresh chokepoint, through the same door as the stores it feeds. A view
+// family that refreshes a wire read reaches this scheduler and no other timer:
+// `apps/desktop/AGENTS.md` puts every refresh through `store/scheduling.ts`, and a
+// chokepoint reachable only by deep-importing past this barrel is one a family
+// would route around rather than through. `ApplyQueue` stays off the door: its only
+// caller is `SessionStoreRegistry`, and a second one would be a second writer into
+// the apply chokepoint.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+
+// The signal half of a push-driven read, beside the scheduler that coalesces it.
+// It leaves the family because its callers are view families, which are siblings
+// and cannot reach each other — so the second caller's only alternative to this
+// door was the second copy of the filter that this export replaces.
+export { subscribeToSessionEventKinds } from "./session-event-signal.js";
 
 // The wiring that feeds that chokepoint, on the door for the same reason: the four
 // moments a reading goes stale are one rule, and a family that could not reach this
@@ -129,6 +138,7 @@ export {
   useLocationHash,
   useOpenSessionIds,
   useOpenSessionStore,
+  useSessionDegraded,
   useSessionDegradedCause,
   useSessionInitialised,
   useSessionPartition,
@@ -181,20 +191,16 @@ export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
 export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
-export type {
-  /** @consumedBy T-023p-1C-8 */
-  CurrentGenerationClaim,
-  GenerationClaim,
-} from "./generation-latch.js";
-// The caller's own membership role, forwarded with the hook that answers it. Two
-// surfaces gate a control on it: the approvals pane's goal editor, and the terminal
-// lease line, where taking the shell is owner/collaborator-only so a control offered
-// on identity alone offered viewers and runtime contributors a mutation that can only
-// be refused. The reader is a PARAMETER because this family sits below `bridge/` and
-// may not reach a port, so the view family that can passes one in — which is also why
-// the two types travel: a caller adapting that outcome has to be able to NAME the
-// shape, and one mapping three arms onto what a control may offer writes that mapping
-// over the union rather than over a boolean it inferred.
+export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch.js";
+// The caller's own membership role, forwarded with the two types a caller has to name
+// to use it. Two surfaces gate a control on it: the approvals pane's goal editor, and
+// the terminal lease line, where taking the shell is owner/collaborator-only so a
+// control offered on identity alone offered viewers and runtime contributors a
+// mutation that can only be refused. The reader is a PARAMETER because this family
+// sits below `bridge/` and may not reach a port, so the view family that can passes
+// one in — which is also why the two types travel: a caller adapting that outcome has
+// to be able to NAME the shape, and one mapping three arms onto what a control may
+// offer writes that mapping over the union rather than over a boolean it inferred.
 export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
 // The degradation cause itself, beside the hook that answers it. Without this line
 // a consumer could reach the closed set only by reflecting on the hook's return

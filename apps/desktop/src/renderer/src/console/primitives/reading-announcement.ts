@@ -30,8 +30,17 @@
 // change what the whole room can do. An incomplete reading changes what one surface
 // is claiming about itself, and interrupting somebody mid-sentence to tell them a
 // list may be short is the wrong trade.
+//
+// THE LATCH ITSELF IS PUBLISHED, because a second arity of the same rule reached this
+// directory. `settlement-announcement.ts` beside it holds ONE composed sentence rather
+// than a reading's set, and it was written with its own ref, its own comparison and its
+// own paragraph stating the same "once per distinct sentence, replaced each pass"
+// discipline. The place two copies of a latch drift is the comparison, and a drifted
+// comparison is a sentence a person hears twice with every test still green. So the
+// rule lives once, in `useAnnounceOncePerSentence` below, and each arity is the caller
+// that composes its own sentences and hands them over.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useAnnounce } from "./LiveAnnouncerProvider.js";
 import { partialReadNotices, type PartialReadNotice, type ReadingState } from "./partial-read.js";
@@ -58,6 +67,44 @@ function spokenSentenceFor(notice: PartialReadNotice): string | undefined {
 }
 
 /**
+ * Say each of a pass's sentences once, in the polite region. The one latch.
+ *
+ * @param sentences What this pass has to say, or `undefined` where it makes no claim at
+ *   all. That distinction IS the memory. An array REPLACES what was said, so a sentence
+ *   absent from it is forgotten and speaks again if it returns — which is what a reading
+ *   that goes back to incomplete after serving must do, and what an empty pass means:
+ *   nothing is incomplete any more. `undefined` leaves the memory standing, which is
+ *   what a surface whose read has not settled needs — it has nothing to say and nothing
+ *   to retract, and forgetting there would make one settlement audible twice.
+ */
+export function useAnnounceOncePerSentence(sentences: readonly string[] | undefined): void {
+  const announce = useAnnounce();
+  // What this surface said last pass. A ref rather than state, because it must not
+  // cause a render — and because what it guards is the effect's next run, which is
+  // scheduled before any render it could trigger would land.
+  const announcedSentencesRef = useRef<ReadonlySet<string>>(undefined);
+
+  useEffect(() => {
+    if (sentences === undefined) {
+      return;
+    }
+    // Collected as a SET rather than deduplicated as the loop runs: two readings of one
+    // surface can say the same words, and a pass that checked each against the PREVIOUS
+    // pass only let both through. The set held for the next pass is the same object this
+    // one announced from.
+    const spoken = new Set(sentences);
+    const alreadyAnnounced = announcedSentencesRef.current;
+    for (const sentence of spoken) {
+      if (alreadyAnnounced?.has(sentence) === true) {
+        continue;
+      }
+      announce(sentence, "polite");
+    }
+    announcedSentencesRef.current = spoken;
+  }, [sentences, announce]);
+}
+
+/**
  * Announce each reading that is not the whole of it, once, in the polite region.
  *
  * @param states Every reading the surface holds — the same set `PartialRead` renders,
@@ -65,22 +112,14 @@ function spokenSentenceFor(notice: PartialReadNotice): string | undefined {
  * @param subject What was read, as the lowercase noun phrase the sentences take.
  */
 export function useReadingAnnouncement(states: readonly ReadingState[], subject: string): void {
-  const announce = useAnnounce();
-  const announcedSentencesRef = useRef<ReadonlySet<string>>(undefined);
-
-  useEffect(() => {
-    const sentences = new Set(
+  // Memoised on exactly the inputs the announcing effect used to depend on, so the latch
+  // below re-runs when this reading changes and not once per render.
+  const sentences = useMemo(
+    () =>
       partialReadNotices(states, subject)
         .map(spokenSentenceFor)
         .filter((sentence): sentence is string => sentence !== undefined),
-    );
-    const alreadyAnnounced = announcedSentencesRef.current;
-    for (const sentence of sentences) {
-      if (alreadyAnnounced?.has(sentence) === true) {
-        continue;
-      }
-      announce(sentence, "polite");
-    }
-    announcedSentencesRef.current = sentences;
-  }, [states, subject, announce]);
+    [states, subject],
+  );
+  useAnnounceOncePerSentence(sentences);
 }

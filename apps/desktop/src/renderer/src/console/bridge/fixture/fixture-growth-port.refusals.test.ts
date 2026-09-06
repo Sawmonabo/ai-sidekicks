@@ -25,6 +25,7 @@ import {
   findScenariosNaming,
   fixturePort,
 } from "./fixture-growth-port.test-support.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 import { createLiveBridge } from "../live-bridge.js";
@@ -151,19 +152,23 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
     ]);
   });
 
-  it("refuses all five under both bridges, each naming the row that owes its wire", async () => {
+  it("refuses every unserved one under both bridges, each naming the row that owes its wire", async () => {
     const liveBridge = createLiveBridge(createTier1Bridge());
     const port = fixturePort();
     const rows = ["callback-tool-registry-read", "sidekick-definition-registry"];
+    const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
     const operationIds = (Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]).filter(
-      (operationId) => rows.includes(GROWTH_OPERATIONS[operationId].slateRow),
+      (operationId) =>
+        rows.includes(GROWTH_OPERATIONS[operationId].slateRow) && !served.has(operationId),
     );
 
-    // Five, and the count is asserted so a row that quietly lost its operations
-    // cannot make the loop below vacuously pass. The identity row is no longer
-    // among them — it is answered above from the scenario's own field, which is
-    // exactly the transition this count is here to notice.
-    expect(operationIds).toHaveLength(5);
+    // Four, and the count is asserted so a row that quietly lost its operations
+    // cannot make the loop below vacuously pass. Two transitions have already moved
+    // it and this count is where each was noticed: the identity row left when it
+    // became answerable from the scenario's own field, and the definition list left
+    // when the agent console's picker began reading it from the same script — beside
+    // the peer-invocation grant that joined the row and is served with it.
+    expect(operationIds).toHaveLength(4);
     for (const operationId of operationIds) {
       for (const outcome of [
         await callOperation(port, operationId),
@@ -187,7 +192,10 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
 
     for (const [operationId, owner] of [
       ["callbackToolRegistryRead", "Spec-005"],
-      ["sidekickDefinitionList", "Spec-030"],
+      // The definition row's own refusal, taken from an operation the fixture does
+      // NOT serve: its list read is answered from the script now, so the attribution
+      // claim has to be made on a sibling that still refuses.
+      ["sidekickDefinitionCreate", "Spec-030"],
     ] as const) {
       const outcome = await callOperation(port, operationId);
 

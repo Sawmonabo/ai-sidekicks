@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "../parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import type {
   ComposerChannelTarget,
@@ -103,7 +104,10 @@ function driveAddressableComposer(
   initialAddressId: string = CHANNEL_A,
 ): DrivenComposer {
   const calls = new ParkedDaemonCalls();
-  const draftStore = new DraftStore({ restartNoticePending: false });
+  const draftStore = new DraftStore({
+    maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+    restartNoticePending: false,
+  });
   let latest: SendController | undefined;
   const renderAt = (addressId: string): React.JSX.Element => (
     <AddressableProbe

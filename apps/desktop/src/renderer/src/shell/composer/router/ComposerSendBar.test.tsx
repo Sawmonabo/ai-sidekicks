@@ -8,6 +8,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { bridgeAnswering } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { CHANNEL_ID, QUEUE_CREATED } from "./send-router.test-support.js";
@@ -20,7 +21,10 @@ import {
 
 describe("ComposerSendBar — the unsent body lives in the supplied draft store", () => {
   it("restores the text a remount would otherwise have thrown away", () => {
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const sessionStore = openSessionStore();
     const bridge = bridgeAnswering(async () => undefined).bridge;
 
@@ -33,7 +37,10 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   });
 
   it("swaps drafts on an address change rather than carrying text to the new target", () => {
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const sessionStore = openSessionStore();
     const bridge = bridgeAnswering(async () => undefined).bridge;
 
@@ -56,7 +63,10 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   });
 
   it("clears the draft once the send has settled, and not before", async () => {
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const sessionStore = openSessionStore();
     const settle = vi.fn(async () => QUEUE_CREATED);
 
@@ -81,7 +91,10 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   });
 
   it("keeps the body under its key when the daemon refuses the send", async () => {
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const sessionStore = openSessionStore();
     const { line, result } = mountBar({
       // The flat wire envelope the daemon's rejection actually carries — a dotted

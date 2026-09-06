@@ -19,8 +19,8 @@
 // row drops that row and keeps the rest, and a caller that needs the exception shape
 // wraps it in `ConsoleRefusalError` at its own seam.
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "../persistence/index.js";
+import { IDENTIFIER_MAX_LENGTH, refuse, type ConsoleRefusal } from "../core/index.js";
+import { isSingleNameIdentifierShaped } from "../persistence/index.js";
 import { type ConsoleEntityRef } from "../store/index.js";
 import {
   isEntityOptionalPaneKind,
@@ -35,9 +35,9 @@ const PANE_ADDRESS_ORIGIN = "pane-address";
 /**
  * The ceiling the entity-id grammar enforces, named for the refusal sentence.
  *
- * Read off the grammar rather than restated, so the number a person is told is the
- * number the predicate applied. It is `persistence/`'s constant because the grammar
- * is `persistence/`'s — this module applies it, it does not own it.
+ * Read off the shared ceiling rather than restated, so the number a person is told is
+ * the number the predicate applied. The ceiling is `core/`'s constant and the grammar
+ * that holds an id to it is `persistence/`'s — this module applies both, it owns neither.
  */
 const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
 

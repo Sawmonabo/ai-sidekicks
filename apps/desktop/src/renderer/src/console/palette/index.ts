@@ -55,11 +55,12 @@ export {
   type ConsoleWhenClauseContext,
 } from "./console-commands.js";
 
-// `KeyBinding` rides beside the command shape because a view family declares a
-// binding table of its own — the workspace sidebar's — and types it by this element.
-// It is on the door for that reader and not for symmetry: the moment no production
-// module outside this family writes the type, the line comes off, which is how it
-// came off once already when the frame's own vocabulary moved into the family.
+// `KeyBinding` rides beside the command shape because modules outside this family
+// declare binding tables of their own and type them by this element: the keyboard
+// settings page's map, which prints a chord per command, and the workspace sidebar's
+// own table. It is on the door for those readers and not for symmetry — the moment no
+// production module outside this family writes the type, the line comes off, which is
+// how it came off once already when the frame's own vocabulary moved into the family.
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
 // The frame's own command vocabulary — the shapes its contributions take, the rail's
@@ -70,29 +71,22 @@ export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 // `frame/index.js` — the first is a cross-family deep import, the second closes a
 // cycle back through `families.ts`.
 //
-// What the window INSTALLS is `consoleKeyBindings` — the frame's own chords with the
-// families' behind them — read again on `subscribeToConsoleKeyBindings`, because a
-// family composed after the install would otherwise bind into a table nothing
-// re-reads. `FRAME_KEY_BINDINGS` stays published beside it: the frame's own half is
-// what a settings page prints as the shipped defaults a person's rebindings are
-// composed over, and that is a different question from what is bound right now.
+// `subscribeToConsoleKeyBindings` is the SIGNAL and not the table. What a window
+// installs is the frame's own chords with the families' behind them, and the override
+// store next door composes a person's rebindings onto exactly that — reading it as a
+// sibling, deeply, which is what an intra-family import is for. The frame takes the
+// signal through this door because it has to bump the revision the palette lists
+// against when a family contributes late.
 //
-// `FrameKeyBinding` is deliberately absent. `FRAME_KEY_BINDINGS` is typed by it and
-// every consumer reads the array, so a door line for the element type would be a
-// specifier no production module writes.
-export {
-  /**
-   * The frame's own half, which a settings page prints as the shipped defaults a
-   * person's rebindings are composed over — a different question from what is bound
-   * right now, which is `consoleKeyBindings`.
-   *
-   * @consumedBy T-023p-1C-4
-   */
-  FRAME_KEY_BINDINGS,
-  RAIL_NAVIGATION_DETAILS,
-  consoleKeyBindings,
-  subscribeToConsoleKeyBindings,
-} from "./command-surface.js";
+// Three names are deliberately absent, each because no module outside this family
+// reaches it and the barrel census fails a line like that. `consoleKeyBindings` is
+// read by the store beside it. `FRAME_KEY_BINDINGS` was on this door for one reader —
+// the keyboard page's stale-override rows — and that reader now takes
+// `surface.shippedBindings`, which is the base the store actually composed over;
+// publishing the half beside the whole would let a caller print one table while the
+// keyboard held the other, and would report a chord a view family contributed as an
+// override of nothing. `FrameKeyBinding` types that half and goes with it.
+export { RAIL_NAVIGATION_DETAILS, subscribeToConsoleKeyBindings } from "./command-surface.js";
 export type { FrameCommand } from "./command-surface.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the
@@ -100,6 +94,13 @@ export type { FrameCommand } from "./command-surface.js";
 // hook is forwarded: the builder beside it exists so the BEHAVIOUR can be driven
 // without a React tree, which is its own family's business and not a caller's.
 export { useBridgeCommands } from "./bridge-commands.js";
+
+// The console's ONE matcher, published because two settings surfaces rank against
+// it. `Spec-023 §Console Libraries` requires the palette, settings search, the
+// sidebar filter, and find to score "identically in both places", which is a rule
+// about one implementation rather than one algorithm — so the sharing is declared
+// here rather than performed by a deep import that no layering rule can see.
+export { scoreSubsequence } from "./subsequence-score.js";
 
 export { KeyBindingTable } from "./keybindings.js";
 
@@ -121,3 +122,14 @@ export type { WhenClauseContext } from "./when-clause.js";
 // sits in `primitives/chord-format.ts` beside the printer and this family imports it
 // down like every other caller.
 export { PaletteOverlay } from "./PaletteOverlay.js";
+
+// The keybinding surface this family added beside the table: what a chord audit
+// answers, how a person's overrides compose onto the shipped bindings, and the store
+// that holds them for a window. Published because the keyboard settings page is the
+// reader of all three, and settings is a view family that may reach nothing inside
+// this one by any other path.
+export { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
+
+export { composeEffectiveBindings, type KeybindingOverrideMap } from "./keybinding-overrides.js";
+
+export { consoleKeybindingOverrides, useKeybindingSurface } from "./keybinding-override-store.js";

@@ -3,6 +3,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../console/core/index.js";
 import { DraftStore } from "../../console/persistence/index.js";
 import { useComposerDraftText } from "./use-composer-draft-text.js";
 
@@ -21,7 +22,10 @@ function Probe(props: {
 
 describe("useComposerDraftText — one subscription, two ways to take it", () => {
   it("renders the key's text and re-renders on a write to it", () => {
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     let latest = { text: "", read: (): string => "" };
     const probe = render(
       <Probe
@@ -47,7 +51,10 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
     // Why the reader comes back beside the value: the popover's dismissal records the
     // text it was dismissed AT, and a handler closing over the rendered value would
     // key that dismissal to a string the person has already typed past.
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     let latest = { text: "", read: (): string => "" };
     render(
       <Probe
@@ -67,7 +74,10 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
   });
 
   it("ignores a write to another address, so one line never reports another's", () => {
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const probe = render(<Probe draftStore={draftStore} draftKey={KEY} report={() => undefined} />);
 
     act(() => {

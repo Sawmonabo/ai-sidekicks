@@ -20,12 +20,12 @@
 //     `console/bridge/**`. A surface that cannot import a validator cannot write a
 //     second, different reading of a seam the registry already binds.
 //
-// AND ONE CENSUS, BECAUSE THE CALL SIDE IS VACUOUS UNTIL A SURFACE CALLS. Both
-// claims are true of an empty set on this branch: the door has no consumers yet, so
-// "no module outside the bridge family reaches it" reports compliance without
-// distinguishing that from "every caller goes through it", which is what this file's
-// title claims. The consumer count is therefore PINNED rather than left implicit —
-// see `CALL_DOOR_CONSUMER_COUNT`.
+// AND ONE CENSUS, BECAUSE THE CALL SIDE IS VACUOUS OVER AN EMPTY SET. "No module
+// outside the bridge family reaches it" reports compliance over a console where
+// nothing calls the daemon at all, and cannot be told apart from "every caller goes
+// through the door", which is what this file's title claims. The consumer count is
+// therefore PINNED rather than left implicit — see `CALL_DOOR_CONSUMER_COUNT`, which
+// also fails on a surface quietly LEAVING the door.
 //
 // The lint half is driven through the REAL ESLint engine over the REAL config, never
 // re-implemented — a test carrying its own copy of the pattern list would stay green
@@ -118,12 +118,12 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * FIVE, and PINNED rather than left as a floor. The count was zero when this gate
+ * TEN, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The five, by module:
+ * It is no longer vacuous. The ten, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -135,21 +135,28 @@ function isBridgeFamilyModule(module: string): boolean {
  *   4. `console/runs/pane/controls/run-control-dispatch.ts` — the runs pane's
  *      run-control dispatch.
  *   5. `console/runs/pane/controls/StepIn.tsx` — its step-in control.
+ *   6. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
+ *   7. `console/collaboration/channels/channel-model.ts` — the channel model.
+ *   8. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
+ *   9. `console/collaboration/members/presence-model.ts` — the presence model.
+ *  10. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
  *
- * Every surface in this family that reaches the wire, each through `callDaemon` and
- * none around it. It was six until the composer's target chip stopped taking a
- * `providerAccount.list` of its own to join a paying account's label: that registry is
- * node-scoped and `console/bridge/quotas/provider-account-quota.ts` already reads it once per
- * window, so the label rows are folded off that reading and the chip joins them.
+ * Every surface in these two families that reaches the wire, each through
+ * `callDaemon` and none around it. The composer's half was six until its target chip
+ * stopped taking a `providerAccount.list` of its own to join a paying account's label:
+ * that registry is node-scoped and `console/bridge/quotas/provider-account-quota.ts`
+ * already reads it once per window, so the label rows are folded off that reading and
+ * the chip joins them.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
  * started reaching past it would be caught by the reach scan above rather than here.
  * It fails the moment the number moves either way, so the lane that binds the next
  * surface moves this constant in its own PR and a reader learns from that diff that
- * the console grew a wire.
+ * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
+ * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 5;
+const CALL_DOOR_CONSUMER_COUNT = 10;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
@@ -203,9 +210,9 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
   });
 
   it("negative control: the consumer needle sees an ordinary import of the door", () => {
-    // Without this, the pinned zero above would be reporting a broken needle rather
-    // than an unrebound console, and the count would stay at zero — green, and
-    // saying nothing — on the day the first surface starts calling the daemon.
+    // Without this, the pinned count above would be reporting a broken needle rather
+    // than the tree, and a needle that matched nothing would read the console as
+    // having no consumers at all — green, and saying nothing.
     expect(importsCallDoor(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
     expect(
       importsCallDoor(
@@ -216,7 +223,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
     ).toBe(true);
     // An alias is still a consumption, and the local name it takes is not the door's.
     expect(importsCallDoor('import { callDaemon as send } from "../bridge/index.js";')).toBe(true);
-    // And not on the door merely named in prose, which is all the tree carries today.
+    // And not on the door merely named in prose, which several modules do carry.
     expect(importsCallDoor("// a surface reaches the wire through `callDaemon`")).toBe(false);
     // The false-positive direction the text needle was narrowed twice to survive: this
     // sentence contains the word `import`, and a scan over text spanned the newlines

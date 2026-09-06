@@ -10,12 +10,17 @@ import { op } from "./operation-entry.js";
 /**
  * The ids this plane carries, DERIVED from the id union rather than listed again.
  *
- * `Extract` against the plane's own name pattern is what makes the annotation below
- * exhaustive in both directions: a row this plane owns and forgot fails here, and a
- * key that is not an operation id fails here too. A hand-written list would be a
- * second copy of the id set — the thing `growth-entry.ts` exists to prevent.
+ * `Extract` is what makes the annotation below exhaustive in both directions: a row
+ * this plane owns and forgot fails here, and a key that is not an operation id fails
+ * here too. The ids are named rather than matched by an `orchestration` pattern
+ * because that root is split across two planes — the agent plane holds the
+ * child-run linkage read, which shares its reader and not this one's — and a pattern
+ * would silently claim a row that belongs next door.
  */
-type LedgerOperationId = Extract<GrowthOperationId, `orchestration${string}` | "hydratedEventRead">;
+type LedgerOperationId = Extract<
+  GrowthOperationId,
+  "hydratedEventRead" | "orchestrationCostReceiptRead" | "orchestrationBudgetRead"
+>;
 
 /** The ledger rows, in the order the single table carried them. */
 export const LEDGER_GROWTH_OPERATIONS: Readonly<Record<LedgerOperationId, GrowthOperationEntry>> = {

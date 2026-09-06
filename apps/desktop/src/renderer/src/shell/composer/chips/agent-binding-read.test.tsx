@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 import {
   createFixtureBridge,
   growthUnavailable,
+  type AgentRosterEntry,
   type ConsoleBridge,
-  type GrowthAgentSummary,
   type GrowthOutcome,
 } from "../../../console/bridge/index.js";
 import { withDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
@@ -37,19 +37,24 @@ const SCENARIO_ACCOUNT_LABEL = "Claude — team";
  * read, the clock, and the scenario stay the fixture's, so what these cases prove is
  * a join across two live seams rather than across two literals.
  */
-function bridgeServingRoster(outcome: GrowthOutcome<readonly GrowthAgentSummary[]>): ConsoleBridge {
+function bridgeServingRoster(outcome: GrowthOutcome<readonly AgentRosterEntry[]>): ConsoleBridge {
   const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+  // The rows are wrapped in the reading the wire actually answers with rather than
+  // taken as one, so a case states the rows it is about and this helper owns the
+  // envelope. A refusal has no rows and travels untouched.
+  const reply: GrowthOutcome<{ readonly agents: readonly AgentRosterEntry[] }> =
+    outcome.status === "served" ? { status: "served", value: { agents: outcome.value } } : outcome;
   return {
     ...bridge,
-    growth: { ...bridge.growth, agentList: async () => outcome },
+    growth: { ...bridge.growth, agentList: async () => reply },
   };
 }
 
 /** One roster row, with whatever the case is about layered on. */
-function rosterRow(overrides: Partial<GrowthAgentSummary> = {}): GrowthAgentSummary {
+function rosterRow(overrides: Partial<AgentRosterEntry> = {}): AgentRosterEntry {
   return {
     agentId: AGENT_ID,
-    providerAccountId: undefined,
+    config: undefined,
     pendingSwitch: undefined,
     ...overrides,
   };
@@ -85,7 +90,7 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
   it("joins the roster's account id with the account plane's own label", async () => {
     const bridge = bridgeServingRoster({
       status: "served",
-      value: [rosterRow({ providerAccountId: SCENARIO_ACCOUNT_ID })],
+      value: [rosterRow({ config: { providerAccountId: SCENARIO_ACCOUNT_ID } })],
     });
 
     const { result } = await readBinding(bridge, AGENT_ID);
@@ -112,6 +117,7 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
       switchId: "switch-1",
       appliesAt: "run_boundary",
       interruptRequested: true,
+      pendingAxes: [{ axis: "modelId", value: "opus" }],
     } as const;
     const served = await readBinding(
       bridgeServingRoster({ status: "served", value: [rosterRow({ pendingSwitch: pending })] }),
@@ -182,7 +188,7 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
     // the handle never stands in for it, which is the rule the join exists to keep.
     const bridge = bridgeServingRoster({
       status: "served",
-      value: [rosterRow({ providerAccountId: "acct-not-in-this-registry" })],
+      value: [rosterRow({ config: { providerAccountId: "acct-not-in-this-registry" } })],
     });
 
     const { result } = await readBinding(bridge, AGENT_ID);
@@ -211,6 +217,7 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
       switchId: "switch-2",
       appliesAt: "run_boundary",
       interruptRequested: false,
+      pendingAxes: [{ axis: "effort", value: "high" }],
     } as const;
     const bridge: ConsoleBridge = {
       ...refusingRegistry.bridge,
@@ -218,7 +225,14 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
         ...refusingRegistry.bridge.growth,
         agentList: async () => ({
           status: "served",
-          value: [rosterRow({ providerAccountId: SCENARIO_ACCOUNT_ID, pendingSwitch: pending })],
+          value: {
+            agents: [
+              rosterRow({
+                config: { providerAccountId: SCENARIO_ACCOUNT_ID },
+                pendingSwitch: pending,
+              }),
+            ],
+          },
         }),
       },
     };

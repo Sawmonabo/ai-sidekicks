@@ -162,21 +162,20 @@
 //
 // WHY THE AGENT ROSTER READ IS SERVED
 //
-// Four shipped scenarios script `agent.list` and no caller could reach any of them:
-// the operation refused under both bridges, so the composer's target chip took its
-// refused arm on EVERY provider-bound composer — including the two reference surfaces
-// built on a real fixture bridge — and the paying account, the pending switch, and
-// the account-plane label join were unreachable through any scenario, screenshot, or
+// Four shipped scenarios script `agent.list` and no caller could reach any of them
+// while the operation refused: the composer's target chip took its refused arm on
+// EVERY provider-bound composer — including the two reference surfaces built on a
+// real fixture bridge — and the paying account, the pending switch, and the
+// account-plane label join were unreachable through any scenario, screenshot, or
 // bridge-driven test. A surface whose only reachable state is its refusal is a
 // surface nothing has drawn.
 //
-// The rule is met the way the approvals reads meet it: a scenario states the roster,
-// so there is something to answer FROM, and the narrowing is the console's own
-// (`fixture-agent-roster.ts`) rather than the script's — a scenario cannot teach the
-// chip a row shape the wire will not send. A scenario that scripts no roster refuses
-// rather than serving an empty one, which is the `approvalProjectionRead`
-// disposition and not the branch read's: an empty roster is the claim that a session
-// has no agents, and a script that models none has not made it.
+// ITS UNSCRIPTED ARM IS THE INVITE LEDGER'S AND NOT THE APPROVALS READS', and the
+// agent plane's own section in `fixture-growth-port.ts` gives the reason: a session
+// with no agents attached is what a fresh session IS, so the empty roster is a state
+// the agent console and this chip both have to draw rather than a claim no script
+// made. The chip reads that answer as knowing nothing about a binding, which is a
+// different rendering from its refused arm.
 //
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
@@ -199,9 +198,6 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   // name are the ones this window happens to have open.
   "sessionRead",
   "sessionList",
-  // agents — the roster four scenarios already script, answered from the script and
-  // refused by a scenario that models no agents. See the header.
-  "agentList",
   // The one projection the console must not compute for itself.
   "attentionProjectionRead",
   // gitflow — the branch-context read, whose whole answer today is that there is none.
@@ -218,7 +214,43 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "approvalRuleList",
   "approvalResolve",
   "approvalRuleRevoke",
+  // invites
+  "invitesList",
+  // agent plane — five operations that were `daemon.call` strings until the call door
+  // closed. The scenarios that answer them are unchanged: each routes through the
+  // scripted-reply seam under its own wire method, so a scenario's `agent.list` entry
+  // answers `agentList` exactly as it answered the cast before.
+  "agentList",
+  "agentAttach",
+  "agentConfigUpdate",
+  "agentDetach",
+  "orchestrationChildRunLinkRead",
+  // sidekick — the definition picker's read, from the same script.
+  "sidekickDefinitionList",
+  "sidekickPeerInvocationSet",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
 export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERATION_IDS)[number];
+
+/**
+ * Which of those the port implements but can only answer FROM A SCRIPT.
+ *
+ * Every other served operation has an honest answer for a scenario that scripts
+ * nothing — an empty ledger, an empty roster, a workspace with no branch context —
+ * and answers `served` under any scenario at all. A WRITE has no such answer: there
+ * is no such thing as "the attach that happened and produced nothing", and serving a
+ * synthesized receipt would tell a surface the daemon did something no author said it
+ * did. So these are implemented, and refuse by name under a scenario that does not
+ * script them.
+ *
+ * A declared subset rather than a rule the sweep re-derives, because the sweep cannot
+ * see the difference: both arms answer through the same port method, and what
+ * separates them is whether an empty answer would be a lie.
+ */
+export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGrowthOperationId[] = [
+  "agentAttach",
+  "agentConfigUpdate",
+  "agentDetach",
+  "sidekickPeerInvocationSet",
+];

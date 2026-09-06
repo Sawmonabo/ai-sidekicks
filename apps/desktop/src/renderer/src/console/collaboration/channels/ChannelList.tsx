@@ -1,0 +1,178 @@
+// Every channel this participant may see, main first, state legible without
+// opening it.
+//
+// WHAT IS OFFERED, AND WHY IT IS ONE THING. Opening a channel is renderer-local:
+// the row hands the deck a timeline pane scoped to the channel entity, which is the
+// registered pane kind and the registered entity kind. Mute, unmute, archive, and
+// create are NOT offered, because `channel.mute`, `channel.unmute`,
+// `channel.archive`, and `channel.create` are registered on no transport — not as a
+// daemon method, not as a control-plane procedure, and not as a growth-port
+// operation with a slate row behind it. An offered control with no wire behind it
+// claims a capability the console does not have, and drawing it disabled is the
+// same claim with a tooltip. The list says so once, in a line under the rows, so a
+// person knows the absence is the console's honesty rather than their permissions.
+//
+// WHAT IS NOT RENDERED, BECAUSE THE WIRE DOES NOT CARRY IT. `ChannelListResponse-
+// Channel` is `{id, name?, state, participantCount}`. There is no audience field,
+// no kind discriminator, and no member pair, so there is no audience badge and no
+// pair-labelled row here. Audience is a daemon obligation and never renderer
+// etiquette: deriving one from the members would be the console asserting a fact
+// nobody sent it, and getting it wrong would put an agent in a room that was
+// supposed to have none.
+//
+// THE NON-DISCLOSURE FILTER IS INVISIBLE ON PURPOSE. A channel the caller may not
+// see is omitted from the response, and this list has no concept of a hidden row
+// and shows no count of one. Rendering "3 more you cannot see" would leak exactly
+// what the omission protects.
+//
+// ARCHIVED ROWS SINK AND COLLAPSE. Archival is terminal, so that region only grows;
+// it lives behind one disclosure, closed by default, and carries no unmute
+// affordance — there is nothing to unmute, and offering it would suggest the row
+// could come back. The disclosure renders EVERY archived row: its height is bounded
+// by the region's own scroll box, never by a slice, because the summary above it
+// counts what the read carried and a count the list will not show is a lie the
+// person cannot even page past — no channel read carries a cursor.
+
+import { useCallback, useMemo } from "react";
+
+import type { ChannelListResponseChannel } from "@ai-sidekicks/contracts";
+
+import { DerivedFigure, Nothing, RefusalCard, formatCount } from "../../primitives/index.js";
+import type { PushDrivenReadState, SidebarSectionContext } from "../../seats/index.js";
+import { type ActivityIndicatorRegistry, type ChannelActivityLabels } from "../activity-model.js";
+import { orderChannelRows } from "./channel-model.js";
+import { CreateChannel } from "./CreateChannel.js";
+import { ChannelListRow } from "./ChannelListRow.js";
+
+export interface ChannelListProps {
+  readonly state: PushDrivenReadState<readonly ChannelListResponseChannel[]>;
+  /**
+   * How a row opens its channel — the opener the sidebar section was handed.
+   *
+   * Typed off the seat rather than imported as its own symbol: the deck that owns
+   * the opener is the one that mounted this list, and an auxiliary window's deck is
+   * a different deck. Taking the type from the context is what keeps the two in
+   * step without this file holding a second name for the same callback.
+   */
+  readonly openPane: SidebarSectionContext["openPane"];
+  readonly activity: ActivityIndicatorRegistry;
+  readonly labels: ChannelActivityLabels;
+  /**
+   * True while the session's projection is known-incomplete.
+   *
+   * The list still renders from the last read — a partitioned node shows what it
+   * last knew rather than going blank — under one line saying channel state is
+   * catching up. One line for the whole list, never a mark per row: the projection
+   * is degraded as a whole, and per-row noise would suggest the console knows which
+   * rows are stale.
+   */
+  readonly isCatchingUp: boolean;
+  /**
+   * Re-open the channel stream after a refusal. Rendered only on the failed arm.
+   *
+   * The read's own trigger rather than a rebuild of this session's models, for the
+   * reason the roster's own prop gives: a refusal on one stream says nothing about
+   * the others, and this section is the only way back into a directory that refused.
+   */
+  readonly onReopen: () => void;
+}
+
+export function ChannelList(props: ChannelListProps): React.JSX.Element {
+  const { state, openPane, activity, labels, isCatchingUp, onReopen } = props;
+
+  const ordered = useMemo(
+    () => (state.kind === "loaded" ? orderChannelRows(state.value) : undefined),
+    [state],
+  );
+
+  const openChannel = useCallback(
+    (channelId: string) => {
+      // The registered pane kind, scoped to the registered entity kind. There is no
+      // `channel` pane kind in the closed eleven, and a channel's content IS its
+      // slice of the log, so the timeline pane carrying the channel entity is the
+      // address rather than a workaround for a missing one.
+      openPane({ kind: "timeline", entity: { kind: "channel", id: channelId } });
+    },
+    [openPane],
+  );
+
+  if (state.kind === "not-loaded") {
+    return (
+      <div className="meridian-channels">
+        <Nothing kind="not-loaded" title="Reading this session's channels." />
+      </div>
+    );
+  }
+
+  if (state.kind === "failed") {
+    return (
+      <div className="meridian-channels">
+        <RefusalCard
+          code={state.refusal.code}
+          detail={state.refusal.detail}
+          action={
+            <button type="button" onClick={onReopen}>
+              Try again
+            </button>
+          }
+        />
+      </div>
+    );
+  }
+
+  const rows = ordered ?? { live: [], archived: [] };
+
+  return (
+    <div className="meridian-channels">
+      {isCatchingUp ? (
+        <p className="meridian-channels__degraded" role="status">
+          <DerivedFigure text="Channel state is catching up. These rows are the last the console read." />
+        </p>
+      ) : null}
+
+      {rows.live.length === 0 ? (
+        <Nothing
+          kind="empty"
+          placement="surface"
+          title="This session has no channel the console can see."
+          detail="A named channel gives agents a room of one topic, so a side thread does not land in the middle of the main one."
+        />
+      ) : (
+        <ul className="meridian-channels__list">
+          {rows.live.map((row) => (
+            <ChannelListRow
+              key={row.channel.id}
+              row={row}
+              activity={activity}
+              labels={labels}
+              onOpen={openChannel}
+            />
+          ))}
+        </ul>
+      )}
+
+      {rows.archived.length === 0 ? null : (
+        <details className="meridian-channels__archive">
+          <summary className="meridian-channels__archive-summary">
+            <DerivedFigure
+              text={`${formatCount(rows.archived.length)} archived ${rows.archived.length === 1 ? "channel" : "channels"}`}
+            />
+          </summary>
+          <ul className="meridian-channels__list meridian-channels__list--archived">
+            {rows.archived.map((row) => (
+              <ChannelListRow
+                key={row.channel.id}
+                row={row}
+                activity={activity}
+                labels={labels}
+                onOpen={openChannel}
+              />
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <CreateChannel />
+    </div>
+  );
+}

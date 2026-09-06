@@ -118,9 +118,6 @@ export type GrowthOperationId =
   // gitflow
   | "gitflowBranchContextRead"
   | "gitflowPrPrepare"
-  // the agent roster — the composer's target chip reads the effective paying account
-  // and the pending switch off it, neither of which any entity body carries
-  | "agentList"
   // identity, and the callback-tool registry the approvals pane reads
   | "callerParticipantRead"
   | "callbackToolRegistryRead"
@@ -130,12 +127,24 @@ export type GrowthOperationId =
   | "approvalRuleRevoke"
   | "sessionGoalUpdate"
   | "sessionGoalClear"
+  // agent plane — the four `agent.*` verbs the console calls, in the order a surface
+  // meets them: read the roster, put a sidekick in, move its provider axes, take it
+  // out. Each id is its wire method's tail with the root folded in, which
+  // `growth-operations.test.ts` holds every entry to.
+  | "agentList"
+  | "agentAttach"
+  | "agentConfigUpdate"
+  | "agentDetach"
+  // orchestration — one parent run's child links and the fold of the creates that
+  // were refused, which is the only record refused work leaves anywhere.
+  | "orchestrationChildRunLinkRead"
   // sidekick — the registry's own order; each id is its wire method's tail with the
   // root folded in, which `growth-operations/index.test.ts` holds every entry to.
   | "sidekickDefinitionList"
   | "sidekickDefinitionCreate"
   | "sidekickDefinitionUpdate"
   | "sidekickDefinitionDelete"
+  | "sidekickPeerInvocationSet"
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"

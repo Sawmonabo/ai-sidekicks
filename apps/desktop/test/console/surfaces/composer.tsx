@@ -58,6 +58,7 @@ import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/re
 // built its own would be projecting the run partition a second way.
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../src/renderer/src/console/frame/run-lifecycle-projector.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
@@ -184,7 +185,7 @@ async function mountComposerAt(options: {
     <MessageComposer
       sessionStore={composerSessionStore(options.throughKind)}
       bridge={bridge}
-      draftStore={new DraftStore()}
+      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       route={{ kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId }}
       focusedPane={options.focusedPane}
     />,
@@ -280,7 +281,7 @@ export async function mountRunsPane(): Promise<MountedFamilySurface> {
       sessionStore={scenarioSeededStore(RUNS_SCENARIO, RUN_LIFECYCLE_PROJECTORS)}
       frameStore={new FrameStore()}
       uiStateStore={UiStateStore.opening()}
-      draftStore={new DraftStore()}
+      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       focusHue={undefined}
     />,
   );
@@ -320,7 +321,7 @@ export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
       sessionStore={sessionStore}
       frameStore={new FrameStore()}
       uiStateStore={UiStateStore.opening()}
-      draftStore={new DraftStore()}
+      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       focusHue={undefined}
     />,
   );

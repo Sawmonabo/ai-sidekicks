@@ -7,6 +7,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { bridgeAnswering } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { QUEUE_CREATED } from "./send-router.test-support.js";
@@ -120,7 +121,10 @@ describe("ComposerSendBar — one send in flight", () => {
     const pending = new Promise<void>((resolve) => {
       releaseFirstCall = resolve;
     });
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const { line } = mountBar({
       bridge: bridgeAnswering(async ({ method }) => {
         settleCalls.push(method);
@@ -151,7 +155,10 @@ describe("ComposerSendBar — one send in flight", () => {
     const pending = new Promise<void>((resolve) => {
       releaseFirstCall = resolve;
     });
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const { line, result } = mountBar({
       bridge: bridgeAnswering(async ({ method }) => {
         settleCalls.push(method);
@@ -195,7 +202,10 @@ describe("ComposerSendBar — one send in flight", () => {
     const secondPending = new Promise<void>((resolve) => {
       releaseSecondCall = resolve;
     });
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const { line } = mountBar({
       // The registered reply, not `undefined`: the router parses what comes back, so
       // an unparseable answer settles as a refusal, records nothing sent, and would
@@ -251,7 +261,10 @@ describe("ComposerSendBar — one send in flight", () => {
     // The negative control for the latch itself: it releases in `finally`, so a
     // wedged latch would make the composer send exactly once per window.
     const settleCalls: string[] = [];
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const { line } = mountBar({
       bridge: bridgeAnswering(async ({ method }) => {
         settleCalls.push(method);

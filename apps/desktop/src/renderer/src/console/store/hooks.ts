@@ -338,6 +338,32 @@ function readInitialised(state: SessionStoreState): boolean {
 }
 
 /**
+ * Whether this session's projection is known-incomplete — the store's own sticky
+ * flag, SUBSCRIBED rather than sampled.
+ *
+ * Two sidebar sections read this fact beside a read of their own and each of them
+ * sampled `snapshot().degradedCause` in its render body, which is a read with no
+ * subscription behind it: a store entering or leaving its degraded state without
+ * that section's read settling — a sequence gap in an unrelated partition, a closed
+ * subscription — moved the flag and re-rendered nothing, so the warning stayed
+ * absent, or stayed on screen after a re-pull had cleared it.
+ *
+ * A boolean rather than the cause, because these readers ask only whether one is
+ * standing, and a primitive is compared by value under zustand v5's `Object.is` —
+ * so a transition between two causes costs no render to a surface that renders
+ * neither. A reader that renders the cause itself takes
+ * {@link useSessionDegradedCause} below, which is the same subscription narrowed one
+ * step less.
+ */
+export function useSessionDegraded(store: SessionStore): boolean {
+  return useStore(store.readable, readDegraded);
+}
+
+function readDegraded(state: SessionStoreState): boolean {
+  return state.degradedCause !== undefined;
+}
+
+/**
  * Why the projection is known-incomplete, or `undefined` while it is whole.
  *
  * A hook of its own rather than a `useSessionStore` call at each surface, for the

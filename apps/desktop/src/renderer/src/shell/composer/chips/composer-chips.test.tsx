@@ -215,14 +215,15 @@ describe("TargetChip — every fact on it came from the wire", () => {
             switchId: "switch-1",
             appliesAt: "turn_boundary",
             interruptRequested: false,
+            pendingAxes: [{ axis: "modelId", value: "opus" }],
           },
         })}
       />,
     );
 
-    // The sentence comes from a record total over the two-member vocabulary, so the
-    // wire-verbatim word never reaches a person: `turn_boundary` interpolated into
-    // prose reads as English only by accident.
+    // The sentence comes from the design's own record, so the wire-verbatim word
+    // never reaches a person for a boundary this console has a sentence for:
+    // `turn_boundary` interpolated into prose reads as English only by accident.
     expect(container.textContent).toContain("Switch applies at the next turn");
     expect(container.textContent).not.toContain("turn_boundary");
     // Eligibility is never derived in the renderer, and no wire member carries an
@@ -244,6 +245,7 @@ describe("TargetChip — every fact on it came from the wire", () => {
             switchId: "switch-1",
             appliesAt: "run_boundary",
             interruptRequested: true,
+            pendingAxes: [{ axis: "driverName", value: "codex" }],
           },
         })}
       />,

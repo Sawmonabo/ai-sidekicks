@@ -181,18 +181,26 @@ describe("the application menu", () => {
     ]);
   });
 
-  // Phase 1B's own contract, asserted against the REAL module rather than the
-  // fixture: this phase ships the main-process half only, so no route is
-  // implemented. Phase 1C's route bodies are what flip this.
-  it("implements no auxiliary route at Phase 1B", async () => {
+  // The shipped build's own contract, asserted against the REAL module rather
+  // than the fixture: a route is in that list only once its renderer body has
+  // landed, so the list is a subset of the closed set and never equal to it by
+  // assumption. `agent-console` is there because T-023p-1C-4 shipped its body;
+  // `timeline` waits on T-023p-1C-2's.
+  it("implements only the auxiliary routes whose bodies have shipped", async () => {
     const actual = await vi.importActual<typeof import("../shared/auxiliary-routes.js")>(
       "../shared/auxiliary-routes.js",
     );
 
-    expect(actual.IMPLEMENTED_AUXILIARY_ROUTES).toEqual([]);
+    expect(actual.IMPLEMENTED_AUXILIARY_ROUTES).toEqual(["agent-console"]);
     // ...while the closed set itself is unchanged: "implemented" is a claim
     // about this build, not about which routes exist.
     expect(actual.AUXILIARY_ROUTE_NAMES).toEqual(["timeline", "agent-console"]);
+    // Negative control on the claim above: an implemented route is always a
+    // member of the closed set, and this case would pass over a build that had
+    // put a name in the list that no route grammar knows.
+    for (const route of actual.IMPLEMENTED_AUXILIARY_ROUTES) {
+      expect(actual.AUXILIARY_ROUTE_NAMES).toContain(route);
+    }
   });
 });
 

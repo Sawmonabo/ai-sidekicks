@@ -14,6 +14,7 @@ import {
   answerSteer,
   mountAddressable,
 } from "./composer-send-bar.test-support.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { AddressedDirectiveHistories } from "./directive-line.js";
 import { useDirectiveRecall } from "./use-directive-recall.js";
@@ -86,7 +87,10 @@ describe("useDirectiveRecall — the histories map is built once per mount", () 
     // keeps the first instance and the rest are garbage the moment they are made.
     const built = vi.mocked(AddressedDirectiveHistories);
     built.mockClear();
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const probe = render(<Probe draftStore={draftStore} />);
     const afterFirstRender = built.mock.calls.length;
 

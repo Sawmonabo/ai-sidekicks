@@ -266,6 +266,60 @@ export function formatClockTime(iso: string, locale?: string): string {
 }
 
 /**
+ * An instant a person acts on: the calendar day AND the wall-clock time.
+ *
+ * `formatClockTime` beside it is deliberately date-free, and the reason is stated
+ * there — a ledger row aligns under a day divider that carries the date once. A
+ * surface with no divider has no such carrier, and rendering a bare clock reading
+ * there makes two instants days apart identical on screen. That is the whole
+ * distinction between the two: not precision, but whether anything else on the
+ * surface says which day it is.
+ *
+ * The field list is explicit rather than a `dateStyle` preset, so the reading stays
+ * scannable at one width while the ORDER and the separators remain the locale's
+ * own. Seconds are absent because the instants this answers for — an expiry, a
+ * deadline — are not read to the second, and the same 24-hour clock as its
+ * neighbour so two figures on one surface do not disagree about the format.
+ */
+export function formatDateTime(iso: string, locale?: string): string {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
+    return "—";
+  }
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(instant.epochMilliseconds);
+}
+
+/**
+ * A ratio as a percentage, through `Intl`.
+ *
+ * The input is a FRACTION and not a percentage, because that is what
+ * `Intl.NumberFormat`'s percent style takes — a caller holding a 0-to-100 wire
+ * figure divides at the call site, which is one visible division rather than a
+ * hidden convention this function would have to be read to discover.
+ *
+ * It lives here for the reason every other formatter does: the `%` sign is a unit
+ * label, and `formatRate` is beside it precisely because a unit composed at a call
+ * site is a second formatter. Out-of-range and non-finite inputs answer the same em
+ * dash as its siblings rather than rendering a percentage nobody can act on.
+ */
+export function formatPercent(fraction: number, locale?: string): string {
+  if (!Number.isFinite(fraction) || fraction < 0) {
+    return "—";
+  }
+  return new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: 0,
+  }).format(fraction);
+}
+
+/**
  * A money figure the accountant supplied, in its own currency.
  *
  * Two fractional digits is a FLOOR, not the precision. A currency whose minor

@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { bridgeAnswering } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { refuse } from "../../../console/core/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerChannelTarget } from "../chips/chip-models.js";
 import type { CommandExecutor } from "./command-executor.js";
@@ -64,7 +65,10 @@ interface DrivenController {
 }
 
 function driveController(commandExecutor: CommandExecutor | undefined): DrivenController {
-  const draftStore = new DraftStore({ restartNoticePending: false });
+  const draftStore = new DraftStore({
+    maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+    restartNoticePending: false,
+  });
   let latest: SendController | undefined;
   render(
     <ControllerProbe

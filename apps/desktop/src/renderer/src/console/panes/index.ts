@@ -16,8 +16,10 @@
 //
 // A family exports `register<Family>Panes(registry: ConsolePaneRegistry): void`
 // from its own `index.ts`, claims its pane kinds inside that function, and replaces
-// its own placeholder line below with the import and the call. Its line names the
-// kinds it claims, so a reviewer can read the whole deck off this file.
+// its own placeholder line below with the import and the call. The task marker rides
+// the call rather than being dropped with the comment, so a filled seat is still a
+// seat and the board reads the same whether a family has landed or not. Each line
+// names the kinds it claims, so a reviewer can read the whole deck off this file.
 // A filled seat is therefore one or more `register<X>(<boards>); // T-023p-1C-<n>
 // <word…>` lines carrying that seat's task id and no other, every one of them
 // marked — the shape `panes.test.ts` reads this board as a census against.
@@ -25,6 +27,17 @@
 // on this board that is always the one this function was handed; the family board
 // hands out five, which is why the grammar admits a list rather than the single
 // parameter this file happens to have.
+//
+// THE BODY IS THE FAMILY'S, AND THIS DIRECTORY IS FLAT. A pane body renders one
+// family's vocabulary, so it lives in that family — `agents/agent-console/` for the
+// agent console — and what arrives here is the registrar, through that family's door.
+// `console/panes/` holds composition files and nothing else: this board and its test,
+// one reserved line per family. The chrome a pane wears is not here either — it is
+// `seats/ConsolePaneChrome.tsx`, because the deck that provides its host controls is
+// itself a view family. A `panes/<kind>/` subdirectory would make this directory a
+// seventh view family with a seat board inside it, and every reach from the body into
+// its own family would become a cross-family import; `console-panes-hold-no-body`
+// refuses the shape outright.
 //
 // ONE LINE PER FAMILY, WHICH IS NOT ALWAYS ONE LINE PER SEAT. A task that ships two
 // families ships two doors and therefore two calls, each carrying that task's marker
@@ -67,6 +80,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerAgentConsolePane } from "../agents/index.js";
 import { registerApprovalsPane } from "../approvals/index.js";
 import { registerBrowserPanes } from "../browser/index.js";
 import { registerInspectorPane } from "../inspector/index.js";
@@ -87,7 +101,7 @@ export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   registerRunsPane(registry); // T-023p-1C-3 runs
   registerApprovalsPane(registry); // T-023p-1C-3 approvals
   registerInspectorPane(registry); // T-023p-1C-3 inspector
-  // T-023p-1C-4 agent-console
+  registerAgentConsolePane(registry); // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
   // T-023p-1C-6 workflow-run workflow-builder
   registerBrowserPanes(registry); // T-023p-1C-7 browser

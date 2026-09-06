@@ -7,13 +7,14 @@
 
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { bridgeAnswering } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { mountBar, openSessionStore } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — the store's restart disclosure, once", () => {
   it("says nothing until there is unsent text to say it about", () => {
-    const draftStore = new DraftStore();
+    const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
     const sessionStore = openSessionStore();
     const bridge = bridgeAnswering(async () => undefined).bridge;
 
@@ -33,7 +34,7 @@ describe("ComposerSendBar — the store's restart disclosure, once", () => {
   });
 
   it("keeps it to one composer per window, and out of the ones it never armed", () => {
-    const draftStore = new DraftStore();
+    const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
     const sessionStore = openSessionStore();
     const bridge = bridgeAnswering(async () => undefined).bridge;
 
@@ -50,7 +51,10 @@ describe("ComposerSendBar — the store's restart disclosure, once", () => {
   });
 
   it("negative control: a store that owes no disclosure renders none at all", () => {
-    const draftStore = new DraftStore({ restartNoticePending: false });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+      restartNoticePending: false,
+    });
     const mounted = mountBar({
       bridge: bridgeAnswering(async () => undefined).bridge,
       draftStore,

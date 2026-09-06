@@ -59,7 +59,15 @@
 // arrives as `children` from the family that owns it. Its stylesheet is imported below,
 // where every console family imports its own.
 //
-// NOTHING ELSE HERE RENDERS. No store, no scenario, no second component.
+// NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
+//
+// `absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
+// component it builds is owned by a renderer subtree outside the console: the four
+// shipped Tier-1 families the console absorbed by import. That is not a sibling's
+// body — it is a component with no owner left to mount it, handed to whichever
+// console surface absorbed it. Four view families reach for one of those mounts, so
+// the mounts sit here for exactly the reason every other seat does.
+//
 //
 // THE `@consumedBy` TAGS BELOW are the dead-code gate's one exemption, on the terms
 // `apps/desktop/AGENTS.md` sets: every seat is reached by a task that has not landed,
@@ -191,14 +199,28 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. The chrome's three
-// lines carry no claim any more — a shipped pane body imports all three, which is the
-// event the claims named; `PaneControls` and its context are still claimed by the task
-// that builds the deck, which is the only host that provides them.
+// The pane chrome and the seam its two host controls travel on, and four markers now
+// in two different states — which is the marker rule working rather than two spellings
+// of one thing.
+//
+// The chrome's three lines carry NOTHING. A shipped pane body imports all three, which
+// is the event those claims named, and a surviving `@consumedBy` would fail the
+// dead-code gate under `--treat-tag-hints-as-errors` rather than exempt anything.
+//
+// `PaneControlsContext` carries the `// Consumed by` LINE rather than a tag, which is
+// the other half of the same rule. The agent console is one of the kinds the window
+// model can open, so whether its deck mount reaches the chrome decides whether the
+// detach control can be drawn at all — and the only honest way to assert that is to
+// provide the host's controls through the seam a deck provides them through, which its
+// mounts' suite now does. A test reader makes knip's exemption unnecessary and is not
+// the production reader the barrel census wants, so the claim sits on the marker the
+// package standard pairs with exactly that case. `PaneControls` keeps its TAG: the
+// value a deck constructs is still nobody's until the deck lands, and that reader hands
+// the provider an inline object rather than naming the type.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
+  // Consumed by T-023p-1C-2
   PaneControlsContext,
   /** @consumedBy T-023p-1C-2 */
   type PaneControls,
@@ -214,15 +236,10 @@ export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 // not to bind at all. Both gates were green on that for reasons neither intends — the
 // module's own test keeps it reachable, and it imports two families so it is no
 // orphan — which is why the census below is the thing that says who owes the rebind.
-export {
-  /** @consumedBy T-023p-1C-4 */
-  isCurrentSessionSubject,
-  useSessionScopedState,
-} from "./session-subject.js";
+export { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
 export type {
   /** @consumedBy T-023p-1C-3 */
   SessionScopedKey,
-  /** @consumedBy T-023p-1C-4 */
   SessionSubject,
 } from "./session-subject.js";
 
@@ -235,14 +252,40 @@ export type {
 export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
 export type { SessionDirectoryState } from "./session-directory.js";
 
-// The mounts for the three shipped Tier-1 families the console absorbed, each with
-// the bridge-source guard that decides whether it may be mounted at all.
-//
-// In this family because a mount reads a bridge source and two primitives and nothing
-// above `bridge/`, and on this door because the surfaces that mount them are view
-// families — `frame/legacy-surfaces.ts` holds the slot table and reaches them here
-// like every other consumer.
+// The read discipline every live wire read in this console follows — subscribe
+// first, answer a push with a fresh read, one read per burst through the refresh
+// chokepoint, never a flicker. It sits here rather than in the family that wrote it
+// because four view families now hold one, and a second copy would be a second set
+// of answers to when a surface re-reads.
+// The failure-code vocabulary, the options shape, and the codes' derived union stay
+// inside this family: their readers are the module itself and the suite beside it,
+// and a barrel specifier no cross-family import uses is a dead export rather than a
+// convenience.
 export {
+  PushDrivenRead,
+  consoleRefusalFrom,
+  servedGrowthValueOrRaise,
+  servedValueOrRaise,
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "./push-driven-read.js";
+
+// The console's single copy of the daemon-EVENT cast. The brand
+// `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
+// it, and every caller casts; one module casts, and the day the brand narrows one
+// file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
+// methods and parses both directions, so no seat casts a call any more.
+export { subscribeDaemonEvent } from "./wire-access.js";
+
+// The mounts for the four shipped Tier-1 families the console absorbed, three of them
+// carrying the bridge-source guard that decides whether they may be mounted at all.
+//
+// In this family because a mount reads a bridge source, two primitives and the console's
+// own bridge, and nothing above `bridge/`, and on this door because the surfaces that
+// mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
+// reaches them here like every other consumer.
+export {
+  renderAbsorbedInviteAcceptance,
   renderAbsorbedNodeRoster,
   renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,

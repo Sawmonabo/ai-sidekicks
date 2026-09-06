@@ -15,11 +15,18 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 export {
   APPLY_COALESCE_MS,
   AWAITING_RUN_IDS_NAMED_CAP,
+  BOUNDED_ENUMERATION_MAX_ROWS,
   BROAD_ALLOW_LIST_THRESHOLD,
+  COMPOSING_NAMED_CAP,
+  COMPOSING_RECEIVED_STALE_MS,
+  HIDDEN_INVITE_CAP,
+  IDENTIFIER_MAX_LENGTH,
   INTERVENTION_OUTCOME_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
+  MAXIMUM_LIVE_DRAFT_COUNT,
   MAX_REPAIRABLE_SEQUENCE_GAP,
+  MOUNT_INVENTORY_READ_CAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
   PARTITION_FOLD_THRESHOLD,
@@ -33,17 +40,22 @@ export {
   QUEUE_ROWS_RENDERED_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  RESOLVED_PROSE_INLINE_CAP,
   RUN_STATUS_ROW_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
   SEATED_KNOWN_RUN_CAP,
+  SESSION_BACK_TIER_VISIBLE_CAP,
+  SETTLED_INVITE_VISIBLE_CAP,
   SIDEBAR_DEFAULT_WIDTH_PX,
   SIDEBAR_MAX_WIDTH_PX,
   SIDEBAR_MIN_WIDTH_PX,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
+  TOOL_ALLOWLIST_NAMED_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
+  WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
@@ -63,16 +75,19 @@ export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./f
 // from who might want a duration. A `core/` sibling reaches `./instant.js` and a
 // suite reaches the declaring module, so neither is a reader a door line can be
 // retired by, and a claim naming one could never be discharged.
+//
+// `MILLISECONDS_PER_SECOND` is absent for exactly that reason, measured over the same
+// six tips: none of them carries a reader of it. `instant.ts` derives the minute from
+// it inside the module that declares it and `instant.test.ts` reaches `./instant.js`,
+// so the claim this line used to carry named a task that could never discharge it —
+// and because the tag is what suppresses the dead-code finding, the line was invisible
+// to the gate that would otherwise have reported it. A symbol no task will name is
+// deleted from the door rather than tagged.
 export {
   compareInstants,
-  /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_DAY,
-  /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_HOUR,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   MILLISECONDS_PER_MINUTE,
-  /** @consumedBy T-023p-1C-4 */
-  MILLISECONDS_PER_SECOND,
   parseInstant,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type Instant,
