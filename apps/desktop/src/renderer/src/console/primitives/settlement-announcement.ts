@@ -24,6 +24,16 @@
 // `SurfaceAbsence` and `chord-format.ts` beside it are here on, and it is why this is a
 // primitive rather than a settings module that grew readers.
 //
+// IT OWNS NO LATCH. `reading-announcement.ts` next door states the "once per distinct
+// sentence, replaced each pass" rule and holds the ref that enforces it; this module is
+// the SCALAR arity of the same rule and composes over that latch rather than keeping a
+// second copy of it. The place two copies of a latch drift is the comparison, and a
+// drifted comparison is a sentence a person hears twice with every test still green.
+// What is left here is the one thing the two arities genuinely disagree about: an
+// unsettled read makes NO claim, where a complete reading claims that nothing is
+// incomplete — so this module hands the latch `undefined` and the set arity hands it an
+// empty array, and only the second forgets what it said.
+//
 // WHY IT IS NOT `frame/banner-announcements.ts`. That module diffs a LIST by id and
 // speaks into the assertive lane, because a refusal banner says the whole room's
 // capabilities moved. This one holds a single string and speaks politely, because a
@@ -31,9 +41,9 @@
 // nobody else. Folding them together would need a shape that is a set on one side and
 // a scalar on the other, and would put the two politeness lanes behind one call.
 
-import { useEffect, useRef } from "react";
+import { useMemo } from "react";
 
-import { useAnnounce } from "./LiveAnnouncerProvider.js";
+import { useAnnounceOncePerSentence } from "./reading-announcement.js";
 
 /**
  * Announce a read's settlement, once per distinct sentence, in the polite lane.
@@ -45,17 +55,8 @@ import { useAnnounce } from "./LiveAnnouncerProvider.js";
  *   for silence.
  */
 export function useSettlementAnnouncement(sentence: string | undefined): void {
-  const announce = useAnnounce();
-  // The last thing this surface said. A ref rather than state, because it must not
-  // cause a render — and because what it guards is the effect's next run, which is
-  // scheduled before any render it could trigger would land.
-  const lastAnnouncedRef = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (sentence === undefined || sentence === lastAnnouncedRef.current) {
-      return;
-    }
-    lastAnnouncedRef.current = sentence;
-    announce(sentence);
-  }, [sentence, announce]);
+  // Memoised on the sentence, so the latch's effect re-runs when the settlement moves
+  // and not once per render — which is what depending on a string gave before.
+  const sentences = useMemo(() => (sentence === undefined ? undefined : [sentence]), [sentence]);
+  useAnnounceOncePerSentence(sentences);
 }
