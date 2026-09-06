@@ -93,7 +93,7 @@ import {
   WORKFLOWS_VERSION_CHAIN_CALL,
 } from "../scenarios/workflows.js";
 import { declaredWorkflowScope, requireScenarioWorkflowSubject } from "./fixture-workflow-scope.js";
-import { growthUnavailable, type GrowthPort } from "../growth-port/index.js";
+import { growthUnscriptedReply, type GrowthPort } from "../growth-port/index.js";
 import type { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
 
 /**
@@ -161,8 +161,14 @@ export function fixtureWorkflowReads(
       // is the value's rather than this module's: `WorkflowRunSnapshot` requires a run
       // id, a session, a pinned version, a state, and a start instant, so an "empty"
       // run would be five invented facts, and a pane offers controls on what it holds.
+      //
+      // The refusal names the SCENARIO's gap and never an unbuilt wire: this fixture
+      // serves the operation, so `wire-unregistered` would be false about the build
+      // and would send a reader to a document owing a wire that already has a
+      // stand-in — the rule `fixture-growth-port.ts` states in full and holds every
+      // served operation to.
       return answerFromScriptedReply(engine, "workflow.runRead", "workflowRunRead", request, () =>
-        growthUnavailable("workflowRunRead"),
+        growthUnscriptedReply("workflowRunRead", "workflow.runRead"),
       );
     },
     workflowPhaseOutputRead: async (request) => {
@@ -183,7 +189,7 @@ export function fixtureWorkflowReads(
         "workflow.phaseOutputRead",
         "workflowPhaseOutputRead",
         request,
-        () => growthUnavailable("workflowPhaseOutputRead"),
+        () => growthUnscriptedReply("workflowPhaseOutputRead", "workflow.phaseOutputRead"),
       );
     },
     workflowRunList: async (request) => {
@@ -228,7 +234,7 @@ export function fixtureWorkflowReads(
         WORKFLOWS_VERSION_CHAIN_CALL,
         "workflowVersionChainRead",
         request,
-        () => growthUnavailable("workflowVersionChainRead"),
+        () => growthUnscriptedReply("workflowVersionChainRead", WORKFLOWS_VERSION_CHAIN_CALL),
       );
     },
   };

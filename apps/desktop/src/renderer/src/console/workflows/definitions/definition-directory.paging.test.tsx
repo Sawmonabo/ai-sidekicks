@@ -12,6 +12,7 @@ import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { growthUnavailable } from "../../bridge/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { PROBE_SESSION_ID, SECOND_PAGE_CURSOR, settle } from "../workflows-probe.test-support.js";
 import type { WorkflowDefinitionDirectory } from "./definition-directory.js";
 import {
@@ -28,7 +29,7 @@ import {
 async function continueReading(observed: readonly WorkflowDefinitionDirectory[]): Promise<void> {
   await act(async () => {
     latest(observed).continueReading();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
