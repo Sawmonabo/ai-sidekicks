@@ -20,6 +20,9 @@
 // the call rather than being dropped with the comment, so a filled seat is still a
 // seat and the board reads the same whether a family has landed or not. Each line
 // names the kinds it claims, so a reviewer can read the whole deck off this file.
+// A filled seat is therefore one or more `register<X>(registry); // T-023p-1C-<n>
+// <word…>` lines carrying that seat's task id and no other, every one of them
+// marked — the shape `panes.test.ts` reads this board as a census against.
 //
 // ONE LINE PER FAMILY, WHICH IS NOT ALWAYS ONE LINE PER SEAT. A task that ships two
 // families ships two doors and therefore two calls, each carrying that task's marker
