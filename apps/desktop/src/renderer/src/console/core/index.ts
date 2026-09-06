@@ -46,15 +46,15 @@ export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./f
 export {
   compareInstants,
   parseInstant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type Instant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type InstantOffsetPolicy,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type InstantOrder,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type InstantReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type MalformedInstant,
 } from "./instant.js";
 // The registry classes leave through this door; the two symbols only their own
@@ -68,17 +68,17 @@ export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } fr
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
 export {
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   type ConsoleRefusalExtensions,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   type ExtendedConsoleRefusal,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   type WireRetryHint,
 } from "./refusal-extensions.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   type RejectionFallback,
   type WireRefusal,
 } from "./wire-rejection.js";

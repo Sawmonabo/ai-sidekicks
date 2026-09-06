@@ -16,11 +16,11 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
-import type { SidebarSectionContext } from "../../seats/index.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
 import { RepoSection } from "./RepoSection.js";
 import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 import { CLONE_EXPIRY_COPY } from "./worktree-model.js";
+import { sectionContext } from "../pane-contexts.test-support.js";
 
 /** The clone list's own container, which is what separates it from the mount list. */
 const CLONE_LIST_SELECTOR = ".meridian-repo-section__clones";
@@ -61,12 +61,11 @@ interface SectionUnderTest {
  */
 function renderSection(scenario: ConsoleScenario): SectionUnderTest {
   const bridge = createFixtureBridge({ scenario });
-  const context: SidebarSectionContext = {
+  const context = sectionContext({
     isOpen: true,
     bridge,
     sessionStore: new SessionStore({ sessionId: scenario.sessionId }),
-    openPane: () => undefined,
-  };
+  });
   const { container } = render(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       <RepoSection context={context} />

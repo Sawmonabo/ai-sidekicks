@@ -18,6 +18,7 @@ import {
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 
 /** Whether one recorded request actually carried bytes, rather than describing them. */
 function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {
@@ -41,7 +42,7 @@ describe("ingest client — the payload reaches the daemon", () => {
     const byteLength = ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7;
     const payload = patternedBytes(byteLength);
     client.attach(sourceOver("attachment-three", "capture.bin", byteLength));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     // Three requests, consecutively numbered from zero, each carrying exactly the slice
     // at its own offset — the chunks tile the file with nothing dropped, repeated, or
@@ -76,7 +77,7 @@ describe("ingest client — the payload reaches the daemon", () => {
     const client = clientOver(port);
     port.refuseChunksWith(INGEST_CAPACITY_EXHAUSTED_CODE);
     client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     expect(port.chunkCalls).toHaveLength(1);
     expect(client.snapshot[0]?.state).toBe("refused");
@@ -94,7 +95,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     const client = clientOver(port);
     const byteLength = ATTACHMENT_CHUNK_BYTE_CAP + 7;
     client.attach(sourceOver("attachment-four", "capture.bin", byteLength));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 1]);
     expect(client.snapshot[0]?.receivedBytes).toBe(byteLength);
@@ -106,7 +107,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-7", receivedBytes: 300 });
     client.attach(sourceOver("attachment-four", "notes.md", 300));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     expect(port.chunkCalls).toHaveLength(1);
     expect(client.snapshot[0]?.state).toBe("refused");
@@ -124,7 +125,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
     client.attach(sourceOver("attachment-four", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     expect(port.chunkCalls).toHaveLength(1);
     expect(client.snapshot[0]?.state).toBe("refused");
@@ -138,7 +139,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-four", "notes.md", 300));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     expect(client.snapshot[0]?.state).toBe("complete");
     expect(client.snapshot[0]?.refusal).toBeUndefined();

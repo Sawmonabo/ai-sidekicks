@@ -26,6 +26,7 @@ import { type ConsoleDiffModel } from "./diff-model.js";
 import { paneSubjectCrumb, paneTrailCrumbs } from "../pane-chrome.test-support.js";
 
 import { DiffPane, type DiffPaneProps } from "./DiffPane.js";
+import { paneContext } from "../pane-contexts.test-support.js";
 
 /** This pane's own address arm, taken from the prop rather than restated. */
 type DiffPaneContext = DiffPaneProps["context"];
@@ -33,14 +34,14 @@ type DiffPaneContext = DiffPaneProps["context"];
 /**
  * A pane context whose collaborators are never reached.
  *
- * The cast is `legacy-surfaces.test.ts`'s: these cases are about what the chrome
- * renders from the address, and a real bridge, store pair, and persistence stack
- * would be four constructions none of the assertions below can observe. The ADDRESS
- * half is not cast — the entity parameter is the arm's own, so a case handing this
- * pane a subject a diff is never opened over fails to compile here.
+ * These cases are about what the chrome renders from the address, and a real bridge,
+ * store pair, and persistence stack would be constructions none of the assertions
+ * below can observe — so the shared builder is handed the address alone. The entity
+ * parameter is the arm's own, so a case handing this pane a subject a diff is never
+ * opened over fails to compile here.
  */
 function contextFor(entity: DiffPaneContext["entity"]): DiffPaneContext {
-  return { kind: "diff", entity, paneId: "pane-diff-1" } as unknown as DiffPaneContext;
+  return paneContext({ address: { kind: "diff", entity }, paneId: "pane-diff-1" });
 }
 
 const WORKSPACE_ENTITY = { kind: "workspace", id: "workspace-sidekicks" } as const;

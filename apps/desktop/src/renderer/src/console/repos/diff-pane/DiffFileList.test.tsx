@@ -26,27 +26,18 @@ import {
   DiffLayoutFixture,
 } from "./diff-layout-fixture.test-support.js";
 import { DiffFileList } from "./DiffFileList.js";
-import { filterTo, fixtureFileAt, renderFileList } from "./diff-file-list.test-support.js";
+import {
+  REPOSITORY_WIDE_DIFF,
+  filterTo,
+  firstEntry,
+  fixtureFileAt,
+  renderFileList,
+  tabbableEntryCount,
+} from "./diff-file-list.test-support.js";
 import { HIDDEN_SELECTION_COPY } from "./diff-file-entries.js";
 
 const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
-
-/**
- * A repository-wide patch: five thousand files, one changed line each.
- *
- * Built once for the whole file, because two describes need it and a change set this
- * size is the only subject a windowing claim can be made against at all.
- */
-const REPOSITORY_WIDE_DIFF = buildDiffFixture({
-  fileCount: 5_000,
-  hunksPerFile: 1,
-  linesPerHunk: 1,
-  precedingContextPerHunk: 0,
-  agentAttributionEveryNthLine: 0,
-  extendedHeaderFiles: false,
-  terminalNewlineFile: false,
-});
 
 const layout = new DiffLayoutFixture();
 
@@ -261,21 +252,6 @@ describe("diff file list — the filter belongs to the change set it filters", (
 });
 
 describe("diff file list — a move made in a list that then changed", () => {
-  /** The mounted entries the page can tab to, which is at most one of them. */
-  function tabbableEntryCount(container: HTMLElement): number {
-    return [...container.querySelectorAll(".meridian-diff-files__entry")].filter(
-      (entry) => entry.getAttribute("tabindex") === "0",
-    ).length;
-  }
-
-  function firstEntry(container: HTMLElement): HTMLElement {
-    const entry = container.querySelector<HTMLElement>(".meridian-diff-files__entry");
-    if (entry === null) {
-      throw new Error("the list drew no entry");
-    }
-    return entry;
-  }
-
   it("keeps the list in the page's tab order after a filter comes and goes", () => {
     // The whole defect: the move survived the filter that shrank the entry set, so
     // clearing the filter restored an index a thousand rows below the window and left

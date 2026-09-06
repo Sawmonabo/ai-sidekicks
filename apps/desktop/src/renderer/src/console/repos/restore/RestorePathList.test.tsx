@@ -10,15 +10,15 @@
 // has no layout engine and reports every box as zero; `@tanstack/react-virtual` reads
 // the scroller's height and each row's through `offsetHeight`, and against a
 // zero-height scroller it correctly answers with an empty window. So a case that
-// asserts anything about a rendered row has to say how tall the container is, and the
-// shim below is where it says it. It is the same role `repos/diff-pane/diff-layout-fixture.test-support.ts`
-// plays for the diff pane; that module keys on the diff's own class names and reads the
-// diff's own row height, so the two cannot be one until a lane owns both files and can
-// hoist a shared one into `test/console/`.
+// asserts anything about a rendered row has to say how tall the container is. The
+// shadow itself is `repos/element-height-shim.test-support.js`'s — one write on
+// `HTMLElement.prototype` for the whole family, because that property is global to the
+// environment — and what stays here is the rule this list measures by.
 
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ElementHeightShim } from "../element-height-shim.test-support.js";
 import {
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
@@ -38,31 +38,20 @@ const SCROLLER_HEIGHT_PX = RESTORE_PATH_VISIBLE_ROW_CAP * RESTORE_PATH_ROW_HEIGH
  */
 const MAXIMUM_WINDOW_ROW_COUNT = RESTORE_PATH_VISIBLE_ROW_CAP + 3;
 
-let restoreOffsetHeight: (() => void) | undefined;
+const heights = new ElementHeightShim();
 
 beforeEach(() => {
-  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
-  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-    configurable: true,
-    get(this: HTMLElement): number {
-      if (this.classList.contains("meridian-restore-disclosure__path-scroller")) {
-        return SCROLLER_HEIGHT_PX;
-      }
-      return this.tagName === "LI" ? RESTORE_PATH_ROW_HEIGHT_PX : 0;
-    },
-  });
-  restoreOffsetHeight = () => {
-    if (original === undefined) {
-      Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
-    } else {
-      Object.defineProperty(HTMLElement.prototype, "offsetHeight", original);
-    }
-  };
+  heights.install((element) =>
+    element.classList.contains("meridian-restore-disclosure__path-scroller")
+      ? SCROLLER_HEIGHT_PX
+      : element.tagName === "LI"
+        ? RESTORE_PATH_ROW_HEIGHT_PX
+        : 0,
+  );
 });
 
 afterEach(() => {
-  restoreOffsetHeight?.();
-  restoreOffsetHeight = undefined;
+  heights.restore();
 });
 
 /** A run of distinct paths, as long as a case asks for. */

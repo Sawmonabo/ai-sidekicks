@@ -71,10 +71,8 @@ import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primiti
 import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";
 import { registerRepos } from "../../../src/renderer/src/console/repos/index.js";
 import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
-import {
-  sidebarSectionRegistry,
-  type SidebarSectionContext,
-} from "../../../src/renderer/src/console/seats/index.js";
+import { sectionContext } from "../../../src/renderer/src/console/repos/pane-contexts.test-support.js";
+import { sidebarSectionRegistry } from "../../../src/renderer/src/console/seats/index.js";
 
 /**
  * The repos sidebar section, open, with its two mounts read.
@@ -90,12 +88,7 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
     throw new Error("the repos family registered no sidebar section");
   }
   const { bridge, sessionStore } = scenarioCollaborators();
-  const context: SidebarSectionContext = {
-    isOpen: true,
-    bridge,
-    sessionStore,
-    openPane: () => undefined,
-  };
+  const context = sectionContext({ isOpen: true, bridge, sessionStore });
   const { container } = await renderSettled(
     // The announcer is the section's environment: each root's gate announces its own
     // settlement, and `useAnnounce` throws outside the provider on purpose.

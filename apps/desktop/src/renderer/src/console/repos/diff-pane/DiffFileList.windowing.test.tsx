@@ -17,25 +17,15 @@ import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
 } from "./diff-layout-fixture.test-support.js";
-import { filterTo, fixtureFileAt, renderFileList } from "./diff-file-list.test-support.js";
+import {
+  REPOSITORY_WIDE_DIFF,
+  filterTo,
+  firstEntry,
+  fixtureFileAt,
+  renderFileList,
+} from "./diff-file-list.test-support.js";
 
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
-
-/**
- * A repository-wide patch: five thousand files, one changed line each.
- *
- * Built once for the whole file, because two describes need it and a change set this
- * size is the only subject a windowing claim can be made against at all.
- */
-const REPOSITORY_WIDE_DIFF = buildDiffFixture({
-  fileCount: 5_000,
-  hunksPerFile: 1,
-  linesPerHunk: 1,
-  precedingContextPerHunk: 0,
-  agentAttributionEveryNthLine: 0,
-  extendedHeaderFiles: false,
-  terminalNewlineFile: false,
-});
 
 const layout = new DiffLayoutFixture();
 
@@ -119,14 +109,6 @@ describe("diff file list — reaching an entry the window has not mounted", () =
   function focusedEntryIndex(container: HTMLElement): number {
     const row = container.ownerDocument.activeElement?.closest(".meridian-diff-files__row");
     return Number(row?.getAttribute("data-index") ?? Number.NaN);
-  }
-
-  function firstEntry(container: HTMLElement): HTMLElement {
-    const entry = container.querySelector<HTMLElement>(".meridian-diff-files__entry");
-    if (entry === null) {
-      throw new Error("the list drew no entry");
-    }
-    return entry;
   }
 
   it("moves between entries on the arrow keys, because tab can only reach the window", () => {

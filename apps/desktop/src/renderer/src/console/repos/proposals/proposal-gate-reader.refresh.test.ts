@@ -12,6 +12,7 @@ import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-suppor
 import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
 import {
   BRANCH_ROOT_UNADDRESSABLE_COPY,
   EPHEMERAL_CLONE_UNADDRESSABLE_COPY,
@@ -74,17 +75,9 @@ describe("ProposalGateReader — the reasons it reads again", () => {
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.applyBatch([
-      {
-        // The canonical envelope names the row as well as its position, so a frame
-        // the store admits carries one.
-        id: "event-1",
-        sessionId: REPOS_SCENARIO.sessionId,
-        sequence: 1,
-        kind: "workspace.stale",
-        occurredAt: "2026-01-01T09:05:01.900Z",
-      },
-    ]);
+    // The canonical envelope names the row as well as its position, so a frame the
+    // store admits carries one.
+    sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "workspace.stale", 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -108,15 +101,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
     reader.dispose();
     sessionStore.markDegraded("subscription-closed");
     sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-    sessionStore.applyBatch([
-      {
-        id: "event-1",
-        sessionId: REPOS_SCENARIO.sessionId,
-        sequence: 1,
-        kind: "workspace.stale",
-        occurredAt: "2026-01-01T09:05:02.900Z",
-      },
-    ]);
+    sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "workspace.stale", 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(performedBeforeDispose);
@@ -217,15 +202,7 @@ describe("ProposalGateReader — the roots the registered read has no key for", 
     // root; neither may buy a call here, because the answer would be the same refusal.
     store.markDegraded("subscription-closed");
     store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-    store.applyBatch([
-      {
-        id: "event-1",
-        sessionId: REPOS_SCENARIO.sessionId,
-        sequence: 1,
-        kind: "workspace.stale",
-        occurredAt: "2026-01-01T09:05:01.900Z",
-      },
-    ]);
+    store.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "workspace.stale", 1)]);
     await settle(clock, reader);
 
     expect(port.calls()).toBe(0);

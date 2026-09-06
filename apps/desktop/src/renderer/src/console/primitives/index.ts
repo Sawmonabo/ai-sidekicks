@@ -61,37 +61,37 @@ export { Nothing } from "./Nothing.js";
 // this case and the sentences disagreed, so a family that reached past the barrel for
 // a local copy would be one more of them.
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   PartialReadNotice,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   ReadingState,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   RefusalScope,
 } from "./partial-read.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   READING_STATE_KINDS,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   REFUSAL_SCOPES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   behindProducerReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   partialReadNotices,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   readingNoticeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   uncheckedCoverageReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   unreadableDeliveryReading,
 } from "./partial-read.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   PartialReadProps,
 } from "./PartialRead.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   PartialRead,
 } from "./PartialRead.js";
 
@@ -113,7 +113,7 @@ export {
 // is a policy question moved out of the primitive that currently answers it and into
 // every call site. The family that would spend it owns that call.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-7 */
   useReadingAnnouncement,
 } from "./reading-announcement.js";
 
@@ -159,12 +159,12 @@ export { RefusalCard } from "./RefusalCard.js";
 // the family that first imports a symbol deletes its tag in the same commit.
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   ChipProps,
   ChipTone,
 } from "./Chip.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   CHIP_TONES,
   Chip,
 } from "./Chip.js";
@@ -186,6 +186,14 @@ export {
 // dead-code gate cannot see, since the tag legitimately suppressed the finding. They
 // are deleted rather than re-tagged; the co-located tests that do exercise those
 // symbols read the module that declares them, which is what the census rule asks.
+//
+// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. Ten lines here
+// were re-derived first and the other thirty-nine across this door, `core/`, and
+// `seats/` were left carrying the same falsified name. Each was re-checked against what
+// the family's shipped modules actually import through the door, and the claim was
+// dropped from every one of them; the one line whose only claim was that task's — the
+// inline-card body descriptor in `seats/` — had no production reader anywhere and was
+// deleted with its tag rather than left as an untagged export.
 export { WindowedListRow } from "./WindowedListRow.js";
 export { useWindowedRovingIndex } from "./windowed-row-index.js";
 
@@ -199,11 +207,11 @@ export {
 } from "./LedgerRow.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   DerivedFigureProps,
 } from "./DerivedFigure.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
 } from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
@@ -219,9 +227,9 @@ export {
 } from "./WireFigure.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   ByteUnitLabel,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
@@ -229,11 +237,11 @@ export {
   formatClockTime,
   formatCount,
   formatDuration,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   formatMoney,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   formatRate,
   formatRelativeTime,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   formatWireString,
 } from "./wire-figures.js";

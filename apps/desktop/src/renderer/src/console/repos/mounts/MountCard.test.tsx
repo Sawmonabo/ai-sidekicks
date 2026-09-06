@@ -19,15 +19,15 @@ import { MountCard } from "./MountCard.js";
 import { NO_WORKSPACE_REFUSALS } from "./repo-mounts-model.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
-import { CANONICAL_ROOT, ENTERED_PATH, mount } from "./repo-mounts.test-support.js";
+import {
+  CANONICAL_ROOT,
+  ENTERED_PATH,
+  mount,
+  workspaceRow,
+  worktreeRecord,
+} from "./repo-mounts.test-support.js";
 
-const WORKSPACE: RepoWorkspaceRow = {
-  id: "workspace-sidekicks",
-  repoMountId: "mount-sidekicks",
-  executionMode: "read-only",
-  state: "ready",
-  fsRoot: CANONICAL_ROOT,
-} as RepoWorkspaceRow;
+const WORKSPACE: RepoWorkspaceRow = workspaceRow();
 
 /**
  * A bridge whose gate read refuses, which is what the live bridge does.
@@ -180,16 +180,13 @@ describe("MountCard — the roots, and the read that did not answer", () => {
     "The execution-root read is not registered yet.",
   );
 
-  const ROOT: WorktreeStatusRecord = {
+  const ROOT: WorktreeStatusRecord = worktreeRecord({
     worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
-    repoMountId: "mount-sidekicks",
     branchName: "feat/rate-limit-wiring",
     fsRoot: "/Users/dev/roots/rate-limit-wiring",
-    state: "ready",
-    createdBySessionId: "session-repos",
     createdAt: "2026-01-01T09:05:00.700Z",
     updatedAt: "2026-01-01T09:05:00.700Z",
-  } as WorktreeStatusRecord;
+  });
 
   /** What the empty arm says. Asserted by its own words, since it is what must be absent. */
   const NO_ROOT_COPY = /No execution root on disk/u;
@@ -219,10 +216,7 @@ describe("MountCard — the roots, and the read that did not answer", () => {
 
 describe("the in-place root's gate", () => {
   /** The same workspace, executing where the mount itself is checked out. */
-  const IN_PLACE_WORKSPACE: RepoWorkspaceRow = {
-    ...WORKSPACE,
-    executionMode: "branch",
-  } as RepoWorkspaceRow;
+  const IN_PLACE_WORKSPACE: RepoWorkspaceRow = workspaceRow({ executionMode: "branch" });
 
   it("draws a gate under a workspace whose execution root IS the mount's checkout", () => {
     // `branch` mode mints no worktree and no clone, so a card that built gates only

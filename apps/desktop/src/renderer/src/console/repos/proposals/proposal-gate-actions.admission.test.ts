@@ -19,6 +19,7 @@ import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-suppor
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
+import { manualGate } from "../held-calls.test-support.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";
 import {
   ACCEPTED_ACTION,
@@ -48,24 +49,19 @@ describe("ProposalGateActions — one act at a time", () => {
 
   function bridgeHoldingPreparation(): HeldPreparation {
     let calls = 0;
-    let release = (): void => {};
-    const held = new Promise<void>((settleHeld) => {
-      release = (): void => {
-        settleHeld();
-      };
-    });
+    const gate = manualGate();
     return {
       bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
         gitflowBranchContextRead: async () => SERVED_CONTEXT,
         gitflowPrPrepare: async () => {
           calls += 1;
-          await held;
+          await gate.promise;
           return SERVED_PREPARATION;
         },
         gitActionExecute: async () => ACCEPTED_ACTION,
       }),
       prepareCallCount: () => calls,
-      answer: release,
+      answer: gate.open,
     };
   }
 
@@ -155,12 +151,7 @@ describe("ProposalGateActions — the context an act was admitted against", () =
   function bridgeHoldingIdentity(): HeldIdentityPort {
     let branchContext: GrowthPortAnswer<"gitflowBranchContextRead"> = SERVED_CONTEXT;
     let gitActionCalls = 0;
-    let release = (): void => {};
-    const held = new Promise<void>((settleHeld) => {
-      release = (): void => {
-        settleHeld();
-      };
-    });
+    const gate = manualGate();
     return {
       bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
         gitflowBranchContextRead: async () => branchContext,
@@ -170,14 +161,14 @@ describe("ProposalGateActions — the context an act was admitted against", () =
           return ACCEPTED_ACTION;
         },
         callerParticipantRead: async () => {
-          await held;
+          await gate.promise;
           return SERVED_CALLER_PARTICIPANT;
         },
       }),
       serveContext: (answer: GrowthPortAnswer<"gitflowBranchContextRead">) => {
         branchContext = answer;
       },
-      answerIdentity: release,
+      answerIdentity: gate.open,
       gitActionCallCount: () => gitActionCalls,
     };
   }

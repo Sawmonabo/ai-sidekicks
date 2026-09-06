@@ -23,6 +23,7 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
+import { handAnsweredCall } from "../held-calls.test-support.js";
 import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS } from "../repo-lifecycle-events.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
@@ -306,13 +307,10 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // The generation stamp, exercised: the read is in flight when the pane unmounts,
     // and its answer arrives afterwards with a stamp that is no longer current.
     const clock = new ManualClock();
-    let releaseList: (answer: GrowthPortAnswer<"artifactList">) => void = () => undefined;
+    const listCall = handAnsweredCall<GrowthPortAnswer<"artifactList">>();
     const reader = new ArtifactPaneReader({
       bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
-        artifactList: () =>
-          new Promise((resolve) => {
-            releaseList = resolve;
-          }),
+        artifactList: listCall.invoke,
         artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
       }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
@@ -324,7 +322,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     expect(reader.snapshot.artifacts.kind).toBe("loading");
 
     reader.dispose();
-    releaseList({ status: "served", value: [SERVED_SUMMARY] });
+    listCall.open({ status: "served", value: [SERVED_SUMMARY] });
     await drainMicrotasks();
 
     expect(reader.snapshot.artifacts.kind).toBe("loading");

@@ -15,17 +15,14 @@
 // viewport satisfies without virtualizing anything. Stating the height makes the
 // bound a bound.
 //
-// IT IS NOT IMPORTED BY ANY RENDERING PATH, and the FILE NAME is what says so. This
-// module shadows a property on `HTMLElement.prototype` — global to the environment,
-// which is why installing and restoring are one object's two methods rather than a
-// module-level flag two files could both flip — and a shim of that reach reached from
-// a rendering path would be a production surface monkey-patching the DOM. Under the
-// `.test-support.ts` suffix the claim stops being a sentence in a header: the shared
-// source walk every architecture gate reads excludes these modules, and the layering
-// gate admits them as roots precisely because their only legitimate dependents are
-// the suites it removes from the graph. The rule `diff-fixture.test-support.ts` keeps by hand, this
-// one keeps by name.
+// THE SHADOW IS NOT THIS MODULE'S AND THE RULE IS. `repos/element-height-shim.test-support.ts`
+// owns writing the property on `HTMLElement.prototype` and taking it back, because that
+// write is global to the environment and this family has two windowed lists that each
+// needed it — written twice, one of the two copies could leak a shadow into every later
+// file in the same worker. What stays here is the only part that is the diff's: which
+// element is a scroller, which is a row, and which row the wrap toggle grew.
 
+import { ElementHeightShim } from "../element-height-shim.test-support.js";
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
 
 /** A row the wrap toggle grew, and how tall it turned out. */
@@ -58,29 +55,14 @@ export const DIFF_FIXTURE_VIEWPORT_HEIGHT_PX = 800;
  * the plain reading stays where it is.
  */
 export class DiffLayoutFixture {
-  #restore: (() => void) | undefined;
+  readonly #shim = new ElementHeightShim();
 
   public install(options: DiffLayoutFixtureOptions): void {
-    this.restore();
-    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-      configurable: true,
-      get(this: HTMLElement): number {
-        return laidOutHeightPx(this, options);
-      },
-    });
-    this.#restore = () => {
-      if (original === undefined) {
-        Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
-      } else {
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", original);
-      }
-    };
+    this.#shim.install((element) => laidOutHeightPx(element, options));
   }
 
   public restore(): void {
-    this.#restore?.();
-    this.#restore = undefined;
+    this.#shim.restore();
   }
 }
 

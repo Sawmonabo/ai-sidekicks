@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RepoWorkspaceRow } from "../mounts/repo-mounts-model.js";
 import type { WorktreeStatusRecord } from "../mounts/worktree-model.js";
+import { workspaceRow } from "../mounts/repo-mounts.test-support.js";
 import {
   MOUNTLESS_WORKTREE_COPY,
   UNPAIRED_WORKTREE_COPY,
@@ -18,8 +19,12 @@ import {
 const GIT_MOUNT = "019b7b30-0280-7c11-8420-b1a5c0de2003";
 const OTHER_MOUNT = "019b7b30-0280-7c11-8420-b1a5c0de2004";
 
-function workspace(id: string, repoMountId: string, executionMode = "worktree"): RepoWorkspaceRow {
-  return { id, repoMountId, executionMode, state: "ready" } as RepoWorkspaceRow;
+function workspace(
+  id: string,
+  repoMountId: string,
+  executionMode: RepoWorkspaceRow["executionMode"] = "worktree",
+): RepoWorkspaceRow {
+  return workspaceRow({ id, repoMountId, executionMode });
 }
 
 function worktree(worktreeId: string, repoMountId: string): WorktreeStatusRecord {

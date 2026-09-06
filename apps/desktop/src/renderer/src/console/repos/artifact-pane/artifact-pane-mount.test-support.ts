@@ -31,6 +31,7 @@ import { SessionStore } from "../../store/index.js";
 import { scenarioManualClock } from "../scenario-clock.test-support.js";
 import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
 import { artifactBridgeAnswering } from "./artifact-pane.test-support.js";
+import { paneContext } from "../pane-contexts.test-support.js";
 
 /**
  * What a mount hands back: everything `render` returns, plus the clock the pane is on.
@@ -81,9 +82,8 @@ export function contextFor(
     readonly sessionStore?: SessionStore;
   } = {},
 ): ArtifactPaneContext {
-  return {
-    kind: "artifact",
-    entity,
+  return paneContext({
+    address: { kind: "artifact", entity },
     paneId: "pane-artifact-1",
     bridge: reached.bridge ?? artifactBridgeAnswering({}),
     // A REAL store rather than a stub carrying an id: the reader now subscribes to it
@@ -94,7 +94,7 @@ export function contextFor(
       (reached.sessionId === undefined
         ? undefined
         : new SessionStore({ sessionId: reached.sessionId })),
-  } as unknown as ArtifactPaneContext;
+  });
 }
 
 /** The delete confirm is two steps in place; both are pressed here. */

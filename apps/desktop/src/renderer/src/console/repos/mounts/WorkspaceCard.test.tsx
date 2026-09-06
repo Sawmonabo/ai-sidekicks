@@ -10,18 +10,8 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
+import { CANONICAL_ROOT, workspaceRow as workspace } from "./repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
-
-function workspace(overrides: Partial<RepoWorkspaceRow> = {}): RepoWorkspaceRow {
-  return {
-    id: "workspace-1",
-    repoMountId: "mount-1",
-    executionMode: "read-only",
-    state: "ready",
-    fsRoot: "/Users/dev/code/thing",
-    ...overrides,
-  } as RepoWorkspaceRow;
-}
 
 function renderRow(row: RepoWorkspaceRow): ReturnType<typeof render> {
   return render(
@@ -39,7 +29,7 @@ function renderRow(row: RepoWorkspaceRow): ReturnType<typeof render> {
 describe("WorkspaceCard — the root", () => {
   it("renders the root the wire gave it", () => {
     const { getByTitle } = renderRow(workspace());
-    expect(getByTitle("/Users/dev/code/thing")).toBeDefined();
+    expect(getByTitle(CANONICAL_ROOT)).toBeDefined();
   });
 
   it("says the root is pending while the workspace is provisioning", () => {

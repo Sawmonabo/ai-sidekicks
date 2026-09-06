@@ -50,6 +50,7 @@ import {
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
+import { handAnsweredCall } from "../held-calls.test-support.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 
 /** The one session every case here reads, named once so a store and a row agree. */
@@ -297,22 +298,19 @@ export function readerRacingADelete(clock: ManualClock): {
   readonly stopListingTheArtifact: () => void;
 } {
   let listedSummaries: readonly GrowthArtifactSummary[] = [SERVED_SUMMARY];
-  let releaseDelete: (answer: GrowthPortAnswer<"artifactDelete">) => void = () => undefined;
+  const deleteCall = handAnsweredCall<GrowthPortAnswer<"artifactDelete">>();
   const reader = new ArtifactPaneReader({
     bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
       artifactList: async () => ({ status: "served", value: listedSummaries }),
       artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-      artifactDelete: () =>
-        new Promise((resolve) => {
-          releaseDelete = resolve;
-        }),
+      artifactDelete: deleteCall.invoke,
     }),
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });
   return {
     reader,
-    releaseDelete: (answer) => releaseDelete(answer),
+    releaseDelete: deleteCall.open,
     stopListingTheArtifact: () => {
       listedSummaries = [];
     },
@@ -335,13 +333,8 @@ export function readerWithHeldPayloadFetch(clock: ManualClock): {
   readonly artifactRead: Mock<() => Promise<GrowthPortAnswer<"artifactRead">>>;
   readonly releaseRead: (answer: GrowthPortAnswer<"artifactRead">) => void;
 } {
-  let releaseRead: (answer: GrowthPortAnswer<"artifactRead">) => void = () => undefined;
-  const artifactRead = vi.fn(
-    () =>
-      new Promise<GrowthPortAnswer<"artifactRead">>((resolve) => {
-        releaseRead = resolve;
-      }),
-  );
+  const readCall = handAnsweredCall<GrowthPortAnswer<"artifactRead">>();
+  const artifactRead = vi.fn(readCall.invoke);
   const reader = new ArtifactPaneReader({
     bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
       artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
@@ -358,5 +351,5 @@ export function readerWithHeldPayloadFetch(clock: ManualClock): {
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });
-  return { reader, artifactRead, releaseRead: (answer) => releaseRead(answer) };
+  return { reader, artifactRead, releaseRead: readCall.open };
 }
