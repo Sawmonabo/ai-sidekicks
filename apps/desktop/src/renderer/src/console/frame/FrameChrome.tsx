@@ -137,6 +137,11 @@ function surfaceNameFor(route: ConsoleRoute): string {
       return "Settings";
     case "auxiliary":
       return route.route === "timeline" ? "The timeline" : "The agent console";
+    case "pane-harness":
+      // Fixture-only, and named the way a person driving it would: the boundary's
+      // copy reads "The pane harness could not be rendered", which is the truth
+      // about the surface rather than about the pane inside it.
+      return "The pane harness";
     case "not-found":
       return "This window";
   }

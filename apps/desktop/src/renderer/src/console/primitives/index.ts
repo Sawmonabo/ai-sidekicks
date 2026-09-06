@@ -43,22 +43,39 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// The console's ONE `ResizeObserver` construction site, through the door for the
+// reason the announcer is: two view families arm a size source — the browser
+// family's overlay registry and pane geometry publisher, and the terminal family's
+// emulator — and they sit beside each other in the DAG, so a second construction
+// site is the only other way either could have one.
+export { observeElementResize } from "./element-resize.js";
+
 // One boundary per surface, so a pane's render throw does not blank the window. It
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
 // frame's door without closing a cycle.
 export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 
-export type { ChordPlatform } from "./chord-format.js";
+// The chord vocabulary, and not only the printer. A surface that decides something
+// ABOUT a chord — the browser family's page handback, which may claim a keystroke
+// only when it holds a modifier — needs the same closed token set, the same
+// resolution of `$mod`, and the same splitter the printer uses, because tinykeys'
+// grammar makes `$mod++` a real chord that `chord.split("+")` reads wrongly. Every
+// one of those was a second copy here before it was a door line.
+export type { ChordModifierToken, ChordPlatform } from "./chord-format.js";
 export {
+  CHORD_MODIFIER_TOKENS,
   // The literal, not the binding. `PaletteOverlay.tsx` is the only module that hands
   // this to `parseChord`; every other reader PRINTS it, and one of those readers is
   // the primitive beside this door. Publishing it from `palette/` would have left a
   // primitive importing upward for a string.
   COMMAND_PALETTE_OPEN_CHORD,
   HOST_CHORD_PLATFORM,
+  PLATFORM_MODIFIER_CHORD_TOKEN,
+  PLATFORM_MODIFIER_TOKEN,
   decodeChordKeyToken,
   formatChordForPlatform,
+  splitChordTokens,
 } from "./chord-format.js";
 
 // The surface-scale absence wrapper. In this family rather than in `frame/` because
@@ -81,39 +98,34 @@ export { Nothing } from "./Nothing.js";
 // this case and the sentences disagreed, so a family that reached past the barrel for
 // a local copy would be one more of them.
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   PartialReadNotice,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   ReadingState,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   RefusalScope,
 } from "./partial-read.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   READING_STATE_KINDS,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   REFUSAL_SCOPES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   behindProducerReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   partialReadNotices,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   readingNoticeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   uncheckedCoverageReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   unreadableDeliveryReading,
 } from "./partial-read.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   PartialReadProps,
 } from "./PartialRead.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
-  PartialRead,
-} from "./PartialRead.js";
+export { PartialRead } from "./PartialRead.js";
 
 // The reading's sentence, said out loud. Through the door because it is the ONLY
 // route a surface has to the announcer for this case: a family that wrote its own
@@ -133,7 +145,7 @@ export {
 // is a policy question moved out of the primitive that currently answers it and into
 // every call site. The family that would spend it owns that call.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   useReadingAnnouncement,
 } from "./reading-announcement.js";
 
@@ -179,12 +191,12 @@ export { RefusalCard } from "./RefusalCard.js";
 // the family that first imports a symbol deletes its tag in the same commit.
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   ChipProps,
   ChipTone,
 } from "./Chip.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   CHIP_TONES,
   Chip,
 } from "./Chip.js";
@@ -220,14 +232,13 @@ export {
 // NO COUNT IS SPELLED FOR THAT SWEEP, and the omission is the point. The number would
 // describe a set spread over three trees that no merge preserves, so a reader here
 // cannot re-derive it and a stale one reads as a fact — the failure the counts in this
-// header were rewritten to stop. What is checkable stands in its place: `T-023p-1C-5`
-// names a consumer that has SHIPPED, so a surviving `@consumedBy` or `// Consumed by`
-// claim naming it on any of the three doors is a false one, and there is none. Every
-// remaining mention under `console/` is either prose about this sweep or a seat marker
-// on a composition board, and neither is a claim about a reader. The one line whose
-// only claim was that task's — the inline-card body descriptor in `seats/` — had no
-// production reader anywhere and was deleted with its tag rather than left as an
-// untagged export.
+// header were rewritten to stop. What stands in its place is the RULE the sweep ran,
+// which any reader can re-run against the tree in front of them: a task claim is a
+// claim about a READER, so it is checked against what that family's shipped modules
+// import through the door, and it is deleted when they import none. It is not a census
+// of the tree and never was — `seats/` has since landed reservations naming this task
+// whose symbols this family does not import, and those stand exactly as the tag rule
+// says they do, until the commit whose import deletes them.
 export { WindowedListRow } from "./WindowedListRow.js";
 export type { WindowedRowTargetProps } from "./WindowedListRow.js";
 export { useWindowedRovingIndex } from "./windowed-row-index.js";
@@ -236,17 +247,14 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   LedgerRowProps,
 } from "./LedgerRow.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
-  LedgerRow,
-} from "./LedgerRow.js";
+export { LedgerRow } from "./LedgerRow.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   DerivedFigureProps,
 } from "./DerivedFigure.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   WireFigureProps,
 } from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
@@ -262,9 +270,9 @@ export {
 } from "./WireFigure.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   ByteUnitLabel,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
@@ -272,11 +280,11 @@ export {
   formatClockTime,
   formatCount,
   formatDuration,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   formatMoney,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   formatRate,
   formatRelativeTime,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   formatWireString,
 } from "./wire-figures.js";

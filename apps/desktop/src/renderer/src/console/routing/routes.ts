@@ -75,6 +75,23 @@ export type ConsoleRoute =
   // `route.sessionId` reads only where a session is actually carried and the
   // `"agentId" in route` test narrows instead of merely testing for `undefined`.
   | ({ readonly kind: "auxiliary" } & AuxiliaryRouteTarget)
+  // Fixture builds only. The arm exists in the type in every build — types are
+  // erased — but {@link parseRoute} can only PRODUCE it behind
+  // `__SIDEKICKS_CONSOLE_FIXTURES__`, so a release renderer resolves this address
+  // to `not-found` exactly as it resolves any other unknown one.
+  //
+  // The pane kind travels as a bare `string` rather than as `PaneKind`, and that is
+  // the DAG rather than laziness: `seats/` sits four families above `routing/`, so
+  // this module cannot name that set. The surface the slot mounts holds the segment
+  // to `parseConsolePaneAddress`, which is the console's one admission point for an
+  // address that arrived untyped — the same predicate a restored layout snapshot is
+  // held to, so a route a person types and a snapshot read off disk cannot disagree
+  // about which kinds exist.
+  | {
+      readonly kind: "pane-harness";
+      readonly paneKind: string;
+      readonly sessionId: string;
+    }
   | { readonly kind: "not-found"; readonly attempted: string };
 
 /** The route a window with no hash lands on. */
@@ -165,6 +182,25 @@ export function parseRoute(hash: string): ConsoleRoute {
     return decoded === undefined ? notFound(hash) : { kind: "settings", page: decoded };
   }
 
+  // Behind the build-time constant so Rollup collapses `if (false && …)` and this
+  // arm is physically absent from a release renderer, which is the same treatment
+  // `Spec-023 §Pitfalls To Avoid` requires of the fixture bridge and its scenarios.
+  // The address is `#/pane-harness/<paneKind>/<sessionId>`, and BOTH segments are
+  // required: the pane bodies this mounts are session-scoped, so an address with no
+  // session would open a harness that could only ever render the pane's own
+  // not-bound absence — a surface measuring nothing.
+  if (__SIDEKICKS_CONSOLE_FIXTURES__ && head === "pane-harness") {
+    const [paneKindSegment, sessionIdSegment] = rest;
+    if (paneKindSegment === undefined || sessionIdSegment === undefined || rest.length > 2) {
+      return notFound(hash);
+    }
+    const paneKind = decodeSegment(paneKindSegment);
+    const sessionId = decodeSegment(sessionIdSegment);
+    return paneKind === undefined || sessionId === undefined
+      ? notFound(hash)
+      : { kind: "pane-harness", paneKind, sessionId };
+  }
+
   if (head === "window") {
     // Re-composed from the already-split segments rather than passed through as
     // `hash`, so this module keeps its own tolerance for a leading `#` or `#/`
@@ -204,6 +240,8 @@ export function formatRoute(route: ConsoleRoute): string {
       return route.page === undefined
         ? "#/settings"
         : `#/settings/${encodeURIComponent(route.page)}`;
+    case "pane-harness":
+      return `#/pane-harness/${encodeURIComponent(route.paneKind)}/${encodeURIComponent(route.sessionId)}`;
     case "auxiliary": {
       // Encoded by the shared producer, which keeps this the exact inverse of the
       // parse above — both sides of one grammar, written once. Only the kind tag
@@ -236,6 +274,7 @@ export function railDestinationFor(route: ConsoleRoute): RailDestination | undef
     case "settings":
       return "settings";
     case "auxiliary":
+    case "pane-harness":
     case "not-found":
       return undefined;
   }
@@ -271,6 +310,7 @@ export function isAuxiliaryRoute(route: ConsoleRoute): route is AuxiliaryConsole
 export function routeSessionId(route: ConsoleRoute): string | undefined {
   switch (route.kind) {
     case "workspace":
+    case "pane-harness":
       return route.sessionId;
     case "auxiliary":
       return "sessionId" in route ? route.sessionId : undefined;
@@ -306,6 +346,12 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
       return true;
     case "workspace":
       return right.kind === "workspace" && left.sessionId === right.sessionId;
+    case "pane-harness":
+      return (
+        right.kind === "pane-harness" &&
+        left.paneKind === right.paneKind &&
+        left.sessionId === right.sessionId
+      );
     case "settings":
       return right.kind === "settings" && left.page === right.page;
     case "auxiliary":

@@ -39,8 +39,12 @@
 //     unmeasurable until the fixture bridge served the session read.
 //   • **At rest.** Nothing in a fixture build moves the frozen clock on its own,
 //     so the console is idle from the last advance onwards. The heap is then read
-//     as the minimum over settling samples, which is the tier's one heap
-//     instrument and is shared rather than restated.
+//     through the tier's one instrument — a forced collection over a DevTools
+//     session, then the minimum over settling samples — which is what this row's
+//     own subject sentence has always said the figure is taken after. A sampler
+//     alone would carry the four megabytes the precision precondition allocates
+//     and drops a few round trips earlier, so the ceiling would be compared
+//     against this renderer's heap plus the proof that the instrument works.
 
 import process from "node:process";
 
@@ -53,8 +57,8 @@ import {
   ENDURANCE_LAUNCH_OPTIONS,
   expectFlagshipSessionCarriesContent,
   openFlagshipSessionRoute,
-  readSettledHeapBytes,
 } from "./console-workload.js";
+import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 import {
   ConsoleBudgetRegistry,
@@ -109,7 +113,21 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
       expect(Number(deliveredBeatCount)).toBe(FLAGSHIP_SCENARIO.beats.length);
       await expectFlagshipSessionCarriesContent(consoleApplication);
 
-      const atRestHeapBytes = await readSettledHeapBytes(consoleApplication);
+      // The instrument before the reading it serves: a launch that lost the precise
+      // flag reports a quantized, cached figure, which for a CEILING would silently
+      // pass or fail on a bucket boundary rather than on this renderer's heap.
+      await expectPreciseHeapInstrument(consoleApplication);
+
+      const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+      let atRestHeapBytes: number;
+      try {
+        atRestHeapBytes = await heapProbe.readSettledBytes();
+      } finally {
+        // Detached before the wrapper closes the window, and before the assertions:
+        // nothing below reads the renderer again, and detaching a DevTools session
+        // from a closed application raises over whatever the body was failing on.
+        await heapProbe.detach();
+      }
       const verdict = evaluateBudget(budget, atRestHeapBytes);
 
       // Reported before the assertion, on the same reasoning the steady-state run

@@ -1,222 +1,274 @@
-// Where a stylesheet may be imported from, asserted.
+// Every console stylesheet enters through its own family's door, and through one.
 //
-// `apps/desktop/AGENTS.md` §Module shape carries the rule in one line — "A family's
-// CSS is imported from that family's barrel and from nowhere else" — and until this
-// file nothing checked it. Neither mechanical gate can: knip answers reachability
-// from an entry point, and a sheet imported from the wrong module is perfectly
-// reachable; dependency-cruiser answers which import is ALLOWED, but its resolver
-// runs on the extension list this package configures, which does not carry `.css`,
-// so a stylesheet specifier is not a graph edge it can rule on. The claim is a
-// property of one line of source text, which is the architecture tier's own subject.
+// `apps/desktop/AGENTS.md` §Module shape states it in one line — "A family's CSS is
+// imported from that family's barrel and from nowhere else" — and until this file
+// nothing checked it. The rule looked self-enforcing while each family had exactly
+// one sheet named after itself; it stops being self-enforcing the moment a family
+// splits its sheet by surface, because then there are five files any component in
+// the family could reach for and four of them would still look plausible in a diff.
 //
-// ANSWERED WITH THE COMPILER AND NOT WITH A PATTERN. The first cut of this gate read
-// `/^import\s+"([^"]+\.css)";$/gm`, which is three false answers in one expression: an
-// import written without its semicolon is legal ASI and was invisible, an import
-// indented inside a block was invisible, and a `.css` path inside a comment or a string
-// literal was an import. `test/console/typescript-source.ts` states the rule this file
-// now keeps — a question about which bindings a module imports is answered by the
-// parser, because a regular expression cannot see a declaration boundary — and the test
-// for a side-effect import is the compiler's own: an `ImportDeclaration` with no
-// `importClause` is the form that imports nothing and runs the module.
+// WHAT BREAKS IF IT IS NOT HELD. A stylesheet imported from a component is an edge
+// the bundler follows per importing module, so one shape's CSS arrives in whichever
+// chunk happened to reach it first — and the terminal family's sheet, which
+// `Spec-023 §Console Design (Meridian)` §Budgets deliberately keeps OUT of the
+// initial bundle, would land in it the day a statically reached module imported it.
+// The single edge at the door is also what makes "no surface can render a shape
+// whose CSS never arrived" true: the door is on every path into the family.
 //
-// AND THE SPECIFIER IS RESOLVED, NOT REDUCED TO A BASENAME. Comparing file names let
-// any door import any family's sheet as long as the names matched, which is the exact
-// mistake this gate exists to catch — `repos/index.ts` importing `agents/agents.css`
-// would have read as `agents/index.ts` importing its own. Every specifier is resolved
-// against the directory of the module that wrote it and compared as a console-relative
-// path, so the sheet a door claims is the sheet on disk.
+// WHAT THIS DOES NOT CLAIM. Nothing here is about what the CSS says. The token
+// resolution is `test/console/assets/generated-tokens.test.ts`'s and the computed
+// geometry is the browser tier's; this file owns the import graph alone.
 //
-// WHAT COUNTS AS A FAMILY DOOR, and why the line is drawn there. A console family
-// door is `console/<family>/index.ts` — one directory below the console root. A
-// SUB-MODULE door (`repos/artifact-pane/index.ts`, `bridge/growth-values/index.ts`) is a
-// barrel too, and it is exactly the case this test exists to catch: it publishes to
-// its own family only and is reached by deep intra-family specifiers, so a sheet
-// imported from one arrives on the paths that reach THAT barrel and on no other. The
-// artifact pane shipped that way — `repos/artifact-pane/index.ts` imported
-// `artifact.css` — which meant a surface composing the pane through the repos family
-// door alone drew it unstyled, and it is the shape the negative controls below plant.
+// THE INSTRUMENT IS THE PARSER. A stylesheet edge is an `import` declaration with no
+// clause, which is a declaration boundary — and `apps/desktop/AGENTS.md` says to ask
+// the compiler about one rather than a pattern. The regular expression this replaced
+// could not tell an edge from a sentence about one, so a header explaining WHY a
+// component does not import a sheet would have been counted as the import it was
+// explaining the absence of.
 //
-// The importer is checked, not the sheet's neighbours: a family's sheets may sit in
-// its sub-module directories, and the repos family's seven do, so `repos/index.ts`
-// legitimately imports `repos/diff-pane/diff.css` and `repos/artifact-pane/artifact.css`
-// alongside its own. What it may never do is let a second module import one.
+// AND A SUB-MODULE BARREL IS NOT A DOOR. `repos/artifact-pane/index.ts` is a barrel
+// too, and it is the shape this gate was extended to catch: it publishes to its own
+// family alone and is reached by deep intra-family specifiers, so a sheet imported
+// from one arrives on the paths that reach THAT barrel and on no other. The artifact
+// pane shipped exactly that way, which meant a surface composing the pane through the
+// repos family door alone drew it unstyled — and no count of edges reports it, since
+// there is still exactly one. The two barrel kinds are told apart by DEPTH, because
+// depth is what tells them apart: a family door is one directory below the console
+// root, and anything deeper is a sub-module barrel.
+//
+// A LIBRARY'S OWN SHEET IS NOT A FAMILY'S SHEET, so only RELATIVE specifiers are
+// read. `terminal/emulator/xterm-adapter.ts` imports `@xterm/xterm/css/xterm.css` from the
+// lazy chunk's entry deliberately, and that placement is the point: the emulator's
+// grid geometry has to arrive on the same edge as the code that draws the grid, and
+// hoisting it to the family door would put it in the document the operator waits
+// for. The rule this file holds is about which door a family's OWN sheet enters by.
 
-import { posix } from "node:path";
+import { dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
 import ts from "typescript";
+import { describe, expect, it } from "vitest";
 
 import {
-  CONSOLE_DIRECTORY,
+  consoleRelativePaths,
   consoleSourceModules,
-  consoleStylesheets,
-  readConsoleSourceModule,
+  readModuleNamed,
+  CONSOLE_DIRECTORY,
 } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
-/** The console root alone: the shell composes seats and ships no sheet of its own. */
-const CONSOLE_ROOT_ONLY = { roots: [CONSOLE_DIRECTORY] } as const;
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Every stylesheet specifier a module imports for its side effect.
+ * The one member of Vite's `import.meta` this tier reads, declared where it is read.
  *
- * A pure function over text rather than a loop inside a test, so the controls below
- * can drive it with source whose verdict is known and the checker is proved to bite
- * without perturbing a real module.
- *
- * `importClause === undefined` is the whole test for the side-effect form, and it is
- * the only form this bundler configuration admits for a sheet — a named import from a
- * `.css` file would be a CSS-modules edge, and this package configures none. The
- * specifier is read off `moduleSpecifier` as a string literal rather than off the
- * node's text, so a template or a computed specifier answers nothing instead of
- * answering the raw characters.
+ * The architecture tier is a Node program and its `tsconfig` deliberately does not
+ * pull in `vite/client` wholesale — the renderer's own `console-env.d.ts` says why
+ * for its half — so the member is named structurally at the one call site rather than
+ * by widening a config for every gate in the directory. Vitest transforms this file
+ * with Vite, so the call itself is resolved at build time exactly as it is in the
+ * renderer.
  */
-function importedStylesheets(fileName: string, sourceText: string): readonly string[] {
-  const parsed = parseSourceText(fileName, sourceText);
+interface ViteGlobImportMeta {
+  readonly glob: (
+    pattern: string,
+    options?: { readonly query?: string },
+  ) => Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Every console source module, through the tier's ONE walk.
+ *
+ * `source-walk-chokepoint.test.ts` fails a gate that reaches renderer source through
+ * a `readdirSync` of its own: five private walks are five slightly different ideas of
+ * what counts as source, and the difference between them is invisible until one of
+ * them scans a file the others do not — which is how this file came to exclude
+ * `.test.` by substring while its neighbours excluded four exact suffixes.
+ */
+const CONSOLE_MODULES = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
+
+/**
+ * Every stylesheet under the console, console-relative.
+ *
+ * Through Vite's own module graph rather than through a directory read, because the
+ * walk above answers for TypeScript and this claim needs the other half — and a
+ * second directory read here is the exact shape the chokepoint forbids. The glob is
+ * resolved by the same bundler that resolves the imports these edges are about, so
+ * both halves of every assertion below come from one resolver.
+ */
+const STYLESHEET_PATHS: readonly string[] = Object.keys(
+  (import.meta as ImportMeta & ViteGlobImportMeta).glob(
+    "../../../src/renderer/src/console/**/*.css",
+    { query: "?url" },
+  ),
+)
+  .map((specifier) => consoleRelative(resolve(HERE, specifier)))
+  .sort();
+
+/** The one file in a family that may carry a stylesheet import. */
+const FAMILY_DOOR = "index.ts";
+
+/**
+ * Whether a console-relative path is its family's DOOR.
+ *
+ * One directory below the console root and named `index.ts`. A deeper `index.ts` is a
+ * sub-module barrel and answers false; the console root's own `index.ts`, were it to
+ * carry a sheet, is not a family's door either and answers false with it.
+ */
+function isFamilyDoor(consoleRelativePath: string): boolean {
+  const segments = consoleRelativePath.split("/");
+  return segments.length === 2 && segments[1] === FAMILY_DOOR;
+}
+
+/** The extension that makes an import a stylesheet edge. */
+const STYLESHEET_EXTENSION = ".css";
+
+/**
+ * Every stylesheet specifier `source` imports, as written. Relative only.
+ *
+ * A pure function over text so the controls below can drive it with strings whose
+ * verdict is known. `import.meta.glob` is not an import declaration and is correctly
+ * invisible here: the glob above is how this file finds the sheets to count edges
+ * INTO, and counting it as an edge would report the counter as a consumer.
+ */
+function stylesheetSpecifiersIn(fileName: string, source: string): readonly string[] {
   const specifiers: string[] = [];
-  forEachDescendant(parsed, (node) => {
-    if (!ts.isImportDeclaration(node) || node.importClause !== undefined) {
+  forEachDescendant(parseSourceText(fileName, source), (node) => {
+    if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) {
       return;
     }
-    if (!ts.isStringLiteral(node.moduleSpecifier)) {
-      return;
-    }
-    if (node.moduleSpecifier.text.endsWith(".css")) {
-      specifiers.push(node.moduleSpecifier.text);
+    const specifier = node.moduleSpecifier.text;
+    if (specifier.startsWith(".") && specifier.endsWith(STYLESHEET_EXTENSION)) {
+      specifiers.push(specifier);
     }
   });
   return specifiers;
 }
 
-/**
- * One imported specifier as a console-relative path.
- *
- * `posix.join` rather than the platform's, because the paths on both sides of the
- * comparison are console-relative and written with forward slashes: the walk
- * normalizes its own, and a specifier is a module specifier and never a file path.
- */
-function resolveStylesheetSpecifier(moduleRelativePath: string, specifier: string): string {
-  return posix.join(posix.dirname(moduleRelativePath), specifier);
+/** A path under the console, spelled the way every message here names one. */
+function consoleRelative(absolutePath: string): string {
+  return relative(CONSOLE_DIRECTORY, absolutePath).split("\\").join("/");
 }
 
-/**
- * Whether a console module is its family's DOOR.
- *
- * One directory below the console root and named `index.ts`. A deeper `index.ts` is
- * a sub-module door and answers false, which is the whole claim: the two barrel
- * kinds are told apart by depth, because that is what tells them apart.
- */
-function isFamilyDoor(moduleRelativePath: string): boolean {
-  const segments = moduleRelativePath.split("/");
-  return segments.length === 2 && segments[1] === "index.ts";
+/** The family a console-relative path belongs to — its first path segment. */
+function familyOf(consoleRelativePath: string): string {
+  return consoleRelativePath.split("/")[0] ?? "";
 }
 
-/** Every module that imports a stylesheet, with the console-relative sheets it named. */
-function stylesheetImporters(): readonly { module: string; sheets: readonly string[] }[] {
-  return consoleSourceModules(CONSOLE_ROOT_ONLY)
-    .map((module) => {
-      const relativePath = module.relativePath.split("\\").join("/");
-      return {
-        module: relativePath,
-        sheets: importedStylesheets(relativePath, readConsoleSourceModule(module)).map(
-          (specifier) => resolveStylesheetSpecifier(relativePath, specifier),
-        ),
-      };
-    })
-    .filter((entry) => entry.sheets.length > 0);
+/** Every stylesheet a module imports, as console-relative paths. */
+function stylesheetImportsOf(consoleRelativePath: string): readonly string[] {
+  const source = readModuleNamed(CONSOLE_MODULES, `console/${consoleRelativePath}`);
+  const importedFrom = dirname(consoleRelativePath);
+  return stylesheetSpecifiersIn(consoleRelativePath, source).map((specifier) =>
+    consoleRelative(resolve(CONSOLE_DIRECTORY, importedFrom, specifier)),
+  );
 }
 
-describe("stylesheet edges — a sheet is imported from its family's door and nowhere else", () => {
-  const importers = stylesheetImporters();
+describe("stylesheet edges — a family's CSS enters at that family's door", () => {
+  const stylesheets = STYLESHEET_PATHS;
+  const modules = consoleRelativePaths(CONSOLE_MODULES);
 
-  it("accounts for every sheet in the tree, by path and not by name", () => {
-    // Without this, a wrong CONSOLE_DIRECTORY or a specifier form the parser walk does
-    // not reach would scan nothing and the assertion below would pass over the empty
-    // set. Every `.css` file in the tree is accounted for by an importer, so a sheet
-    // nobody imports is caught here rather than shipping unreferenced — and the
-    // comparison is over console-relative paths, so two families' sheets sharing a
-    // name cannot stand in for each other.
-    const stylesheets = consoleStylesheets(CONSOLE_ROOT_ONLY)
-      .map((sheet) => sheet.relativePath.split("\\").join("/"))
-      .sort();
-    expect(stylesheets.length).toBeGreaterThan(3);
-    const imported = importers.flatMap((entry) => entry.sheets).sort();
-    expect(imported).toStrictEqual(stylesheets);
+  it("finds the console's stylesheets and modules at all", () => {
+    // Without this, a wrong root would scan nothing and every assertion below would
+    // pass over the empty set.
+    expect(stylesheets.length).toBeGreaterThan(4);
+    expect(modules.length).toBeGreaterThan(100);
   });
 
-  it("no module but a family door imports one", () => {
-    const offenders = importers
-      .filter((entry) => !isFamilyDoor(entry.module))
-      .map((entry) => `${entry.module}: ${entry.sheets.join(", ")}`);
+  it("is imported by no module but a family door", () => {
+    const offenders = modules
+      .filter((module) => !isFamilyDoor(module))
+      .flatMap((module) => stylesheetImportsOf(module).map((sheet) => `${module} -> ${sheet}`));
     expect(offenders).toStrictEqual([]);
   });
 
-  it("negative control: a sub-module door importing a sheet is caught", () => {
-    // The exact shape `repos/artifact-pane/index.ts` shipped in, planted as text so the
-    // control keeps biting after the real module is fixed. Both halves are asserted:
-    // the module is not a door, and the sheet is seen at the path the door would give
-    // it rather than at the name it was written under.
-    const subModuleDoor = "repos/artifact-pane/index.ts";
-    expect(isFamilyDoor(subModuleDoor)).toBe(false);
-    expect(importedStylesheets(subModuleDoor, 'import "./artifact.css";\n')).toStrictEqual([
-      "./artifact.css",
-    ]);
-    expect(resolveStylesheetSpecifier(subModuleDoor, "./artifact.css")).toBe(
-      "repos/artifact-pane/artifact.css",
-    );
+  it("is imported by its OWN family's door and no other", () => {
+    // A submodule reaching for a sibling family's sheet is the same defect one level
+    // out: the sheet then arrives on whichever chunk that family lands in.
+    const crossFamilyEdges = modules
+      .filter((module) => isFamilyDoor(module))
+      .flatMap((door) =>
+        stylesheetImportsOf(door)
+          .filter((sheet) => familyOf(sheet) !== familyOf(door))
+          .map((sheet) => `${door} -> ${sheet}`),
+      );
+    expect(crossFamilyEdges).toStrictEqual([]);
   });
 
-  it("negative control: a component importing a sheet is caught, and a door is not", () => {
-    // The other way in — a sheet imported from the component that needs it, which is
-    // how a family ends up with its styling split across import paths. And the
-    // legitimate case beside it, including a door reaching into a sub-module
-    // directory for a sheet, which the repos family door does seven times.
+  it("is reached by exactly one import, and every sheet is reached", () => {
+    // Two edges into one sheet is two chunks that may both carry it; zero is a shape
+    // that renders unstyled, which in this console is a pane with no geometry at all.
+    const edgeCountBySheet = new Map(stylesheets.map((sheet) => [sheet, 0]));
+    for (const module of modules) {
+      for (const sheet of stylesheetImportsOf(module)) {
+        edgeCountBySheet.set(sheet, (edgeCountBySheet.get(sheet) ?? 0) + 1);
+      }
+    }
+    const wrongEdgeCounts = [...edgeCountBySheet]
+      .filter(([, count]) => count !== 1)
+      .map(([sheet, count]) => `${sheet}: ${String(count)}`);
+    expect(wrongEdgeCounts).toStrictEqual([]);
+  });
+
+  it("negative control: the checker reads a submodule's import and a door's", () => {
+    // The clean results above mean nothing unless the reader recognises the two
+    // shapes it is looking for. Read out of the real tree rather than asserted about
+    // it: the browser family's door carries its five sheets, and the component beside
+    // it carries none.
+    const doorEdges = stylesheetImportsOf(`browser/${FAMILY_DOOR}`);
+    expect(doorEdges.length).toBeGreaterThan(1);
+    expect(doorEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
+    expect(stylesheetImportsOf("browser/bounds/BudgetMeter.tsx")).toStrictEqual([]);
+  });
+
+  it("negative control: a sentence about an import is not an edge", () => {
+    // What the regular expression could not tell apart. A component explaining why it
+    // does NOT carry its family's sheet names the import it is not writing, and a
+    // reader that counted that would report the explanation as the defect.
+    expect(
+      stylesheetSpecifiersIn(
+        "Pane.tsx",
+        '// Deliberately no `import "./browser.css";` here -- the door carries it.\nexport const x = 1;',
+      ),
+    ).toStrictEqual([]);
+    expect(
+      stylesheetSpecifiersIn("index.ts", 'import "./browser.css";\nexport const x = 1;'),
+    ).toStrictEqual(["./browser.css"]);
+  });
+
+  it("negative control: a sub-module barrel is not a door", () => {
+    // The shape `repos/artifact-pane/index.ts` shipped in, planted as text so the
+    // control keeps biting after the real module is fixed. An edge count cannot see
+    // it — there is exactly one — so the depth predicate is what rules on it, and the
+    // legitimate case is asserted beside it: a family door reaching into a sub-module
+    // directory for a sheet, which the repos door does seven times.
+    expect(isFamilyDoor("repos/artifact-pane/index.ts")).toBe(false);
     expect(isFamilyDoor("repos/mounts/RepoSection.tsx")).toBe(false);
-    expect(isFamilyDoor("repos/index.ts")).toBe(true);
+    expect(isFamilyDoor(`repos/${FAMILY_DOOR}`)).toBe(true);
     expect(
-      importedStylesheets("frame/Frame.tsx", 'import "../repos/artifact-pane/artifact.css";\n'),
-    ).toStrictEqual(["../repos/artifact-pane/artifact.css"]);
-    expect(
-      importedStylesheets("repos/index.ts", 'import { ArtifactPane } from "./ArtifactPane.js";\n'),
-    ).toStrictEqual([]);
+      stylesheetSpecifiersIn("repos/index.ts", 'import "./artifact-pane/artifact.css";'),
+    ).toStrictEqual(["./artifact-pane/artifact.css"]);
   });
 
-  it("negative control: the two forms the pattern this replaced could not see", () => {
-    // Both are legal TypeScript and both were invisible to `/^import\s+"…";$/gm`: an
-    // import whose statement is terminated by ASI rather than by a semicolon, and an
-    // import that is not at column zero. A gate that cannot see an import cannot rule
-    // on it, and neither form is rare enough to call unreachable.
-    expect(importedStylesheets("repos/index.ts", 'import "./repos.css"\n')).toStrictEqual([
+  it("negative control: the two forms a line-anchored pattern could not see", () => {
+    // Both are legal TypeScript and both were invisible to `/^import\s+"…";$/gm`: a
+    // statement terminated by ASI rather than by a semicolon, and one that is not at
+    // column zero. A gate that cannot see an import cannot rule on it, and neither
+    // form is rare enough to call unreachable.
+    expect(stylesheetSpecifiersIn("index.ts", 'import "./repos.css"\n')).toStrictEqual([
       "./repos.css",
     ]);
-    expect(importedStylesheets("repos/index.ts", '  import "./repos.css";\n')).toStrictEqual([
+    expect(stylesheetSpecifiersIn("index.ts", '  import "./repos.css";\n')).toStrictEqual([
       "./repos.css",
     ]);
   });
 
-  it("negative control: a `.css` path that is not an import is not one", () => {
-    // The third false answer the pattern gave, in the two shapes it gave it: a path in
-    // a comment and a path in a string. A gate that counted either would report a
-    // module as a stylesheet importer for mentioning a sheet's name.
+  it("negative control: a library's own sheet is not a family's", () => {
+    // The relative-only rule, as a case. The emulator's `@xterm/xterm/css/xterm.css`
+    // rides the lazy chunk's entry on purpose, and reporting it would push a
+    // deliberate placement into the family door and into the initial bundle.
     expect(
-      importedStylesheets("repos/index.ts", '// import "./repos.css";\nexport {};\n'),
+      stylesheetSpecifiersIn("xterm-adapter.ts", 'import "@xterm/xterm/css/xterm.css";'),
     ).toStrictEqual([]);
-    expect(
-      importedStylesheets("repos/index.ts", 'export const sheet = "./repos.css";\n'),
-    ).toStrictEqual([]);
-    expect(
-      importedStylesheets("repos/index.ts", 'import { thing } from "./repos.css";\n'),
-    ).toStrictEqual([]);
-  });
-
-  it("negative control: two families' sheets sharing a name resolve apart", () => {
-    // What the basename comparison this replaced could not distinguish. Under names
-    // alone, a door importing another family's sheet matched the sheet it should have
-    // imported and the offence read as compliance.
-    expect(resolveStylesheetSpecifier("repos/index.ts", "./sheet.css")).toBe("repos/sheet.css");
-    expect(resolveStylesheetSpecifier("agents/index.ts", "./sheet.css")).toBe("agents/sheet.css");
-    expect(resolveStylesheetSpecifier("repos/index.ts", "../agents/sheet.css")).toBe(
-      "agents/sheet.css",
-    );
   });
 });
