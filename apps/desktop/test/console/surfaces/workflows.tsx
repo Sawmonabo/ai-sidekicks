@@ -17,8 +17,8 @@
 // rail destination and TWO pane kinds, so all three are mounted here. The
 // accessibility tier audits every one of them — a family-wide claim that skipped a
 // registered pane could not fail on a regression unique to it. The screenshot tier
-// pins two, which is a separate judgement about which COMPOSITIONS a committed image
-// is worth holding still, made in that tier's own table.
+// pins its own subset, which is a separate judgement about which COMPOSITIONS a
+// committed image is worth holding still, made in that tier's own table.
 //
 // THE BODIES COME OUT OF THE FAMILY'S REGISTRIES, NOT OUT OF AN IMPORT, on the
 // browser-terminal tiers' precedent: the run pane is resolved through

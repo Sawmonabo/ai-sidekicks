@@ -40,6 +40,16 @@
 // the compositor last drew". An auditing caller needs only the first of those two and
 // pays for the second anyway, which is one animation frame and buys it the same
 // answer the capture tier gets rather than a second, weaker readiness rule.
+//
+// AND THE TRANSFORM ALONE IS NOT THE PICTURE. The library writes a fitted transform at
+// any container size, including none: a root collapsed to zero height fits its nodes
+// and reports the same style attribute this module used to read, so both tiers took a
+// graph that had been fitted into nothing for a graph that was ready — a capture went
+// on to record a 20rem sunken box with no phase in it, and an axe run audited a canvas
+// whose whole subject was clipped away. So readiness is two readings rather than one:
+// the fit HAS BEEN COMPUTED, and the picture IS ON SCREEN — a painted root with height
+// in it, holding at least one phase. Refusing is the point of the second: a throw
+// writes no reference and fails the audit, where a silent pass mints both.
 
 import { waitFor } from "@testing-library/react";
 
@@ -89,6 +99,45 @@ function fittedViewportTransform(surface: HTMLElement): string | undefined {
 }
 
 /**
+ * Whether the graph's own root is painted, with a phase standing in it.
+ *
+ * TWO READINGS AND NOT ONE, because a root of the right height that fitted its picture
+ * outside its own box shows an operator exactly as much as a collapsed one. The root's
+ * height answers "is there anywhere to draw"; a node's box inside it answers "is
+ * anything drawn there". Both are measured rather than inferred from a style
+ * attribute, which is what the transform reading above already does and what a
+ * collapsed root satisfies.
+ *
+ * The node is compared against the ROOT rather than against the pane's canvas box: this
+ * module is the readiness rule for any surface that mounts a graph, and where the
+ * picture sits inside the surface around it is the geometry gate's subject
+ * (`browser/workflow-run-geometry.test.tsx`), which measures the canvas by name.
+ */
+function isGraphPainted(surface: HTMLElement): boolean {
+  const paintedRoot = surface.querySelector<HTMLElement>(".meridian-phase-graph .react-flow");
+  if (paintedRoot === null) {
+    return false;
+  }
+  const rootBox = paintedRoot.getBoundingClientRect();
+  if (rootBox.height <= 0 || rootBox.width <= 0) {
+    return false;
+  }
+  return [...surface.querySelectorAll<HTMLElement>(".meridian-phase-graph .react-flow__node")].some(
+    (node) => {
+      const nodeBox = node.getBoundingClientRect();
+      return (
+        nodeBox.height > 0 &&
+        nodeBox.width > 0 &&
+        nodeBox.top >= rootBox.top - 0.5 &&
+        nodeBox.bottom <= rootBox.bottom + 0.5 &&
+        nodeBox.left >= rootBox.left - 0.5 &&
+        nodeBox.right <= rootBox.right + 0.5
+      );
+    },
+  );
+}
+
+/**
  * Whether this surface is still enough to read.
  *
  * A surface that draws no graph is settled by construction — the predicate reads the
@@ -101,7 +150,7 @@ export function isPhaseGraphSettled(surface: HTMLElement): boolean {
   if (surface.querySelector(".meridian-phase-graph") === null) {
     return true;
   }
-  return fittedViewportTransform(surface) !== undefined;
+  return fittedViewportTransform(surface) !== undefined && isGraphPainted(surface);
 }
 
 /**
@@ -124,6 +173,12 @@ export async function awaitPhaseGraphSettled(surface: HTMLElement): Promise<void
     () => {
       if (fittedViewportTransform(surface) === undefined) {
         throw new Error("the phase graph has not been fitted yet");
+      }
+      if (!isGraphPainted(surface)) {
+        throw new Error(
+          "the phase graph was fitted into a root that paints no phase — the box on " +
+            "screen is empty",
+        );
       }
     },
     { timeout: FIT_DEADLINE_MS },

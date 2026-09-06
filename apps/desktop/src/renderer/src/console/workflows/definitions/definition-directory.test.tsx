@@ -15,7 +15,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createFixtureBridge, createRefusingGrowthPort } from "../../bridge/index.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
-import { PROBE_SESSION_ID } from "../WorkflowsBrowser.test-support.js";
+import {
+  PROBE_PARTICIPANT_ID,
+  PROBE_SESSION_ID,
+  SECOND_PROBE_SESSION_ID,
+  settle,
+} from "../WorkflowsBrowser.test-support.js";
 import type {
   WorkflowDefinitionDirectory,
   WorkflowDefinitionDirectoryState,
@@ -25,13 +30,8 @@ import {
   lastState,
   observeDirectory,
   rescopableDirectory,
-  settle,
   twoPagePort,
 } from "./definition-directory.test-support.js";
-
-/** A second session, so a scope change is a change of subject and not of nothing. */
-const SECOND_PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3402";
-const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 
 /** The refusal the scenario below scripts, in the envelope a daemon sends. */
 const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {

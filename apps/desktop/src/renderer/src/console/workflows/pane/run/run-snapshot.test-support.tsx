@@ -10,7 +10,7 @@
 // its counter each have exactly one caller and stay beside it: a helper hoisted before
 // it has a second caller is a helper whose shape is decided by nobody.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../../../bridge/index.js";
 import { WORKFLOWS_SCENARIO_RUNS } from "../../../bridge/scenarios/workflow-fixture-runs.js";
@@ -35,13 +35,6 @@ export function SnapshotProbe(props: {
     useWorkflowRunSnapshot(props.growth, props.workflowRunId, props.readRound ?? FIRST_ROUND),
   );
   return <></>;
-}
-
-/** Let every already-resolved microtask land, inside React's own batching. */
-export async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
 /** The real port answering the run read from the fixture's own runs, by id. */

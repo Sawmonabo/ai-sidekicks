@@ -10,7 +10,7 @@
 // component is its only caller, so a second suite would drive the same seam through
 // a probe that renders nothing a person sees.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -31,6 +31,7 @@ import {
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { READ_SETTLEMENT_REFUSAL_ORIGIN } from "../../bridge/read-settlement.js";
+import { settle } from "../WorkflowsBrowser.test-support.js";
 import { WorkflowRuns } from "./WorkflowRuns.js";
 
 /** The fixture port for one scenario, which is what a fixture console runs on. */
@@ -95,14 +96,6 @@ function renderRuns(
       rerender(element);
     },
   };
-}
-
-/** Let the enumeration settle, so an assertion is about an answer and not a wait. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
 }
 
 function rowLabels(container: HTMLElement): readonly string[] {

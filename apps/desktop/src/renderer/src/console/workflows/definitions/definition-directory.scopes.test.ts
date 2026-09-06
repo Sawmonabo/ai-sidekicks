@@ -11,13 +11,12 @@
 import { describe, expect, it } from "vitest";
 
 import { growthUnavailable, WORKFLOW_DEFINITION_SCOPES } from "../../bridge/index.js";
+import { SECOND_PAGE_CURSOR } from "../WorkflowsBrowser.test-support.js";
 import {
   scopeResolutionOf,
   type WorkflowDefinitionContinuation,
   type WorkflowDefinitionDirectoryState,
 } from "./definition-directory.js";
-
-const SECOND_PAGE_CURSOR = "definitions-page-2";
 
 /** A served directory holding no rows at all, so only the continuation decides. */
 function servedWith(

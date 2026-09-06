@@ -93,6 +93,7 @@ export type {
 export { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-outcome.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // How a growth read ENDS when its seam can also REJECT. It lives in this family

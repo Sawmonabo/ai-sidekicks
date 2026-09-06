@@ -10,7 +10,7 @@
 // agree with whatever the hook did with it, and the refusing arm in particular is only
 // meaningful because it is the refusal the real port composes.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../../../bridge/index.js";
 import type { WireErrorEnvelope } from "../../../../../../shared/wire-errors.js";
@@ -114,11 +114,4 @@ export function observeControls(
       view.rerender(<DispatchProbe growth={growth} workflowRunId={next} onObserve={collect} />);
     },
   };
-}
-
-/** Let every already-resolved microtask land, inside React's own batching. */
-export async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }

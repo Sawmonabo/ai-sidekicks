@@ -25,13 +25,23 @@
 // the two-page port, the recording announcer, and the start slot's spy each have one
 // reader and stay beside it.
 //
-// THE PROBE SESSION IS THE FAMILY'S AND NOT THE BROWSER'S. Five suites across three
-// directories address the same session — the surface, the start slot, the directory
-// hook and its source-swap sibling, and the run pane's snapshot — and each had typed
-// the literal out. One id in five places is five chances to edit one of them, and a
-// suite addressed at a session its neighbours are not still passes: every assertion
-// it makes is about the value it sent. So the id lives here, where the row factory
-// that carries it in `scopeRef` already does.
+// THE PROBE IDENTITIES AND THE SETTLE ARE THE FAMILY'S AND NOT THE BROWSER'S. Suites in
+// every one of this family's directories address the same session and the same
+// participant, and every one of them has to let a read settle before it asserts — and
+// each had typed the literal or the helper out for itself. One value in many places is
+// many chances to edit one of them, and a suite addressed at a session its neighbours
+// are not still passes: every assertion it makes is about the value it sent. So they
+// live here, where the row factory that carries the session in `scopeRef` already does.
+// The bridge family's `scripted-probe.test-support.ts` keeps a session and a participant
+// of its own and says why: those are the identities a BRIDGE probe scripts, and a module
+// below this one in the console's order may not reach up here for them.
+//
+// `settle` IS ONE `act` BOUNDARY, and the microtask awaited inside it is not the part
+// that settles anything: React's async `act` drains its own queue and the effects that
+// queue schedules on the way out. That is why the copies this module replaced disagreed
+// about how many already-resolved promises to await and every one of them passed. One
+// boundary, named once, so a suite waiting on a read is not also asserting a count of
+// turns nobody chose.
 
 import { act, render } from "@testing-library/react";
 
@@ -40,8 +50,14 @@ import { LiveAnnouncerProvider } from "../primitives/index.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 
-/** The session every workflows suite addresses. One id, so five suites probe one. */
+/** The session every workflows suite addresses. One id, so every suite probes one. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
+
+/** The other session, for a case whose whole claim is that the scope moved off the first. */
+export const SECOND_PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3402";
+
+/** The one participant the family's scripted scenarios join a session with. */
+export const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 
 /** The continuation token the paged cases hand back. */
 export const SECOND_PAGE_CURSOR = "definitions-page-2";
@@ -83,6 +99,7 @@ export function renderBrowser(growth: GrowthPort): HTMLElement {
   return render(browserUnderAnnouncer(growth, PROBE_SESSION_ID)).container;
 }
 
+/** Let every read a surface put reach its own settlement, so an assertion is about answers. */
 export async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();

@@ -21,15 +21,13 @@
 // still the caller's rather than this section's: a runs list mounted somewhere with
 // nowhere to send a row passes none, and gets rows of facts instead of dead buttons.
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 
 import type { GrowthPort } from "../../bridge/index.js";
 import { useReadSettlementAnnouncement } from "../read-announcement.js";
 import { RunListProjection, type WorkflowRunListRow } from "./run-list-projection.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
 import { WorkflowRunsReadState } from "./WorkflowRunsReadState.js";
-
-const RUNS_HEADING_ID = "meridian-workflows-runs-heading";
 
 export interface WorkflowRunsProps {
   readonly growth: GrowthPort;
@@ -54,10 +52,15 @@ export function WorkflowRuns(props: WorkflowRunsProps): React.JSX.Element {
     [directory],
   );
   useReadSettlementAnnouncement(directory, runReadSentence(directory, projection));
+  // Minted per mount rather than declared as a module constant, for the reason
+  // `WorkflowsSurface.tsx` states about its own: a module constant is one id however
+  // many of this section a tree holds, and two of them make both `aria-labelledby`
+  // references resolve to whichever heading came first.
+  const headingId = useId();
 
   return (
-    <section className="meridian-workflows-runs" aria-labelledby={RUNS_HEADING_ID}>
-      <h2 id={RUNS_HEADING_ID} className="meridian-workflows-runs__heading">
+    <section className="meridian-workflows-runs" aria-labelledby={headingId}>
+      <h2 id={headingId} className="meridian-workflows-runs__heading">
         Runs
       </h2>
       <WorkflowRunsReadState

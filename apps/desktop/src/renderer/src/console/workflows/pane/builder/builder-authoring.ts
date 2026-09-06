@@ -28,6 +28,7 @@
 // append rather than a redesign. `unregisteredAuthoringAct` is what a pane with no
 // wire renders instead of a button that would do nothing.
 
+import { WIRE_UNREGISTERED_REFUSAL_CODE } from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import type { WorkflowStripState } from "../../strip-state.js";
@@ -74,7 +75,8 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  *
  *   • `wire-unregistered` — there is a subject and no wire. The question is
  *     well-formed and nothing can be asked, because the operation is not on the
- *     bridge.
+ *     bridge. The bridge owns that code and publishes it, so this set names it from
+ *     there for the reason it names the address code from `pane-addressing.ts`.
  *   • `pane-address-invalid` — there is no well-formed question. The pane was
  *     handed an entity of a kind it does not author, so it refuses BEFORE composing
  *     a read rather than passing a run id off as a definition id and asking about
@@ -83,9 +85,9 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  *     there rather than spelling a second literal.
  */
 export const WORKFLOW_BUILDER_REFUSAL_CODES: readonly [
-  "wire-unregistered",
+  typeof WIRE_UNREGISTERED_REFUSAL_CODE,
   typeof PANE_ADDRESS_INVALID_CODE,
-] = ["wire-unregistered", PANE_ADDRESS_INVALID_CODE] as const;
+] = [WIRE_UNREGISTERED_REFUSAL_CODE, PANE_ADDRESS_INVALID_CODE] as const;
 
 /** One locally-raised refusal code. Derived from the tuple, never restated. */
 export type WorkflowBuilderRefusalCode = (typeof WORKFLOW_BUILDER_REFUSAL_CODES)[number];
@@ -112,7 +114,7 @@ export function unregisteredAuthoringAct(act: WorkflowAuthoringAct): ConsoleRefu
   // Bound through the closed vocabulary before it reaches `refuse`, whose `code`
   // parameter is a deliberately-wide `string` — `core/refusal.ts` cannot close it
   // without importing every producer and inverting the DAG.
-  const code: WorkflowBuilderRefusalCode = "wire-unregistered";
+  const code: WorkflowBuilderRefusalCode = WIRE_UNREGISTERED_REFUSAL_CODE;
   return refuse(
     WORKFLOW_BUILDER_ORIGIN,
     code,

@@ -10,7 +10,7 @@
 // is the only vantage that can tell the two hooks apart —
 // `store/subject-read-commits.test-support.tsx` owns that probe and states why.
 
-import { act, cleanup } from "@testing-library/react";
+import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/index.js";
@@ -19,28 +19,12 @@ import {
   observeSubjectRead,
   type ObservedSubjectRead,
 } from "../../store/subject-read-commits.test-support.js";
-import { definition, PROBE_SESSION_ID } from "../WorkflowsBrowser.test-support.js";
-import type { WorkflowDefinitionRow } from "./definition-rows.js";
+import { PROBE_SESSION_ID, settle } from "../WorkflowsBrowser.test-support.js";
+import { definitionWithId } from "./definition-directory.test-support.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectory,
 } from "./definition-directory.js";
-
-/**
- * One row per id, which is what these cases read back: the id is the only member that
- * says WHICH read committed. Everything else is the family's row, built once at
- * `../WorkflowsBrowser.test-support.tsx` — including `scopeRef`, whose default is this
- * same probe session.
- */
-function definitionWithId(id: string): WorkflowDefinitionRow {
-  return definition({
-    id,
-    name: `Definition ${id}`,
-    latestVersionNumber: 1,
-    latestWorkflowVersionId: `${id}-version-1`,
-    contentHash: `b3:${id}`,
-  });
-}
 
 /** The real port serving one scenario's worth of definitions, and nothing else changed. */
 function portServing(definitionId: string): GrowthPort {
@@ -68,12 +52,6 @@ function committedDefinitionIds(
   return committed.flatMap((directory) =>
     directory.state.status === "served" ? directory.state.definitions.map((row) => row.id) : [],
   );
-}
-
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
 describe("useWorkflowDefinitionDirectory — the port is half of what the read is about", () => {

@@ -8,10 +8,12 @@
 // `stylesheet-edge-graph.ts`: the corpus in a module of its own, the suite that
 // judges it next door.
 //
-// The split is what keeps any of the three readable. Five rules need seven trees
-// between them, each carrying the paragraph that says which rule it is the control
-// for and why it offends the set it does — and a file holding those beside the
-// harness, the budgets and the cases was doing three jobs at ~650 lines.
+// The split is what keeps any of the three readable. Every rule the tier owns needs
+// at least one tree, each carrying the paragraph that says which rule it is the
+// control for and why it offends the set it does — and a file holding those beside the
+// harness, the budgets and the cases was doing three jobs at ~650 lines. The count is
+// deliberately not written down: it moves whenever a rule gains a control, and a
+// number in a comment is the one part of that move nothing reports.
 //
 // WHY THESE ARE OBJECTS AND NOT FILES ON DISK. A tree is planted into a fresh
 // temporary directory by the harness and removed when the case that read it ends, so
@@ -22,7 +24,7 @@
 export type PlantedTree = Readonly<Record<string, string>>;
 
 /**
- * The shape the console has AFTER this change, reduced to the modules the five rules
+ * The shape the console has AFTER this change, reduced to the modules the tier's rules
  * can see.
  *
  * Every member is here because a rule could misfire on it: the sub-module door that
@@ -217,12 +219,12 @@ export const CONSOLE_ROOT_TREE: PlantedTree = {
 };
 
 /**
- * Every tree that carries a rule control — the clean shape and the ten that offend.
+ * Every tree that carries a rule control — the clean shape and each one that offends.
  *
- * The aggregate case below reads this rather than naming three of them, so a control
- * added for a fifth rule joins that case's quantifier by construction. `PROOF_TREE` is
- * deliberately not here: the cleanup case that plants it is the one case whose claim
- * is that no earlier case named it.
+ * The aggregate case below reads this rather than naming its members, so a control
+ * added for a further rule joins that case's quantifier by construction. `PROOF_TREE`
+ * is deliberately not here: the cleanup case that plants it is the one case whose
+ * claim is that no earlier case named it.
  */
 export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   CLEAN_TREE,

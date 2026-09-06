@@ -12,6 +12,11 @@
 // cancellations for one intended act. An answer installed without regard for the
 // address settles run A's cancellation under run B. And a round advanced by anything
 // but a served act is the beginning of a refresh cadence this read forbids.
+//
+// WHICH IS WHY THE FIRST CASE PRESSES INSIDE ONE `act` AND FROM ONE CAPTURED CONTROL.
+// The distinction being tested lives entirely inside a single frame: across two `act`
+// scopes a rendered flag and a dispatch-time latch behave identically, so a case
+// written that way passes over the very implementation it exists to reject.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,8 +27,8 @@ import {
   RUN_B,
   heldCancelPort,
   observeControls,
-  settle,
 } from "./run-control-dispatch.test-support.js";
+import { settle } from "../../WorkflowsBrowser.test-support.js";
 
 afterEach(() => {
   cleanup();
@@ -33,15 +38,20 @@ describe("one act per run and action is in flight, and a second press is told so
   it("refuses the second press instead of dispatching it", async () => {
     const port = heldCancelPort();
     const controls = observeControls(port.growth, RUN_A);
+    // ONE CAPTURED CONTROL, PRESSED TWICE INSIDE ONE `act`, which is the whole subject.
+    // Two presses in two `act` scopes are two frames: the second reads a control the
+    // first press has already re-rendered, so a rendered `dispatching` flag refuses it
+    // exactly as the latch does and the case cannot tell the two apart. Held still,
+    // this is the frame a flag cannot see — both handlers are the ones the first render
+    // produced, both would read `dispatching: false`, and only a latch claimed at
+    // dispatch stops the second call.
+    const pressed = controls.latest().cancel;
     await act(async () => {
-      controls.latest().cancel.cancel(undefined);
+      pressed.cancel(undefined);
+      pressed.cancel(undefined);
     });
-    await act(async () => {
-      controls.latest().cancel.cancel(undefined);
-    });
-    // One call, not two. A rendered flag could not have caught this: the handler reads
-    // the value from the render that produced it, so both presses would find the
-    // control idle and the daemon would take two cancellations for one intended act.
+    // One call, not two: the daemon would otherwise take two cancellations for one
+    // intended act.
     expect(port.requests).toHaveLength(1);
     const { outcome } = controls.latest().cancel;
     expect(outcome.kind).toBe("refused");

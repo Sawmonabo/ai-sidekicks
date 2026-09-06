@@ -34,6 +34,7 @@ import type { GrowthOperationId } from "./growth-entry.js";
 import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import {
   GROWTH_PORT_REFUSAL_ORIGIN,
+  WIRE_UNREGISTERED_REFUSAL_CODE,
   type GrowthOutcome,
   type GrowthPortRefusalCode,
   type GrowthUnavailable,
@@ -64,7 +65,7 @@ export function growthUnavailable(operationId: GrowthOperationId): GrowthUnavail
   const row = growthSlateRow(GROWTH_OPERATIONS[operationId].slateRow);
   return buildGrowthUnavailable(
     operationId,
-    "wire-unregistered",
+    WIRE_UNREGISTERED_REFUSAL_CODE,
     // Product vocabulary only: the owning document travels as the structured
     // `owningDocument` member for the ledger, never inside the sentence a person
     // reads, which names the wire and the fact that this build does not carry it.
