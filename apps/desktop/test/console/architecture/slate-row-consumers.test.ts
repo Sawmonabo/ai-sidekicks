@@ -62,8 +62,9 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // by `sessions/acts/provider-import.ts` now, so the derived check covers it.
   "session-lifecycle-verbs": "sessions lane — the all-sessions list and workspace header",
   "session-search": "sessions lane — the all-sessions list's search, and the palette row it feeds",
-  // ledger lane — the first-run frame and the timeline's own reads.
-  "onboarding-methods": "ledger lane — the first-run frame",
+  // ledger lane — the timeline's own reads. The first-run frame came off this list
+  // when the onboarding lane landed it: `onboarding-methods` is reached by
+  // `console/onboarding/`, so the derived check covers it.
   "timeline-epoch-attestation": "ledger lane — the timeline pane",
   "timeline-path-reference": "ledger lane — the timeline pane",
   "hydrated-event-read": "ledger lane — the timeline pane and the ledger rows",

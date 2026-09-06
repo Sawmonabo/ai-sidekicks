@@ -245,6 +245,13 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "daemonStop",
   "daemonRestart",
   "daemonStart",
+  "onboardingStateRead",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingProviderSignInHandoff",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -311,6 +318,22 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "daemonStop",
   "daemonRestart",
   "daemonStart",
+  // onboarding — the whole seven-operation surface, and the split between them is
+  // this module's own rule rather than a preference. The state read has an honest
+  // answer for a scenario that scripts nothing: a node nobody has onboarded has no
+  // completed steps and is not complete, which is a real state the walkthrough draws
+  // and the state a fresh install is genuinely in. The other six are WRITES or
+  // main-process dialogs — there is no such thing as "the step that was recorded and
+  // recorded nothing", and a synthesized relay choice would tell the walkthrough a
+  // person answered a question nobody was asked — so each of them refuses by name
+  // under a scenario that does not script it.
+  "onboardingStateRead",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingProviderSignInHandoff",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -352,4 +375,10 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "shellNotificationPermissionRead",
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingProviderSignInHandoff",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ];

@@ -55,7 +55,8 @@ export type GrowthSlateRowId =
   | "cost-receipt-read"
   | "workflow-version-chain"
   | "notification-permission-read"
-  | "shell-status-signals";
+  | "shell-status-signals"
+  | "onboarding-desktop-surface";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -402,6 +403,15 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "Spec-023 §Preload Bridge Contract (no namespace carries any of it); Spec-023 §Daemon Supervision Lifecycle (the six steps and the five-attempt ladder), §Fallback Behavior (the loopback fallback and the offline read-only mode), §Native Keystore (the memory-only degradation); Spec-007 (the DaemonHelloAck shape, which packages/contracts publishes and no bridge namespace serves)",
     consumingSurface:
       "frame shell-state chrome — the daemon chip, the version banner, the reconnect and read-only banners, and the loopback/keystore notice strip",
+    wireRegistered: false,
+  },
+  // lane: cov-signin-onboarding
+  "onboarding-desktop-surface": {
+    id: "onboarding-desktop-surface",
+    wire: "`onboarding.presentChoice` and `onboarding.telemetryPrompt`, the two preload-bridge methods `Spec-026 §Desktop Surface` names — the main-process hosts for the relay choice's secret entry and the telemetry answer",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (which admits `onboarding` by name); Spec-026 §Desktop Surface",
+    consumingSurface: "first-run onboarding (group A)",
     wireRegistered: false,
   },
 };

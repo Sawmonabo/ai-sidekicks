@@ -326,6 +326,55 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     daemonStop: async () => publishShellControl(shellChannel, "daemonStop", stoppedReport),
     daemonRestart: async () => publishShellControl(shellChannel, "daemonRestart", startingReport),
     daemonStart: async () => publishShellControl(shellChannel, "daemonStart", startingReport),
+    // onboarding — keyed by OPERATION ID under the `growth:` prefix rather than by a
+    // method string, because none of these rows declares an expected wire method:
+    // the five daemon methods are a Plan-026 registration the corpus has not made,
+    // and the two bridge methods cross the preload boundary rather than the wire.
+    // `reply-walk.ts` admits exactly this shape for a row with no name to transcribe.
+    onboardingStateRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        "growth:onboardingStateRead",
+        "onboardingStateRead",
+        request,
+        // The one onboarding answer with an honest empty form. A node nobody has
+        // onboarded has completed no step and is not complete — that is a state the
+        // walkthrough draws on its own first frame, and it is the state a fresh
+        // install is genuinely in, so serving it invents nothing.
+        () => ({ status: "served", value: { completedStepIds: [], isComplete: false } }),
+      ),
+    onboardingStepAdvance: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "growth:onboardingStepAdvance",
+        "onboardingStepAdvance",
+        request,
+      ),
+    onboardingStepSkip: async (request) =>
+      await answerScriptedWrite(engine, "growth:onboardingStepSkip", "onboardingStepSkip", request),
+    onboardingComplete: async (request) =>
+      await answerScriptedWrite(engine, "growth:onboardingComplete", "onboardingComplete", request),
+    onboardingProviderSignInHandoff: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "growth:onboardingProviderSignInHandoff",
+        "onboardingProviderSignInHandoff",
+        request,
+      ),
+    onboardingPresentChoice: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "growth:onboardingPresentChoice",
+        "onboardingPresentChoice",
+        request,
+      ),
+    onboardingTelemetryPrompt: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "growth:onboardingTelemetryPrompt",
+        "onboardingTelemetryPrompt",
+        request,
+      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

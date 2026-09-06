@@ -22,6 +22,7 @@ import type { MembershipRole, RuntimeNodeRosterEntry } from "@ai-sidekicks/contr
 
 import type { ConsoleSessionEvent, ShellReport } from "../../store/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
+import type { ScriptedSignInCeremony } from "../web-authn/ceremony-outcome.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {
@@ -247,6 +248,29 @@ export interface ConsoleScenario {
    * answers one call with one fixed value, and this is a feed.
    */
   readonly shellStatus?: readonly ScenarioShellStatusFrame[];
+  /**
+   * What this host's WebAuthn ceremony answers, where the scenario states it.
+   *
+   * OPTIONAL on the `runtimeNodeRoster` reading: a scenario that says nothing has
+   * not been asked, so the fixture refuses the ceremony exactly as it refuses every
+   * other native capability it cannot stand in for, and the sign-in surface renders
+   * the "not checked" absence. That is the honest state of a build with no ceremony,
+   * and it is also the state the shipped Tier-1 preload is in.
+   *
+   * A SCENARIO MEMBER RATHER THAN A `replies` ROW because `reply-walk.ts` admits a
+   * reply keyed only on a registered daemon method or a growth operation id, and the
+   * ceremony is neither — it is a preload-bridge namespace the contract already
+   * declares. It is also a fact about the HOST rather than about the session: which
+   * authenticator this machine has, whether it does PRF, and whether the OS keystore
+   * will hold what the ceremony mints.
+   *
+   * The type excludes this console's own `unavailable` arm, so a scenario cannot
+   * script "there is no ceremony here" as though a host had answered it — that arm
+   * is a reading the adapter makes when nothing answered at all. It carries a
+   * SEQUENCE of assertion answers rather than one, for the reason its own declaration
+   * states: the device grant's settlement arrives as a second assertion.
+   */
+  readonly signInCeremony?: ScriptedSignInCeremony;
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
 }

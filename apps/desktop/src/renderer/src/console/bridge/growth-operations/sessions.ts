@@ -113,6 +113,24 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "method",
       "hand the participant off to a provider's own sign-in flow",
     ),
+    // The two bridge methods `Spec-026 §Desktop Surface` names, on their own slate
+    // row rather than folded into the five daemon methods above: those are a daemon
+    // registration and these are a preload-bridge surface, and a row that bundled
+    // them would name two owners for one wire. Neither carries an expected wire
+    // method, because neither IS one — a bridge method crosses the preload boundary
+    // and never the JSON-RPC wire.
+    onboardingPresentChoice: op(
+      "onboardingPresentChoice",
+      "onboarding-desktop-surface",
+      "method",
+      "put the relay choice in front of the participant from the main process, so the self-host admin token is typed where the renderer cannot read it and only an opaque handle comes back",
+    ),
+    onboardingTelemetryPrompt: op(
+      "onboardingTelemetryPrompt",
+      "onboarding-desktop-surface",
+      "method",
+      "put the telemetry question in front of the participant as its own step, after the relay choice resolves and never bundled into it",
+    ),
     shellConfigRead: op(
       "shellConfigRead",
       "shell-config-preferences",

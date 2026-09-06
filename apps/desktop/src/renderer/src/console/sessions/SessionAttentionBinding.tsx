@@ -27,10 +27,13 @@
 // projections underneath it move, through the console's one push-driven read
 // discipline; this component draws no markup and returns the subtree it was handed.
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo } from "react";
 
 import { ConsoleRefusalError, refuse } from "../core/index.js";
-import type { FrameBindingContext } from "../seats/index.js";
+// The seat's own props type rather than a second declaration of the same two
+// members: this component IS a frame binding's mount, so its shape is the board's and
+// a local copy would be one more thing to keep in step.
+import type { FrameBindingProps } from "../seats/index.js";
 import { useSessionDirectory, type SessionDirectoryState } from "../seats/index.js";
 import { useOpenSessionIds } from "../store/index.js";
 import {
@@ -65,11 +68,6 @@ export interface SessionAttention {
 
 const SessionAttentionContext = createContext<SessionAttention | undefined>(undefined);
 
-export interface SessionAttentionBindingProps {
-  readonly context: FrameBindingContext;
-  readonly children: ReactNode;
-}
-
 /**
  * Perform the read for the frame's lifetime and provide it to whatever is below.
  *
@@ -77,7 +75,7 @@ export interface SessionAttentionBindingProps {
  * every registered binding, so this component's lifetime is the window's — which is
  * the whole of what makes the count survive a navigation.
  */
-export function SessionAttentionBinding(props: SessionAttentionBindingProps): React.JSX.Element {
+export function SessionAttentionBinding(props: FrameBindingProps): React.JSX.Element {
   const { bridge, frameStore, sessionStoreRegistry } = props.context;
   const { growth } = bridge;
   const directory = useSessionDirectory(growth);

@@ -41,6 +41,24 @@ export interface SessionGrowthSignatures {
   onboardingStepSkip: { request: { readonly stepId: string }; value: void };
   onboardingComplete: { request: Record<string, never>; value: void };
   onboardingProviderSignInHandoff: { request: { readonly providerName: string }; value: void };
+  // The two bridge methods, whose values are what a MAIN-PROCESS dialog answered.
+  // `credentialHandle` is an opaque reference and never a secret: `Spec-026
+  // §Pitfalls To Avoid` records that rendering the admin-token field in the renderer
+  // has already leaked it once, so the token is typed into main's own window and the
+  // renderer is handed something that only names it.
+  //
+  // `relayMethodId` travels as a bare `string` deliberately. The three normative
+  // identifiers are `Spec-026 §Three-Way Choice Semantics`', and the console narrows
+  // against its own copy of them fail-closed at the step — an id this build does not
+  // recognise renders as the unrecognised row rather than as one of the three.
+  onboardingPresentChoice: {
+    request: Record<string, never>;
+    value: { readonly relayMethodId: string; readonly credentialHandle: string | undefined };
+  };
+  onboardingTelemetryPrompt: {
+    request: Record<string, never>;
+    value: { readonly enabled: boolean };
+  };
   shellConfigRead: { request: Record<string, never>; value: Readonly<Record<string, boolean>> };
   shellConfigWrite: { request: { readonly key: string; readonly enabled: boolean }; value: void };
   invitesList: { request: { readonly sessionId: string }; value: readonly GrowthInviteSummary[] };

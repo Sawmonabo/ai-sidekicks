@@ -104,17 +104,21 @@ export {
 // the composition hands the board out — and `mountFrameBindings` is here because the
 // frame is the one caller that wraps a subtree in what the board holds.
 //
+// FOUR SPECIFIERS AND NOT EIGHT. The slot enumeration, its derived union, and the
+// descriptor are the board's INTERNAL vocabulary: a family names its slot as a string
+// literal inside the descriptor it registers and never imports the union to do it, so
+// publishing them here would put four names on this door that only the declaring
+// module and its tests reach. `families.test.ts` imports them from that module
+// directly, on the rule `DuplicateRegistrationError` already follows one layer down.
+//
 // No `@consumedBy` claims: the composition root, the frame, and the family that fills
 // the one declared slot all read these today.
 export {
-  FRAME_BINDING_SLOTS,
   FrameBindingRegistry,
   frameBindingRegistry,
   mountFrameBindings,
   type FrameBindingContext,
-  type FrameBindingDescriptor,
   type FrameBindingProps,
-  type FrameBindingSlot,
 } from "./frame-bindings.js";
 
 // The two contexts come off their own modules rather than off the boards that hand them
