@@ -21,6 +21,7 @@ import {
   gateBridgeAnswering,
   bridgeWithMovingAnswers,
   publishedProposalOf,
+  rejectsWith,
   servedContext,
   settle,
   settleAct,
@@ -60,6 +61,34 @@ describe("ProposalGateReader — one arm per outcome", () => {
     const reading = reader.snapshot;
     expect(reading.state).toStrictEqual({ kind: "refused", message: REPLY_ABANDONED.detail });
     // The arm carries the message, so the same sentence is not also put beside it.
+    expect(reading.refusal).toBeUndefined();
+  });
+
+  it("says the read failed when the call rejected, and carries what the rejection said", async () => {
+    // THE THIRD WAY THIS READ FAILS, and it earns the same arm as the case above for
+    // the same reason: an IPC disconnect makes the call THROW, which is the question
+    // PUT and no answer arriving. It used to land on `not-checked` — the family's
+    // growth door stamped `wire-unregistered` on every rejection, so a gate whose
+    // bridge had dropped reported that nobody had asked and showed no reason at all.
+    // `repos/growth-call.ts` hands the rejection to the port's own builder now, which
+    // stamps `call-rejected`, and `proposal-gate-readings.ts` routes every member but
+    // the unregistered one to the arm that says something went wrong.
+    const disconnected = new Error("the bridge went away mid-read");
+    const clock = new ManualClock();
+    const reader = readers.open(
+      gateBridgeAnswering({ branchContext: rejectsWith(disconnected) }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    const reading = reader.snapshot;
+    expect(reading.state.kind).toBe("refused");
+    expect(reading.state.kind === "refused" ? reading.state.message : "").toContain(
+      disconnected.message,
+    );
+    // The arm carries the message, so nothing is put beside it — which is also what
+    // tells this arm from `not-checked`, where the refusal travels in `refusal`.
     expect(reading.refusal).toBeUndefined();
   });
 
