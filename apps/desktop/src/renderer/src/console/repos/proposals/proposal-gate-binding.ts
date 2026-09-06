@@ -69,17 +69,18 @@ export function useProposalGate(
     gateKey,
     () => new ProposalGateReader({ bridge, subject, sessionStore, clock }),
     closeProposalGateReader,
+    proposalGateReaderIsClosed,
   );
   useEffect(() => {
-    // THE RE-MINT ARM, on `useAttachmentCarrier`'s pattern and for its two reasons.
-    // Strict mode runs the seam's cleanup and then this setup again on the SAME
-    // committed reader, and `dispose` is terminal — `start()` on it returns early, so
-    // the row sat unread with nothing on screen to say why. And the seam holds one
-    // resource per `(subject, key)`, which here is `(bridge, gate identity)`: the store
-    // whose repair edge and frames are two of this gate's three refresh reasons is the
-    // axis that key cannot carry, so the reader is asked instead. Either way the
-    // replacement is PUBLISHED through the seam, so it is closed on the seam's terms.
-    if (reader.isDisposed || !reader.isReadingFor(sessionStore)) {
+    // THE STORE AXIS, AND ONLY IT. The seam holds one resource per `(subject, key)`,
+    // which here is `(bridge, gate identity)`: the store whose repair edge and frames
+    // are two of this gate's three refresh reasons is the axis that key cannot carry,
+    // so the reader is asked instead. The replacement is PUBLISHED through the seam, so
+    // it is closed on the seam's terms. The DISPOSAL axis that used to sit beside it —
+    // strict mode running the seam's cleanup and then this setup again on the same
+    // committed reader — is `isClosed`'s, below, and re-deriving it here disposed that
+    // reader twice.
+    if (!reader.isReadingFor(sessionStore)) {
       settle()(new ProposalGateReader({ bridge, subject, sessionStore, clock }));
       return;
     }
@@ -108,6 +109,17 @@ export function useProposalGate(
 /** Close one reader. Declared once so the resource seam holds one identity for it. */
 function closeProposalGateReader(reader: ProposalGateReader): void {
   reader.dispose();
+}
+
+/**
+ * Whether a reader's disposal has already ended it. Declared beside its `close`.
+ *
+ * THE SEAM'S FIFTH ARGUMENT AND NOT A PREDICATE IN AN EFFECT, on
+ * `useAttachmentCarrier`'s reason: `close` here is terminal, and a terminal disposal
+ * is what `isClosed` exists to be told about.
+ */
+function proposalGateReaderIsClosed(reader: ProposalGateReader): boolean {
+  return reader.isDisposed;
 }
 
 /**

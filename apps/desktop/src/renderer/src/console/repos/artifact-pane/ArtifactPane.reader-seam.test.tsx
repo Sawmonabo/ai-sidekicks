@@ -13,6 +13,7 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
+import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import { scenarioManualClock } from "../scenario-clock.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import {
@@ -23,6 +24,7 @@ import {
   readThrough,
   settleAct,
 } from "./artifact-pane.test-support.js";
+import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
   ARTIFACT_ENTITY,
   OTHER_ARTIFACT_ENTITY,
@@ -237,5 +239,32 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     await readThrough(paneClock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes every reader it opened exactly once", async () => {
+    // The seam is told the disposal is TERMINAL, through `isClosed`, and the re-mint
+    // for a corpse is then the seam's. Re-derived in `useArtifactPaneReading`'s own
+    // effect — where it lived fused into `isCurrentFor` alongside the store axis — the
+    // corpse StrictMode's replay produced was recorded as committed, the binding
+    // published a replacement, and the value-change cleanup disposed the corpse a
+    // second time. `dispose` is re-entrant, so the CALL is the observable.
+    const disposals = vi.spyOn(ArtifactPaneReader.prototype, "dispose");
+    try {
+      const { paneClock, unmount } = renderPaneStrictly(
+        contextFor(ARTIFACT_ENTITY, {
+          bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+          sessionId: SESSION_ID,
+        }),
+      );
+      await readThrough(paneClock);
+      await settleAct();
+      unmount();
+
+      expect(repeatedDisposalCount(disposals)).toBe(0);
+      // Negative control on the count: a spy that saw nothing reports zero repeats.
+      expect(disposals.mock.contexts.length).toBeGreaterThan(0);
+    } finally {
+      disposals.mockRestore();
+    }
   });
 });

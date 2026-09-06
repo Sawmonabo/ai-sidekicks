@@ -15,13 +15,15 @@
 
 import { renderHook } from "@testing-library/react";
 import { StrictMode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { SessionStore } from "../../store/index.js";
+import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
 import { useProposalGate } from "./proposal-gate-binding.js";
+import { ProposalGateReader } from "./proposal-gate-reader.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 
 /** One worktree gate's subject, spelled here so a case can move exactly one member. */
@@ -39,6 +41,7 @@ interface BindingUnderTest {
   /** Drive scenario time until the read count reaches `expected`, then assert it. */
   readonly expectReadsToReach: (expected: number) => Promise<void>;
   readonly readCount: () => number;
+  readonly unmount: () => void;
 }
 
 function renderBinding(
@@ -59,7 +62,7 @@ function renderBinding(
   };
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
   const readCount = (): number => reads;
-  const { rerender } = renderHook(
+  const { rerender, unmount } = renderHook(
     (props: { readonly subject: ProposalGateSubject }) =>
       useProposalGate(bridge, props.subject, sessionStore),
     {
@@ -77,6 +80,7 @@ function renderBinding(
       });
     },
     readCount,
+    unmount,
   };
 }
 
@@ -134,5 +138,25 @@ describe("useProposalGate — the reader is a resource, not a memo", () => {
 
     await binding.expectReadsToReach(1);
     expect(binding.readCount()).toBe(1);
+  });
+
+  it("disposes every reader it opened exactly once", async () => {
+    // `useRepoMounts`'s case, one directory over, and the same seam argument: the
+    // disposal is TERMINAL and the seam is told so through `isClosed`. Re-derived in
+    // this binding's own effect, the corpse StrictMode's replay produced was recorded
+    // as committed and disposed a second time when the published replacement retired
+    // it. `dispose` is re-entrant here, so the CALL is what is counted.
+    const disposals = vi.spyOn(ProposalGateReader.prototype, "dispose");
+    try {
+      const binding = renderBinding(WORKTREE_SUBJECT, { strict: true });
+      await binding.expectReadsToReach(1);
+      binding.unmount();
+
+      expect(repeatedDisposalCount(disposals)).toBe(0);
+      // Negative control on the count: a spy that saw nothing reports zero repeats.
+      expect(disposals.mock.contexts.length).toBeGreaterThan(0);
+    } finally {
+      disposals.mockRestore();
+    }
   });
 });

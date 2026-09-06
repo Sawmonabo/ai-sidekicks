@@ -17,14 +17,16 @@
 
 import { renderHook } from "@testing-library/react";
 import { StrictMode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { SessionStore } from "../../store/index.js";
+import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
 import { useRepoMounts, type RepoMountsBinding } from "./repo-mounts-binding.js";
+import { RepoMountsReader } from "./repo-mounts-reader.js";
 
 const WORKSPACE_LIST_CALL = "repo.workspaceList";
 
@@ -34,6 +36,7 @@ interface BindingUnderTest {
   readonly rerender: () => void;
   readonly rosterReadCount: () => number;
   readonly settle: () => Promise<void>;
+  readonly unmount: () => void;
 }
 
 function renderBinding(options: { readonly strict: boolean }): BindingUnderTest {
@@ -43,7 +46,7 @@ function renderBinding(options: { readonly strict: boolean }): BindingUnderTest 
   );
   const bridge: ConsoleBridge = held.bridge;
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-  const { result, rerender } = renderHook(() => useRepoMounts(bridge, sessionStore), {
+  const { result, rerender, unmount } = renderHook(() => useRepoMounts(bridge, sessionStore), {
     ...(options.strict ? { wrapper: StrictMode } : {}),
   });
   return {
@@ -57,6 +60,7 @@ function renderBinding(options: { readonly strict: boolean }): BindingUnderTest 
         expect(result.current.reading.status).toBe("read");
       });
     },
+    unmount,
   };
 }
 
@@ -97,5 +101,27 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
     await binding.settle();
 
     expect(binding.rosterReadCount()).toBe(1);
+  });
+
+  it("disposes every reader it opened exactly once", async () => {
+    // The seam is told the disposal is TERMINAL, through `isClosed`. Re-derived in the
+    // binding's own effect instead, the corpse StrictMode's replay produced was
+    // recorded as committed, the binding published a replacement, and the
+    // value-change cleanup disposed that corpse a second time. `dispose` here is
+    // re-entrant, so nothing broke and nothing could fail — which is why the call is
+    // counted rather than its effect.
+    const disposals = vi.spyOn(RepoMountsReader.prototype, "dispose");
+    try {
+      const binding = renderBinding({ strict: true });
+      await binding.settle();
+      binding.unmount();
+
+      expect(repeatedDisposalCount(disposals)).toBe(0);
+      // Negative control on the count itself: a spy that saw nothing would report zero
+      // repeats for a binding that had stopped disposing readers at all.
+      expect(disposals.mock.contexts.length).toBeGreaterThan(0);
+    } finally {
+      disposals.mockRestore();
+    }
   });
 });

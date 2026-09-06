@@ -10,7 +10,7 @@
 
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ATTACHMENT_CHUNK_BYTE_CAP,
@@ -18,6 +18,7 @@ import {
   ManualClock,
 } from "../../core/index.js";
 import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 import {
@@ -315,5 +316,33 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
 
     expect(port.initCalls).toHaveLength(1);
     expect(binding?.snapshot.entries).toHaveLength(1);
+  });
+
+  it("disposes every carrier it opened exactly once", async () => {
+    // The seam is told the disposal is TERMINAL, through `isClosed`, and the re-mint
+    // is the seam's. Re-derived in the hook's own effect instead, the corpse
+    // StrictMode's replay produced was recorded as committed, the hook published a
+    // replacement, and the value-change cleanup disposed the corpse a second time.
+    // `AttachmentIngestClient.dispose` guards on its own flag, so nothing broke and
+    // nothing could fail — which is why the CALL is counted and not its effect.
+    const disposals = vi.spyOn(AttachmentCarrier.prototype, "dispose");
+    try {
+      const port = new ScriptedGrowthPort();
+      const { unmount } = render(
+        <StrictMode>
+          <CarrierProbe bridge={port.asBridge()} onBinding={() => {}} />
+        </StrictMode>,
+      );
+      await act(async () => {
+        await drainMicrotasks();
+      });
+      unmount();
+
+      expect(repeatedDisposalCount(disposals)).toBe(0);
+      // Negative control on the count: a spy that saw nothing reports zero repeats.
+      expect(disposals.mock.contexts.length).toBeGreaterThan(0);
+    } finally {
+      disposals.mockRestore();
+    }
   });
 });

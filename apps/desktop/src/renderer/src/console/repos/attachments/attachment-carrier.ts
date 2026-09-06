@@ -253,6 +253,21 @@ function closeAttachmentCarrier(carrier: AttachmentCarrier): void {
 }
 
 /**
+ * Whether a carrier's disposal has already ended it. Declared beside its `close`.
+ *
+ * THE SEAM'S FIFTH ARGUMENT AND NOT A PREDICATE IN AN EFFECT. `close` here is
+ * terminal, and a terminal disposal is what `isClosed` exists to be told about:
+ * without it the seam records the corpse as committed, the caller publishes a
+ * replacement, and the value-change cleanup calls `dispose()` on the corpse a second
+ * time. `AttachmentIngestClient.dispose` happens to be re-entrant, so nothing broke —
+ * one non-idempotent teardown away from a real double-release, and one copy of a
+ * predicate the substrate already holds.
+ */
+function attachmentCarrierIsClosed(carrier: AttachmentCarrier): boolean {
+  return carrier.isDisposed;
+}
+
+/**
  * Bind one carrier to one component's lifetime.
  *
  * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION, which is what a carrier is
@@ -263,15 +278,16 @@ function closeAttachmentCarrier(carrier: AttachmentCarrier): void {
  * what keeps this module off a second implementation of subject-scoped state; the
  * chokepoint gate beside the holder fails the build on one.
  *
- * A RE-MINT ARM STILL, and for the reason it always had. React's StrictMode
- * double-mount runs the seam's cleanup and then this effect's setup again on the SAME
- * committed carrier: the cleanup terminally disposed the ingest client, the replayed
- * setup called `start()` on the corpse, and every file the participant chose
- * afterwards reached a client whose `attach` returns at once — the attachment surface
- * inert, with nothing on screen to say so. Asking the carrier whether it is disposed
- * is what makes that arm correct without a second flag, and the replacement is
- * PUBLISHED through the seam, so it is closed on the seam's own terms rather than by
- * a cleanup of this effect's.
+ * A RE-MINT ARM STILL, and for the reason it always had — but it is the SEAM'S arm
+ * now. React's StrictMode double-mount runs the seam's cleanup and then this effect's
+ * setup again on the SAME committed carrier: the cleanup terminally disposed the
+ * ingest client, the replayed setup called `start()` on the corpse, and every file the
+ * participant chose afterwards reached a client whose `attach` returns at once — the
+ * attachment surface inert, with nothing on screen to say so. That arm is
+ * `isClosed`'s, supplied beside `close`; this effect had re-derived it and published
+ * the replacement itself, which left the corpse committed and disposed twice. Nothing
+ * about a carrier's lifetime is left here, so this effect starts one and does nothing
+ * else.
  */
 export function useAttachmentCarrier(
   bridge: ConsoleBridge,
@@ -282,19 +298,16 @@ export function useAttachmentCarrier(
   // live bridge, so reading it in a render body would hand the re-mint arm below a
   // different instance from the one the first carrier was opened on.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { value: carrier, settle } = useSubjectScopedResource(
+  const { value: carrier } = useSubjectScopedResource(
     bridge,
     sessionId,
     () => new AttachmentCarrier({ bridge, sessionId, clock }),
     closeAttachmentCarrier,
+    attachmentCarrierIsClosed,
   );
   useEffect(() => {
-    if (carrier.isDisposed) {
-      settle()(new AttachmentCarrier({ bridge, sessionId, clock }));
-      return;
-    }
     carrier.start();
-  }, [carrier, settle, bridge, sessionId, clock]);
+  }, [carrier]);
   const subscribe = useCallback(
     (onCarrierChange: () => void) => carrier.subscribe(onCarrierChange),
     [carrier],
