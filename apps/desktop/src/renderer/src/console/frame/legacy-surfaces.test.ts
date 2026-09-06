@@ -11,12 +11,12 @@ import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridgeSource } from "../bridge/console-bridge.js";
+import { SurfaceAbsence } from "../palette/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
-import { SurfaceAbsence } from "./SurfaceAbsence.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 

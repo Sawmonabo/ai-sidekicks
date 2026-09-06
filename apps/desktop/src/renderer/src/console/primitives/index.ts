@@ -35,11 +35,18 @@ import "./nothing.css";
 import "./refusal.css";
 import "./ledger-row.css";
 import "./partial-read.css";
+import "./surface-failure.css";
 
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
+
+// One boundary per surface, so a pane's render throw does not blank the window. It
+// is in this family rather than in the frame's because its only input is `core`'s
+// tripwire report, and because a view family wrapping its own rows cannot import the
+// frame's door without closing a cycle.
+export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 
 export type { ChordPlatform } from "./chord-format.js";
 export {

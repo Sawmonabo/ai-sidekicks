@@ -190,7 +190,7 @@ describe("RouteSurface — a declared slot with no registrant", () => {
 
     const { container } = render(<RouteSurface context={context} />);
 
-    expect(container.querySelector(".meridian-frame__absence")).not.toBeNull();
+    expect(container.querySelector(".meridian-surface-absence")).not.toBeNull();
     expect(container.textContent).toContain("This surface has not been built yet.");
     expect(container.textContent).toContain("workflows");
     expect(container.querySelector("[aria-busy='true']")).toBeNull();
@@ -211,7 +211,7 @@ describe("RouteSurface — a declared slot with no registrant", () => {
       const { container } = render(<RouteSurface context={context} />);
 
       expect(container.textContent).toContain("the workflow builder rendered");
-      expect(container.querySelector(".meridian-frame__absence")).toBeNull();
+      expect(container.querySelector(".meridian-surface-absence")).toBeNull();
     } finally {
       consoleSurfaceRegistry.unregister("workflows");
     }

@@ -1,138 +1,45 @@
-// The command door, and the vocabulary the frame publishes to write against.
+// The chords the frame binds, and the claim that its own `when` type is scoped to
+// the console's published vocabulary.
 //
-// Two doors would be one too many: a family that reaches the registry directly
-// and a family that goes through `registerConsoleCommand` are contributing the
-// same thing by two paths, and the path that skips the door is the one that skips
-// whatever the door later starts doing. The frame's own commands now go through
-// it too, so these cases drive the door rather than the registry behind it.
+// The registry and the vocabulary themselves are `palette/console-commands.test.ts`.
+// What is left here is the frame's: one chord per rail destination, and a binding
+// type narrow enough that an unpublished key is a compile error rather than a
+// clause that quietly evaluates false.
 //
-// The `when`-clause vocabulary is checked from both sides. A tuple that nothing
-// reads at runtime is a claim about a set that no test can hold: it stays right
-// only for as long as everyone remembers to edit two places, which is the exact
-// failure the collapsed declaration exists to make impossible.
+// THE TUPLE IS REACHED BY ITS OWN SPECIFIER rather than through `palette/index.js`,
+// which deliberately does not publish it: its only production reader is the type
+// derived from it, so a door line for the tuple would be a specifier no production
+// module reaches and `barrel-census` fails one of those. A suite may write the deep
+// import — `options.exclude` in `.dependency-cruiser.mjs` removes every `.test.ts`
+// from the graph before the door rule runs, for exactly this class of reach.
 
 import { describe, expect, it } from "vitest";
 
-import { DuplicateRegistrationError } from "../core/keyed-registry.js";
+import { CONSOLE_WHEN_CLAUSE_KEYS } from "../palette/console-commands.js";
 import { RAIL_DESTINATIONS } from "../routing/index.js";
 import {
   FRAME_KEY_BINDINGS,
-  FRAME_WHEN_CLAUSE_KEYS,
   RAIL_NAVIGATION_DETAILS,
-  consoleCommands,
-  registerConsoleCommand,
-  registerConsoleCommands,
   type FrameKeyBinding,
-  type FrameWhenClauseContext,
 } from "./command-surface.js";
 
-/** Every key the frame publishes, all false — the shape, not a situation. */
-const NO_CONTEXT: FrameWhenClauseContext = {
-  sessionActive: false,
-  onSessions: false,
-  onWorkspace: false,
-  onWorkflows: false,
-  onSettings: false,
-  inAuxiliaryWindow: false,
-};
-
 /**
- * The compile-time control for the vocabulary.
+ * The compile-time control for the frame's own binding shape.
  *
  * The frame binds no SCOPED chord today — its three rail destinations are
  * unconditional — so a runtime loop over scoped bindings would be a check with
  * nothing to check. The claim that matters holds anyway, one level up: a binding's
  * `when` is typed to the published vocabulary, so an unpublished key is a compile
- * error at the author's keyboard rather than a clause that quietly evaluates false
- * and hides the command. If the type were ever widened to `string`, the suppressed
- * error would stop occurring and this directive would itself become the error.
+ * error at the author's keyboard. If the type were ever widened to `string`, the
+ * suppressed error would stop occurring and this directive would itself become the
+ * error.
  */
 const BINDING_THE_COMPILER_REJECTS: FrameKeyBinding = {
   chord: "$mod+9",
   commandId: "frame.goToSessions",
-  // @ts-expect-error — `sessionActiveish` is not a key the frame publishes.
+  // @ts-expect-error — `sessionActiveish` is not a key the console publishes.
   when: "sessionActiveish",
 };
-
-describe("command surface — the door families contribute through", () => {
-  it("registers one command", () => {
-    try {
-      registerConsoleCommand({
-        id: "command-surface-test.one",
-        title: "One",
-        group: "Test",
-        run: () => undefined,
-      });
-      expect(consoleCommands.has("command-surface-test.one")).toBe(true);
-    } finally {
-      consoleCommands.unregister("command-surface-test.one");
-    }
-  });
-
-  it("registers several atomically", () => {
-    try {
-      registerConsoleCommands([
-        { id: "command-surface-test.a", title: "A", group: "Test", run: () => undefined },
-        { id: "command-surface-test.b", title: "B", group: "Test", run: () => undefined },
-      ]);
-      expect(consoleCommands.has("command-surface-test.a")).toBe(true);
-      expect(consoleCommands.has("command-surface-test.b")).toBe(true);
-    } finally {
-      consoleCommands.unregister("command-surface-test.a");
-      consoleCommands.unregister("command-surface-test.b");
-    }
-  });
-
-  it("leaves the registry untouched when one id in a batch is taken", () => {
-    // Atomic is the whole reason the plural door exists. Half a family's commands
-    // is a state no caller can reason about, and none of them unwinds it.
-    try {
-      registerConsoleCommand({
-        id: "command-surface-test.taken",
-        title: "Taken",
-        group: "Test",
-        run: () => undefined,
-      });
-      expect(() => {
-        registerConsoleCommands([
-          { id: "command-surface-test.fresh", title: "Fresh", group: "Test", run: () => undefined },
-          { id: "command-surface-test.taken", title: "Again", group: "Test", run: () => undefined },
-        ]);
-      }).toThrow(DuplicateRegistrationError);
-      expect(consoleCommands.has("command-surface-test.fresh")).toBe(false);
-    } finally {
-      consoleCommands.unregister("command-surface-test.taken");
-      consoleCommands.unregister("command-surface-test.fresh");
-    }
-  });
-
-  it("negative control: nothing this file registered survives it", () => {
-    // Without this every case above would pass against a door that registered
-    // into a registry nobody reads, and the `has` assertions would be reading
-    // leftovers from the case before.
-    expect(consoleCommands.has("command-surface-test.one")).toBe(false);
-    expect(consoleCommands.has("command-surface-test.a")).toBe(false);
-    expect(consoleCommands.has("command-surface-test.taken")).toBe(false);
-  });
-});
-
-describe("command surface — the published when-clause vocabulary", () => {
-  it("names exactly the keys the frame's own context supplies", () => {
-    // The tuple is the declaration and `FrameWhenClauseContext` is derived from
-    // it, so the compiler already refuses a context that is missing a key or
-    // invents one. This holds the other direction at runtime: that the tuple a
-    // family READS is the same set, rather than a stale copy of it.
-    expect([...FRAME_WHEN_CLAUSE_KEYS].sort()).toStrictEqual(Object.keys(NO_CONTEXT).sort());
-  });
-
-  it("negative control: a key nobody publishes is not in the vocabulary", () => {
-    // Reads the object the `@ts-expect-error` above suppressed, so the directive
-    // is a claim this file executes rather than a comment nobody runs.
-    expect(FRAME_WHEN_CLAUSE_KEYS).not.toContain(BINDING_THE_COMPILER_REJECTS.when);
-    expect(FRAME_WHEN_CLAUSE_KEYS).not.toContain("sessionActiveish");
-    expect(Object.keys(NO_CONTEXT)).not.toContain("sessionActiveish");
-  });
-});
 
 describe("command surface — the chords the frame binds", () => {
   it("binds one chord per rail destination, in rail order, and nothing besides", () => {
@@ -142,6 +49,12 @@ describe("command surface — the chords the frame binds", () => {
     expect(FRAME_KEY_BINDINGS.map((binding) => binding.commandId)).toStrictEqual(
       RAIL_DESTINATIONS.map((destination) => RAIL_NAVIGATION_DETAILS[destination].commandId),
     );
+  });
+
+  it("negative control: an unpublished key is not in the vocabulary the type scopes to", () => {
+    // Reads the object the `@ts-expect-error` above suppressed, so the directive is
+    // a claim this file executes rather than a comment nobody runs.
+    expect(CONSOLE_WHEN_CLAUSE_KEYS).not.toContain(BINDING_THE_COMPILER_REJECTS.when);
   });
 
   it("negative control: no two destinations answer to one chord", () => {

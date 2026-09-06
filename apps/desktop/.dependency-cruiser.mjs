@@ -229,7 +229,15 @@ export default {
         "permitted edge is written, so a downward edge past a barrel — the shape a " +
         "caller reaches for when importing the door would close a cycle — stayed green. " +
         "The fix is never the deep specifier: hoist the symbol to the lowest family " +
-        "that owns its inputs, and import it from that family's door. A sub-module " +
+        "that owns its inputs, and import it from that family's door. WHERE THE " +
+        "TARGET IS `frame/`, THE FRAME'S OWN DOOR IS NOT AN AVAILABLE REMEDY for a " +
+        "view family: `frame/index.ts` re-exports `ConsoleRoot`, `ConsoleRoot.tsx` " +
+        "imports `console/families.ts`, and `families.ts` composes every view family " +
+        "in, so `families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx " +
+        "→ families.ts` is a cycle `no-circular` fails — measured. Hoisting is the " +
+        "only remedy open there, and the substrate has already taken it for the " +
+        "command registry, the surface-scale absence and the error boundary. A " +
+        "sub-module " +
         "door (`bridge/growth-values/`, `bridge/scenarios/`) is deliberately NOT a " +
         "legal target here — it publishes to its own family only, which is why the " +
         "exemption below matches a family door's single path segment and not a nested " +
