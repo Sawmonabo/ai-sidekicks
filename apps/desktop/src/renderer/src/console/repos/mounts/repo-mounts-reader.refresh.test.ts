@@ -20,9 +20,10 @@ afterEach(disposeTrackedReaders);
  * One `workspace.stale` frame — the kind the section watched before it watched them all.
  *
  * The envelope itself is `store/session-event.test-support.ts`'s, which is where every
- * suite that needs an admitted event gets one. Named here only because the kind is the
- * reading: four cases below are about THIS frame arriving, and spelling the string at
- * each of them would make the kind incidental to a case that is entirely about it.
+ * suite that needs an admitted event gets one. Named here only because the KIND is the
+ * reading: the cases that drive this frame are about this kind arriving — and the
+ * negative control is about it not being enough on its own — so spelling the string at
+ * each of them would make the kind incidental to cases that are entirely about it.
  * Payload-free, because the trigger keys on the kind and on nothing else, and a frame
  * carrying members would suggest the section reads one — the wire's own payload shape
  * is `bridge/scenarios/repos.ts`'s to state, under the wire-truth predicate.

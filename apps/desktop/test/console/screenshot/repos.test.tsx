@@ -7,9 +7,10 @@
 // reading of them, so nothing about either is restated here.
 //
 // WHAT IS PINNED, AND WHY THESE SEVEN. The family ships one sidebar section, two pane
-// bodies, and the gate a change proposal is put through — and the gate is pinned both
-// on its own and where a person meets it. Each is a different composition rather than
-// a state of one:
+// bodies, and the gate a change proposal is put through — four subjects, and seven
+// references, because two of them are pinned more than once: the gate both on its own
+// and where a person meets it, and the artifact pane on each of the three states its
+// payload disclosure has. Each is a different composition rather than a state of one:
 //
 //   • the repos SECTION with a DEGRADED MOUNT — the scenario states two mounts and
 //     one of them answers `unreachable`, and the section's design claim is that a
