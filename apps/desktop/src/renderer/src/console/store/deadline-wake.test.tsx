@@ -13,6 +13,10 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RealClock, type ConsoleClock, type ScheduledHandle } from "../core/index.js";
+// The unit factors come from the module that declares them rather than through the
+// family door: their door specifiers are claimed for the families that will read them
+// in production, and a claim a test retires is a claim nothing came to collect.
+import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_MINUTE } from "../core/instant.js";
 import { earliestFutureDeadline } from "./deadline-wake.js";
 import {
   CountingManualClock,
@@ -41,7 +45,7 @@ class RecordingRealClock extends RealClock {
 /** What `setTimeout` holds: anything above it fires on the next tick, not late. */
 const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 
-const SIXTY_DAYS_MILLISECONDS = 60 * 24 * 60 * 60 * 1_000;
+const SIXTY_DAYS_MILLISECONDS = 60 * MILLISECONDS_PER_DAY;
 
 /**
  * The shape this hook shipped: one reading, taken at mount and never re-taken.
@@ -232,8 +236,8 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
     vi.useFakeTimers();
     vi.setSystemTime(MOUNTED_AT);
     const clock = new RecordingRealClock();
-    renderWake(clock, [MOUNTED_AT + 60_000]);
-    expect(clock.armedDelaysMilliseconds).toStrictEqual([60_000]);
+    renderWake(clock, [MOUNTED_AT + MILLISECONDS_PER_MINUTE]);
+    expect(clock.armedDelaysMilliseconds).toStrictEqual([MILLISECONDS_PER_MINUTE]);
   });
 
   it("walks the deadline in ceiling-sized steps and wakes only when it is reached", () => {
