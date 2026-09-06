@@ -54,13 +54,9 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
-  // lane: cov-settings-a
   | "os-notification-permission"
-  // lane: cov-settings-b
   | "health-diagnostics-reads"
-  // lane: cov-settings-b
   | "provider-account-signin-and-token"
-  // lane: cov-settings-b
   | "mcp-governance-plane";
 
 export interface GrowthSlateRow {
@@ -391,7 +387,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
     wireRegistered: false,
   },
-  // lane: cov-settings-a
   "os-notification-permission": {
     id: "os-notification-permission",
     wire: "whether this machine's operating system permits the shell to raise a notification at all — a shell reading, registered on no bridge namespace and in no document",
@@ -400,7 +395,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "notifications settings page",
     wireRegistered: false,
   },
-  // lane: cov-settings-b
   "health-diagnostics-reads": {
     id: "health-diagnostics-reads",
     wire: "the five `health.*` reads — the machine's status projection, one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The health SUBSCRIPTION is a separate row and a separate wire: this page is forbidden to consume one",
@@ -409,7 +403,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "diagnostics settings page",
     wireRegistered: false,
   },
-  // lane: cov-settings-b
   "provider-account-signin-and-token": {
     id: "provider-account-signin-and-token",
     wire: "the brokered sign-in, its cancel, and the registration that carries the one write-only non-interactive token member — the three account-plane verbs the registry read and its live tail do not cover",
@@ -419,7 +412,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "provider-accounts settings page (the sign-in card and the write-only token field)",
     wireRegistered: false,
   },
-  // lane: cov-settings-b
   "mcp-governance-plane": {
     id: "mcp-governance-plane",
     wire: "the MCP governance namespace — the unified server inventory read and the enablement and trust mutations, with the binding identity, the redacted configuration read-back, the per-leg live status, the tool overrides, and the per-leg application outcomes they carry. Eight further operations are registered on the same namespace and are the owning plan's to call",

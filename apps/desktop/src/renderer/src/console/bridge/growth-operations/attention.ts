@@ -41,7 +41,7 @@ export const ATTENTION_GROWTH_OPERATIONS: Readonly<
     "set one global notification preference, over the control-plane transport",
     "attention.preferenceUpdate",
   ),
-  // lane: cov-settings-a — a SHELL reading rather than a daemon one, so it names no
+  // A SHELL reading rather than a daemon one, so it names no
   // expected wire method: the row it cites owes a preload-bridge member, not a
   // JSON-RPC verb, and a method string invented here would claim otherwise.
   attentionOsPermissionRead: op(
