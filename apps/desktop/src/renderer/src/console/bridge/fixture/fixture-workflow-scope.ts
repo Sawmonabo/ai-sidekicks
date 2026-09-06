@@ -51,8 +51,15 @@ export function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkfl
   };
 }
 
-/** What a workflow read is addressed by, where the two refuse differently. */
-export type WorkflowSubjectKind = "run" | "phase";
+/**
+ * What a workflow read is addressed by, where each refuses differently.
+ *
+ * Three, because three reads on this seam are addressed by a subject that can be
+ * absent: a run, a phase of one, and the version a run is pinned to. The last is
+ * reached only from a computed reply — the chain read scopes itself — so it appears
+ * in the refusal below and never in the FIXED-reply derivation above it.
+ */
+export type WorkflowSubjectKind = "run" | "phase" | "version";
 
 /**
  * The refusal for a workflow subject a scenario holds nothing for.

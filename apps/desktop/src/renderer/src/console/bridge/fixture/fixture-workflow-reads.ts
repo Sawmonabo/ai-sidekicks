@@ -7,18 +7,18 @@
 // package's split threshold. The port keeps the DECISION — which operations are
 // served at all — and spreads this module's four answers into its served set.
 //
-// WHY THE FOUR READS ARE SERVED, AND WHY TWO OF THEM STILL REFUSE
+// WHY THE FIVE READS ARE SERVED, AND WHY THREE OF THEM STILL REFUSE
 //
-// The workflows scenario scripts the four reads the destination, the run list, the
-// run pane, and the definition browser are built on, and the growth port routed none
-// of them. Three are keyed on their registered wire method; the run enumeration is
-// keyed on its growth operation id, because its ledger row registers no method and
-// the handler below says why. So the panes rendered the "not checked" refusal in every
-// fixture build and the family's screenshots pinned an absence rather than the story
-// the scenario tells. Routing them is what makes a script that already exists
-// reachable.
+// The workflows scenario scripts the five reads the destination, the run list, the
+// run pane, its re-pin picker, and the definition browser are built on, and the growth
+// port routed none of them. Three are keyed on their registered wire method; the run
+// enumeration and the version chain are keyed on their growth operation ids, because
+// neither ledger row registers a method and the handlers below say why. So the panes
+// rendered the "not checked" refusal in every fixture build and the family's
+// screenshots pinned an absence rather than the story the scenario tells. Routing them
+// is what makes a script that already exists reachable.
 //
-// All four cross the same scripted-reply seam the branch-context read does, so a
+// All five cross the same scripted-reply seam the branch-context read does, so a
 // workflow read gets the frozen clock's loading window and the two non-arrival
 // refusals a real read has. Where they part is the UNSCRIPTED arm, and the split is
 // a property of the value rather than a preference:
@@ -31,13 +31,15 @@
 //     reply's own reasoning: a `result`-shaped reply is one fixed value the engine
 //     finds by call name, so a cursor would promise a second page that every later
 //     fetch would answer with this same one forever.
-//   • The run read and the phase-output read refuse. Neither value has an empty form
-//     — every member of `WorkflowRunSnapshot` is required, and a phase-output read
-//     reports a phase that reached a terminal state — so the only way to answer would
-//     be to invent a run and a finished phase, and a run pane offers operator
-//     controls on whatever it is handed. They take the same "not checked" refusal
-//     `callerParticipantRead` takes for a scenario that names no viewer: the question
-//     reached nothing that could answer it.
+//   • The run read, the phase-output read and the version chain refuse. None of the
+//     three values has an empty form — every member of `WorkflowRunSnapshot` is
+//     required, a phase-output read reports a phase that reached a terminal state, and
+//     a version chain always contains at least the version it was asked about, so an
+//     empty one is a reply no daemon can build. The only way to answer would be to
+//     invent a run, a finished phase and a version nobody published, and a run pane
+//     offers operator controls on whatever it is handed. They take the same "not
+//     checked" refusal `callerParticipantRead` takes for a scenario that names no
+//     viewer: the question reached nothing that could answer it.
 //
 // EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. A scripted
 // reply is matched by CALL NAME, so a handler that only forwarded the request answered
@@ -86,7 +88,10 @@ import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 // scenario's `call` against the port's operation id and never against this call site,
 // so a rename would have moved the constant and the reply and left this handler
 // answering a key nothing sends — which surfaces as an unexplained empty enumeration.
-import { WORKFLOWS_RUN_ENUMERATION_CALL } from "../scenarios/workflows.js";
+import {
+  WORKFLOWS_RUN_ENUMERATION_CALL,
+  WORKFLOWS_VERSION_CHAIN_CALL,
+} from "../scenarios/workflows.js";
 import { declaredWorkflowScope, requireScenarioWorkflowSubject } from "./fixture-workflow-scope.js";
 import { growthUnavailable, type GrowthPort } from "../growth-port/index.js";
 import type { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
@@ -95,15 +100,15 @@ import type { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
  * The workflow operations the fixture answers rather than refuses.
  *
  * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` next door, so
- * the four ids and the four implementations below are one set with one home — a
- * second tuple in the port would agree with this one until a fifth read landed in
- * only one of them.
+ * the ids and the implementations below are one set with one home — a second tuple in
+ * the port would agree with this one until a read landed in only one of them.
  */
 export const FIXTURE_SERVED_WORKFLOW_OPERATION_IDS = [
   "workflowDefinitionList",
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowRunList",
+  "workflowVersionChainRead",
 ] as const;
 
 /** One workflow operation the fixture serves. Derived, so the set has one home. */
@@ -111,7 +116,7 @@ export type FixtureServedWorkflowOperationId =
   (typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS)[number];
 
 /**
- * The fixture's four workflow answers for one running scenario.
+ * The fixture's five workflow answers for one running scenario.
  *
  * `Pick` over the port rather than a shape of its own, so a handler whose signature
  * drifts from the operation it serves is a compile error here rather than a surface
@@ -203,6 +208,27 @@ export function fixtureWorkflowReads(
         "workflowRunList",
         request,
         () => emptyEnumeration,
+      );
+    },
+    workflowVersionChainRead: async (request) => {
+      // Not session-scoped, and that is the request's shape rather than an omission:
+      // this read is addressed by a version id and by nothing else, because a caller
+      // holding a run's pin holds no definition and needs no session to name the
+      // versions that pin's own definition has. The scenario's computed reply scopes
+      // itself, refusing a version it states no chain for through the constructor the
+      // scope module owns — which is the same refusal a session check would have had
+      // to raise, arrived at from the data instead of from a second copy of it.
+      //
+      // Refused when the scenario scripts nothing, on the run read's ground rather
+      // than the enumeration's: a chain always contains at least the version it was
+      // asked about, so there is no empty chain a daemon could answer with, and an
+      // invented one would offer the operator a re-pin target nobody published.
+      return answerFromScriptedReply(
+        engine,
+        WORKFLOWS_VERSION_CHAIN_CALL,
+        "workflowVersionChainRead",
+        request,
+        () => growthUnavailable("workflowVersionChainRead"),
       );
     },
   };

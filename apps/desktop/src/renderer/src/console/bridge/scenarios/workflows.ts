@@ -66,7 +66,12 @@ import {
 } from "./workflow-fixture-agents.js";
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import { WORKFLOWS_PARTICIPANT_YOU, WORKFLOWS_SESSION_ID } from "./workflow-fixture-ids.js";
-import { phaseOutputsFor, runListEntries, runSnapshotFor } from "./workflow-fixture-replies.js";
+import {
+  phaseOutputsFor,
+  runListEntries,
+  runSnapshotFor,
+  versionChainFor,
+} from "./workflow-fixture-replies.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const WORKFLOWS_SCENARIO_ID = "workflows";
@@ -87,6 +92,16 @@ export const WORKFLOWS_SCENARIO_ID = "workflows";
  * to name the same key, and a scenario's own call names are the scenario's to declare.
  */
 export const WORKFLOWS_RUN_ENUMERATION_CALL = "growth:workflowRunList";
+
+/**
+ * The routing key this scenario's version-chain read is answered under.
+ *
+ * Keyed the same way and for the mirror-image reason: the registry HAS a version read
+ * and it is addressed by `(definitionId, versionNumber)`, which a caller holding one
+ * opaque version id holds neither half of — so the chain read registers no method
+ * either, and `growth-operations/workflows.ts` declares it with none.
+ */
+export const WORKFLOWS_VERSION_CHAIN_CALL = "growth:workflowVersionChainRead";
 
 /** The sequence the first `agent.attached` beat takes. One beat precedes it. */
 const FIRST_AGENT_SEQUENCE = 2;
@@ -277,6 +292,15 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
       // refuses rather than being answered with somebody else's snapshot.
       call: "workflow.runRead",
       resultFor: runSnapshotFor,
+    },
+    {
+      // Answered per requested version, out of the chains the definition table holds —
+      // so the pane opening any of the four runs resolves the chain that run's pin
+      // belongs to, and a version this fixture states nothing about refuses rather
+      // than being answered with somebody else's chain. Computed for the run read's
+      // reason: one fixed value would offer every run the same re-pin targets.
+      call: WORKFLOWS_VERSION_CHAIN_CALL,
+      resultFor: versionChainFor,
     },
     {
       // The finished phase of the parked run. A phase output is addressable once the

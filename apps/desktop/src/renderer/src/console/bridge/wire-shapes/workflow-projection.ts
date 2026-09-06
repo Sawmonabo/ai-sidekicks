@@ -222,6 +222,34 @@ export interface WorkflowDefinitionSummary {
 }
 
 /**
+ * One version of a definition, as the version CHAIN read carries it.
+ *
+ * WHY A CHAIN READ EXISTS AND WHAT IT ANSWERS. A run carries one opaque
+ * `workflowVersionId` and nothing else about the definition it was started from.
+ * `workflow.versionRead` addresses a version by `(definitionId, versionNumber)` and
+ * the definition enumeration carries only each definition's LATEST, so a surface
+ * holding a run's pin can name no other version of the same definition — which is
+ * exactly what an operator re-pinning a parked run has to do. The chain read closes
+ * that: handed the pin, it answers the versions that pin's definition has.
+ *
+ * TWO MEMBERS AND NOT MORE. The id is what a re-pin travels with and the number is
+ * what a person reads instead of it; a content hash, an author and an instant are all
+ * facts the registered version read already carries for a version somebody named, and
+ * minting them here would be members ahead of any reader. Which entry is the CURRENT
+ * pin is deliberately absent too: the caller asked BY that id and can compare, so a
+ * flag would be the wire restating the request.
+ *
+ * Registered nowhere — this rides `workflow-version-chain` on
+ * `Plan-023 §Console growth slate`, on the same footing as the run enumeration above.
+ */
+export interface WorkflowVersionChainEntry {
+  /** Opaque and server-minted, exactly as a run start accepts it. Never parsed. */
+  readonly workflowVersionId: string;
+  /** The version's own ordinal, which is what a version read addresses it by. */
+  readonly versionNumber: number;
+}
+
+/**
  * One durable output of a completed or failed phase.
  *
  * `valueKind` is additive-optional: set means the output is an artifact reference,

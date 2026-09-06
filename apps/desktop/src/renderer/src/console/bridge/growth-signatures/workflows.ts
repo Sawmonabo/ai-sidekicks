@@ -1,5 +1,6 @@
 // The workflow plane: definitions, runs, phase outputs, gates, human forms, the
-// gate-chain verification that audits them, and the run enumeration none of them is.
+// gate-chain verification that audits them, and the two reads the registry does not
+// carry — the run enumeration and the version chain.
 //
 // One plane of `GrowthOperationSignatures`, composed into it by `index.ts`. The
 // section comment below is the file's own, kept with the rows it explains — and it
@@ -17,6 +18,7 @@ import type {
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
   WorkflowRunState,
+  WorkflowVersionChainEntry,
 } from "../wire-shapes/index.js";
 
 export interface WorkflowGrowthSignatures {
@@ -153,5 +155,17 @@ export interface WorkflowGrowthSignatures {
     // a row read as something other than an opaque id. `workflow-projection.ts` says
     // why no registered read can supply them after the fact.
     value: { readonly runs: readonly WorkflowRunListEntry[] };
+  };
+  // The version chain, appended after the enumeration for the same reason it was:
+  // neither is one of the thirteen registered methods, and this one serves the
+  // `workflow-version-chain` row. The request is keyed by the VERSION and by nothing
+  // else — a run id would make it a second run read, and a definition id is the half
+  // of the registered version read's key that a caller holding a pin does not have.
+  workflowVersionChainRead: {
+    request: { readonly workflowVersionId: string };
+    // An envelope rather than a bare array, on the enumeration's own reasoning: the
+    // reply has somewhere to grow the definition identity the day a surface needs it,
+    // and the console synthesizes none of it today.
+    value: { readonly versions: readonly WorkflowVersionChainEntry[] };
   };
 }

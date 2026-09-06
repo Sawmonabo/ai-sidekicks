@@ -1,6 +1,6 @@
 // The workflow plane's ledger rows: definitions, runs, phase outputs, gates, the
-// gate-chain verification that audits them, and the run enumeration that serves a
-// slate row of its own.
+// gate-chain verification that audits them, and the two reads the registry does not
+// carry — the run enumeration and the version chain — each on a slate row of its own.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. The section
 // comment below is the single table's own, kept with the rows it heads — and it is
@@ -100,5 +100,16 @@ export const WORKFLOW_GROWTH_OPERATIONS: Readonly<
     "workflow-run-enumeration",
     "method",
     "enumerate the workflow runs a session holds, so a person can see what is running and what is parked without already holding a run id",
+  ),
+  // The version chain, on the same footing as the enumeration above and for the
+  // mirror-image reason. The registry HAS a version read and it is addressed by
+  // `(definitionId, versionNumber)`, which a caller holding one opaque version id
+  // holds neither half of — so this names no wire method either, and inventing
+  // `workflow.versionChainRead` here would be a string traceable to nothing.
+  workflowVersionChainRead: op(
+    "workflowVersionChainRead",
+    "workflow-version-chain",
+    "method",
+    "resolve the version chain one run's pinned version belongs to, so a resume can offer a re-pin target the operator chose rather than a version nobody read",
   ),
 };

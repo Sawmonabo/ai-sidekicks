@@ -58,13 +58,12 @@ import {
   WORKFLOW_RUN_RE_PARKED_STATE,
   actAlreadyInFlightRefusal,
   type WorkflowCancelControl,
-  type WorkflowResumeControl,
+  type WorkflowResumeDispatch,
   type WorkflowRunControlAction,
   type WorkflowRunControlOutcome,
   type WorkflowRunControlRunState,
   type WorkflowRunCancelReply,
   type WorkflowRunResumeReply,
-  type WorkflowVersionChoice,
 } from "./run-controls.js";
 
 /** What one control's press settles to, once the port has answered. */
@@ -116,7 +115,16 @@ interface RunControlRuntime {
 /** Both controls for one run, and the re-arm round their settlements advance. */
 export interface WorkflowRunControls {
   readonly cancel: WorkflowCancelControl;
-  readonly resume: WorkflowResumeControl;
+  /**
+   * The resume call and its outcome, and deliberately not the version chain.
+   *
+   * The chain is a read addressed by the version the run's snapshot reports, and that
+   * snapshot is put at the round this hook publishes — so a chain taken as a parameter
+   * here would have to be resolved before the value it is resolved from exists. The
+   * surface that mounts the control is where the two producers meet, and
+   * `run-controls.ts` states the split on the pair of interfaces it declares for it.
+   */
+  readonly resume: WorkflowResumeDispatch;
   /** The run read's round. Advances by one per served act; see the state above. */
   readonly servedActCount: number;
 }
@@ -132,8 +140,7 @@ const IDLE_DISPATCH_STATE: RunControlDispatchState = {
  *
  * BOTH ARE OFFERED, ALWAYS, because nothing in this console can adjudicate either one
  * before it asks. Eligibility is the daemon's and arrives as a typed refusal on the
- * press; the version chain is the only thing a caller supplies, and an empty one means
- * no chain was read rather than that no re-pin exists.
+ * press, and nothing here reads a run status to decide in advance.
  *
  * Held against `(port, run)` exactly as the pane's own read is: a bridge swapped
  * underneath and a pane retargeted at another run each re-seed this state during the
@@ -143,7 +150,6 @@ const IDLE_DISPATCH_STATE: RunControlDispatchState = {
 export function useRunControlDispatch(
   growth: GrowthPort,
   workflowRunId: string | undefined,
-  versionChain: readonly WorkflowVersionChoice[],
 ): WorkflowRunControls {
   const latch = useGenerationLatch();
   const { value, publish } = useSubjectScopedState<RunControlDispatchState>(
@@ -196,7 +202,6 @@ export function useRunControlDispatch(
           readResumeReply,
         );
       },
-      versionChain,
       outcome: value.outcomes.resume,
     },
     servedActCount: value.servedActCount,

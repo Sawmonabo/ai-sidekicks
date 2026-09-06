@@ -1,4 +1,4 @@
-// The three workflow reads the scenario answers by COMPUTING rather than by tabling.
+// The four workflow reads the scenario answers by COMPUTING rather than by tabling.
 //
 // The sibling `workflow-fixture-*.ts` modules hold the session's records; this one
 // holds the reading of them, which is a different job and moves for different reasons.
@@ -32,7 +32,10 @@
 // already hold — and rides `workflow-run-enumeration`. Both are fixture-only, and the
 // port refuses both under a live bridge.
 
-import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
+import {
+  WORKFLOWS_SCENARIO_DEFINITIONS,
+  WORKFLOWS_SCENARIO_VERSION_CHAINS,
+} from "./workflow-fixture-definitions.js";
 import {
   WORKFLOWS_COMPLETED_PHASE_ID,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
@@ -44,6 +47,7 @@ import type {
   WorkflowDefinitionSummary,
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
+  WorkflowVersionChainEntry,
 } from "../wire-shapes/workflow-projection.js";
 
 /**
@@ -169,4 +173,36 @@ export function phaseOutputsFor(request: unknown): unknown {
     state: "completed",
     outputs: WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
   };
+}
+
+/**
+ * The chain this scenario answers the version-chain read with, for the version asked
+ * about.
+ *
+ * ADDRESSED BY A MEMBER RATHER THAN BY A KEY, which is the whole shape of this read: a
+ * caller holds one opaque version id and no definition id, so the answer is the chain
+ * that CONTAINS the id rather than the chain filed under it. A daemon serving this
+ * resolves the same way — the version row names its definition — and a fixture that
+ * asked for a definition id would be answering a question its caller cannot put.
+ *
+ * The two absences are the run read's two, and for the same reasons. A call carrying
+ * no version at all is the growth port's request-less probe and settles as an
+ * unscripted call does. A version this fixture holds no chain for is a read the daemon
+ * would refuse, so it refuses — through the one constructor the scope module owns,
+ * under the workflow namespace's only registered not-found code.
+ */
+export function versionChainFor(
+  request: unknown,
+): { readonly versions: readonly WorkflowVersionChainEntry[] } | undefined {
+  const requestedVersionId = readUnknownStringMember(request, "workflowVersionId");
+  if (requestedVersionId === undefined) {
+    return undefined;
+  }
+  const chain = Object.values(WORKFLOWS_SCENARIO_VERSION_CHAINS).find((candidate) =>
+    candidate.some((entry) => entry.workflowVersionId === requestedVersionId),
+  );
+  if (chain === undefined) {
+    throw workflowSubjectNotFound("version", requestedVersionId);
+  }
+  return { versions: chain };
 }

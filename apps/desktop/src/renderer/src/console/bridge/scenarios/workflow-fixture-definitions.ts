@@ -1,15 +1,26 @@
-// The definitions the workflows browser groups.
+// The definitions the workflows browser groups, and the version chain each of the
+// three a run is pinned to has.
 //
 // One of the workflow fixture's four data modules; `workflow-fixture-ids.ts` carries
 // the framing all four share and the version ids this table and the run table must
 // agree on.
+//
+// THE CHAINS ARE HERE AND NOT IN A FIFTH MODULE because a chain is what a definition
+// HAS: the entries below are that definition's own versions, and the head of each
+// chain is the very `latestWorkflowVersionId` and `latestVersionNumber` the summary
+// above it publishes. Split apart, those two statements of one fact would be free to
+// disagree, and nothing outside a test would notice.
 
-import type { WorkflowDefinitionSummary } from "../wire-shapes/workflow-projection.js";
+import type {
+  WorkflowDefinitionSummary,
+  WorkflowVersionChainEntry,
+} from "../wire-shapes/workflow-projection.js";
 
 import {
   VERSION_INCIDENT_TRIAGE_LATEST,
   VERSION_RELEASE_CHECKS_LATEST,
   VERSION_SHIP_PIPELINE_LATEST,
+  VERSION_SHIP_PIPELINE_PINNED,
   WORKFLOWS_SESSION_ID,
 } from "./workflow-fixture-ids.js";
 
@@ -102,3 +113,62 @@ export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[
     createdAt: "2025-07-14T13:22:00.000Z",
   },
 ];
+
+// The versions each chained definition holds beyond the ones the runs and the summary
+// table already name. Local to this module for the reason the definition ids are: no
+// other table in the fixture addresses a version this console is not pinned to.
+const VERSION_RELEASE_CHECKS_1 = "019b7a10-0280-7d22-8100-be5100150007";
+const VERSION_RELEASE_CHECKS_2 = "019b7a10-0280-7d22-8100-be5100150008";
+const VERSION_RELEASE_CHECKS_3 = "019b7a10-0280-7d22-8100-be5100150009";
+const VERSION_SHIP_PIPELINE_2 = "019b7a10-0280-7d22-8100-be5100150010";
+const VERSION_INCIDENT_TRIAGE_1 = "019b7a10-0280-7d22-8100-be5100150011";
+const VERSION_INCIDENT_TRIAGE_2 = "019b7a10-0280-7d22-8100-be5100150012";
+const VERSION_INCIDENT_TRIAGE_3 = "019b7a10-0280-7d22-8100-be5100150013";
+const VERSION_INCIDENT_TRIAGE_4 = "019b7a10-0280-7d22-8100-be5100150014";
+
+/**
+ * Every version each chained definition has, newest first, keyed by definition id.
+ *
+ * NEWEST FIRST BECAUSE THAT IS WHAT A PICKER READS, and the console re-sorts nothing:
+ * the chain read answers in this order and the re-pin picker offers it in the order it
+ * was answered, so a daemon that one day answers oldest-first changes the picker and
+ * not a fold nobody can see.
+ *
+ * COMPLETE RATHER THAN SAMPLED. A version is immutable and numbered from one, so a
+ * definition whose latest is version N has exactly N versions — writing three of a
+ * five-version chain would be a fixture teaching a picker that versions go missing.
+ * Which is also what makes the head checkable: `workflows.definitions.test.ts` holds
+ * each chain's first entry to the `latestWorkflowVersionId` and `latestVersionNumber`
+ * its own summary row publishes.
+ *
+ * THREE DEFINITIONS AND NOT FIVE. This read is reached from a RUN pane, addressed by
+ * the version a run is pinned to, so the fixture states a chain for exactly the
+ * definitions its four runs are pinned to. The two remaining summary rows exist to
+ * make the browser's most-specific-first resolution mark say something, no run points
+ * at either, and a chain for them would be data with no question to answer.
+ */
+export const WORKFLOWS_SCENARIO_VERSION_CHAINS: Readonly<
+  Record<string, readonly WorkflowVersionChainEntry[]>
+> = {
+  [DEFINITION_RELEASE_CHECKS]: [
+    { workflowVersionId: VERSION_RELEASE_CHECKS_LATEST, versionNumber: 4 },
+    { workflowVersionId: VERSION_RELEASE_CHECKS_3, versionNumber: 3 },
+    { workflowVersionId: VERSION_RELEASE_CHECKS_2, versionNumber: 2 },
+    { workflowVersionId: VERSION_RELEASE_CHECKS_1, versionNumber: 1 },
+  ],
+  // The chain the frozen pin is measured against: the parked run sits at version 3 and
+  // the frozen-pin run at version 1, so this one chain carries both ends of the
+  // inequality the run table states.
+  [DEFINITION_SHIP_PIPELINE]: [
+    { workflowVersionId: VERSION_SHIP_PIPELINE_LATEST, versionNumber: 3 },
+    { workflowVersionId: VERSION_SHIP_PIPELINE_2, versionNumber: 2 },
+    { workflowVersionId: VERSION_SHIP_PIPELINE_PINNED, versionNumber: 1 },
+  ],
+  [DEFINITION_INCIDENT_TRIAGE]: [
+    { workflowVersionId: VERSION_INCIDENT_TRIAGE_LATEST, versionNumber: 5 },
+    { workflowVersionId: VERSION_INCIDENT_TRIAGE_4, versionNumber: 4 },
+    { workflowVersionId: VERSION_INCIDENT_TRIAGE_3, versionNumber: 3 },
+    { workflowVersionId: VERSION_INCIDENT_TRIAGE_2, versionNumber: 2 },
+    { workflowVersionId: VERSION_INCIDENT_TRIAGE_1, versionNumber: 1 },
+  ],
+};

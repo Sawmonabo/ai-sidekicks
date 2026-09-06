@@ -152,6 +152,7 @@ export type {
   WorkflowPhaseState,
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
+  WorkflowVersionChainEntry,
 } from "./wire-shapes/workflow-projection.js";
 
 // The boot-time scenario decision. Exported through this door because the

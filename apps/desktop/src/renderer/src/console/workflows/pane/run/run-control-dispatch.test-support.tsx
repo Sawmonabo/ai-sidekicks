@@ -81,10 +81,11 @@ function DispatchProbe(props: {
   readonly workflowRunId: string | undefined;
   readonly onObserve: (controls: WorkflowRunControls) => void;
 }): React.JSX.Element {
-  // No version chain: no registered read maps a run's version id to its chain, so the
-  // pane supplies none and the re-pin picker is absent rather than empty. A case that
-  // needs one drives `OperatorControls` directly, where the chain is a prop.
-  props.onObserve(useRunControlDispatch(props.growth, props.workflowRunId, []));
+  // No version chain reaches this hook at all: the chain is a read of its own,
+  // addressed by the pin the run's snapshot reports, and the pane joins the two at the
+  // mount. A case about the chain drives `OperatorControls` directly, where it arrives
+  // on the resume control the pane composes.
+  props.onObserve(useRunControlDispatch(props.growth, props.workflowRunId));
   return <></>;
 }
 

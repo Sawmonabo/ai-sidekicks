@@ -35,4 +35,5 @@ export type {
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
   WorkflowRunState,
+  WorkflowVersionChainEntry,
 } from "./workflow-projection.js";

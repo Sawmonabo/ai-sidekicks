@@ -58,6 +58,11 @@ const PROBE_SUBJECTS: Partial<Record<GrowthOperationId, Readonly<Record<string, 
     workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
     phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
   },
+  // The version the parked run is pinned to, which is the only address this read
+  // takes: it resolves a version id to the chain its definition holds, so a probe
+  // naming a run or a session would be asking a question the request has no member
+  // for.
+  workflowVersionChainRead: { workflowVersionId: WORKFLOWS_PARKED_RUN.workflowVersionId },
 };
 
 /** The flagship scenario's fixture port, which is the port under test. */

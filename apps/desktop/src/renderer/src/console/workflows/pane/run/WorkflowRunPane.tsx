@@ -84,14 +84,14 @@
 // is why it is stated on the body that composes both rather than only on one of them.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so every one of
-// these operations lives on the growth port behind the workflow slate row rather than
-// on a bridge namespace. All three this pane reaches — the run read and the two
-// controls — are registered THERE, so all three are put and none is refused here: the
-// fixture answers the read from the running scenario and deliberately settles no
-// mutation, so under it a press gets the port's own typed refusal naming the wire and
-// who owes it. That refusal is the port's, never composed at this mount site; a mount
-// that built its own would be asserting a wire fact nobody checked, which is exactly
-// what these two controls used to do while the operations sat on the ledger.
+// these operations lives on the growth port behind a workflow slate row rather than on
+// a bridge namespace. All four this pane reaches — the run read, the version chain and
+// the two controls — are registered THERE, so all four are put and none is refused
+// here: the fixture answers the reads from the running scenario and deliberately
+// settles no mutation, so under it a press gets the port's own typed refusal naming the
+// wire and who owes it. That refusal is the port's, never composed at this mount site;
+// a mount that built its own would be asserting a wire fact nobody checked, which is
+// exactly what these two controls used to do while the operations sat on the ledger.
 
 import { Nothing } from "../../../primitives/index.js";
 import { ChatStartSlot } from "../../ChatStartSlot.js";
@@ -100,30 +100,17 @@ import { refusedWorkflowStrip } from "../../strip-state.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../../seats/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import { OperatorControls } from "./OperatorControls.js";
-import type { WorkflowVersionChoice } from "./run-controls.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { useRunControlDispatch } from "./run-control-dispatch.js";
 import { RunReadState } from "./RunReadState.js";
 import { useWorkflowRunSnapshot } from "./run-snapshot.js";
+import { useWorkflowVersionChain } from "./version-chain.js";
 import { useHumanFormSelection } from "./human-form-selection.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 
 /** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "One run's state, its phases, and why anything is parked.";
-
-/**
- * The version chain a resume may re-pin onto, which this pane can read nowhere.
- *
- * EMPTY IS A READING AND NOT A PLACEHOLDER. `workflow.runRead` answers one
- * `workflowVersionId` — the pin the run is on — and no registered read maps a version
- * id back to the chain it belongs to; `workflow.versionRead` addresses by
- * `(definitionId, versionNumber)`, and this pane holds neither. So no target can be
- * NAMED, which is exactly what the control's empty chain means: the picker is absent
- * rather than empty, and the resume travels with no re-pin. Synthesising a chain from
- * the one id in hand would offer the operator a target nobody read.
- */
-const NO_VERSION_CHAIN: readonly WorkflowVersionChoice[] = [];
 
 export interface WorkflowRunPaneProps {
   readonly context: PaneContextOf<"workflow-run">;
@@ -151,11 +138,22 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // act the daemon served has changed the run this pane is showing, so the read is put
   // again rather than the reply's own state being spliced into the snapshot on screen —
   // one further read per served act, driven by the settlement and by no timer.
-  const runControls = useRunControlDispatch(bridge.growth, addressedRunId, NO_VERSION_CHAIN);
+  const runControls = useRunControlDispatch(bridge.growth, addressedRunId);
   const snapshot = useWorkflowRunSnapshot(
     bridge.growth,
     addressedRunId,
     runControls.servedActCount,
+  );
+  // THE CHAIN COMES LAST BECAUSE ITS ADDRESS COMES OUT OF THE READ ABOVE. A re-pin
+  // target is a version of the run's own definition, and the only thing that names one
+  // is the pin the snapshot reports — so this read is put once a run has been served
+  // and is `unasked` until then. It is also why the dispatcher above no longer takes a
+  // chain: its own round is what puts the snapshot the chain is addressed by, so a
+  // chain handed to it would have had to be resolved before the value it resolves from
+  // existed. The two producers meet at the mount below.
+  const versionChain = useWorkflowVersionChain(
+    bridge.growth,
+    snapshot.status === "served" ? snapshot.snapshot.workflowVersionId : undefined,
   );
   // Called before the absent arms return, for the same reason the read is: a hook may
   // not sit behind a branch. With no snapshot served there is no wait to select and the
@@ -225,7 +223,11 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
           // port. Nothing is decided here: this mount site adjudicates no eligibility
           // and states no wire fact, which is the whole of what it got wrong before.
           cancel={runControls.cancel}
-          resume={runControls.resume}
+          // The dispatcher's call and outcome, and the chain the read beside it
+          // answered — two producers for one control, joined here because this is the
+          // one place both are in hand. An empty chain is every unserved arm of that
+          // read, which the picker renders as absence rather than as an empty list.
+          resume={{ ...runControls.resume, versionChain }}
         />
         <RunDetailSlot
           workflowRunId={entity.id}

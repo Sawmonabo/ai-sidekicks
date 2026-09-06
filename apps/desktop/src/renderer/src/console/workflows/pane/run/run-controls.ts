@@ -258,14 +258,28 @@ export interface WorkflowCancelControl {
   readonly outcome: WorkflowRunControlOutcome;
 }
 
-/** What a resume control is, plus the chain a re-pin may choose from. */
-export interface WorkflowResumeControl {
+/**
+ * What a resume control's DISPATCHER composes: the call, and where the last press of
+ * it got to.
+ *
+ * SEPARATE FROM THE CONTROL BELOW BECAUSE THE CHAIN COMES FROM SOMEWHERE ELSE. The
+ * dispatcher puts the call and reads the answer; the chain is a second read, addressed
+ * by the version the run's own snapshot reports — and that snapshot's round is the
+ * dispatcher's own output, so a dispatcher that also took the chain would close a
+ * cycle through itself. Two interfaces, one per producer, and the surface that mounts
+ * both is where they meet.
+ */
+export interface WorkflowResumeDispatch {
   readonly resume: (repin: WorkflowVersionRepin | undefined) => void;
+  readonly outcome: WorkflowRunControlOutcome;
+}
+
+/** What a resume control is, plus the chain a re-pin may choose from. */
+export interface WorkflowResumeControl extends WorkflowResumeDispatch {
   /**
    * The version chain, as the caller read it. Empty means no chain was read,
    * so no target can be named explicitly and the re-pin control is ABSENT —
    * not a disabled picker, and never a silent "latest".
    */
   readonly versionChain: readonly WorkflowVersionChoice[];
-  readonly outcome: WorkflowRunControlOutcome;
 }

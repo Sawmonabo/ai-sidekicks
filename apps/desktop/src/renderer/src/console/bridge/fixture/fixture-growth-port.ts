@@ -18,7 +18,7 @@
 // session opens with, `fixture-session-directory.ts` derives what the node HAS,
 // `fixture-attention-derivation.ts` folds beats into an attention projection,
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer
-// for, `fixture-workflow-reads.ts` holds the four workflow answers and the reasoning
+// for, `fixture-workflow-reads.ts` holds the five workflow answers and the reasoning
 // that governs them, and `fixture-scripted-answer.ts` maps a scripted settlement onto
 // an outcome.
 //
@@ -172,7 +172,7 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  *
  * Written as an annotated tuple rather than `as const`, on the
  * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
- * carrying a spread, so the four workflow ids reach the annotation as
+ * carrying a spread, so the workflow ids reach the annotation as
  * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`. They are named in one place and
  * spread in the other, and the compiler holds the two to each other.
  */
@@ -191,9 +191,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "sessionList",
   // The one projection the console must not compute for itself.
   "attentionProjectionRead",
-  // workflow — the four reads a workflows scenario scripts, taken from the module
-  // that implements them so the ids and the handlers cannot disagree. The six
-  // operations they leave out are five mutations and the gate-chain verification;
+  // workflow — the reads a workflows scenario scripts, taken from the module that
+  // implements them so the ids and the handlers cannot disagree. The six operations
+  // they leave out are five mutations and the gate-chain verification;
   // `fixture-workflow-reads.ts` carries the whole of that reasoning.
   ...FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
   // gitflow — the branch-context read, whose whole answer today is that there is none.

@@ -48,7 +48,8 @@ export type GrowthSlateRowId =
   | "callback-tool-registry-read"
   | "sidekick-definition-registry"
   | "hydrated-event-read"
-  | "cost-receipt-read";
+  | "cost-receipt-read"
+  | "workflow-version-chain";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -336,6 +337,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-016 §Session Cost Receipt (the decomposition and its two partition identities); api-payload-contracts.md §Plan-016 (the two method strings and their reply shapes, registered there and in no code package)",
     consumingSurface: "cost-receipt settings page, cost meters",
+    wireRegistered: false,
+  },
+  "workflow-version-chain": {
+    id: "workflow-version-chain",
+    wire: "a read of the version chain one run's pinned version belongs to, addressed by that opaque version id. Registered nowhere, and the mirror image of the row above it: workflow.versionRead addresses a version by (definitionId, versionNumber) and the definition enumeration carries only each definition's latest, so a surface holding a run's pin holds no way to name any other version of the same definition",
+    owningDocument:
+      "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
+    consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
     wireRegistered: false,
   },
 };
