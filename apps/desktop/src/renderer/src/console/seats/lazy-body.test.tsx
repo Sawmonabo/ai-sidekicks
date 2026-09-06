@@ -22,33 +22,12 @@ import { settle } from "../core/settle.test-support.js";
 import { DuplicateRegistrationError } from "../core/keyed-registry.js";
 import { ConsolePaneChrome } from "./ConsolePaneChrome.js";
 import { type LazyBodyModule } from "./lazy-body.js";
+import { syntheticPaneContextAt, syntheticSurfaceContext } from "./lazy-body.test-support.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 import { ConsolePaneRegistry } from "./pane-registry.js";
 import { pendingPaneKindsIn } from "./pending-pane-body.js";
 import { type ConsoleSurfaceContext } from "./surface-context.js";
 import { ConsoleSurfaceRegistry } from "./surface-registry.js";
-
-/**
- * A pane context carrying only what these cases reach.
- *
- * The synthetic bodies read `kind` and the pending fallback reads `kind`, `focusHue`,
- * `sessionStore`, and whether an `entity` is present. Building a bridge, a frame store,
- * and three persistence stores to prove a registry table would be a fixture testing the
- * fixture, and the cast is what says so out loud rather than hiding behind a builder.
- */
-function paneContextAt(kind: ConsolePaneContext["kind"]): ConsolePaneContext {
-  return { kind, sessionStore: undefined, focusHue: undefined } as unknown as ConsolePaneContext;
-}
-
-/**
- * The same, for the frame's board.
- *
- * The route is real because the surface's reserved region names the destination it is
- * waiting for, exactly as the pane's names its kind.
- */
-function surfaceContext(): ConsoleSurfaceContext {
-  return { route: { kind: "settings", page: undefined } } as unknown as ConsoleSurfaceContext;
-}
 
 /**
  * A loader whose module is written here, and a count of how often it was called.
@@ -107,7 +86,7 @@ describe("the deck's board — a loader-form registration", () => {
       owner: "repos-family",
       body: countingLoader(chromedBody("diff", "the diff body")).load,
     });
-    const context = paneContextAt("diff");
+    const context = syntheticPaneContextAt("diff");
     const { container } = render(<>{registry.descriptorFor("diff")?.render(context)}</>);
 
     // Before: the chrome is painted and the body is not, and the pane says which body it
@@ -132,7 +111,7 @@ describe("the deck's board — a loader-form registration", () => {
       body: countingLoader(chromedBody("artifact", "the artifact body")).load,
     });
     const { container } = render(
-      <>{registry.descriptorFor("artifact")?.render(paneContextAt("artifact"))}</>,
+      <>{registry.descriptorFor("artifact")?.render(syntheticPaneContextAt("artifact"))}</>,
     );
 
     const pendingSection = container.querySelector(".meridian-pane");
@@ -163,7 +142,7 @@ describe("the deck's board — a loader-form registration", () => {
       body: () => new Promise<LazyBodyModule<ConsolePaneContext>>(() => undefined),
     });
     const { container } = render(
-      <>{registry.descriptorFor("browser")?.render(paneContextAt("browser"))}</>,
+      <>{registry.descriptorFor("browser")?.render(syntheticPaneContextAt("browser"))}</>,
     );
     await settle();
     expect(pendingPaneKindsIn(container)).toStrictEqual(["browser"]);
@@ -183,7 +162,7 @@ describe("the deck's board — one fetch per registration", () => {
     await registry.preload("diff");
 
     const { container } = render(
-      <>{registry.descriptorFor("diff")?.render(paneContextAt("diff"))}</>,
+      <>{registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}</>,
     );
 
     expect(pendingPaneKindsIn(container)).toStrictEqual([]);
@@ -234,7 +213,7 @@ describe("the deck's board — one fetch per registration", () => {
 
     await registry.preload("diff");
     const { container } = render(
-      <>{registry.descriptorFor("diff")?.render(paneContextAt("diff"))}</>,
+      <>{registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}</>,
     );
     await settle();
     expect(container.textContent).toContain("the diff body");
@@ -252,10 +231,10 @@ describe("the deck's board — one fetch per registration", () => {
       body: countingLoader<ConsolePaneContext>(() => null).load,
     });
     const descriptor = registry.descriptorFor("diff");
-    const first = descriptor?.render(paneContextAt("diff")) as React.ReactElement<{
+    const first = descriptor?.render(syntheticPaneContextAt("diff")) as React.ReactElement<{
       readonly Body: unknown;
     }>;
-    const second = descriptor?.render(paneContextAt("diff")) as React.ReactElement<{
+    const second = descriptor?.render(syntheticPaneContextAt("diff")) as React.ReactElement<{
       readonly Body: unknown;
     }>;
     expect(second.props.Body).toBe(first.props.Body);
@@ -382,7 +361,7 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     expect(registry.registeredSlots()).toStrictEqual(["settings"]);
 
     const { container } = render(
-      <>{registry.descriptorFor("settings")?.render(surfaceContext())}</>,
+      <>{registry.descriptorFor("settings")?.render(syntheticSurfaceContext())}</>,
     );
     expect(container.textContent).not.toContain("the settings surface");
     await settle();
@@ -406,7 +385,7 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     await registry.preload("workflows");
 
     const { container } = render(
-      <>{registry.descriptorFor("workflows")?.render(surfaceContext())}</>,
+      <>{registry.descriptorFor("workflows")?.render(syntheticSurfaceContext())}</>,
     );
 
     // Read at the FIRST commit, with no settle in between: that is the frame a person

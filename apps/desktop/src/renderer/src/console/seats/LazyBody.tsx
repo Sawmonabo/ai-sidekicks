@@ -17,6 +17,9 @@
 
 import { Suspense, useState } from "react";
 
+import { RevealFocusHandoff } from "./lazy-body-focus.js";
+import { LazyBodyFocusHandoff } from "./LazyBodyFocusHandoff.js";
+
 export interface LazyBodyProps<TContext extends object> {
   /**
    * The lazy form of the registered body.
@@ -48,6 +51,12 @@ export interface LazyBodyProps<TContext extends object> {
  * the console's one answer to a subtree that threw — a second, narrower boundary here
  * would catch the body's own render failures too and report them as a load that failed,
  * which is a different sentence and usually the wrong one.
+ *
+ * THE FOCUS IS CARRIED ACROSS THE REVEAL, and `lazy-body-focus.ts` states why it has to
+ * be carried rather than kept: the reserved region and the loaded body are two subtrees,
+ * so the reveal DELETES the chrome a person may be standing on. The handoff pair below
+ * is the transfer — one record per mount, written as the reserved side goes and read as
+ * the loaded side arrives.
  */
 export function LazyBody<TContext extends object>(
   props: LazyBodyProps<TContext>,
@@ -60,8 +69,24 @@ export function LazyBody<TContext extends object>(
   // warm never suspends and a mount that started cold keeps the lazy element it began
   // with and swaps nothing when the module lands.
   const [MountedBody] = useState<React.ComponentType<TContext>>(() => resolvedBody ?? Body);
+  // One record per MOUNT, minted once for the same reason the body is pinned once: two
+  // panes revealing in the same commit each restore their own control.
+  const [focusHandoff] = useState(() => new RevealFocusHandoff());
   return (
-    <Suspense fallback={<>{fallback(context)}</>}>
+    <Suspense
+      fallback={
+        // BEFORE the reserved region and not after it, which is load-bearing rather than
+        // stylistic: React deletes a subtree in child order and detaches each host node as
+        // it finishes with it, so a recorder placed after the chrome would run its teardown
+        // once that chrome was already out of the document and focus already lost. First
+        // means the teardown reads a document that still holds the focused control.
+        <>
+          <LazyBodyFocusHandoff handoff={focusHandoff} phase="reserved" />
+          {fallback(context)}
+        </>
+      }
+    >
+      <LazyBodyFocusHandoff handoff={focusHandoff} phase="revealed" />
       <MountedBody {...context} />
     </Suspense>
   );

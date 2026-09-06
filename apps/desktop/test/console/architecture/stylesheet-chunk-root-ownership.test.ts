@@ -148,6 +148,33 @@ describe("the deferred-sheet reader, against planted trees", () => {
     expect(offencesIn(staticReader)).toStrictEqual([]);
   });
 
+  // The reversal the reach reader used to get wrong, planted as a pair. A type-only
+  // edge is erased before the bundler sees it, so the component it names is NOT in the
+  // door's chunk — but the walk followed it anyway and reported the door as reaching a
+  // user, which turned the offence off. The failure was silent in the one direction that
+  // matters here: this predicate reports on finding NO user, so a reach set that is too
+  // wide admits exactly the regression the gate exists to reject.
+  it("reports a door sheet whose only reader it reaches through an `import type`", () => {
+    const typeOnlyEdge = new Map(deferredFamily);
+    typeOnlyEdge.set(
+      "planted/index.ts",
+      'import "./pane/pane.css";\nimport type { PlantedPaneProps } from "./pane/PlantedPane.js";\nexport const register = () => import("./pane/planted-pane-body.js");\n',
+    );
+    expect(offencesIn(typeOnlyEdge)).toStrictEqual(["planted/pane/pane.css"]);
+  });
+
+  // The negative control for it, and the one that keeps the skip honest: the same edge
+  // written as a VALUE import puts the component in the door's chunk, and the sheet is
+  // then exactly where it belongs.
+  it("admits the same sheet when that edge is a value import", () => {
+    const valueEdge = new Map(deferredFamily);
+    valueEdge.set(
+      "planted/index.ts",
+      'import "./pane/pane.css";\nimport { PlantedPane } from "./pane/PlantedPane.js";\nexport const register = () => import("./pane/planted-pane-body.js");\n',
+    );
+    expect(offencesIn(valueEdge)).toStrictEqual([]);
+  });
+
   // A sheet nothing declares against is not a placement question at all.
   it("mints no offence from a sheet that declares no class", () => {
     const tokensOnly = new Map(deferredFamily);

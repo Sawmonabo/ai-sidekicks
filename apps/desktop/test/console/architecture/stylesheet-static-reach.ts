@@ -8,11 +8,14 @@
 // sheet: it is a fact about the module GRAPH, which is why it is computed here rather
 // than asserted in a header.
 //
-// STATIC EDGES ONLY, WHICH IS THE BUNDLER'S OWN RULE. A module reachable both statically
-// and dynamically is assigned to the static chunk, so the reach set is the closure over
-// `import`/`export … from` and stops at every `import()`. That is also what makes the
-// answer conservative in the safe direction: a module the walk cannot see is one this
-// rule will not let a sheet move for.
+// EMITTED STATIC EDGES ONLY, WHICH IS THE BUNDLER'S OWN RULE. A module reachable both
+// statically and dynamically is assigned to the static chunk, so the reach set is the
+// closure over the `import`/`export … from` declarations that survive type erasure, and
+// it stops at every `import()`. There is no conservative direction to lean in here: the
+// offence is reported when the walk finds NO user, so a reach set that is too WIDE
+// silently admits the eager-CSS regression this gate exists to reject, and one that is
+// too narrow fails a sheet that is placed correctly. The set has to be exact, which is
+// why `moduleStaticImportSpecifiers` reads the parser's own type-only flags.
 //
 // USE IS READ AS A TOKEN MATCH, deliberately coarse. A class name reaches its component
 // as a string — composed, conditional, spread through a variant helper — so there is no

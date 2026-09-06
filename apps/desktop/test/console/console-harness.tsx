@@ -39,16 +39,27 @@ import { type ConsoleScheme } from "../../src/renderer/src/console/tokens/index.
  * and resolves one body through `surfaces/pane-body-resolution.ts`; this is the other
  * path — a route commits, the frame opens whatever the address resolves to, and what
  * has to be loaded is whatever the doors this file's importer pulled in registered.
- * `unloadedKeys` is the boards' own answer to that, so nothing here enumerates kinds.
+ * Nothing here enumerates kinds: both boards report their own registered keys.
  *
- * Idempotent: each registration memoises its loader, so a warmed board resolves
- * immediately and a second mount pays nothing.
+ * EVERY REGISTERED KEY, NOT THE UNLOADED ONES — `ConsoleRoot.test-support.tsx`'s rule,
+ * and this file needed it for a reason that one does not have. `unloadedKeys()` reports
+ * the keys nothing has ASKED for yet, and mounting IS an ask: a tier that mounts
+ * directly at a lazy address — which the accessibility and screenshot tiers do — has
+ * React call that registration's loader during the initial render, so by the time this
+ * walk runs the key has already left that list. The walk then awaited nothing at all and
+ * the mount leaned on one trailing macrotask, which is exactly the boundary this
+ * package's own note says a dynamic import may exceed: axe audits the reserved region
+ * and a capture photographs it, nondeterministically. `preload` settles immediately for
+ * a body already in hand and JOINS the one in-flight promise for a body still arriving,
+ * so walking the registered keys is idempotent and is the wait.
  */
 async function loadRegisteredBodies(): Promise<void> {
   await Promise.all([
-    ...consolePaneRegistry.unloadedKeys().map(async (kind) => consolePaneRegistry.preload(kind)),
+    ...consolePaneRegistry
+      .registeredPaneKinds()
+      .map(async (kind) => consolePaneRegistry.preload(kind)),
     ...consoleSurfaceRegistry
-      .unloadedKeys()
+      .registeredSlots()
       .map(async (slot) => consoleSurfaceRegistry.preload(slot)),
   ]);
 }
@@ -137,10 +148,14 @@ export async function renderSettled(element: ReactElement): Promise<ConsoleMount
     await crossMacrotaskBoundary();
     // After the first settle rather than before it: a board is populated by the family
     // doors an importer pulled in, and the deferred bodies are only worth loading once
-    // something has actually mounted against them. The second boundary is what lets the
-    // resolved bodies commit — the first one only got their modules in flight.
+    // something has actually mounted against them.
+    //
+    // AND NOTHING AFTER IT. There was a second boundary here, carrying the load itself:
+    // the walk above awaited only never-started loaders, so a body the initial render
+    // had already begun was left to whatever one trailing macrotask happened to cover.
+    // The walk joins every registration's own promise now, so the wait is the join, and
+    // `act` flushes the reveal those settlements schedule when this scope closes.
     await loadRegisteredBodies();
-    await crossMacrotaskBoundary();
   });
   return { container };
 }
