@@ -67,6 +67,7 @@
 // consumed for its leaf helpers rather than for this.
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { settleUnlessAbandoned } from "../../store/index.js";
 import { lossyStringify, readGuardedProperty } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import {
@@ -93,11 +94,18 @@ export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
  *     corpus registers. Nothing is read from it.
  *   • `call-rejected` — the call rejected with something carrying no machine-
  *     readable code at all.
+ *   • `read-abandoned` — the surface that asked for this READ is gone, or a newer
+ *     read replaced it. Nothing is read from the reply, and where the abandonment
+ *     landed before the send, nothing was sent. It reaches a caller that is by
+ *     definition no longer rendering, and it is a refusal rather than a silent
+ *     resolution because a door whose answer is total cannot grow a fourth
+ *     settlement without every caller learning about it.
  */
 export const DAEMON_REPLY_REFUSAL_CODES = [
   "request-unsendable",
   "reply-unreadable",
   "call-rejected",
+  "read-abandoned",
 ] as const;
 
 /** One console-side call refusal code. Derived, so the vocabulary is declared once. */
@@ -123,6 +131,58 @@ export type DaemonReply<TValue> =
 const NAMED_FAILING_PATH_CAP = 3;
 
 /**
+ * How a caller says this call has an owner who may walk away from it.
+ *
+ * ONE MEMBER, AND IT IS OPTIONAL BECAUSE ITS ABSENCE IS A REAL ANSWER. A mutation
+ * has no owner who may leave — a durable act that reached the daemon happened, and
+ * the console's half of it is not the console's to abandon — so a mutation passes
+ * nothing here and is awaited exactly as it always was. The parameter is therefore
+ * the whole read-versus-mutation distinction at this door, visible at each call site
+ * rather than inferred from the method name.
+ */
+export interface DaemonCallOptions {
+  /**
+   * The read round's signal, from the round the console's read seam handed the
+   * caller. Aborted when a newer read superseded this one, or when the surface that
+   * asked for it is gone.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Whether nobody is waiting for this read any more.
+ *
+ * A FUNCTION AND NOT `signal?.aborted === true` AT EACH SITE, and the reason is a
+ * compiler behaviour rather than tidiness: `aborted` is a readonly property, so
+ * TypeScript narrows it at the first check and KEEPS that narrowing across the
+ * `await` in between — the second check then compares `false | undefined` against
+ * `true` and is reported as an impossible comparison. The property really does change
+ * over that await, which is the whole point of it, so the reading is taken through a
+ * call the narrowing cannot follow.
+ */
+function isAbandoned(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+/**
+ * The refusal a read that nobody is waiting for settles as.
+ *
+ * Built here rather than at the three places that reach it, so the sentence a
+ * reader would meet is one sentence. It names the method and no value: there is
+ * nothing to quote and, on the pre-send arm, nothing was even composed.
+ */
+function abandonedRead(method: string): DaemonReply<never> {
+  return {
+    status: "refused",
+    refusal: refuse(
+      DAEMON_REPLY_REFUSAL_ORIGIN,
+      "read-abandoned" satisfies DaemonReplyRefusalCode,
+      `Nothing is waiting for the ${method} read any more, so the console read nothing from it.`,
+    ),
+  };
+}
+
+/**
  * Call one registered daemon method and answer with a parsed reply or a refusal.
  *
  * The generic is what does the work: `method` is a member of the registry's closed
@@ -135,13 +195,32 @@ const NAMED_FAILING_PATH_CAP = 3;
  * preload stub throws from every method in the caller's own frame, so a non-`async`
  * wrapper would put that throw outside the promise and past every `.catch` the
  * console has.
+ *
+ * AN ABANDONED READ IS CHECKED AT THREE POINTS AND PARSED AT NONE. Before the send,
+ * so an abandoned line puts nothing on the wire; racing the call, so a reply that
+ * never arrives cannot hold its caller for the life of the window; and on the
+ * rejection arm, so a read whose owner is gone reports the departure rather than a
+ * wire failure nobody asked about. What the abandonment actually saves is the two
+ * lines below it — `safeParse` over the whole reply, and the projection the caller
+ * would build from it — which for a large diff is the console's most expensive
+ * stretch of main-thread work, spent for a frame that will never be painted.
+ *
+ * IT CANCELS THE CONSOLE'S INTEREST AND NOT THE DAEMON'S WORK. No per-request
+ * cancellation is registered on this wire, so the pending promise is dropped and
+ * nothing is sent to say so.
  */
 export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
   bridge: ConsoleBridge,
   method: MethodName,
   request: DaemonRequestOf<MethodName>,
+  options: DaemonCallOptions = {},
 ): Promise<DaemonReply<DaemonResponseOf<MethodName>>> {
   const binding = CONSOLE_DAEMON_METHOD_BINDINGS[method];
+  const { signal } = options;
+
+  if (isAbandoned(signal)) {
+    return abandonedRead(method);
+  }
 
   const sendable = binding.requestSchema.safeParse(request);
   if (!sendable.success) {
@@ -165,8 +244,18 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
       methodName: string,
       params: unknown,
     ) => Promise<unknown>;
-    reply = await call(method, sendable.data);
+    const settlement = await settleUnlessAbandoned(call(method, sendable.data), signal);
+    if (settlement.status === "abandoned") {
+      return abandonedRead(method);
+    }
+    reply = settlement.value;
   } catch (rejection: unknown) {
+    if (isAbandoned(signal)) {
+      // The read lost its owner and the call failed, in whichever order. Reporting
+      // the wire failure would compose a refusal about a call nobody put a question
+      // for any more; the departure is the fact that explains the settlement.
+      return abandonedRead(method);
+    }
     return {
       status: "refused",
       // The fallback is offered and not imposed: every typed arm runs first, so a

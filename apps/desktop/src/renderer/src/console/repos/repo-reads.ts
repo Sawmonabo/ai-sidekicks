@@ -8,6 +8,19 @@
 // left is the part that IS this family's: which five reads the repos and workspaces
 // sections make, and why each of them is the read it is.
 //
+// FOUR OF THE FIVE TAKE AN ABORT SIGNAL AND THE FIFTH DELIBERATELY DOES NOT. The
+// four are reads: a section that asked one of them and went away is not waiting for
+// the answer, so the signal reaches the call door and the reply is neither parsed nor
+// folded. It is REQUIRED rather than optional on all four, which is what makes the
+// claim structural — a read in this module cannot be made outside a round, because
+// there is no way to call one without naming the signal a round hands out. `selectExecutionMode` is a MUTATION — it records an explicit mode switch,
+// and a switch that reached the daemon has happened. Abandoning the console's half of
+// it would leave a person looking at a surface that reports the switch did not occur
+// while the workspace's own transition says it did, so it takes no signal, has no
+// parameter to pass one through, and is awaited exactly as it always was. The two
+// shapes sit in one module on purpose: the distinction is a property of the act, and
+// it is legible here by reading the signatures side by side.
+//
 // THE FIVE, AND THE THREE THAT ARE NOT AMONG THEM. `repo.attach`, `repo.workspaceBind`,
 // and `repo.detach` are the three the surfaces would otherwise reach for, for three
 // different reasons each recorded where the surface that would call it lives: attach
@@ -52,8 +65,9 @@ function forwardedSessionId(sessionId: string): SessionId {
 export async function readRepoMount(
   bridge: ConsoleBridge,
   repoMountId: RepoMountId,
+  signal: AbortSignal,
 ): Promise<DaemonReply<RepoMountReadResponse>> {
-  return callDaemon(bridge, "repo.mountRead", { repoMountId });
+  return callDaemon(bridge, "repo.mountRead", { repoMountId }, { signal });
 }
 
 /**
@@ -68,8 +82,14 @@ export async function readRepoMount(
 export async function readSessionWorkspaces(
   bridge: ConsoleBridge,
   sessionId: string,
+  signal: AbortSignal,
 ): Promise<DaemonReply<WorkspaceListResponse>> {
-  return callDaemon(bridge, "repo.workspaceList", { sessionId: forwardedSessionId(sessionId) });
+  return callDaemon(
+    bridge,
+    "repo.workspaceList",
+    { sessionId: forwardedSessionId(sessionId) },
+    { signal },
+  );
 }
 
 /**
@@ -82,8 +102,9 @@ export async function readSessionWorkspaces(
 export async function readExecutionModeCapabilities(
   bridge: ConsoleBridge,
   workspaceId: WorkspaceId,
+  signal: AbortSignal,
 ): Promise<DaemonReply<WorkspaceExecutionModeCapabilitiesReadResponse>> {
-  return callDaemon(bridge, "repo.executionModeCapabilitiesRead", { workspaceId });
+  return callDaemon(bridge, "repo.executionModeCapabilitiesRead", { workspaceId }, { signal });
 }
 
 /**
@@ -118,10 +139,16 @@ export async function selectExecutionMode(
 export async function readWorktreeStatus(
   bridge: ConsoleBridge,
   sessionId: string,
+  signal: AbortSignal,
 ): Promise<DaemonReply<WorktreeStatusReadResponse>> {
-  return callDaemon(bridge, "repo.worktreeStatusRead", {
-    sessionId: forwardedSessionId(sessionId),
-  });
+  return callDaemon(
+    bridge,
+    "repo.worktreeStatusRead",
+    {
+      sessionId: forwardedSessionId(sessionId),
+    },
+    { signal },
+  );
 }
 
 /**

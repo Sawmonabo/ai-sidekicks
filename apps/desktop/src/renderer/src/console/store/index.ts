@@ -96,6 +96,14 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // than deep-imported around.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
+// The read line every scheduled read is on, and the two names a caller outside this
+// family needs from it: the hook that binds one to a `(subject, key)` pairing, and
+// the combinator the bridge's call door races a pending read against. `ReadScope`
+// itself stays off the door — the scheduler mints one and hands out rounds, and a
+// caller that could construct a scope could abandon a line it does not own.
+export { settleUnlessAbandoned, useReadScope } from "./read-cancellation.js";
+export type { ReadRound } from "./read-cancellation.js";
+
 // The signal half of a push-driven read, beside the scheduler that coalesces it.
 // It leaves the family because its callers are view families, which are siblings
 // and cannot reach each other — so the second caller's only alternative to this
