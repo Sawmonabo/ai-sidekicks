@@ -36,6 +36,7 @@ import {
   RAIL_NAVIGATION_DETAILS,
   consoleCommands,
   consoleKeybindingOverrides,
+  publishConsoleActRefusalSink,
   registerConsoleCommands,
   subscribeToConsoleKeyBindings,
   useBridgeCommands,
@@ -179,14 +180,19 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
     const stopWatchingContributions = subscribeToConsoleKeyBindings(() => {
       setCommandRevision((revision) => revision + 1);
     });
+    // And the banner a family's composition-time act states its refusal on. It is
+    // published for as long as this window's commands are registered, because that is
+    // the same lifetime: an act contributed at module scope cannot close over one.
+    const withdrawRefusalSink = publishConsoleActRefusalSink(raiseRefusalBanner);
     setCommandRevision((revision) => revision + 1);
     return () => {
+      withdrawRefusalSink();
       stopWatchingContributions();
       for (const command of windowCommands) {
         consoleCommands.unregister(command.id);
       }
     };
-  }, [bridgeCommands, chooseScheme, frameStore]);
+  }, [bridgeCommands, chooseScheme, frameStore, raiseRefusalBanner]);
 
   // The overrides a person authored, read back once per window. Fired without
   // awaiting: `hydrateFrom` swallows a failed read the way the store does — a

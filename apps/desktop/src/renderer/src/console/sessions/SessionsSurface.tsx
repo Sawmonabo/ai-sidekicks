@@ -51,7 +51,7 @@
 // `setState` produces the next render. Every dependency below is a STABLE
 // identity: a store, the bridge, or a wire-verbatim string off the route.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useConsoleClock, type GrowthPort } from "../bridge/index.js";
@@ -74,6 +74,15 @@ import { type SessionRowsProps } from "./SessionRowsView.js";
 
 export interface SessionsSurfaceProps {
   readonly context: ConsoleSurfaceContext;
+  /**
+   * The composed-session control, held as a node rather than built on an act.
+   *
+   * The opposite of the start press below, and deliberately: the probe must not be
+   * built until the press, because building it creates a session. This one owns its
+   * own open state and creates nothing until its own send, so rebuilding it per press
+   * would throw away whatever a person had chosen.
+   */
+  readonly newSession: ReactNode;
 }
 
 export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element {
@@ -144,16 +153,21 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // identity belongs.
   const shelfClock = useConsoleClock();
 
+  // Both ways to have a session, offered together in the one place the list draws a
+  // control: compose one, or start one now.
   const startControl = (
-    <button
-      type="button"
-      className="meridian-sessions__start"
-      onClick={() => {
-        setStartRequestCount((previous) => previous + 1);
-      }}
-    >
-      Start a session
-    </button>
+    <>
+      {props.newSession}
+      <button
+        type="button"
+        className="meridian-sessions__start"
+        onClick={() => {
+          setStartRequestCount((previous) => previous + 1);
+        }}
+      >
+        Start a session
+      </button>
+    </>
   );
 
   const listProps: SessionRowsProps = {

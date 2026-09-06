@@ -18,12 +18,19 @@
 // is where the re-mint arm this file's last case drives comes from.
 
 import { render } from "@testing-library/react";
-import { StrictMode, type ReactNode } from "react";
+import { StrictMode, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider, useBridgeResolution } from "./BridgeProvider.js";
-import type { ConsoleBridge } from "./console-bridge.js";
+import { type ConsoleClock } from "../core/index.js";
+import {
+  SidekicksBridgeProvider,
+  useBridgeResolution,
+  useConsoleBridge,
+  useConsoleClock,
+} from "./BridgeProvider.js";
+import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture/fixture-bridge.js";
+import { consoleScenario } from "./scenario-runtime/scenario-manifest.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "./scenario-runtime/scenario-selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./scenarios/flagship.js";
@@ -167,5 +174,114 @@ describe("SidekicksBridgeProvider — the resolved bridge's lifetime", () => {
     const engine = engineOf(lastBridge(observed));
     expect(engine.isDisposed).toBe(false);
     expect(scenarioControlIsInstalled()).toBe(true);
+  });
+});
+
+/** A component that does what a console surface does with time: read the clock. */
+function ClockProbe(props: { readonly onObserve: (clock: ConsoleClock) => void }): null {
+  props.onObserve(useConsoleClock());
+  return null;
+}
+
+/**
+ * The superseded form, kept as a control rather than as an alternative.
+ *
+ * `useState`'s lazy initializer runs once for the life of the MOUNT, which is the
+ * shape `useConsoleClock` had and the shape the case below fails on. It is written
+ * here so the replacement's claim is measured against the thing it replaced instead
+ * of being asserted.
+ */
+function MountPinnedClockProbe(props: { readonly onObserve: (clock: ConsoleClock) => void }): null {
+  const bridge = useConsoleBridge();
+  const [clock] = useState<ConsoleClock>(() => consoleClockFor(bridge));
+  props.onObserve(clock);
+  return null;
+}
+
+function lastClock(observed: readonly ConsoleClock[]): ConsoleClock {
+  const clock = observed.at(-1);
+  if (clock === undefined) {
+    throw new Error("the probe never saw a clock");
+  }
+  return clock;
+}
+
+describe("useConsoleClock — the clock is a fact about the bridge", () => {
+  const flagshipBridge = (): ConsoleBridge => createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+  const firstRunBridge = (): ConsoleBridge =>
+    createFixtureBridge({ scenario: consoleScenario(FIRST_RUN_SCENARIO_ID) });
+
+  it("re-resolves on a bridge replacement, on the first committed render", () => {
+    // The READING is what moves, not the identity. One `ForwardingConsoleClock` per
+    // mount is the whole point — every `[clock]` re-mint arm downstream would fire on
+    // a scenario switch if the hook handed back a new object — so what the case has
+    // to show is that the one object it does hand back stops reading the retired
+    // bridge's time the moment the replacement is committed.
+    const bridgeA = flagshipBridge();
+    const bridgeB = firstRunBridge();
+    const observed: ConsoleClock[] = [];
+    const { rerender } = render(
+      <SidekicksBridgeProvider bridge={bridgeA}>
+        <ClockProbe onObserve={(clock) => observed.push(clock)} />
+      </SidekicksBridgeProvider>,
+    );
+    expect(lastClock(observed).now()).toBe(engineOf(bridgeA).clock.now());
+
+    engineOf(bridgeB).tick();
+    rerender(
+      <SidekicksBridgeProvider bridge={bridgeB}>
+        <ClockProbe onObserve={(clock) => observed.push(clock)} />
+      </SidekicksBridgeProvider>,
+    );
+
+    expect(lastClock(observed).now()).toBe(engineOf(bridgeB).clock.now());
+    expect(lastClock(observed).now()).not.toBe(engineOf(bridgeA).clock.now());
+    // And it is still the same object every reader was handed at mount.
+    expect(new Set(observed).size).toBe(1);
+  });
+
+  it("negative control: the mount-pinned form keeps the retired bridge's clock", () => {
+    // The shape this hook had. Everything downstream of it — the replay dock, the
+    // reveal engine's armed frame, every `[clock]` re-mint arm — would go on
+    // reading a clock the scenario switch stopped advancing.
+    const bridgeA = flagshipBridge();
+    const bridgeB = firstRunBridge();
+    const observed: ConsoleClock[] = [];
+    const { rerender } = render(
+      <SidekicksBridgeProvider bridge={bridgeA}>
+        <MountPinnedClockProbe onObserve={(clock) => observed.push(clock)} />
+      </SidekicksBridgeProvider>,
+    );
+    rerender(
+      <SidekicksBridgeProvider bridge={bridgeB}>
+        <MountPinnedClockProbe onObserve={(clock) => observed.push(clock)} />
+      </SidekicksBridgeProvider>,
+    );
+
+    expect(lastClock(observed)).toBe(engineOf(bridgeA).clock);
+    expect(lastClock(observed)).not.toBe(engineOf(bridgeB).clock);
+  });
+
+  it("negative control: the two scenarios really do carry two clocks, and one bridge carries one", () => {
+    // Without the first half the case above would pass over two bridges sharing a
+    // clock; without the second, over a hook that recomputed on every render, which
+    // is the property `useState` was there for and which must survive the change.
+    const bridgeA = flagshipBridge();
+    const bridgeB = firstRunBridge();
+    expect(engineOf(bridgeA).clock).not.toBe(engineOf(bridgeB).clock);
+
+    const observed: ConsoleClock[] = [];
+    const { rerender } = render(
+      <SidekicksBridgeProvider bridge={bridgeA}>
+        <ClockProbe onObserve={(clock) => observed.push(clock)} />
+      </SidekicksBridgeProvider>,
+    );
+    rerender(
+      <SidekicksBridgeProvider bridge={bridgeA}>
+        <ClockProbe onObserve={(clock) => observed.push(clock)} />
+      </SidekicksBridgeProvider>,
+    );
+    expect(observed.length).toBeGreaterThan(1);
+    expect(new Set(observed).size).toBe(1);
   });
 });

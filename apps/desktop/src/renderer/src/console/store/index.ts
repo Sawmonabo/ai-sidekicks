@@ -113,6 +113,7 @@ export {
   useSessionDegraded,
   useSessionInitialised,
   useSessionPartition,
+  useSessionProjectionRevision,
 } from "./hooks.js";
 
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is

@@ -1,0 +1,167 @@
+/* The ledger family's cross-directory styles — the deck's shell, a pane's chrome, and
+ * the few rules whose selectors span more than one of the family's directories.
+ *
+ * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
+ * reachable from TWO directories goes in their nearest shared parent's sheet — which is
+ * `ledger.css` for the family and `structure/structure.css` for that subtree's five.
+ * `structure/` is the only subtree split further, and the reason is the module ceiling
+ * rather than symmetry: it was one 503-line sheet over five subjects that change for
+ * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
+ * ceiling, because their sub-modules draw INSIDE the boxes the parent sheet already
+ * sizes — a body inside a card, a row inside the frame — and splitting a box from its
+ * contents buys no reading. EACH SHEET IS IMPORTED BY THE DOOR OF THE DIRECTORY THAT
+ * OWNS IT — this one by `ledger/index.ts`, `frame/frame.css` by `frame/index.ts`, and
+ * so on down, with `structure/index.ts` carrying the four its doorless children's
+ * sheets are — because a door reaching into a directory that has one of its own is
+ * the shape `apps/desktop/AGENTS.md` §Module shape forbids. Every one of those doors
+ * is reachable from the family door, so they still land once per bundle, parent
+ * before children, and cascade after the primitives' and the frame's.
+ *
+ * WHAT IS CROSS-DIRECTORY HERE, and why each one is:
+ *
+ *   • The deck's shell and the loaded ledger. `.meridian-ledger*` is `ledger/pane/`'s
+ *     markup, not this family's: the deck composes the frame and the rail into one
+ *     surface, so the rules that place them belong to neither.
+ *   • `.meridian-pane__feed`, the one rule the pane's own body draws: the scroll
+ *     container `ledger/frame/`'s viewport mounts inside the box `seats/` sizes.
+ *   • `.meridian-ledger-retry`, worn by the frame's failed-row control and by the ANSI
+ *     card's.
+ *   • The focus ring the facet bar (`structure/narrowing/`) shares with the jump action
+ *     (`ledger/pane/find/`).
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale, so
+ * the family follows the scheme attribute with no conditional in JSX and its rhythm
+ * is a decision made once in `tokens/palette.ts`.
+ */
+
+/* --- The deck's shell --------------------------------------------------- */
+
+/*
+ * The empty-deck state: one pane, full width, filling the surface.
+ *
+ * A grid rather than a block, because `.meridian-frame__surface` is a scroll
+ * container and a percentage-height chain through a block would collapse the moment
+ * the pane's own body wanted to scroll instead. `minmax(0, 1fr)` in both axes is what
+ * lets the feed inside be the thing that scrolls.
+ */
+.meridian-ledger-surface {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 100%;
+}
+
+/* --- The loaded ledger -------------------------------------------------- */
+
+/*
+ * The whole feed for one session: an optional find strip above, and below it the
+ * scrolling window with its rail.
+ *
+ * A column grid whose second track is `minmax(0, 1fr)` rather than a flex column,
+ * because the find strip appears and disappears and a flex child that could grow
+ * would take its height back from the window on every toggle — which moves every
+ * row on screen for a reason the reader did not ask for. The grid keeps the
+ * window's track the whole remainder either way.
+ */
+.meridian-ledger {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/*
+ * The window and the rail, side by side.
+ *
+ * The rail's track is sized from its own content rather than given a number here:
+ * the rail draws marks at a width the family's own tokens decide, and a literal
+ * would be a second place that decision lived. `minmax(0, 1fr)` on the window is
+ * what lets the viewport — and not this row — be the element that scrolls.
+ */
+.meridian-ledger__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * The rail is revealed by pointer and by focus, so it must be able to take focus
+ * without the layout moving underneath it — hence a track that is already there
+ * rather than one that appears on hover.
+ */
+.meridian-ledger__rail {
+  display: flex;
+  min-height: 0;
+}
+
+/* --- The pane's feed ---------------------------------------------------- */
+
+/*
+ * The feed is the scroll container, and it is the ONLY one in the pane: a pane that
+ * scrolled as a whole would carry its own head out of view, and the reading anchor
+ * the ledger holds is an offset inside this box.
+ *
+ * IT IS ALSO THE ONLY `.meridian-pane*` RULE LEFT HERE. The pane itself, its head,
+ * kind glyph, breadcrumb, control strip, focus treatments and body box are drawn by
+ * `seats/ConsolePaneChrome` and styled by `seats/pane-chrome.css`, which the SEATS DOOR
+ * imports and the component does not — a component importing a sheet is the one shape
+ * `apps/desktop/AGENTS.md` §Module shape forbids outright. One frame for eleven pane
+ * kinds across six families means one sheet, and a family keeping a copy of those rules
+ * is a second answer to where the focus ring goes that agrees only until one of them is
+ * edited. A feed is a body, and a body is what a family draws.
+ */
+.meridian-pane__feed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.meridian-ledger-retry {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-ledger-retry:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-ledger-filter__facet:focus-visible,
+.meridian-ledger-filter__clear:focus-visible,
+.meridian-ledger__jump-action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+/*
+ * The jump offer a query naming a row id produces. A sentence with one control in
+ * it, on the same band as the find field that raised it.
+ */
+.meridian-ledger__jump {
+  margin: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-ledger__jump-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}

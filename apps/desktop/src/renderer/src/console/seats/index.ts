@@ -100,13 +100,14 @@ export {
   type ConsoleSurfaceDescriptor,
 } from "./surface-registry.js";
 
+// `PANE_KINDS` is deliberately absent: every reader of the set itself is inside this
+// family or is a suite that drives the kinds directly, and both take
+// `seats/pane-kinds.js` by its own specifier. A door line no production module reads
+// is one the barrel census fails, so the set leaves rather than being tagged.
 export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
-  PANE_KINDS,
   isDetachablePaneKind,
-  /** @consumedBy T-023p-1C-2 */
   isPaneKind,
   type PaneKind,
 } from "./pane-kinds.js";
@@ -130,12 +131,19 @@ export {
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneOpener,
 } from "./pane-registry.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
+  actorFollowHandler,
+  registerActorFollowHandler,
+  unregisterActorFollowHandler,
+  type ActorFollowHandler,
+  type ActorFollowOutcome,
+  type ActorFollowRequest,
+} from "./actor-follow-seat.js";
+
+export {
   composerSeatRenderer,
   /** @consumedBy T-023p-1C-3 */
   registerComposerSeat,
@@ -148,33 +156,23 @@ export {
 } from "./composer-seat.js";
 
 export {
-  /** @consumedBy T-023p-1C-3 */
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  // Consumed by T-023p-1C-3, T-023p-1C-5
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
   TIMELINE_ROW_DENSITIES,
-  /** @consumedBy T-023p-1C-2 */
   registerTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   timelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
-  unregisterTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowDensity,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowSlotProps,
 } from "./timeline-row-slot.js";
 
@@ -182,7 +180,6 @@ export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
   InlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
   inlineCardSeatRegistry,
   type ArtifactInlineCardProps,
@@ -196,42 +193,23 @@ export {
   type InlineCardKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardPropsByKind,
-  /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on, and four markers now
-// in two different states — which is the marker rule working rather than two spellings
-// of one thing.
-//
-// The chrome's three lines carry NOTHING. A shipped pane body imports all three, which
-// is the event those claims named, and a surviving `@consumedBy` would fail the
-// dead-code gate under `--treat-tag-hints-as-errors` rather than exempt anything.
-//
-// `PaneControlsContext` carries the `// Consumed by` LINE rather than a tag, which is
-// the other half of the same rule. The agent console is one of the kinds the window
-// model can open, so whether its deck mount reaches the chrome decides whether the
-// detach control can be drawn at all — and the only honest way to assert that is to
-// provide the host's controls through the seam a deck provides them through, which its
-// mounts' suite now does. A test reader makes knip's exemption unnecessary and is not
-// the production reader the barrel census wants, so the claim sits on the marker the
-// package standard pairs with exactly that case. `PaneControls` keeps its TAG: the
-// value a deck constructs is still nobody's until the deck lands, and that reader hands
-// the provider an inline object rather than naming the type.
+// The pane chrome and the seam its two host controls travel on. No marker on any of
+// these lines, and every half of the reason has now happened: shipped pane bodies
+// import the chrome and narrow through `paneBodyForKind`; the deck — the one host that
+// provides the two controls — ships and mounts every pane inside `PaneControlsContext`,
+// so the agent console's detach control is drawn through the seam a deck provides it
+// through rather than asserted by a test; and the ledger's message card and timeline
+// pane read the owner slot's contract. A surviving tag would fail the run under
+// `--treat-tag-hints-as-errors`; the pane-body tasks still to land are consumers of
+// exports that already have one.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
-export {
-  // Consumed by T-023p-1C-2
-  PaneControlsContext,
-  /** @consumedBy T-023p-1C-2 */
-  type PaneControls,
-} from "./pane-controls.js";
+export { PaneControlsContext, type PaneControls } from "./pane-controls.js";
 
-export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotContract,
-  OwnerSlotProps,
-} from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 
 // The session vocabulary, straight from the module that DECLARES it rather than
 // through `store/index.js`, which would be a barrel chain. Without these four lines
@@ -241,11 +219,9 @@ export type {
 // not to bind at all. Both gates were green on that for reasons neither intends — the
 // module's own test keeps it reachable, and it imports two families so it is no
 // orphan — which is why the census below is the thing that says who owes the rebind.
-export {
-  isCurrentSessionSubject,
-  /** @consumedBy T-023p-1C-3 */
-  useSessionScopedState,
-} from "./session-subject.js";
+// The hook's claim is retired: the ledger's pane holds its chapter disclosure and
+// both of its row-retention tables through this line.
+export { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
 export type {
   /** @consumedBy T-023p-1C-3 */
   SessionScopedKey,
@@ -286,16 +262,17 @@ export {
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./wire-access.js";
 
-// The mounts for the four shipped Tier-1 families the console absorbed, three of them
-// carrying the bridge-source guard that decides whether they may be mounted at all.
+// The mounts for three of the four shipped Tier-1 families the console absorbed, two of
+// them carrying the bridge-source guard that decides whether they may be mounted at all.
+// The fourth, the participant roster, is superseded rather than unhomed — the module
+// beside this door says by what, and why keeping a mount for it would be keeping one no
+// surface can call.
 //
 // In this family because a mount reads a bridge source, two primitives and the console's
 // own bridge, and nothing above `bridge/`, and on this door because the surfaces that
-// mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
-// reaches them here like every other consumer.
+// mount them are view families, which reach them here like every other consumer.
 export {
   renderAbsorbedInviteAcceptance,
   renderAbsorbedNodeRoster,
-  renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";

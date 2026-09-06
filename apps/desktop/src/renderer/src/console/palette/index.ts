@@ -23,8 +23,9 @@ import "./palette.css";
 export { CommandRegistry } from "./command-registry.js";
 
 // This window's one registry, the plural call a family contributes through, the seat
-// a family contributes its whole set at composition time, the host chord platform the
-// printer formats for, and the `when` vocabulary a clause is written against. On this
+// a family contributes its whole set at composition time, the channel an act with no
+// surface states its refusal on, the host chord platform the printer formats for, and
+// the `when` vocabulary a clause is written against. On this
 // door rather than the frame's because the frame is a CONSUMER of them and this family
 // declares what they are made of — and because the two other consumers, a view family
 // and the composer's shell half, both close a cycle on `frame/index.ts` and can reach
@@ -42,15 +43,11 @@ export { CommandRegistry } from "./command-registry.js";
 // tolerates.
 export {
   CONSOLE_CHORD_PLATFORM,
-  // Consumed by T-023p-1C-2
   consoleCommandSurface,
   consoleCommands,
+  publishConsoleActRefusalSink,
+  raiseConsoleActRefusal,
   registerConsoleCommands,
-  /**
-   * The seat's own type, for the composition site that holds one.
-   *
-   * @consumedBy T-023p-1C-2
-   */
   type ConsoleCommandSurface,
   type ConsoleWhenClauseContext,
 } from "./console-commands.js";

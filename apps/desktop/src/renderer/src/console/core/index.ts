@@ -14,25 +14,38 @@ export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from 
 // replaces underneath a live mount.
 export { ForwardingConsoleClock } from "./forwarding-clock.js";
 export {
+  ANSI_SPAN_RENDER_CAP,
   APPLY_COALESCE_MS,
   ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
   BOUNDED_ENUMERATION_MAX_ROWS,
+  CAST_BAR_CHIP_CAP,
+  CHAPTER_VISIBLE_ROW_CAP,
+  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
+  CODE_TOKEN_CACHE_BYTE_CAP,
+  CODE_WORKER_THRESHOLD_BYTES,
   COMPOSING_NAMED_CAP,
   COMPOSING_RECEIVED_STALE_MS,
+  DECK_RESTORED_PANE_CAP,
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
+  FIND_MATCH_CAP,
+  FOOTNOTE_DEFINITION_CAP,
   HIDDEN_INVITE_CAP,
   IDENTIFIER_MAX_LENGTH,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
+  LEDGER_MAX_ELEMENT_HEIGHT_PX,
+  LEDGER_PARKED_LEASE_CAP,
+  LEDGER_WINDOW_ROW_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
+  MARKDOWN_BLOCK_CACHE_BYTE_CAP,
   MAXIMUM_LIVE_DRAFT_COUNT,
   MAX_REPAIRABLE_SEQUENCE_GAP,
   MOUNT_INVENTORY_READ_CAP,
@@ -44,20 +57,27 @@ export {
   PERSISTENCE_SESSION_PARTITION_CAP,
   POSITION_SIBLING_OBSERVER_CAP,
   PRE_INITIALISATION_BUFFER_CAP,
+  RAIL_FISHEYE_MAX_SCALE,
+  RAIL_MAX_TICKS_PER_PIXEL,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
   RESOLVED_PROSE_INLINE_CAP,
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
   RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
+  REVEAL_CHECKPOINT_TAIL_CAP,
+  REVEAL_FRAME_CHARACTER_BUDGET,
+  REVEAL_LITERAL_BACKTRACK_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
   SESSION_BACK_TIER_VISIBLE_CAP,
   SETTLED_INVITE_VISIBLE_CAP,
+  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
   TOOL_ALLOWLIST_NAMED_CAP,
+  TOOL_SUMMARY_MAX_CHARACTERS,
   WHEN_CLAUSE_MAX_DEPTH,
   WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
 } from "./constants.js";
@@ -110,7 +130,17 @@ export {
 // consumes each of them by calling the symbol beside it rather than by naming it.
 // A test asserting on either reaches the module that declares it.
 export { KeyedRegistry } from "./keyed-registry.js";
-export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
+export {
+  ConsoleRefusalError,
+  isConsoleRefusal,
+  refuse,
+  type ConsoleRefusal,
+  // The narrowing `refuse` returns. Through the door because a producer that owns a
+  // closed code union declares its own refusal type as an instantiation of this one
+  // rather than re-declaring the same interface: five of them in `workspace/`, and
+  // five copies of one shape is where the shape starts to differ.
+  type NarrowedRefusal,
+} from "./refusal.js";
 // The registered widenings of that shape. Through the door because a family rendering
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
@@ -136,10 +166,18 @@ export {
 // those cannot reach the third, so the floor is the only home all of them share.
 export { isWireRecord } from "./wire-record.js";
 export { readWireString } from "./wire-strings.js";
-// The total stringifier, re-published rather than re-declared. It is DECLARED in
-// `src/shared/wire-errors.ts`, which both processes compile, and `core/wire-rejection.ts`
-// already states that this layer — not that one — is the console's home for turning an
-// unknown into displayable text. Until this line existed the door published nothing for
-// it, so two view families reached five directories up past `core/` to the declaration
-// and the layering hole was invisible to every rule.
+
+// The cross-process leaf's lossy renderer for a value that has no honest string,
+// re-published here rather than re-declared.
+//
+// `src/shared/` sits under no rung of the console DAG, so a VIEW family may not read
+// it and the console reaches it through the layer family that owns the concern. Three
+// modules in this family already read that leaf for its guarded property reads and its
+// rejection vocabulary, which makes the floor that family: a diagnostic string is the
+// same concern one step along, and a second reading of it above here would be the
+// drift the one-home rule exists to stop. `core/wire-rejection.ts` already states that
+// this layer — not that one — is the console's home for turning an unknown into
+// displayable text. Until this line existed the door published nothing for it, so two
+// view families reached five directories up past `core/` to the declaration and the
+// layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";

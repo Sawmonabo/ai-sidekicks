@@ -25,12 +25,20 @@ import type { ConsoleSessionDiagnostics } from "./session-event-binder.js";
 
 const SESSION_ID = FLAGSHIP_SCENARIO.sessionId;
 
-/** The whole scenario is delivered by this much frozen time; its last beat is at 400. */
-const PAST_EVERY_BEAT_MS = 500;
+/**
+ * The frozen time that delivers the whole scenario, and the time that delivers its
+ * opening only — both read off the script rather than restated beside it.
+ *
+ * Literals here were copies of the flagship's own timings, and they went stale the
+ * first time it grew: the "whole scenario" advance stopped part-way through and the
+ * partial-delivery count named beats the re-timed opening no longer put in reach.
+ */
+const PAST_EVERY_BEAT_MS = (FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) + 100;
 
-/** Beats due at or before 130 ms: the ones at 0, 40 and 120. */
-const THROUGH_THIRD_BEAT_MS = 130;
-const BEATS_THROUGH_THIRD_BEAT = 3;
+const THROUGH_THIRD_BEAT_MS = FLAGSHIP_SCENARIO.beats[2]?.atMs ?? 0;
+const BEATS_THROUGH_THIRD_BEAT = FLAGSHIP_SCENARIO.beats.filter(
+  (beat) => beat.atMs <= THROUGH_THIRD_BEAT_MS,
+).length;
 
 interface BinderHarness {
   readonly registry: SessionStoreRegistry;

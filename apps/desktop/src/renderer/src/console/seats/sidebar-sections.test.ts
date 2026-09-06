@@ -133,3 +133,30 @@ describe("sidebar sections — the module-scope door", () => {
     expect(sidebarSectionRenderer("members")).toBeUndefined();
   });
 });
+
+describe("sidebar sections — what a section reports and what the sidebar decides", () => {
+  it("hands back the reader the family supplied, not a wrapper", () => {
+    // Identity again, for `render`'s reason: the sidebar must call the family's own
+    // reader. A wrapper here would be a second place a section's attention could be
+    // decided, and the rule is stated over the whole set precisely so that only one
+    // thing decides it.
+    const registry = new SidebarSectionRegistry();
+    const reportsAmber = (): "attention" => "attention";
+    registry.register({
+      id: "approvals",
+      owner: "composer-family",
+      render: () => null,
+      attention: reportsAmber,
+    });
+    expect(registry.descriptorFor("approvals")?.attention).toBe(reportsAmber);
+  });
+
+  it("negative control: a section that reports nothing carries no reader at all", () => {
+    // Absent rather than a reader answering "no attention": a family with no
+    // projection to answer from has made no claim, and a default that answered for it
+    // would be the sidebar inventing one.
+    const registry = new SidebarSectionRegistry();
+    registry.register(descriptor("goal", "composer-family"));
+    expect(registry.descriptorFor("goal")?.attention).toBeUndefined();
+  });
+});

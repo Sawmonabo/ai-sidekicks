@@ -56,6 +56,12 @@ export { observeElementResize } from "./element-resize.js";
 // frame's door without closing a cycle.
 export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 
+// The "whose keystroke is it" pair, through the same door and for the same reason
+// `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
+// above this family, and a second copy in either would be the drift this rule exists
+// to prevent.
+export { isEditableTarget, isTextEntryTarget } from "./editable-target.js";
+
 // The chord vocabulary, and not only the printer. A surface that decides something
 // ABOUT a chord — the browser family's page handback, which may claim a keystroke
 // only when it holds a modifier — needs the same closed token set, the same
@@ -90,6 +96,10 @@ export { SurfaceAbsence } from "./SurfaceAbsence.js";
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
 export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
+// The sink's own type, for a surface that settles an outcome somewhere other than
+// where it read the context — the deck reads `useAnnounce` in its component and
+// hands the result to the drag monitor, which is a hook and cannot read it twice.
+export type { Announce, AnnouncementPoliteness } from "./live-announcer.js";
 
 // The announcer itself, because `LiveAnnouncerProvider`'s `announcer` prop is part of
 // that component's public shape: a caller that supplies one — the frame does not, a
@@ -183,10 +193,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsencesProps,
 } from "./WindowAbsences.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
-  WindowAbsences,
-} from "./WindowAbsences.js";
+export { WindowAbsences } from "./WindowAbsences.js";
 
 // No marker: `InlineRefusal` has its consumers — `seats/ConsolePaneChrome.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
@@ -219,7 +226,7 @@ export {
 // way, and a family that wrote its own row is a family whose reader is told the list
 // is as long as the window.
 //
-// THREE SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
+// FOUR SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
 // lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
 // `repos/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
 // and the one type a delegating row's renderer hands its child: the row's own props
@@ -227,8 +234,16 @@ export {
 // rather than by its caller, and the index arithmetic is what the hook returns. The
 // target-props type leaves through this door rather than being read back off the
 // component, because a family deriving it again would hold a second closed set that
-// agrees with this one only until the marker attribute is renamed on one side. The
-// nine door lines that had carried `@consumedBy T-023p-1C-5` alongside these three
+// agrees with this one only until the marker attribute is renamed on one side.
+//
+// THE FOURTH IS THE INDEX ATTRIBUTE, and it is here for a reader in another family
+// rather than for that one: `ledger/frame/viewport/viewport-binding.ts` hands the
+// attribute name to the observer that measures a row, so the name the row WRITES and
+// the name the binding READS are one string. That is the same claim the target-props
+// type makes one step along, and a second spelling of it would be a measurement taken
+// against an attribute the row had stopped writing.
+//
+// The eight door lines that had carried `@consumedBy T-023p-1C-5` alongside these four
 // named a consumer that has now shipped without importing any of them, so they were
 // door lines with no production reader — the class
 // `test/console/architecture/barrel-census.test.ts` owns and the dead-code gate cannot
@@ -236,8 +251,8 @@ export {
 // re-tagged; the co-located tests that do exercise those symbols read the module that
 // declares them, which is what the census rule asks.
 //
-// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The nine lines
-// above went first; every other claim naming that task — on this door, on `core/`, and
+// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The eight
+// lines above went first; every other claim naming that task — on this door, on `core/`, and
 // on `seats/` — was then re-checked the same way, against what the family's shipped
 // modules actually import through the door rather than against who might want the
 // symbol.
@@ -255,6 +270,7 @@ export {
 export { WindowedListRow } from "./WindowedListRow.js";
 export type { WindowedRowTargetProps } from "./WindowedListRow.js";
 export { useWindowedRovingIndex } from "./windowed-row-index.js";
+export { WINDOWED_ROW_INDEX_ATTRIBUTE } from "./windowed-row-markers.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */

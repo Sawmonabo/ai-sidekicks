@@ -1,0 +1,185 @@
+/* `ledger/structure/narrowing/`'s styles — the find field and the facet bar: the two
+ * surfaces that answer "show me less of this log".
+ *
+ * ONE SHEET PER DIRECTORY, imported from `ledger/index.ts` and nowhere else. They share
+ * a sheet because they share a job and a row of chrome; the focus ring the facet bar
+ * wears is `ledger.css`'s, because the jump action `ledger/pane/find/` renders shares it.
+ */
+
+/* --- Find in ledger ------------------------------------------------------- */
+
+.meridian-find {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+}
+
+.meridian-find__field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* The label names the field for assistive technology and is not repeated on
+   screen beside a search glyph that already says it. */
+
+.meridian-find__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.meridian-find__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+}
+
+.meridian-find__input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -1px;
+}
+
+.meridian-find__step,
+.meridian-find__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-find__step:disabled {
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+.meridian-find__step:focus-visible,
+.meridian-find__close:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The boundary sentence and its escape hatch, together on one line so the
+   affordance is read as part of the statement rather than as a stray control. */
+
+.meridian-find__scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-find__load-earlier {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-find__empty {
+  margin: 0;
+  color: var(--meridian-text-faint);
+}
+
+/*
+ * The facet bar — the only surface that narrows this ledger.
+ *
+ * Sits with the find field on the sunken band above the log rather than floating
+ * over it: both are readings ABOUT the window rather than rows of it, and a control
+ * that overlaid the feed would cover the rows it is narrowing. Wraps, because the
+ * number of chips is the session's and not the layout's.
+ */
+
+.meridian-ledger-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+}
+
+.meridian-ledger-filter__axis {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.meridian-ledger-filter__axis-label {
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * One chip. The admitted state is carried by `aria-pressed` and painted from it,
+ * so the thing a screen reader announces and the thing an eye reads are one fact.
+ */
+
+.meridian-ledger-filter__facet {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  padding: 0 var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-ledger-filter__facet[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-ledger-filter__facet-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12rem;
+}
+
+.meridian-ledger-filter__clear {
+  margin-inline-start: auto;
+  padding: 0 var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  cursor: pointer;
+}

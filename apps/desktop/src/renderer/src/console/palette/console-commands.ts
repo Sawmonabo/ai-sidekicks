@@ -1,5 +1,6 @@
 // This window's command registry, the seat a family contributes its whole command
-// set through, and the `when` vocabulary the console evaluates clauses against.
+// set through, the `when` vocabulary the console evaluates clauses against, and the
+// channel an act with no surface of its own states a refusal on.
 //
 // One registry per window, held at module scope for the same reason
 // `consoleSurfaceRegistry` and `consoleRouteRegistry` are: an auxiliary window is
@@ -33,7 +34,7 @@
 // rail navigation table, and the chords it binds itself — is `command-surface.ts`
 // beside this file, which followed the same rule here for the same reason.
 
-import { Emitter, type Unsubscribe } from "../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 import { CommandRegistry } from "./command-registry.js";
 import type { ConsoleCommand, KeyBinding } from "./contributions.js";
@@ -210,4 +211,56 @@ export function consoleFamilyKeyBindings(): readonly KeyBinding[] {
 /** Told when a family contributes, so a composed table can be read again. */
 export function subscribeToConsoleFamilyContributions(listener: () => void): Unsubscribe {
   return consoleFamilyContributions.subscribe(listener);
+}
+
+/**
+ * Where an act with no surface of its own states its refusal.
+ *
+ * A family's commands are contributed at composition time and a refusal is
+ * produced at press time, so the two cannot share a closure: the act is built
+ * before any window exists and the banner belongs to the window that is open when
+ * it runs. The frame publishes its own banner sink here at mount and withdraws it
+ * on unmount, which is what makes "the ledger is not open in this window" a
+ * sentence a person reads rather than a press that does nothing.
+ *
+ * One sink rather than a fan-out: this is rule 9's banner rendering, and the frame
+ * is the only thing that has one.
+ */
+class ConsoleActRefusalChannel {
+  #sink: ((refusal: ConsoleRefusal) => void) | undefined;
+
+  public publish(sink: (refusal: ConsoleRefusal) => void): Unsubscribe {
+    this.#sink = sink;
+    return () => {
+      if (this.#sink === sink) {
+        this.#sink = undefined;
+      }
+    };
+  }
+
+  /** Deliver a refusal. Answers whether anything was there to render it. */
+  public raise(refusal: ConsoleRefusal): boolean {
+    if (this.#sink === undefined) {
+      return false;
+    }
+    this.#sink(refusal);
+    return true;
+  }
+}
+
+const consoleActRefusals = new ConsoleActRefusalChannel();
+
+/** Publish this window's refusal rendering. The frame calls it; nothing else does. */
+export function publishConsoleActRefusalSink(sink: (refusal: ConsoleRefusal) => void): Unsubscribe {
+  return consoleActRefusals.publish(sink);
+}
+
+/**
+ * State a refusal from an act that has no surface of its own.
+ *
+ * The answer says whether it was rendered, so a caller that has its own surface can
+ * fall back to it rather than assuming a banner appeared.
+ */
+export function raiseConsoleActRefusal(refusal: ConsoleRefusal): boolean {
+  return consoleActRefusals.raise(refusal);
 }

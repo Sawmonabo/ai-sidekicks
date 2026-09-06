@@ -265,17 +265,13 @@ export function useConsoleBridge(): ConsoleBridge {
 }
 
 /**
- * The clock this window runs on, pinned for the calling component's life.
+ * The clock this window runs on, pinned to the bridge it was resolved from.
  *
- * `consoleClockFor` is the one answer to which clock a window reads, and a
- * subsystem that BUILDS itself around a clock — a store, a registry — resolves it
- * once inside its own `useState` initializer. A component that has to HAND a clock
- * to something it renders has nowhere to put that pin, and the real arm of
- * `consoleClockFor` mints a fresh `RealClock` per call: read straight from a render
- * body, the value would have a new identity on every pass, and every consumer that
- * treats a clock as a resource identity would tear itself down and rebuild once per
- * render. So the resolution is `useState` for the same reason the bridge resolution
- * itself is — a resource identity is state and is never recomputed.
+ * `consoleClockFor` is the one answer to which clock a window reads, and the
+ * resolution is HELD rather than recomputed: its real arm mints a fresh `RealClock`
+ * per call, so read straight from a render body the value would have a new identity
+ * on every pass and every consumer that treats a clock as a resource identity would
+ * tear itself down and rebuild once per render. A resource identity is state.
  *
  * A WINDOW'S CLOCK DOES CHANGE UNDER IT, WHICH IS WHY THE PIN IS AN OBJECT AND NOT A
  * READING. The provider above replaces its resolution IN PLACE — `setResolved`, with

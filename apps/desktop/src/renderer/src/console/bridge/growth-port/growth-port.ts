@@ -163,15 +163,16 @@ export function growthScriptedReplyUnavailable(
  * through this builder rendered `call-rejected` where its sibling one navigation
  * later rendered `workflow.session_not_found` for the same class of failure.
  *
- * NO CALLER IN THE CONSOLE TAKES THIS BUILDER TODAY, and that is a measured state
- * rather than an oversight: every growth call in the tree — reads and the two run
- * controls alike — settles through `bridge/readings/read-settlement.ts`, which is
- * strictly better for a READ because it keeps the daemon's code as the refusal's own.
- * It is kept because the port's vocabulary carries `call-rejected` and a code nothing
- * can construct is worse than a constructor nothing yet calls: the rejection channel
- * of a promise exists whether a contract uses it or not, and the next caller that
- * cannot reach the reading layer needs a refusal that carries this port's origin
- * rather than one it invented. Its suite drives it, so what it produces is pinned.
+ * READS DO NOT TAKE THIS BUILDER AND ACTS DO, which is the split rather than a
+ * preference. Every growth READ in the tree settles through
+ * `bridge/readings/read-settlement.ts`, which is strictly better for a read because it
+ * keeps the daemon's own code as the refusal's. That seam answers a
+ * `SettledReadRefusal` — the console's refusal shape plus the arm to narrow on — and
+ * an ACT's consumer needs more than that: it branches on which growth code was raised,
+ * so an unregistered wire and a wire that answered badly stay two facts, and it reads
+ * the operation ledger to say which wire it was. That is this builder's output and not
+ * the reading seam's, so the auxiliary hand-off's acts settle here, through
+ * {@link settledGrowthCall} directly below.
  *
  * NO `RejectionFallback` IS PASSED, and that is a reading of what one does rather than
  * an omission. A fallback is the caller's stand-in SENTENCE for a rejection carrying no
@@ -199,6 +200,36 @@ export function growthUnavailableFromRejection(
     ...growthRefusalLedger(operationId),
     cause,
   };
+}
+
+/**
+ * Run one growth ACT whose promise must not reject.
+ *
+ * A `GrowthPort` method answers `served` or `unavailable`, and every caller in the
+ * console branches on that pair. A REJECTION is outside the pair: it leaves the
+ * caller's state where it was — no refusal rendered, no reading settled, a control
+ * that answers a press by doing nothing — and, because these calls are dispatched
+ * from effects and event handlers, it surfaces only as an unhandled rejection the
+ * runner reports and a shipped window does not.
+ *
+ * So the rejection is answered in the port's own vocabulary rather than in each
+ * caller's `catch`. The result is the same two-arm outcome, which means a caller has
+ * one path and not two, and the refusal is {@link growthUnavailableFromRejection}'s —
+ * `call-rejected`, carrying the operation ledger and the normalized `cause`.
+ *
+ * NOT `settleGrowthRead`, for the reason the paragraph above states: that seam is the
+ * right one for a read and answers a shape an act's consumer cannot branch on. The two
+ * live in different families for the same reason they answer differently.
+ */
+export async function settledGrowthCall<TValue>(
+  operationId: GrowthOperationId,
+  call: () => Promise<GrowthOutcome<TValue>>,
+): Promise<GrowthOutcome<TValue>> {
+  try {
+    return await call();
+  } catch (rejection: unknown) {
+    return growthUnavailableFromRejection(operationId, rejection);
+  }
 }
 
 /**

@@ -1,25 +1,56 @@
-// The flagship scenario — skeleton.
+// The flagship scenario — four lanes streaming at once.
 //
-// The full four-lane session (four agents streaming at once, an approval landing
-// mid-stream, a cost meter moving, a thread drawn between two runs) is
-// T-023p-1C-2's, because it is only meaningful once the ledger, cast bar, and
-// timeline surfaces exist to render it. What lands here is the SKELETON those
-// surfaces will be built against: the participant roster in join order, one agent
-// per lane, and the opening beats that put a row on screen.
+// The session `budgets.json`'s `frame-time-p95-four-lanes` row names as its subject:
+// "four agent lanes stream concurrently into the ledger". That row is enforced, so
+// this script is what the ceiling is measured against, and the concurrency is the
+// property under measurement rather than a description of it — four runs are
+// mid-turn at the same tick, interleaved beat by beat, and
+// `scenarios/streaming-lanes.ts` reads that back off these beats so the harness
+// asserts it instead of assuming it.
 //
-// The roster is the load-bearing part. `Spec-023 §Console Design (Meridian)` rule 2
-// allocates participant hues by join-log order, so the order of
-// `participantIdsInJoinOrder` below is what the hue allocator consumes and what a
-// screenshot baseline depends on. Reordering it is a visual change, not a cosmetic
-// one — which is why it is stated here once and read everywhere.
+// WHAT THE SESSION DOES, IN THE ORDER IT DOES IT
 //
-// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD. The census is
-// `SESSION_EVENT_CATEGORY_BY_TYPE` and the payload shapes are `SessionEventSchema`
-// and `Spec-006`'s per-family rows, both in `packages/contracts/src/event.ts` and
-// `docs/specs/006-session-event-taxonomy-and-audit-log.md`; `scenarios/wire-truth.ts`
-// holds this file to them. That is not tidiness — a fixture that plays a type no
-// daemon emits produces screenshots, geometry readings, and end-to-end results
+//   • Two people, four agents, and the implementer's run opened — the opening this
+//     scenario has always had, and the one every surface built against it expects.
+//   • The other three lanes spin up, and from the architect's `running` transition
+//     onward all four are streaming: thinking, messages, and tool calls interleaved
+//     across four run chapters rather than four runs taken in turn.
+//   • An approval lands MID-STREAM. The implementer's run enters
+//     `waiting_for_approval` while the other three keep talking, and returns through
+//     `running`. That is the whole of the approval story the log can tell — see the
+//     note below on why no `approval.*` beat is scripted.
+//   • The cost meter moves, four times, one per lane.
+//   • A thread is drawn between two runs: the architect's turn spawns a helper run,
+//     whose birth beat carries `parentRunId`. It is queued and starting at the last
+//     tick, so the frame also has the one lane state a four-lane session otherwise
+//     never shows — a run on screen that has produced nothing yet.
+//
+// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, under the two-leg
+// rule `scenarios/wire-truth.ts` states in its header: the census
+// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`), both in
+// `packages/contracts/src/event.ts`, are the code leg, and where a type has no strict
+// variant its members come from the per-type payload rows of
+// `docs/specs/006-session-event-taxonomy-and-audit-log.md`, the taxonomy
+// those variants are implemented from. That predicate holds this file to
+// the layers that exist in code. That is not tidiness — a fixture that plays a type
+// no daemon emits produces screenshots, geometry readings, and end-to-end results
 // about a wire that does not exist, and every one of them looks like a pass.
+//
+// THREE THINGS THIS SCRIPT DELIBERATELY DOES NOT SAY
+//
+//   • **An approval card.** `approval.requested` is a registered type, but the card
+//     it would draw belongs to the surface that renders approvals, and the run-state
+//     pair below is what the ledger reads: `run.waiting_for_approval` and the
+//     `run.running` that releases it. Scripting both would put two records of one
+//     approval in one session, and the ledger would have to decide which is true.
+//   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
+//     DESCRIPTION and never the body, which is sealed in `content_payload` and
+//     served by no bridge namespace. The cards render the named absence, which is
+//     the true state of that wire today.
+//   • **A link TYPE on the run thread.** `linkType` is typed by a Plan-016 symbol no
+//     TypeScript in this workspace declares, so the thread carries the two linkage
+//     members that do have types — `parentRunId` and `internalHelper` — and says
+//     nothing about which kind of link it is.
 //
 // TWO CONSEQUENCES A READER WILL NOTICE FIRST:
 //
@@ -35,88 +66,39 @@
 //     session read, and `session.renamed` is where a later change to it would
 //     arrive — never from the creation event.
 
+import { scriptLedgerBeats } from "./ledger-script.js";
+import {
+  AGENT_ARCHITECT,
+  AGENT_IMPLEMENTER,
+  AGENT_REVIEWER,
+  AGENT_SCOUT,
+  EVENT_ID_STEM,
+  FLAGSHIP_AGENTS,
+  PARTICIPANT_PRIYA,
+  PARTICIPANT_YOU,
+  SESSION_ID,
+  STARTED_AT_ISO,
+  attachedAtIso,
+} from "./flagship-cast.js";
+import { FLAGSHIP_SCRIPT } from "./flagship-script.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
 
-// Wire identifiers, spelled as the wire spells them. UUID v7 values, whose leading
-// bytes are the scenario's own start instant, so a reader scanning a rendered id
-// can still tell one fixture apart from another.
-const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
-const PARTICIPANT_YOU = "019b79ee-0280-79a4-8110-cca0117a0110";
-const PARTICIPANT_PRIYA = "019b79ee-0280-79a4-8120-cca0117a0120";
-const MEMBERSHIP_PRIYA = "019b79ee-0280-7e3b-8110-cca0117a0130";
-const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
-const AGENT_IMPLEMENTER = "019b79ee-0280-7a6e-8120-d1a4c1150002";
-const AGENT_REVIEWER = "019b79ee-0280-7a6e-8130-d1a4c1150003";
-const AGENT_SCOUT = "019b79ee-0280-7a6e-8140-d1a4c1150004";
-const FIRST_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150011";
-
 /**
- * The four lanes, as the `agents` projection carries them.
+ * How many lanes this session streams at once.
  *
- * One table rather than a literal per beat and a second literal per reply: the
- * `agent.attached` payload and the `agent.list` row are two views of one record
- * (`Spec-006 §Channel and Agent Lifecycle (session_lifecycle)` makes the event replay-complete
- * precisely so the projection can be rebuilt from it), and two hand-written copies
- * of one agent would drift in exactly the direction nothing catches.
- *
- * The drivers and models are deliberately mixed. A fixture whose whole cast runs
- * one provider cannot show a surface what a two-provider session looks like, and
- * that is the session this console is for.
- *
- * `eventId` is the daemon's opaque row id for the attach event this row produces —
- * carried on the table rather than composed at the beat, because the beats are
- * generated by a `map` and a composed id would be the one member of the envelope
- * that no daemon minted.
+ * Read off the cast rather than written as a four: the budget row, the scenario's
+ * own label, and the harness assertion all mean "one lane per agent", and a literal
+ * in any of them would let the cast grow while the claim stayed at its old size.
  */
-const FLAGSHIP_AGENTS = [
-  {
-    agentId: AGENT_ARCHITECT,
-    eventId: "019b79ee-0280-7ea1-8110-e5e0d1150003",
-    name: "Architect",
-    driverName: "claude",
-    modelId: "claude-opus-5[1m]",
-    attachedAtMs: 120,
-    attachedAtIso: "2026-01-01T14:20:00.120Z",
-  },
-  {
-    agentId: AGENT_IMPLEMENTER,
-    eventId: "019b79ee-0280-7ea1-8110-e5e0d1150004",
-    name: "Implementer",
-    driverName: "claude",
-    modelId: "claude-sonnet-5",
-    attachedAtMs: 160,
-    attachedAtIso: "2026-01-01T14:20:00.160Z",
-  },
-  {
-    agentId: AGENT_REVIEWER,
-    eventId: "019b79ee-0280-7ea1-8110-e5e0d1150005",
-    name: "Reviewer",
-    driverName: "codex",
-    modelId: "gpt-5.6-sol",
-    attachedAtMs: 200,
-    attachedAtIso: "2026-01-01T14:20:00.200Z",
-  },
-  {
-    agentId: AGENT_SCOUT,
-    eventId: "019b79ee-0280-7ea1-8110-e5e0d1150006",
-    name: "Scout",
-    driverName: "codex",
-    modelId: "gpt-5.4-mini",
-    attachedAtMs: 240,
-    attachedAtIso: "2026-01-01T14:20:00.240Z",
-  },
-] as const;
-
-/** The sequence the first `agent.attached` beat takes. Two beats precede it. */
-const FIRST_AGENT_SEQUENCE = 3;
+export const FLAGSHIP_LANE_COUNT: number = FLAGSHIP_AGENTS.length;
 
 export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   id: FLAGSHIP_SCENARIO_ID,
   label: "Four lanes",
   purpose:
-    "A live session with four agents working at once. The skeleton lands here; the streaming lanes, the mid-stream approval, and the run thread arrive with the surfaces that render them.",
+    "A live session with four agents streaming at once — interleaved turns on four run chapters, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   // Join order IS the hue order. Two people first, then the agents in the order
   // they were attached — which is what a real session's join log looks like.
@@ -141,123 +123,19 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   // role-gated control at all: the identity read answers `PARTICIPANT_YOU`, and the
   // role a surface gates on is this entry, looked up in the roster the session read
   // establishes. Priya's `collaborator` is the same value her `membership.created`
-  // beat below carries — one fact, stated where the roster is read from and replayed
+  // beat carries — one fact, stated where the roster is read from and replayed
   // where the log records it arriving.
   membershipRoleByParticipantId: {
     [PARTICIPANT_YOU]: "owner",
     [PARTICIPANT_PRIYA]: "collaborator",
   },
-  startedAtIso: "2026-01-01T14:20:00.000Z",
-  beats: [
-    {
-      atMs: 0,
-      event: {
-        id: "019b79ee-0280-7ea1-8110-e5e0d1150001",
-        sessionId: SESSION_ID,
-        sequence: 1,
-        kind: "session.created",
-        occurredAt: "2026-01-01T14:20:00.000Z",
-        actorId: PARTICIPANT_YOU,
-        // The registered shape, verbatim: the new session's id plus the resolved
-        // config and metadata. Both are open records and both are empty here,
-        // because nothing in the corpus names a key inside either — a fixture that
-        // invented one would be teaching a surface to read a member no daemon sets.
-        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
-      },
-    },
-    {
-      atMs: 40,
-      event: {
-        id: "019b79ee-0280-7ea1-8110-e5e0d1150002",
-        sessionId: SESSION_ID,
-        sequence: 2,
-        kind: "membership.created",
-        occurredAt: "2026-01-01T14:20:00.040Z",
-        actorId: PARTICIPANT_PRIYA,
-        // A person joining a session is a membership event, not a participant one:
-        // `participant.*` is not in the census at all, and this is the type the
-        // owner's own admission rides too.
-        payload: {
-          membershipId: MEMBERSHIP_PRIYA,
-          participantId: PARTICIPANT_PRIYA,
-          role: "collaborator",
-          identityHandle: "priya",
-        },
-      },
-    },
-    ...FLAGSHIP_AGENTS.map((agent, agentIndex) => ({
-      atMs: agent.attachedAtMs,
-      event: {
-        id: agent.eventId,
-        sessionId: SESSION_ID,
-        sequence: FIRST_AGENT_SEQUENCE + agentIndex,
-        kind: "agent.attached",
-        occurredAt: agent.attachedAtIso,
-        // The person who attached the agent, not the agent. An agent does not
-        // attach itself, and the envelope actor is who acted.
-        actorId: PARTICIPANT_YOU,
-        // `Spec-006 §Channel and Agent Lifecycle (session_lifecycle)`: the full persona plus the
-        // daemon-resolved resulting state, so the `agents` projection rebuilds from
-        // the log alone. `name` is the member — `displayName` is not on this wire.
-        payload: {
-          sessionId: SESSION_ID,
-          agentId: agent.agentId,
-          name: agent.name,
-          driverName: agent.driverName,
-          modelId: agent.modelId,
-          state: "ready",
-          actor: PARTICIPANT_YOU,
-        },
-      },
-    })),
-    {
-      atMs: 320,
-      event: {
-        id: "019b79ee-0280-7ea1-8110-e5e0d1150007",
-        sessionId: SESSION_ID,
-        sequence: 7,
-        kind: "run.queued",
-        occurredAt: "2026-01-01T14:20:00.320Z",
-        actorId: PARTICIPANT_YOU,
-        // The run's CREATION, and creation is not a transition. This beat briefly
-        // carried `previousState: "queued"` so it would satisfy the shape
-        // `run.subscribeState` projects into — which made it claim the run had
-        // moved from `queued` to `queued`, a self-transition
-        // `docs/domain/run-state-machine.md`'s transition table defines for no
-        // state and no daemon can produce. `queued` is the state a run is created
-        // IN, the destination of no row in that table, so the honest beat names the
-        // state the run is now in and no state it came from — and that stream
-        // carries the creation kind no longer. A subscriber learns this run exists
-        // from `session.subscribe`, where the run-lifecycle projector folds it in.
-        payload: {
-          sessionId: SESSION_ID,
-          runId: FIRST_RUN_ID,
-          runVersion: 1,
-          newState: "queued",
-          agentId: AGENT_IMPLEMENTER,
-        },
-      },
-    },
-    {
-      atMs: 400,
-      event: {
-        id: "019b79ee-0280-7ea1-8110-e5e0d1150008",
-        sessionId: SESSION_ID,
-        sequence: 8,
-        kind: "run.starting",
-        occurredAt: "2026-01-01T14:20:00.400Z",
-        // No actor. The daemon moves a run from `queued` to `starting`; a
-        // participant id here would attribute a system transition to a person.
-        payload: {
-          sessionId: SESSION_ID,
-          runId: FIRST_RUN_ID,
-          runVersion: 2,
-          previousState: "queued",
-          newState: "starting",
-        },
-      },
-    },
-  ],
+  startedAtIso: STARTED_AT_ISO,
+  beats: scriptLedgerBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtIso: STARTED_AT_ISO,
+    entries: FLAGSHIP_SCRIPT,
+  }),
   replies: [
     {
       // `session.read`, not a `session.list`: the registry carries no list method,
@@ -270,10 +148,10 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
           state: "active",
           config: {},
           metadata: {},
-          createdAt: "2026-01-01T14:20:00.000Z",
-          updatedAt: "2026-01-01T14:20:00.400Z",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: "2026-01-01T14:20:02.450Z",
         },
-        timelineCursors: { latest: "flagship-cursor-8" },
+        timelineCursors: { latest: "flagship-cursor-45" },
       },
     },
     {
@@ -289,7 +167,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
           // `disabled` / `archived`. A run being in flight is a RUN state and is
           // read from the run, never folded into the agent row.
           state: "ready",
-          createdAt: agent.attachedAtIso,
+          createdAt: attachedAtIso(agent.attachedAtMs),
         })),
       },
     },

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { registerCollaborationFamily } from "./collaboration-family.js";
 import { ConsoleSurfaceRegistry, SidebarSectionRegistry } from "./seats/index.js";
+import type { SessionsSurfaceComposition } from "./sessions/index.js";
 
 /** The two boards this family writes into, both owned by the case that built them. */
 function ownedBoards(): {
@@ -20,10 +21,20 @@ function ownedBoards(): {
   return { surfaces: new ConsoleSurfaceRegistry(), sections: new SidebarSectionRegistry() };
 }
 
+/**
+ * The composed-session control, as a stand-in.
+ *
+ * The real one is the workspace family's, which this family may not import and this
+ * test has no need of: every claim below is about which slots are claimed, under
+ * which owners, on whose board. What the sessions destination does with the control
+ * is asserted where that surface is rendered.
+ */
+const standInComposition: SessionsSurfaceComposition = { newSessionControl: () => null };
+
 describe("collaboration family — composition", () => {
   it("claims the three slots this family owns", () => {
     const { surfaces, sections } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections);
+    registerCollaborationFamily(surfaces, sections, standInComposition);
     expect(surfaces.registeredSlots()).toStrictEqual(["sessions", "settings", "agent-console"]);
   });
 
@@ -32,7 +43,7 @@ describe("collaboration family — composition", () => {
     // that silently DISCARDED its board would also satisfy. This is the other half:
     // the board handed in comes back filled.
     const { surfaces, sections } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections);
+    registerCollaborationFamily(surfaces, sections, standInComposition);
     expect(sections.registeredSectionIds()).toStrictEqual(["channels", "members"]);
   });
 
@@ -41,7 +52,7 @@ describe("collaboration family — composition", () => {
     // than a swap. Two subtrees sharing one owner string would silently replace
     // each other instead.
     const { surfaces, sections } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections);
+    registerCollaborationFamily(surfaces, sections, standInComposition);
     const owners = surfaces
       .registeredSlots()
       .map((slot) => surfaces.descriptorFor(slot)?.owner ?? "");
@@ -51,17 +62,17 @@ describe("collaboration family — composition", () => {
   it("composes into the registry it is handed, not a singleton", () => {
     const first = ownedBoards();
     const second = ownedBoards();
-    registerCollaborationFamily(first.surfaces, first.sections);
+    registerCollaborationFamily(first.surfaces, first.sections, standInComposition);
     expect(second.surfaces.registeredSlots()).toStrictEqual([]);
-    registerCollaborationFamily(second.surfaces, second.sections);
+    registerCollaborationFamily(second.surfaces, second.sections, standInComposition);
     expect(second.surfaces.registeredSlots()).toStrictEqual(first.surfaces.registeredSlots());
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
     const { surfaces, sections } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections);
+    registerCollaborationFamily(surfaces, sections, standInComposition);
     const afterFirst = surfaces.registeredSlots();
-    registerCollaborationFamily(surfaces, sections);
+    registerCollaborationFamily(surfaces, sections, standInComposition);
     expect(surfaces.registeredSlots()).toStrictEqual(afterFirst);
   });
 

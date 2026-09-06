@@ -29,11 +29,16 @@
 import { registerCollaborationSections } from "./collaboration/index.js";
 import type { ConsoleSurfaceRegistry, SidebarSectionRegistry } from "./seats/index.js";
 import { registerAgentConsoleSurface } from "./agents/index.js";
-import { registerSessionsSurface } from "./sessions/index.js";
+import { registerSessionsSurface, type SessionsSurfaceComposition } from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 
 /**
  * Claim every surface slot this family owns, and fill the sidebar sections it fills.
+ *
+ * The third argument is a COMPOSITION rather than a board, on the terms `families.ts`
+ * names one under: the sessions destination offers a composed draft beside the shipped
+ * probe, and that control is the workspace family's — a view family this one may not
+ * import — so the root names which component fills the place and this file hands it on.
  *
  * Two boards, because they are two different seats: a surface slot is a whole
  * destination the frame mounts, and a sidebar section is a body inside a sidebar
@@ -48,8 +53,9 @@ import { registerSettingsSurface } from "./settings/index.js";
 export function registerCollaborationFamily(
   surfaces: ConsoleSurfaceRegistry,
   sidebarSections: SidebarSectionRegistry,
+  sessionsComposition: SessionsSurfaceComposition,
 ): void {
-  registerSessionsSurface(surfaces);
+  registerSessionsSurface(surfaces, sessionsComposition);
   registerSettingsSurface(surfaces);
   registerAgentConsoleSurface(surfaces);
   registerCollaborationSections(sidebarSections);

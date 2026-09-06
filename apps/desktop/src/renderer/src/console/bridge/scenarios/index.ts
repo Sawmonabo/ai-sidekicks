@@ -26,6 +26,9 @@ import { BROWSER_SCENARIO } from "./browser.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO } from "./ledger-first-sixty.js";
+import { LEDGER_QUIET_SCENARIO } from "./ledger-quiet.js";
+import { LEDGER_SCENARIO } from "./ledger.js";
 import { REPOS_SCENARIO } from "./repos.js";
 import { SETTINGS_SCENARIO } from "./settings.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
@@ -35,7 +38,9 @@ import type { ConsoleScenario } from "../scenario-runtime/index.js";
 export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   FIRST_RUN_SCENARIO,
   FLAGSHIP_SCENARIO,
-  // T-023p-1C-2 ledger
+  LEDGER_SCENARIO,
+  LEDGER_FIRST_SIXTY_SCENARIO,
+  LEDGER_QUIET_SCENARIO,
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   COLLABORATION_SCENARIO,

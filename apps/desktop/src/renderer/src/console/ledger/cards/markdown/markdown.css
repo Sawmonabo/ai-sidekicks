@@ -1,0 +1,235 @@
+/* `ledger/cards/markdown/`'s styles — prose, code blocks, math, and the footnote
+ * popover.
+ *
+ * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
+ * reachable from TWO directories goes in their nearest shared parent's sheet — which is
+ * `ledger.css` for the family and `structure/structure.css` for that subtree's five.
+ * `structure/` is the only subtree split further, and the reason is the module ceiling
+ * rather than symmetry: it was one 503-line sheet over five subjects that change for
+ * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
+ * ceiling, because their sub-modules draw INSIDE the boxes the parent sheet already
+ * sizes — a body inside a card, a row inside the frame — and splitting a box from its
+ * contents buys no reading. Every sheet is imported from `ledger/index.ts` and nowhere
+ * else, parent before children, so they land once per bundle and cascade after the
+ * primitives' and the frame's.
+ *
+ * The nine code-token families the code block spends are colours rather than boxes
+ * and live in `tokens/palette.ts`; the note below the first banner says why.
+ */
+
+/* --- Cards: the code palette -------------------------------------------- */
+
+/*
+ * The nine code-token families live in `tokens/palette.ts` and are emitted by
+ * `tokens/generate-css.ts`, not declared here.
+ *
+ * They were `oklch()` literals in this sheet, restated across three scheme blocks,
+ * and the cost of that home was not tidiness: nothing fitted them into the sRGB
+ * gamut and nothing measured them against the well they are painted on. Both are now
+ * `tokens/contrast.test.ts`' subject.
+ *
+ * The theme in `meridian-code-theme.ts` still emits a reference to the per-family
+ * custom property as each token's foreground rather than a colour, which is what
+ * makes one token cache serve both schemes: a cached line is theme-independent, and
+ * flipping the scheme repaints through the cascade.
+ */
+
+/* --- Cards: markdown prose ---------------------------------------------- */
+
+.meridian-markdown {
+  display: flow-root;
+  min-width: 0;
+}
+
+/*
+ * One measure. Rule 4's reading column, applied where a body is prose rather than a
+ * figure — a code block and a table opt out below, because both are structures whose
+ * width is their own.
+ */
+.meridian-markdown__paragraph {
+  margin: 0 0 var(--meridian-space-2);
+  max-width: 68ch;
+  overflow-wrap: anywhere;
+}
+
+.meridian-markdown__paragraph:last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * A message's headings are not the page's. Every level renders as one element carrying
+ * its depth, so a `#` inside a message cannot out-shout the surface it sits in; the
+ * weights below are the whole of the difference.
+ */
+.meridian-markdown__heading {
+  margin: var(--meridian-space-3) 0 var(--meridian-space-2);
+  max-width: 68ch;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.meridian-markdown__heading[data-depth="1"],
+.meridian-markdown__heading[data-depth="2"] {
+  font-size: var(--meridian-text-lg);
+}
+
+.meridian-markdown__heading[data-depth="3"] {
+  font-size: var(--meridian-text-md);
+}
+
+.meridian-markdown__heading[data-depth="4"],
+.meridian-markdown__heading[data-depth="5"],
+.meridian-markdown__heading[data-depth="6"] {
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-markdown__quote {
+  margin: 0 0 var(--meridian-space-2);
+  padding-left: var(--meridian-space-3);
+  border-left: 2px solid var(--meridian-edge-strong);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-markdown__list {
+  margin: 0 0 var(--meridian-space-2);
+  padding-left: var(--meridian-space-5);
+  max-width: 68ch;
+}
+
+.meridian-markdown__list-item {
+  margin-bottom: var(--meridian-space-1);
+}
+
+.meridian-markdown__task {
+  margin-right: var(--meridian-space-2);
+  accent-color: var(--meridian-accent);
+}
+
+.meridian-markdown__rule {
+  margin: var(--meridian-space-3) 0;
+  border: 0;
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-markdown__code {
+  padding: 0 var(--meridian-space-1);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+/*
+ * A link with no anchor. Underlined so the author's intent survives, and NOT tinted with
+ * the accent, which in this console means "this is the one thing you can act on" — an
+ * inert link is precisely not that.
+ */
+.meridian-markdown__link--inert {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.meridian-markdown__image-alt {
+  color: var(--meridian-text-muted);
+  font-style: italic;
+}
+
+.meridian-markdown__footnote {
+  padding: 0 var(--meridian-space-1);
+  color: var(--meridian-accent-text);
+}
+
+/* A reference with no definition in its own message says so by weight, not by colour. */
+.meridian-markdown__footnote[data-defined="false"] {
+  color: var(--meridian-text-faint);
+}
+
+/* A reference that CAN be opened is a button, and reads as the marker it replaces: the
+   superscript position is the marker's, and the button's own chrome is removed rather
+   than a second control being drawn inside a sentence. */
+.meridian-markdown__footnote--open {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  vertical-align: super;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.meridian-markdown__footnote--open:hover {
+  text-decoration: underline;
+}
+
+/* The one popup a card opens every definition into. Bounded, because a definition is a
+   note and a note that filled the pane would hide the row it belongs to. */
+.meridian-footnote-popover {
+  max-width: 42ch;
+  max-height: 20rem;
+  overflow-y: auto;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  box-shadow: 0 0.5rem 1.5rem oklch(0% 0 0 / 18%);
+}
+
+.meridian-footnote-popover:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Wide content scrolls inside its own container; the row never scrolls sideways. */
+.meridian-markdown__table-scroll {
+  margin-bottom: var(--meridian-space-2);
+  overflow-x: auto;
+}
+
+.meridian-markdown__table {
+  border-collapse: collapse;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-markdown__table td {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  text-align: left;
+}
+
+/* --- Cards: code blocks -------------------------------------------------- */
+
+.meridian-code {
+  margin: 0 0 var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+  overflow-x: auto;
+  color: var(--meridian-code-plain);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.meridian-code__line {
+  display: block;
+  min-height: 1lh;
+  white-space: pre;
+}
+
+/* --- Cards: math -------------------------------------------------------- */
+
+.meridian-math--display {
+  display: block;
+  margin: var(--meridian-space-2) 0;
+  overflow-x: auto;
+}
+
+.meridian-math--source code {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}

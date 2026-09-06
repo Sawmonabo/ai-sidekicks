@@ -211,6 +211,14 @@ export function contextWith(options: {
  *
  * The announcer runs on a `ManualClock` so its hold window is frozen: whether a
  * sentence is still standing is otherwise a question about how fast the runner was.
+ *
+ * The composed-session control is a STAND-IN, and it has to be one: the real control
+ * is the workspace family's, this module is a sibling view family's, and a
+ * `.test-support` module is a subject of `console-view-family-isolation` like any
+ * other — only `*.test.*` is excluded from that cruise. It is also the right shape
+ * for what this file drives: the surface takes the control as an opaque node it
+ * places, so every case here is about the destination's own chrome, and the control's
+ * behaviour is asserted where the control lives.
  */
 export function renderSurface(context: ConsoleSurfaceContext): {
   readonly container: HTMLElement;
@@ -220,7 +228,10 @@ export function renderSurface(context: ConsoleSurfaceContext): {
   const mounted = render(
     <SidekicksBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
-        <SessionsSurface context={context} />
+        <SessionsSurface
+          context={context}
+          newSession={<span data-new-session-control>the composed-session control</span>}
+        />
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>,
   ).container;

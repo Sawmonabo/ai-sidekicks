@@ -17,11 +17,15 @@ import { describe, expect, it } from "vitest";
 
 import type { RelayEventHandler, SessionId } from "@ai-sidekicks/contracts";
 
-import { createFixture, type FixtureUnderTest } from "./fixture-bridge.test-support.js";
+import {
+  createFixture,
+  lastScriptedBeatMs,
+  type FixtureUnderTest,
+} from "./fixture-bridge.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 
-/** Past the flagship script's last beat, which is at 400 ms. */
-const PAST_EVERY_BEAT_MS = 500;
+/** Past the flagship script's last beat, read off the script so it cannot go stale. */
+const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
 
 /** A session the branded id type accepts that no scenario on the seat board plays. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";

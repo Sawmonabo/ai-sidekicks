@@ -337,6 +337,26 @@ function readInitialised(state: SessionStoreState): boolean {
 }
 
 /**
+ * The store's monotonic transition counter — "the projection moved", and nothing more.
+ *
+ * For the one consumer that cannot name a partition: a surface which asks other
+ * families to REPORT off their own projections during render, and so has no selector
+ * to narrow to. The counter says a transition happened without saying which kind moved,
+ * which is exactly the claim such a surface needs and the widest one this family
+ * offers, so a caller reaching for it is saying it could not be narrower.
+ *
+ * A number, so `Object.is` still decides the re-render and an unchanged store still
+ * costs a pointer comparison.
+ */
+export function useSessionProjectionRevision(store: SessionStore): number {
+  return useStore(store.readable, readRevision);
+}
+
+function readRevision(state: SessionStoreState): number {
+  return state.revision;
+}
+
+/**
  * Whether this session's projection is known-incomplete — the store's own sticky
  * flag, SUBSCRIBED rather than sampled.
  *

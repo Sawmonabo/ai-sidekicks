@@ -1,0 +1,18 @@
+/* `ledger/structure/`'s own sheet — what its five sub-directories share.
+ *
+ * ONE SHEET PER DIRECTORY, and this is the parent's. Each of `chapters/`, `narrowing/`,
+ * `rail/`, `replay/` and `seams/` carries the rules whose selectors belong to exactly one
+ * of them, so a rule sits beside the code that renders it; a rule reachable from TWO of
+ * them lands here, which is the same rule `ledger.css` states one level up and the reason
+ * the load-earlier focus ring below is not in either sheet that draws the control.
+ *
+ * Every sheet this family owns is imported from `ledger/index.ts` and nowhere else, so
+ * they land once per bundle and cascade after the primitives' and the frame's.
+ */
+
+.meridian-rail__load-earlier:focus-visible,
+.meridian-find__load-earlier:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--meridian-radius-sm);
+}

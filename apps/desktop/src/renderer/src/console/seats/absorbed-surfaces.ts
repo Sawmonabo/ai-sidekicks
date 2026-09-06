@@ -1,11 +1,18 @@
-// The shipped Tier-1 families the console absorbed, and the guard three of them share.
+// The shipped Tier-1 families the console absorbed, and the guard two of them share.
 //
 // Four families shipped before the console existed and were rendered by the
 // renderer root directly: the session probe, the participant roster, the runtime-node
 // roster, and the invite acceptance prompt. When the console took over the root they
 // stopped being rendered by anything, which is not a decision anybody made — it is
 // what happens when a new mount point lands before the old surfaces are re-homed.
-// This module re-homes them.
+// This module re-homes THREE of them.
+//
+// THE FOURTH IS SUPERSEDED RATHER THAN UNHOMED, which is why no mount for it is left
+// here waiting to be claimed. The participant roster held the `workspace` slot while
+// nothing else did; that surface is the ledger from T-023p-1C-2 on, and the roster's
+// console successor is the collaboration family's own members section, written against
+// the console's bridge rather than reaching past it. A mount kept for it would have
+// been a mount no surface can call, carrying a marker naming a lane that has landed.
 //
 // ABSORBED BY IMPORT, NOT BY CALL. A plan-owned subtree whose owner MOUNTS INTO the
 // console reaches the frame by calling `registerConsoleSurface`; the console imports
@@ -36,8 +43,8 @@
 // a renderer subtree OUTSIDE the console, absorbed by the console as a whole rather
 // than authored by any family in it.
 //
-// WHY THREE OF THE FOUR MOUNTS ARE GUARDED ON THE BRIDGE SOURCE. The probe, the
-// participant roster and the acceptance prompt read `window.sidekicks` directly rather
+// WHY TWO OF THE THREE MOUNTS ARE GUARDED ON THE BRIDGE SOURCE. The probe and the
+// acceptance prompt read `window.sidekicks` directly rather
 // than taking a bridge from context, so the console's fixture cannot stand in for the
 // preload the way it does for every console-authored surface. Under the fixture they
 // would reach past it: in a window with no preload at all they throw into the surface
@@ -46,7 +53,7 @@
 // nothing. So the console says the question was not put, which is exactly what
 // happened.
 //
-// THE NODE ROSTER IS NO LONGER ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
+// THE NODE ROSTER IS NO LONGER GUARDED, AND ITS GUARD IS GONE RATHER THAN RELAXED.
 // That view now takes an optional read seam and this module builds one from the bridge
 // the console has already resolved, so it asks whichever bridge this window is running
 // on: the control plane under the preload, the scenario's own roster frames under the
@@ -55,10 +62,11 @@
 // build that used to render "the question was not put" where the roster belongs now
 // renders the roster.
 //
-// The suite that drives the slot-held mounts is `frame/legacy-surfaces.test.ts`, which
-// walks the frame's table and renders what each row produces. Driving them there rather
-// than here is deliberate: the claim is which component reaches which slot under which
-// bridge, and the table is half of every one of those sentences.
+// The suite that drives these is `absorbed-surfaces.test.ts` beside this file. It used
+// to be `frame/legacy-surfaces.test.ts`, because a mount was reached through the frame's
+// slot table and the table was half of every claim about it; each surviving mount is now
+// called by the console-authored family that hosts it, so the table holds no row and the
+// claim to make about a mount is what it renders under which bridge source.
 
 import { createElement, type ReactNode } from "react";
 
@@ -72,7 +80,6 @@ import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // Deep, because `session-members/` ships no barrel. The other two are reached
 // through theirs. Adding one is that family's own diff, not the console's — the
 // console does not author files inside a subtree it merely absorbs.
-import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
 
 /**
@@ -87,23 +94,6 @@ import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
  */
 export function renderAbsorbedSessionProbe(bridgeSource: ConsoleBridgeSource): ReactNode {
   return mountAbsorbedSurface(bridgeSource, () => createElement(SessionBootstrap));
-}
-
-/**
- * The participant roster, mounted for whichever surface holds the workspace slot.
- *
- * Takes the subject as the plain string the address carried rather than a route,
- * because the callers that need it carry a session differently — one from a slot's
- * route, one from a pane's own store — and neither should have to build a route to
- * reach a component.
- */
-export function renderAbsorbedParticipantRoster(
-  bridgeSource: ConsoleBridgeSource,
-  subject: string | undefined,
-): ReactNode {
-  return mountSessionScopedAbsorbedSurface(bridgeSource, subject, (sessionId) =>
-    createElement(ParticipantRoster, { sessionId }),
-  );
 }
 
 /**
@@ -265,27 +255,6 @@ function mountAbsorbedSurface(
     });
   }
   return build();
-}
-
-/**
- * The same, for a component that needs the session its caller resolved.
- *
- * The bridge check runs FIRST and the session lookup second. Reversed, a workspace
- * address under the fixture would report "no session" — a different and false
- * statement about a route that names one perfectly well.
- */
-function mountSessionScopedAbsorbedSurface(
-  bridgeSource: ConsoleBridgeSource,
-  subject: string | undefined,
-  build: (sessionId: SessionId) => ReactNode,
-): ReactNode {
-  return mountAbsorbedSurface(bridgeSource, () => {
-    const sessionId = brandedSessionId(subject);
-    if (sessionId === undefined) {
-      return noSessionAbsence();
-    }
-    return build(sessionId);
-  });
 }
 
 /**

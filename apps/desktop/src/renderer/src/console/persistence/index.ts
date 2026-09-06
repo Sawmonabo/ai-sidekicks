@@ -21,9 +21,11 @@ export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.j
 
 // The database and object-store NAMES are not published beside them. A record
 // address is what a second reader of the same record needs; the connection names
-// are what one reader needs to open its own connection, which only the end-to-end
-// tier does, and it reaches them in `indexeddb-adapter.ts` where the store this
-// door deliberately does not export is composed.
+// are what a caller needs to reach the DATABASE itself — the end-to-end tier opens
+// its own connection to prove a write survived a reload, and the browser tiers'
+// harness deletes it between mounts so one case's arrangement is not restored into
+// the next. Both reach them in `indexeddb-adapter.ts`, where the store this door
+// deliberately does not export is composed.
 
 // The one grammar that tells an identifier from authored content, published because
 // a family above this one holds the SAME value to it. A pane address's entity id is

@@ -24,20 +24,23 @@
 // Both are production markup, and neither is a test-only attribute added to the
 // renderer to make this observable.
 //
-// The settings destination HAS shipped — the collaboration family's settings frame
-// owns the slot — so its locator is the frame's own structure, the section rail
-// that only that surface renders. It was the frame's reserved-slot absence until
-// that surface landed, and the wait timing out on the old selector is exactly how
-// this tier reported that it had: a driver that can no longer see the surface it
-// drives should stop, not continue measuring an unobserved loop.
+// Each locator names a STRUCTURE only its own route mounts, and both routes have
+// shipped their surface now. The settings destination is the collaboration family's
+// settings frame, so its locator is that frame's own section rail; the session
+// workspace is the ledger, so its locator is the scroll container the whole surface
+// is built around. Neither was always so: each was an absence class while its
+// surface was a reserved slot, and the pair stopped being route-exclusive the moment
+// either family shipped — the ledger renders its own `empty` when a session has no
+// rows yet, and the settings pages render `not-checked` absences of their own.
 //
-// The session workspace still mounts a shipped Tier-1 family that reads the
-// installed bridge, which under the fixture is a question nobody put, so its
-// locator is still `Spec-023 §Console Design (Meridian)` rule 8's `not-checked`
-// class. When that surface ships for real, this one gets the same treatment.
+// When either surface changes shape, its locator stops matching and this tier fails
+// on a wait timeout naming the selector. That is the right direction: a driver that
+// can no longer see the surface it drives should stop, not continue measuring an
+// unobserved loop.
 
 import { expect } from "vitest";
 
+import { APPLY_COALESCE_MS } from "../../../src/renderer/src/console/core/index.js";
 import type { ConsoleApplication, LaunchConsoleOptions } from "../electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../launch-body.js";
 import { ENDURANCE_BODY_ALLOWANCE_MS } from "../launch-budgets.js";
@@ -98,9 +101,24 @@ export const SETTINGS_ROUTE: string = "#/settings";
 export const SETTINGS_SURFACE_SELECTOR: string =
   ".meridian-frame__surface .meridian-settings__rail";
 
-/** What the session workspace renders and the settings route does not. */
-export const WORKSPACE_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-nothing--block.meridian-nothing--not-checked";
+/**
+ * What the session workspace renders and the settings route does not.
+ *
+ * The ledger's scroll container, which the workspace mounts on every session route
+ * whether or not that session has rows yet — so the wait observes the MOUNT rather
+ * than the arrival of content, which is what a churn cycle needs it to observe.
+ */
+export const WORKSPACE_SURFACE_SELECTOR: string = ".meridian-frame__surface .meridian-ledger__body";
+
+/**
+ * One ledger row, anchored under the frame's surface.
+ *
+ * The BODY says the workspace mounted; a ROW says the projection, the window
+ * fold and the viewport's reconcile have all run and something is on screen. The
+ * two budget readings in this tier need the second claim and the churn loop needs
+ * the first, so both selectors live here and neither tier spells one itself.
+ */
+export const LEDGER_ROW_SELECTOR: string = ".meridian-frame__surface .meridian-ledger-row";
 
 /**
  * Assign the hash and wait for the surface only that route mounts.
@@ -267,6 +285,38 @@ export async function churnOnce(
 const SCENARIO_DELIVERY_STEP_COUNT = 20;
 const SCENARIO_DRAIN_STEP_COUNT = 5;
 
+/** How the frozen clock is walked over the flagship script, and how far. */
+export interface ScenarioDeliverySchedule {
+  readonly stepMilliseconds: number;
+  readonly stepCount: number;
+}
+
+/**
+ * The walk that puts the whole flagship script in and leaves nothing queued.
+ *
+ * One derivation rather than three: this tier walks the script from the driver
+ * process and the two budget readings walk it from INSIDE the renderer, where a
+ * round trip per advance would be the thing being measured. All three ask for the
+ * same walk, and a copy of this arithmetic in each would be three places for a
+ * beat to be left queued behind a deadline nothing reaches.
+ *
+ * The step is floored at one coalescing window, so every step also drains the
+ * batch the step before it delivered. Today's script makes that floor inert — its
+ * span over twenty steps is comfortably wider than the 16 ms window — and it is
+ * stated anyway, because a shorter script would otherwise deliver beats no advance
+ * in the loop ever released, and the failure would be a quiet one.
+ */
+export function flagshipDeliverySchedule(): ScenarioDeliverySchedule {
+  const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
+  return {
+    stepMilliseconds: Math.max(
+      APPLY_COALESCE_MS + 1,
+      Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT),
+    ),
+    stepCount: SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT,
+  };
+}
+
 /**
  * Play the flagship script to its end and let the stores settle on it.
  *
@@ -277,11 +327,10 @@ const SCENARIO_DRAIN_STEP_COUNT = 5;
 export async function deliverWholeScenario(
   consoleApplication: ConsoleApplication,
 ): Promise<number | null> {
-  const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
-  const stepMs = Math.max(1, Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT));
+  const { stepMilliseconds, stepCount } = flagshipDeliverySchedule();
   let deliveredBeatCount: number | null = null;
-  for (let step = 0; step < SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT; step += 1) {
-    deliveredBeatCount = await advanceScenario(consoleApplication, stepMs);
+  for (let step = 0; step < stepCount; step += 1) {
+    deliveredBeatCount = await advanceScenario(consoleApplication, stepMilliseconds);
   }
   return deliveredBeatCount;
 }

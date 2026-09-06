@@ -1,0 +1,167 @@
+/* The session shell: the workspace element itself, its banners, its composer slot,
+ * the new-session draft, and the split that holds the deck beside the sidebar.
+ *
+ * The family's other three sheets — `cast-bar.css`, `deck/deck.css` and
+ * `sidebar/sidebar.css`, each beside the modules it styles — are imported from
+ * `workspace/index.ts` beside this one, so the whole family's rules land once per
+ * bundle and cascade after the primitives' and the frame's.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the family follows the scheme attribute with no conditional in JSX and its
+ * rhythm is a decision made once in `tokens/palette.ts`.
+ */
+
+/* --- The session shell -------------------------------------------------- */
+
+/*
+ * Three rows: the cast bar, the deck, and the composer's seat. The deck is the
+ * only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
+ * the things that scroll rather than pushing the composer off the bottom.
+ */
+.meridian-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 100%;
+  background: var(--meridian-ground);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+}
+
+/*
+ * A banner and the count of the raises it stands for, on one line.
+ *
+ * The row exists so the count can sit beside the banner without the banner having to
+ * take a slot for it: a repeat count is the console's own reading, and the refusal
+ * shape's two fields are the daemon's.
+ */
+.meridian-workspace__banner {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-workspace__composer {
+  border-top: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+}
+
+/* The new-session draft, on the sessions destination.
+   The two buttons take the shipped `.meridian-sessions__start` shape verbatim —
+   same padding, edge, radius, and `cursor: default` — because they sit beside it in
+   the same row and a control that is one pixel different reads as a different KIND
+   of control. What is new here is the panel the draft opens, which is a card. */
+
+.meridian-new-session__open,
+.meridian-new-session__discard,
+.meridian-new-session__send {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-new-session__open:focus-visible,
+.meridian-new-session__discard:focus-visible,
+.meridian-new-session__send:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Disabled because the draft is empty, which is a state and not a failure: dimmed
+   so it reads as not-yet rather than refused, and left in place so the row does not
+   reflow the moment a posture is chosen. */
+.meridian-new-session__send:disabled {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-new-session {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-sm);
+}
+
+/* A `fieldset` for the grouping the legend gives it, with the browser's default
+   inset border and margin removed — the card above already draws the boundary. */
+.meridian-new-session__postures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.meridian-new-session__posture {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text);
+}
+
+.meridian-new-session__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+/* --- The workspace split: the deck, and the session sidebar -------------- */
+
+/*
+ * The outer panel group. Same treatment as the deck's own group and for the same
+ * reason: `react-resizable-panels` fixes `display`, `flex-direction`, `flex-wrap`,
+ * and `overflow` here and documents that they cannot be overridden, so nothing below
+ * tries. What is set is the one thing the library leaves to the caller — that the row
+ * may shrink, so the panes inside the deck are what scroll.
+ */
+.meridian-workspace__split {
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * The split's separator. The deck's chrome verbatim, rotated to no degree because both
+ * groups are horizontal: a resize handle one pixel different from the deck's reads as a
+ * different kind of handle, and a person who has learned one has learned both.
+ */
+.meridian-workspace__separator {
+  width: var(--meridian-space-2);
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent 40%,
+    var(--meridian-edge) 40% 60%,
+    transparent 60%
+  );
+  cursor: col-resize;
+}
+
+.meridian-workspace__separator:hover,
+.meridian-workspace__separator:focus-visible {
+  background: linear-gradient(
+    to right,
+    transparent 30%,
+    var(--meridian-accent) 30% 70%,
+    transparent 70%
+  );
+}
+
+.meridian-workspace__separator:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+.meridian-workspace__sidebar {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  border-inline-start: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+}
