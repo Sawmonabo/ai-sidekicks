@@ -38,6 +38,11 @@
 //      replacement for the silent truncation that the manifest refactor
 //      eliminated from the preflight hot path; the recovery script's cold
 //      path inherits the same anti-silent-truncation discipline.
+//   7  per-PR file-list reconciliation failure — the paginated REST file
+//      list for a PR did not match the authoritative `changedFiles` count,
+//      so the manifest's file trace cannot be trusted. The endpoint's own
+//      documented ceiling is 3000 files; a PR above it halts here rather
+//      than landing a partial `files:` array.
 
 import { execSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -112,17 +117,35 @@ function defaultGhRunner(cmd) {
 
 // ---------- pure parsing helpers ----------
 
+// A plan's phase token: digits, optionally carrying ONE uppercase letter.
+// The letter is how the corpus spells an explicit-label supplement — a phase
+// authored after its parent phase merged, which a merged phase cannot absorb
+// in place (`### Phase 1B`, `### Phase 3B`, dispatched as `preflight.mjs
+// <plan> 3B`). Exactly one letter, never a run: `Phase 2ab` matches nothing
+// rather than silently reading as phase 2.
+const PHASE_TOKEN = String.raw`\d+[A-Z]?`;
+
 // Parse phase number from PR title/body. Returns integer >= 1 or null.
-// Checks (title first, body second; first match wins):
-//   "Phase N" / "phase N"
+// Checks (title first, body second; first match wins), most specific first:
+//   "T-023p-1C-1"  (plan-scoped task id — its SECOND segment is the phase it
+//             was authored under, and the id carries the plan inline, so it
+//             cannot be read off another plan's id. Ordered ahead of the prose
+//             forms because it is the only one the plan itself mints.)
+//   "Phase N" / "phase N" / "Phase 1B"
 //   "P5.1"   (Plan-001 phase-number-with-task-suffix style — REQUIRES the
 //             `.M` task suffix; bare `P1`/`P2`/`P5` are intentionally NOT
 //             matched because they collide with Codex review-priority
 //             badges (P1/P2/P3) that can appear in PR bodies. Codex P2
 //             finding on PR #35 round 5.)
 //
+// A supplement label resolves to the NUMBER it extends: `lib/manifest.mjs`
+// validates `phase:` as a positive integer, and the corpus's own rows agree —
+// Plan-023's `T-023p-1B-*` and `T-023p-1C-*` shipments are recorded as
+// `phase: 1`. The letter is not discarded, it lives where it is exact: the
+// `task:` field carries the id verbatim.
+//
 // Cross-plan defense (Codex P2 finding on PR #35 round 6 — mirrors the
-// parseTaskFromPr defense from round 1): neither phase pattern carries the
+// parseTaskFromPr defense from round 1): the two PROSE patterns carry no
 // plan id inline, so a PR body citing "see Plan-001 Phase 5" in a Plan-024
 // PR could leak phase 5 into Plan-024's manifest. When the matched text
 // (title or body) contains a Plan-NNN reference NOT equal to the target
@@ -130,7 +153,11 @@ function defaultGhRunner(cmd) {
 // remain captured (most PR titles are bare "Phase N" with no Plan ref —
 // the script already surfaces ambiguity for unconfirmed phase mappings).
 export function parsePhaseFromPr({ title, body, plan }) {
-  const patterns = [/\bPhase\s+(\d+)\b/i, /\bP(\d+)\.\d+\b/];
+  const patterns = [
+    ...(plan == null ? [] : [new RegExp(String.raw`\bT-${plan}[a-z]?-(${PHASE_TOKEN})-\d+\b`)]),
+    new RegExp(String.raw`\bPhase\s+(${PHASE_TOKEN})\b`, "i"),
+    /\bP(\d+)\.\d+\b/,
+  ];
   const planRefPattern = /\bPlan-(\d{3})\b/g;
   for (const text of [title, body]) {
     if (!text) continue;
@@ -141,7 +168,9 @@ export function parsePhaseFromPr({ title, body, plan }) {
     }
     for (const re of patterns) {
       const m = re.exec(text);
-      if (m) return Number(m[1]);
+      // A supplement capture is "1B"; `parseInt` takes the leading digits and
+      // `Number` would take NaN, so the radix-10 parse is load-bearing here.
+      if (m) return Number.parseInt(m[1], 10);
     }
   }
   return null;
@@ -170,8 +199,11 @@ export function parseTaskFromPr({ title, body, plan }) {
   // The optional series letter covers every corpus id family: T-007p-2-4
   // (primary), T-025d-14-1 (deploy), and future letters — the survey's
   // boundary rule already treats letters as id-extending characters, so the
-  // extractor must parse what the boundary protects (Codex P2 round 4).
-  const planScopedPattern = new RegExp(`\\bT-${plan}[a-z]?-\\d+-\\d+\\b`, "g");
+  // extractor must parse what the boundary protects (Codex P2 round 4). The
+  // phase segment takes the same supplement letter the plan headings use
+  // (T-023p-1B-4, T-023p-1C-1), and the id is captured VERBATIM — the letter
+  // is what distinguishes a supplement's task from its parent phase's.
+  const planScopedPattern = new RegExp(String.raw`\bT-${plan}[a-z]?-${PHASE_TOKEN}-\d+\b`, "g");
   // Multi-segment: Plan-001's TN.M (T5.1) and Plan-022's TN.M.K (T22.4.4)
   // are both live corpus grammars — a two-segment-only pattern silently
   // TRUNCATES T22.4.4 to "T22.4" and writes a wrong manifest task id
@@ -267,27 +299,64 @@ export function fetchMergedPrNumbers({ plan, ghRunner = defaultGhRunner }) {
   return data.map((p) => p.number).sort((a, b) => a - b);
 }
 
+// GitHub's REST "list pull request files" endpoint is the only per-PR file
+// surface with real pagination. `gh pr view --json files` compiles to a single
+// `pullRequest.files(first: 100)` GraphQL page and silently drops everything
+// past it — the defect that halted this tool on a 263-file Plan-023 PR — so
+// metadata still comes from `gh pr view` while the file list comes from
+// `gh api ... /files --paginate`, which walks every page.
+//
+// One ceiling survives pagination and it belongs to the endpoint, not to gh:
+// GitHub documents that responses to `GET /repos/{owner}/{repo}/pulls/{n}/files`
+// "include a maximum of 3000 files". Above it the walk simply stops, with no
+// in-band signal, which is why the count reconciliation below is the integrity
+// check and not a formality.
+export const PR_FILES_ENDPOINT_CEILING = 3000;
+
 export function fetchPrDetails({ pr, ghRunner = defaultGhRunner }) {
-  // changedFiles is the authoritative file-count exposed via GraphQL alongside
-  // files. `gh pr view --json files` issues a single `pullRequest.files(first: 100)`
-  // GraphQL query — there is no internal pagination, so PRs above the 100-file
-  // ceiling silently truncate the returned list. Compare lengths and halt loudly
-  // (exit 7) rather than commit a partial files: array to the manifest. Codex
-  // P2 finding on PR #35 round 4. Migrating to gh api with cursor pagination is
-  // the long-term fix; AI Sidekicks PRs currently sit well under 100 files.
-  const cmd = `gh pr view ${pr} --json title,body,mergedAt,mergeCommit,files,changedFiles`;
-  const data = JSON.parse(ghRunner(cmd));
-  const filesReturned = (data.files ?? []).length;
-  if (typeof data.changedFiles === "number" && filesReturned < data.changedFiles) {
+  // `changedFiles` is the authoritative count (GraphQL, computed server-side)
+  // and is fetched WITHOUT `files`: the GraphQL page would only be a second,
+  // shorter answer to a question the REST walk already answers in full.
+  const data = JSON.parse(
+    ghRunner(`gh pr view ${pr} --json title,body,mergedAt,mergeCommit,changedFiles`),
+  );
+  // `{owner}` / `{repo}` are gh's own placeholders, substituted from the
+  // repository of the current directory (`gh api --help`), so this stays
+  // correct in a worktree and in a fork checkout alike.
+  const filesEndpoint = `repos/{owner}/{repo}/pulls/${pr}/files`;
+  const filePaths = ghRunner(`gh api ${filesEndpoint} --paginate --jq '.[].filename'`)
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0);
+  const files = filePaths.map((path) => ({ path }));
+
+  // Fail closed on ANY disagreement, in either direction, and on a missing
+  // count. A short list means the walk stopped early — the 3000-file ceiling,
+  // a dropped page — and a long one means a path was split (a filename may
+  // legally contain a newline, which the raw `--jq` stream cannot express), so
+  // both are the same defect: a `files:` array that does not describe the PR.
+  // An absent `changedFiles` is not a pass either; it is the loss of the only
+  // evidence this list is complete.
+  if (typeof data.changedFiles !== "number") {
     const err = new Error(
-      `gh pr view ${pr} returned ${filesReturned} of ${data.changedFiles} changed files — ` +
-        `result is truncated; cannot guarantee shipment-manifest file-trace completeness. ` +
-        `Migrate fetchPrDetails to gh api with files pagination.`,
+      `gh pr view ${pr} returned no changedFiles count — the paginated ${filesEndpoint} ` +
+        `list (${files.length} paths) cannot be reconciled, so shipment-manifest ` +
+        `file-trace completeness cannot be guaranteed.`,
     );
     err.exitCode = 7;
     throw err;
   }
-  return data;
+  if (files.length !== data.changedFiles) {
+    const err = new Error(
+      `gh api ${filesEndpoint} --paginate returned ${files.length} of ${data.changedFiles} ` +
+        `changed files — the list does not reconcile, so shipment-manifest file-trace ` +
+        `completeness cannot be guaranteed. That endpoint returns at most ` +
+        `${PR_FILES_ENDPOINT_CEILING} files; a PR above that ceiling halts here rather than ` +
+        `landing a partial files: array in the manifest.`,
+    );
+    err.exitCode = 7;
+    throw err;
+  }
+  return { ...data, files };
 }
 
 // ---------- plan-file resolver ----------
@@ -384,9 +453,9 @@ export async function rebuildManifest({
     // preflight.mjs §hasPlanTitleToken for the full sync contract, including
     // why the "i" flag is load-bearing on both sides.
     // The probe is title-ONLY and runs BEFORE fetchPrDetails: the full fetch
-    // halts loudly (exit 7) when files truncate at the 100-file GraphQL page,
-    // and a body-only PR outside the manifest population must not be able to
-    // trip that halt (Codex P2, PR #187).
+    // halts loudly (exit 7) when a PR's paginated file list will not reconcile
+    // against changedFiles, and a body-only PR outside the manifest population
+    // must not be able to trip that halt (Codex P2, PR #187).
     // Diagnostics go to stderr — dry-run stdout is a pure YAML stream that
     // operators redirect and diff (Codex P2 round 3). Two rescue paths keep
     // body-only shipments in: verbatim reuse of an existing on-disk entry,
@@ -408,12 +477,13 @@ export async function rebuildManifest({
           built.push({ ...buildEntryFromPr({ pr, details, plan }), bodyOnly: true });
         } catch (e) {
           if (e.exitCode !== 7) throw e;
-          // 100-file truncation: legacy scaffold PRs — the include path's
-          // whole audience — routinely exceed the page (Plan-001 PR #6 is a
-          // monorepo bootstrap). Rebuild the candidate from a files-free
-          // fetch and FORCE it into the operator-confirmation block: a
-          // partial files[] must never land as a live entry (Codex P2
-          // round 5, PR #187).
+          // An unreconcilable file list — a PR past the endpoint's 3000-file
+          // ceiling, or a page walk that came back short — must not abort a
+          // whole backfill for the include path's audience (pre-mandate
+          // scaffold PRs, which are the largest diffs in the corpus). Rebuild
+          // the candidate from a files-free fetch and FORCE it into the
+          // operator-confirmation block: an incomplete files[] must never land
+          // as a live entry (Codex P2 round 5, PR #187).
           const light = JSON.parse(
             ghRunner(`gh pr view ${pr} --json title,body,mergedAt,mergeCommit`),
           );
@@ -421,11 +491,11 @@ export async function rebuildManifest({
             ...buildEntryFromPr({ pr, details: { ...light, files: [] }, plan }),
             bodyOnly: true,
             forcedErrors: [
-              "file list truncated at the 100-file GraphQL page — fill files[] by hand (gh api with cursor pagination)",
+              "file list did not reconcile against changedFiles (past the 3000-file endpoint ceiling, or a short page walk) — fill files[] by hand",
             ],
           });
           stderr.write(
-            `  file list truncated at the 100-file page — PR #${pr} routed to operator confirmation\n`,
+            `  file list did not reconcile against changedFiles — PR #${pr} routed to operator confirmation\n`,
           );
         }
         continue;
@@ -451,9 +521,9 @@ export async function rebuildManifest({
     // instead of skipping silently. When a skipped PR already has an
     // on-disk manifest entry, that ground truth is REUSED verbatim
     // (mirroring the body-only reuse path) rather than re-synthesized
-    // (Codex P2 round 1). The exit-7 truncation halt fires in
-    // fetchPrDetails BEFORE this filter — a truncated file list cannot
-    // prove anything, so it stays fail-closed.
+    // (Codex P2 round 1). The exit-7 reconciliation halt fires in
+    // fetchPrDetails BEFORE this filter — a file list that does not
+    // reconcile cannot prove anything, so it stays fail-closed.
     const filePaths = (details.files ?? []).map((f) => f.path);
     const taskToken = parseTaskFromPr({ ...details, plan });
     const hasMaterialPath = filePaths.some((path) =>
@@ -494,7 +564,7 @@ export async function rebuildManifest({
     const v = validateEntry(item.entry);
     const forcedErrors = item.forcedErrors ?? [];
     if (forcedErrors.length > 0) {
-      // Truncated-fetch candidates are unconditionally operator-confirmed —
+      // Unreconciled-fetch candidates are unconditionally operator-confirmed —
       // even when the entry otherwise validates, its files[] is incomplete.
       operatorConfirm.push({
         pr: item.entry.pr,
