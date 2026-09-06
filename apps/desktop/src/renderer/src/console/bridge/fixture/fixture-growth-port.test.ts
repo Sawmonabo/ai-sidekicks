@@ -30,7 +30,7 @@ import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 import { createLiveBridge } from "../live-bridge.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
-import { AGENTS_SCENARIO } from "../scenarios/agents.js";
+import { AGENTS_SCENARIO, AGENTS_SCENARIO_SWITCH_LATENCY_MS } from "../scenarios/agents.js";
 import { FIRST_RUN_SCENARIO } from "../scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
@@ -68,9 +68,6 @@ function scenarioDeclaring(state: string): ConsoleScenario {
   };
 }
 
-/** The latency the agents scenario scripts on its configuration-update reply. */
-const SCRIPTED_SWITCH_LATENCY_MS = 180;
-
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
   it("answers every operation its bridge claims to serve, and refuses every other", async () => {
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
@@ -103,7 +100,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
       interruptAndSwitch: false,
     });
 
-    bridge.scenarioEngine?.advance(SCRIPTED_SWITCH_LATENCY_MS);
+    bridge.scenarioEngine?.advance(AGENTS_SCENARIO_SWITCH_LATENCY_MS);
 
     const outcome = await settling;
     expect(outcome.status).toBe("served");

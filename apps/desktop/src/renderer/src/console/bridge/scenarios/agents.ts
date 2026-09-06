@@ -69,6 +69,16 @@ import {
 
 export const AGENTS_SCENARIO_ID = "agents";
 
+/**
+ * How long this scenario's configuration-update reply takes to settle.
+ *
+ * Named rather than left as a literal on the reply, because a caller has to REACH it:
+ * the reply is parked on the frozen clock, so anything awaiting the settlement advances
+ * by exactly this and a second copy of the number is a drift that fails as an
+ * unexplained timeout in a file that names no scenario timing.
+ */
+export const AGENTS_SCENARIO_SWITCH_LATENCY_MS = 180;
+
 export const AGENTS_SCENARIO: ConsoleScenario = {
   id: AGENTS_SCENARIO_ID,
   label: "Two agents, one re-bound",
@@ -236,7 +246,7 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
       // resolved — so the settlement is parked on the frozen clock and the card's
       // in-flight rendering is reachable. The caller moves the clock; nothing here
       // does.
-      afterMs: 180,
+      afterMs: AGENTS_SCENARIO_SWITCH_LATENCY_MS,
       result: {
         switch: {
           status: "applied",
