@@ -48,32 +48,32 @@ const CONTEXT_THE_COMPILER_REJECTS: ConsoleWhenClauseContext = {
   sessionActiveish: false,
 };
 
-describe("command surface — the door families contribute through", () => {
+describe("console commands — the door families contribute through", () => {
   it("registers one command", () => {
     try {
       registerConsoleCommand({
-        id: "command-surface-test.one",
+        id: "console-commands-test.one",
         title: "One",
         group: "Test",
         run: () => undefined,
       });
-      expect(consoleCommands.has("command-surface-test.one")).toBe(true);
+      expect(consoleCommands.has("console-commands-test.one")).toBe(true);
     } finally {
-      consoleCommands.unregister("command-surface-test.one");
+      consoleCommands.unregister("console-commands-test.one");
     }
   });
 
   it("registers several atomically", () => {
     try {
       registerConsoleCommands([
-        { id: "command-surface-test.a", title: "A", group: "Test", run: () => undefined },
-        { id: "command-surface-test.b", title: "B", group: "Test", run: () => undefined },
+        { id: "console-commands-test.a", title: "A", group: "Test", run: () => undefined },
+        { id: "console-commands-test.b", title: "B", group: "Test", run: () => undefined },
       ]);
-      expect(consoleCommands.has("command-surface-test.a")).toBe(true);
-      expect(consoleCommands.has("command-surface-test.b")).toBe(true);
+      expect(consoleCommands.has("console-commands-test.a")).toBe(true);
+      expect(consoleCommands.has("console-commands-test.b")).toBe(true);
     } finally {
-      consoleCommands.unregister("command-surface-test.a");
-      consoleCommands.unregister("command-surface-test.b");
+      consoleCommands.unregister("console-commands-test.a");
+      consoleCommands.unregister("console-commands-test.b");
     }
   });
 
@@ -82,21 +82,31 @@ describe("command surface — the door families contribute through", () => {
     // is a state no caller can reason about, and none of them unwinds it.
     try {
       registerConsoleCommand({
-        id: "command-surface-test.taken",
+        id: "console-commands-test.taken",
         title: "Taken",
         group: "Test",
         run: () => undefined,
       });
       expect(() => {
         registerConsoleCommands([
-          { id: "command-surface-test.fresh", title: "Fresh", group: "Test", run: () => undefined },
-          { id: "command-surface-test.taken", title: "Again", group: "Test", run: () => undefined },
+          {
+            id: "console-commands-test.fresh",
+            title: "Fresh",
+            group: "Test",
+            run: () => undefined,
+          },
+          {
+            id: "console-commands-test.taken",
+            title: "Again",
+            group: "Test",
+            run: () => undefined,
+          },
         ]);
       }).toThrow(DuplicateRegistrationError);
-      expect(consoleCommands.has("command-surface-test.fresh")).toBe(false);
+      expect(consoleCommands.has("console-commands-test.fresh")).toBe(false);
     } finally {
-      consoleCommands.unregister("command-surface-test.taken");
-      consoleCommands.unregister("command-surface-test.fresh");
+      consoleCommands.unregister("console-commands-test.taken");
+      consoleCommands.unregister("console-commands-test.fresh");
     }
   });
 
@@ -104,9 +114,9 @@ describe("command surface — the door families contribute through", () => {
     // Without this every case above would pass against a door that registered
     // into a registry nobody reads, and the `has` assertions would be reading
     // leftovers from the case before.
-    expect(consoleCommands.has("command-surface-test.one")).toBe(false);
-    expect(consoleCommands.has("command-surface-test.a")).toBe(false);
-    expect(consoleCommands.has("command-surface-test.taken")).toBe(false);
+    expect(consoleCommands.has("console-commands-test.one")).toBe(false);
+    expect(consoleCommands.has("console-commands-test.a")).toBe(false);
+    expect(consoleCommands.has("console-commands-test.taken")).toBe(false);
   });
 });
 

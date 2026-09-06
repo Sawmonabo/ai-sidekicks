@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { formatRoute, type ConsoleRoute } from "../routing/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
-import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 
 /** An auxiliary window's address: a route the sessions list is not. */
 const AUXILIARY_HASH = "#/window/timeline/session-alpha";
@@ -134,7 +134,7 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
     expect(currentRailDestination(mounted)).toBe("Workflows");
     // Reserved, not stubbed: T-023p-1C-6 claims this slot on its own branch, so
     // the frame says the surface has not been built rather than rendering blank.
-    expect(mounted.container.querySelector(".meridian-frame__absence")).not.toBeNull();
+    expect(mounted.container.querySelector(".meridian-surface-absence")).not.toBeNull();
   });
 
   it("keeps the session this window opened after the route leaves it", async () => {

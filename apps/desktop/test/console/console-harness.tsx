@@ -18,7 +18,7 @@ import { cdp, userEvent } from "vitest/browser";
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
-import { drainMicrotasks } from "../../src/renderer/src/console/bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../src/renderer/src/console/core/microtask-drain.test-support.js";
 import { type ConsoleScheme } from "../../src/renderer/src/console/tokens/index.js";
 
 /**

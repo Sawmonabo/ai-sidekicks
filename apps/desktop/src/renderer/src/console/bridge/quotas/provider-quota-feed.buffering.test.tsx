@@ -19,7 +19,7 @@ import {
   readingAt,
   usageWindow,
 } from "./provider-quota-feed.test-support.js";
-import { drainMicrotasks } from "../fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 
 describe("useProviderQuotas — the tail opens before the read, so it is buffered across it", () => {
   /** Let every microtask the read's continuation chain queues actually run. */

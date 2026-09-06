@@ -10,7 +10,7 @@
 import { act } from "@testing-library/react";
 
 import { type ConsoleRoute } from "../routing/index.js";
-import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 
 /** The bare auxiliary address a Window-menu open lands on. */
 export const BARE_TIMELINE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "timeline" };

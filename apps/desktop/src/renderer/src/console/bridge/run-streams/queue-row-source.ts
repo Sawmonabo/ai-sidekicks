@@ -32,6 +32,8 @@
 // the row out of it. A second spelling of `"run.queueList"` on the other side of
 // that seam would be a fixture looking up a reply nobody scripts.
 
+import { isWireRecord } from "../../core/index.js";
+
 /**
  * The registered read whose reply carries the queue rows.
  *
@@ -67,14 +69,9 @@ export function scriptedQueueRowFor(
 function scriptedQueueRows(
   scriptedReadResult: unknown,
 ): readonly Readonly<Record<string, unknown>>[] {
-  if (!isWireObject(scriptedReadResult)) {
+  if (!isWireRecord(scriptedReadResult)) {
     return [];
   }
   const items = scriptedReadResult["items"];
-  return Array.isArray(items) ? items.filter(isWireObject) : [];
-}
-
-/** A reply member as an object with readable keys — not an array, not `null`. */
-function isWireObject(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return Array.isArray(items) ? items.filter(isWireRecord) : [];
 }

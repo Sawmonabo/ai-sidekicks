@@ -18,10 +18,8 @@ import {
   recordingBridge,
   targetForAgent,
 } from "./provider-command-holder.test-support.js";
-import {
-  drainMicrotasks,
-  type RecordedDaemonCall,
-} from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { type RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../console/core/microtask-drain.test-support.js";
 
 describe("useProviderCommandEnumeration", () => {
   it("asks nothing until the discovery surface is open", async () => {

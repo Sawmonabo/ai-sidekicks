@@ -19,10 +19,17 @@
 //   • `origin` — which subsystem refused, so a refusal that surfaces three layers
 //     from where it was raised still names its author.
 //
-// `code` is deliberately a `string` rather than a union of every producer's codes.
-// A closed union here would make this module import each producer, inverting the
-// DAG: `core/` is the bottom family and knows none of them. Each producer keeps
-// its own closed code union and widens into this shape at its boundary.
+// `code` is deliberately a `string` on the SHAPE rather than a union of every
+// producer's codes. A closed union here would make this module import each producer,
+// inverting the DAG: `core/` is the bottom family and knows none of them. Each
+// producer keeps its own closed code union and widens into this shape at its boundary.
+//
+// The BUILDER still carries the producer's union through, because it infers it rather
+// than enumerating it: `refuse` is generic in `Code`, so a producer calling it with a
+// value of its own closed union gets that union back on `code` and does not have to
+// re-state the narrowing by spreading the result. Nothing about the paragraph above
+// changes — this module still names no producer, and a caller passing a `string` still
+// gets a plain `ConsoleRefusal` back.
 //
 // The one import is `src/shared/wire-errors.ts`, which is not a producer and not a
 // family: it is the cross-process leaf, it imports nothing itself, and what is taken
@@ -40,13 +47,43 @@ export interface ConsoleRefusal {
 }
 
 /**
+ * A refusal whose `code` is one member of a producer's closed union.
+ *
+ * The shape a producer that owns a vocabulary actually has: the three fields every
+ * renderer reads, with `code` held to the union rather than widened to `string`.
+ *
+ * AN INTERFACE THAT NARROWS THE INHERITED MEMBER, not an intersection with a second
+ * object type. The two describe the same values and differ in what `code` reads as:
+ * an intersection leaves it `string & Code`, which every hover, every error message,
+ * and every structural comparison then carries, while this leaves it exactly `Code`.
+ * It is also the shape the two producers that own vocabularies already declare —
+ * `PersistenceRefusal` and `GrowthUnavailable` are written this way — so the generic
+ * result and the hand-written declarations it satisfies have one form between them.
+ */
+export interface NarrowedRefusal<Code extends string> extends ConsoleRefusal {
+  readonly code: Code;
+}
+
+/**
  * Build a refusal.
  *
  * A function rather than an object literal at each site so the field order and the
  * `origin` vocabulary stay uniform, and so a producer that forgets `origin` fails
  * to compile rather than shipping a refusal that names nobody.
+ *
+ * GENERIC IN `Code`, SO A PRODUCER STOPS RE-STATING ITS OWN NARROWING. Every producer
+ * that owns a closed code union used to write `{ ...refuse(origin, code, detail), code }`
+ * — a spread whose only job was to put back the type the parameter had widened away,
+ * with the value bound once so the two positions could not drift. Inference does that
+ * for free and cannot drift at all, because there is only ever one position. A caller
+ * that hands over a plain `string` infers `Code` as `string`, and
+ * `NarrowedRefusal<string>` is structurally `ConsoleRefusal`, so no wide caller moves.
  */
-export function refuse(origin: string, code: string, detail: string): ConsoleRefusal {
+export function refuse<Code extends string>(
+  origin: string,
+  code: Code,
+  detail: string,
+): NarrowedRefusal<Code> {
   return { code, detail, origin };
 }
 

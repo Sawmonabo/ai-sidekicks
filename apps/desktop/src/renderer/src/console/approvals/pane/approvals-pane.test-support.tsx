@@ -15,7 +15,7 @@ import {
   type ConsoleBridge,
   type ParsedRows,
 } from "../../bridge/index.js";
-import { drainMicrotasks } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { SessionStore } from "../../store/index.js";

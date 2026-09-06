@@ -1,21 +1,38 @@
-// What the frame itself contributes to the console's command registry.
+// The frame's own command vocabulary: its `when` scoping, its rail table, its chords.
 //
-// The registry it contributes TO is not here: `consoleCommands` and the `when`
-// vocabulary every family writes clauses against live in `palette/`, the family
-// that declares `CommandRegistry` and `ConsoleCommand`. They were written here
-// because the frame was their first consumer, and that made `frame/index.ts` the
-// only door that could publish them — a door the composer's shell half cannot
-// import without closing a cycle through `ConsoleRoot` and `console/families.ts`.
-// What stays is what is genuinely the FRAME's: the shapes its own contributions
-// take, and the chords it binds for its own rail.
+// IN `palette/` AND NOT IN `frame/`, WHERE IT WAS WRITTEN. Every input here is this
+// family's or below it — `ConsoleCommand` and `KeyBinding` are declared next door,
+// `ConsoleWhenClauseKey` is the vocabulary in `console-commands.ts` beside this file,
+// and `RAIL_DESTINATIONS` is `routing/`, two families down. A command IS a registry
+// entry and a chord IS a key-binding-table row, so the lowest family that owns these
+// inputs is the one that declares what they are made of.
 //
-// The frame's own commands are registered by `ConsoleRoot` in an effect rather
-// than at module scope, because they close over a live store.
+// It sat in `frame/` while the frame was its only reader, and that stopped being true:
+// a settings page renders the bound chords, and a view family cannot reach `frame/`.
+// Not by deep import, which the cross-family rule refuses, and not through the frame's
+// door either — `frame/index.ts` re-exports `ConsoleRoot`, which composes every view
+// family through `families.ts`, so the edge back closes a measured cycle:
+//
+//   families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx → families.ts
+//
+// THE NAMES STAY `Frame*` BECAUSE THEY ARE STILL TRUE. These are the shapes the FRAME's
+// own contributions take and the chords the FRAME binds; the declaration moved, the
+// authorship did not. Renaming them `Console*` would say the console at large
+// contributes them, which would make them indistinguishable from the registry-wide
+// vocabulary in `console-commands.ts` that they are deliberately narrower than.
+//
+// THE REGISTRY IS NOT HERE. `console-commands.ts` beside this file holds it, along with
+// the `when`-clause vocabulary the types below are scoped to.
+//
+// The frame's OWN commands are not registered at module scope either. They close over
+// a live store, which module scope cannot reach, so `ConsoleRoot` registers them in an
+// effect and removes them on unmount.
 
-import type { ConsoleCommand, ConsoleWhenClauseKey, KeyBinding } from "../palette/index.js";
 import { RAIL_DESTINATIONS, type RailDestination } from "../routing/index.js";
+import type { ConsoleWhenClauseKey } from "./console-commands.js";
+import type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
-/** A command the frame itself contributes: its `when` is the frame's vocabulary. */
+/** A command the frame itself contributes: its `when` is the console's vocabulary. */
 export type FrameCommand = Omit<ConsoleCommand, "when"> & {
   readonly when?: ConsoleWhenClauseKey;
 };

@@ -33,7 +33,7 @@ import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.j
 import { SessionStoreRegistry } from "../store/index.js";
 import { consoleCommands } from "../palette/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
-import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 
 const BRIDGE_COMMAND_IDS = ["bridge.copyBuildDetails", "bridge.checkForUpdates"] as const;
 

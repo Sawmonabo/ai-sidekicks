@@ -1,11 +1,15 @@
 // What every fixture-bridge suite needs before it can ask the bridge anything.
 //
-// One home for the four roles more than one of the sibling suites plays: the
+// One home for the three roles more than one of the sibling suites plays: the
 // fixture and the engine driving it, the two ways a surface reaches that bridge —
-// a subscription and a call — the bridge whose call arm a suite decides the answer
-// for, and the macrotask drain the settling cases wait on. It holds nothing a single
-// suite uses: the scripts each concern re-writes, and the constants only one of them
-// reads, stay beside their reader.
+// a subscription and a call — and the bridge whose call arm a suite decides the
+// answer for. It holds nothing a single suite uses: the scripts each concern
+// re-writes, and the constants only one of them reads, stay beside their reader.
+//
+// The macrotask drain the settling cases wait on is deliberately NOT here. It is a
+// timing helper rather than a fixture one, and two families below `bridge/` wait on
+// it, so it lives at `core/microtask-drain.test-support.ts` — the lowest family all
+// three of its readers may reach.
 
 import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
 
@@ -245,17 +249,4 @@ export function bridgeAnswering(
   scenario?: ConsoleScenario,
 ): BridgeUnderTest {
   return withDaemonCall(createFixture(scenario).bridge, answer);
-}
-
-/**
- * Let every pending microtask chain run.
- *
- * A macrotask boundary rather than a counted number of `await`s: the old
- * behaviour settled a delayed reply two or three microtasks deep, so a count
- * would have to be tuned against the implementation it is meant to hold.
- */
-export function drainMicrotasks(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
 }

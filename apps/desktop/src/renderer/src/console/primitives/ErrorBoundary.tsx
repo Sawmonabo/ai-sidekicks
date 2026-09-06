@@ -11,8 +11,17 @@
 // `getDerivedStateFromError` and `componentDidCatch` exist only on classes. The
 // repo's function-components rule is about views; this is the framework's only
 // mechanism, and the boundary renders through a function component anyway.
+//
+// IT LIVES IN `primitives/` AND NOT IN `frame/`, WHICH IS WHERE IT WAS WRITTEN. Its
+// only input is `core/`'s tripwire report, so `primitives/` is the lowest family that
+// owns it — and the readers that made the home wrong are the view families, which
+// wrap their own bodies in a boundary and cannot import the frame's door: that door
+// re-exports `ConsoleRoot`, which reaches `families.ts`, which composes every view
+// family in, so an import back closes a cycle. Its sheet is `surface-failure.css`
+// beside this file; the class stems are unchanged, having never named the frame.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+
 import { reportTripwire } from "../core/index.js";
 
 export interface SurfaceErrorBoundaryProps {

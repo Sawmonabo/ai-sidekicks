@@ -155,10 +155,10 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
  *
  * Non-EMPTY rather than merely a string, because an empty identifier is not one — it
  * would travel to a ledger renderer as a row naming nobody, which is worse than the
- * member being absent and honest about it. That is `wire-strings.ts`'s rule and this
- * reads through it rather than restating the predicate: a private copy of one line is
- * how the same rule came to have five spellings across the tree, and the guarded
- * property read is the only part this module adds.
+ * member being absent and honest about it. That is `readWireString`'s rule and its
+ * whole subject, so the predicate is imported rather than restated: a second copy of
+ * "present means a non-empty string" is a rule two modules can come to disagree
+ * about, with the gate green on both sides of the disagreement.
  */
 function identifierMemberReader(memberName: string): (candidate: unknown) => string | undefined {
   return (candidate: unknown): string | undefined =>

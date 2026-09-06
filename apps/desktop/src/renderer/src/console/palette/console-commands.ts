@@ -1,5 +1,5 @@
 // This window's command registry, and the `when` vocabulary the console evaluates
-// against.
+// clauses against.
 //
 // One registry per window, held at module scope for the same reason
 // `consoleSurfaceRegistry` and `consoleRouteRegistry` are: an auxiliary window is
@@ -10,25 +10,32 @@
 // graphs.
 //
 // WHY IT IS HERE AND NOT IN `frame/`, WHERE IT WAS WRITTEN. The frame was its first
-// consumer, not its owner: everything below reads `CommandRegistry` and
-// `ConsoleCommand`, which this family declares, and nothing below reads the frame.
-// Leaving it there made `frame/index.ts` the only door that could publish it, and
-// that door is unreachable from where its other consumer stands — the composer's
-// shell half sits ABOVE the console, `frame/index.ts` re-exports `ConsoleRoot`,
-// `ConsoleRoot` reaches `console/families.ts`, and `families.ts` composes the
-// shell's own registrar in. Four cycles, measured. Deep-importing past the frame
-// barrel is what that half did before `renderer-reaches-console-through-doors`
-// existed to refuse it, and a second registry built to avoid the import would be a
-// second answer to which commands this window holds. Hoisting to the lowest family
-// that owns the inputs is the remedy the layering rules name, and this is it.
+// consumer, not its owner: every input is this family's or below it — `CommandRegistry`
+// and `ConsoleCommand` beside this file, the host's chord platform from `primitives/`
+// — and nothing below the frame reads the frame. Leaving it there made `frame/index.ts`
+// the only door that could publish it, and that door is unreachable from both of the
+// consumers this hoist is for. A VIEW family reaching it closes a cycle, measured on
+// this tree with a planted family:
+//
+//   families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx → families.ts
+//
+// and the console's other consumer — the composer's shell half, which sits ABOVE the
+// console entirely — closes the same one, because `families.ts` composes its registrar
+// in. So both wrote a deep specifier into the frame module that held it instead, which
+// `console-cross-family-deep-import` and `renderer-reaches-console-through-doors`
+// report; and a second registry built to avoid the import would be a second answer to
+// which commands this window holds. Hoisting to the lowest family that owns the inputs
+// is the remedy those rules name, and this is it.
 //
 // The frame's OWN commands are not registered here. They close over a live store,
 // which module scope cannot reach, so `ConsoleRoot` registers them in an effect and
-// removes them on unmount.
+// removes them on unmount. Its own vocabulary — its command and binding shapes, its
+// rail navigation table, and the chords it binds itself — is `command-surface.ts`
+// beside this file, which followed the same rule here for the same reason.
 
+import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 import { CommandRegistry } from "./command-registry.js";
 import type { ConsoleCommand } from "./contributions.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 
 /** This window's command registry. */
 export const consoleCommands: CommandRegistry = new CommandRegistry();
@@ -90,10 +97,10 @@ export type ConsoleWhenClauseKey = (typeof CONSOLE_WHEN_CLAUSE_KEYS)[number];
 /**
  * What the console evaluates a `when` clause against.
  *
- * Narrower than `WhenClauseContext`, which is `Record<string, boolean>` because a
- * family may publish keys the console has never heard of. The console's OWN context
- * is exactly the vocabulary above — every key present, no key invented — so a key
- * added to the tuple is a compile error until every builder derives it, and a key
- * derived but never published is a compile error too.
+ * Narrower than `WhenClauseContext` beside it, which is `Record<string, boolean>`
+ * because a family may publish keys the console has never heard of. The console's
+ * OWN context is exactly the vocabulary above — every key present, no key invented
+ * — so a key added to the tuple is a compile error until every builder derives it,
+ * and a key derived but never published is a compile error too.
  */
 export type ConsoleWhenClauseContext = Readonly<Record<ConsoleWhenClauseKey, boolean>>;

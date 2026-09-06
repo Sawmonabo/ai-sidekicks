@@ -36,7 +36,7 @@ import {
   CONSOLE_BARRELS,
   CONSOLE_FAMILY_DOORS,
   CORE,
-  FRAME_SURFACE_REGISTRY,
+  CROSS_PROCESS_SHARED,
   LAYER_FAMILIES,
   PALETTE,
   PANE_BOARD_SUBDIRECTORY,
@@ -73,7 +73,9 @@ export default {
         "`options.exclude` below removes from the graph BEFORE this rule runs. Its emptiness " +
         "is a property of that exclusion rather than of the module, and the gate that does " +
         "own its reachability is `knip`, which sees the test entries and reports an unused " +
-        "export there like any other.",
+        "export there like any other. That `only legitimate dependents` clause is a check " +
+        "rather than a claim: `test-support-has-no-shipping-reader` below is the rule that " +
+        "holds it.",
       severity: "error",
       from: {
         orphan: true,
@@ -86,6 +88,26 @@ export default {
         ],
       },
       to: {},
+    },
+    {
+      name: "test-support-has-no-shipping-reader",
+      comment:
+        "A module that SHIPS imported a `.test-support` module. The rule above already says " +
+        "what a `.test-support` module is for — its only legitimate dependents are the suites " +
+        "`options.exclude` removes from the graph — and until this rule that was a sentence " +
+        "rather than a check: nothing anywhere forbade a production module from importing one. " +
+        "That matters most where a subtraction was written for the test-support class, because " +
+        "`renderer-reaches-console-through-doors` and `console-cross-family-deep-import` both " +
+        "subtract it from their SOURCE side, so a production module that imported a " +
+        "`.test-support` sibling would reach whatever that sibling reaches with neither rule " +
+        "reporting a thing. It can only fire on an importer still in the graph — which, after " +
+        "the exclusion, is a module that ships — so the remedy is never an exemption here: " +
+        "either the symbol belongs to production, in which case it moves into a module that " +
+        "ships, or the importer belongs to a suite, in which case it is named `.test-support` " +
+        "itself and is subtracted like every other.",
+      severity: "error",
+      from: { pathNot: [TEST_SUPPORT_MODULES] },
+      to: { path: TEST_SUPPORT_MODULES },
     },
     {
       name: "renderer-not-main",
@@ -113,7 +135,7 @@ export default {
         "`electron`, `node:*`, or React import there would make it unimportable by one of its " +
         "three consumers.",
       severity: "error",
-      from: { path: "^src/shared/" },
+      from: { path: CROSS_PROCESS_SHARED },
       // Both spellings of the one allowed target, and both are reachable: the contracts
       // package resolves into `node_modules/@ai-sidekicks/contracts/` once it has been built
       // and carries its bare specifier as its path when it has not, so the shape of this edge
@@ -172,16 +194,16 @@ export default {
         "not offered, and reaching around the door inverts that decision rather than respecting " +
         "it. A `.test-support` module is subtracted from the SOURCE side for the reason " +
         "`console-cross-family-deep-import` subtracts it: it is part of a suite rather than " +
-        "something that ships, and the two remedies this rule offers are both closed to it. " +
-        "The door cannot publish what it needs — `barrel-census` fails a door specifier no " +
-        "PRODUCTION module reads, and a fixture helper has no production reader by " +
-        "construction — and hoisting is no answer either, because the symbol has no home " +
-        "outside the family whose fixture it drives. Measured on this tree: six shell " +
-        "`.test-support` modules, five door lines, seven census findings. The rule was written " +
-        "against a production defect (a Tier-1 subtree holding `subject-scoped-state.js`) and " +
-        "its silence about test support was an omission rather than a decision; production " +
-        "modules outside the console are still held to the door, which is the claim that " +
-        "matters.",
+        "something that ships, and both remedies this rule offers are closed to it. The door " +
+        "cannot publish what it needs — `barrel-census` fails a door specifier no PRODUCTION " +
+        "module reads, and a fixture helper has no production reader by construction — and " +
+        "hoisting is no answer either, because the symbol is test-only and has no home below " +
+        "the family whose fixture it drives. Measured on the composer family: six such " +
+        "modules, thirteen edges, five door lines, seven census findings when the names were " +
+        "published. The rule was written against a production defect (a Tier-1 subtree holding " +
+        "`subject-scoped-state.js`) and its silence about test support was an omission rather " +
+        "than a decision; production modules outside the console are still held to the door, " +
+        "which is the claim that matters.",
       severity: "error",
       from: { path: "^src/renderer/src/(?!console/)", pathNot: [TEST_SUPPORT_MODULES] },
       to: { path: `${CONSOLE}/`, pathNot: CONSOLE_FAMILY_DOORS },
@@ -229,6 +251,23 @@ export default {
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
     },
     {
+      name: "console-view-family-shared-through-core",
+      comment:
+        "A VIEW family imported `src/shared/` directly. The cross-process leaf is not a " +
+        "console family and sits under no rung of the DAG, so the ordering rules say nothing " +
+        "about it and a view family could reach it while every gate stayed green — which " +
+        "would put a second reader of a shared shape above the layer that owns it, exactly " +
+        "the shape `console-view-family-isolation` forbids between two families. The console " +
+        "reaches shared code through the layer family that owns the concern, and today that " +
+        "is `core/`: every console consumer of `src/shared/` goes through it, so this rule " +
+        "pins what the tree already does rather than asking for a change. A view family that " +
+        "needs a shared symbol hoists its use into the lowest layer family that can own it " +
+        "and imports THAT family's door.",
+      severity: "error",
+      from: VIEW_FAMILIES,
+      to: { path: CROSS_PROCESS_SHARED },
+    },
+    {
       name: "console-root-is-composition-only",
       comment:
         "A module at the console ROOT that is not one of the enumerated composition sites " +
@@ -259,7 +298,15 @@ export default {
         "permitted edge is written, so a downward edge past a barrel — the shape a " +
         "caller reaches for when importing the door would close a cycle — stayed green. " +
         "The fix is never the deep specifier: hoist the symbol to the lowest family " +
-        "that owns its inputs, and import it from that family's door. A sub-module " +
+        "that owns its inputs, and import it from that family's door. WHERE THE " +
+        "TARGET IS `frame/`, THE FRAME'S OWN DOOR IS NOT AN AVAILABLE REMEDY for a " +
+        "view family: `frame/index.ts` re-exports `ConsoleRoot`, `ConsoleRoot.tsx` " +
+        "imports `console/families.ts`, and `families.ts` composes every view family " +
+        "in, so `families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx " +
+        "→ families.ts` is a cycle `no-circular` fails — measured. Hoisting is the " +
+        "only remedy open there, and the substrate has already taken it for the " +
+        "command registry, the surface-scale absence and the error boundary. A " +
+        "sub-module " +
         "door (`bridge/growth-values/`, `bridge/scenarios/`) is deliberately NOT a " +
         "legal target here — it publishes to its own family only, which is why the " +
         "exemption below matches a family door's single path segment and not a nested " +
@@ -274,12 +321,7 @@ export default {
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: [TEST_SUPPORT_MODULES] },
       to: {
         path: `${CONSOLE}/[^/]+/`,
-        pathNot: [
-          `${CONSOLE}/$1/`,
-          CONSOLE_FAMILY_DOORS,
-          COMPOSITION_PANE_BOARD,
-          FRAME_SURFACE_REGISTRY,
-        ],
+        pathNot: [`${CONSOLE}/$1/`, CONSOLE_FAMILY_DOORS, COMPOSITION_PANE_BOARD],
       },
     },
     {

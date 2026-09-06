@@ -1,20 +1,25 @@
 // The chords the frame binds, and the claim that its own `when` type is scoped to
 // the console's published vocabulary.
 //
-// The registry and the vocabulary themselves are `palette/console-commands.test.ts`.
-// What is left here is the frame's: one chord per rail destination, and a binding
-// type narrow enough that an unpublished key is a compile error rather than a
-// clause that quietly evaluates false.
+// The registry and the vocabulary themselves are `console-commands.test.ts` beside
+// this file. What is left here is the frame's contribution: one chord per rail
+// destination, and a binding type narrow enough that an unpublished key is a compile
+// error rather than a clause that quietly evaluates false.
+//
+// Both subjects are this family's now, so both specifiers are same-family ones. The
+// tuple is reached directly because `palette/index.js` deliberately does not publish
+// it — its only production reader is the type derived from it, and a door line for a
+// symbol no production module imports is one `barrel-census` fails.
 
 import { describe, expect, it } from "vitest";
 
-import { CONSOLE_WHEN_CLAUSE_KEYS } from "../palette/console-commands.js";
 import { RAIL_DESTINATIONS } from "../routing/index.js";
 import {
   FRAME_KEY_BINDINGS,
   RAIL_NAVIGATION_DETAILS,
   type FrameKeyBinding,
 } from "./command-surface.js";
+import { CONSOLE_WHEN_CLAUSE_KEYS } from "./console-commands.js";
 
 /**
  * The compile-time control for the frame's own binding shape.

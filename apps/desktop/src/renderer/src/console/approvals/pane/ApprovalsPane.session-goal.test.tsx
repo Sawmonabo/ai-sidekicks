@@ -11,7 +11,7 @@ import { ApprovalsPane } from "./ApprovalsPane.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
-import { drainMicrotasks } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import {
   approvalsPaneContext,
   boundStore,

@@ -18,7 +18,7 @@ import {
   type CompactionDispatch,
   type CompactionTarget,
 } from "./compaction-dispatch.js";
-import { drainMicrotasks } from "../../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../../console/core/microtask-drain.test-support.js";
 
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const RUN_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";

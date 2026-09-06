@@ -28,12 +28,12 @@
 // declared per EVENT, not per payload — there is no exported payload-only schema to
 // reach for, and the one place the two are paired is inside the discriminated union.
 // So the check presents each beat as the wire event it claims to be. It does not
-// compose that envelope itself: `../../scenario-runtime/scenario-envelope.ts` composes it, and that is
-// the same function `fixture-bridge.ts` delivers through. Two compositions would be
-// two answers to "what does this beat travel as", and this check would then be
-// validating a record no subscriber ever receives — which is the shape of the defect
-// that made the console's decode boundary and the fixture agree with each other and
-// with nothing the daemon sends.
+// compose that envelope itself: `bridge/scenario-runtime/scenario-envelope.ts`
+// composes it, and that is the same function `fixture-bridge.ts` delivers through.
+// Two compositions would be two answers to "what does this beat travel as", and this
+// check would then be validating a record no subscriber ever receives — which is the
+// shape of the defect that made the console's decode boundary and the fixture agree
+// with each other and with nothing the daemon sends.
 //
 // HOW "NO VARIANT REGISTERED" IS TOLD FROM "VARIANT REJECTED THE BEAT". A Zod
 // discriminated union that matches no branch never enters one: it reports a single

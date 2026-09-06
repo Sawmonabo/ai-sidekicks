@@ -39,7 +39,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 import { type ConsoleBridge } from "../bridge/index.js";
-import { PaletteOverlay } from "../palette/index.js";
+import { CONSOLE_CHORD_PLATFORM, PaletteOverlay, consoleCommands } from "../palette/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
 import {
@@ -48,16 +48,14 @@ import {
   useFrameStore,
   useLocationHash,
 } from "../store/index.js";
-import { CONSOLE_CHORD_PLATFORM, consoleCommands } from "../palette/index.js";
 import { AppFrame } from "./AppFrame.js";
-
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useSchemePreference } from "./scheme-preference.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { type ConsoleSurfaceContext } from "../seats/index.js";
 import { applyConsoleScheme } from "./token-installation.js";
 import { useUiStateStore } from "./ui-state-lifecycle.js";
 

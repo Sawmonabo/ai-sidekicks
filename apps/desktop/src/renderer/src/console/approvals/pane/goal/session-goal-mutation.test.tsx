@@ -19,7 +19,7 @@ import {
 import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { useSessionGoalMutation } from "../approvals-hooks.js";
 import { SECOND_SESSION_ID, SESSION_ID } from "../approvals-hooks.test-support.js";
-import { drainMicrotasks } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../core/microtask-drain.test-support.js";
 
 describe("the goal mutation is keyed to the session it mutates", () => {
   /**

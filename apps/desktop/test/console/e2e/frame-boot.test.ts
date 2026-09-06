@@ -100,7 +100,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
       });
-      expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
+      expect(await consoleWindow.locator(".meridian-surface-absence").count()).toBe(0);
 
       // And the directory read has a PRODUCER, which is what this destination
       // could not have in any build before it: the only session set the renderer
@@ -136,7 +136,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       await consoleWindow.evaluate(() => {
         window.location.hash = "#/settings";
       });
-      await consoleWindow.locator(".meridian-frame__absence .meridian-nothing--empty").waitFor({
+      await consoleWindow.locator(".meridian-surface-absence .meridian-nothing--empty").waitFor({
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
       });

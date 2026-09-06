@@ -27,7 +27,7 @@ import {
 import { FrameStore } from "../store/index.js";
 import { type SchemePreference } from "../tokens/index.js";
 import { useSchemePreference, type SchemePreferenceSurface } from "./scheme-preference.js";
-import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 
 /** A store whose every write is refused for quota, exactly as a full disk does. */
 function storeThatCannotWrite(): UiStateStore {

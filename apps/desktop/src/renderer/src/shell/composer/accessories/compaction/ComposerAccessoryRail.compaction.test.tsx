@@ -26,7 +26,7 @@ import {
   mountRailSettled,
   railBridgeAnswering,
 } from "../rail.test-support.js";
-import { drainMicrotasks } from "../../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../../../console/core/microtask-drain.test-support.js";
 
 const CAPABILITY_READ_METHOD = "driver.listCapabilities";
 const COMPACTION_METHOD = "driver.compactContext";

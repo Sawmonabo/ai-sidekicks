@@ -22,26 +22,48 @@ import "./palette.css";
 
 export { CommandRegistry } from "./command-registry.js";
 
-// This window's one registry, the plural call a family contributes through, and the
-// `when` vocabulary the console evaluates clauses against. On this door rather than
-// the frame's because the frame is a consumer of them and this family declares what
-// they are made of — and because the console's other consumer, the composer's shell
-// half, stands above the frame and cannot import its door without closing a cycle.
+// This window's one registry, the plural call a family contributes through, the host
+// chord platform the printer formats for, and the `when` vocabulary a clause is
+// written against. On this door rather than the frame's because the frame is a
+// CONSUMER of them and this family declares what they are made of — and because the
+// two other consumers, a view family and the composer's shell half, both close a
+// cycle on `frame/index.ts` and can reach nothing there at all.
 //
-// `registerConsoleCommand`, the singular, is deliberately absent, and so is the
-// `CONSOLE_WHEN_CLAUSE_KEYS` tuple the context type is derived FROM: every family
-// that contributes contributes a set, and every family that writes a clause writes
-// it against the type. Their only readers are this family and the suites, so a door
-// line for either would be a specifier no production module reaches — which the
-// barrel census reports rather than tolerates.
+// `registerConsoleCommand`, the singular, is deliberately absent; so is the
+// `CONSOLE_WHEN_CLAUSE_KEYS` tuple the clause types are derived FROM, and so is
+// `ConsoleWhenClauseKey` itself, which now has no reader outside this family at all —
+// `command-surface.ts` beside it scopes the frame's two shapes to the key and imports
+// it as a sibling. Every family that contributes contributes a SET, and every family
+// that writes a clause writes it against the CONTEXT. A door line for any of the three
+// would be a specifier no production module reaches, which the barrel census reports
+// rather than tolerates.
 export {
   CONSOLE_CHORD_PLATFORM,
   consoleCommands,
   registerConsoleCommands,
   type ConsoleWhenClauseContext,
-  type ConsoleWhenClauseKey,
 } from "./console-commands.js";
+
+// `KeyBinding` rides beside the command shape because a view family declares a
+// binding table of its own — the workspace sidebar's — and types it by this element.
+// It is on the door for that reader and not for symmetry: the moment no production
+// module outside this family writes the type, the line comes off, which is how it
+// came off once already when the frame's own vocabulary moved into the family.
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
+
+// The frame's own command vocabulary — the shapes its contributions take, the rail's
+// navigation table, and the chords it binds. On this door because a command IS a
+// registry entry and a chord IS a key-binding-table row, both declared next door, and
+// because the frame is no longer the only reader: a settings page renders the bound
+// chords, and a view family can reach neither `frame/command-surface.js` nor
+// `frame/index.js` — the first is a cross-family deep import, the second closes a
+// cycle back through `families.ts`.
+//
+// `FrameKeyBinding` is deliberately absent. `FRAME_KEY_BINDINGS` is typed by it and
+// every consumer reads the array, so a door line for the element type would be a
+// specifier no production module writes.
+export { FRAME_KEY_BINDINGS, RAIL_NAVIGATION_DETAILS } from "./command-surface.js";
+export type { FrameCommand } from "./command-surface.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the
 // frame through this door like every other symbol a family consumes. Only the
@@ -53,4 +75,8 @@ export { KeyBindingTable } from "./keybindings.js";
 
 export type { WhenClauseContext } from "./when-clause.js";
 
-export { COMMAND_PALETTE_OPEN_CHORD, PaletteOverlay } from "./PaletteOverlay.js";
+// The open chord is NOT forwarded, and it is no longer this family's to forward. The
+// overlay BINDS it and two surfaces PRINT it, one of them a primitive, so the literal
+// sits in `primitives/chord-format.ts` beside the printer and this family imports it
+// down like every other caller.
+export { PaletteOverlay } from "./PaletteOverlay.js";

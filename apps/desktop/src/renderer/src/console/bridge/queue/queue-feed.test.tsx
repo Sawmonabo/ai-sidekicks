@@ -43,7 +43,7 @@ import {
   openFeed,
   queueFeedBridge,
 } from "./queue-feed.test-support.js";
-import { drainMicrotasks } from "../fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 
 describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
