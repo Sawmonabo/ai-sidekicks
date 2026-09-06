@@ -93,15 +93,24 @@ describe("the invite confirmation is modal in a real browser", () => {
   it("keeps the keyboard on the card, never on the session behind it", async () => {
     await renderCardOverASessionControl();
 
-    // Past every control the card offers and one more, which is the press that would
-    // leave it.
-    for (const selector of CARD_CONTROL_SELECTORS) {
-      expect(matches(selector)).toBe(true);
+    // MORE PRESSES THAN THE CARD HAS CONTROLS, so the sequence wraps at least twice: a
+    // trap is a claim about the press AFTER the last control, and a loop that stopped
+    // there would never make it. What is collected is where the focus LANDED and not
+    // the order it landed in — the order is the dialog library's, and pinning it here
+    // would make this case fail on an internal focus guard rather than on the property
+    // it is about.
+    const landings = new Set<string>();
+    for (let press = 0; press < CARD_CONTROL_SELECTORS.length * 3; press += 1) {
+      for (const selector of [...CARD_CONTROL_SELECTORS, `.${BEHIND_THE_CARD}`]) {
+        if (matches(selector)) {
+          landings.add(selector);
+        }
+      }
       await pressKeys("{Tab}");
     }
 
-    expect(matches(`.${BEHIND_THE_CARD}`)).toBe(false);
-    expect(focused().closest(".meridian-invite-confirmation")).not.toBeNull();
+    expect(landings.has(`.${BEHIND_THE_CARD}`)).toBe(false);
+    expect([...landings].sort()).toStrictEqual([...CARD_CONTROL_SELECTORS].sort());
   });
 
   it("negative control: that control IS reachable with no invitation waiting", async () => {
