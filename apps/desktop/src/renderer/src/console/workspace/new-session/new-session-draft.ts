@@ -90,7 +90,7 @@ export interface NewSessionDraftState {
   readonly revision: number;
 }
 
-/** Why a send could not complete. Closed, so a fifth cause is a decision. */
+/** Why a send could not complete. Closed, so a further cause is a decision. */
 export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   "draft-empty",
   "session-create-failed",
@@ -101,6 +101,10 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   // build it is running in.
   "wire-unregistered",
   "first-turn-missing",
+  // Not a refusal the wire raised: `send` answers with a result on every path and
+  // `callDaemon` never throws, so this names a fault INSIDE the draft — and the
+  // alternative shipped once: a rejection that cleared the result and said nothing.
+  "send-failed",
 ] as const;
 
 /** One draft refusal code. Derived, so the vocabulary is declared once. */
@@ -116,6 +120,27 @@ export interface NewSessionDraftRefusal extends ConsoleRefusal {
 
 function refuseDraft(code: NewSessionDraftRefusalCode, detail: string): NewSessionDraftRefusal {
   return { ...refuse(NEW_SESSION_DRAFT_REFUSAL_ORIGIN, code, detail), code };
+}
+
+/**
+ * What a send that REJECTED reports, rather than reporting nothing.
+ *
+ * {@link NewSessionDraft.send} returns a typed result on every path and `callDaemon`
+ * never throws, so a rejection out of it is a fault inside this module — the case a
+ * caller cannot invent a sentence for and must not swallow. Built HERE so a control
+ * composing its own refusal cannot become a second source of the codes a person
+ * pastes into an issue, the way `reveal-engine.ts` records its own impossible throw.
+ */
+export function refuseSendThatRejected(): NewSessionSendResult {
+  return {
+    outcome: "refused",
+    sessionId: undefined,
+    completedCalls: [],
+    refusal: refuseDraft(
+      "send-failed",
+      "The draft could not be sent, and nothing was created. It is still here, and Send can be pressed again.",
+    ),
+  };
 }
 
 /**
@@ -267,8 +292,8 @@ export class NewSessionDraft {
    * id before the daemon minted it. Across repeated presses, it is idempotent in
    * the only way a renderer can make a create idempotent — by remembering. A
    * concurrent call joins the running send; a later call re-reports the session the
-   * first one made. Neither refuses, because a refusal here would put a fifth code
-   * in front of a person whose press did exactly what they meant it to.
+   * first one made. Neither refuses, because a refusal here would put a code in
+   * front of a person whose press did exactly what they meant it to.
    */
   public send(): Promise<NewSessionSendResult> {
     // `??=` short-circuits, so the send is started only when none is running, and

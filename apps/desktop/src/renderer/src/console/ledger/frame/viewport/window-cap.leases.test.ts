@@ -16,7 +16,7 @@ import {
   loadedWindow,
   PRUNABLE,
   runOnlyLog,
-  syntheticLog,
+  syntheticWindowRows,
 } from "./window-cap.test-support.js";
 
 describe("the ledger window — leases and cursors", () => {
@@ -32,14 +32,14 @@ describe("the ledger window — leases and cursors", () => {
 
   it("cuts at the pin's cursor while pinned and at the oldest retained row otherwise", () => {
     const window = new LedgerWindow();
-    window.ingest(syntheticLog(3));
+    window.ingest(syntheticWindowRows(3));
     expect(window.cutAtRootCursor(undefined)).toBe("cursor-0");
     expect(window.cutAtRootCursor("cursor-2")).toBe("cursor-2");
   });
 
   it("adopts the projection verbatim, so a second identical read changes nothing", () => {
     const window = new LedgerWindow();
-    const rows = syntheticLog(3);
+    const rows = syntheticWindowRows(3);
     window.ingest(rows);
     window.ingest(rows);
     expect(window.topLevelRowKeys()).toHaveLength(3);

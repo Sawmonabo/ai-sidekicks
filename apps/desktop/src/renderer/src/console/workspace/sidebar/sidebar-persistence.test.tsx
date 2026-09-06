@@ -229,6 +229,73 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
     expect(probe.layout().snapshot().state.isCollapsed).toBe(true);
   });
 
+  it("negative control: an untouched arrival adopts the record and writes nothing back", async () => {
+    // The gate used to settle ABOVE the adopt, so the adopt's own listener fired with
+    // it already open and filed the record straight back — one durable write per
+    // session opened, and where the decode had narrowed an axis the narrowed value
+    // replaced what the record held. The deck has owned this control since it was
+    // written; this is the sidebar's.
+    const probe = mountProbe({ underStrictMode: false });
+    await probe.settled();
+    await probe.uiStateStore.write(
+      SESSION_B,
+      SIDEBAR_LAYOUT_RECORD_KEY,
+      "layout",
+      encodeSidebarLayout({
+        widthPercent: WIDTH_SAVED_IN_B,
+        isCollapsed: true,
+        chosenSectionId: undefined,
+      }),
+    );
+
+    // Counted from HERE, because seeding the record above is itself a write through
+    // this adapter and a bare `asked` would report the fixture as the hook's own.
+    const writesBeforeArrival = probe.adapter.asked.length;
+
+    probe.showSession(SESSION_B);
+    await drainMicrotasks();
+    await drainMicrotasks();
+
+    expect(probe.layout().snapshot().state.widthPercent).toBe(WIDTH_SAVED_IN_B);
+    expect(
+      probe.adapter.asked.slice(writesBeforeArrival).map((write) => write.partition),
+    ).not.toContain(SESSION_B);
+  });
+
+  it("files the act a person made while the record was in flight", async () => {
+    // Which is what makes the control above a GATE rather than a sidebar that stopped
+    // saving on arrival: the person's collapse is theirs, it differs from the record,
+    // and it reaches the store once the read has landed.
+    const probe = mountProbe({ underStrictMode: false });
+    await probe.settled();
+    await probe.uiStateStore.write(
+      SESSION_B,
+      SIDEBAR_LAYOUT_RECORD_KEY,
+      "layout",
+      encodeSidebarLayout({
+        widthPercent: WIDTH_SAVED_IN_B,
+        isCollapsed: false,
+        chosenSectionId: undefined,
+      }),
+    );
+
+    const writesBeforeArrival = probe.adapter.asked.length;
+
+    probe.adapter.holdReads();
+    probe.showSession(SESSION_B);
+    act(() => {
+      probe.layout().setCollapsed(true);
+    });
+    probe.adapter.releaseReads();
+    await drainMicrotasks();
+
+    await waitFor(() => {
+      expect(
+        probe.adapter.asked.slice(writesBeforeArrival).map((write) => write.partition),
+      ).toContain(SESSION_B);
+    });
+  });
+
   it("negative control: the reading the gate used to consult really does stay open", async () => {
     // The layout's own `hasSettled` is asserted directly, in the exact state the case
     // above exercises. Without it, that case could pass over a navigation that

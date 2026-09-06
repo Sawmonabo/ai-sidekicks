@@ -185,7 +185,7 @@ function isReopeningEventType(wireType: string): wireType is ChapterReopeningEve
  * `@ai-sidekicks/contracts` states its own arms are for: `runId` is a required
  * member of three arms and structurally absent from the fourth.
  */
-function chapterRunIdOf(row: TimelineRow): string | undefined {
+export function runIdOfChapteredRow(row: TimelineRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
 }
 
@@ -250,7 +250,7 @@ export function foldChapters(rows: readonly TimelineRow[]): LedgerChapterFold {
   const unchapteredRowIds: string[] = [];
 
   for (const row of rows) {
-    const runId = chapterRunIdOf(row);
+    const runId = runIdOfChapteredRow(row);
     if (runId === undefined) {
       unchapteredRowIds.push(row.id);
       continue;

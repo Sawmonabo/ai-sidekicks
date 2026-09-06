@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { SIDEBAR_SECTION_IDS } from "../../seats/index.js";
 import {
+  DECK_MINIMUM_WIDTH_PERCENT,
   SIDEBAR_DEFAULT_WIDTH_PERCENT,
   SIDEBAR_MAXIMUM_WIDTH_PERCENT,
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
@@ -137,6 +138,14 @@ describe("the sidebar's saved arrangement", () => {
 
   it("negative control: a width already inside the band is kept exactly", () => {
     expect(clampSidebarWidthPercent(24)).toBe(24);
+  });
+
+  it("leaves the deck exactly its floor when the sidebar is dragged to its ceiling", () => {
+    // The two ends of one band, driven together. The split held its own deck floor of
+    // forty percent while the clamp capped the sidebar at forty, so a sidebar at its
+    // ceiling left the deck sixty and the pair summed to eighty — two readings of one
+    // constraint, disagreeing.
+    expect(clampSidebarWidthPercent(90) + DECK_MINIMUM_WIDTH_PERCENT).toBe(100);
   });
 });
 

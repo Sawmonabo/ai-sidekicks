@@ -32,14 +32,13 @@ import {
   type ActorFollowHandler,
 } from "../../../seats/index.js";
 import { SuspensionGate } from "../../../store/subject-scoped-drivers.test-support.js";
-import { type ConsoleSessionEvent } from "../../../store/index.js";
 import {
   buildActorFollowHandler,
   useActorFollowSeat,
   type ActorFollowSeatInputs,
 } from "./ledger-actor-follow-seat.js";
-import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow } from "../window/ledger-window.js";
+import { syntheticEventLog } from "../window/ledger-visible-window.test-support.js";
 
 const SESSION_ID = "session-ledger-follow-seat";
 const LOG_EVENT_COUNT = 6;
@@ -50,20 +49,8 @@ const SEAT_PANE_ID = "pane-follow-seat";
 /** What one case watched happen, in the order it happened. */
 type ActTrace = string[];
 
-/** A log of participant messages, oldest first, so every row carries a sequence. */
-function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
-  return Array.from({ length: count }, (_unused, index) => ({
-    id: `event-${String(index)}`,
-    sessionId: SESSION_ID,
-    sequence: index,
-    kind: "user.message",
-    occurredAt: ledgerFixtureStampAt(index),
-    payload: {},
-  }));
-}
-
 describe("the follow handler — resolving a cast chip against this window", () => {
-  const rows = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
+  const rows = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT, SESSION_ID), false).rows;
   const NEWEST_SEQUENCE = LOG_EVENT_COUNT - 1;
 
   it("scrolls to the row the wire sequence names and says it revealed it", () => {
@@ -163,7 +150,7 @@ function BodyWrittenRefProbe(props: FollowSeatProbeProps): ReactElement {
 }
 
 describe("the follow seat — which window the palette can reach through it", () => {
-  const rows = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
+  const rows = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT, SESSION_ID), false).rows;
   const NEWEST_SEQUENCE = LOG_EVENT_COUNT - 1;
 
   /**

@@ -48,6 +48,16 @@
 // door widened for testing, so those five suites reach their module directly and the
 // door publishes what production reaches.
 
+// The sheets this directory owns, imported by its own door. The four below the root
+// belong to children that carry no door of their own, so this is their nearest
+// owner; `seams/` has a door and imports its own. Parent before children, which is
+// the cascade order `ledger/ledger.css` states.
+import "./structure.css";
+import "./chapters/chapters.css";
+import "./narrowing/narrowing.css";
+import "./rail/rail.css";
+import "./replay/replay.css";
+
 export { ChapterHeader } from "./chapters/ChapterHeader.js";
 export { FindInLedger } from "./narrowing/FindInLedger.js";
 export { LedgerFilterBar } from "./narrowing/LedgerFilterBar.js";
@@ -55,7 +65,11 @@ export { ProvenanceRail } from "./rail/ProvenanceRail.js";
 export { ReplayControls } from "./replay/ReplayControls.js";
 export { SeamRow } from "./seams/SeamRow.js";
 export { ChapterCollapseState } from "./chapters/chapter-collapse.js";
-export { LedgerChapterIndex, type LedgerChapter } from "./chapters/chapters.js";
+export {
+  LedgerChapterIndex,
+  runIdOfChapteredRow,
+  type LedgerChapter,
+} from "./chapters/chapters.js";
 export { CHAPTER_VISIBLE_ROW_CAP } from "./structure-bounds.js";
 export {
   UNFILTERED_LEDGER,

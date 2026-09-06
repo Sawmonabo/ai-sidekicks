@@ -82,7 +82,7 @@ export function renderTimelinePane(props: TimelinePaneProps): HTMLElement {
  * a fake store would let the projection, the fold, and the viewport's reconcile all
  * be wrong together while this case stayed green.
  */
-export function openSessionStoreWithLog(): SessionStore {
+export function openSessionStoreWithPaneLog(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
   sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
   sessionStore.applyBatch([

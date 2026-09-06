@@ -17,9 +17,17 @@
 // FOUR SUB-MODULES AND THE PANE ITSELF. `window/` derives which rows this pane holds,
 // `find/` decides which of them a person is asking for, `replay/` decides which of them
 // a position lets through, and `feed/` composes the three into the surface a reader
-// scrolls. Each publishes a door its siblings read, because each is read from two or
-// more directories outside itself; `feed/` publishes none, since the one name that
-// leaves it is read by exactly one module — `TimelinePane.tsx`, one directory up.
+// scrolls.
+//
+// A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS — the family's one
+// criterion, stated the same way in `ledger/cards/index.ts` and
+// `ledger/structure/index.ts`, and it is READERS and not directories: `window/` is
+// read from three of them, `find/` and `replay/` from one apiece, and all three carry
+// a door because every one of those readers is a module other than the door that
+// declares them. `feed/` publishes none, because the one name that leaves it is read
+// by exactly one module — `TimelinePane.tsx`, one directory up — and this file must
+// reach the declaring module anyway or `console-no-barrel-chain` reports the second
+// hop, which leaves such a door with no consumer at all.
 //
 // WHAT LEAVES THROUGH THIS DOOR IS WHAT `ledger/index.ts` MOUNTS. The pane's own
 // pieces — the feed and its rows, the window and jump models, the notices — are read

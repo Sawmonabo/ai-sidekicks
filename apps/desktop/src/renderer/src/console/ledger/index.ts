@@ -60,27 +60,14 @@ import { registerFixtureShellRows } from "./cards/shell/FixtureShellRows.js";
 import { TimelinePane } from "./pane/index.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
-// The family's sheets, in the order the cascade reads them. `ledger.css` first because
-// it carries the deck and pane boxes the rest sit inside, then one sheet per directory,
-// parent before children. `ledger/ledger.css` states the split; a rule spanning two
-// directories goes in their nearest shared parent's sheet and nowhere else.
-//
-// `structure/` is the one subtree whose sheet is split further, and the reason is the
-// module ceiling rather than symmetry: it was one 503-line sheet over five subjects that
-// change for five different reasons. `frame/` and `cards/` keep one sheet each because
-// each is well inside the ceiling and their sub-modules draw INSIDE the boxes the parent
-// sheet already sizes — a body inside a card, a row inside the frame — so splitting them
-// would put a box and its contents in two files for no reading a person would gain.
+// THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. `apps/desktop/AGENTS.md` §Module
+// shape: a directory that carries a door has an owner of its own, and reaching into
+// one is the shape that forbids. `frame/`, `structure/`, `structure/seams/`, `cards/`
+// and `cards/markdown/` each carry a door, so each imports the sheet it owns — and
+// `structure/` imports the four its doorless children's sheets are, because it is
+// their nearest owner. Every one of those doors is reachable from this file, so the
+// cascade order is unchanged and nothing drops out of the bundle.
 import "./ledger.css";
-import "./frame/frame.css";
-import "./structure/structure.css";
-import "./structure/chapters/chapters.css";
-import "./structure/narrowing/narrowing.css";
-import "./structure/rail/rail.css";
-import "./structure/replay/replay.css";
-import "./structure/seams/seams.css";
-import "./cards/cards.css";
-import "./cards/markdown/markdown.css";
 
 // This door carries the family's REGISTRATIONS and no pieces.
 //

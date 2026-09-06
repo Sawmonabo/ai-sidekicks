@@ -21,33 +21,29 @@ import {
   EVERY_ROW_QUERY,
   LOG_EVENT_COUNT,
   RETAINED_ROW_COUNT,
-  syntheticLog,
+  syntheticEventLog,
 } from "./ledger-visible-window.test-support.js";
-import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
+import { NO_ROWS_REMOVED, deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 /**
  * The find state over one visible window, with the upstream stages left unnarrowed.
  *
  * Every case in this file is about the cap and the replay position, which are the
- * two narrowings BELOW the fold — so the three upstream stages are the same model,
- * their differences are empty, and the filter and fold counts stay zero throughout.
+ * two narrowings BELOW the fold — so neither upstream stage removed anything, both
+ * report the shared empty set, and the filter and fold counts stay zero throughout.
  * `ledger-find.test.ts` is where those two are driven.
  */
-function findOverVisible(
-  visible: VisibleLedgerWindow,
-  stage: LedgerWindowModel,
-): ReturnType<typeof useLedgerFind> {
+function findOverVisible(visible: VisibleLedgerWindow): ReturnType<typeof useLedgerFind> {
   return useLedgerFind({
     visible,
-    unfurledWindow: stage,
-    narrowedWindow: stage,
-    foldedWindow: stage,
+    filteredAwayRows: NO_ROWS_REMOVED,
+    foldedAwayRows: NO_ROWS_REMOVED,
   });
 }
 
 describe("the visible ledger window", () => {
   it("keeps only the rows the viewport reconciled, and counts the rest", () => {
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const { result } = renderHook(() =>
       useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, retained),
@@ -63,12 +59,12 @@ describe("the visible ledger window", () => {
   });
 
   it("walks only rows the viewport can scroll to, and names the matches beyond it", () => {
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const retainedKeys = new Set(retained.map((row) => row.key));
     const { result } = renderHook(() => {
       const visible = useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, retained);
-      return findOverVisible(visible, ledgerWindow);
+      return findOverVisible(visible);
     });
 
     act(() => {
@@ -90,7 +86,7 @@ describe("the visible ledger window", () => {
     // to look at. Handed the log instead of the window — which is what the field was
     // handed before — the same query counts every row and steps to the oldest one,
     // which the viewport reconciled away and `jumpToRow` cannot reach.
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retainedKeys = new Set(
       ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
     );
@@ -105,7 +101,7 @@ describe("the visible ledger window", () => {
       heldRowKeys: new Set(ledgerWindow.rows.map((row) => row.id)),
       railModel: new ProvenanceRailModel({ rows: ledgerWindow.rows, hasEarlierRows: false }),
     };
-    const { result } = renderHook(() => findOverVisible(wholeLogWindow, ledgerWindow));
+    const { result } = renderHook(() => findOverVisible(wholeLogWindow));
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
     });
@@ -119,7 +115,7 @@ describe("the visible ledger window", () => {
 describe("the clip the window states", () => {
   /** One loaded log, from which a case keeps the whole window or only its tail. */
   function loadedWindow(): LedgerWindowModel {
-    return deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    return deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
   }
 
   it("says earlier rows exist exactly when the cap took some", () => {
@@ -139,7 +135,7 @@ describe("the clip the window states", () => {
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const { result } = renderHook(() => {
       const visible = useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, retained);
-      return findOverVisible(visible, ledgerWindow);
+      return findOverVisible(visible);
     });
     expect(result.current.result.hasEarlierRows).toBe(true);
     act(() => {
@@ -161,7 +157,7 @@ describe("the clip the window states", () => {
         ledgerWindow.viewportRows,
         ledgerWindow.viewportRows,
       );
-      return { visible, find: findOverVisible(visible, ledgerWindow) };
+      return { visible, find: findOverVisible(visible) };
     });
     expect(result.current.visible.prunedAwayRows).toHaveLength(0);
     expect(result.current.visible.hasEarlierRows).toBe(false);
@@ -184,7 +180,7 @@ describe("cap retention and replay visibility are two facts", () => {
     readonly ledgerWindow: LedgerWindowModel;
     readonly revealed: readonly LedgerViewportRow[];
   } {
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return {
       ledgerWindow,
       revealed: ledgerWindow.viewportRows.slice(0, REVEALED_PREFIX_ROW_COUNT),
@@ -214,7 +210,7 @@ describe("cap retention and replay visibility are two facts", () => {
   it("counts the two absences in two figures, and states neither as the other", () => {
     const { ledgerWindow, revealed } = replayParkedBeforeTail();
     const { result } = renderHook(() =>
-      findOverVisible(useVisibleLedgerWindow(ledgerWindow, revealed, revealed), ledgerWindow),
+      findOverVisible(useVisibleLedgerWindow(ledgerWindow, revealed, revealed)),
     );
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
@@ -231,13 +227,10 @@ describe("cap retention and replay visibility are two facts", () => {
   it("negative control: an idle dock over a capped window still reports a prune", () => {
     // Without this the three cases above would pass over a partition that called
     // every absent row a replay withholding, which would silence the cap entirely.
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const { result } = renderHook(() =>
-      findOverVisible(
-        useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, retained),
-        ledgerWindow,
-      ),
+      findOverVisible(useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, retained)),
     );
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);

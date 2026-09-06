@@ -225,8 +225,8 @@ describe("a replay across a fold or a filter change", () => {
     const loadedWindow = deriveLedgerWindow(chapteredLog(), false);
     return {
       loadedWindow,
-      shut: foldChapterHeaders(loadedWindow, new Set<string>()),
-      open: foldChapterHeaders(loadedWindow, new Set([CHAPTER_RUN_ID])),
+      shut: foldChapterHeaders(loadedWindow, new Set<string>()).window,
+      open: foldChapterHeaders(loadedWindow, new Set([CHAPTER_RUN_ID])).window,
     };
   }
 
@@ -351,7 +351,7 @@ describe("a replay across a fold or a filter change", () => {
 
     act(() => {
       replay.rerender({
-        ledgerWindow: foldChapterHeaders(grownLoadedWindow, new Set<string>()),
+        ledgerWindow: foldChapterHeaders(grownLoadedWindow, new Set<string>()).window,
         loadedWindow: grownLoadedWindow,
       });
     });

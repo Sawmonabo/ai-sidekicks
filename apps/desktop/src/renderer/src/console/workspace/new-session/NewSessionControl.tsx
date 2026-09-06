@@ -57,6 +57,7 @@ import {
 } from "../../store/index.js";
 import {
   NewSessionDraft,
+  refuseSendThatRejected,
   type DraftPostureMode,
   type NewSessionDraftState,
   type NewSessionSendResult,
@@ -264,9 +265,12 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
         publishReport({ isSending: false, result: sendResult });
       })
       .catch(() => {
-        // A send that rejected outright reported nothing to render, so the draft goes
-        // back to pressable rather than staying frozen behind its own guard.
-        publishReport(NO_SEND_YET);
+        // A send that rejected outright USED to publish `NO_SEND_YET`, which cleared
+        // the result: no banner, no announcement, no diagnostic, and a Send button
+        // that answered a press by doing nothing. The draft names the fault in its own
+        // vocabulary instead, so the refusal renders in the slot every other outcome
+        // uses and the announce effect below says it out loud.
+        publishReport({ isSending: false, result: refuseSendThatRejected() });
       });
   }, [openDraft, publishReport]);
 

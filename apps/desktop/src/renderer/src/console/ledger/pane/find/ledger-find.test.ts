@@ -9,32 +9,24 @@ import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ProvenanceRailModel } from "../../structure/index.js";
-import { type ConsoleSessionEvent } from "../../../store/index.js";
+import {
+  UNFILTERED_LEDGER,
+  ProvenanceRailModel,
+  type LedgerFilter,
+} from "../../structure/index.js";
 import { useLedgerFind, type LedgerFindState } from "./ledger-find.js";
-import { type LedgerWindowModel } from "../window/ledger-window.js";
+import { NO_ROWS_REMOVED, type LedgerWindowModel } from "../window/ledger-window.js";
+import { useFilteredLedgerWindow } from "./ledger-narrowing.js";
 import {
   useVisibleLedgerWindow,
   type VisibleLedgerWindow,
 } from "../window/ledger-visible-window.js";
-import { ledgerFixtureStampAt } from "../feed/ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow } from "../window/ledger-window.js";
-
-const SESSION_ID = "session-visible-window";
-const LOG_EVENT_COUNT = 10;
-const EVERY_ROW_QUERY = "user.message";
-
-/** A log whose every row matches `EVERY_ROW_QUERY`, oldest first. */
-function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
-  return Array.from({ length: count }, (_unused, index) => ({
-    id: `event-${String(index)}`,
-    sessionId: SESSION_ID,
-    sequence: index,
-    kind: EVERY_ROW_QUERY,
-    occurredAt: ledgerFixtureStampAt(index),
-    payload: {},
-  }));
-}
+import {
+  EVERY_ROW_QUERY,
+  LOG_EVENT_COUNT,
+  syntheticEventLog,
+} from "../window/ledger-visible-window.test-support.js";
 
 describe("the walk when the result moves under it", () => {
   /** A visible window over exactly these rows, with nothing outside it. */
@@ -57,28 +49,28 @@ describe("the walk when the result moves under it", () => {
     rows: readonly TimelineRow[],
   ): RenderHookResult<LedgerFindState, { readonly rows: readonly TimelineRow[] }> {
     return renderHook(
-      ({ rows: currentRows }) => {
-        const stage = deriveLedgerWindow(syntheticLog(currentRows.length), false);
-        return useLedgerFind({
+      ({ rows: currentRows }) =>
+        useLedgerFind({
           visible: windowOver(currentRows),
-          unfurledWindow: stage,
-          narrowedWindow: stage,
-          foldedWindow: stage,
-        });
-      },
+          // Nothing is narrowed and nothing is folded here, so both upstream stages
+          // report the shared empty removal.
+          filteredAwayRows: NO_ROWS_REMOVED,
+          foldedAwayRows: NO_ROWS_REMOVED,
+        }),
       { initialProps: { rows } },
     );
   }
 
-  const wholeLog = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
+  const wholeLog = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false).rows;
 
   /**
    * The find state over three stages of one pipeline, each a prefix of the last.
    *
-   * The hook reads the stages as SETS — what the filter removed is the difference
-   * between the first two, what the fold removed is the difference between the next
-   * two — so a prefix models the pipeline exactly at this seam without building a
-   * facet bar and a terminal run chapter to produce the same two differences.
+   * Each stage REPORTS what it removed, which is what the hook counts, so a prefix
+   * models the pipeline exactly at this seam: the rows the narrowing took are the
+   * unfurled log's tail past the narrowed one, and the fold's are the narrowed log's
+   * tail past the folded one. Building a facet bar and a terminal run chapter would
+   * produce the same two sets and nothing else.
    */
   function findOverPipeline(stages: {
     readonly unfurled: number;
@@ -86,14 +78,13 @@ describe("the walk when the result moves under it", () => {
     readonly folded: number;
   }): RenderHookResult<LedgerFindState, unknown> {
     const modelOf = (count: number): LedgerWindowModel =>
-      deriveLedgerWindow(syntheticLog(count), false);
+      deriveLedgerWindow(syntheticEventLog(count), false);
     const foldedWindow = modelOf(stages.folded);
     return renderHook(() =>
       useLedgerFind({
         visible: windowOver(foldedWindow.rows),
-        unfurledWindow: modelOf(stages.unfurled),
-        narrowedWindow: modelOf(stages.narrowed),
-        foldedWindow,
+        filteredAwayRows: modelOf(stages.unfurled).rows.slice(stages.narrowed),
+        foldedAwayRows: modelOf(stages.narrowed).rows.slice(stages.folded),
       }),
     );
   }
@@ -198,10 +189,123 @@ describe("the walk when the result moves under it", () => {
   });
 });
 
+/** A narrowing that admits a family {@link syntheticEventLog} has no row of. */
+const ADMITS_NO_SYNTHETIC_ROW: LedgerFilter = {
+  participantIds: [],
+  categories: ["tool_activity"],
+};
+
+describe("what an appended row costs the counts beside the field", () => {
+  /**
+   * A window model that tallies every pass a caller makes over its rows.
+   *
+   * A getter rather than a spy, because the claim is about passes over the loaded
+   * projection and `rows` is what a pass reads. The counts beside the find field used
+   * to derive their own sets from a pair of these — a `Set` over one stage's rows and
+   * a filter over the previous stage's — so every appended row cost four passes over
+   * the whole log for as long as a query sat in the field, on a ledger that had
+   * narrowed and folded nothing.
+   */
+  function tallyingWindow(model: LedgerWindowModel, tally: { passes: number }): LedgerWindowModel {
+    return {
+      ...model,
+      get rows(): readonly TimelineRow[] {
+        tally.passes += 1;
+        return model.rows;
+      },
+    };
+  }
+
+  /** A visible window over no rows: these cases measure the counts, not the walk. */
+  const NOTHING_ON_SCREEN: VisibleLedgerWindow = {
+    rows: [],
+    prunedAwayRows: [],
+    withheldByReplayRows: [],
+    hasEarlierRows: false,
+    revealedRowKeys: new Set<string>(),
+    heldRowKeys: new Set<string>(),
+    railModel: new ProvenanceRailModel({ rows: [], hasEarlierRows: false }),
+  };
+
+  /** What one measured render reports back. */
+  interface NarrowingReading {
+    readonly removedRowCount: number;
+    readonly matchCount: number;
+    readonly setQuery: (query: string) => void;
+  }
+
+  /**
+   * The narrowing stage over a log a case can grow, with its passes counted.
+   *
+   * The tallying model reaches the STAGE and nothing else: the visible window is a
+   * constant, so every pass the tally records is one the stage or the counts made.
+   */
+  function narrowingOver(
+    filter: LedgerFilter,
+    tally: { passes: number },
+  ): RenderHookResult<NarrowingReading, { readonly eventCount: number }> {
+    return renderHook(
+      ({ eventCount }) => {
+        const projection = deriveLedgerWindow(syntheticEventLog(eventCount), false);
+        const narrowing = useFilteredLedgerWindow(tallyingWindow(projection, tally), filter);
+        const find = useLedgerFind({
+          visible: NOTHING_ON_SCREEN,
+          filteredAwayRows: narrowing.removedRows,
+          foldedAwayRows: NO_ROWS_REMOVED,
+        });
+        return {
+          removedRowCount: narrowing.removedRows.length,
+          matchCount: find.filteredAwayMatchCount,
+          setQuery: find.setQuery,
+        };
+      },
+      { initialProps: { eventCount: LOG_EVENT_COUNT } },
+    );
+  }
+
+  /** Passes over the loaded projection that one appended row costs, under a filter. */
+  function passesPerAppend(filter: LedgerFilter): number {
+    const tally = { passes: 0 };
+    const { result, rerender } = narrowingOver(filter, tally);
+    act(() => {
+      result.current.setQuery(EVERY_ROW_QUERY);
+    });
+    const passesBeforeAppend = tally.passes;
+    rerender({ eventCount: LOG_EVENT_COUNT + 1 });
+    return tally.passes - passesBeforeAppend;
+  }
+
+  it("walks the projection no times per appended row while a query is live", () => {
+    expect(passesPerAppend(UNFILTERED_LEDGER)).toBe(0);
+  });
+
+  it("negative control: a ledger that IS narrowed does walk it, once per stage pass", () => {
+    // Without this the case above would pass over a hook that had simply stopped
+    // counting. Stated as a floor rather than a figure because the figure is the
+    // stage's ONE pass multiplied by however many times this environment renders a
+    // component per update — which is exactly why the case above is the sharp one:
+    // zero stays zero under any multiplier.
+    expect(passesPerAppend(ADMITS_NO_SYNTHETIC_ROW)).toBeGreaterThan(0);
+  });
+
+  it("counts matches over what the stage reported rather than over the projection", () => {
+    // The count beside the field is the matches among exactly the rows the stage
+    // removed — which here is every row, because the filter admits a family this log
+    // has none of.
+    const tally = { passes: 0 };
+    const { result } = narrowingOver(ADMITS_NO_SYNTHETIC_ROW, tally);
+    act(() => {
+      result.current.setQuery(EVERY_ROW_QUERY);
+    });
+
+    expect(result.current.matchCount).toBe(LOG_EVENT_COUNT);
+  });
+});
+
 describe("the find field's own open act", () => {
   /** The find state over one whole window, with nothing pruned. */
   function findOverWholeLog(): RenderHookResult<LedgerFindState, void> {
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
       useLedgerFind({
         visible: useVisibleLedgerWindow(
@@ -209,11 +313,10 @@ describe("the find field's own open act", () => {
           ledgerWindow.viewportRows,
           ledgerWindow.viewportRows,
         ),
-        // Nothing is narrowed and nothing is folded here, so the three upstream
-        // stages are one model and both of their counts stay zero.
-        unfurledWindow: ledgerWindow,
-        narrowedWindow: ledgerWindow,
-        foldedWindow: ledgerWindow,
+        // Nothing is narrowed and nothing is folded here, so both upstream stages
+        // report the shared empty removal and both of their counts stay zero.
+        filteredAwayRows: NO_ROWS_REMOVED,
+        foldedAwayRows: NO_ROWS_REMOVED,
       }),
     );
   }

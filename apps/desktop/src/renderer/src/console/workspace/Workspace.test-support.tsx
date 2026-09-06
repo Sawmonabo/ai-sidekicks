@@ -90,8 +90,16 @@ export function testRegistry(): ConsolePaneRegistry {
   return registry;
 }
 
-export function sessionStore(): SessionStore {
-  const store = new SessionStore({ sessionId: SESSION_ID });
+/**
+ * One opened session store — the family's one home for this role.
+ *
+ * The sidebar's own support module held this verbatim under the same name, and the
+ * restore-order suite held the `UiStateStore` half under a third. AGENTS.md §Tests
+ * puts one home per ROLE: two spellings of "an opened session" is two fixtures that
+ * agree until one of them is corrected.
+ */
+export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
+  const store = new SessionStore({ sessionId });
   store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
   return store;
 }
@@ -121,6 +129,7 @@ export function renderWorkspace(
   return { container, uiStateStore };
 }
 
+/** One in-memory `UiStateStore` — the family's one home for this role. */
 export function memoryStore(): UiStateStore {
   return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
 }

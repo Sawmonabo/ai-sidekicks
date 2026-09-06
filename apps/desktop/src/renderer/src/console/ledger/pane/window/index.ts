@@ -22,4 +22,10 @@ export {
   type VisibleLedgerWindow,
 } from "./ledger-visible-window.js";
 export { LedgerRowRetention } from "./ledger-row-retention.js";
-export { chapterKeyFor, useLedgerProjection, type LedgerWindowModel } from "./ledger-window.js";
+export {
+  NO_ROWS_REMOVED,
+  chapterKeyFor,
+  useLedgerProjection,
+  type LedgerPipelineStage,
+  type LedgerWindowModel,
+} from "./ledger-window.js";

@@ -26,7 +26,7 @@ import {
   type LedgerJumpOutcome,
 } from "../../structure/index.js";
 import {
-  chapterRunIdOf,
+  chapterRunIdInWindow,
   jumpOutcomeRowId,
   type LedgerFindState,
   type LedgerJumpReach,
@@ -63,6 +63,10 @@ export function useLedgerFindAndJump(inputs: {
   readonly unfurledWindow: LedgerWindowModel;
   readonly narrowedWindow: LedgerWindowModel;
   readonly foldedWindow: LedgerWindowModel;
+  /** What the narrowing stage reported removing, for the count beside the field. */
+  readonly filteredAwayRows: readonly TimelineRow[];
+  /** What the fold stage reported withholding, for the count beside the field. */
+  readonly foldedAwayRows: readonly TimelineRow[];
   readonly visible: VisibleLedgerWindow;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly toggleChapter: (chapter: LedgerChapter) => void;
@@ -76,6 +80,8 @@ export function useLedgerFindAndJump(inputs: {
     unfurledWindow,
     narrowedWindow,
     foldedWindow,
+    filteredAwayRows,
+    foldedAwayRows,
     visible,
     openedTerminalRunIds,
     toggleChapter,
@@ -87,8 +93,9 @@ export function useLedgerFindAndJump(inputs: {
 
   // Every stage, not just the rows on screen: what the walk cannot reach is counted
   // under the name of the narrowing holding it, and two of the four narrowings are
-  // upstream of the visible window.
-  const find = useLedgerFind({ visible, unfurledWindow, narrowedWindow, foldedWindow });
+  // upstream of the visible window — each reported by the stage that performed it
+  // rather than re-derived here from a pair of windows.
+  const find = useLedgerFind({ visible, filteredAwayRows, foldedAwayRows });
   // Classified against every stage between the log and the screen rather than
   // against the rows on it, so an id the fold, the replay or the cap took is not
   // reported as one the filter is hiding.
@@ -117,7 +124,7 @@ export function useLedgerFindAndJump(inputs: {
   }, [setFilter]);
   const openChapterOfRow = useCallback(
     (row: TimelineRow) => {
-      const chapterRunId = chapterRunIdOf(row, foldedWindow);
+      const chapterRunId = chapterRunIdInWindow(row, foldedWindow);
       const chapter =
         chapterRunId === undefined ? undefined : foldedWindow.chapterByHeaderKey.get(chapterRunId);
       if (chapter !== undefined) {

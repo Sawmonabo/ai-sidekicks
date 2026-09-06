@@ -156,6 +156,29 @@ export function adoptOverActs(options: {
   };
 }
 
+/**
+ * Whether two sidebar arrangements are the same one.
+ *
+ * The restore path's write gate: an arrival that adopted exactly what the record held
+ * has nothing to file, and filing it anyway spends a durable write on every session a
+ * person opens — and writes back the NARROWED value where the decode dropped an axis,
+ * so the record loses what a later build could have read.
+ *
+ * Written as a field-by-field conjunction rather than over `Object.entries`, for
+ * {@link adoptOverActs}' reason: a fourth axis on {@link SidebarLayoutState} fails to
+ * compile here instead of being silently declared equal.
+ */
+export function sidebarLayoutStatesMatch(
+  left: SidebarLayoutState,
+  right: SidebarLayoutState,
+): boolean {
+  return (
+    left.widthPercent === right.widthPercent &&
+    left.isCollapsed === right.isCollapsed &&
+    left.chosenSectionId === right.chosenSectionId
+  );
+}
+
 /** Why a restore dropped something. Closed, so a fourth cause is a decision. */
 export const SIDEBAR_RESTORE_REFUSAL_CODES = [
   "snapshot-shape-invalid",
@@ -193,8 +216,6 @@ export interface DecodedSidebarLayout {
  * NAMED `Sidebar`, because `deck/deck-snapshot.ts` has the same job under the same
  * bare name: two sibling restore paths in one family reporting at two different type
  * strengths under one identifier is a reader's problem before it is a compiler's.
- * The shape itself — spread `refuse`, re-state `code` for the narrowing — is the
- * console's sixth copy, and is owed a generic in `core/refusal.ts`.
  */
 function refuseSidebarRestore(
   code: SidebarRestoreRefusalCode,

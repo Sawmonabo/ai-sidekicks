@@ -25,13 +25,12 @@ import {
   SESSION_ID,
   headerFor,
   headers,
-  memoryStore,
   openSectionIds,
   press,
   renderSidebar,
-  sessionStore,
   settled,
 } from "./SessionSidebar.test-support.js";
+import { memoryStore, sessionStore } from "../Workspace.test-support.js";
 
 describe("the sidebar — which sections it renders", () => {
   it("renders every declared section, in the tuple's order", async () => {
@@ -205,7 +204,7 @@ describe("the sidebar — a section that is calling for somebody", () => {
     // The whole of the defect: the registry and both containers keep one identity for
     // the life of a session, so a sidebar memoized on those alone is computed at mount
     // and never again, and an approval that arrives a second later reaches no marker.
-    const store = sessionStore();
+    const store = sessionStore(SESSION_ID);
     const rendered = renderSidebar(memoryStore(), registryReadingTheStore("approvals"), store);
     await settled(rendered.container);
     expect(openSectionIds(rendered.container)).toStrictEqual([]);
@@ -219,7 +218,7 @@ describe("the sidebar — a section that is calling for somebody", () => {
   });
 
   it("clears the marker when the item resolves", async () => {
-    const store = sessionStore();
+    const store = sessionStore(SESSION_ID);
     const rendered = renderSidebar(memoryStore(), registryReadingTheStore("approvals"), store);
     await settled(rendered.container);
     applyEvent(store, 1, "run.waiting_for_approval");
@@ -237,7 +236,7 @@ describe("the sidebar — a section that is calling for somebody", () => {
     // The subscription is one number for the whole column, so a store that has not moved
     // costs a pointer comparison and no reader runs. Counted rather than asserted,
     // because a memo that recomputed every pass would still render the right marker.
-    const store = sessionStore();
+    const store = sessionStore(SESSION_ID);
     let readerCallCount = 0;
     const registry = new SidebarSectionRegistry();
     registry.register({

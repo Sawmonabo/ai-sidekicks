@@ -192,7 +192,7 @@ describe("the ledger's narrowing runs BEFORE the chapter fold", () => {
     // receipt before the facets are derived, so the family every one of its message
     // rows carries is absent from the bar and there is no chip to press.
     const projection = deriveLedgerWindow(foldedMessageChapterLog(), false);
-    const foldedFirst = foldChapterHeaders(projection, new Set<string>());
+    const foldedFirst = foldChapterHeaders(projection, new Set<string>()).window;
 
     const foldedFamilies = deriveLedgerFacets(foldedFirst.rows).categories.map(
       (facet) => facet.value,

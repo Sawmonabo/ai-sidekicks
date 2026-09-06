@@ -62,6 +62,10 @@
 // this door publish a name it never declared, which is what `console-no-barrel-chain`
 // reports.
 
+// The sheet this directory owns, imported by its own door: a family door reaching
+// into a directory that carries one is the shape `apps/desktop/AGENTS.md` forbids.
+import "./frame.css";
+
 export { LedgerRowGroup } from "./LedgerRowGroup.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
 export { LedgerRowRevealProvider, useLedgerRowReveal } from "./reveal/RowRevealProvider.js";

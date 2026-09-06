@@ -11,7 +11,6 @@ import { expect } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario.js";
-import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
 import { UiStateStore } from "../../persistence/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -20,6 +19,7 @@ import {
   SidebarSectionRegistry,
   type SidebarSectionId,
 } from "../../seats/index.js";
+import { memoryStore, sessionStore } from "../Workspace.test-support.js";
 import { MountedSidebarSeat } from "./sidebar-commands.js";
 import { useSidebarLayout } from "./sidebar-state.js";
 import { SessionSidebar } from "./SessionSidebar.js";
@@ -36,16 +36,6 @@ const SCENARIO: ConsoleScenario = {
   beats: [],
   replies: [],
 };
-
-export function sessionStore(): SessionStore {
-  const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
-  return store;
-}
-
-export function memoryStore(): UiStateStore {
-  return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
-}
 
 export interface HarnessProps {
   readonly uiStateStore: UiStateStore;
@@ -101,7 +91,7 @@ export interface RenderedSidebar {
 export function renderSidebar(
   uiStateStore: UiStateStore = memoryStore(),
   registry: SidebarSectionRegistry = new SidebarSectionRegistry(),
-  store: SessionStore = sessionStore(),
+  store: SessionStore = sessionStore(SESSION_ID),
 ): RenderedSidebar {
   const commandSeat = new MountedSidebarSeat();
   const bridge = createFixtureBridge({ scenario: SCENARIO });

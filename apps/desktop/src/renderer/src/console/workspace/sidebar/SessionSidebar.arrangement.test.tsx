@@ -22,11 +22,11 @@ import {
   SESSION_ID,
   headerFor,
   headers,
-  memoryStore,
   press,
   renderSidebar,
   settled,
 } from "./SessionSidebar.test-support.js";
+import { memoryStore } from "../Workspace.test-support.js";
 
 describe("the sidebar — collapse, width, and what is kept", () => {
   it("restores collapsed, at the width it was saved with", async () => {

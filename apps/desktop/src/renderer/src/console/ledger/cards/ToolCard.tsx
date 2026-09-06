@@ -110,16 +110,16 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
           <MachineBody
             content={props.content}
             {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-            // PROSE, BECAUSE NOTHING SAYS OTHERWISE. The tool payload carries a name,
-            // a call id, a duration and the body's own descriptors, and no member at
-            // all that says what SHAPE the body is — no sub-family, no content type.
-            // A card that answered "ANSI" for every result was reading terminal output
-            // into an MCP reply, a web-search answer, and every other ordinary textual
-            // result, which then rendered in a raw block with its markdown showing.
-            // Prose is `MachineBody`'s own stated default for text whose shape the wire
-            // does not declare, and deriving one from the tool's NAME is the invention
-            // `card-family.ts` refuses.
-            kind="prose"
+            // NO SHAPE IS PASSED, BECAUSE THIS CARD HAS NONE TO GIVE. The tool
+            // payload carries a name, a call id, a duration and the body's own
+            // descriptors, and no member at all that says what SHAPE the body is — no
+            // sub-family, no content type. A card that answered "ANSI" for every
+            // result was reading terminal output into an MCP reply, a web-search
+            // answer, and every other ordinary textual result; one that answered
+            // "prose" for every result put a shell's escape sequences on the page as
+            // text. `MachineBody` reads the bytes, which is the one thing the wire
+            // does supply, and deriving a shape from the tool's NAME stays the
+            // invention `card-family.ts` refuses.
             sourceId={props.row.id}
             footnotes={props.footnotes}
             label={`Output of ${toolName ?? "an unnamed tool"}`}

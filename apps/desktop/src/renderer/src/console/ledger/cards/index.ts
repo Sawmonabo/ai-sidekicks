@@ -30,10 +30,18 @@
 // fixture rows that stand in until Plan-013's real ones land, which the PR that imports
 // them deletes as a directory).
 //
-// A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS. `bodies/` does — both card
-// frames choose between its two. `ansi/` and `shell/` are each read from outside by one
-// module, and `shell/` by this door, which must reach the declaring module anyway; a door
-// with one reader is a second name for one edge, and a door with none is what
-// `barrel-census` and the dead-code gate both fail.
+// A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS — the family's one criterion,
+// stated the same way in `ledger/pane/index.ts` and `ledger/structure/index.ts`, and it
+// is READERS and not directories: a door earns its place from the modules outside that
+// reach it, however few, because each of them would otherwise name a file rather than a
+// seam. `bodies/` and `ansi/` have none — every reader of both is a sibling inside this
+// directory, which is what a deep intra-family specifier is for. `shell/` has exactly one
+// and it is THIS door's own family door, which must reach the declaring module anyway or
+// `console-no-barrel-chain` reports the second hop, so a door there would have no
+// consumer at all — which `barrel-census` and the dead-code gate both fail.
+
+// The sheet this directory owns, imported by its own door. `markdown/` carries a
+// door of its own and imports its own sheet there.
+import "./cards.css";
 
 export { projectFixtureShellRows } from "./shell/fixture-shell-projection.js";

@@ -13,7 +13,7 @@ import {
   CHILDREN_PER_CHAPTER,
   loadedWindow,
   PRUNABLE,
-  syntheticLog,
+  syntheticWindowRows,
   TOP_LEVEL_ROW_COUNT,
 } from "./window-cap.test-support.js";
 
@@ -90,7 +90,7 @@ describe("the ledger window — when prune may not land", () => {
 
   it("says `under-cap` rather than reporting a prune that dropped nothing", () => {
     const window = new LedgerWindow();
-    window.ingest(syntheticLog(4));
+    window.ingest(syntheticWindowRows(4));
     const outcome = window.prune(PRUNABLE);
     expect(outcome.deferredBecause).toBe("under-cap");
     // And owes nothing: a window inside its cap is not one waiting on a condition,
@@ -116,7 +116,7 @@ describe("the ledger window — when prune may not land", () => {
     // simply had nothing it was allowed to take. Reported as an applied prune with
     // an empty key list this reads exactly like a window already under cap.
     const window = new LedgerWindow({ topLevelCap: 2 });
-    window.ingest(syntheticLog(5));
+    window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
       ...PRUNABLE,
       heldRowKeys: ["chapter-0", "chapter-1", "chapter-2", "chapter-3", "chapter-4"],
@@ -132,7 +132,7 @@ describe("the ledger window — when prune may not land", () => {
     // window is still two rows over its ceiling with nobody re-asking unless the
     // residual is named beside the applied outcome.
     const window = new LedgerWindow({ topLevelCap: 2 });
-    window.ingest(syntheticLog(5));
+    window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
       ...PRUNABLE,
       heldRowKeys: ["chapter-0", "chapter-2", "chapter-3", "chapter-4"],
@@ -148,7 +148,7 @@ describe("the ledger window — when prune may not land", () => {
     // Without this the two cases above would pass over a window that had started
     // reporting `held-rows` for every prune it performed.
     const window = new LedgerWindow({ topLevelCap: 2 });
-    window.ingest(syntheticLog(5));
+    window.ingest(syntheticWindowRows(5));
     const outcome = window.prune(PRUNABLE);
     expect(outcome.applied).toBe(true);
     expect(outcome.owedBecause).toBeUndefined();

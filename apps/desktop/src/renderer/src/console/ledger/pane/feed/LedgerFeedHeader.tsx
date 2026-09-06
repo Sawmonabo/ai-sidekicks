@@ -1,9 +1,9 @@
 // Everything the ledger says above its rows: the find field, the facet bar, the id
-// jump, and the two absences a person can still act on.
+// jump, and the four absences a person can still act on.
 //
 // ITS OWN MODULE BECAUSE IT IS ONE SUBJECT — what this window is NARROWED to, and
 // what that narrowing left out — while the feed beside it is about arrangement. Read
-// inside the composition it came from, these six elements were sixty lines of JSX
+// inside the composition it came from, this row of elements was sixty lines of JSX
 // between a viewport and a rail, and the four suites that ask about them
 // (`LedgerFeed.filters.test.tsx`, `LedgerFeed.jump.test.tsx`,
 // `LedgerFeed.absences.test.tsx`, `LedgerFeed.renders.test.tsx`) had to mount the

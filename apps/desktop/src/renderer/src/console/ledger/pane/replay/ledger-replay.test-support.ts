@@ -87,7 +87,8 @@ export function chapteredLog(): readonly ConsoleSessionEvent[] {
 
 /** That log, folded — shut by default, or with the chapter a person opened. */
 export function foldedWindow(openedRunIds: readonly string[] = []): LedgerWindowModel {
-  return foldChapterHeaders(deriveLedgerWindow(chapteredLog(), false), new Set(openedRunIds));
+  return foldChapterHeaders(deriveLedgerWindow(chapteredLog(), false), new Set(openedRunIds))
+    .window;
 }
 
 /**

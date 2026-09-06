@@ -12,6 +12,9 @@
 // what the pipeline publishes: the highlighter, the code theme, the worker protocol and
 // the caches are the pipeline's own internals and stop at this line.
 
+// The sheet this module owns, imported by its own door.
+import "./markdown.css";
+
 export { FootnotePopoverHost } from "./FootnotePopoverHost.js";
 export { MarkdownNodes, type MarkdownRenderContext } from "./MarkdownNodes.js";
 export { MarkdownBlockSegmenter } from "./block-segmenter.js";

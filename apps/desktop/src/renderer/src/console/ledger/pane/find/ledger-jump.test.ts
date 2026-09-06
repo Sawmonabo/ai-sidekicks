@@ -65,7 +65,7 @@ function reachFor(
   const { result } = renderHook(() =>
     useLedgerJumpReach({
       outcome,
-      foldedWindow: foldChapterHeaders(LOADED_WINDOW, openedTerminalRunIds),
+      foldedWindow: foldChapterHeaders(LOADED_WINDOW, openedTerminalRunIds).window,
       openedTerminalRunIds,
       clearFilter: acts.clearFilter,
       openChapterOfRow: acts.openChapterOfRow,

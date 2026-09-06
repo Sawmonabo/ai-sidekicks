@@ -72,6 +72,35 @@ import {
   type SessionStore,
 } from "../../../store/index.js";
 
+/**
+ * What one pipeline stage admitted, and the rows it removed on the way.
+ *
+ * THE STAGE REPORTS ITS OWN REMOVALS BECAUSE IT IS THE ONE THAT HAS THEM. The counts
+ * beside the find field name what each narrowing is holding, and deriving that
+ * downstream meant building a `Set` over one stage's rows and filtering the previous
+ * stage's against it — two whole-projection passes per stage, re-run on every appended
+ * row for as long as a query was in the field, over a set the stage had already
+ * separated and thrown away.
+ *
+ * AND `removedRows` IS IDENTITY-STABLE WHERE A STAGE REMOVED NOTHING, which is what
+ * makes the common ledger free rather than merely cheaper: a consumer's memo over
+ * {@link NO_ROWS_REMOVED} does not re-run at all when the log grows.
+ */
+export interface LedgerPipelineStage {
+  readonly window: LedgerWindowModel;
+  /** The rows this stage took out of the window it was handed, in log order. */
+  readonly removedRows: readonly TimelineRow[];
+}
+
+/**
+ * The removal a pass-through stage reports.
+ *
+ * One shared value rather than a fresh `[]` per pass: the identity is the contract —
+ * a consumer keys a memo on it, and a new empty array every pass would re-run that
+ * memo on every append while reporting the same nothing.
+ */
+export const NO_ROWS_REMOVED: readonly TimelineRow[] = [];
+
 /** Everything one render of the ledger needs, derived once per store revision. */
 export interface LedgerWindowModel {
   /** The virtualizer's identity list. Memoized: the viewport keys its reconcile on it. */

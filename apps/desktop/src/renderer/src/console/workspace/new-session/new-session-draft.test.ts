@@ -22,7 +22,11 @@ import {
   type RecordedDaemonCall,
 } from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "../../bridge/scenario.js";
-import { NewSessionDraft } from "./new-session-draft.js";
+import {
+  NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
+  NewSessionDraft,
+  refuseSendThatRejected,
+} from "./new-session-draft.js";
 
 const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
@@ -284,5 +288,33 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     expect(first.refusal?.code).toBe("session-create-failed");
     expect(retried.refusal?.code).toBe("session-create-failed");
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD, SESSION_CREATE_METHOD]);
+  });
+});
+
+describe("NewSessionDraft — what a send that REJECTED reports", () => {
+  // The arm this answers is defensive and, in this build, unreachable through the
+  // bridge: `callDaemon` returns a typed reply for a rejected call, an absent door
+  // and a schema failure alike, so no fixture bridge can make `send()` reject. What
+  // shipped in its place was `undefined`, which cleared the result and left Send
+  // pressable with nothing on screen, nothing announced, and nothing recorded — a
+  // control that answers a press by doing nothing. So the SENTENCE is asserted here,
+  // where it is built, rather than through a path a test would have to fake.
+
+  it("carries a code of the draft's own vocabulary rather than clearing the press", () => {
+    const reported = refuseSendThatRejected();
+
+    expect(reported.outcome).toBe("refused");
+    expect(reported.refusal?.code).toBe("send-failed");
+    expect(reported.refusal?.origin).toBe(NEW_SESSION_DRAFT_REFUSAL_ORIGIN);
+  });
+
+  it("negative control: it claims nothing was created", () => {
+    // Without this the case above would pass over a report that named the fault and
+    // still carried a session id, which is a person told to retry a create that may
+    // already have landed.
+    const reported = refuseSendThatRejected();
+
+    expect(reported.sessionId).toBeUndefined();
+    expect(reported.completedCalls).toStrictEqual([]);
   });
 });

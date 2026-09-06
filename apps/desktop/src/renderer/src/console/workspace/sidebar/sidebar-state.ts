@@ -35,6 +35,7 @@ import {
   clampSidebarWidthPercent,
   decodeSidebarLayout,
   encodeSidebarLayout,
+  sidebarLayoutStatesMatch,
   type SidebarLayoutState,
 } from "./sidebar-model.js";
 
@@ -196,27 +197,38 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
       if (superseded) {
         return;
       }
-      restore.settle();
       const decoded =
         record === undefined
           ? { state: INITIAL_SIDEBAR_LAYOUT_STATE, refusals: [] }
           : decodeSidebarLayout(record.value);
       // Per axis, so a collapse made during the read is not paid for with the width
       // and the open section the record still holds the person's answer for.
-      layout.adopt(
-        adoptOverActs({
-          restored: decoded.state,
-          beforeRead: stateBeforeRead,
-          live: layout.snapshot().state,
-        }),
-        decoded.refusals,
-      );
+      const adopted = adoptOverActs({
+        restored: decoded.state,
+        beforeRead: stateBeforeRead,
+        live: layout.snapshot().state,
+      });
+      layout.adopt(adopted, decoded.refusals);
+
+      // OPENED ONLY NOW, WHICH IS THE DECK'S ORDERING AND NOT A SECOND ONE.
+      // `adopt` commits unconditionally — it has no equality guard, because the three
+      // axes it replaces are the restore's whole job — so a gate opened above it fired
+      // this hook's own listener with the record it had just read, and every session a
+      // person opened spent a durable write echoing that record back. Where the decode
+      // had dropped an axis it wrote the NARROWED value over the record, so what a
+      // later build could have read was gone.
+      restore.settle();
+      if (!sidebarLayoutStatesMatch(adopted, decoded.state)) {
+        // ONCE, and only where what the person is looking at is not what the record
+        // held: their act during the read, or an arrangement the decode narrowed.
+        writer.request(sessionId, encodeSidebarLayout(adopted));
+      }
     })();
     return () => {
       superseded = true;
       restore.abandon();
     };
-  }, [layout, restore, sessionId, uiStateStore]);
+  }, [layout, restore, sessionId, uiStateStore, writer]);
 
   useEffect(() => {
     if (sessionId === undefined) {
