@@ -99,6 +99,24 @@ export {
   type ConsoleSurfaceDescriptor,
 } from "./surface-registry.js";
 
+// The frame-lifetime binding seat, beside the four that mount bodies. It is on this
+// door for the same reason every other board is — a family claims a place on it and
+// the composition hands the board out — and `mountFrameBindings` is here because the
+// frame is the one caller that wraps a subtree in what the board holds.
+//
+// No `@consumedBy` claims: the composition root, the frame, and the family that fills
+// the one declared slot all read these today.
+export {
+  FRAME_BINDING_SLOTS,
+  FrameBindingRegistry,
+  frameBindingRegistry,
+  mountFrameBindings,
+  type FrameBindingContext,
+  type FrameBindingDescriptor,
+  type FrameBindingProps,
+  type FrameBindingSlot,
+} from "./frame-bindings.js";
+
 // The two contexts come off their own modules rather than off the boards that hand them
 // out. They were hoisted there to break a cycle — a board reaches the reserved frame it
 // mounts while a loader-backed body is in flight, and that frame names the context — and

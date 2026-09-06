@@ -35,6 +35,13 @@
 //     place that can hand `AppFrame` the flag.
 //   • **The bridge is provided, never reached for.** No component below this one
 //     touches `window.sidekicks`.
+//   • **The family-owned frame-lifetime reads wrap this whole subtree.** A view
+//     family cannot be imported here — `console-view-family-isolation` forbids the
+//     frame from naming one — so a read whose value the rail renders reaches the
+//     window through the frame-binding board the composition filled, and the fold
+//     around the return is where it is mounted. Once per window, up with the frame
+//     and down with it, so a destination that used to hold such a read is now a
+//     reader of it and navigating away no longer ends it.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 
@@ -43,7 +50,13 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { CONSOLE_CHORD_PLATFORM, PaletteOverlay, consoleCommands } from "../palette/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
-import { consolePaneRegistry, consoleSurfaceRegistry } from "../seats/index.js";
+import {
+  consolePaneRegistry,
+  consoleSurfaceRegistry,
+  frameBindingRegistry,
+  mountFrameBindings,
+  type FrameBindingContext,
+} from "../seats/index.js";
 import {
   FrameStore,
   consoleEntityProjectorRegistry,
@@ -208,44 +221,64 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     draftStore,
   };
 
+  // What the window's family-owned frame-lifetime reads are handed. Three identities,
+  // every one stable for the window's whole life — which is why the surface context
+  // beside it is deliberately not what travels here: that one is composed fresh on
+  // every render and carries the route, so a binding keyed on it would rebuild its
+  // read whenever a person navigated, which is the lifetime a binding exists to
+  // escape.
+  const frameBindingContext = useMemo<FrameBindingContext>(
+    () => ({ bridge: props.bridge, frameStore, sessionStoreRegistry }),
+    [props.bridge, frameStore, sessionStoreRegistry],
+  );
+
+  // A fragment around the fold, so this component keeps its element return type while
+  // `mountFrameBindings` keeps the honest one: a board with no registrations folds to
+  // whatever it was handed, which the type system cannot know is an element.
   return (
-    <AppFrame
-      route={route}
-      railEntries={railEntries}
-      railDestination={railDestinationFor(route)}
-      onSelectDestination={(destination) => {
-        // Warmed BEFORE the navigation, which is the whole of why the two lines are in
-        // this order: `navigate` commits the route synchronously and the surface mounts
-        // on the commit after it, so a fetch started first is already in flight when the
-        // mount asks for the body. `rail-navigation.ts` says what a destination whose
-        // surface is not loader-backed does here, which is nothing.
-        warmDestination(consoleSurfaceRegistry, destination);
-        frameStore.navigate(routeForDestination(destination));
-      }}
-      modalOverlayOpen={commandSurface.paletteOpen}
-      shellChrome={<ShellChrome frameStore={frameStore} onRetry={startDaemon} />}
-      banners={banners}
-      onDismissBanner={(bannerId) => {
-        frameStore.dismissBanner(bannerId);
-      }}
-      overlays={
-        <>
-          <PaletteOverlay
-            registry={consoleCommands}
-            context={commandSurface.whenContext}
-            open={commandSurface.paletteOpen}
-            onOpenChange={commandSurface.setPaletteOpen}
-            platform={CONSOLE_CHORD_PLATFORM}
-            bindings={commandSurface.keyBindings}
-            scopeLabel={describeScope(route)}
-            {...(shellBlock === undefined ? {} : { shellBlock })}
-            revision={commandSurface.commandRevision}
-          />
-          {props.renderOverlays === undefined ? null : props.renderOverlays(surfaceContext)}
-        </>
-      }
-    >
-      <RouteSurface context={surfaceContext} />
-    </AppFrame>
+    <>
+      {mountFrameBindings(
+        frameBindingRegistry,
+        frameBindingContext,
+        <AppFrame
+          route={route}
+          railEntries={railEntries}
+          railDestination={railDestinationFor(route)}
+          onSelectDestination={(destination) => {
+            // Warmed BEFORE the navigation, which is the whole of why the two lines are in
+            // this order: `navigate` commits the route synchronously and the surface mounts
+            // on the commit after it, so a fetch started first is already in flight when the
+            // mount asks for the body. `rail-navigation.ts` says what a destination whose
+            // surface is not loader-backed does here, which is nothing.
+            warmDestination(consoleSurfaceRegistry, destination);
+            frameStore.navigate(routeForDestination(destination));
+          }}
+          modalOverlayOpen={commandSurface.paletteOpen}
+          shellChrome={<ShellChrome frameStore={frameStore} onRetry={startDaemon} />}
+          banners={banners}
+          onDismissBanner={(bannerId) => {
+            frameStore.dismissBanner(bannerId);
+          }}
+          overlays={
+            <>
+              <PaletteOverlay
+                registry={consoleCommands}
+                context={commandSurface.whenContext}
+                open={commandSurface.paletteOpen}
+                onOpenChange={commandSurface.setPaletteOpen}
+                platform={CONSOLE_CHORD_PLATFORM}
+                bindings={commandSurface.keyBindings}
+                scopeLabel={describeScope(route)}
+                {...(shellBlock === undefined ? {} : { shellBlock })}
+                revision={commandSurface.commandRevision}
+              />
+              {props.renderOverlays === undefined ? null : props.renderOverlays(surfaceContext)}
+            </>
+          }
+        >
+          <RouteSurface context={surfaceContext} />
+        </AppFrame>,
+      )}
+    </>
   );
 }

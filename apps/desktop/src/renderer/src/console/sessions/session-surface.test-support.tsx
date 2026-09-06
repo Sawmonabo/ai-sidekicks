@@ -1,11 +1,11 @@
-// The harness both of this destination's test files drive it through.
+// The harness this destination's test files drive it through.
 //
-// Hoisted on second use, per `apps/desktop/AGENTS.md`. The two files ask different
-// questions — one about the LIST and the act of starting a session, the other about
-// the two session-scoped reads in the aside — but they mount the same destination
-// against the same faked context, and a second copy of `settle` in particular would
-// let them disagree about how many passes the read chain needs without either one
-// failing.
+// Hoisted on second use, per `apps/desktop/AGENTS.md`. The files ask different
+// questions — one about the LIST and the act of starting a session, another about the
+// two session-scoped reads in the aside, and the binding's own about how long the
+// rail's count lives — but they mount the same destination against the same faked
+// context, and a second copy of `settle` in particular would let them disagree about
+// how many passes the read chain needs without any one of them failing.
 
 import { act, render } from "@testing-library/react";
 
@@ -17,6 +17,7 @@ import {
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
 import { politeText } from "../primitives/live-region.test-support.js";
 import { SidekicksBridgeProvider } from "../bridge/index.js";
+import { SessionAttentionBinding } from "./SessionAttentionBinding.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 import { openStore } from "./sessions.test-support.js";
 import { SessionStore } from "../store/index.js";
@@ -25,10 +26,12 @@ import type { ConsoleSurfaceContext } from "../seats/index.js";
 /**
  * Let the destination's asynchronous arrivals land.
  *
- * Three reads settle behind this surface — the attention projection, the invites
+ * Three reads settle behind this destination — the attention projection, the invites
  * fan-out, and the node's session directory — and each settles an effect that can
  * schedule the next, so the count is the depth of that chain rather than a number
- * picked to make a test pass.
+ * picked to make a test pass. Two of the three are performed by the binding ABOVE the
+ * surface now rather than by the surface, which changes where they are mounted and
+ * not how long the chain is.
  *
  * The attention read is the one that also costs TIME. It goes through the console's
  * one refresh scheduler, so its first read lands a debounce interval after the
@@ -261,7 +264,22 @@ export function renderSurface(context: ConsoleSurfaceContext): {
   const mounted = render(
     <SidekicksBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
-        <SessionsSurface context={context} />
+        {/*
+          The window's attention binding, mounted the way the frame mounts it. It is
+          part of the shape under test rather than scaffolding: the destination reads
+          the projection and the node's directory THROUGH it now, so a harness that
+          omitted it would be driving a surface no composition produces — and the one
+          it would produce is the one this seat exists to retire.
+        */}
+        <SessionAttentionBinding
+          context={{
+            bridge: context.bridge,
+            frameStore: context.frameStore,
+            sessionStoreRegistry: context.sessionStoreRegistry,
+          }}
+        >
+          <SessionsSurface context={context} />
+        </SessionAttentionBinding>
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>,
   ).container;

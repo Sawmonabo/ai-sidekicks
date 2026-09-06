@@ -49,10 +49,16 @@
 // and `renderAbsorbedSessionProbe` carries the fixture guard, so this file never
 // has to know that the probe reads the installed bridge directly.
 //
-// ONE ATTENTION READ FOR THE WHOLE DESTINATION. The notification center renders it
-// and the list takes each row's severity from the same plane. Two reads would be
-// two answers to "what needs me", and the row and the panel beside it would
-// eventually disagree in front of a person who can see both at once.
+// ONE ATTENTION READ FOR THE WHOLE WINDOW, AND THIS DESTINATION DOES NOT PERFORM IT.
+// The notification center renders it and the list takes each row's severity from the
+// same plane, so two reads would be two answers to "what needs me" and the row and the
+// panel beside it would eventually disagree in front of a person who can see both at
+// once. It moved OUT of this file onto the window's frame-lifetime binding seat,
+// because the rail draws a count off the same read and a read mounted here ended the
+// moment somebody navigated away — leaving the rail suppressed on a machine that was
+// answering perfectly well. This surface consumes what the binding holds, and the
+// node's directory rides along with it for the same reason: read here as well, it
+// would be the same wire asked twice per window.
 //
 // NOTHING HERE MEMOISES ON THE CONTEXT. `ConsoleSurfaceContext` is composed fresh
 // on every frame render, so a dependency array naming it memoises nothing — and an
@@ -66,24 +72,20 @@ import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/index.js";
 import {
   NotificationCenter,
-  attentionProjectionReaderFor,
   useAttentionNotifications,
-  useAttentionProjection,
-  useRailAttentionPublisher,
   useAttentionSettlementAnnouncement,
   useOsNotificationDelivery,
 } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
-import { renderAbsorbedSessionProbe, useSessionDirectory } from "../seats/index.js";
+import { renderAbsorbedSessionProbe } from "../seats/index.js";
 import { useOpenSessionIds } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionProjection } from "./rows/open-session-rows.js";
 import { useSessionPreferences } from "./rows/session-preferences.js";
 import { sessionListDegradation } from "./session-list-degradation.js";
 import { SessionActs } from "./acts/SessionActs.js";
-import { mergeSessionRows } from "./rows/session-directory-rows.js";
+import { useSessionAttention } from "./SessionAttentionBinding.js";
 import { useSessionPins } from "./rows/session-pins.js";
-import type { SessionListRow } from "./rows/session-rows.js";
 import { SessionRowsView } from "./SessionRowsView.js";
 import { type SessionRowsProps } from "./SessionRowsView.js";
 
@@ -95,7 +97,18 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   const { context } = props;
   const pins = useSessionPins(context.uiStateStore);
   const preferences = useSessionPreferences(context.uiStateStore);
-  const directory = useSessionDirectory(context.bridge.growth);
+  // The node's directory and the projection, from the window's binding rather than
+  // from a read of this destination's own. Both used to be performed here, which made
+  // them a DESTINATION's reads: the rail's count then stood only while a person was
+  // looking at this screen, and the directory was read a second time on every window
+  // that had this surface and the binding both. `SessionAttentionBinding.tsx` says the
+  // rest; what matters here is that this surface has become a reader.
+  const {
+    directory,
+    sessionIds: attentionSessionIds,
+    reading: attention,
+    retry: retryAttention,
+  } = useSessionAttention();
   const windowSessionIds = useOpenSessionIds(context.sessionStoreRegistry);
   // Every open session's own projection, not the route's. This address names no
   // session, so `context.sessionStore` is `undefined` here for the life of the
@@ -109,24 +122,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // sentences are composed once from the cause — a control deciding for itself
   // whether it is allowed would be a second source of truth for the store's fact.
   const degradation = sessionListDegradation(openSessions.degradedCause);
-  // The attention read is scoped to a session on the wire and this destination is
-  // not, so it asks about every session the surface can NAME — the same set the
-  // list is built from, derived here with no projected rows because the ids are all
-  // this needs. Memoised on the merged ids rather than on the directory object, so
-  // the read fires once when the directory settles and not again on every render
-  // the surface performs afterwards.
-  const attentionSessionIds = useMemo(
-    () => mergeSessionRows({ directory, windowSessionIds, projectedRows: [] }).map(sessionIdOf),
-    [directory, windowSessionIds],
-  );
-  const attentionProjection = useAttentionProjection(
-    useMemo(
-      () => attentionProjectionReaderFor(context.bridge.growth, attentionSessionIds),
-      [context.bridge.growth, attentionSessionIds],
-    ),
-    context.sessionStoreRegistry,
-  );
-  const attention = attentionProjection.reading;
   // Said once per settlement, here rather than inside the center: this destination is
   // where the read lives, and the center is handed a reading and mounted in two other
   // harnesses that render it with no announcer above them. The panel draws the same
@@ -147,8 +142,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     frameStore: context.frameStore,
     bridge: context.bridge,
   });
-  // The rail's count, published from this read for as long as it is mounted.
-  useRailAttentionPublisher(context.frameStore, attention);
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);
@@ -244,7 +237,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
             reading={attention}
             delivery={delivery}
             onOpen={openAttentionItem}
-            onReopen={attentionProjection.retry}
+            onReopen={retryAttention}
           />
         </aside>
       </div>
@@ -280,11 +273,11 @@ function inviteShelfReaderFor(
 /**
  * The navigation both surfaces perform, bound to one frame store.
  *
- * Module-level and NOT a `useCallback`, on the rule `sessionIdOf` below already
- * states: a mount-lifetime cell naming a session is the shape the console holds
- * through its one subject-keyed holder, so a callback capturing a session id is the
- * shape a reader — and `test/console/architecture/subject-state-chokepoint.test.ts` —
- * has to stop and check. Nothing here needs a stable identity either: both consumers
+ * Module-level and NOT a `useCallback`, on the rule `SessionAttentionBinding.tsx`'s
+ * own `sessionIdOf` states: a mount-lifetime cell naming a session is the shape the
+ * console holds through its one subject-keyed holder, so a callback capturing a
+ * session id is the shape a reader — and
+ * `test/console/architecture/subject-state-chokepoint.test.ts` — has to stop and check. Nothing here needs a stable identity either: both consumers
  * are rendered by this surface on every pass regardless.
  */
 function sessionOpenerFor(
@@ -293,16 +286,4 @@ function sessionOpenerFor(
   return (sessionId: string): void => {
     frameStore.navigate({ kind: "workspace", sessionId });
   };
-}
-
-/**
- * One row's session id.
- *
- * Module-level rather than a lambda inside the memo below, and the reason is a rule
- * rather than a preference: a mount-lifetime cell naming a session is the shape the
- * console holds through its one holder, so a cell whose body writes the word for a
- * reason of its own is the shape a reader — and the tripwire — has to stop and check.
- */
-function sessionIdOf(row: SessionListRow): string {
-  return row.sessionId;
 }
