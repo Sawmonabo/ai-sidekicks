@@ -1,0 +1,130 @@
+/*
+ * The produced-object card, and the ingest meter inside it.
+ *
+ * One of the browser family's five sheets. The family's own discipline holds in
+ * every one of them: no literal colour, every value read back out of a Meridian
+ * custom property, and the two hues spent only on their one meaning each
+ * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
+ * red where something failed). Grep any of these files for `amber` and `red` and
+ * every hit is one of those.
+ *
+ * Every sheet here is imported from `console/browser/index.ts` and from nowhere
+ * else, so the bundler sees exactly one edge into each however many surfaces this
+ * family grows. It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a
+ * `styles/` directory of its own: one sheet per sub-module directory, named for
+ * that directory, so the shapes and the rules that draw them are read together and
+ * a sixth sheet has one plausible home instead of two.
+ *
+ * One shell shared by a capture, a download, and a page tool call, because all
+ * three are "one produced object, collapsed to a line, with the detail one
+ * click away" (rule 7) — and three sheets for one shape is how three surfaces
+ * drift apart. The governance line rides with them: it is the row that says
+ * under which rule the object was allowed to exist, and it is rendered by no
+ * other surface.
+ */
+
+/* -------------------------------------------------------------------- card */
+
+/*
+ * One shell for a capture, a download, and a tool call. The 2 px inline-start
+ * edge is the ledger's attribution edge width reused as a KIND mark rather than a
+ * participant one — these three rows have no author to attribute to, and a second
+ * edge width beside rule 1's would read as a second vocabulary.
+ */
+.meridian-browser-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-browser-card--refused {
+  border-inline-start-color: var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-browser-card--waiting {
+  border-inline-start-color: var(--meridian-amber-mark);
+}
+
+.meridian-browser-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-browser-card__name {
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.meridian-browser-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-inline-start: auto;
+}
+
+/*
+ * The pipeline's byte ceiling, labelled rather than glyphed. A lone quantity in this
+ * row would be read as the download's own size; the word says which number it is,
+ * and the figure beside it is a wire figure so the exact count the pipeline reported
+ * survives the rounding its visible text performs.
+ */
+.meridian-browser-card__ceiling {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-card__note {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * The ingest meter. A boundary and a fill, no numerals of its own — the figures
+ * beside it are the wire's and go through `wire-figures.ts`, so a meter that also
+ * printed a percentage would be a second reading of one fact.
+ */
+.meridian-browser-meter {
+  block-size: 4px;
+  border-radius: 999px;
+  background: var(--meridian-surface-sunken);
+  overflow: hidden;
+}
+
+.meridian-browser-meter__fill {
+  block-size: 100%;
+  background: var(--meridian-accent);
+  transition: inline-size var(--meridian-motion-settle) var(--meridian-ease-settle);
+}
+
+/* --------------------------------------------------------- governance line */
+
+.meridian-browser-governance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}

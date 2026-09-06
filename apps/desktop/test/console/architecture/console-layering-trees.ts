@@ -161,7 +161,7 @@ export const PROOF_TREE: PlantedTree = {
  * A view family's SUB-DIRECTORY reaching a layer family's module, past that door.
  *
  * The shape found in production and cruised clean before this rule existed: a pane body
- * two directories deep inside its family reaching `bridge/node-state-read.js` rather
+ * two directories deep inside its family reaching `bridge/daemon/node-state-read.js` rather
  * than `bridge/index.js`. Planted beside the family-root case because the source's DEPTH
  * is the thing that could be got wrong — the rule captures the owning family from the
  * first path segment, so a source one directory deeper has to resolve to the same owner

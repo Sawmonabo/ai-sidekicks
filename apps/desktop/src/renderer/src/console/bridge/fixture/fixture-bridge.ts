@@ -40,6 +40,7 @@ import { createFixtureGrowthPort } from "./fixture-growth-port.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import { refuseAbsentCapability } from "./fixture-refusal.js";
 import { subscribeToScenario, subscribeToScenarioRelay } from "./fixture-subscriptions.js";
+import { createScriptedPaneViewHost } from "./pane-view-host-script.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
@@ -132,6 +133,11 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // set beside it still described a different one.
     growth: createFixtureGrowthPort(scenarioEngine),
     growthServedOperations: new Set(FIXTURE_SERVED_GROWTH_OPERATION_IDS),
+    // 12.11's scripted arm. Without it the resolver could only ever return the
+    // unavailable host, so every geometry publish under the fixture and under the
+    // end-to-end runs was suppressed and the attached path the wiring table
+    // promises was exercised by nothing.
+    paneViewHostScript: createScriptedPaneViewHost(),
     source: "fixture",
     scenarioEngine,
   };

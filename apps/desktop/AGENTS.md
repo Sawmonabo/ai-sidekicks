@@ -108,7 +108,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 
 ## Budgets and tripwires
 
-- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job, and its `measuredBy` names a harness that holds the subject it bounds. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun. The two `enforced` rows today are `renderer-initial-bundle`, reached through the `console-bundle` tier, and `renderer-heap-at-rest`, reached through the `console-endurance` tier; both tiers are on both.
+- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job, and its `measuredBy` names a harness that holds the subject it bounds. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun. The three `enforced` rows today are `renderer-initial-bundle`, reached through the `console-bundle` tier, and `renderer-heap-at-rest` and `terminal-instance-memory`, both reached through the `console-endurance` tier; both tiers are on both. The third row is what the second half of that rule looks like when it is met: a whole `terminal` pane, resolved through the deck's own registry and mounted in the built console by the `define`-gated fixture pane harness, on a live WebGL2 context — and the run fails on a fallback-renderer reading rather than measuring a narrower subject.
 - Every console PR runs every tier whose subject is in-tree; an absent subject is reported `n/a`, never silently skipped. Every tripwire asserts it matched at least one site; zero matches fails.
 
 ## Pre-PR self-audit

@@ -1,0 +1,171 @@
+/*
+ * The lease line: who holds the write lease, the control that asks for it, and the
+ * transition history folded away behind a disclosure.
+ *
+ * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal colour,
+ * every value read back out of a custom property.
+ *
+ * One of the terminal family's four sheets, flat beside the modules it dresses:
+ * one sheet per sub-module directory, named for that directory, and one at the
+ * family root for the shapes more than one directory reaches for. Every one is
+ * imported from `console/terminal/index.ts` and from nowhere else, so the bundler
+ * sees exactly one edge into each — which is what keeps this family out of the
+ * document the operator waits for, per `Spec-023 §Console Design (Meridian)`
+ * §Budgets.
+ *
+ * `Spec-023 §Console Design (Meridian)` governs every rule here:
+ *   • rule 2 — hue answers "who". The holder's mark is the only coloured thing in
+ *              this family, and it is never behind text. The one literal length is
+ *              that mark's 2 px, which is rule 1's attribution width carried onto a
+ *              mark that is not a row edge — the same number, spent for the same
+ *              reason.
+ *   • rule 3 — one desaturated cyan on the interactive thing, and nothing else.
+ *              The claim control is that thing; the disclosure beside it is not.
+ *   • rule 5 — motion settles. The disclosure spends `--meridian-motion-quick`
+ *              and nothing overshoots.
+ *   • rule 7 — density: the transition history is one click away, behind the
+ *              disclosure, and is not a second visible panel.
+ */
+
+.meridian-lease-line {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding-block-end: var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-lease-line__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  flex-wrap: wrap;
+}
+
+.meridian-lease-line__holder {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-lease-line__holder-id {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+/*
+ * The holder's identity: rule 1's 2 px, carried as a standing mark rather than a
+ * row edge. Its fill patterns mirror `LedgerRow`'s four ring treatments, so one
+ * person reads the same on a ledger line and on this header.
+ */
+.meridian-lease-line__mark {
+  inline-size: 2px;
+  block-size: 1.1em;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-lease-hue);
+}
+
+.meridian-lease-line__mark--unattributed {
+  background: var(--meridian-edge-strong);
+}
+
+.meridian-lease-line__mark--dashed {
+  background: repeating-linear-gradient(var(--meridian-lease-hue) 0 4px, transparent 4px 7px);
+}
+
+.meridian-lease-line__mark--double {
+  background: repeating-linear-gradient(
+    var(--meridian-lease-hue) 0 2px,
+    transparent 2px 3px,
+    var(--meridian-lease-hue) 3px 5px,
+    transparent 5px 8px
+  );
+}
+
+.meridian-lease-line__mark--dotted {
+  background: repeating-linear-gradient(var(--meridian-lease-hue) 0 1px, transparent 1px 4px);
+}
+
+.meridian-lease-line__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* The one interactive thing on this surface, so the one place cyan is spent — and it
+   is spent on the control's BOUNDARY rather than behind its label.
+   `--meridian-accent` is a NON-TEXT token: `tokens/tokens.ts` holds it to the 3:1
+   control-boundary floor and to nothing more, so a label sitting on it was a text
+   pair no floor in the palette covers, and the accessibility tier measured it as a
+   serious contrast failure in the light scheme. `--meridian-accent-text` is the
+   accent's text-floor sibling, cleared at 4.5:1 against every ground. The control
+   still reads as the primary one — it is the only accent-bordered thing on the line,
+   beside a disclosure carrying the decorative edge. */
+.meridian-lease-line__claim {
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-accent-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-accent);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--meridian-motion-quick) var(--meridian-ease-settle),
+    opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-lease-line__claim:hover:enabled {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-lease-line__claim:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* Secondary, and quiet: rule 7 puts the history one click away, not beside. */
+.meridian-lease-line__disclosure {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  background: transparent;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-lease-line__degraded,
+.meridian-lease-line__unread,
+.meridian-lease-line__aside {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-lease-line__sentence {
+  margin: 0;
+}
+
+/* The disclosure body and the feed inside it stack the same way; only the outer box
+   scrolls, so the truncation notice above the feed scrolls with the rows it is
+   about rather than sitting outside the disclosure it qualifies. */
+.meridian-lease-line__ledger,
+.meridian-lease-line__ledger-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-lease-line__ledger {
+  max-block-size: 18rem;
+  overflow-y: auto;
+  padding-block-start: var(--meridian-space-2);
+  border-block-start: 1px solid var(--meridian-edge);
+}
