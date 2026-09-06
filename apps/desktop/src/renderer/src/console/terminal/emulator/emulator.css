@@ -1,0 +1,45 @@
+/*
+ * The emulator's host box and its boundary, and nothing inside them.
+ *
+ * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal colour,
+ * every value read back out of a custom property.
+ *
+ * One of the terminal family's four sheets, flat beside the modules it dresses:
+ * one sheet per sub-module directory, named for that directory, and one at the
+ * family root for the shapes more than one directory reaches for. Every one is
+ * imported from `console/terminal/index.ts` and from nowhere else, so the bundler
+ * sees exactly one edge into each — which is what keeps this family out of the
+ * document the operator waits for, per `Spec-023 §Console Design (Meridian)`
+ * §Budgets.
+ *
+ * xterm.js draws inside `.meridian-terminal-host__surface`. Its own sheet
+ * (`@xterm/xterm/css/xterm.css`, imported by `xterm-adapter.ts` so it rides the
+ * emulator's lazy chunk) owns everything under it; this file owns the box and its
+ * boundary only, so a library upgrade cannot collide with a rule of ours. This
+ * sheet therefore also has to stand on its own before the emulator arrives: the
+ * host box keeps its size and its boundary while the chunk is still in flight.
+ */
+
+.meridian-terminal-host {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  overflow: hidden;
+}
+
+/*
+ * A read-only surface reads as read-only. Not a disabled control — 8.8 makes the
+ * input area ABSENT for a watcher rather than disabled — so the signal is the
+ * boundary, and the name the region carries says the rest.
+ */
+.meridian-terminal-host[data-write-enabled="false"] {
+  border-style: dashed;
+}
+
+.meridian-terminal-host__surface {
+  block-size: 100%;
+  inline-size: 100%;
+  font-family: var(--meridian-font-mono);
+}

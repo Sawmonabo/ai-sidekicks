@@ -20,12 +20,26 @@
 //     surface has not been built, which is true, rather than rendering an empty pane
 //     that reads as a broken feature.
 //
+// AND THE SURFACE THAT DOES MOUNT IS KEYED ON THE ADDRESS IT WAS MOUNTED AT. Two
+// routes can resolve to ONE slot — a second session's workspace, a second pane kind
+// in the fixture harness — and React reconciles the same component in the same
+// position, so whatever state that surface holds survives a move to a subject it was
+// never about. The fixture pane harness is where that was first observed: a hash
+// change from one `#/pane-harness/…` address to another left its open-pane count
+// standing, so the replacement route mounted the previous route's number of panes
+// with no Open action, and on a same-kind session change React reused the pane
+// instances themselves against the new session. The key is `formatRoute`'s own
+// output rather than a second reading of the route, so there is one grammar deciding
+// what "a different address" means.
+//
 // Three of the four reach the screen through the `SurfaceAbsence` primitive, which
 // is the console's one centring wrapper; `seats/absorbed-surfaces.ts` raises three
 // more through the same component, which is why it is a module and not a block in here.
 
+import { Fragment } from "react";
+
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
-import { isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
+import { formatRoute, isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
 import { ContextPicker } from "./ContextPicker.js";
 import {
   consoleSurfaceRegistry,
@@ -106,5 +120,8 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
       </SurfaceAbsence>
     );
   }
-  return <>{descriptor.render(context)}</>;
+  // Keyed, not bare: the fragment IS the mount, so a different address is a
+  // different element in this position and React unmounts what the previous one
+  // built rather than handing it to a subject it was not addressed at.
+  return <Fragment key={formatRoute(route)}>{descriptor.render(context)}</Fragment>;
 }

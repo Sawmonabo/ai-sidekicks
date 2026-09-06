@@ -45,6 +45,7 @@
 
 import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
+import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import { registerConsolePanes } from "./panes/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
@@ -120,6 +121,22 @@ export function registerConsoleFamilies(
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
   registerRunLifecycleProjectors(projectors);
+  // The fixture-only pane harness, which is the one surface that mounts a
+  // REGISTERED pane body in a running window. It takes both boards because it
+  // resolves its body out of the pane board this composition owns, and it decides
+  // for itself — behind `__SIDEKICKS_CONSOLE_FIXTURES__`, inside its own module —
+  // whether it registers at all, so no condition lands here. It is composed after
+  // `registerConsolePanes` because that is the family order; resolution happens at
+  // render, so the order is legibility rather than a dependency.
+  registerPaneHarnessSurface(surfaces, panes);
+  // The browser-terminal family has landed and claims no surface slot: both of its
+  // kinds are pane bodies, registered through `registerBrowserPanes` and
+  // `registerTerminalPanes` on the pane board in `panes/index.ts`, so it has nothing
+  // to call at its seat. Said out loud because a reservation and a deliberate absence
+  // read identically, and the difference is the whole question a reader arrives with.
+  // The seat line itself stays in its reserved shape, which is the shape it would
+  // take either way — a seat is a seat filled or not, and the board counts it. Said
+  // HERE rather than beside that line, because the census below admits seats only.
   // Each seat below receives the boards it writes into, out of the five this
   // composition was handed. A family claims a surface slot, a pane kind, the event
   // kinds whose fold it owns, a sidebar section, and an inline-card body — through

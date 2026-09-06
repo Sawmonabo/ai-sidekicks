@@ -43,22 +43,39 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// The console's ONE `ResizeObserver` construction site, through the door for the
+// reason the announcer is: two view families arm a size source — the browser
+// family's overlay registry and pane geometry publisher, and the terminal family's
+// emulator — and they sit beside each other in the DAG, so a second construction
+// site is the only other way either could have one.
+export { observeElementResize } from "./element-resize.js";
+
 // One boundary per surface, so a pane's render throw does not blank the window. It
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
 // frame's door without closing a cycle.
 export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 
-export type { ChordPlatform } from "./chord-format.js";
+// The chord vocabulary, and not only the printer. A surface that decides something
+// ABOUT a chord — the browser family's page handback, which may claim a keystroke
+// only when it holds a modifier — needs the same closed token set, the same
+// resolution of `$mod`, and the same splitter the printer uses, because tinykeys'
+// grammar makes `$mod++` a real chord that `chord.split("+")` reads wrongly. Every
+// one of those was a second copy here before it was a door line.
+export type { ChordModifierToken, ChordPlatform } from "./chord-format.js";
 export {
+  CHORD_MODIFIER_TOKENS,
   // The literal, not the binding. `PaletteOverlay.tsx` is the only module that hands
   // this to `parseChord`; every other reader PRINTS it, and one of those readers is
   // the primitive beside this door. Publishing it from `palette/` would have left a
   // primitive importing upward for a string.
   COMMAND_PALETTE_OPEN_CHORD,
   HOST_CHORD_PLATFORM,
+  PLATFORM_MODIFIER_CHORD_TOKEN,
+  PLATFORM_MODIFIER_TOKEN,
   decodeChordKeyToken,
   formatChordForPlatform,
+  splitChordTokens,
 } from "./chord-format.js";
 
 // The surface-scale absence wrapper. In this family rather than in `frame/` because
@@ -93,30 +110,30 @@ export { Nothing } from "./Nothing.js";
 // this case and the sentences disagreed, so a family that reached past the barrel for
 // a local copy would be one more of them.
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   PartialReadNotice,
   ReadingState,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   RefusalScope,
 } from "./partial-read.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   READING_STATE_KINDS,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   REFUSAL_SCOPES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   behindProducerReading,
   partialReadNotices,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   readingNoticeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   uncheckedCoverageReading,
   unreadableDeliveryReading,
 } from "./partial-read.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   PartialReadProps,
 } from "./PartialRead.js";
 export { PartialRead } from "./PartialRead.js";
@@ -139,7 +156,7 @@ export { PartialRead } from "./PartialRead.js";
 // is a policy question moved out of the primitive that currently answers it and into
 // every call site. The family that would spend it owns that call.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   useReadingAnnouncement,
 } from "./reading-announcement.js";
 
@@ -187,13 +204,12 @@ export { RefusalCard } from "./RefusalCard.js";
 // the family that first imports a symbol deletes its tag in the same commit.
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   ChipProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipTone,
 } from "./Chip.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   CHIP_TONES,
   Chip,
 } from "./Chip.js";
@@ -241,17 +257,14 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   LedgerRowProps,
 } from "./LedgerRow.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
-  LedgerRow,
-} from "./LedgerRow.js";
+export { LedgerRow } from "./LedgerRow.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   DerivedFigureProps,
 } from "./DerivedFigure.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   WireFigureProps,
 } from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
@@ -267,24 +280,23 @@ export {
 } from "./WireFigure.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   ByteUnitLabel,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatByteQuantity,
   formatClockTime,
   formatCount,
   formatDateTime,
-  formatPercent,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   formatDuration,
   formatMoney,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  formatPercent,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   formatRate,
   formatRelativeTime,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   formatWireString,
 } from "./wire-figures.js";

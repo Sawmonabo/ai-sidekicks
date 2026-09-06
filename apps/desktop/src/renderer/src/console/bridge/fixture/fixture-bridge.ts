@@ -42,6 +42,7 @@ import { refuseAbsentCapability } from "./fixture-refusal.js";
 import { subscribeToScenario, subscribeToScenarioRelay } from "./fixture-subscriptions.js";
 import { readRuntimeNodeRosterFromScenario } from "./fixture-runtime-node-roster.js";
 import { subscribeRuntimeNodePresence } from "../runtime-nodes/index.js";
+import { createScriptedPaneViewHost } from "./pane-view-host-script.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
@@ -145,6 +146,11 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       readRuntimeNodeRosterFromScenario(scenarioEngine, request),
     runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
       subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
+    // 12.11's scripted arm. Without it the resolver could only ever return the
+    // unavailable host, so every geometry publish under the fixture and under the
+    // end-to-end runs was suppressed and the attached path the wiring table
+    // promises was exercised by nothing.
+    paneViewHostScript: createScriptedPaneViewHost(),
     source: "fixture",
     scenarioEngine,
   };

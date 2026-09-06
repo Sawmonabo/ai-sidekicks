@@ -17,7 +17,12 @@
 import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../console-harness.js";
-import { axeViolationsIn, plantedViolationIds } from "./axe-run.js";
+import {
+  PLANTED_VIOLATION_RULE_ID,
+  describeViolations,
+  plantAxeViolation,
+  runTierAxe,
+} from "./axe-run.js";
 
 import "../../../src/renderer/src/console/agents/index.js";
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
@@ -54,13 +59,19 @@ describe("accessibility — the agent card", () => {
     const { container } = await renderSettled(<AgentCard agent={AGENT_WITH_FULL_ECHO} />);
     openEveryDisclosure(container);
 
-    expect(await axeViolationsIn(container)).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("negative control: the tier's rule set does find a violation when there is one", async () => {
     // axe returning nothing is the expected result above, and a misconfigured run —
     // wrong root, wrong tags, an exception swallowed — returns exactly the same
     // nothing.
-    expect(await plantedViolationIds()).not.toStrictEqual([]);
+    const planted = plantAxeViolation();
+    try {
+      const violations = await runTierAxe(planted);
+      expect(violations.map((violation) => violation.id)).toContain(PLANTED_VIOLATION_RULE_ID);
+    } finally {
+      planted.remove();
+    }
   });
 });

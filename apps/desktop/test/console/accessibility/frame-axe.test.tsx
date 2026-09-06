@@ -22,7 +22,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
-import { axeViolationsIn, plantedViolationIds } from "./axe-run.js";
+import {
+  PLANTED_VIOLATION_RULE_ID,
+  describeViolations,
+  plantAxeViolation,
+  runTierAxe,
+} from "./axe-run.js";
 
 import {
   ConsoleRoot,
@@ -50,7 +55,7 @@ describe("accessibility — the frame", () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
-      expect(await axeViolationsIn(container)).toStrictEqual([]);
+      expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
   }
 
@@ -58,6 +63,12 @@ describe("accessibility — the frame", () => {
     // Negative control. axe returning nothing is the expected result above, and a
     // misconfigured run (wrong root, wrong tags, an exception swallowed) returns
     // exactly the same nothing. This proves the run is live.
-    expect(await plantedViolationIds()).toContain("image-alt");
+    const planted = plantAxeViolation();
+    try {
+      const violations = await runTierAxe(planted);
+      expect(violations.map((violation) => violation.id)).toContain(PLANTED_VIOLATION_RULE_ID);
+    } finally {
+      planted.remove();
+    }
   });
 });

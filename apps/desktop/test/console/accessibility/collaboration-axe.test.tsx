@@ -24,7 +24,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
-import { axeViolationsIn, plantedViolationIds } from "./axe-run.js";
+import {
+  PLANTED_VIOLATION_RULE_ID,
+  describeViolations,
+  plantAxeViolation,
+  runTierAxe,
+} from "./axe-run.js";
 
 import "../../../src/renderer/src/console/collaboration/index.js";
 // The settings family's door, for its stylesheet: the nodes page below is audited as
@@ -92,7 +97,7 @@ describe("accessibility — the destinations this family owns", () => {
           <ConsoleRoot scenarioId={COLLABORATION_SCENARIO_ID} />,
         );
 
-        expect(await axeViolationsIn(container)).toStrictEqual([]);
+        expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
       });
     }
   }
@@ -119,7 +124,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    expect(await axeViolationsIn(container)).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("has no axe violation in the roster", async () => {
@@ -150,7 +155,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    expect(await axeViolationsIn(container)).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("has no axe violation in the sent-invite ledger", async () => {
@@ -161,7 +166,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    expect(await axeViolationsIn(container)).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("has no axe violation on the settings nodes page with a roster served", async () => {
@@ -182,7 +187,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
     // is the thing on screen before measuring it.
     expect(container.querySelector('[aria-label="node-roster-loaded"]')).not.toBeNull();
 
-    expect(await axeViolationsIn(container)).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("has no axe violation in the notification center's partial reading", async () => {
@@ -207,12 +212,18 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    expect(await axeViolationsIn(container)).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("finds a planted violation, so every clean result above means something", async () => {
     // axe returning nothing is the expected result, and a misconfigured run — wrong
     // root, wrong tags, an exception swallowed — returns exactly the same nothing.
-    expect(await plantedViolationIds()).toContain("image-alt");
+    const planted = plantAxeViolation();
+    try {
+      const violations = await runTierAxe(planted);
+      expect(violations.map((violation) => violation.id)).toContain(PLANTED_VIOLATION_RULE_ID);
+    } finally {
+      planted.remove();
+    }
   });
 });

@@ -18,8 +18,8 @@
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";
-import type { GrowthOperationId } from "./growth-port/index.js";
-import type { GrowthPort } from "./growth-port/index.js";
+import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
+import type { GrowthOperationId, GrowthPort } from "./growth-port/index.js";
 import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-nodes/index.js";
 import type { ScenarioEngine } from "./scenario-runtime/index.js";
 
@@ -68,6 +68,21 @@ export interface ConsoleBridge {
    * would crash inside the mount effect that opened the surface.
    */
   readonly runtimeNodePresenceSubscribe: RuntimeNodePresenceSubscribe;
+  /**
+   * The scripted view host a pane publishes its rectangle to, or `undefined` where
+   * no view can exist in this window.
+   *
+   * Beside the growth port rather than inside it, and the reason is the same one
+   * that keeps the port beside `sidekicks`: this is not a wire. It is 12.11's
+   * wiring-table INPUT — the thing the resolver in `browser/geometry/view-host.ts` selects
+   * on — and folding it into the port would put a fabricated operation name on a
+   * seam whose whole point is that `browser.setRect` is unregistered.
+   *
+   * Declared by the bridge that has one, so a pane cannot be handed a window it is
+   * not running in: the live bridge answers `undefined` and every publish is
+   * suppressed with 12.11's sentence, exactly as it is today.
+   */
+  readonly paneViewHostScript: ScriptedPaneViewHost | undefined;
   readonly source: ConsoleBridgeSource;
   /** Present only under the fixture, so a surface can drive playback in a story. */
   readonly scenarioEngine: ScenarioEngine | undefined;
