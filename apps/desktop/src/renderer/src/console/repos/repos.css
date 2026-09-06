@@ -1,0 +1,97 @@
+/*
+ * What the repos family owns at its root: the artifact cards, and the rules two of
+ * its sub-modules share.
+ *
+ * ONE DOOR FOR SEVEN SUB-MODULES. `repos/` is one family (`repos/index.ts` says why),
+ * and this is the sheet that family's door imports first — followed by the five
+ * subject sheets beside it and the two pane sheets under `repos/diff-pane/` and
+ * `repos/artifact-pane/`. Every one of them is imported from that door and from
+ * nowhere else, which is what the stylesheet-edges gate asserts.
+ *
+ * WHAT STAYED HERE, AND WHY IT IS NOT AN EIGHTH SUB-MODULE SHEET. One kind of rule:
+ * those whose selector list spans two sub-modules — a pair grid shared by a root card
+ * and an artifact row, a focus ring shared by the gate and the restore disclosure, a
+ * path link shared by the proposal and the restore disclosure. Splitting one of those
+ * would duplicate a declaration into two files and make the pair drift; keeping it
+ * here keeps it stated once, in the sheet both halves are loaded beside. A rule ONE
+ * sub-module draws does not qualify and never did: a sheet in `repos/` may not claim
+ * rules for a directory it does not own, which is why the artifact and attachment
+ * cards and the ingest-bounds disclosure now live in `repos/artifact-pane/`.
+ *
+ * WHAT LEFT, AND WHERE IT WENT. Both panes used to be read inside a frame this sheet
+ * drew (`.meridian-repos-pane*`): a section, a header, a heading, a subject line, a
+ * control, and a body box. `seats/pane-chrome.css` draws that frame for every pane
+ * kind in the console now, so those six rules are gone rather than kept beside it —
+ * two sheets styling one head is the drift a single chrome exists to remove.
+ *
+ * NO LITERAL VALUES. Every length is on the space scale, every size on the type
+ * scale, and every colour is read back out of a custom property — the rule
+ * `primitives.css` states and the reason there is a token layer at all.
+ *
+ * `Spec-023 §Console Design (Meridian)`:
+ *   • rule 4 — mono is the signature that a figure came from the wire, which is
+ *              what an artifact id and a media type are: rendered verbatim.
+ *   • rule 7 — density: the chrome is quiet so the content is not.
+ *   • rule 8 — the absences render themselves; nothing here restyles them.
+ */
+
+/* The pair is a grid subgrid row: label in the first column, value in the second. */
+.meridian-root-card__pair,
+.meridian-artifact-row__pair {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  min-inline-size: 0;
+}
+
+.meridian-root-card__pair dt,
+.meridian-artifact-row__pair dt {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-root-card__pair dd,
+.meridian-artifact-row__pair dd {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-root-card__detail-summary,
+.meridian-artifact-row__detail-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-root-card :focus-visible,
+.meridian-artifacts :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * A path is a link into the diff pane and nothing more, so it carries no button
+ * chrome: the affordance is the underline on hover and the focus ring, and a row of
+ * bordered buttons would turn a file list into a control panel.
+ */
+.meridian-proposal__path-link,
+.meridian-restore-disclosure__path-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-proposal__path-link:hover,
+.meridian-restore-disclosure__path-link:hover {
+  text-decoration: underline;
+}
+
+.meridian-proposal-gate :focus-visible,
+.meridian-restore-disclosure :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

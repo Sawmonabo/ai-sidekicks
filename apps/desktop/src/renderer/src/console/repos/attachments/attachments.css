@@ -1,0 +1,146 @@
+/*
+ * The attachment card and the sidebar's attachment-carrier section.
+ *
+ * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
+ * why, and for the import rule every sheet in this family obeys.
+ *
+ * The card is drawn by this directory AND by `repos/artifact-pane/InlineAttachmentCard.tsx`,
+ * one of the family's six other directories, reached through the same door, so both
+ * draw it styled. What the pane owns alone — `.meridian-attachment-card`, the card's
+ * outer wrapper — lives in that pane's own `artifact.css`.
+ */
+
+.meridian-attachment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+/* One line: name, type, size, state. Dense where the data is dense. */
+.meridian-attachment__face {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-attachment__bytes {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  margin-inline-start: auto;
+}
+
+.meridian-attachment__artifact-id {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-text-muted);
+}
+
+/* The ledger's own measure, not a decorated bar: the element carries decoded byte
+   counts and the reader takes the scaled pair from the line above it. */
+.meridian-attachment__progress {
+  inline-size: 100%;
+  block-size: 2px;
+  border: 0;
+  appearance: none;
+}
+
+.meridian-attachment__progress::-webkit-progress-bar {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-attachment__progress::-webkit-progress-value {
+  background: var(--meridian-accent);
+}
+
+.meridian-attachment__note {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attachment__refusal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attachment__unresolved {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  border-inline-start: 2px solid var(--meridian-amber-mark);
+  padding-inline-start: var(--meridian-space-2);
+}
+
+.meridian-attachment__acts {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attachment__act {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------- attachment carrier section */
+
+/*
+ * The sidebar's artifacts section: the picker, then the carrier's rows.
+ *
+ * The same column and the same gap as the repos section one screen above it, because
+ * the two are siblings in one sidebar and a second rhythm between them would read as
+ * two sidebars.
+ */
+.meridian-attachment-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: 0 var(--meridian-space-3) var(--meridian-space-2);
+}
+
+/*
+ * The picker. A label WRAPPING its input, so the control's accessible name is the
+ * text a person reads and no id has to be minted to pair them — the input itself
+ * stays the host's file control rather than a button that opens one, which is the
+ * only affordance a renderer has that reaches the host's dialog at all.
+ */
+.meridian-attachment-section__picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The collapsed line, matching the repos section's own. */
+.meridian-attachment-section__summary {
+  margin: 0;
+  padding: 0 var(--meridian-space-3);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attachment-section__count {
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attachment-section :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

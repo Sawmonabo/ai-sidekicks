@@ -56,22 +56,15 @@ export type { GrowthNavigationState, GrowthPaneError, GrowthTerminalChunk } from
 export type { GrowthCallbackTool, GrowthToolCall } from "./tools.js";
 
 export {
-  // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_TYPES,
   type GrowthArtifactDeleteReceipt,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadDisposition,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadEncoding,
   type GrowthArtifactRead,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactReplicationStatus,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactState,
   type GrowthArtifactSummary,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactType,
-  // Consumed by T-023p-1C-5
   type GrowthArtifactVisibility,
   type GrowthAttachmentIngestCompletion,
 } from "./artifacts.js";
@@ -86,9 +79,9 @@ export type {
 export type { GrowthAttentionPreference } from "./attention.js";
 
 export {
-  // Consumed by T-023p-1C-5
   GROWTH_PR_PREPARATION_STATES,
   type GrowthBranchContext,
+  type GrowthBranchContextReadRequest,
   type GrowthPrPreparationState,
 } from "./gitflow.js";
 

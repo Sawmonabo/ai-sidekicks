@@ -69,6 +69,22 @@ function scenarioDeclaring(state: string): ConsoleScenario {
   };
 }
 
+/**
+ * The served operations whose answer depends on what the playing scenario states.
+ *
+ * Membership in the served set says the PORT implements an operation, not that every
+ * scenario has something for it to answer with. The branch-context read is the one
+ * such operation under the flagship scenario, which scripts none: the registered reply
+ * is flat and carries no absence, so there is nothing honest to serve and the read
+ * refuses. Named rather than left implicit in the sweep, which reaches only the
+ * operations the port does NOT serve: without this set nothing would say out loud
+ * that a served operation may still refuse, and the case below asserts that refusal
+ * rather than merely leaving the operation unscanned.
+ */
+const SCENARIO_CONDITIONAL_SERVED_OPERATIONS: ReadonlySet<GrowthOperationId> = new Set([
+  "gitflowBranchContextRead",
+]);
+
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
   it("refuses every operation it does not serve, and names the unbuilt wire", async () => {
     // The `wire-unregistered` code is the instrument rather than the bare
@@ -103,12 +119,13 @@ describe("the fixture growth port — what it serves, and what it still refuses"
   });
 
   it("answers, or names the scenario's own gap, for every operation it serves", async () => {
-    // The other side of the same claim. Over the flagship, five of the served
-    // operations answer and the four approvals ones do not — that scenario models no
-    // approvals — and what makes the second a served arm rather than an absent one is
-    // that it refuses with the fixture's `reply-unscripted` and never with
-    // `wire-unregistered`, which would send a reader to a document that owes a wire
-    // this bridge already stands in for.
+    // The other side of the same claim. Over the flagship, eight of the seventeen
+    // served operations answer; the four approvals ones, the branch-context read, and
+    // the four script-only writes do not, because that scenario scripts none of them —
+    // and what makes each of those a served arm rather than an absent one is that it
+    // refuses with the fixture's `reply-unscripted` and never with `wire-unregistered`,
+    // which would send a reader to a document that owes a wire this bridge already
+    // stands in for.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 
     for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {
@@ -152,6 +169,22 @@ describe("the fixture growth port — what it serves, and what it still refuses"
 
     const outcome = await settling;
     expect(outcome.status).toBe("served");
+  });
+
+  it("refuses a served operation the playing scenario states nothing for", async () => {
+    // The half the sweep above cannot make: an operation is in the served set because
+    // the PORT implements it, and whether a given scenario has anything to answer with
+    // is the scenario's business. The branch-context read is that case — the registered
+    // reply is flat and carries no absence, so a scenario scripting none leaves nothing
+    // honest to serve and the read takes the "not checked" refusal instead of a
+    // fabricated empty context.
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+
+    for (const operationId of SCENARIO_CONDITIONAL_SERVED_OPERATIONS) {
+      expect(FIXTURE_SERVED_GROWTH_OPERATION_IDS).toContain(operationId);
+      const outcome = await callOperation(bridge.growth, operationId);
+      expect(outcome.status, `${operationId} answered the wrong way`).toBe("unavailable");
+    }
   });
 
   it("publishes exactly the set it serves, so the synchronous decision is the true one", () => {

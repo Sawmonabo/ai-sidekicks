@@ -34,14 +34,17 @@ import { settleScriptedReply } from "../scenario-runtime/index.js";
  *
  *   • **Unscripted** is the CALLER's to answer, and its answer is an outcome rather
  *     than a value — because the honest reading differs per operation and neither
- *     arm may be forced on the other. The branch read's is a served absence: this
- *     workspace has no branch context, which is a state the surface has to draw. The
- *     approvals reads' is a refusal: a scenario that models no approvals has left the
- *     question unasked, and serving an empty projection for it would put "there is
- *     none" in front of a person for a fact nothing checked. So the parameter returns
- *     `GrowthOutcome` and this helper decides neither. `reply-unscripted` stays what
- *     it has always been and is not reachable from here: `fixture-bridge.ts`'s
- *     authoring error, raised where a `daemon.call` really has no answer at all.
+ *     arm may be forced on the other. The list reads' is a served EMPTY state: a
+ *     session with no invites and a node with no saved sidekick definitions are
+ *     ordinary, and a surface has to draw them. The approvals reads' and the branch
+ *     read's is a refusal: a scenario that models no approvals has left the question
+ *     unasked, and the registered branch-context reply is flat and carries no absence
+ *     at all, so serving one for either would put "there is none" in front of a
+ *     person for a fact nothing checked. So the parameter returns `GrowthOutcome` and
+ *     this helper decides neither. A caller taking the refusing arm reaches for
+ *     `growthUnscriptedReply` and never `growthUnavailable`, because this fixture
+ *     SERVES these operations and the build does carry no less of the wire for a
+ *     scenario that said nothing.
  *   • **Resolved** is served verbatim. The cast is the seam's own property rather than
  *     a shortcut: a `ScenarioReply` carries `unknown`, exactly as it does for the
  *     bridge's `daemon.call`, and there is no registered reply schema to narrow it

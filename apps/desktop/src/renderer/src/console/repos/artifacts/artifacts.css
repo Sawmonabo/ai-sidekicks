@@ -1,0 +1,180 @@
+/*
+ * The artifacts panel and its rows: the filter, the receipt, and each row's acts.
+ *
+ * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
+ * why, and for the import rule every sheet in this family obeys.
+ */
+
+/* ------------------------------------------------------- artifacts panel */
+
+.meridian-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-block-size: 0;
+}
+
+.meridian-artifacts__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-artifacts__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+.meridian-artifacts__filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * Quiet until pressed. The filter is chrome around the content, and rule 7 puts the
+ * weight on the rows: a pressed state carried by the accent edge alone is enough to
+ * find, and a row of filled buttons would out-shout every artifact behind them.
+ */
+.meridian-artifacts__filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-artifacts__filter-button[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-text);
+}
+
+.meridian-artifacts__receipt {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-artifacts__body {
+  min-block-size: 0;
+}
+
+.meridian-artifacts__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-artifact-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+/* Type, state, visibility, size, producer, age — the six the design puts on a face. */
+.meridian-artifact-row__face {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-artifact-row__producer,
+.meridian-artifact-row__age {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-artifact-row__age {
+  margin-inline-start: auto;
+}
+
+.meridian-artifact-row__replication {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-artifact-row__acts,
+.meridian-artifact-row__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * The confirm strip. It sits inside the row and states the consequence before the
+ * act — the destructive control is never the first thing under the pointer, and the
+ * way out is beside it rather than behind a dismissal.
+ */
+.meridian-artifact-row__confirm {
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-amber-ground);
+}
+
+.meridian-artifact-row__consequence {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-artifact-row__act {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* One primary act per row: the payload is what a participant came for. */
+.meridian-artifact-row__act--primary {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-artifact-row__act--destructive {
+  border-color: var(--meridian-red-mark);
+  color: var(--meridian-red-text);
+}
+
+.meridian-artifact-row__map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-artifact-row__map li {
+  display: flex;
+  gap: var(--meridian-space-2);
+}

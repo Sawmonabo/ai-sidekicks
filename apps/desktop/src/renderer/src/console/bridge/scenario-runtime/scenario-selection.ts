@@ -31,7 +31,8 @@
 // CI job, and a console that refuses to boot over a misspelled fixture id is worse
 // than one that boots into the first-run scenario and says so. It is not a
 // tripwire either: `TRIPWIRE_KINDS` is a closed tuple naming five INVARIANT
-// breaches, none of which this is, and a development registry throws on report —
+// breaches and one refused daemon cleanup, none of which this is, and a
+// development registry throws on report —
 // which is the outcome this paragraph just ruled out. So the miss becomes a
 // `ConsoleRefusal` carried on the selection, plus one diagnostic line, and the
 // scenario actually playing is readable from the handle below — which is what the

@@ -48,8 +48,8 @@
 //     `console/bridge/` — so a call there is that plan's to place, and a gate here
 //     would fire on a change this console has no standing to refuse.
 //   • Nothing. The `shell/` subtree IS scanned — the package's own structure rules
-//     place it beside the console as a `console-unit` resident, and four of the five
-//     modules that consume the call door live in it.
+//     place it beside the console as a `console-unit` resident, and three of the
+//     eleven modules that consume the call door live in it.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -118,12 +118,12 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * TEN, and PINNED rather than left as a floor. The count was zero when this gate
+ * ELEVEN, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The ten, by module and by the family that bound it:
+ * It is no longer vacuous. The eleven, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -140,13 +140,17 @@ function isBridgeFamilyModule(module: string): boolean {
  *   8. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
  *   9. `console/collaboration/members/presence-model.ts` — the presence model.
  *  10. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
+ *  11. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
+ *      to reach `daemon.call` itself and hold its own parser and its own two refusal
+ *      codes beside it, and it now names five registry keys and holds none of the
+ *      three.
  *
- * Every surface in these two families that reaches the wire, each through
- * `callDaemon` and none around it. The composer's half was six until its target chip
- * stopped taking a `providerAccount.list` of its own to join a paying account's label:
- * that registry is node-scoped and `console/bridge/quotas/provider-account-quota.ts`
- * already reads it once per window, so the label rows are folded off that reading and
- * the chip joins them.
+ * Every surface in these families that reaches the wire, each through `callDaemon` and
+ * none around it. The composer's half was six until its target chip stopped taking a
+ * `providerAccount.list` of its own to join a paying account's label: that registry is
+ * node-scoped and `console/bridge/quotas/provider-account-quota.ts` already reads it
+ * once per window, so the label rows are folded off that reading and the chip joins
+ * them.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
@@ -156,7 +160,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 10;
+const CALL_DOOR_CONSUMER_COUNT = 11;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

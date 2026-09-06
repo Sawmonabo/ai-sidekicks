@@ -115,30 +115,30 @@ export { Nothing } from "./Nothing.js";
 // this case and the sentences disagreed, so a family that reached past the barrel for
 // a local copy would be one more of them.
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   PartialReadNotice,
   ReadingState,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   RefusalScope,
 } from "./partial-read.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   READING_STATE_KINDS,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   REFUSAL_SCOPES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   behindProducerReading,
   partialReadNotices,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   readingNoticeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   uncheckedCoverageReading,
   unreadableDeliveryReading,
 } from "./partial-read.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   PartialReadProps,
 } from "./PartialRead.js";
 export { PartialRead } from "./PartialRead.js";
@@ -161,7 +161,7 @@ export { PartialRead } from "./PartialRead.js";
 // is a policy question moved out of the primitive that currently answers it and into
 // every call site. The family that would spend it owns that call.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   useReadingAnnouncement,
 } from "./reading-announcement.js";
 
@@ -210,12 +210,12 @@ export { RefusalCard } from "./RefusalCard.js";
 // the family that first imports a symbol deletes its tag in the same commit.
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   ChipProps,
   ChipTone,
 } from "./Chip.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   CHIP_TONES,
   Chip,
 } from "./Chip.js";
@@ -224,40 +224,43 @@ export {
 // two ARIA members are one claim every windowed list in the console makes the same
 // way, and a family that wrote its own row is a family whose reader is told the list
 // is as long as the window.
-export type {
-  /** @consumedBy T-023p-1C-5 */
-  WindowedListRowProps,
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRowTargetProps,
-} from "./WindowedListRow.js";
-export {
-  /** @consumedBy T-023p-1C-5 */
-  WindowedListRow,
-} from "./WindowedListRow.js";
-export type {
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRovingIndex,
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRovingIndexOptions,
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRowMove,
-} from "./windowed-row-index.js";
-export {
-  /** @consumedBy T-023p-1C-5 */
-  WINDOWED_ROW_INDEX_ATTRIBUTE,
-  /** @consumedBy T-023p-1C-5 */
-  WINDOWED_ROW_TARGET_ATTRIBUTE,
-} from "./windowed-row-markers.js";
-export {
-  /** @consumedBy T-023p-1C-5 */
-  WINDOWED_ROW_MOVE_BY_KEY,
-  /** @consumedBy T-023p-1C-5 */
-  clampedRowIndex,
-  /** @consumedBy T-023p-1C-5 */
-  movedRowIndex,
-  /** @consumedBy T-023p-1C-5 */
-  useWindowedRovingIndex,
-} from "./windowed-row-index.js";
+//
+// THREE SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
+// lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
+// `repos/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
+// and the one type a delegating row's renderer hands its child: the row's own props
+// type is inferred from the element, the two ARIA marker names are written by the row
+// rather than by its caller, and the index arithmetic is what the hook returns. The
+// target-props type leaves through this door rather than being read back off the
+// component, because a family deriving it again would hold a second closed set that
+// agrees with this one only until the marker attribute is renamed on one side. The
+// nine door lines that had carried `@consumedBy T-023p-1C-5` alongside these three
+// named a consumer that has now shipped without importing any of them, so they were
+// door lines with no production reader — the class
+// `test/console/architecture/barrel-census.test.ts` owns and the dead-code gate cannot
+// see, since the tag legitimately suppressed the finding. They are deleted rather than
+// re-tagged; the co-located tests that do exercise those symbols read the module that
+// declares them, which is what the census rule asks.
+//
+// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The nine lines
+// above went first; every other claim naming that task — on this door, on `core/`, and
+// on `seats/` — was then re-checked the same way, against what the family's shipped
+// modules actually import through the door rather than against who might want the
+// symbol.
+//
+// NO COUNT IS SPELLED FOR THAT SWEEP, and the omission is the point. The number would
+// describe a set spread over three trees that no merge preserves, so a reader here
+// cannot re-derive it and a stale one reads as a fact — the failure the counts in this
+// header were rewritten to stop. What stands in its place is the RULE the sweep ran,
+// which any reader can re-run against the tree in front of them: a task claim is a
+// claim about a READER, so it is checked against what that family's shipped modules
+// import through the door, and it is deleted when they import none. It is not a census
+// of the tree and never was — `seats/` has since landed reservations naming this task
+// whose symbols this family does not import, and those stand exactly as the tag rule
+// says they do, until the commit whose import deletes them.
+export { WindowedListRow } from "./WindowedListRow.js";
+export type { WindowedRowTargetProps } from "./WindowedListRow.js";
+export { useWindowedRovingIndex } from "./windowed-row-index.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
@@ -266,11 +269,11 @@ export type {
 export { LedgerRow } from "./LedgerRow.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   DerivedFigureProps,
 } from "./DerivedFigure.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   WireFigureProps,
 } from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
@@ -285,9 +288,9 @@ export { DerivedFigure } from "./DerivedFigure.js";
 export { WireFigure } from "./WireFigure.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   ByteUnitLabel,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
@@ -298,10 +301,10 @@ export {
   formatDuration,
   formatMoney,
   formatPercent,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   formatRate,
   formatRelativeTime,
   formatWireDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   formatWireString,
 } from "./wire-figures.js";
