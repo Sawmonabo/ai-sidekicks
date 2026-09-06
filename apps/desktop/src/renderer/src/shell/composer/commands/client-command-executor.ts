@@ -17,7 +17,7 @@
 // rejected `completion` is a third: the command ran and failed, and the honest report
 // is the command's own failure rather than a claim that it was never recognised.
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
 import {
   isErrorInstance,
@@ -200,9 +200,19 @@ export function useComposerCommandZone(options: {
   // Written from an effect and never during render. React's own rule is that a ref
   // is not touched while rendering — under a concurrent render that is thrown away,
   // a render-body write has already mutated state the committed tree keeps — and the
-  // thunk below is what makes the effect sufficient: effects flush before any typing
-  // can reach the executor, so the handlers it reads are never a render behind.
-  useEffect(() => {
+  // thunk below is what makes the effect sufficient: the handlers the executor reads
+  // are resolved at call time rather than closed over at render time.
+  //
+  // A LAYOUT EFFECT, which is the standard shape for a latest-ref. A passive effect
+  // is flushed AFTER paint, so between the commit that changed the handlers and that
+  // flush there is a window in which the committed tree is on screen and the ref
+  // still holds the previous render's value. Nothing here yields inside that window
+  // today — a person cannot type between paint and the passive flush — but the claim
+  // "never a render behind" is then a property of what a browser happens to schedule
+  // rather than of this hook. `useLayoutEffect` runs synchronously before paint, so
+  // the ref is current the moment the tree that produced it is, and the claim holds
+  // on its own. The write is one assignment, so the synchronous phase costs nothing.
+  useLayoutEffect(() => {
     handlersRef.current = directiveHandlers;
   }, [directiveHandlers]);
   const commandExecutor = useMemo(

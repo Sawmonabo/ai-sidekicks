@@ -55,6 +55,17 @@ export function useEnumeratedPathAction(bridge: ConsoleBridge): EnumeratedPathAc
         // seam invents no second refusal constructor beside it — the fallback below
         // is reached only where the rejection said nothing machine-readable at all.
         //
+        // AND ON THAT ARM A BARE `Error`'S OWN `message` IS DROPPED, DELIBERATELY.
+        // `core/wire-rejection.ts` states the rule this seam takes as given: a
+        // supplied fallback "REPLACES THE SYNTHESIZED `<origin>-call-failed` PAIR",
+        // both halves of it, and an `Error` carrying no code is exactly what that
+        // synthesized pair answers. So `new Error("EPERM")` renders this sentence and
+        // not "EPERM" — which is the trade this seam wants: a clipboard throw's
+        // message names an OS condition, and the sentence below names what did not
+        // happen and what is still on screen. A rejection that carries a code keeps
+        // its own sentence, because the typed arms above run first and never reach
+        // here.
+        //
         // The path itself is deliberately not in the fallback sentence: it is a wire
         // string of unbounded length and a refusal is not the place to repeat it.
         setRefusal(

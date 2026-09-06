@@ -214,7 +214,12 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       return undefined;
     }
     const own = surface.records.find((record) => record.recordId === pendingDispatch.dispatchToken);
-    return own === undefined ? undefined : readComposerSettlement(own.outcome);
+    // The record's own `composite` flag travels WITH its outcome, because the answer
+    // cannot supply it: a rollback response echoes `replacementSend` nowhere, so the
+    // settlement alone cannot tell a composite from a bare rewind — and the guard
+    // reading below is the composite's, whose remedies name acts a bare rollback or a
+    // rejected steer never asked anyone to perform.
+    return own === undefined ? undefined : readComposerSettlement(own.outcome, own.composite);
   }, [pendingDispatch, surface.records, composedIdentity]);
 
   const isSending = pendingDispatch !== undefined && settlement === undefined;

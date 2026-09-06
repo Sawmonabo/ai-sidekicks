@@ -232,6 +232,38 @@ describe("the four structural guards a composite is refused whole by", () => {
     expect(compositeGuardReading(rejectionReason)?.guard).toBe(guard);
   });
 
+  it.each([
+    ["no active turn", "no-active-turn"],
+    ["no earlier pending send", "no-pending-send"],
+    [
+      "a participant-authored `user.message` boundary of the target run",
+      "participant-authored-boundary",
+    ],
+    ["a resumable target", "resumable-target"],
+  ])("recognises the registered sentence %j", (rejectionReason, guard) => {
+    // The four guards exactly as `api-payload-contracts.md` writes them on the
+    // `replacementSend` member — the corpus's own enumeration, read back one at a
+    // time. The boundary one is why this case exists: that document puts
+    // `user.message` BETWEEN the adjective and the noun, so it normalizes to
+    // `participant-authored-user-message-boundary` and used to match neither of the
+    // two phrases the table carried, answering `undefined` for a guard the daemon had
+    // named outright. Checking the other three the same way is what makes that a
+    // MISS to fix rather than one spelling nobody had tried.
+    expect(compositeGuardReading(rejectionReason)?.guard).toBe(guard);
+  });
+
+  it("counts one guard named twice as one match, never as a collision", () => {
+    // The half the two-match rule does NOT forbid, and the reason `namedBy` is a
+    // `some` rather than a count: a reason spelling ONE guard both of the corpus's
+    // ways names one check, not two, and answering `undefined` there would withhold
+    // the remedy on the most explicit reason a daemon could send.
+    const reading = compositeGuardReading(
+      "no participant-authored-boundary: this run needs a participant-authored `user.message` boundary of the target run",
+    );
+
+    expect(reading?.guard).toBe("participant-authored-boundary");
+  });
+
   it("recognises the check across the shapes a producer plausibly sends", () => {
     // `rejectionReason` is a free-form wire string and no closed union is registered
     // for these four, so what is matched is the check's WHOLE name rather than one
@@ -297,6 +329,10 @@ describe("the four structural guards a composite is refused whole by", () => {
     [
       "a boundary guard beside a resumability guard",
       "no participant-authored-boundary at a resumable-target",
+    ],
+    [
+      "the contract's boundary spelling beside a second guard",
+      "a participant-authored `user.message` boundary of the target run, and no active turn",
     ],
   ])("answers nothing for %s, since it cannot rank them", (_name, rejectionReason) => {
     // The collision control. Two matches is two readings, and choosing the first

@@ -70,6 +70,12 @@ describe("a host refusal reaches the surface as the host's own words", () => {
 
     expect(carried.code).toBe("call-rejected");
     expect(carried.detail).toContain("native.copyToClipboard was rejected");
+    // And the `Error`'s own message is DROPPED rather than rendered beside it, which
+    // is the fallback contract `core/wire-rejection.ts` states — the supplied pair
+    // replaces the synthesized one whole. Asserted rather than left implied, so the
+    // day someone widens that arm to append a thrown message this reads as the
+    // deliberate choice it is instead of an oversight.
+    expect(carried.detail ?? "").not.toContain("boom");
   });
 
   it("never quotes the path into the sentence, whichever arm answered", async () => {

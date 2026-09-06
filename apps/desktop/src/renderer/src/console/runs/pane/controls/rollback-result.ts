@@ -267,7 +267,9 @@ export function resendSettlementSentence(
 // UNTIL THEN THE MATCH IS DELIBERATELY NARROW, and narrowness is the whole design.
 // It anchors on the guard's WHOLE name as the corpus writes it — "no active turn",
 // "no pending send", "participant-authored boundary", "resumable target" — and not
-// on a fragment of it, over a reason normalized to lowercase hyphens. A fragment
+// on a fragment of it, over a reason normalized to lowercase hyphens. A guard the
+// corpus spells more than one way carries every spelling, since the alternative to a
+// second whole name is a shorter one, which is the fragment this rule forbids. A fragment
 // match is the failure mode that matters: "resumable" alone is carried by the
 // sentence "the target run is not resumable", by every bare rollback refusal that
 // mentions resumption at all, and by half the vocabulary around a released
@@ -330,10 +332,19 @@ const COMPOSITE_GUARDS: readonly CompositeGuardEntry[] = [
   },
   {
     guard: "participant-authored-boundary",
-    // The noun the corpus pairs with the adjective, both spellings: "a
-    // participant-authored `user.message` boundary of the target run" and "a
-    // participant-authored target of this run".
-    namedBy: ["participant-authored-boundary", "participant-authored-target"],
+    // The noun the corpus pairs with the adjective, and the corpus writes it three
+    // ways: `Spec-004 §Required Behavior` guard (iii) heads it "A participant-authored
+    // target of this run.", `api-payload-contracts.md`'s `replacementSend` comment
+    // spells it "a participant-authored `user.message` boundary of the target run",
+    // and a producer echoing an identifier sends the bare "participant authored
+    // boundary". The middle one normalizes with `user-message` BETWEEN the adjective
+    // and the noun, so neither of the other two phrases contains it and it needs an
+    // entry of its own — the whole name as that document writes it, not a fragment.
+    namedBy: [
+      "participant-authored-boundary",
+      "participant-authored-target",
+      "participant-authored-user-message-boundary",
+    ],
     refused:
       "The boundary you targeted was not opened by a participant message of this run, so there is no participant send to replace. A workflow phase input and an orchestrated child run both land here.",
     remedy:
