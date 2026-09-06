@@ -17,7 +17,16 @@ import { describe, expect, it } from "vitest";
 
 import { registerConsoleFamilies } from "./families.js";
 import { ConsoleEntityProjectorRegistry, consoleEntityProjectorRegistry } from "./store/index.js";
-import { ConsolePaneRegistry, ConsoleSurfaceRegistry, consolePaneRegistry } from "./seats/index.js";
+import {
+  ConsolePaneRegistry,
+  consolePaneRegistry,
+  ConsoleSurfaceRegistry,
+  consoleSurfaceRegistry,
+} from "./seats/index.js";
+// The pane probe by its own specifier, for the reason below it: a door cannot
+// publish a fixture helper, because the barrel census fails a door line no
+// production module reads.
+import { registerFreePaneKindProbe } from "./seats/pane-probe.test-support.js";
 // The slot tuple by its own specifier: the seats door does not publish it, because
 // this suite is its only reader and a door line no production module reaches is one
 // the barrel census fails.
@@ -171,20 +180,39 @@ describe("console families — the pane board a composition writes into", () => 
   it("leaves the production boards untouched when a caller composes its own", () => {
     // The behavioural half, and the probe is what keeps it from being vacuous: the
     // caller's registry really does record a body, and the singleton really is
-    // asked about that same kind, so the instrument is shown to work on the one
+    // asked about the kinds it holds, so the instrument is shown to work on the one
     // registry a composition is allowed to write into.
+    //
+    // THE PROBE RUNS AFTER THE COMPOSITION AND NAMES NO KIND. It used to claim a
+    // kind still reserved on the pane seat board, spelled here — which the registry
+    // turns into a throw the day the family that owns that kind lands, because it
+    // refuses a second owner rather than letting import order decide. The pane-kind
+    // set is closed at eleven members and six view families are landing at once, so
+    // there is no kind a landed board leaves unclaimed to spell. The kind is
+    // derived from what this composition left free instead, and where it left
+    // nothing free the composition's own registrations ARE the probe — the arm
+    // `seats/pane-probe.test-support.test.ts` proves. Either way this file names no
+    // family, no kind, and no seat, so every branch carries it unchanged.
     const { surfaces, panes, projectors } = ownedRegistries();
-    panes.register({ kind: "terminal", owner: "families.test", render: () => null });
 
     registerConsoleFamilies(surfaces, panes, projectors);
+    registerFreePaneKindProbe(panes, "families.test");
 
-    expect(panes.registeredPaneKinds()).toContain("terminal");
-    expect(consolePaneRegistry.registeredPaneKinds()).not.toContain("terminal");
-    // Same claim for the projector board, and it needs no probe: the frame's own
-    // registration is the body, so a composition writing into the singleton would
-    // show up here as a production board that has been claimed by this test's run.
+    expect(panes.registeredPaneKinds().length).toBeGreaterThan(0);
     expect(projectors.ownerOf("run.running")).toBe("frame");
-    expect(consoleEntityProjectorRegistry.ownerOf("run.running")).toBeUndefined();
+
+    // THE DISCRIMINATING ASSERTION, AND THE ONE THE PROBE CANNOT MAKE. A probe put
+    // straight into the owned board never travels through the composition, so a
+    // composition that wrote into the production boards instead would leave the
+    // owned ones holding the probe alone — non-empty, and disjoint from a singleton
+    // holding the landed families' claims, which is to say green over the leak. What
+    // names it is the production boards being EXACTLY empty once a caller has
+    // composed its own: no console module registers into them at import time, by the
+    // seat board's own contract, so anything in one after this line arrived through
+    // a composition that ignored what it was handed.
+    expect(consolePaneRegistry.registeredPaneKinds()).toStrictEqual([]);
+    expect(consoleSurfaceRegistry.registeredSlots()).toStrictEqual([]);
+    expect(consoleEntityProjectorRegistry.snapshot()).toStrictEqual({});
   });
 });
 
