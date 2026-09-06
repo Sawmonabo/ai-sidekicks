@@ -12,7 +12,7 @@
 import { isValidElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 import { consolePaneRegistry, type ConsolePaneContext } from "../seats/index.js";
 import { registerLedger } from "./index.js";
 

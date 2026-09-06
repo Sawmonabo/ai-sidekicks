@@ -81,7 +81,7 @@ import {
   attachedAtIso,
 } from "./flagship-cast.js";
 import { FLAGSHIP_SCRIPT } from "./flagship-script.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
 

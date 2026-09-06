@@ -11,15 +11,14 @@ import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridgeSource } from "../bridge/console-bridge.js";
-import { SurfaceAbsence } from "../palette/index.js";
+import { SurfaceAbsence } from "../primitives/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { NewSessionControl } from "../workspace/index.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
-
 import { SessionsSurface } from "./SessionsSurface.js";
-import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
+import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 
 /**
  * The two fields the descriptors read, and nothing else.

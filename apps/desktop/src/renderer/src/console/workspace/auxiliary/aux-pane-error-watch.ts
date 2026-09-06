@@ -18,7 +18,7 @@
 
 import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { lossyStringify } from "../../../../../shared/wire-errors.js";
+import { lossyStringify } from "../../core/index.js";
 import { refuseHandoff, type AuxiliaryHandoffRefusal } from "./aux-handoff-contract.js";
 
 /**

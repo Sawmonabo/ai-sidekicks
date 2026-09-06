@@ -45,7 +45,7 @@
 // so a member these builders do not name is a member the wire rejects.
 
 import { parseInstant } from "../../core/index.js";
-import type { ScenarioBeat } from "../scenario.js";
+import type { ScenarioBeat } from "../scenario-runtime/index.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
 export interface LedgerScriptEntry {

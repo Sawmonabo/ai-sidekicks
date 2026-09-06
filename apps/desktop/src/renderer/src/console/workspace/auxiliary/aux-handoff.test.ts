@@ -8,8 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
-import { IMPLEMENTED_AUXILIARY_ROUTES } from "../../../../../shared/auxiliary-routes.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
+import { IMPLEMENTED_AUXILIARY_ROUTES } from "../../routing/index.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import { servingPort } from "./aux-handoff.test-support.js";
 

@@ -16,7 +16,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../bridge/index.js";
-import type { ConsoleScenario } from "../bridge/scenario.js";
+import type { ConsoleScenario } from "../bridge/scenario-runtime/scenario.js";
 import type { StoredRecord } from "../persistence/adapter.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";

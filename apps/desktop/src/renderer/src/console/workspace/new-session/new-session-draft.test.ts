@@ -20,8 +20,8 @@ import { createFixtureBridge } from "../../bridge/index.js";
 import {
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture-bridge.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
+import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   NewSessionDraft,

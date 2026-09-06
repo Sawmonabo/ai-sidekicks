@@ -89,7 +89,7 @@ const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
  * The query parameter the renderer reads the id back off.
  *
  * Pinned to `SCENARIO_QUERY_PARAMETER` in
- * `src/renderer/src/console/bridge/scenario-selection.ts`, which cannot be
+ * `src/renderer/src/console/bridge/scenario-runtime/scenario-selection.ts`, which cannot be
  * imported here: `src/main/**` and the renderer tree are separate programs by
  * design (`Spec-023 §Trust Stance`), and a shared module would be bundled into the
  * renderer. The two ends are held together end-to-end instead — the endurance tier

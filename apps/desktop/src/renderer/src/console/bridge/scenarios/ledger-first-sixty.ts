@@ -43,7 +43,7 @@ import {
   scriptLedgerBeats,
   type LedgerScriptEntry,
 } from "./ledger-script.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const LEDGER_FIRST_SIXTY_SCENARIO_ID = "ledger-first-sixty";
 

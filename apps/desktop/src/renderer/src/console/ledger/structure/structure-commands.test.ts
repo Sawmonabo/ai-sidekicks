@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ConsoleRefusal } from "../../core/index.js";
-import { consoleKeyBindings } from "../../frame/command-surface.js";
+import { consoleKeyBindings } from "../../palette/index.js";
 import {
   consoleCommandSurface,
   consoleCommands,

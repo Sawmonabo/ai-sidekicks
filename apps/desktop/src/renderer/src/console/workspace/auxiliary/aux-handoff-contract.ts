@@ -17,7 +17,7 @@ import {
   InvalidAuxiliaryRouteTargetError,
   formatAuxiliaryFragment,
   type AuxiliaryRouteName,
-} from "../../../../../shared/auxiliary-routes.js";
+} from "../../routing/index.js";
 import { type PaneKind } from "../../seats/index.js";
 
 /**

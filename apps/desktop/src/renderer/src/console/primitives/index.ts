@@ -35,6 +35,7 @@ import "./nothing.css";
 import "./refusal.css";
 import "./ledger-row.css";
 import "./partial-read.css";
+import "./surface-absence.css";
 import "./surface-failure.css";
 
 export type { GlyphName } from "./Glyph.js";
@@ -56,10 +57,22 @@ export { isEditableTarget, isTextEntryTarget } from "./editable-target.js";
 
 export type { ChordPlatform } from "./chord-format.js";
 export {
+  // The literal, not the binding. `PaletteOverlay.tsx` is the only module that hands
+  // this to `parseChord`; every other reader PRINTS it, and one of those readers is
+  // the primitive beside this door. Publishing it from `palette/` would have left a
+  // primitive importing upward for a string.
+  COMMAND_PALETTE_OPEN_CHORD,
   HOST_CHORD_PLATFORM,
   decodeChordKeyToken,
   formatChordForPlatform,
 } from "./chord-format.js";
+
+// The surface-scale absence wrapper. In this family rather than in `frame/` because
+// it is a presentational shell with no family of its own — a centred measure, a body
+// slot, and one hint — and because both of its producers now sit BELOW the frame:
+// `frame/RouteSurface.tsx` reaches down to it like any other consumer, and
+// `seats/absorbed-surfaces.ts` could not have reached up at all.
+export { SurfaceAbsence } from "./SurfaceAbsence.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
 // because the whole point of the primitive is that there is a single pair of

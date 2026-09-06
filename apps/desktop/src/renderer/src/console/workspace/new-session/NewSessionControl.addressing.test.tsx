@@ -11,7 +11,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {

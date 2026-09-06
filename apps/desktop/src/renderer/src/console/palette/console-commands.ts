@@ -1,4 +1,6 @@
-// This window's command registry, and the door a family contributes to it through.
+// This window's command registry, the door a family contributes to it through, the
+// `when` vocabulary the console evaluates clauses against, and the channel an act
+// with no surface of its own states a refusal on.
 //
 // One registry per window, held at module scope for the same reason
 // `consoleSurfaceRegistry` and `consoleRouteRegistry` are: an auxiliary window is
@@ -8,22 +10,29 @@
 // store" holds by construction — there is no channel between two processes' module
 // graphs.
 //
-// IT LIVES IN `palette/` AND NOT IN `frame/`, WHICH IS WHERE IT WAS. Every input is
-// this family's or below it — the registry, the two contribution types, the host's
-// chord platform, `core`'s refusal — and the frame owns none of them; what the frame
-// owns is its OWN command vocabulary, which stays there. The move is what the
-// console's door rule requires rather than a tidying: `frame/` is the top family, so
-// `frame/index.ts` reaches `ConsoleRoot` and through it `families.ts` and every view
-// family, and a family importing that door closes a cycle. Every view family
-// therefore wrote a deep specifier into `frame/command-surface.ts` instead, which
-// `console-cross-family-deep-import` reports and whose remedy that rule states in one
-// sentence: hoist the symbol to the lowest family that owns its inputs and import it
-// from that family's door. `contributions.ts` beside this file already declares what a
-// family contributes; this is where those contributions are collected.
+// WHY IT IS HERE AND NOT IN `frame/`, WHERE IT WAS WRITTEN. The frame was its first
+// consumer, not its owner: every input is this family's or below it — `CommandRegistry`
+// and `ConsoleCommand` beside this file, the host's chord platform from `primitives/`
+// — and nothing below the frame reads the frame. Leaving it there made `frame/index.ts`
+// the only door that could publish it, and that door is unreachable from both of the
+// consumers this hoist is for. A VIEW family reaching it closes a cycle, measured on
+// this tree with a planted family:
+//
+//   families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx → families.ts
+//
+// and the console's other consumer — the composer's shell half, which sits ABOVE the
+// console entirely — closes the same one, because `families.ts` composes its registrar
+// in. So both wrote a deep specifier into the frame module that held it instead, which
+// `console-cross-family-deep-import` and `renderer-reaches-console-through-doors`
+// report; and a second registry built to avoid the import would be a second answer to
+// which commands this window holds. Hoisting to the lowest family that owns the inputs
+// is the remedy those rules name, and this is it.
 //
 // The frame's OWN commands are not registered here. They close over a live store,
 // which module scope cannot reach, so `ConsoleRoot` registers them in an effect and
-// removes them on unmount.
+// removes them on unmount. Its own vocabulary — its command and binding shapes, its
+// rail navigation table, and the chords it binds itself — is `command-surface.ts`
+// beside this file, which followed the same rule here for the same reason.
 
 import type { ConsoleRefusal, Unsubscribe } from "../core/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
@@ -57,6 +66,46 @@ export function registerConsoleCommands(commands: readonly ConsoleCommand[]): vo
  * came apart once already; one reading is why they cannot.
  */
 export const CONSOLE_CHORD_PLATFORM: ChordPlatform = HOST_CHORD_PLATFORM;
+
+/**
+ * The `when`-clause identifiers the console publishes.
+ *
+ * Named here rather than as free strings at each call site so a family writing
+ * `when: "sessionActive"` can see the vocabulary it is writing against, and so a
+ * typo is a missing key (the clause evaluates false, the command is hidden)
+ * rather than an invented one.
+ *
+ * There is one key per main-window route kind, `workspace` included: the workspace
+ * is not a rail destination but it IS somewhere a person can be, and a "where am
+ * I" vocabulary that skipped it would leave a family no way to scope a command to
+ * the surface that has the most of them.
+ *
+ * The tuple is the declaration and every type below is derived from it. A second
+ * hand-written union would be a closed set the compiler could not keep closed:
+ * the console would publish six keys and evaluate seven, and the extra one would
+ * be silently false at every call site rather than a compile error at one.
+ */
+export const CONSOLE_WHEN_CLAUSE_KEYS = [
+  "sessionActive",
+  "onSessions",
+  "onWorkspace",
+  "onWorkflows",
+  "onSettings",
+  "inAuxiliaryWindow",
+] as const;
+
+export type ConsoleWhenClauseKey = (typeof CONSOLE_WHEN_CLAUSE_KEYS)[number];
+
+/**
+ * What the console evaluates a `when` clause against.
+ *
+ * Narrower than `WhenClauseContext` beside it, which is `Record<string, boolean>`
+ * because a family may publish keys the console has never heard of. The console's
+ * OWN context is exactly the vocabulary above — every key present, no key invented
+ * — so a key added to the tuple is a compile error until every builder derives it,
+ * and a key derived but never published is a compile error too.
+ */
+export type ConsoleWhenClauseContext = Readonly<Record<ConsoleWhenClauseKey, boolean>>;
 
 /**
  * What a family contributes when the console is composed: its acts and its chords.

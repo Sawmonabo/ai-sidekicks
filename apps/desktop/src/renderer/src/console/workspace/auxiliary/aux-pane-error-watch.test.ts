@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/growth-port.js";
+import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { lostWindowNotice, type LostAuxiliaryWindow } from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import { servingPort } from "./aux-handoff.test-support.js";

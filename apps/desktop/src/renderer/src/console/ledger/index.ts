@@ -21,14 +21,14 @@
 // it would be one element per file with the table itself spread across three places;
 // left here it is the one thing a reader opening this family wants first.
 //
-// WHY `frame/surface-registry.js` IS REACHED DEEP AND NOT THROUGH `frame/index.js`.
-// Not a shortcut, and not a lapse — the barrel route is a CYCLE. `frame/index.ts`
-// exports `ConsoleRoot`, `ConsoleRoot.tsx` imports `console/families.ts` so a window
-// and its composed families are one fact, and `families.ts` imports this file. An
-// edge from here to `frame/index.js` closes that loop and the layering gate fails
-// the build on it. `console/families.ts` reaches the same module the same way for
-// the same reason. `surface-registry.ts` imports nothing above `bridge/`, so this
-// edge stays a strict descent through the DAG.
+// WHY THE SURFACE REGISTRY ARRIVES THROUGH `seats/index.js`. It used to live in the
+// frame, and a view family could reach it by no route at all: a deep specifier is a
+// cross-family import the layering gate refuses, and the frame's door is a CYCLE —
+// `frame/index.ts` exports `ConsoleRoot`, `ConsoleRoot.tsx` imports
+// `console/families.ts` so a window and its composed families are one fact, and
+// `families.ts` imports this file. The registry imports nothing above `bridge/`, so
+// it now sits in `seats/` beside the pane board this family also claims from, and
+// both arrive through one door and one strict descent through the DAG.
 //
 // THE TWO SLOTS, AND WHY THEY NO LONGER MOUNT THE SAME THING. `workspace` is the
 // session's own surface: the cast bar, the deck, and the composer's seat, which is
@@ -42,19 +42,17 @@
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
-import {
-  type ConsoleSurfaceContext,
-  type ConsoleSurfaceDescriptor,
-  type ConsoleSurfaceRegistry,
-} from "../frame/surface-registry.js";
-import { SurfaceAbsence, consoleCommandSurface } from "../palette/index.js";
-import { Nothing } from "../primitives/index.js";
+import { consoleCommandSurface } from "../palette/index.js";
+import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
 import {
   consolePaneRegistry,
   paneBodyForKind,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
+  type ConsoleSurfaceContext,
+  type ConsoleSurfaceDescriptor,
+  type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { registerFixtureShellRows } from "./cards/shell/FixtureShellRows.js";
 import { TimelinePane } from "./pane/index.js";

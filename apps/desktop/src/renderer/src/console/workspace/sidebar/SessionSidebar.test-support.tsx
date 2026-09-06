@@ -10,7 +10,7 @@ import { act, render, waitFor } from "@testing-library/react";
 import { expect } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { UiStateStore } from "../../persistence/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";

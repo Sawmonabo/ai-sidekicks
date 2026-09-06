@@ -13,7 +13,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import type { ScenarioEngine } from "../bridge/scenario-engine.js";
+import type { ScenarioEngine } from "../bridge/scenario-runtime/scenario-engine.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
 import {

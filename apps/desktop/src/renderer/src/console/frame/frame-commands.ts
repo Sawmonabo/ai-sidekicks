@@ -1,7 +1,10 @@
 // The frame's own commands, and the palette wiring that carries them.
 //
-// `command-surface.ts` next door is the DOOR — the registry, the `when` vocabulary,
-// the chords the frame binds. This module is what the frame contributes THROUGH it,
+// The registry and the `when` vocabulary are the palette's, reached through its door;
+// `palette/command-surface.ts` holds the frame's own shapes and the chords it binds:
+// every input those take is the palette's or below it, and a settings page renders
+// them, so they sit where both readers can reach them.
+// This module is what the frame contributes THROUGH that registry,
 // and it is a hook rather than a table for the same reason those commands cannot be
 // declared at module scope: every one of them closes over this window's store, so
 // they are built per window, registered from an effect, and removed on unmount.
@@ -19,11 +22,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConsoleRefusal } from "../core/index.js";
 import {
   KeyBindingTable,
+  RAIL_NAVIGATION_DETAILS,
   consoleCommands,
+  consoleKeyBindings,
   publishConsoleActRefusalSink,
   registerConsoleCommands,
   useBridgeCommands,
   type ConsoleCommand,
+  type ConsoleWhenClauseContext,
+  type FrameCommand,
   type WhenClauseContext,
 } from "../palette/index.js";
 import {
@@ -34,12 +41,6 @@ import {
 } from "../routing/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
-import {
-  RAIL_NAVIGATION_DETAILS,
-  consoleKeyBindings,
-  type FrameCommand,
-  type FrameWhenClauseContext,
-} from "./command-surface.js";
 import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
 import { routeForDestination } from "./rail-navigation.js";
 
@@ -59,7 +60,7 @@ export interface FrameCommandSurfaceInput {
 
 /** Everything the palette overlay is rendered with, and nothing else. */
 export interface FrameCommandSurface {
-  readonly whenContext: FrameWhenClauseContext;
+  readonly whenContext: ConsoleWhenClauseContext;
   readonly keyBindings: KeyBindingTable;
   readonly commandRevision: number;
   readonly paletteOpen: boolean;
@@ -72,7 +73,7 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   // What a command's `when` clause is evaluated against. Derived from the route
   // rather than stored, so there is one answer to "where am I" and the palette
   // cannot disagree with the rail about it.
-  const whenContext: FrameWhenClauseContext = useMemo(
+  const whenContext: ConsoleWhenClauseContext = useMemo(
     () => ({
       sessionActive: lastOpenedSessionId !== undefined,
       onSessions: route.kind === "sessions",

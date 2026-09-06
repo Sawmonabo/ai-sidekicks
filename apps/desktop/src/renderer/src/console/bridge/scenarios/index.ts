@@ -2,7 +2,7 @@
 //
 // Same reason as `console/families.ts`, applied to fixture data. Seven families
 // build concurrently and each ships a scenario that exercises its own surface. If
-// every one of them edited `bridge/scenario-manifest.ts` to add itself to
+// every one of them edited `bridge/scenario-runtime/scenario-manifest.ts` to add itself to
 // `CONSOLE_SCENARIOS`, six of the seven branches would conflict on one array —
 // and the merge that "resolves" such a conflict by keeping one side silently
 // deletes a family's scenario while leaving its file on disk, which is the failure
@@ -22,7 +22,7 @@ import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { LEDGER_FIRST_SIXTY_SCENARIO } from "./ledger-first-sixty.js";
 import { LEDGER_QUIET_SCENARIO } from "./ledger-quiet.js";
 import { LEDGER_SCENARIO } from "./ledger.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
 export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [

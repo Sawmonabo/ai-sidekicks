@@ -61,7 +61,7 @@ import {
 } from "../../../src/renderer/src/console/core/index.js";
 import { formatRoute } from "../../../src/renderer/src/console/routing/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-import type { ScenarioFixtureHandle } from "../../../src/renderer/src/console/bridge/scenario-selection.js";
+import type { ScenarioFixtureHandle } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-selection.js";
 import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,

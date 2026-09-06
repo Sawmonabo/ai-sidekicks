@@ -16,7 +16,7 @@
 // answer `session.read` and `agent.list` — the registered method names — rather
 // than a `session.list` the method registry does not carry.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const LEDGER_QUIET_SCENARIO_ID = "ledger-quiet";
 

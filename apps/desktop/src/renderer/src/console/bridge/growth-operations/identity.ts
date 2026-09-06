@@ -5,7 +5,7 @@
 // comment below is the single table's own, kept with the rows it heads — including
 // the standing statement that no participant-role row will join them.
 
-import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
 
 /**

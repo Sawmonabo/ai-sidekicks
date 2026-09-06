@@ -58,7 +58,7 @@ import { findBeatOrderDefects } from "./wire-truth/beat-order.js";
 import type { ScenarioWireTruthDefect } from "./wire-truth/defect.js";
 import { describeViewerDefect, findMembershipRoleDefects } from "./wire-truth/membership.js";
 import { findReplyDefects } from "./wire-truth/reply-walk.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export type { ScenarioWireTruthDefect };
 

@@ -9,8 +9,8 @@
 import { act, render, screen } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario.js";
+import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 

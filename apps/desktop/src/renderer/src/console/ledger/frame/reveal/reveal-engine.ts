@@ -41,6 +41,7 @@
 
 import {
   Emitter,
+  lossyStringify,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
@@ -51,7 +52,6 @@ import {
   REVEAL_GATE_TAIL_CHARACTERS,
   REVEAL_LITERAL_BACKTRACK_CAP,
 } from "../frame-bounds.js";
-import { lossyStringify } from "../../../../../../shared/wire-errors.js";
 import { safeRevealCeiling } from "./reveal-gate.js";
 import { RevealLane } from "./reveal-lane.js";
 import type {

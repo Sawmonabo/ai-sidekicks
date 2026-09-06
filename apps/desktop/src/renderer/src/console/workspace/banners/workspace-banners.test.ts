@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../../core/index.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
   dismissWorkspaceBanner,
   raiseWorkspaceBanner,
@@ -26,7 +26,9 @@ const DETACH_REFUSED = refuse(
   "The window wire is not registered.",
 );
 
-function raiseAll(...refusals: readonly (typeof SAVE_FAILED)[]): readonly WorkspaceBanner[] {
+// Any console refusal, not one code's: the builder narrows its `code` to the literal
+// it was handed, and every case below deliberately mixes codes.
+function raiseAll(...refusals: readonly ConsoleRefusal[]): readonly WorkspaceBanner[] {
   return refusals.reduce<readonly WorkspaceBanner[]>(
     (current, refusal) => raiseWorkspaceBanner(current, refusal),
     [],

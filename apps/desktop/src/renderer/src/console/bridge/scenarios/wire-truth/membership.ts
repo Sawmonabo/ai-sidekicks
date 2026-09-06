@@ -7,7 +7,7 @@
 import { MembershipRoleSchema } from "@ai-sidekicks/contracts";
 
 import type { ScenarioWireTruthDefect } from "./defect.js";
-import type { ConsoleScenario } from "../../scenario.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 /**
  * A stated viewer who is not in the roster, or `undefined` when the scenario is sound.

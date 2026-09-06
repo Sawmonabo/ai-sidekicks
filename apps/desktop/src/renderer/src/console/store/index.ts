@@ -20,7 +20,7 @@
 // which is how repo and invite went missing from the inspector's scope.
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 // `ConsoleEntity` leaves the family because the two validating body reads live in
-// `bridge/entity-body-reads.ts`: a read that narrows a wire member has to sit where
+// `bridge/daemon/entity-body-reads.ts`: a read that narrows a wire member has to sit where
 // the registered shapes may be imported, and it still takes and returns this
 // family's own entity.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";

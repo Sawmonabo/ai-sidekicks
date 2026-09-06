@@ -48,10 +48,10 @@ import {
 } from "react";
 import { ForwardingConsoleClock, type ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture-bridge.js";
+import { createFixtureBridge } from "./fixture/index.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { consoleScenario } from "./scenario-manifest.js";
-import { ScenarioFixtureControl } from "./scenario-selection.js";
+import { consoleScenario } from "./scenario-runtime/scenario-manifest.js";
+import { ScenarioFixtureControl } from "./scenario-runtime/scenario-selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 
 /** Why the console has no bridge at all. Rendered as the "error" kind of nothing. */

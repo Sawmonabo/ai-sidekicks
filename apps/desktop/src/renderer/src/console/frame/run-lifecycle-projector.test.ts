@@ -20,7 +20,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SCENARIOS } from "../bridge/scenarios/index.js";
-import type { ConsoleScenario } from "../bridge/scenario.js";
+import type { ConsoleScenario } from "../bridge/scenario-runtime/scenario.js";
 import { SessionStore, type ConsoleSessionEvent, type SessionSnapshot } from "../store/index.js";
 import {
   RUN_LIFECYCLE_EVENT_KINDS,

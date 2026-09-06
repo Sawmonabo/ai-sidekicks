@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { FLAGSHIP_LANE_COUNT, FLAGSHIP_SCENARIO } from "./flagship.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
-import type { ScenarioBeat } from "../scenario.js";
+import type { ScenarioBeat } from "../scenario-runtime/index.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
 

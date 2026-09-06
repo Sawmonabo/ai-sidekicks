@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 // not through a door: a stem restated here would be a second namespace the day the
 // scenario's own moved.
 import { EVENT_ID_STEM } from "../../../bridge/scenarios/ledger-cast.js";
-import { isContractTimelineRow } from "../../../bridge/timeline-row-contract.test-support.js";
+import { isContractTimelineRow } from "../../../bridge/daemon/timeline-row-contract.test-support.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 // Deeply, and not through `structure/index.ts`: this is the only consumer outside
 // that directory and it is a test, so a door line for it would be a door widened for

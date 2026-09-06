@@ -58,7 +58,7 @@ import {
   AUXILIARY_ROUTE_LABELS,
   IMPLEMENTED_AUXILIARY_ROUTES,
   isAuxiliaryRouteName,
-} from "../../../../../shared/auxiliary-routes.js";
+} from "../../routing/index.js";
 import { type PaneKind } from "../../seats/index.js";
 import { PaneErrorWatch, type ConsoleGrowthPort } from "./aux-pane-error-watch.js";
 import {

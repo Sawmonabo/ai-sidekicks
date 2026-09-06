@@ -36,7 +36,7 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
 
-import type { ScenarioBeat } from "../scenario.js";
+import type { ScenarioBeat } from "../scenario-runtime/index.js";
 
 /**
  * One unbroken span of one run being `running`, and what it said inside it.

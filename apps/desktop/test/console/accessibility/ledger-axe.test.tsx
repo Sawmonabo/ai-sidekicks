@@ -42,7 +42,7 @@ import {
   SidekicksBridgeProvider,
   createFixtureBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario.js";
+import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger-quiet.js";
 import { LEDGER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";

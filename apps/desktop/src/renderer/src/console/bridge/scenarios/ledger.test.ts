@@ -17,7 +17,7 @@ import { LEDGER_FIRST_SIXTY_SCENARIO, LEDGER_FIRST_SIXTY_SPAN_MS } from "./ledge
 import { LEDGER_QUIET_SCENARIO } from "./ledger-quiet.js";
 import { LEDGER_SCENARIO } from "./ledger.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
+import type { ConsoleScenario, ScenarioBeat } from "../scenario-runtime/index.js";
 
 const LEDGER_SCENARIOS: readonly ConsoleScenario[] = [
   LEDGER_SCENARIO,

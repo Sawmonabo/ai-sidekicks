@@ -58,7 +58,7 @@ import type { ConsoleRefusal } from "../core/index.js";
 import { Nothing, WireFigure } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStore, type SessionStoreRegistry } from "../store/index.js";
 import { AgentChoice } from "./AgentChoice.js";
-import { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+import { offeredSessionIds, useSessionDirectory } from "../seats/index.js";
 import { useActiveSessionStore } from "./session-lifecycle.js";
 import {
   AUXILIARY_ROUTE_LABELS,
