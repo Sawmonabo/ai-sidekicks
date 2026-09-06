@@ -101,11 +101,9 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   // build it is running in.
   "wire-unregistered",
   "first-turn-missing",
-  // Not a refusal the wire raised: {@link NewSessionDraft.send} answers with a result
-  // on every path and `callDaemon` never throws, so this names a fault INSIDE the
-  // draft. It is in the set because the alternative is what shipped — a rejection
-  // that cleared the result and left Send pressable with nothing said, which is a
-  // control that answers a press by doing nothing.
+  // Not a refusal the wire raised: `send` answers with a result on every path and
+  // `callDaemon` never throws, so this names a fault INSIDE the draft — and the
+  // alternative shipped once: a rejection that cleared the result and said nothing.
   "send-failed",
 ] as const;
 
@@ -127,13 +125,11 @@ function refuseDraft(code: NewSessionDraftRefusalCode, detail: string): NewSessi
 /**
  * What a send that REJECTED reports, rather than reporting nothing.
  *
- * {@link NewSessionDraft.send} returns a typed result on every path it takes and
- * `callDaemon` never throws, so a rejection out of it is a fault inside this module —
- * which is exactly the case a caller cannot invent a sentence for and must not
- * swallow. Built HERE so the vocabulary stays this module's: a control that composed
- * its own refusal would be a second source of the codes a person pastes into an
- * issue. `reveal-engine.ts` treats its own impossible-by-contract throw the same way,
- * by recording it rather than by trusting the contract twice.
+ * {@link NewSessionDraft.send} returns a typed result on every path and `callDaemon`
+ * never throws, so a rejection out of it is a fault inside this module — the case a
+ * caller cannot invent a sentence for and must not swallow. Built HERE so a control
+ * composing its own refusal cannot become a second source of the codes a person
+ * pastes into an issue, the way `reveal-engine.ts` records its own impossible throw.
  */
 export function refuseSendThatRejected(): NewSessionSendResult {
   return {
