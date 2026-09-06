@@ -164,3 +164,15 @@ export { readWireNumber, readWireString } from "./wire-strings.js";
 // it, so two view families reached five directories up past `core/` to the declaration
 // and the layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";
+// The console's one airspace: which overlays are on screen in a window, so a native
+// view yields to them (`Spec-023 §Console Design (Meridian)` 12.3, §4.3). At the DAG
+// floor because its registrants are `primitives/` and its reader is a view family,
+// and this is the only rung both of them stand above.
+export {
+  AirspaceRegistry,
+  type AirspaceMotionObserver,
+  type AirspaceOverlayElement,
+  type AirspaceOverlayKind,
+  type AirspaceRect,
+} from "./airspace-registry.js";
+export { airspaceRegistryFor } from "./airspace-registries.js";

@@ -40,6 +40,7 @@ import {
   COMMAND_PALETTE_OPEN_CHORD,
   formatChordForPlatform,
   formatCount,
+  useAirspaceRegistration,
   type ChordPlatform,
 } from "../primitives/index.js";
 import type { CommandSearchResult } from "./command-ranking.js";
@@ -101,6 +102,14 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
 
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // THE AIRSPACE REGISTRATION, and the whole of this surface's part in it
+  // (`Spec-023 §Console Design (Meridian)` 12.3, §4.3). An open palette is one of the
+  // seven overlay kinds a native browser-pane view has to yield to, and a view painted
+  // over it is the one thing 12.3 forbids outright. The registration is the primitive
+  // layer's — this names which kind of overlay the popup is and hands over the element
+  // whose live rectangle the visibility predicate reads, and derives nothing else.
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  useAirspaceRegistration("command-palette", popupRef, open);
 
   const results = useMemo(
     () => registry.search(query, context),
@@ -216,6 +225,7 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
         <Dialog.Portal container={overlayContainer}>
           <Dialog.Backdrop className="console-palette__backdrop" />
           <Dialog.Popup
+            ref={popupRef}
             className="console-palette__popup"
             initialFocus={inputRef}
             aria-label="Command palette"

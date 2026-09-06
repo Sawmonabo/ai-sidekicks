@@ -1,6 +1,6 @@
 // The three ways a document says an element has moved, read in one place.
 //
-// `occlusion-registry.ts` holds WHICH overlays are on screen; this module holds how
+// `core/airspace-registry.ts` holds WHICH overlays are on screen; this module holds how
 // the document reports that one of them has moved. They are split because only this
 // half needs a document: the registry stays testable over rectangle readers alone,
 // and every DOM seam that can be absent — a shim with no Web Animations, a

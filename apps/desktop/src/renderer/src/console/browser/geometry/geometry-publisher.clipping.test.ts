@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
+import { AirspaceRegistry, ManualClock } from "../../core/index.js";
 import {
   CLIPPING_OVERFLOW_VALUES,
   PaneGeometryPublisher,
   type ClippingOverflowValue,
 } from "./geometry-publisher.js";
-import { PaneOcclusionRegistry } from "./occlusion-registry.js";
 import type { PaneRect } from "./pane-geometry.js";
 import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
 
@@ -53,7 +52,7 @@ describe("PaneGeometryPublisher — the ancestors that clip", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     publisher.observe(hostElement);
     clock.runFrame();

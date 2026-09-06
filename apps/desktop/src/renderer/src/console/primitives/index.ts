@@ -315,3 +315,9 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatWireString,
 } from "./wire-figures.js";
+
+// The one registration site an overlay primitive joins the window's airspace through
+// (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
+// overlay instance"). The set it writes into is `core/`'s; the size seam it arms is
+// this family's chokepoint, which is why the hook is here and not there.
+export { useAirspaceRegistration } from "./airspace-registration.js";

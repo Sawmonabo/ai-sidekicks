@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
+import { AirspaceRegistry, ManualClock } from "../../core/index.js";
 import { installFakeResizeObserver } from "../../primitives/element-resize.test-support.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
-import { PaneOcclusionRegistry } from "./occlusion-registry.js";
 import {
   elementWithRect,
   moveElementRect,
@@ -36,7 +35,7 @@ describe("PaneGeometryPublisher — the size source", () => {
       publisher: new PaneGeometryPublisher({
         host,
         clock,
-        occlusion: new PaneOcclusionRegistry({ clock }),
+        occlusion: new AirspaceRegistry(),
       }),
     };
   }
