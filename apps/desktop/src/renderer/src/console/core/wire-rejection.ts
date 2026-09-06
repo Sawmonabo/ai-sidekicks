@@ -65,18 +65,16 @@ import {
 // for everything above it. Re-export and not a second interface: two declarations of
 // one wire shape is exactly the drift the rule exists to stop.
 //
-// AND IT IS ON `core/index.ts` NOW. It was held off that door while its one reader was
-// a harness, because `barrel-census` fails a door specifier reached only by a test, and
-// the note here said the line lands with the first production reader. It has two —
-// `bridge/scenario-runtime/scenario.ts` and `scripted-reply.ts` — so the line is there
-// and every console reader of the shape takes it. None reaches `src/shared/` for it.
+// AND IT IS ON `core/index.ts`. It is held off no longer for want of a production
+// reader: `bridge/scenario-runtime/scenario.ts` and `scripted-reply.ts` both read the
+// shape, so the door line has the readers `barrel-census` asks for, and the reading
+// layer beside them takes the same one name from the same door.
 //
 // THE CLAIM IS ABOUT THE SHAPE, NOT ABOUT THE MODULE THAT DECLARES IT. That leaf also
-// declares the envelope's READERS, and two `bridge/fixture/` suites still take
-// `readWireErrorEnvelope` straight from it: a door line for a function reached only by
-// tests is exactly the census failure this note once recorded for the shape. A reader
-// is not a second declaration of the shape, so that edge drifts nothing — the rule
-// governs where the console's one reading of the envelope lives, and it lives here.
+// declares the envelope's READERS, and a door line for a function reached only by
+// tests would be the census failure this note exists to avoid. A reader is not a
+// second declaration of the shape, so that edge drifts nothing — the rule governs
+// where the console's one reading of the envelope lives, and it lives here.
 export type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
 import {

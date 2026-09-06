@@ -24,7 +24,8 @@ import { act, cleanup, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, settleGrowthRead, type GrowthPort } from "../bridge/index.js";
+import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
+import { settleGrowthRead } from "../bridge/readings/read-settlement.js";
 import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";

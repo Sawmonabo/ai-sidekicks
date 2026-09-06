@@ -84,6 +84,10 @@ export type {
 // console settles through `readings/read-settlement.js` below, which keeps the
 // daemon's own code rather than restamping it, so that builder's only importer is a
 // suite beside it — the class `barrel-census.test.ts` fails on this door.
+// `GrowthUnavailable` DOES, and the substrate this family sits on takes it off: the
+// one surface that named it there settles through that same reading now. Here the
+// outcome's refusal arm is named again, by the run pane's control dispatch, which
+// reads a port answer it did not settle through a hook — a reader, so a line.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
 // reached deep by the three modules inside this family that read several planes at

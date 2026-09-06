@@ -52,7 +52,13 @@ function scenarioRefusingTheEnumeration(): ConsoleScenario {
   };
 }
 
-/** The enumeration, asked through the same seam the fixture's own port asks it through. */
+/**
+ * The enumeration, asked through the same seam the fixture's own port asks it through.
+ *
+ * The unscripted arm is unreachable from every case below — each scripts this call —
+ * and exists to satisfy the adapter, which asks for the value a scenario that scripted
+ * nothing would have answered with.
+ */
 function enumerationThroughTheSeam(
   engine: ScenarioEngine,
 ): Promise<GrowthOutcome<DefinitionListValue>> {

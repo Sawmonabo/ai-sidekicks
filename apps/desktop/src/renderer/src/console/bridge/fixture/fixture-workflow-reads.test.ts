@@ -32,7 +32,7 @@ import { readWireErrorEnvelope } from "../../../../../shared/wire-errors.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { callOperation, fixturePort } from "./fixture-growth-port.test-support.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import type { GrowthPort } from "../growth-port/index.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";

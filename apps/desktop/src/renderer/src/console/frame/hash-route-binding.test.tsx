@@ -16,7 +16,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { formatRoute } from "../routing/index.js";
 import { FrameStore, useLocationHash } from "../store/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
@@ -49,7 +49,7 @@ async function bind(): Promise<FrameStore> {
  */
 async function settle(): Promise<void> {
   await act(async () => {
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -62,7 +62,7 @@ afterEach(async () => {
   // this one. So the reset lands here, with no binding mounted and no listener
   // registered to hear it, before the next case begins.
   window.location.hash = SESSIONS_HASH;
-  await drainMicrotasks();
+  await crossMacrotaskBoundary();
 });
 
 describe("useHashRouteBinding", () => {
