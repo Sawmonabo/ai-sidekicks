@@ -18,8 +18,30 @@
 
 import axe, { type Result } from "axe-core";
 
-/** WCAG 2.2 A + AA, which is the level `Spec-023 §Console Design (Meridian)` rule 3 sets. */
-const AXE_TAGS: readonly string[] = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+/**
+ * WCAG 2.2 A + AA, which is the level `Spec-023 §Console Design (Meridian)` rule 3 sets.
+ *
+ * Both levels of every version, because axe's tags select the criteria a version
+ * INTRODUCED rather than everything that version's conformance requires: `wcag2a` and
+ * `wcag21a` do not reach the Level A criteria new in 2.2, so a set carrying `wcag22aa`
+ * alone claimed 2.2 at both levels and selected only one of them.
+ *
+ * What that costs TODAY is measured rather than assumed, and it is nothing: at the
+ * pinned `axe-core`, `wcag22a` selects no rule at all — 2.2's Level A additions are
+ * Consistent Help and Redundant Entry, and axe automates neither — while `wcag22aa`
+ * selects `target-size`. The tag is carried anyway because the set is the tier's claim
+ * about what it runs, and the day axe ships a rule under it the tier picks it up
+ * without a second edit. `axe-tags.test.ts` beside this file holds both halves, so a
+ * rule landing there is a red run and a re-read rather than a silent change.
+ */
+export const AXE_TAGS: readonly string[] = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22a",
+  "wcag22aa",
+];
 
 /**
  * Run the tier's rule set over one element and hand back what it found.

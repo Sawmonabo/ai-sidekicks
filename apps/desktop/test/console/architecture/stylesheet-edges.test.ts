@@ -42,12 +42,27 @@
 // grid geometry has to arrive on the same edge as the code that draws the grid, and
 // hoisting it to the family door would put it in the document the operator waits
 // for. The rule this file holds is about which door a family's OWN sheet enters by.
+//
+// AND A SHEET IS REACHED THROUGH A CHAIN AS WELL AS THROUGH A DOOR. A family whose
+// sheet grew past one file may pull its parts in with `@import` at the head of the
+// family sheet instead of adding a module edge per part, and both spellings arrive on
+// the same chunk. A reachability claim that counted only module edges would report
+// three such sheets as reached by nothing at all — rules that were written and never
+// paint — so the count below takes both kinds of edge, and the graph that walks the
+// chains is `stylesheet-edge-graph.ts` next door, where a planted tree proves a
+// duplicate or a misowned edge is really counted.
+//
+// OWNERSHIP IS THE NEAREST DOOR ABOVE A SHEET, WHICH IS NARROWER THAN ITS FAMILY. The
+// family-scoped claim above passes a door that reaches into a sub-directory carrying a
+// door of its own, and that is a real shape: a family sheet that used to `@import` a
+// sub-surface's rules is one edge away from being the second way into them. So the
+// fourth claim asks which door OWNS each sheet rather than which family it sits in.
 
-import { dirname, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   consoleRelativePaths,
@@ -56,6 +71,36 @@ import {
   CONSOLE_DIRECTORY,
 } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import {
+  collectStylesheetEdges,
+  isOwningBarrel,
+  moduleStylesheetImports,
+  readConsoleFile,
+  stylesheetAtImports,
+  stylesheetEdgeOffences,
+  CONSOLE_STYLESHEET_TREE,
+} from "./stylesheet-edge-graph.js";
+
+/**
+ * The budget this file states rather than inherits.
+ *
+ * Its claim is a parse pass over every console module, so what it costs is a
+ * property of the TREE and grows with it. Measured on the authoring machine with a
+ * warm transform cache and this file's neighbours for company, the pass is 2242 ms
+ * — and on a cold cache, or under the aggregate gate's five-project concurrency, the
+ * same pass crossed vitest's 5 s default with no change to the code it reads. That is
+ * how it was found: two view families landed, the tree grew, and four whole-tree
+ * gates that had never stated a budget began timing out on the load rather than on a
+ * defect.
+ *
+ * Set well above the loaded measurement on purpose, and to the figure
+ * `source-walk-chokepoint.test.ts` already states for the same reason: what a budget
+ * guards is a pass that never settles, not a slow one, and a budget tightened to the
+ * last measurement fails on the next machine rather than on the next defect.
+ */
+const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
+
+vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -178,6 +223,22 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
     expect(modules.length).toBeGreaterThan(100);
   });
 
+  it("counts edges over the same sheets this file found", () => {
+    // TWO RESOLVERS ANSWER "WHICH STYLESHEETS EXIST" HERE — Vite's module graph
+    // above, and the tier's shared walk inside `CONSOLE_STYLESHEET_TREE`, which the
+    // two reachability claims below quantify over. While they agree nothing reports
+    // it, and the failure is silent in one direction only: a model tree holding
+    // FEWER sheets leaves "every sheet is reached" clean about the sheets it happened
+    // to hold rather than about the console, and the floor above would not notice
+    // because it counts the other list. An empty MODULE list fails loudly instead —
+    // no edges are collected, so every sheet reports unreached — which is why this
+    // control is about the sheets. So the two lists are compared rather than trusted.
+    const walked = CONSOLE_STYLESHEET_TREE.stylesheetPaths.map((sheetPath) =>
+      sheetPath.split(sep).join("/"),
+    );
+    expect([...walked].sort()).toStrictEqual([...stylesheets].sort());
+  });
+
   it("is imported by no module but a door", () => {
     const offenders = modules
       .filter((module) => !isDoorModule(module))
@@ -198,19 +259,31 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
     expect(crossFamilyEdges).toStrictEqual([]);
   });
 
-  it("is reached by exactly one import, and every sheet is reached", () => {
-    // Two edges into one sheet is two chunks that may both carry it; zero is a shape
-    // that renders unstyled, which in this console is a pane with no geometry at all.
-    const edgeCountBySheet = new Map(stylesheets.map((sheet) => [sheet, 0]));
-    for (const module of modules) {
-      for (const sheet of stylesheetImportsOf(module)) {
-        edgeCountBySheet.set(sheet, (edgeCountBySheet.get(sheet) ?? 0) + 1);
-      }
-    }
-    const wrongEdgeCounts = [...edgeCountBySheet]
-      .filter(([, count]) => count !== 1)
-      .map(([sheet, count]) => `${sheet}: ${String(count)}`);
-    expect(wrongEdgeCounts).toStrictEqual([]);
+  it("every stylesheet in the tree is reached from a barrel, exactly once", () => {
+    // The other half, in three parts: a sheet no barrel reaches is rules that were
+    // written and never paint, which a rule about importers alone cannot see; a sheet
+    // reached twice is a cascade whose order depends on the module graph, which a
+    // collapsed reachability set could not see at all. Both kinds of edge count — a
+    // door's module import and an `@import` at the head of a sheet a door reaches —
+    // because both put the rules on the same chunk.
+    const offences = stylesheetEdgeOffences(
+      CONSOLE_STYLESHEET_TREE,
+      collectStylesheetEdges(CONSOLE_STYLESHEET_TREE),
+    );
+    expect(offences.unreached).toStrictEqual([]);
+    expect(offences.duplicatePaths).toStrictEqual([]);
+    expect(offences.duplicateBarrels).toStrictEqual([]);
+  });
+
+  it("and from the barrel of the directory that owns it, never a neighbour's", () => {
+    // The fourth claim, over the real console. A family door pulling in the sheets of
+    // its own doorless sub-directories is the intended shape and passes; a family
+    // sheet reaching into a directory that carries a door does not.
+    const offences = stylesheetEdgeOffences(
+      CONSOLE_STYLESHEET_TREE,
+      collectStylesheetEdges(CONSOLE_STYLESHEET_TREE),
+    );
+    expect(offences.misowned).toStrictEqual([]);
   });
 
   it("negative control: the checker reads a submodule's import and a door's", () => {
@@ -277,6 +350,65 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
     // deliberate placement into the family door and into the initial bundle.
     expect(
       stylesheetSpecifiersIn("xterm-adapter.ts", 'import "@xterm/xterm/css/xterm.css";'),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the checker matches the edges that are really there", () => {
+    // Without this a typo in either pattern would make both clean results above
+    // meaningless against THIS tree — the walk's own controls drive literal sources,
+    // and a pattern that matched none of the console's real text would still satisfy
+    // them.
+    expect(
+      moduleStylesheetImports(
+        join("workflows", "index.ts"),
+        readConsoleFile(join("workflows", "index.ts")),
+      ),
+    ).toStrictEqual(["./workflows.css"]);
+    expect(
+      stylesheetAtImports(
+        join("workflows", "workflows.css"),
+        readConsoleFile(join("workflows", "workflows.css")),
+      ).length,
+    ).toBeGreaterThan(1);
+    // And the door this family's destination now enters on, so the pattern is shown to
+    // match a module edge one directory down as well as the family's own.
+    expect(
+      moduleStylesheetImports(
+        join("workflows", "destination", "index.ts"),
+        readConsoleFile(join("workflows", "destination", "index.ts")),
+      ),
+    ).toStrictEqual(["./workflows-destination.css"]);
+  });
+
+  it("negative control: a direct import in a component is flagged, a barrel's is not", () => {
+    // The two sides of the line, driven through the predicate rather than through
+    // whichever module happens to hold an edge today.
+    const componentSource = 'import "./workflows-destination.css";\n';
+    expect(
+      moduleStylesheetImports(join("workflows", "WorkflowsDestination.tsx"), componentSource),
+    ).toStrictEqual(["./workflows-destination.css"]);
+    expect(isOwningBarrel(join("workflows", "WorkflowsDestination.tsx"))).toBe(false);
+    expect(isOwningBarrel(join("workflows", "index.ts"))).toBe(true);
+  });
+
+  it("the lazy chunk's door owns its sheets, and the component in it owns none", () => {
+    // The case the rule was restated for, asserted from the tree rather than from a
+    // path this file remembers: the door imports the library's sheet and this
+    // directory's, in that order, and the canvas behind it imports neither. Without
+    // the second half the door could be added and the component's edge left in place,
+    // which is two ways into one sheet and the cascade order back to a coincidence.
+    const chunkDirectory = join("workflows", "pane", "run", "phase-graph");
+    expect(
+      moduleStylesheetImports(
+        join(chunkDirectory, "index.ts"),
+        readConsoleFile(join(chunkDirectory, "index.ts")),
+      ),
+    ).toStrictEqual(["@xyflow/react/dist/base.css", "./phase-graph.css"]);
+    expect(
+      moduleStylesheetImports(
+        join(chunkDirectory, "PhaseGraphCanvas.tsx"),
+        readConsoleFile(join(chunkDirectory, "PhaseGraphCanvas.tsx")),
+      ),
     ).toStrictEqual([]);
   });
 });

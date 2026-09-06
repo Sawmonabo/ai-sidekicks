@@ -32,7 +32,7 @@ import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/ind
 // publish it, no production module calling it having landed yet.
 import { registerConsoleSurface } from "../seats/surface-registry.js";
 
-/** The rail's middle destination, whose family (T-023p-1C-6) ships separately. */
+/** The rail's middle destination, whose slot this suite deliberately leaves unclaimed. */
 const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
 
 /**
@@ -182,10 +182,12 @@ describe("RouteSurface — a declared slot with no registrant", () => {
   });
 
   it("says the workflows surface is reserved rather than rendering nothing", () => {
-    // The rail's middle destination is reachable before the family that fills it
-    // has shipped, which is exactly the state "reserved, not stubbed" is for: the
-    // frame names the slot and says nobody has built it, and the alternative — an
-    // empty pane — reads as a feature that is broken rather than absent.
+    // The rail's middle destination is reachable whether or not any family has
+    // claimed its slot, and unclaimed is exactly the state "reserved, not stubbed" is
+    // for: the frame names the slot and says nobody has built it, and the alternative
+    // — an empty pane — reads as a feature that is broken rather than absent. Nothing
+    // in this suite registers a family, so the frame is read over an empty board here
+    // however the console composes one elsewhere.
     const { context } = contextFor(WORKFLOWS_ROUTE, registryWithOpenSessions());
 
     const { container } = render(<RouteSurface context={context} />);

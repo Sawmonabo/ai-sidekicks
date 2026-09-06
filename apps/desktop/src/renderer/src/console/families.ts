@@ -56,6 +56,7 @@ import type {
   InlineCardSeatRegistry,
   SidebarSectionRegistry,
 } from "./seats/index.js";
+import { registerWorkflowSurfaces } from "./workflows/index.js";
 
 /**
  * Register every shipped view family against the five boards a composition owns.
@@ -150,7 +151,7 @@ export function registerConsoleFamilies(
   // T-023p-1C-3 composer
   registerCollaborationFamily(surfaces, sidebarSections); // T-023p-1C-4 collaboration
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
-  // T-023p-1C-6 workflows
+  registerWorkflowSurfaces(surfaces); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery
 }

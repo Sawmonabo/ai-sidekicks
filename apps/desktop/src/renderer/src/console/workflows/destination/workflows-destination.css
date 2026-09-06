@@ -1,0 +1,187 @@
+/*
+ * The workflows destination's own composition: the scope line above the browser, and
+ * the question that stands in its place while no session is in scope.
+ *
+ * A sibling FILE rather than a section of `workflows.css`, on the precedent of every
+ * other per-surface sheet in this family: these rules belong to one surface, and
+ * appending them to the family sheet would put a surface's layout in the file every
+ * other surface in the family also edits.
+ *
+ * A sibling file is not a second import EDGE, and the two were confused here once:
+ * this sheet used to be imported from `WorkflowsDestination.tsx` directly, so the
+ * family had two ways into its own rules and which one won depended on which
+ * component modules a build happened to reach first. It is now `@import`ed at the head
+ * of `workflows.css` with its siblings, and `workflows/index.ts` is the only importer
+ * of the family's own shared sheet — each sub-module door and the graph chunk owns
+ * its own, which is why the cascade order to reason about here is this sheet's and
+ * the family sheet's and no third one's.
+ *
+ * `Spec-023 §Console Design (Meridian)` governs every rule here: values come from the
+ * generated token sheet, there is no literal colour and no literal length off the
+ * space scale, and nothing animates (rule 5).
+ */
+
+/*
+ * ONE scrolling column over the whole destination rather than a chrome that scrolls
+ * inside itself. The runs stand BELOW the definitions, and a browser that kept its
+ * own scroll would hold them permanently off-screen — so the scroll is taken up to
+ * this element and the chrome is released from it just below.
+ *
+ * The scroll lives HERE and not on an inner wrapper, which is an accessibility fact
+ * rather than a tidiness one: a scrollable region a keyboard cannot reach is an axe
+ * violation (`scrollable-region-focusable`), and the region only passes because the
+ * scope line inside it carries the re-scope control. An inner wrapper holding just
+ * the two reads would have excluded that control and made the column unreachable by
+ * keyboard — which is why the element that scrolls is the one that contains it.
+ */
+.meridian-workflows-destination {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  block-size: 100%;
+  min-block-size: 0;
+  overflow-y: auto;
+}
+
+/*
+ * The surface sizes itself to 100% of its parent and scrolls internally, which is
+ * right when it IS the surface and wrong when something stands under it. Scoped to
+ * this composition rather than changed in the family sheet: mounted alone — which is
+ * what its own suite does — the surface still owns its scroll.
+ */
+.meridian-workflows-destination > .meridian-workflow {
+  block-size: auto;
+  overflow-y: visible;
+}
+
+/*
+ * The scope line reads as a caption on the surface below it rather than as a heading
+ * of its own: the browser under it carries the region's name, and a second heading
+ * here would give the destination two names a reader has to reconcile.
+ */
+.meridian-workflows-destination__scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-3) var(--meridian-space-5) 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The one control on the line, and it is quiet: re-scoping is a correction rather
+ * than the surface's purpose, so it reads as a link beside the subject rather than
+ * as a button competing with the browser's own primary action (rule 7).
+ */
+.meridian-workflows-destination__rescope {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  text-decoration: underline;
+  cursor: default;
+}
+
+.meridian-workflows-destination__rescope:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- the runs */
+
+/*
+ * The runs read as a second region under the definitions, with the same gutter the
+ * chrome sets so the two columns line up rather than stepping in and out by a few
+ * pixels at their shared edge.
+ */
+.meridian-workflows-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding-inline: var(--meridian-space-5);
+  padding-block-end: var(--meridian-space-5);
+}
+
+.meridian-workflows-runs__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--meridian-text);
+}
+
+/* ------------------------------------------------------------ scope picker */
+
+.meridian-workflows-scope-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-inline-size: 40rem;
+  margin: var(--meridian-space-8) auto;
+  padding-inline: var(--meridian-space-4);
+}
+
+.meridian-workflows-scope-picker__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--meridian-text);
+}
+
+/*
+ * Why the question is being asked at all, in one line. The resolution order is the
+ * reason this surface needs a session and the browser's own summary states it for
+ * rows that exist; a person facing the question before any row exists needs it here.
+ */
+.meridian-workflows-scope-picker__reason {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * WHAT THE LIST IS MISSING, BESIDE THE LIST RATHER THAN INSTEAD OF IT. A refused node
+ * directory with an open session in this window still offers a usable choice, so the
+ * choices stay and the refusal stands above them — the console's own sentence about
+ * what it managed to offer, then the daemon's own code and message underneath it.
+ */
+.meridian-workflows-scope-picker__partial {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.meridian-workflows-scope-picker__partial-note {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * THE SLOT'S OPENED PANE. The workflows destination leads to two pane kinds, and on
+ * a bare route there is no deck to put one in — so the pane stands where the lists
+ * were, under one control back to them. A column rather than a deck: one pane at a
+ * time, no layout, nothing beside it.
+ */
+.meridian-workflows-pane-host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-height: 0;
+}
+
+/*
+ * The one control back. It wears the family's own action treatment — the browser's
+ * primary act and the run controls wear the same one — and this rule adds only where
+ * it sits, because a second button style for one button is the drift that treatment
+ * exists to prevent.
+ */
+.meridian-workflows-pane-host__back {
+  align-self: flex-start;
+}

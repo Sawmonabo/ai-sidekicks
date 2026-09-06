@@ -1,0 +1,171 @@
+/*
+ * The workflows family's shared chrome, and the entry point for the sheets this
+ * directory owns.
+ *
+ * `workflows/index.ts` imports THIS file and no other sheet, so the family door is one
+ * edge into the rules every workflows surface stands in and a surface can never render
+ * a chrome that arrived without them. The sheets below are pulled in from here rather
+ * than from their own modules for that reason: each is owned and edited by the surface
+ * it names, and none of them is a second import edge into what the door already brings.
+ *
+ * PULLED IN FROM HERE MEANS FROM A DIRECTORY THIS ONE OWNS, and that is the whole of
+ * the rule. `definitions/`, `runs/` and `parks/` carry no barrel: they are this
+ * family's own sub-directories, reached from inside it and by nothing else, so a sheet
+ * of theirs entering on the family door is the family importing its own rules. A sheet
+ * belonging to a directory that has an OWNER of its own — another family, a sub-module
+ * door, a lazily-loaded chunk — is the shape that is forbidden, because it puts that
+ * surface's rules on the initial document for every session that never opens it and
+ * makes one directory the reason another is styled at all. Every directory below this
+ * one that carries a door is exactly that case, and their sheets are exactly what is
+ * not here — a count of them is deliberately not written, because it moved the moment
+ * a sub-module door was added and nothing reported that it had.
+ *
+ * WHAT IS BELOW IS WHAT THIS DIRECTORY OWNS. The two pane sheets used to be — an
+ * `@import` reaching `../panes/workflow-run/` and another reaching
+ * `../panes/workflow-builder/` — which made a sheet in one directory the reason a
+ * surface in another was styled at all: open the run pane and never the destination
+ * and the pane's controls were painted by a family sheet nothing on screen had asked
+ * for, and delete this file and the pane lost its styling for a reason nothing in the
+ * pane recorded. Both bodies live in this family now and each carries its own barrel,
+ * so each pane sheet enters on the barrel of the surface that owns it.
+ *
+ * THE SHEETS OF THIS FAMILY'S DOORED DIRECTORIES ARE DELIBERATELY NOT BELOW, and
+ * naming them here is what keeps the list a claim rather than a coincidence. Two are
+ * the pane sheets above. A third is `destination/workflows-destination.css`, which
+ * entered here until that directory grew a door of its own and now enters on it, as
+ * the rule above has always required. The last is
+ * `pane/run/phase-graph/phase-graph.css`, which
+ * rides the lazy graph chunk: it is imported beside the graph library's own `base.css`
+ * from that chunk's own door, `pane/run/phase-graph/index.ts`, which is
+ * reached through `import()` and nothing else, and it has to load AFTER that sheet to
+ * win at equal specificity. Pulled in here it would land in the document the operator
+ * waits for and would load BEFORE the sheet it overrides, so the library's fallback
+ * palette would paint. Both sheets enter through a barrel like every other sheet in
+ * the console — the chunk's rather than the family's — which is the rule
+ * `test/console/architecture/stylesheet-edges.test.ts` holds every module to.
+ *
+ * WHAT STAYS HERE. What every workflows body stands in — the state strip's column,
+ * the reserved-slot box, and the one action treatment the destination's controls and
+ * the run controls both wear — plus the destination's own block and header, which are
+ * the rail surface's alone. A rule that belongs to exactly one surface belongs in that
+ * surface's file.
+ *
+ * WHAT LEFT, AND WHERE IT WENT. The two pane kinds used to stand in this family's own
+ * frame: `.meridian-workflow` drew their box, `__header` their heading row, and
+ * `__body` their column. `seats/pane-chrome.css` draws every pane's frame in the
+ * console now — one spacing, one breadcrumb, one control strip, one answer to where
+ * the focus ring goes — so the frame rules here are the DESTINATION's, which is a rail
+ * surface and not a pane. `__heading-group` and `__primary-action` are gone outright:
+ * the first stacked a heading over a summary that no longer share a box, and the
+ * second boxed an action that now sits in the pane chrome's own control strip.
+ *
+ * `Spec-023 §Console Design (Meridian)` governs every rule this entry point pulls in:
+ *   • rule 7  — density: one primary action in the header, nothing beside it; the
+ *               version chain, the hashes and the schema marker are one click away
+ *               and so appear in no rule below.
+ *   • rule 8  — the absence blocks are the primitives' and are not restyled here;
+ *               these files give them the box they stand in.
+ *   • rule 5  — nothing animates. A chrome that moves while a read settles is a
+ *               chrome that draws attention to its own arrival rather than to what
+ *               arrived.
+ */
+
+/* The per-surface sheets, in the order a person meets the surfaces. */
+@import "./definitions/definitions-browser.css";
+@import "./runs/run-list.css";
+@import "./parks/park-badge.css";
+
+/* --------------------------------------------- the destination's own frame */
+
+/*
+ * The rail surface's box, and no pane's. A pane's box is `.meridian-pane`, drawn by
+ * the console's one pane chrome; this is the destination the rail mounts, which has
+ * no chrome above it and so draws its own. The padding is the strip's below rather
+ * than this box's, so the two hosts a strip can stand in — this section and a pane
+ * chrome's body — inset it identically.
+ */
+.meridian-workflow {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  overflow-y: auto;
+}
+
+/*
+ * The glyph is centred on the heading now that the summary has moved into the strip:
+ * the header is one line, and `flex-start` was the answer to a two-line heading group
+ * this header no longer holds.
+ */
+.meridian-workflow__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-5) var(--meridian-space-5) var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+/* ------------------------------------------------------------- state strip */
+
+/*
+ * The column every workflows body is, wherever it stands.
+ *
+ * IT CARRIES THE INSET, and that is what lets one class serve both hosts.
+ * `seats/pane-chrome.css` gives `.meridian-pane__body` no padding of its own — "a feed
+ * pane wants none and a form pane wants some, and that is the body's family to decide
+ * in its own sheet" — so a strip inside a pane insets itself, and the destination's
+ * section above leaves the same job to it rather than padding the strip a second time.
+ */
+.meridian-workflow__strip {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-block-size: 0;
+  padding: var(--meridian-space-5);
+}
+
+.meridian-workflow__summary {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * A slot standing empty is a dotted boundary rather than a filled panel: the
+ * treatment says "reserved" at a glance and does not compete with the surfaces
+ * around it that hold something.
+ */
+.meridian-workflow__slot {
+  display: flex;
+  flex-direction: column;
+  padding: var(--meridian-space-4);
+  border: 1px dashed var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* ----------------------------------------------------------------- actions */
+
+.meridian-workflow__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-workflow__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

@@ -43,6 +43,7 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { CONSOLE_CHORD_PLATFORM, PaletteOverlay, consoleCommands } from "../palette/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
+import { consolePaneRegistry } from "../seats/index.js";
 import {
   FrameStore,
   consoleEntityProjectorRegistry,
@@ -163,6 +164,10 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     frameStore,
     sessionStore,
     sessionStoreRegistry,
+    // The same board the composition above registered every family's bodies into, so
+    // a surface that opens a pane resolves it from the board this window was composed
+    // with rather than from whichever one a module happened to reach for.
+    paneRegistry: consolePaneRegistry,
     uiStateStore,
     draftStore,
   };

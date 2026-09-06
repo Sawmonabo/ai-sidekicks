@@ -1,0 +1,43 @@
+/*
+ * The wire choice list: one list, and every surface that offers wire identifiers to
+ * choose between. The sessions destination offers sessions to open in place, the
+ * auxiliary picker asks first which session a window should follow and then which
+ * agent inside it, and the workflows destination asks which session its definitions
+ * resolve from. All of them render the identical row, so the row is styled once.
+ *
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface cannot
+ * render the list without its CSS. Its focus ring lives in `shared.css` with every
+ * other primitive's, because rule 3's treatment is one decision and not eleven.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3, the
+ * focus ring; and the tokens rule — every value here reads back out of `tokens/`.
+ */
+
+.meridian-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-choice-list__choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+  transition: border-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-choice-list__choice:hover {
+  border-color: var(--meridian-edge-strong);
+}

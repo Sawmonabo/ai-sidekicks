@@ -55,7 +55,7 @@ import { useState } from "react";
 
 import { isUnbuiltWireRefusal, type GrowthPort } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
-import { Nothing, WireFigure } from "../primitives/index.js";
+import { Nothing, WireChoiceList, WireFigure } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStore, type SessionStoreRegistry } from "../store/index.js";
 import { AgentChoice } from "./AgentChoice.js";
 import { offeredSessionIds, useSessionDirectory } from "../seats/index.js";
@@ -67,7 +67,6 @@ import {
   type AuxiliaryRouteTarget,
   type PartialAuxiliaryContext,
 } from "../../../../shared/auxiliary-routes.js";
-import { WireChoiceList } from "./WireChoiceList.js";
 
 export interface ContextPickerProps {
   readonly route: AuxiliaryRouteName;

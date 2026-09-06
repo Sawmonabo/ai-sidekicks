@@ -6,18 +6,21 @@
 //
 // WHAT THIS MODULE OWNS, AND WHAT ITS NEIGHBOURS DO
 //
-// This one owns the outcome each served operation answers with. The four answers with
-// a job of their own live beside it, because each fails in a way this one cannot —
+// This one owns the outcome each served operation answers with. The answers with a job
+// of their own live beside it, because each fails in a way this one cannot —
 // `fixture-session-snapshot.ts` derives the base state one session opens with,
 // `fixture-session-directory.ts` derives what the node HAS,
-// `fixture-attention-derivation.ts` folds beats into an attention projection, and
-// `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
+// `fixture-attention-derivation.ts` folds beats into an attention projection,
+// `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
+// `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
+// them, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
 
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
+import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
@@ -25,10 +28,10 @@ import {
   growthUnavailable,
   type GrowthPort,
 } from "../growth-port/index.js";
-import type { GrowthBranchContext } from "../growth-values/gitflow.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
+import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
 
 /**
  * Build the fixture's growth port for one running scenario.
@@ -41,6 +44,9 @@ import type { FixtureServedGrowthOperationId } from "./fixture-served-operations
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
+    // workflow — spread from the module that implements them, so the served ids next
+    // door and the handlers here are held to each other by the `Pick` above.
+    ...fixtureWorkflowReads(engine),
     sessionRead: async (request) => ({
       status: "served",
       value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
@@ -60,7 +66,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             { items: [] },
     }),
     // gitflow
-    gitflowBranchContextRead: async (request) => {
+    gitflowBranchContextRead: async (request) =>
       // Routed through the scripted-reply seam so a scenario that DOES script
       // `gitflow.branchContextRead` is answered from the script, on the frozen clock,
       // with the loading window and the two non-arrival refusals a real read has.
@@ -74,21 +80,16 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // The unscripted arm REFUSES. The registered reply is flat and carries no
       // absence to serve — a pair that resolves no row refuses on that wire — so the
       // honest answer for a script that has not said is the "not checked" refusal,
-      // and a fabricated empty context would be a shape no daemon sends.
-      const scripted = await answerFromScriptedReply<GrowthBranchContext | undefined>(
+      // and a fabricated empty context would be a shape no daemon sends. The fallback
+      // this seam takes is a whole outcome, so that refusal is NAMED here rather than
+      // smuggled through an absent value and re-read by the caller.
+      answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
         request,
-        () => undefined,
-      );
-      if (scripted.status === "unavailable") {
-        return scripted;
-      }
-      return scripted.value === undefined
-        ? growthUnavailable("gitflowBranchContextRead")
-        : { status: "served", value: scripted.value };
-    },
+        () => growthUnavailable("gitflowBranchContextRead"),
+      ),
     // identity
     callerParticipantRead: async (request) => {
       const { viewingParticipantId } = engine.scenario;
@@ -127,7 +128,10 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // callback-tool registry next door: an invite ledger with no rows is an ordinary
       // session, whereas a withheld tool registry and an empty one are different
       // answers to different questions.
-      answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => []),
+      answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => ({
+        status: "served",
+        value: [],
+      })),
     // agent plane
     //
     // Each unscripted arm answers the EMPTY state of its own read rather than a
@@ -136,7 +140,10 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     // agent console draws them differently. A scenario that scripts nothing here has
     // a session with nobody in it, which is what a fresh session IS.
     agentList: async (request) =>
-      answerFromScriptedReply(engine, "agent.list", "agentList", request, () => ({ agents: [] })),
+      answerFromScriptedReply(engine, "agent.list", "agentList", request, () => ({
+        status: "served",
+        value: { agents: [] },
+      })),
     // The three WRITES have no empty state, and their unscripted arm says so. A write
     // that answered a synthesized receipt would tell a surface the daemon did
     // something no scenario ever said it did — and an attach in particular is what
@@ -156,7 +163,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         // A parent run with no children and no refused creates is the ordinary case,
         // and both halves are empty rather than absent: a fold with no rows is a
         // statement that nothing was refused, which is exactly what the panel draws.
-        () => ({ links: [], rejectedCreates: [] }),
+        () => ({ status: "served", value: { links: [], rejectedCreates: [] } }),
       ),
     sidekickDefinitionList: async (request) =>
       answerFromScriptedReply(
@@ -167,7 +174,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         // A node with no saved definitions is an ordinary node — the attach form's
         // inline arm needs none — so the picker draws the empty registry rather than
         // a refusal.
-        () => [],
+        () => ({ status: "served", value: [] }),
       ),
     sidekickPeerInvocationSet: async (request) =>
       await answerScriptedWrite(
@@ -196,16 +203,16 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
  * left after the check is exactly the settlement the seam reports, so the parked,
  * abandoned, and over-cap arms all keep their own answers.
  */
-async function answerScriptedWrite<TValue>(
+async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
   engine: ScenarioEngine,
   call: string,
-  operationId: GrowthOperationId,
+  operationId: TOperationId,
   request: unknown,
-): Promise<GrowthOutcome<TValue>> {
+): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
   if (engine.replyFor(call) === undefined) {
     return growthUnavailable(operationId);
   }
-  return await answerFromScriptedReply<TValue>(engine, call, operationId, request, () => {
+  return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
     // Unreachable: the guard above already refused every unscripted call, and the
     // seam reports `unscripted` only for exactly that. Named rather than cast, so a
     // later change that moves the guard fails here loudly instead of serving a value

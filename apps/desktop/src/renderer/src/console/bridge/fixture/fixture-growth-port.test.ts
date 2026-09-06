@@ -26,6 +26,7 @@ import {
   FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS,
   FIXTURE_SERVED_GROWTH_OPERATION_IDS,
 } from "./fixture-served-operations.js";
+import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 import { createLiveBridge } from "../live-bridge.js";
@@ -33,6 +34,7 @@ import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { AGENTS_SCENARIO, AGENTS_SCENARIO_SWITCH_LATENCY_MS } from "../scenarios/agents.js";
 import { FIRST_RUN_SCENARIO } from "../scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
+import { WORKFLOWS_SCENARIO } from "../scenarios/workflows.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
 /**
@@ -83,6 +85,19 @@ const SCENARIO_CONDITIONAL_SERVED_OPERATIONS: ReadonlySet<GrowthOperationId> = n
   "gitflowBranchContextRead",
 ]);
 
+/**
+ * The subject-addressed workflow reads, derived from the two declarations rather than
+ * retyped.
+ *
+ * The script-only subset names operations from two families and this pair of claims is
+ * about one of them, so it is read as the intersection: a workflow read that stops
+ * being subject-addressed leaves both claims below in the same edit that moves it.
+ */
+const SUBJECT_ADDRESSED_WORKFLOW_READS = FIXTURE_SERVED_WORKFLOW_OPERATION_IDS.filter(
+  (operationId) =>
+    (FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS as readonly string[]).includes(operationId),
+);
+
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
   it("answers every operation its bridge claims to serve, and refuses every other", async () => {
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
@@ -122,6 +137,36 @@ describe("the fixture growth port — what it serves, and what it still refuses"
 
     const outcome = await settling;
     expect(outcome.status).toBe("served");
+  });
+
+  it("still refuses a served workflow read under a scenario that scripts no workflow", async () => {
+    // The counter-arm the sweep above deliberately leaves out, and the one this header
+    // used to promise from a suite that was never written. A served operation is a
+    // claim about the PORT and not about the script: under the flagship, which scripts
+    // no workflow at all, these reads have no subject to answer for — and the honest
+    // answer is a refusal rather than an invented empty form, which would render "this
+    // run has no phases" about a run nothing asked after.
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    expect(SUBJECT_ADDRESSED_WORKFLOW_READS.length).toBeGreaterThan(0);
+
+    for (const operationId of SUBJECT_ADDRESSED_WORKFLOW_READS) {
+      const outcome = await callOperation(bridge.growth, operationId, FLAGSHIP_SCENARIO.sessionId);
+      expect(outcome.status, `${operationId} answered for an unscripted run`).toBe("unavailable");
+    }
+  });
+
+  it("negative control: a script-only READ does serve for the scenario that scripts it", async () => {
+    // The read-side twin of the write control above, and the reason subtracting these
+    // three from the sweep is not the same act as deleting their coverage. Without it
+    // the subtraction would hold over reads that refuse under EVERY scenario — the
+    // right answer under the flagship arrived at from a handler that never answers at
+    // all — and no surface would say so.
+    const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+
+    for (const operationId of SUBJECT_ADDRESSED_WORKFLOW_READS) {
+      const outcome = await callOperation(bridge.growth, operationId, WORKFLOWS_SCENARIO.sessionId);
+      expect(outcome.status, `${operationId} did not answer for its own script`).toBe("served");
+    }
   });
 
   it("refuses a served operation the playing scenario states nothing for", async () => {

@@ -145,6 +145,13 @@ export {
   SubjectScopedHolder,
 } from "./subject-scoped-holder.js";
 export { useSubjectScopedState } from "./subject-scoped-state.js";
+// The seed rule the two families above pass as the holder's `initial`. It ships from
+// this door rather than from either of them because both read it: the `workflows/`
+// view family for the definitions and runs directories, and the run pane for one run's
+// snapshot. What a read STARTS as is one rule, and three surfaces disagreed about it in
+// three different ways before it was written down once.
+export { subjectReadStart } from "./subject-read-start.js";
+export type { SubjectRead } from "./subject-read-start.js";
 // The disposal half, from the module that DECLARES it. A value a drop releases takes
 // the holder above; a value that owns a subscription or a connection takes this,
 // because the render that seeded it may be one React throws away.

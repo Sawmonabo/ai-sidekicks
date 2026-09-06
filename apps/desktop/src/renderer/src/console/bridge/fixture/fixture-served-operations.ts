@@ -146,6 +146,8 @@
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
 
+import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
+
 /**
  * The operations the fixture answers rather than refuses.
  *
@@ -153,8 +155,29 @@
  * `fixture-bridge.ts` publishes it as the bridge's served set, and the `Pick` the
  * port builds against makes a member with no implementation — or an implementation
  * with no member — a compile error rather than a runtime surprise.
+ *
+ * Written as an annotated tuple rather than `as const`, on the
+ * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
+ * carrying a spread, so the workflow ids reach the annotation as
+ * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`. They are named in one place and
+ * spread in the other, and the compiler holds the two to each other.
  */
-export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
+export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
+  "sessionRead",
+  "sessionList",
+  "attentionProjectionRead",
+  ...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
+  "gitflowBranchContextRead",
+  "callerParticipantRead",
+  "invitesList",
+  "agentList",
+  "agentAttach",
+  "agentConfigUpdate",
+  "agentDetach",
+  "orchestrationChildRunLinkRead",
+  "sidekickDefinitionList",
+  "sidekickPeerInvocationSet",
+] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
   // name are the ones this window happens to have open.
@@ -162,6 +185,11 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "sessionList",
   // The one projection the console must not compute for itself.
   "attentionProjectionRead",
+  // workflow — the reads a workflows scenario scripts, taken from the module that
+  // implements them so the ids and the handlers cannot disagree. The six operations
+  // they leave out are five mutations and the gate-chain verification;
+  // `fixture-workflow-reads.ts` carries the whole of that reasoning.
+  ...FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
   // gitflow — the branch-context read, answered from a scenario that scripts one and
   // refused for one that does not. Its sibling `gitflowPrPrepare` is on the same slate
   // row and refuses under every scenario, which is the rule above rather than an
@@ -184,7 +212,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
-] as const;
+];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
 export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERATION_IDS)[number];
@@ -194,11 +222,16 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  *
  * Every other served operation has an honest answer for a scenario that scripts
  * nothing — an empty ledger, an empty roster, a workspace with no branch context —
- * and answers `served` under any scenario at all. A WRITE has no such answer: there
- * is no such thing as "the attach that happened and produced nothing", and serving a
- * synthesized receipt would tell a surface the daemon did something no author said it
- * did. So these are implemented, and refuse by name under a scenario that does not
- * script them.
+ * and answers `served` under any scenario at all. Two classes have no such answer.
+ * A WRITE: there is no such thing as "the attach that happened and produced nothing",
+ * and serving a synthesized receipt would tell a surface the daemon did something no
+ * author said it did. And a READ ADDRESSED BY A SUBJECT: a run's snapshot, a finished
+ * phase's outputs, a definition's version chain — each answers with facts ABOUT a
+ * named thing, so an empty form would assert that the thing exists and holds nothing,
+ * which for a run no author declared is the same invention as a receipt. The
+ * enumerations beside them stay out of this set: a list of none is a real answer to
+ * "what does this session hold". So these are implemented, and refuse by name under a
+ * scenario that does not script them.
  *
  * A declared subset rather than a rule the sweep re-derives, because the sweep cannot
  * see the difference: both arms answer through the same port method, and what
@@ -209,4 +242,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "agentConfigUpdate",
   "agentDetach",
   "sidekickPeerInvocationSet",
+  "workflowRunRead",
+  "workflowPhaseOutputRead",
+  "workflowVersionChainRead",
 ];
