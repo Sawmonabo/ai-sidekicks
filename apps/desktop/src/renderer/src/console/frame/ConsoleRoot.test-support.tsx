@@ -10,6 +10,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 
 import { ConsoleRoot, type ConsoleRootProps } from "./ConsoleRoot.js";
 import { type ConsoleSurfaceContext } from "../seats/index.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /** Where a window with no particular address lands. */
 export const SESSIONS_HASH = "#/sessions";
@@ -43,8 +44,7 @@ export async function mountConsole(
         };
   await act(async () => {
     mounted = render(<ConsoleRoot {...props} />);
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   if (mounted === undefined) {
     throw new Error("the console never mounted");

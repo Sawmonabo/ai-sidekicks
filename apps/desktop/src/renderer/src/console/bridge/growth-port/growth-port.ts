@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names thirty-four wires the console builds
+// `Plan-023 §Console growth slate` names every wire the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -43,7 +43,10 @@ import {
 } from "./growth-outcome.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { growthSlateRow } from "./growth-slate.js";
-import type { ScriptedReplyRefusalCode } from "../scenario-runtime/index.js";
+import {
+  SCRIPT_ABSENT_REFUSAL_CODE,
+  type ScriptedReplyRefusalCode,
+} from "../scenario-runtime/index.js";
 
 /**
  * The port. One method per operation, derived from the signature table so the
@@ -136,10 +139,36 @@ export function growthScriptedReplyUnavailable(
 }
 
 /**
+ * Build the refusal a SERVED fixture operation returns when the scenario scripts it
+ * nothing.
+ *
+ * A third entry point for the third reason a growth call can fail to answer, and the
+ * one that would be wrong to fold into either of the others. `growthUnavailable`
+ * composes "this build does not carry the wire" out of the slate row, which is false
+ * for an operation the fixture serves and would send a reader to the document that
+ * owes a wire the fixture already stands in for. `growthScriptedReplyUnavailable`
+ * carries the parked-reply seam's own diagnosis, and nothing was parked here.
+ *
+ * What happened is a property of the SCENARIO, so the sentence names the call the
+ * script is missing and the remedy is to drive the surface from a scenario that
+ * scripts it — the same words `fixture-bridge.ts` reaches for on the call arm.
+ */
+export function growthUnscriptedReply(
+  operationId: GrowthOperationId,
+  call: string,
+): GrowthWireRefused {
+  return buildWireRefused(
+    operationId,
+    SCRIPT_ABSENT_REFUSAL_CODE,
+    `Not checked — this scenario scripts no reply for \`${call}\`, so the question was never put.`,
+  );
+}
+
+/**
  * Build the refusal a caller returns when a port call REJECTED instead of answering.
  *
- * A third entry point rather than a widened `growthUnavailable`, on the same reasoning
- * that split the second one out: this refusal is reached from the other side of the
+ * A fourth entry point rather than a widened `growthUnavailable`, on the same reasoning
+ * that split the others out: this refusal is reached from the other side of the
  * call, its sentence carries what the rejection said, and folding it in would put an
  * optional rejection on a builder whose whole job is to name an unregistered wire.
  *
@@ -289,6 +318,12 @@ export function createRefusingGrowthPort(): GrowthPort {
     daemonStatusRead: async () => growthUnavailable("daemonStatusRead"),
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),
+    approvalProjectionRead: async () => growthUnavailable("approvalProjectionRead"),
+    approvalResolve: async () => growthUnavailable("approvalResolve"),
+    approvalRuleList: async () => growthUnavailable("approvalRuleList"),
+    approvalRuleRevoke: async () => growthUnavailable("approvalRuleRevoke"),
+    sessionGoalUpdate: async () => growthUnavailable("sessionGoalUpdate"),
+    sessionGoalClear: async () => growthUnavailable("sessionGoalClear"),
     onboardingStateRead: async () => growthUnavailable("onboardingStateRead"),
     onboardingStepAdvance: async () => growthUnavailable("onboardingStepAdvance"),
     onboardingStepSkip: async () => growthUnavailable("onboardingStepSkip"),

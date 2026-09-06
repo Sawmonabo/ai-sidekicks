@@ -29,6 +29,7 @@ import { settleGrowthRead } from "../bridge/readings/read-settlement.js";
 import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { useSessionDirectory, type SessionDirectoryState } from "./session-directory.js";
 
 /**
@@ -98,7 +99,7 @@ function EffectTimeResetFrame(props: { readonly growth: GrowthPort }): React.JSX
 /** Let the directory read settle, so an assertion is about the answer. */
 async function settle(): Promise<void> {
   await act(async () => {
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 

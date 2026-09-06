@@ -136,27 +136,23 @@ export {
 export {
   /** @consumedBy T-023p-1C-2 */
   composerSeatRenderer,
-  /** @consumedBy T-023p-1C-3 */
   registerComposerSeat,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   unregisterComposerSeat,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ComposerSeatProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ComposerSeatRenderer,
 } from "./composer-seat.js";
 
 export {
-  /** @consumedBy T-023p-1C-3 */
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
+  type SidebarSectionAttention,
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  // Consumed by T-023p-1C-3, T-023p-1C-5
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -241,11 +237,7 @@ export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 // not to bind at all. Both gates were green on that for reasons neither intends — the
 // module's own test keeps it reachable, and it imports two families so it is no
 // orphan — which is why the census below is the thing that says who owes the rebind.
-export {
-  isCurrentSessionSubject,
-  /** @consumedBy T-023p-1C-3 */
-  useSessionScopedState,
-} from "./session-subject.js";
+export { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
 export type {
   /** @consumedBy T-023p-1C-3 */
   SessionScopedKey,

@@ -17,6 +17,7 @@
 // `AgentConsoleBody.peer-invocation.rounds.test.tsx`, over the same cast in
 // `peer-invocation-pane.test-support.tsx`.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -93,7 +94,7 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
         ],
         participantJoinLog: [],
       });
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(switchState(container)).toBe(false);

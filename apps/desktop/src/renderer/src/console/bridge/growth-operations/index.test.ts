@@ -21,7 +21,7 @@
 // production rule to reimplement, and the entry's own literal is what it checks.
 //
 // AND ONE PROPERTY THE SPLIT COSTS, BOUGHT BACK BY COUNTING. The table is composed
-// from ten plane modules, so a key that appears in two of them is a silent override
+// from eleven plane modules, so a key that appears in two of them is a silent override
 // by the later spread rather than the compile error a duplicate inside one object
 // literal used to be. The last block below asserts the planes' key sets are pairwise
 // disjoint and that their sizes sum to the composed table's — against
@@ -264,7 +264,7 @@ describe("the growth ledger's two identity-and-registry rows — no method to na
   });
 });
 
-describe("the composed ledger — ten planes, one key space", () => {
+describe("the composed ledger — eleven planes, one key space", () => {
   /** Every key that appears in more than one plane, in the order planes are spread. */
   function keysCarriedByTwoPlanes(
     planes: readonly Readonly<Record<string, unknown>>[],
@@ -289,7 +289,7 @@ describe("the composed ledger — ten planes, one key space", () => {
   it("negative control: the same walk names a row copied into a second plane", () => {
     // Without this the case above would pass for a walk that never reported
     // anything, and the property it is here for is precisely one the compiler
-    // stopped catching when the single object literal became nine.
+    // stopped catching when the single object literal became a spread of planes.
     expect(
       keysCarriedByTwoPlanes([
         { sessionRead: GROWTH_OPERATIONS.sessionRead },

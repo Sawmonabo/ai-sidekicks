@@ -4,6 +4,7 @@
 // command already holding the chord, the entry kept for a command this build no longer
 // registers, and the count of changed rows. What the page READS is
 // `KeyboardPage.reading.test.tsx`, over the one cast in `keyboard-page.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { consoleKeybindingOverrides } from "../../../palette/index.js";
@@ -87,7 +88,7 @@ describe("keyboard page — what it changes", () => {
     expect(reset).not.toBeNull();
     await act(async () => {
       fireEvent.click(reset as Element);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     await waitFor(() => {
@@ -175,7 +176,7 @@ describe("keyboard page — a chord kept for a command this build does not have"
 
     await act(async () => {
       remove?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     await waitFor(() => {

@@ -15,12 +15,21 @@
 // fixture define flips to find that nothing by that name was ever registered. The
 // two registries are the corpus's own — the daemon call set the console binds and
 // the growth slate's expected wire methods — so nothing here is a second list.
+//
+// AND THE REACHABILITY CLAIM HAS A SECOND HALF. A call the corpus registers can
+// still be answered by nothing: the growth port refuses an operation outside
+// `FIXTURE_SERVED_GROWTH_OPERATION_IDS` WITHOUT consulting the script, so a scenario
+// scripting one writes a reply no caller can reach. Four scenarios shipped an
+// `agent.list` roster in exactly that state, and the composer's target chip rendered
+// its refusal on every provider-bound surface while the script sat unread. The
+// served set is imported rather than restated, so the two cannot disagree.
 
 import { CONSOLE_DAEMON_METHODS } from "../../daemon/index.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/fixture-served-operations.js";
 import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
-import type { GrowthOperationId } from "../../growth-port/index.js";
+import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
 import type { ScenarioWireTruthDefect } from "./defect.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
 
 /**
  * How a growth row with no registered wire method is keyed by a scripted reply.
@@ -60,13 +69,12 @@ const GROWTH_REPLY_PREFIX = "growth:";
  * served to the fixture unchecked.
  */
 const CORPUS_METHODS_THE_CONSOLE_DOES_NOT_BIND: readonly string[] = [
-  // `AgentListRequest` → `AgentListResponse`, registered in the api-payload
-  // contracts' agent namespace. Shipped scenarios script it for the agents-table
-  // projection, which has no console surface on this branch. The comment names no
-  // count: every family that mounts a surface adds scenarios that script this call,
-  // so a figure written here rots at the next family merge rather than at an edit
-  // to this file.
-  "agent.list",
+  // Empty, and that is a statement rather than a gap: every call the shipped
+  // scenarios script is admitted by one of the two derived registries below.
+  // `agent.list` was the sole entry and never needed to be — the agent roster's
+  // growth row declares it as that row's expected wire method, so the growth branch
+  // already admitted it, and a transcription beside a derivation is a second answer
+  // to one question that goes stale on its own.
 ];
 
 /**
@@ -96,6 +104,10 @@ export function findReplyDefects(scenario: ConsoleScenario): readonly ScenarioWi
     const callReason = describeCallDefect(reply.call);
     if (callReason !== undefined) {
       defects.push({ scenarioId: scenario.id, subject, reason: callReason });
+    }
+    const servedReason = describeUnservedGrowthDefect(reply.call);
+    if (servedReason !== undefined) {
+      defects.push({ scenarioId: scenario.id, subject, reason: servedReason });
     }
     const latencyReason = describeLatencyDefect(reply.afterMs);
     if (latencyReason !== undefined) {
@@ -174,7 +186,7 @@ function describeCallDefect(call: string): string | undefined {
   if (call.startsWith(GROWTH_REPLY_PREFIX)) {
     return describeGrowthKeyDefect(call.slice(GROWTH_REPLY_PREFIX.length));
   }
-  if (growthOperationIds().some((id) => GROWTH_OPERATIONS[id].expectedWireMethod === call)) {
+  if (growthOperationKeyedBy(call) !== undefined) {
     return undefined;
   }
   return (
@@ -204,6 +216,49 @@ function describeGrowthKeyDefect(operationId: string): string | undefined {
     `expected wire method "${expectedWireMethod}". A row with a registered name is scripted ` +
     "under that name, so the fixture answers the key the live transport would send."
   );
+}
+
+/**
+ * A reply the growth port would refuse without ever reading, or `undefined`.
+ *
+ * The port is built as the refusing port with the served operations spread over it,
+ * so an operation outside the served set answers `wire-unregistered` and the script
+ * is never consulted. A scenario scripting one has written an answer nothing asks
+ * for — and worse than dead weight, because the surface reading that operation
+ * renders its refusal while the repo carries a reply that looks like coverage.
+ *
+ * A call the console BINDS is exempt: `fixture-bridge.ts` answers `daemon.call` from
+ * the same script, so a method a surface reaches through `callDaemon` is reachable
+ * whatever the port does with an operation of the same name.
+ */
+function describeUnservedGrowthDefect(call: string): string | undefined {
+  if ((CONSOLE_DAEMON_METHODS as readonly string[]).includes(call)) {
+    return undefined;
+  }
+  const operationId = growthOperationKeyedBy(call);
+  if (
+    operationId === undefined ||
+    (FIXTURE_SERVED_GROWTH_OPERATION_IDS as readonly string[]).includes(operationId)
+  ) {
+    return undefined;
+  }
+  return (
+    `it answers the growth operation "${operationId}", which the fixture port does not ` +
+    "serve — it refuses that operation without consulting the script, so this reply is " +
+    "reachable from nothing and the surface reading it renders a refusal. Serve the " +
+    "operation from `fixture-growth-port.ts`, or drop the reply."
+  );
+}
+
+/** Which growth operation a scripted call keys, under either of the two spellings. */
+function growthOperationKeyedBy(call: string): GrowthOperationId | undefined {
+  if (call.startsWith(GROWTH_REPLY_PREFIX)) {
+    const operationId = call.slice(GROWTH_REPLY_PREFIX.length);
+    return Object.hasOwn(GROWTH_OPERATIONS, operationId)
+      ? (operationId as GrowthOperationId)
+      : undefined;
+  }
+  return growthOperationIds().find((id) => GROWTH_OPERATIONS[id].expectedWireMethod === call);
 }
 
 /** The slate's operation ids, narrowed the way the record's annotation allows. */

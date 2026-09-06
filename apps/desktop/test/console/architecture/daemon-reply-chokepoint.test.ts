@@ -47,10 +47,9 @@
 //     owned by other plans, reach their own bridge, and import nothing from
 //     `console/bridge/` — so a call there is that plan's to place, and a gate here
 //     would fire on a change this console has no standing to refuse.
-//   • The `shell/` subtree is scanned WHEN IT EXISTS. It does not on this branch;
-//     the package's own structure rules place it beside the console as a
-//     `console-unit` resident, so it is named here rather than added later and
-//     forgotten.
+//   • Nothing. The `shell/` subtree IS scanned — the package's own structure rules
+//     place it beside the console as a `console-unit` resident, and three of the
+//     eleven modules that consume the call door live in it.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -78,9 +77,8 @@ import { daemonCallReaches, importsCallDoor } from "./daemon-call-census.js";
  * that differed from the shared one and from the subject gate's, so the three walks
  * disagreed about `.test-support.*` with nothing reporting it.
  *
- * The roots are the shared walk's default, `console/` and `shell/`; the second does
- * not exist on this branch, contributes no modules rather than throwing, and the
- * vacuity guard below is what keeps that from turning into a silent pass.
+ * The roots are the shared walk's default, `console/` and `shell/`, and the vacuity
+ * guard below is what keeps a wrong root from turning into a silent pass.
  */
 const GOVERNED_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules({ tests: true });
 
@@ -120,25 +118,49 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * SIX, and PINNED rather than left as a floor. It was zero while no surface called
- * the daemon at all, and zero made the two reach claims above vacuous: a scan reports
- * an unrebound tree compliant for the same reason it reports a fully rebound one, and
- * only a number tells them apart.
+ * ELEVEN, and PINNED rather than left as a floor. The count was zero when this gate
+ * landed, and zero was the whole reading then: the two reach claims above are
+ * satisfied by an empty set, so a scan reporting the tree compliant because nothing
+ * called the daemon at all was not making the claim this file's title makes.
  *
- * Five are the collaboration family's rebinding — `agent-console-reads.ts`,
- * `channel-model.ts`, `mutation-coordinator.ts`, `presence-model.ts`, and
- * `settings/pages/mounts/mount-inventory.ts` — every surface in that family that reaches
- * a method the registry binds. The sixth is `console/repos/repo-reads.ts`, the repos
- * family's five `repo.*` reads: it used to reach `daemon.call` itself and hold its own
- * parser and its own two refusal codes beside it, and it now names five registry keys
- * and holds none of the three.
+ * It is no longer vacuous. The eleven, by module and by the family that bound it:
  *
- * The count fails the moment it moves in either direction, so the next family lane that
- * binds a surface moves this constant in its own PR and a reader learns from that diff
- * which surfaces joined; and a surface QUIETLY LEAVING the door, which is the regression
- * this pin exists for, fails it just as loudly.
+ *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
+ *      module rather than as "the send router": the router was split and imports the
+ *      door nowhere, so a reader reconciling this number against the tree would have
+ *      gone looking in the wrong file.
+ *   2. `shell/composer/accessories/compaction/compaction-dispatch.ts` — the compaction
+ *      dispatch.
+ *   3. `shell/composer/commands/provider-command-read.ts` — the provider-command read.
+ *   4. `console/runs/pane/controls/run-control-dispatch.ts` — the runs pane's
+ *      run-control dispatch.
+ *   5. `console/runs/pane/controls/StepIn.tsx` — its step-in control.
+ *   6. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
+ *   7. `console/collaboration/channels/channel-model.ts` — the channel model.
+ *   8. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
+ *   9. `console/collaboration/members/presence-model.ts` — the presence model.
+ *  10. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
+ *  11. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
+ *      to reach `daemon.call` itself and hold its own parser and its own two refusal
+ *      codes beside it, and it now names five registry keys and holds none of the
+ *      three.
+ *
+ * Every surface in these families that reaches the wire, each through `callDaemon` and
+ * none around it. The composer's half was six until its target chip stopped taking a
+ * `providerAccount.list` of its own to join a paying account's label: that registry is
+ * node-scoped and `console/bridge/quotas/provider-account-quota.ts` already reads it
+ * once per window, so the label rows are folded off that reading and the chip joins
+ * them.
+ *
+ * The pin stays because the reading it protects is unchanged in the other direction:
+ * a surface that stopped going through the door would drop this number, and one that
+ * started reaching past it would be caught by the reach scan above rather than here.
+ * It fails the moment the number moves either way, so the lane that binds the next
+ * surface moves this constant in its own PR and a reader learns from that diff that
+ * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
+ * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 6;
+const CALL_DOOR_CONSUMER_COUNT = 11;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
@@ -319,9 +341,10 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
   });
 
   it("refuses `zod` in the shell subtree the console composes seats for", async () => {
-    // Asserted synthetically because that subtree does not exist on this branch.
-    // Without this case the second half of the `files` selector is untested, and a
-    // typo there would be invisible until the subtree landed carrying a validator.
+    // Asserted over a probe path rather than over a real module, because the claim
+    // is about the `files` selector and not about what the subtree happens to hold:
+    // no module there imports `zod` today, so a typo in that half of the selector
+    // would be invisible until one did.
     const messages = await restrictedImportMessages(
       IMPORTS_ZOD,
       rendererProbePath("shell", "shell-probe.ts"),

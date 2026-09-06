@@ -30,7 +30,6 @@
 
 import { AUXILIARY_ROUTE_NAMES } from "../../../../shared/auxiliary-routes.js";
 
-// Consumed by T-023p-1C-2
 /**
  * Every kind of pane the deck can hold, in `Spec-023`'s own order.
  *

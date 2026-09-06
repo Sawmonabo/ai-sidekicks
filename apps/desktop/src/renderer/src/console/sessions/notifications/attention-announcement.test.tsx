@@ -11,6 +11,7 @@
 // sentence at every push, and a hook that latched a flag at mount would say the
 // first settlement and swallow the coverage gap that appeared on the third.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -90,7 +91,7 @@ function mountProbe(reading: AttentionReading): {
             <AnnouncementProbe reading={next} />
           </LiveAnnouncerProvider>,
         );
-        await Promise.resolve();
+        await crossMacrotaskBoundary();
       });
     },
   };

@@ -27,6 +27,7 @@ import {
 import { FrameStore } from "../store/index.js";
 import { type SchemePreference } from "../tokens/index.js";
 import { useSchemePreference, type SchemePreferenceSurface } from "./scheme-preference.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /** A store whose every write is refused for quota, exactly as a full disk does. */
 function storeThatCannotWrite(): UiStateStore {
@@ -70,15 +71,13 @@ async function mountScheme(
         }}
       />,
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   return {
     choose: async (preference) => {
       await act(async () => {
         surface?.chooseScheme(preference);
-        await Promise.resolve();
-        await Promise.resolve();
+        await crossMacrotaskBoundary();
       });
     },
   };

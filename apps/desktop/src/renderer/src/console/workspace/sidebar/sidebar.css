@@ -1,0 +1,222 @@
+/* The session sidebar. Quiet chrome: the sections are a list of names until one is
+   opened, so the eye lands on the work rather than on the navigation. */
+
+.meridian-sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* The width is the model's, carried in as a custom property so the number lives
+     in one place and the layout lives in another. `flex: none` because a sidebar
+     that a flex parent could stretch would silently disagree with the separator's
+     reported `aria-valuenow`. */
+  flex: none;
+  width: var(--meridian-sidebar-width);
+  min-height: 0;
+  overflow: auto;
+  background: var(--meridian-surface-sunken);
+  border-right: 1px solid var(--meridian-edge);
+}
+
+.meridian-sidebar__filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--meridian-space-2) var(--meridian-space-2) 0;
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-sidebar__filter-field {
+  width: 100%;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-font-sans);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-sidebar__filter-field:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-sidebar__sections {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: var(--meridian-space-2);
+  list-style: none;
+}
+
+.meridian-sidebar__section + .meridian-sidebar__section {
+  margin-top: var(--meridian-space-1);
+}
+
+/* The heading carries the outline level; the button carries the interaction. Both
+   are needed: a bare button is unreachable by heading navigation, and a heading
+   with a click handler is unreachable by keyboard. */
+.meridian-sidebar__heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.meridian-sidebar__disclosure {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  width: 100%;
+  padding: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-font-sans);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-sidebar__disclosure:hover {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-sidebar__disclosure:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+.meridian-sidebar__disclosure[aria-expanded="true"] {
+  color: var(--meridian-text);
+}
+
+/* Where the DOM-free cursor is. A left edge rather than a fill, so the mark reads
+   at a glance without competing with the attention mark on the same row. */
+.meridian-sidebar__section[data-cursored="true"] .meridian-sidebar__disclosure {
+  color: var(--meridian-text);
+  box-shadow: inset 2px 0 0 0 var(--meridian-accent);
+}
+
+.meridian-sidebar__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The attention mark: a dot in the section's reported tone, and nothing at all
+   when a section reported calm or reported nothing. */
+.meridian-sidebar__attention {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.meridian-sidebar__attention--amber {
+  background: var(--meridian-amber-mark);
+}
+
+.meridian-sidebar__attention--red {
+  background: var(--meridian-red-mark);
+}
+
+.meridian-sidebar__body {
+  padding: 0 var(--meridian-space-2) var(--meridian-space-2)
+    calc(var(--meridian-space-2) + var(--meridian-space-5));
+}
+
+.meridian-sidebar__refusal {
+  padding: 0 var(--meridian-space-2) var(--meridian-space-2);
+}
+
+/* The width separator. It sits on the sidebar's own trailing edge and is wider
+   than the border it straddles, because a 1 px pointer target is a target nobody
+   hits; the visible line stays 1 px. */
+.meridian-sidebar__resize {
+  position: absolute;
+  inset: 0 -3px 0 auto;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.meridian-sidebar__resize:hover,
+.meridian-sidebar__resize:focus-visible {
+  background: linear-gradient(
+    to right,
+    transparent 3px,
+    var(--meridian-accent) 3px,
+    var(--meridian-accent) 4px,
+    transparent 4px
+  );
+}
+
+.meridian-sidebar__resize:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* --- The runs section, this family's own body. --- */
+
+.meridian-sidebar-runs__count {
+  margin: 0 0 var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-sidebar-runs__group + .meridian-sidebar-runs__group {
+  margin-top: var(--meridian-space-3);
+}
+
+.meridian-sidebar-runs__group-heading {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  margin: 0 0 var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  font-weight: inherit;
+}
+
+.meridian-sidebar-runs__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-sidebar-runs__open {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  width: 100%;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-font-sans);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-sidebar-runs__open:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-sidebar-runs__open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The identifier is wire-verbatim, so it is set in mono and truncates rather than
+   wrapping — a wrapped identifier reads as two. */
+.meridian-sidebar-runs__id {
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-family: var(--meridian-font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

@@ -16,7 +16,10 @@
 import type { ConsoleRefusal, WireRefusal } from "../../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthSlateRowId } from "./growth-slate.js";
-import { SCRIPTED_REPLY_REFUSAL_CODES } from "../scenario-runtime/index.js";
+import {
+  SCRIPT_ABSENT_REFUSAL_CODE,
+  SCRIPTED_REPLY_REFUSAL_CODES,
+} from "../scenario-runtime/index.js";
 
 /**
  * The code a build with no wire for an operation refuses under.
@@ -45,6 +48,13 @@ export const CALL_REJECTED_REFUSAL_CODE = "call-rejected" as const;
  *     not registered anywhere in the corpus. The refusal names who owes it. This is
  *     the only code a LIVE bridge produces on its own behalf, and it is the "not
  *     checked" kind of nothing rather than an empty result.
+ *   • `reply-unscripted` — the fixture SERVES this operation and the scenario in play
+ *     models nothing it could be answered from. A different fact from the one above
+ *     and it must not borrow that code: `wire-unregistered` says this build does not
+ *     carry the wire, which for a served operation is false, and a surface told it
+ *     would name the wrong document as owing. Fixture-only, and spelled once in
+ *     `scripted-reply.ts` because `fixture-bridge.ts` raises the same word for the
+ *     same absence on the call arm.
  *   • `call-rejected` — the call was made and its promise REJECTED rather than
  *     answering. No port in this build does that on purpose: every operation resolves
  *     to one of the two arms below, and the live one resolves to a refusal. It is a
@@ -72,9 +82,15 @@ export const CALL_REJECTED_REFUSAL_CODE = "call-rejected" as const;
  */
 export const GROWTH_PORT_REFUSAL_CODES: readonly [
   typeof WIRE_UNREGISTERED_REFUSAL_CODE,
+  typeof SCRIPT_ABSENT_REFUSAL_CODE,
   typeof CALL_REJECTED_REFUSAL_CODE,
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
-] = [WIRE_UNREGISTERED_REFUSAL_CODE, CALL_REJECTED_REFUSAL_CODE, ...SCRIPTED_REPLY_REFUSAL_CODES];
+] = [
+  WIRE_UNREGISTERED_REFUSAL_CODE,
+  SCRIPT_ABSENT_REFUSAL_CODE,
+  CALL_REJECTED_REFUSAL_CODE,
+  ...SCRIPTED_REPLY_REFUSAL_CODES,
+];
 
 /** One growth-port refusal code. Derived, so the vocabulary is declared once. */
 export type GrowthPortRefusalCode = (typeof GROWTH_PORT_REFUSAL_CODES)[number];
@@ -168,6 +184,24 @@ export interface GrowthServed<TValue> {
 }
 
 export type GrowthOutcome<TValue> = GrowthServed<TValue> | GrowthUnavailable;
+
+/**
+ * Narrow a served outcome's value, leaving a refusal exactly as it arrived.
+ *
+ * The fixture reads a scenario's scripted reply as `unknown` and several served
+ * operations answer with a shape the console has to narrow first, so the two steps —
+ * "did the script answer" and "what does that answer mean" — meet here rather than in
+ * four hand-written switches that would each have to remember to carry the refusal
+ * through untouched. Rewrapping a refusal is the mistake this prevents: a refusal
+ * re-minted on the way past loses the operation, the slate row, and the document that
+ * owes the wire.
+ */
+export function mapGrowthServed<TIn, TOut>(
+  outcome: GrowthOutcome<TIn>,
+  narrow: (value: TIn) => TOut,
+): GrowthOutcome<TOut> {
+  return outcome.status === "served" ? { status: "served", value: narrow(outcome.value) } : outcome;
+}
 
 /**
  * What a surface holds for ONE growth-port read: the port's answer, or why there is none.

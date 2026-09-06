@@ -5,6 +5,7 @@
 // and the automatic-update choice held for the window rather than for the section.
 // What the block READS is `UpdatesBlock.reading.test.tsx`, over the one cast in
 // `updates-block.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { bridgeReporting, pressCheckNow, renderSettled } from "./updates-block.test-support.js";
@@ -39,7 +40,7 @@ describe("the updates block — nothing restarts without a press", () => {
     );
     await act(async () => {
       restart?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     expect(requestRestart).toHaveBeenCalledTimes(1);
   });
@@ -141,8 +142,8 @@ describe("the updates block — a control fails onto one line, however it failed
     );
     await act(async () => {
       restart?.click();
-      await Promise.resolve();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
+      await crossMacrotaskBoundary();
     });
     expect(container.textContent ?? "").toContain("the updater cannot restart this build");
   });
@@ -168,8 +169,8 @@ describe("the updates block — a choice held for the window outlives the sectio
 
     await act(async () => {
       first.toggle()?.click();
-      await Promise.resolve();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
+      await crossMacrotaskBoundary();
     });
     expect(first.toggle()?.getAttribute("aria-checked")).toBe("false");
     expect(first.block.textContent ?? "").toContain("Held in this window");
@@ -187,8 +188,8 @@ describe("the updates block — a choice held for the window outlives the sectio
     const first = await renderSettled(bridgeReporting({ status: "idle" }));
     await act(async () => {
       first.toggle()?.click();
-      await Promise.resolve();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
+      await crossMacrotaskBoundary();
     });
     expect(first.toggle()?.getAttribute("aria-checked")).toBe("false");
     first.unmount();

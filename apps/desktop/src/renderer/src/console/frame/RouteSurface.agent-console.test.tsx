@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
-import { settleReactWork } from "../core/act-settlement.test-support.js";
+import { settle as settleReactWork } from "../core/settle.test-support.js";
 import {
   FrameStore,
   SessionStoreRegistry,
@@ -112,7 +112,7 @@ async function clickChoice(value: string): Promise<void> {
   const choice = screen.getByRole("button", { name: value });
   await act(async () => {
     fireEvent.click(choice);
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
