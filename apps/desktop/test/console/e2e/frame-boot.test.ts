@@ -53,6 +53,7 @@ import {
   UI_STATE_STORE_NAME,
 } from "../../../src/renderer/src/console/persistence/indexeddb-adapter.js";
 import { FIRST_RUN_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
+import { PANE_HARNESS_LABEL } from "../../../src/renderer/src/console/frame/PaneHarnessFrame.js";
 import { withLaunchedConsole } from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../launch-body.js";
@@ -145,28 +146,44 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // the COMPOSED one, not a bare line, because a bare line at the top-left of
       // a real window is what a half-painted page looks like.
       //
-      // Re-pointed rather than deleted, which is the instruction the previous probe
+      // Re-pointed rather than deleted, which is the instruction each previous probe
       // left behind: it moved off `#/settings` when the collaboration family took
-      // that destination, and the workflows family has now taken `#/workflows`. Of
-      // the seven declared surface slots exactly one is still unclaimed — `timeline`
-      // — so it is the only address left that can ask this question at all.
+      // that destination, off `#/workflows` when the workflows family took that one,
+      // and off `#/window/timeline/…` now that the ledger claims the last SURFACE
+      // slot nobody owned. All seven declared slots have owners, so `surfaceSlotFor`
+      // can no longer hand `RouteSurface` a slot with no descriptor and no address
+      // asks this question at the surface layer any more — which is exactly the case
+      // that instruction named, and the answer it asked for is a destination the
+      // probe is TOLD rather than one it guesses.
       //
-      // It is an AUXILIARY address, and that costs a session id: a bare
-      // `#/window/timeline` names a window without naming what to show in it, and
-      // the frame answers with the context picker rather than with an absence. So
-      // the probe names the scenario's own session, which this shell is playing —
-      // the first-run DIRECTORY is empty, which is what the assertion above is
-      // about, while the session it holds is readable, which is what gets the store
-      // open and the route as far as the slot. Re-point it again — do not delete it
-      // — the day a family claims `timeline`, and if that leaves no unclaimed slot
-      // at all, this probe has to be told which one to reserve rather than guess.
+      // It is the fixture-only pane harness, one level down, and the arm it reaches
+      // says so in its own source: "Reserved, not stubbed — `RouteSurface`'s rule one
+      // level down", for a pane KIND the deck declares and no family renders. `runs`
+      // is session-scoped, so it needs no entity segment, and it is unowned because
+      // the composer-sidebar-runs-approvals family has not shipped — the same kind of
+      // fact "reserved, not missing" states one layer up. Re-point it again — do not
+      // delete it — the day a family registers a `runs` body; `approvals` and
+      // `inspector` are the two unowned kinds behind it.
+      //
+      // BOTH address segments are required by that route's grammar, and the session
+      // is the scenario's own: the first-run DIRECTORY is empty, which is what the
+      // assertion above is about, while the session it holds is readable, which is
+      // what gets the store open and the route as far as the surface.
       await consoleWindow.evaluate((sessionId: string) => {
-        window.location.hash = `#/window/timeline/${sessionId}`;
+        window.location.hash = `#/pane-harness/runs/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);
-      await consoleWindow.locator(".meridian-surface-absence .meridian-nothing--empty").waitFor({
-        state: "visible",
-        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-      });
+      // `--block` is the composed placement, and asserting it is the other half of
+      // "not a bare line": the surface layer proved that with `SurfaceAbsence`, and
+      // this arm renders its `Nothing` inside the harness region instead, where the
+      // placement modifier is what carries the same claim.
+      await consoleWindow
+        .locator(
+          `section[aria-label="${PANE_HARNESS_LABEL}"] .meridian-nothing--block.meridian-nothing--empty`,
+        )
+        .waitFor({
+          state: "visible",
+          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+        });
     });
   });
 
