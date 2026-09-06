@@ -14,12 +14,15 @@
 //
 // WHAT A FAMILY DOES
 //
-// A family exports its pane registrar from its own `index.ts`, claims its pane kinds
-// inside that function, and adds the import plus one call DIRECTLY BENEATH its own
-// reserved line. The reserved line stays: it names the kinds that seat claims, so a
-// reviewer reads the whole deck off this file whether or not the seat is filled, and
-// the six seats keep their order without depending on which of them happen to be
-// filled today.
+// A family exports `register<Family>Panes(registry: ConsolePaneRegistry): void`
+// from its own `index.ts`, claims its pane kinds inside that function, and replaces
+// its own placeholder line below with the import and the call. The task marker rides
+// the call rather than being dropped with the comment, so a filled seat is still a
+// seat and the board reads the same whether a family has landed or not. Each line
+// names the kinds it claims, so a reviewer can read the whole deck off this file.
+// A filled seat is therefore one or more `register<X>(registry); // T-023p-1C-<n>
+// <word…>` lines carrying that seat's task id and no other, every one of them
+// marked — the shape `panes.test.ts` reads this board as a census against.
 //
 // THE BODY IS THE FAMILY'S, AND THIS DIRECTORY IS FLAT. A pane body renders one
 // family's vocabulary, so it lives in that family — `agents/agent-console/` for the
@@ -66,8 +69,7 @@ import { registerAgentConsolePane } from "../agents/index.js";
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-2 timeline
   // T-023p-1C-3 runs approvals inspector
-  // T-023p-1C-4 agent-console
-  registerAgentConsolePane(registry);
+  registerAgentConsolePane(registry); // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
   // T-023p-1C-6 workflow-run workflow-builder
   // T-023p-1C-7 browser terminal
