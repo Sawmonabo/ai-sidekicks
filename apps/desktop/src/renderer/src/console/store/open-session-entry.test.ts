@@ -8,12 +8,20 @@
 // a later delivery or a later refresh request re-arms a timer behind the pane that
 // went away — and "a timer that outlives its pane" is the failure this binding
 // exists to make unrepresentable.
+//
+// AND THE RESUME POSITION, for the same structural reason. The registry forwards the
+// DECISION and not what the reader was handed, so a suite driving the registry can
+// only ask what the entry decided — which is the reading that stayed green for the
+// whole time the console decided a position and submitted it nowhere. Driving the
+// entry directly is what lets the reader RECORD its third argument, and that record
+// is the only assertion the defect could not have passed.
 
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../core/index.js";
 import { eventOfKind } from "./session-event.test-support.js";
 import { OpenSessionEntry } from "./open-session-entry.js";
+import { RESUME_CURSOR_UNRESOLVABLE_CODE } from "./timeline-resume.js";
 import type { SessionSnapshot } from "./session-store.js";
 
 /** A reader that establishes nothing, so no read can clear what a test set up. */
@@ -73,125 +81,195 @@ describe("OpenSessionEntry — dispose is terminal on both children", () => {
   });
 });
 
-describe("OpenSessionEntry — the resume rule runs on every completed read", () => {
+describe("OpenSessionEntry — the resume position is submitted on the read", () => {
+  /** One read the entry performed: which position it was asked to start from. */
+  interface RecordedRead {
+    readonly resumeFromCursor: string | undefined;
+  }
+
+  /** What a scripted read does when the entry performs it. */
+  type ScriptedRead = SessionSnapshot | { readonly rejectWith: unknown };
+
   /**
-   * One entry whose successive reads answer with the snapshots supplied, in order.
+   * An entry whose successive reads follow a script, recording what each was handed.
    *
-   * A queue rather than one snapshot, because every case here is about the SECOND
-   * read: the rule only has something to decide once a projection exists for it to
-   * keep or throw away, so each case establishes one and then reconnects.
+   * The RECORD is the assertion this suite exists to make. The decision was computed,
+   * kept, and forwarded long before it was submitted anywhere, so an assertion that
+   * only read the decision back off the entry passed for the whole time the console
+   * was deciding a position and opening the stream wherever it opened before. What the
+   * reader was HANDED is the only reading that cannot pass in that state.
    */
   function entryReadingInTurn(
     clock: ManualClock,
-    snapshots: readonly SessionSnapshot[],
-  ): OpenSessionEntry {
+    script: readonly ScriptedRead[],
+    onTimelineResumeSettled?: () => void,
+  ): { readonly entry: OpenSessionEntry; readonly reads: RecordedRead[] } {
+    const reads: RecordedRead[] = [];
     let readIndex = 0;
-    return new OpenSessionEntry("session-1", {
-      read: () => {
-        const snapshot = snapshots[Math.min(readIndex, snapshots.length - 1)];
+    const entry = new OpenSessionEntry("session-1", {
+      read: (_sessionId, _reasons, resumeFromCursor) => {
+        reads.push({ resumeFromCursor });
+        const step = script[Math.min(readIndex, script.length - 1)];
         readIndex += 1;
-        return Promise.resolve(snapshot);
+        if (step !== undefined && "rejectWith" in step) {
+          return Promise.reject(step.rejectWith);
+        }
+        return Promise.resolve(step);
       },
       clock,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
+      ...(onTimelineResumeSettled === undefined ? {} : { onTimelineResumeSettled }),
     });
+    return { entry, reads };
   }
 
   /** Ask for a refresh and let the scheduler's deadline and its promise settle. */
   async function refresh(clock: ManualClock, entry: OpenSessionEntry): Promise<void> {
     entry.refreshScheduler.request("window-focus");
     clock.advance(21);
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let turn = 0; turn < 4; turn += 1) {
+      await Promise.resolve();
+    }
   }
 
-  /** A projection seven rows deep, whose cursors are in order. */
-  const ESTABLISHED: SessionSnapshot = {
-    cursor: 7,
-    entities: [],
-    participantJoinLog: [],
-    timelineCursors: {
-      earliest: "0_1723291400000000000",
-      latest: "7_1723291480000000000",
-      acknowledged: "7_1723291480000000000",
+  /** A snapshot at `cursor`, acknowledged where one is supplied. */
+  function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
+    return {
+      cursor,
+      entities: [],
+      participantJoinLog: [],
+      timelineCursors: {
+        latest: "9_1723291500000000000",
+        ...(acknowledged === undefined ? {} : { acknowledged }),
+      },
+    };
+  }
+
+  /** The rejection a daemon raises for a position it cannot resolve. */
+  const CURSOR_REFUSAL = {
+    rejectWith: {
+      code: RESUME_CURSOR_UNRESOLVABLE_CODE,
+      message: "the submitted cursor could not be decoded",
     },
   };
 
-  it("leaves the established projection standing when a reconnect reads a lower cursor", async () => {
-    // The retired lost-event arm, end to end. The reconnecting read is positioned at
-    // the floor and carries an acknowledged cursor a leading-integer scan would have
-    // ranked below it — so the entry used to throw a live projection away here. It
-    // no longer does: no ordering over an opaque cursor is published, and
-    // `admitsSnapshotAt` correctly refuses the floor snapshot for arriving behind the
-    // cursor the store already holds.
+  it("submits nothing on the first read and the acknowledged position on the next", async () => {
     const clock = new ManualClock(0);
-    const entry = entryReadingInTurn(clock, [
-      ESTABLISHED,
-      {
-        cursor: 0,
-        entities: [],
-        participantJoinLog: [],
-        timelineCursors: {
-          earliest: "0_1723291400000000000",
-          latest: "9_1723291500000000000",
-          acknowledged: "-4_1723200000000000000",
-        },
-      },
+    const { entry, reads } = entryReadingInTurn(clock, [
+      snapshotAt(7, "7_1723291480000000000"),
+      snapshotAt(9, "9_1723291500000000000"),
     ]);
 
     await refresh(clock, entry);
-    expect(entry.store.snapshot().cursor).toBe(7);
     await refresh(clock, entry);
 
+    // Two reads, and the second one starts where the first was acknowledged. This is
+    // the whole of the defect: the second entry here used to be `undefined`.
+    expect(reads).toStrictEqual([
+      { resumeFromCursor: undefined },
+      { resumeFromCursor: "7_1723291480000000000" },
+    ]);
     expect(entry.timelineResume?.outcome).toBe("resume");
-    expect(entry.store.snapshot().cursor).toBe(7);
   });
 
-  it("negative control: an ordered pair leaves the established projection standing", async () => {
-    // Without this the case above would pass over an entry that recorded nothing at
-    // all, since "no reset happened" is satisfied by an entry that never decides.
+  it("negative control: a read that acknowledges nothing leaves the next read at the start", async () => {
+    // Without this, an entry that submitted some remembered value unconditionally
+    // would satisfy the case above — and would send a position on a session where
+    // nothing has been acknowledged, which is a cursor the daemon has to refuse.
     const clock = new ManualClock(0);
-    const entry = entryReadingInTurn(clock, [
-      ESTABLISHED,
-      {
-        cursor: 0,
-        entities: [],
-        participantJoinLog: [],
-        timelineCursors: {
-          earliest: "0_1723291400000000000",
-          latest: "9_1723291500000000000",
-          acknowledged: "7_1723291480000000000",
-        },
-      },
-    ]);
+    const { entry, reads } = entryReadingInTurn(clock, [snapshotAt(7), snapshotAt(9)]);
 
     await refresh(clock, entry);
     await refresh(clock, entry);
 
-    expect(entry.timelineResume?.outcome).toBe("resume");
-    expect(entry.store.snapshot().cursor).toBe(7);
+    expect(reads).toStrictEqual([{ resumeFromCursor: undefined }, { resumeFromCursor: undefined }]);
+    expect(entry.timelineResume?.outcome).toBe("restart");
   });
 
-  it("refuses the cycle without resetting anything when the read carries no floor", async () => {
-    // The version-skew arm. The refusal is recorded and the projection is untouched:
-    // an older responder is a standing state, not an incident, and a console that
-    // reset on it would rebuild the same projection on every read forever.
+  it("re-reads from the beginning and records the refusal when the position is refused", async () => {
     const clock = new ManualClock(0);
-    const entry = entryReadingInTurn(clock, [
-      ESTABLISHED,
-      {
-        cursor: 0,
-        entities: [],
-        participantJoinLog: [],
-        timelineCursors: { latest: "9_1723291500000000000" },
-      },
+    const settlements: number[] = [];
+    const { entry, reads } = entryReadingInTurn(
+      clock,
+      [snapshotAt(7, "7_1723291480000000000"), CURSOR_REFUSAL, snapshotAt(0)],
+      () => settlements.push(1),
+    );
+
+    await refresh(clock, entry);
+    await refresh(clock, entry);
+
+    // Three reads: the first, the one that carried the refused position, and the
+    // recovery that carried none. The recovery goes through the SAME reader, so no
+    // second read path exists to get out of step with this one.
+    expect(reads).toStrictEqual([
+      { resumeFromCursor: undefined },
+      { resumeFromCursor: "7_1723291480000000000" },
+      { resumeFromCursor: undefined },
     ]);
-
-    await refresh(clock, entry);
-    await refresh(clock, entry);
-
+    // The refusal STANDS as the decision — a recovery that overwrote it would leave
+    // the surface with nothing to say about a position it silently gave up.
     expect(entry.timelineResume?.outcome).toBe("refused");
+    // And the store keeps its projection: the recovery answered at the beginning of
+    // the window, which `admitsSnapshotAt` refuses for arriving behind the cursor.
+    // Which is exactly why the settlement is REPORTED rather than left to ride a
+    // store transition that does not happen.
     expect(entry.store.snapshot().cursor).toBe(7);
+    expect(settlements.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("never submits a refused position twice", async () => {
+    // The loop this closes: refuse, recover, be acknowledged at the same unresolvable
+    // position, submit it again — two reads on every refresh for as long as it stood.
+    const clock = new ManualClock(0);
+    const { entry, reads } = entryReadingInTurn(clock, [
+      snapshotAt(7, "7_1723291480000000000"),
+      CURSOR_REFUSAL,
+      snapshotAt(0, "7_1723291480000000000"),
+      snapshotAt(0, "7_1723291480000000000"),
+    ]);
+
+    await refresh(clock, entry);
+    await refresh(clock, entry);
+    await refresh(clock, entry);
+
+    expect(reads.map((read) => read.resumeFromCursor)).toStrictEqual([
+      undefined,
+      "7_1723291480000000000",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("degrades the store rather than recovering when a read fails for any other reason", async () => {
+    // The other half of the classification. A read that failed is not a position that
+    // was refused: it takes the scheduler's own error arm, which marks the store
+    // degraded, and it takes no second read.
+    const clock = new ManualClock(0);
+    const { entry, reads } = entryReadingInTurn(clock, [
+      snapshotAt(7, "7_1723291480000000000"),
+      { rejectWith: { code: "session.not_found", message: "no such session" } },
+    ]);
+
+    await refresh(clock, entry);
+    await refresh(clock, entry);
+
+    expect(reads.length).toBe(2);
+    expect(entry.timelineResume?.outcome).toBe("resume");
+    expect(entry.store.snapshot().degradedCause).toBe("read-failed");
+  });
+
+  it("does not claim a refused position when it submitted none", async () => {
+    // `event.cursor_unresolvable` refuses a request that carried a cursor, so it
+    // cannot be about a position this read did not send. Taking it as ours would
+    // report a lost place on a first read and re-read the window for nothing.
+    const clock = new ManualClock(0);
+    const { entry, reads } = entryReadingInTurn(clock, [CURSOR_REFUSAL, snapshotAt(0)]);
+
+    await refresh(clock, entry);
+
+    expect(reads).toStrictEqual([{ resumeFromCursor: undefined }]);
+    expect(entry.timelineResume).toBeUndefined();
+    expect(entry.store.snapshot().degradedCause).toBe("read-failed");
   });
 });
