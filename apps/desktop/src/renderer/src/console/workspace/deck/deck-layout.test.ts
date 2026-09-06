@@ -15,19 +15,25 @@ function emptyLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one run-scoped inspector. */
+/** A layout holding one session-scoped timeline and one participant-scoped inspector. */
 function twoPaneLayout(): DeckLayout {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "inspector", entity: { kind: "run", id: "run-01" } });
+  layout.open({ kind: "inspector", entity: { kind: "participant", id: "participant-01" } });
   return layout;
 }
 
 describe("DeckLayout — one entity, one pane", () => {
   it("focuses the pane that already shows an entity rather than opening a second", () => {
     const layout = emptyLayout();
-    const first = layout.open({ kind: "inspector", entity: { kind: "run", id: "run-01" } });
-    const second = layout.open({ kind: "inspector", entity: { kind: "run", id: "run-01" } });
+    const first = layout.open({
+      kind: "inspector",
+      entity: { kind: "participant", id: "participant-01" },
+    });
+    const second = layout.open({
+      kind: "inspector",
+      entity: { kind: "participant", id: "participant-01" },
+    });
 
     expect(second).toBe(first);
     expect(layout.snapshot().panes).toHaveLength(1);
@@ -39,8 +45,8 @@ describe("DeckLayout — one entity, one pane", () => {
     // second open — and a run legitimately appears in both a runs list and an
     // inspector.
     const layout = emptyLayout();
-    layout.open({ kind: "inspector", entity: { kind: "run", id: "run-01" } });
-    layout.open({ kind: "runs", entity: { kind: "run", id: "run-01" } });
+    layout.open({ kind: "inspector", entity: { kind: "participant", id: "participant-01" } });
+    layout.open({ kind: "runs", entity: { kind: "participant", id: "participant-01" } });
     expect(layout.snapshot().panes).toHaveLength(2);
   });
 });

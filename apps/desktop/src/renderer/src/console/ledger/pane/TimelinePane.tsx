@@ -103,6 +103,7 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
       <TimelineRowHost
         contract={TIMELINE_ROW_SLOT}
         body={timelineRowRenderer()}
+        paneId={context.paneId}
         sessionStore={context.sessionStore}
         {...(context.entity === undefined ? {} : { channelId: context.entity.id })}
       />

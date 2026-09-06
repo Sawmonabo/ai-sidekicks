@@ -6,10 +6,8 @@
 // step indistinguishable exactly when one of them needs a person.
 
 import { Glyph, WireFigure } from "../../primitives/index.js";
-import { tokenReference } from "../../tokens/index.js";
+import { GLYPH_SIZE_DENSE, tokenReference } from "../../tokens/index.js";
 import { castChipAccessibleName, type CastMember } from "./cast-bar-model.js";
-
-const PRESENCE_GLYPH_SIZE = 10;
 
 /** Carries one participant's hue into the chip's ring, without a style attribute per rule. */
 interface CastChipStyle extends React.CSSProperties {
@@ -63,7 +61,7 @@ export function CastChip(props: CastChipProps): React.JSX.Element {
       {/* Presence is not a wire the console has. The glyph is drawn in the
           not-checked treatment rather than as a state, because "we have not asked"
           and "they are online" are different facts. */}
-      <Glyph name="dot" size={PRESENCE_GLYPH_SIZE} title="Presence has not been read" />
+      <Glyph name="dot" size={GLYPH_SIZE_DENSE} title="Presence has not been read" />
       <span
         className="meridian-cast-chip__name"
         title={member.label === undefined ? undefined : member.participantId}

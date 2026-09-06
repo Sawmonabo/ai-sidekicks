@@ -29,7 +29,8 @@ import type {
   ToolActivityPayload,
 } from "@ai-sidekicks/contracts";
 
-import { projectedPayload, readWireString } from "../../cards/wire-payload.js";
+import { readWireString } from "../../../core/index.js";
+import { projectedPayload } from "../../cards/wire-payload.js";
 
 /**
  * What a person has narrowed the ledger to.
@@ -186,7 +187,7 @@ const CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER = "channelId" satisfies keyof Assistant
  * run its own second pass admits.
  */
 export function channelIdOfRow(row: TimelineRow): string | undefined {
-  return readWireString(projectedPayload(row), CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER);
+  return readWireString(projectedPayload(row)[CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER]);
 }
 
 /**

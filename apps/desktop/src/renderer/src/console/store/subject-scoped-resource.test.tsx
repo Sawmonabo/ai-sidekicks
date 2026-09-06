@@ -69,7 +69,7 @@ function DiscardedRenderProbe(props: DiscardProbeProps): ReactElement {
     subject,
     undefined,
     () => props.ledger.open(subject.name),
-    props.ledger.close,
+    { release: props.ledger.close },
   );
   if (pass === 0) {
     setPass(1);
@@ -112,7 +112,7 @@ function SwapProbe(props: SwapProbeProps): ReactElement {
     props.subject,
     undefined,
     () => props.ledger.open(props.subject.name),
-    props.ledger.close,
+    { release: props.ledger.close },
   );
   props.onReady?.(publish);
   return <output>{value.name}</output>;

@@ -68,9 +68,9 @@ export const ACTOR_FOLLOW_ANNOUNCEMENTS = {
  *
  * The scroll rides the ledger's own chokepoint through the follow seat, never a
  * `scrollIntoView` call here. Each way it can fail says so: a participant with no
- * row, a row outside the window the ledger holds, and a window with no ledger mounted
- * are three different facts, and a press that quietly did nothing reported none of
- * them.
+ * row, a row outside the window the ledger holds, and a pane with no ledger mounted
+ * in it are three different facts, and a press that quietly did nothing reported none
+ * of them.
  */
 export function useActorFollow(options: {
   readonly layout: DeckLayout;
@@ -80,10 +80,14 @@ export function useActorFollow(options: {
   const { announce, layout, sessionStore } = options;
   return useCallback(
     (participantId: string) => {
+      // ONE PANE ANSWERS BOTH HALVES, and it is a LOG. Following an actor is an act
+      // on the session log, so the target is the focused pane when that pane is a
+      // timeline and the first timeline otherwise — never a pane picked by some other
+      // rule, which is how a press came to focus one body and scroll another.
       const panes = layout.snapshot().panes;
+      const focused = panes.find((pane) => pane.paneId === layout.snapshot().focusedPaneId);
       const target =
-        panes.find((pane) => pane.entity?.id === participantId) ??
-        panes.find((pane) => pane.kind === "timeline");
+        focused?.kind === "timeline" ? focused : panes.find((pane) => pane.kind === "timeline");
       if (target !== undefined) {
         layout.focus(target.paneId);
       }
@@ -93,7 +97,11 @@ export function useActorFollow(options: {
         announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-activity"]);
         return;
       }
-      const follow = actorFollowHandler();
+      // The seat of the pane just focused, and no other. A deck holding a session log
+      // beside a channel-scoped one holds two feeds, and the one that is not on the
+      // person's screen would report a row out of view because its rows are a
+      // different set — a sentence about the wrong window.
+      const follow = target === undefined ? undefined : actorFollowHandler(target.paneId);
       if (follow === undefined) {
         announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-ledger"]);
         return;

@@ -7,11 +7,8 @@
 
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import type { ConsoleCommand, KeyBinding } from "../../palette/index.js";
-import type {
-  ConsoleCommandSurface,
-  ConsoleFamilyCommandContribution,
-} from "../../frame/command-surface.js";
+import type { ConsoleCommand, ConsoleCommandSurface, KeyBinding } from "../../palette/index.js";
+
 import {
   MountedSidebarSeat,
   SIDEBAR_COMMAND_OWNER,
@@ -21,11 +18,20 @@ import {
   type SidebarActs,
 } from "./sidebar-commands.js";
 
+/**
+ * What a contribution is, read off the door rather than named.
+ *
+ * The shape is the argument of the one method the surface has, so deriving it here
+ * keeps this recorder exact without the palette publishing a name for a type every
+ * caller builds inline and none of them writes down.
+ */
+type RecordedContribution = Parameters<ConsoleCommandSurface["contribute"]>[0];
+
 /** A surface that records what a family contributed, rather than a window's registry. */
 class RecordingCommandSurface implements ConsoleCommandSurface {
-  contribution: ConsoleFamilyCommandContribution | undefined;
+  contribution: RecordedContribution | undefined;
 
-  public contribute(contribution: ConsoleFamilyCommandContribution): void {
+  public contribute(contribution: RecordedContribution): void {
     this.contribution = contribution;
   }
 }

@@ -27,6 +27,7 @@
 // re-authors a body another plan owns. `OwnerSlotProps` is the declaration of that
 // arrangement, and this card mounts it in the row's hover footer.
 
+import { readWireString } from "../../core/index.js";
 import { Glyph, LedgerRow } from "../../primitives/index.js";
 import {
   type InlineCardSeatProps,
@@ -40,7 +41,7 @@ import { InlineCards } from "./InlineCards.js";
 import { MachineBody } from "./bodies/index.js";
 import { MessageReceipt } from "./MessageReceipt.js";
 import { ParticipantBody } from "./bodies/index.js";
-import { projectedPayload, readWireCount, readWireString } from "./wire-payload.js";
+import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 /**
  * Who owns the edit affordance, what this card owes it, and when the empty slot dies.
@@ -115,7 +116,7 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
           <InlineCards cards={props.inlineCards ?? []} />
           {isParticipant || props.liveText !== undefined ? null : (
             <MessageReceipt
-              contentType={readWireString(payload, "contentType")}
+              contentType={readWireString(payload["contentType"])}
               contentLength={readWireCount(payload, "contentLength")}
             />
           )}

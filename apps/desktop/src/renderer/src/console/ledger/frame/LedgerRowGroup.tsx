@@ -6,15 +6,15 @@
 // per-group boundary answer to different failures and neither can stand in for the
 // other.
 //
-// WHY THE DEEP IMPORT OF `frame/ErrorBoundary.js`. `frame/index.ts` exports
-// `ConsoleRoot`, which imports `console/families.ts`, which imports this family's
-// door — so an edge from here to that barrel closes a cycle. `ErrorBoundary.tsx`
-// imports nothing above `core/`, so the deep import reaches the boundary and nothing
-// else.
+// THE BOUNDARY COMES THROUGH THE PRIMITIVES DOOR. It used to be `frame/`'s, reached
+// by a deep specifier because `frame/index.ts` exports `ConsoleRoot`, which imports
+// `console/families.ts`, which imports this family's door — so an edge from here to
+// that barrel closes a cycle. `console-cross-family-deep-import` reports the deep
+// specifier that shape produces and prescribes the hoist instead, and the boundary
+// imports nothing above `core/`, so `primitives/` is the family that owns its inputs.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { SurfaceErrorBoundary } from "../../frame/ErrorBoundary.js";
-import { RefusalCard } from "../../primitives/index.js";
+import { RefusalCard, SurfaceErrorBoundary } from "../../primitives/index.js";
 
 export interface LedgerRowGroupProps {
   /** What failed, in the person's words: "a run chapter", "the streaming message". */
@@ -43,7 +43,7 @@ function rowProjectionRefusal(groupLabel: string, error: Error): ConsoleRefusal 
  * One row group's boundary.
  *
  * A group rather than the whole feed: a single row that throws must not blank the
- * log around it, which is the same reasoning `frame/ErrorBoundary.tsx` gives for
+ * log around it, which is the same reasoning `primitives/ErrorBoundary.tsx` gives for
  * one boundary per surface rather than one per window, applied one level down.
  *
  * The failure is rendered RED and NAMED (rule 8) through the console's one refusal

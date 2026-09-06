@@ -28,6 +28,17 @@ export interface ActorFollowInputs {
   readonly jumpToRow: (rowId: string) => void;
 }
 
+/** Which pane this feed is the body of, and what it resolves a request against. */
+export interface ActorFollowSeatInputs extends ActorFollowInputs {
+  /**
+   * This feed's pane in the deck.
+   *
+   * The seat is keyed by it, because a deck holding a session log beside a
+   * channel-scoped one holds two feeds and the caller focused exactly one of them.
+   */
+  readonly paneId: string;
+}
+
 /**
  * Resolve a cast chip's follow request against this window's own rows.
  *
@@ -55,9 +66,6 @@ export function buildActorFollowHandler(inputs: ActorFollowInputs): ActorFollowH
   };
 }
 
-/** The owner string the ledger's follow claim carries, on `registerLedger`'s terms. */
-const LEDGER_FOLLOW_SEAT_OWNER = "ledger";
-
 /**
  * Fill the workspace's follow seat for as long as the feed is mounted.
  *
@@ -77,11 +85,12 @@ const LEDGER_FOLLOW_SEAT_OWNER = "ledger";
  * viewport is not showing, and report that it revealed one. Written from a layout
  * effect, only a COMMITTED window is ever visible to the seat.
  *
- * Release is CONDITIONAL, unlike the palette seat's, because this seat's own
- * release takes no argument: a feed unmounting after a second one had claimed the
- * seat would otherwise empty it under the ledger still on screen.
+ * Release is CONDITIONAL: React's double mount runs the second mount's registration
+ * before the first mount's cleanup, so an unconditional release would empty the seat
+ * under the feed still on screen. The comparison is against this mount's own
+ * forwarding handler, which is the only thing that tells the two apart.
  */
-export function useActorFollowSeat(inputs: ActorFollowInputs): void {
+export function useActorFollowSeat(inputs: ActorFollowSeatInputs): void {
   const committedInputsRef = useRef(inputs);
   useLayoutEffect(() => {
     committedInputsRef.current = inputs;
@@ -90,12 +99,13 @@ export function useActorFollowSeat(inputs: ActorFollowInputs): void {
     () => (request) => buildActorFollowHandler(committedInputsRef.current)(request),
     [],
   );
+  const { paneId } = inputs;
   useEffect(() => {
-    registerActorFollowHandler(LEDGER_FOLLOW_SEAT_OWNER, forwarding);
+    registerActorFollowHandler(paneId, forwarding);
     return () => {
-      if (actorFollowHandler() === forwarding) {
-        unregisterActorFollowHandler();
+      if (actorFollowHandler(paneId) === forwarding) {
+        unregisterActorFollowHandler(paneId);
       }
     };
-  }, [forwarding]);
+  }, [forwarding, paneId]);
 }

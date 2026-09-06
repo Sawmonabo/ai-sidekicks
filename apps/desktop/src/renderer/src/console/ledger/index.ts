@@ -42,13 +42,12 @@
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
-import { consoleCommandSurface } from "../frame/command-surface.js";
-import { SurfaceAbsence } from "../frame/SurfaceAbsence.js";
 import {
   type ConsoleSurfaceContext,
   type ConsoleSurfaceDescriptor,
   type ConsoleSurfaceRegistry,
 } from "../frame/surface-registry.js";
+import { SurfaceAbsence, consoleCommandSurface } from "../palette/index.js";
 import { Nothing } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
 import {

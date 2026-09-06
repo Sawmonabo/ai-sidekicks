@@ -13,13 +13,13 @@
 // There is no third case, which is why an icon-only control in this console cannot
 // ship unlabelled by accident.
 
-import { type GlyphName } from "../tokens/index.js";
 import {
   GLYPH_DEFAULT_SIZE,
   GLYPH_PATHS,
   GLYPH_STROKE_WIDTH,
   GLYPH_VIEWBOX_SIZE,
-} from "../tokens/glyphs.js";
+  type GlyphName,
+} from "../tokens/index.js";
 
 export type { GlyphName };
 

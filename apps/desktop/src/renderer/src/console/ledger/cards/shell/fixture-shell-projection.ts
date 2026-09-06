@@ -17,8 +17,12 @@
 //
 // WHAT IS WIRE-VERBATIM HERE
 //
-//   • `sessionId`, `sequence`, `type`, `timestamp`, `actor`, `payload` — copied,
-//     never reinterpreted.
+//   • `id`, `sessionId`, `sequence`, `type`, `timestamp`, `actor`, `payload` —
+//     copied, never reinterpreted. The id is the daemon's own opaque identifier and
+//     is carried rather than composed: the hydrated-event read is keyed
+//     `{sessionId, eventId}` and the jump-by-id field compares a pasted id against
+//     `TimelineRow.id`, so a `session:sequence` key names the row to a person and
+//     resolves for no caller.
 //   • `category` — asked of `SESSION_EVENT_CATEGORY_BY_TYPE`, the registered
 //     census, rather than inferred from the type string's prefix. A kind the
 //     census does not carry is DROPPED AND COUNTED rather than filed under a
@@ -33,10 +37,6 @@
 //
 // WHAT THIS MODULE DERIVES LOCALLY, AND WHY EACH IS SOUND FOR A SHELL
 //
-//   • `id`. The daemon's canonical event id never reaches this renderer — the
-//     delivered envelope carries no id member at all — so rows are keyed by the
-//     one identity the log does carry, `sequence`, which is unique and monotonic
-//     within a session by construction. The real row arrives carrying its own.
 //   • `position`. The arm's `position` is the daemon's projection-resolved run
 //     position. What the log supports is the row's ORDINAL WITHIN ITS RUN in this
 //     window, which is the property every consumer here actually spends —
@@ -120,24 +120,6 @@ const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_
 /** Nothing projected. A frozen module constant, so an empty pass allocates none. */
 const EMPTY_PROJECTION: FixtureShellProjection = { rows: [], unprojectableEventCount: 0 };
 
-/**
- * The row's key, from the one identity the delivered envelope carries.
- *
- * Session-scoped rather than global because a window holds one store per session
- * and rows never cross between them; sequence-keyed because that is what the store
- * dedupes and detects gaps on, so two rows can share this key only if the store
- * admitted the same sequence twice, which it refuses.
- *
- * EXPORTED, and taken as the two identity parts rather than as an envelope, because
- * the fixtures that drive this projection have to name a row by id and hold exactly
- * those two values. A second spelling of the composition over there would drift from
- * this one in silence: a case asking after a row nothing carries passes by finding
- * nothing.
- */
-export function shellRowId(sessionId: string, sequence: number): string {
-  return `${sessionId}:${String(sequence)}`;
-}
-
 /** How far one run has got: its next ordinal, and how many rewinds it has taken. */
 interface RunProgression {
   nextPosition: number;
@@ -153,7 +135,7 @@ interface RunProgression {
  */
 type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_boundary" }>;
 
-/** The members every arm spreads, all of them wire-verbatim but `id` and `summary`. */
+/** The members every arm spreads, all of them wire-verbatim but `summary`. */
 function commonRowFields(
   event: ConsoleSessionEvent,
   category: EventCategory,
@@ -168,7 +150,7 @@ function commonRowFields(
   readonly actor?: string;
 } {
   return {
-    id: shellRowId(event.sessionId, event.sequence),
+    id: event.id,
     sessionId: event.sessionId as SessionId,
     sequence: event.sequence,
     category,

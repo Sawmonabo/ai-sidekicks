@@ -17,6 +17,13 @@
 // `undefined`, and every caller renders the named absence rather than a placeholder.
 // Nothing here coerces — `String(value)` on an object would put `[object Object]` on
 // the screen and call it a tool name.
+//
+// THE STRING RULE IS NOT HERE. `core/wire-strings.ts` owns what counts as a present
+// wire string for the whole console, in the VALUE form rather than the `(payload,
+// member)` pair this module once spelled: the indexing says the member, so the pair
+// bought nothing and made a second home for one predicate. A caller reads
+// `readWireString(projectedPayload(row)["toolName"])`. The count below stays, because
+// its range check is a claim no core predicate makes.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -38,15 +45,6 @@ const NO_PAYLOAD: Readonly<Record<string, unknown>> = Object.freeze({});
  */
 export function projectedPayload(row: TimelineRow): Readonly<Record<string, unknown>> {
   return row.kind === "rollback_boundary" ? NO_PAYLOAD : row.payload;
-}
-
-/** A payload member that is a string, or `undefined`. */
-export function readWireString(
-  payload: Readonly<Record<string, unknown>>,
-  member: string,
-): string | undefined {
-  const value = payload[member];
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 /**

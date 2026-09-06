@@ -141,8 +141,18 @@ export function importsSharedWalk(source: string, fileName: string): boolean {
   );
 }
 
-/** Every module specifier `source` names, static and dynamic alike. */
-function moduleSpecifiersIn(source: string, fileName: string): readonly string[] {
+/**
+ * Every module specifier `source` names, static and dynamic alike.
+ *
+ * Exported for `source-parse-home.test.ts`, which asks the same question of a
+ * different set — the difference between the two gates is which modules they hold to
+ * which rule, never how a reach is read out of a module. This reader answers over
+ * every import and export form, DEFAULT imports included, which is why the barrel
+ * census's own `readModuleSyntax` is the wrong instrument there: that one reads named
+ * bindings because a door republishes names, and `import ts from "typescript"` names
+ * none.
+ */
+export function moduleSpecifiersIn(source: string, fileName: string): readonly string[] {
   const specifiers: string[] = [];
   forEachDescendant(parseSourceText(fileName, source), (node) => {
     if (

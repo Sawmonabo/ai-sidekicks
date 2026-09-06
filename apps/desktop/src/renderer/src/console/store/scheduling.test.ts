@@ -17,17 +17,8 @@ import { describe, expect, it } from "vitest";
 
 import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
 import type { ConsoleSessionEvent } from "./entities.js";
+import { eventOfKind } from "./session-event.test-support.js";
 import { ApplyQueue } from "./scheduling.js";
-
-function eventAt(sequence: number): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: "session-1",
-    sequence,
-    kind: "run.starting",
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
-  };
-}
 
 describe("ApplyQueue — a frame's worth of events is one drain", () => {
   it("coalesces a burst into one drain on one frame, with no time advanced", () => {
@@ -43,9 +34,9 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
       coalesceMs: 0,
     });
 
-    queue.enqueue(eventAt(1));
-    queue.enqueue(eventAt(2));
-    queue.enqueue(eventAt(3));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 2));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 3));
 
     // Three events, ONE armed frame. Three arms would be three renders.
     expect(queue.pendingCount).toBe(3);
@@ -76,9 +67,9 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
       coalesceMs: 0,
     });
 
-    queue.enqueue(eventAt(1));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
     clock.runFrame();
-    queue.enqueue(eventAt(2));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 2));
     clock.runFrame();
 
     expect(drains.map((batch) => batch.length)).toStrictEqual([1, 1]);
@@ -95,7 +86,7 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
       },
     });
 
-    queue.enqueue(eventAt(1));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
     clock.advance(APPLY_COALESCE_MS - 1);
     expect(drainCount).toBe(0);
     clock.advance(1);
@@ -117,12 +108,15 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
       coalesceMs: 0,
     });
 
-    queue.enqueue(eventAt(1));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
     queue.dispose();
     expect(clock.pendingCount).toBe(0);
 
-    queue.enqueue(eventAt(2));
-    queue.enqueueAll([eventAt(3), eventAt(4)]);
+    queue.enqueue(eventOfKind("session-1", "run.starting", 2));
+    queue.enqueueAll([
+      eventOfKind("session-1", "run.starting", 3),
+      eventOfKind("session-1", "run.starting", 4),
+    ]);
 
     expect(queue.droppedAfterDisposeCount).toBe(3);
     expect(clock.pendingCount).toBe(0);
@@ -171,7 +165,11 @@ describe("ApplyQueue — a drain that throws", () => {
       laterFrameRan = true;
     });
 
-    queue.enqueueAll([eventAt(1), eventAt(2), eventAt(3)]);
+    queue.enqueueAll([
+      eventOfKind("session-1", "run.starting", 1),
+      eventOfKind("session-1", "run.starting", 2),
+      eventOfKind("session-1", "run.starting", 3),
+    ]);
     expect(() => {
       clock.runFrame();
     }).not.toThrow();
@@ -200,9 +198,12 @@ describe("ApplyQueue — a drain that throws", () => {
       coalesceMs: 0,
     });
 
-    queue.enqueueAll([eventAt(1), eventAt(2)]);
+    queue.enqueueAll([
+      eventOfKind("session-1", "run.starting", 1),
+      eventOfKind("session-1", "run.starting", 2),
+    ]);
     clock.runFrame();
-    queue.enqueue(eventAt(3));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 3));
     clock.runFrame();
 
     expect(recorder.drainedBatches).toHaveLength(1);
@@ -223,7 +224,7 @@ describe("ApplyQueue — a drain that throws", () => {
       coalesceMs: 0,
     });
 
-    queue.enqueue(eventAt(1));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
     clock.runFrame();
 
     // One failure, and nothing armed to produce a second on its own. The retry
@@ -237,7 +238,7 @@ describe("ApplyQueue — a drain that throws", () => {
     const recorder = new FailingDrainRecorder(1);
     const queue = new ApplyQueue({ clock, drain: recorder.drain, coalesceMs: 0 });
 
-    queue.enqueue(eventAt(1));
+    queue.enqueue(eventOfKind("session-1", "run.starting", 1));
     expect(() => {
       clock.runFrame();
     }).not.toThrow();
@@ -258,7 +259,10 @@ describe("ApplyQueue — a drain that throws", () => {
       coalesceMs: 0,
     });
 
-    queue.enqueueAll([eventAt(1), eventAt(2)]);
+    queue.enqueueAll([
+      eventOfKind("session-1", "run.starting", 1),
+      eventOfKind("session-1", "run.starting", 2),
+    ]);
     clock.runFrame();
 
     expect(recorder.drainedBatches[0]?.map((event) => event.sequence)).toStrictEqual([1, 2]);

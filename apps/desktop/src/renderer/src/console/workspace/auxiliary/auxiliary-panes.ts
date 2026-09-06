@@ -19,7 +19,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
-import { useSubjectScopedResource } from "../../store/index.js";
+import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
 import { lostWindowNotice } from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import type { DeckPane } from "../deck/deck-model.js";
@@ -34,15 +34,23 @@ import type { DeckPane } from "../deck/deck-model.js";
 const NO_LOST_WINDOW_NOTICES: ReadonlyMap<string, ConsoleRefusal> = new Map();
 
 /**
- * What a retired hand-off owns: the crashed-window subscription, and nothing else.
+ * What a retired hand-off gives back: the crashed-window subscription, and nothing else.
+ *
+ * THE RELEASING ARM, BECAUSE THE HAND-OFF SURVIVES ITS OWN DISPOSAL. Stopping the
+ * watch is what `watchPaneErrors` restarts when the next pane goes into a window, so
+ * there is no closed state to read and no way for the holder to be handed a corpse —
+ * which is exactly what the two arms distinguish, and why supplying a reading here
+ * would be a claim about a lifetime that does not end.
  *
  * Declared once at module scope rather than minted per render — the hook holds the
- * disposal on a dependency of its own, so a fresh arrow every pass would be churn
+ * disposal on a dependency of its own, so a fresh literal every pass would be churn
  * and never a lifetime.
  */
-function closeHandoff(retired: AuxiliaryHandoff): void {
-  retired.stopWatchingPaneErrors();
-}
+const HANDOFF_DISPOSAL: SubjectScopedDisposal<AuxiliaryHandoff> = {
+  release: (retired) => {
+    retired.stopWatchingPaneErrors();
+  },
+};
 
 /** Which panes are showing in windows of their own, and what the signal refused. */
 export interface DetachedPaneProjection {
@@ -89,7 +97,7 @@ export function useAuxiliaryPanes(options: {
     bridge,
     undefined,
     () => new AuxiliaryHandoff({ growth: bridge.growth }),
-    closeHandoff,
+    HANDOFF_DISPOSAL,
   );
   const projection = useDetachedPanes(handoff);
 
@@ -179,8 +187,8 @@ function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
     const unsubscribe = handoff.subscribe(read);
     read();
     // The watch itself is NOT stopped here: it is the resource's own disposal, run
-    // by `closeHandoff` whether this hand-off is retired by a bridge that moved or
-    // by the surface unmounting. Stopping it here as well would be a second place
+    // by `HANDOFF_DISPOSAL` whether this hand-off is retired by a bridge that moved
+    // or by the surface unmounting. Stopping it here too would be a second place
     // that decides when a subscription ends.
     return unsubscribe;
   }, [handoff]);

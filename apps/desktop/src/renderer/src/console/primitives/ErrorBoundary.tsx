@@ -7,6 +7,16 @@
 // renders the "error" kind of nothing in its own footprint while its neighbours
 // keep working.
 //
+// IT LIVES IN `primitives/` AND NOT IN `frame/`, WHERE IT WAS. Its only input is
+// `core`'s tripwire report and React itself, and its readers are the frame's chrome
+// and a view family's row group — and a view family cannot import `frame/index.ts`,
+// whose barrel reaches `ConsoleRoot` and through it every family, so that edge closes
+// a cycle. The row group therefore wrote a deep specifier and said so in a comment,
+// which is exactly the shape `console-cross-family-deep-import` reports; its remedy is
+// this move, to the lowest family that owns the inputs. Its two class stems are
+// already family-neutral (`meridian-surface-mount`, `meridian-surface-failure`), so
+// they travel unchanged with the sheet beside this file.
+//
 // This is a class because React's error-boundary contract has no hook form:
 // `getDerivedStateFromError` and `componentDidCatch` exist only on classes. The
 // repo's function-components rule is about views; this is the framework's only

@@ -27,18 +27,23 @@
 // what stop this file pinning a picture of nothing. The quiet arm asserts the
 // mirror image, for the same reason in the other direction.
 //
-// The host pin, the skip, and the reason it prints are `baseline-platform.ts`' —
-// one decision for the whole tier, and a RUNNER rather than a platform, for the
-// reason that module's own doc block gives. The three lines below read this host's
-// declaration and ask it; the verdict is not restated here. The tier's fail-closed
-// guard is asserted once, in `frame.test.tsx`, and deliberately not repeated here.
+// The host pin, the skip, and the reason it prints are `baseline-host.ts`' — one
+// reading of this run for the whole tier, over the rule `baseline-platform.ts` holds,
+// and a RUNNER rather than a platform for the reason that module's own doc block
+// gives. This file asks that guard rather than reading the environment for itself;
+// the verdict is not restated here. The tier's fail-closed guard is asserted once, in
+// `frame.test.tsx`, and deliberately not repeated here.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "vitest/browser";
 import { act } from "@testing-library/react";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
-import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
+import {
+  requireCapturedElement,
+  skipOffBaselineHost,
+  warnOnceOffBaselineHost,
+} from "./baseline-host.js";
 
 import {
   ConsoleRoot,
@@ -59,19 +64,6 @@ import {
   LEDGER_SCENARIO,
   LEDGER_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
-
-/**
- * What this host declared about itself, and whether its comparisons mean anything.
- *
- * Off `server.config.env` rather than `process.env`, which does not exist in the
- * page: this tier runs inside a real browser and the environment reaches it as
- * Vite's resolved env. The verdict and the sentence both come from
- * `baseline-platform.ts`, so a suite never decides for itself where a comparison
- * is meaningful — it reads its host and asks.
- */
-const baselineHost = readBaselineHost(server.config.env);
-const comparesHere = comparesBaselines(baselineHost);
-const SKIP_REASON = baselineSkipReason(baselineHost);
 
 /**
  * How many advances the whole script is walked in, and how many drain it.
@@ -202,13 +194,7 @@ async function openLedgerSession(scenarioId: string, sessionId: string): Promise
 
   await awaitLedgerBody(container);
 
-  const frame = container.querySelector(".meridian-frame");
-  if (frame === null) {
-    throw new Error(
-      "the console rendered no .meridian-frame element, so there is nothing for this tier to compare",
-    );
-  }
-  return { container, frame };
+  return { container, frame: requireCapturedElement(container, ".meridian-frame") };
 }
 
 /**
@@ -255,13 +241,11 @@ describe("screenshot — the ledger under the three-lane scenario", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
   // Without it a skipped run reports a count and nothing else, which a reader
   // cannot tell from a tier that was quietly switched off.
-  if (!comparesHere) {
-    console.warn(SKIP_REASON);
-  }
+  warnOnceOffBaselineHost();
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme at the script's last beat`, async (context) => {
-      context.skip(!comparesHere, SKIP_REASON);
+      skipOffBaselineHost(context);
       await emulateSystemScheme(scheme);
       const { container, frame } = await openLedgerSession(
         LEDGER_SCENARIO_ID,
@@ -294,7 +278,7 @@ describe("screenshot — the ledger's empty state", () => {
     // both palettes are already pinned by the pair above, and what this capture
     // exists for is the copy and the shape of the absence, neither of which the
     // scheme decides.
-    context.skip(!comparesHere, SKIP_REASON);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { container, frame } = await openLedgerSession(
       LEDGER_QUIET_SCENARIO_ID,

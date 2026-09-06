@@ -10,9 +10,6 @@
 // store seeded without one holds rows nothing could ever ask about.
 
 import { EVENT_ID_STEM } from "../../../bridge/scenarios/ledger-cast.js";
-// Deeply, and deliberately: the card door publishes what PRODUCTION reaches, and
-// this is the only reader `shellRowId` has ever had.
-import { shellRowId } from "../../cards/shell/fixture-shell-projection.js";
 import { SessionStore } from "../../../store/index.js";
 
 export const SESSION_ID = "session-ledger-feed";
@@ -128,21 +125,21 @@ export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
 export const FILTERABLE_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 
 /**
- * The row id the projection mints for one sequence of a session's log.
+ * The row id the projection carries for one sequence of a log this file seeds.
  *
- * DELEGATED, not restated. `shellRowId` is the composition the shell keys its rows
- * with, so asking it is what makes a case about a row and the projection that minted
- * that row incapable of disagreeing; a copy of the template here would drift and the
- * case would pass by finding nothing. The fixtures keep their own name for it because
- * every case in this family reads in that vocabulary.
+ * THE SAME VALUE THE EVENT CARRIES, because the projection copies it. It used to
+ * delegate to a composition the shell minted from `(sessionId, sequence)`; the shell
+ * now carries `ConsoleSessionEvent.id` verbatim, so the row id a case asks for is the
+ * id the fixture stamped and the session is no longer part of it. The name stays
+ * because every case in this family reads in that vocabulary.
  */
-export function projectedRowId(sessionId: string, sequence: number): string {
-  return shellRowId(sessionId, sequence);
+export function projectedRowId(sequence: number): string {
+  return ledgerFixtureEventId(sequence);
 }
 
-/** The row id the projection mints for one sequence of the filterable log. */
+/** The row id the projection carries for one sequence of the filterable log. */
 export function filterableRowId(sequence: number): string {
-  return projectedRowId(FILTERABLE_SESSION_ID, sequence);
+  return projectedRowId(sequence);
 }
 
 /**

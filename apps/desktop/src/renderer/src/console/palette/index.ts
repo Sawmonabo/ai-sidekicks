@@ -19,9 +19,31 @@
 // the sheet's presence depends on which component the bundler reached first.
 
 import "./palette.css";
+import "./surface-absence.css";
 
 export { CommandRegistry } from "./command-registry.js";
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
+
+// The window's registry and the door every family contributes through. They sit in
+// this family because every input is this family's or below it, and they leave
+// through this door because a view family cannot import the frame's: `frame/index.ts`
+// reaches `ConsoleRoot` and through it every family, so that edge closes a cycle.
+// `consoleFamilyKeyBindings` is read by the frame alone, which prepends its own rail
+// chords and publishes the whole table.
+// The singular `registerConsoleCommand` and the contribution SHAPE are deliberately
+// not among them: every caller outside this family registers a batch, and every one
+// of them builds its contribution inline against the interface below, so a door line
+// for either would publish a name nothing outside the family types.
+export {
+  CONSOLE_CHORD_PLATFORM,
+  consoleCommandSurface,
+  consoleCommands,
+  consoleFamilyKeyBindings,
+  publishConsoleActRefusalSink,
+  raiseConsoleActRefusal,
+  registerConsoleCommands,
+  type ConsoleCommandSurface,
+} from "./console-commands.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the
 // frame through this door like every other symbol a family consumes. Only the
@@ -33,4 +55,13 @@ export { KeyBindingTable } from "./keybindings.js";
 
 export type { WhenClauseContext } from "./when-clause.js";
 
-export { COMMAND_PALETTE_OPEN_CHORD, PaletteOverlay } from "./PaletteOverlay.js";
+// The open chord is NOT forwarded. Its one reader outside `PaletteOverlay.tsx` is
+// `SurfaceAbsence.tsx` beside it, which is this family's own module and reads it
+// directly; a door line for a symbol nothing outside the family imports is a claim
+// about a consumer that does not exist.
+export { PaletteOverlay } from "./PaletteOverlay.js";
+
+// The surface-scale absence wrapper. Its producers are the frame's route surface and
+// the legacy-surface mounts, and one view family's reserved arm — which is why it is
+// published rather than kept behind the family that draws it most.
+export { SurfaceAbsence } from "./SurfaceAbsence.js";

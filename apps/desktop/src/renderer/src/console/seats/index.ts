@@ -79,11 +79,12 @@ export {
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   paneEntityScopeFor,
-  parseConsolePaneAddress,
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
 } from "./pane-address.js";
+
+export { parseConsolePaneAddress } from "./pane-address-parse.js";
 
 export {
   ConsolePaneRegistry,

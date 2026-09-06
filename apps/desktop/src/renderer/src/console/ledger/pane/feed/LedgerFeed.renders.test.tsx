@@ -36,6 +36,7 @@ import { type TimelineRowSlotProps } from "../../../seats/index.js";
 import { type SessionStore } from "../../../store/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 import {
+  LEDGER_FIXTURE_PANE_ID,
   LeasingRowBody,
   REPLAY_LOG_EVENT_COUNT,
   renderFeed,
@@ -71,6 +72,7 @@ function FeedParent(props: FeedParentProps): React.JSX.Element {
     <SidekicksBridgeProvider bridge={FIXTURE_BRIDGE}>
       <LedgerFeed
         sessionStore={props.sessionStore}
+        paneId={LEDGER_FIXTURE_PANE_ID}
         renderTimelineRow={props.renderTimelineRow}
         feedLabel="Session timeline"
       />

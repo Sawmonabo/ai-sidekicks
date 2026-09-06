@@ -11,10 +11,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger-quiet.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
-import { publishConsoleActRefusalSink } from "../../../frame/command-surface.js";
+import { publishConsoleActRefusalSink } from "../../../palette/index.js";
 import { actorFollowHandler, unregisterActorFollowHandler } from "../../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 import {
+  LEDGER_FIXTURE_PANE_ID,
   REPLAY_LOG_EVENT_COUNT,
   contributeLedgerCommands,
   dispatchConsoleCommand,
@@ -114,6 +115,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
       <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
         <LedgerFeed
           sessionStore={openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT)}
+          paneId={LEDGER_FIXTURE_PANE_ID}
           renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
           feedLabel="Session timeline"
         />
@@ -132,13 +134,13 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
 
 describe("the ledger feed — the cast bar's follow seat", () => {
   afterEach(() => {
-    unregisterActorFollowHandler();
+    unregisterActorFollowHandler(LEDGER_FIXTURE_PANE_ID);
   });
 
   it("reveals the row a chip's sequence names while the feed is mounted", () => {
     withLaidOutViewport();
     renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
-    const follow = actorFollowHandler();
+    const follow = actorFollowHandler(LEDGER_FIXTURE_PANE_ID);
     expect(follow).toBeDefined();
     expect(
       follow?.({ participantId: "participant-alba", newestSequence: REPLAY_LOG_EVENT_COUNT - 1 }),
@@ -149,7 +151,7 @@ describe("the ledger feed — the cast bar's follow seat", () => {
     withLaidOutViewport();
     renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
     expect(
-      actorFollowHandler()?.({
+      actorFollowHandler(LEDGER_FIXTURE_PANE_ID)?.({
         participantId: "participant-alba",
         newestSequence: REPLAY_LOG_EVENT_COUNT + 100,
       }),
@@ -159,6 +161,6 @@ describe("the ledger feed — the cast bar's follow seat", () => {
   it("negative control: the seat is empty until a ledger fills it", () => {
     // Which is the state the workspace announces "the session log is not open in
     // this window" from — and the state the ledger was permanently in before.
-    expect(actorFollowHandler()).toBeUndefined();
+    expect(actorFollowHandler(LEDGER_FIXTURE_PANE_ID)).toBeUndefined();
   });
 });

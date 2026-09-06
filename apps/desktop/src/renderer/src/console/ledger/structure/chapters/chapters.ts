@@ -40,7 +40,8 @@ import { CHAPTER_VISIBLE_ROW_CAP } from "../structure-bounds.js";
  * are registered in the `@ai-sidekicks/contracts` event census; `run.rolled_back`
  * is deliberately absent, because a rewind is not a terminal — the run continues
  * from the boundary, which is exactly why `Spec-013` gives the rollback its own
- * non-state event.
+ * non-state event. It appears in {@link CHAPTER_REOPENING_EVENT_TYPES} instead,
+ * where it CLEARS a terminal the run has come back from.
  */
 export const CHAPTER_TERMINAL_EVENT_TYPES = [
   "run.completed",
@@ -50,6 +51,38 @@ export const CHAPTER_TERMINAL_EVENT_TYPES = [
 
 /** One terminal event type. Derived from the tuple, never restated. */
 export type ChapterTerminalEventType = (typeof CHAPTER_TERMINAL_EVENT_TYPES)[number];
+
+/**
+ * The run-lifecycle event types that say a run is NOT ended, wire-verbatim.
+ *
+ * A terminal is not a one-way door. A rollback accepted from a finished run appends
+ * a pause and a rewind for that same run before it can resume, so a chapter that
+ * only ever ACQUIRED a terminal kept a completion the daemon had already undone: it
+ * stayed folded by rule 7's default, its header went on reading the old ending, and
+ * every row appended after the rewind sat behind a receipt for something that did
+ * not happen.
+ *
+ * WHY THESE SEVEN AND NOT EVERY RUN ROW. `@ai-sidekicks/contracts` registers
+ * thirteen `run_lifecycle` types: the nine run-state-machine states, the forward
+ * non-terminal rollback event, and three rows that report no state at all
+ * (`run.provider_initialized`, `run.turn_started`, `run.worker_shutdown`). These are
+ * the six non-terminal STATES plus the rollback — every row that says the run is in
+ * a state other than ended. The three non-state rows are deliberately absent: a
+ * worker shutting down after a completion says nothing about the run, and reading it
+ * as a reopening would unfold every finished chapter in the session.
+ */
+export const CHAPTER_REOPENING_EVENT_TYPES = [
+  "run.queued",
+  "run.starting",
+  "run.running",
+  "run.waiting_for_approval",
+  "run.waiting_for_input",
+  "run.paused",
+  "run.rolled_back",
+] as const;
+
+/** One reopening event type. Derived from the tuple, never restated. */
+export type ChapterReopeningEventType = (typeof CHAPTER_REOPENING_EVENT_TYPES)[number];
 
 /**
  * Whether a chapter is still being written.
@@ -139,6 +172,10 @@ interface ChapterAccumulator {
 
 function isTerminalEventType(wireType: string): wireType is ChapterTerminalEventType {
   return CHAPTER_TERMINAL_EVENT_TYPES.some((terminal) => terminal === wireType);
+}
+
+function isReopeningEventType(wireType: string): wireType is ChapterReopeningEventType {
+  return CHAPTER_REOPENING_EVENT_TYPES.some((reopening) => reopening === wireType);
 }
 
 /**
@@ -260,6 +297,13 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
     // it was read from can never name two different rows.
     accumulator.terminalEventType = row.type;
     accumulator.terminalRowId = row.id;
+  } else if (isReopeningEventType(row.type)) {
+    // And a run that came BACK clears the one it had, in the same act for the same
+    // reason. Cleared rather than remembered as a previous ending: the header renders
+    // one receipt from these two members, and a chapter that is live has no receipt
+    // to render. A later ending seals it again through the arm above.
+    accumulator.terminalEventType = undefined;
+    accumulator.terminalRowId = undefined;
   }
   if (row.childRunSummary?.completeness.state === "incomplete") {
     accumulator.hasIncompleteChildExpand = true;

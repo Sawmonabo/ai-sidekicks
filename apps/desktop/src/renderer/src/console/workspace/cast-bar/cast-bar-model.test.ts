@@ -15,6 +15,7 @@ import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
 import {
   CAST_LABEL_SOURCE_BY_EVENT_KIND,
@@ -35,15 +36,9 @@ function wheelFor(participantIds: readonly string[]): ParticipantHueAllocator {
   return allocator;
 }
 
+/** One admitted event with the actor a chip is derived from, over the shared builder. */
 function event(sequence: number, actorId: string, kind: string): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: "session-1",
-    sequence,
-    kind,
-    occurredAt: "2026-01-01T14:20:00.000Z",
-    actorId,
-  };
+  return { ...eventOfKind("session-1", kind, sequence), actorId };
 }
 
 /** The same event, carrying the run identity an ask's lifecycle correlates on. */

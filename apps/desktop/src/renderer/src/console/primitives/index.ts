@@ -35,11 +35,18 @@ import "./nothing.css";
 import "./refusal.css";
 import "./ledger-row.css";
 import "./partial-read.css";
+import "./surface-failure.css";
 
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
+
+// One boundary per surface, so a pane's render throw does not blank the window. It
+// is in this family rather than in the frame's because its only input is `core`'s
+// tripwire report, and because a view family wrapping its own rows cannot import the
+// frame's door without closing a cycle.
+export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 
 // The "whose keystroke is it" pair, through the same door and for the same reason
 // `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
@@ -105,8 +112,21 @@ export { PartialRead } from "./PartialRead.js";
 // route a surface has to the announcer for this case: a family that wrote its own
 // "announce once" latch would be the second latch, and one that made its own region
 // would be the second speaker `LiveAnnouncerProvider` forbids.
+//
+// THE WORKFLOWS FAMILY IS NOT ON THIS CLAIM, and its absence is a finding rather than
+// an omission. That family's two rendering sites are the one place a reader was
+// expected and neither can be one: its scope picker announces nothing at all by
+// design, and its browser's continuation refusal is already spoken through the
+// family's own settlement adapter, so binding here would say that refusal twice.
+// The two latches are also not the same latch — this one dedups on the SENTENCE SET,
+// which is right for an incomplete-reading notice and wrong for a settlement, where
+// two sessions holding the same number of rows say the same words and the second
+// would go unspoken. A caller-supplied dedup key would make one primitive serve both
+// and retire that adapter; it is not minted here, because a parameter with no caller
+// is a policy question moved out of the primitive that currently answers it and into
+// every call site. The family that would spend it owns that call.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-7 */
   useReadingAnnouncement,
 } from "./reading-announcement.js";
 

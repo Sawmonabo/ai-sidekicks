@@ -14,7 +14,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleRefusal } from "../../../core/index.js";
-import { publishConsoleActRefusalSink } from "../../../frame/command-surface.js";
+import { publishConsoleActRefusalSink } from "../../../palette/index.js";
 import { UNFILTERED_LEDGER, emptyFindResult, type ReplayState } from "../../structure/index.js";
 // Deeply, and only here: the tuple's one consumer outside its own directory is this
 // suite's totality case, so a door line for it would be a door widened for testing.
@@ -48,6 +48,8 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindSt
     query: "",
     result: emptyFindResult(0, false),
     beyondWindowMatchCount: 0,
+    filteredAwayMatchCount: 0,
+    foldedAwayMatchCount: 0,
     notYetReplayedMatchCount: 0,
     currentMatchIndex: -1,
     setQuery: () => {

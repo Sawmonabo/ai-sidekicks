@@ -16,9 +16,10 @@
 // is replaced by a notice about something that has already fixed itself. One slot
 // per kind, rendered in a fixed order, makes that unrepresentable.
 //
-// WHY THE BOUNDARY IS THE FRAME'S AND NOT A SECOND ONE. `frame/ErrorBoundary.tsx`
-// already owns the console's only error boundary, and it reports through the
-// tripwire registry so a caught render failure is counted rather than logged. The
+// WHY THE BOUNDARY IS THE SHARED ONE AND NOT A SECOND ONE.
+// `primitives/ErrorBoundary.tsx` already owns the console's only error boundary, and
+// it reports through the tripwire registry so a caught render failure is counted
+// rather than logged. The
 // LEDGER's fallback for it is `LedgerRowGroup.tsx` beside this file — a separate
 // module because it answers a different failure: this strip reports refusals the
 // pane COLLECTED, and that one catches a row that threw while being drawn.

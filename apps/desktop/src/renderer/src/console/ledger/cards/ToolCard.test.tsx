@@ -15,6 +15,7 @@ function renderToolCard(
     readonly payload?: Readonly<Record<string, unknown>>;
     readonly density?: "collapsed" | "expanded";
     readonly onDensityToggle?: () => void;
+    readonly body?: string;
   } = {},
 ): HTMLElement {
   const { container } = render(
@@ -28,6 +29,9 @@ function renderToolCard(
       isSuperseded={false}
       density={overrides.density ?? "collapsed"}
       footnotes={new FootnoteRegistry()}
+      {...(overrides.body === undefined
+        ? {}
+        : { content: { status: "available", body: overrides.body } as const })}
       {...(overrides.onDensityToggle === undefined
         ? {}
         : { onDensityToggle: overrides.onDensityToggle })}
@@ -79,6 +83,55 @@ describe("an opened tool row", () => {
   it("renders the body region", () => {
     const container = renderToolCard({ density: "expanded", payload: { toolName: "Bash" } });
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+  });
+
+  it("renders a result body as prose, which is what the wire leaves undeclared", () => {
+    // A tool result carries no content type — the tool payload has no member for one —
+    // so nothing on the wire says this is terminal output. Rendering every result
+    // through the ANSI renderer put an MCP reply, a web-search answer, and every other
+    // ordinary textual result in a raw block with its markdown showing.
+    const container = renderToolCard({
+      type: "tool.result",
+      density: "expanded",
+      payload: { toolName: "search" },
+      body: "## Findings\n\nOne **strong** match.",
+    });
+
+    const heading = container.querySelector('[role="heading"]');
+    expect(heading?.textContent).toBe("Findings");
+    expect(heading?.getAttribute("data-depth")).toBe("2");
+    expect(container.querySelector("strong")?.textContent).toBe("strong");
+    expect(container.querySelector(".meridian-ansi")).toBeNull();
+  });
+
+  it("renders an error body the same way", () => {
+    // The two differ in the header's mark, not in what the body is: an error result is
+    // a tool's message about what went wrong, and nothing declares that one ANSI
+    // either.
+    const container = renderToolCard({
+      type: "tool.error",
+      density: "expanded",
+      payload: { toolName: "search" },
+      body: "The query was `rejected`.",
+    });
+
+    expect(container.querySelector("code")?.textContent).toBe("rejected");
+    expect(container.querySelector(".meridian-ansi")).toBeNull();
+  });
+
+  it("negative control: the prose renderer really is the one being reached", () => {
+    // Without this the two cases above would pass over a body that rendered as plain
+    // text under any renderer at all — no heading, no emphasis, nothing to tell them
+    // apart.
+    const container = renderToolCard({
+      type: "tool.result",
+      density: "expanded",
+      payload: { toolName: "search" },
+      body: "Just a sentence.",
+    });
+
+    expect(container.querySelector('[role="heading"]')).toBeNull();
+    expect(container.textContent).toContain("Just a sentence.");
   });
 
   it("reports elapsed time only when the payload carried it", () => {

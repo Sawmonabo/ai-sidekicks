@@ -24,13 +24,13 @@ import { useSubjectScopedResource, useSubjectScopedState } from "../../store/ind
 import { RestoreProgress, refuseWorkspace } from "../layout/layout-persistence.js";
 import {
   CoalescingLayoutWriter,
-  flushAndCloseWriter,
-  isWriterRetired,
+  WRITER_RETIREMENT,
   type PersistedLayoutRecord,
 } from "../layout/layout-writer.js";
 import {
   INITIAL_SIDEBAR_LAYOUT_STATE,
   SIDEBAR_LAYOUT_RECORD_KEY,
+  adoptOverActs,
   chooseSectionOnPress,
   clampSidebarWidthPercent,
   decodeSidebarLayout,
@@ -168,13 +168,10 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
           );
         },
       }),
-    flushAndCloseWriter,
-    // `flushAndClose` is ONE-WAY: a retired writer drops every later request
-    // silently, so a holder that re-committed one after a double-mount would
-    // leave the person rearranging all session with nothing kept and no refusal
-    // raised. This reading is how the holder tells a retired writer from a live
-    // one and mints a fresh one instead.
-    isWriterRetired,
+    // The terminal arm: `flushAndClose` is ONE-WAY, and the reading beside it is how
+    // the holder tells a retired writer from a live one after React's double-mount
+    // rather than re-committing a writer that drops every later request in silence.
+    WRITER_RETIREMENT,
   );
 
   // Once per `(sidebar, session)`, for the reason `layout-persistence.ts` states: the
@@ -190,17 +187,30 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
     restore.start();
     let superseded = false;
     void (async () => {
+      // WHAT THE SIDEBAR HELD WHEN THE READ STARTED, so an act the person makes while
+      // it is in flight can be told from the arrangement being read. On a navigation
+      // between two open sessions this is the previous session's arrangement rather
+      // than the opening defaults, which is exactly why it is captured and not assumed.
+      const stateBeforeRead = layout.snapshot().state;
       const record = await uiStateStore.read(sessionId, SIDEBAR_LAYOUT_RECORD_KEY);
       if (superseded) {
         return;
       }
       restore.settle();
-      if (record === undefined) {
-        layout.adopt(INITIAL_SIDEBAR_LAYOUT_STATE, []);
-        return;
-      }
-      const decoded = decodeSidebarLayout(record.value);
-      layout.adopt(decoded.state, decoded.refusals);
+      const decoded =
+        record === undefined
+          ? { state: INITIAL_SIDEBAR_LAYOUT_STATE, refusals: [] }
+          : decodeSidebarLayout(record.value);
+      // Per axis, so a collapse made during the read is not paid for with the width
+      // and the open section the record still holds the person's answer for.
+      layout.adopt(
+        adoptOverActs({
+          restored: decoded.state,
+          beforeRead: stateBeforeRead,
+          live: layout.snapshot().state,
+        }),
+        decoded.refusals,
+      );
     })();
     return () => {
       superseded = true;

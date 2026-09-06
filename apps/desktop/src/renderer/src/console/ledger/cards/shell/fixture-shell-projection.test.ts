@@ -141,12 +141,26 @@ describe("the fixture shell's row projection", () => {
     expect(projection.unprojectableEventCount).toBe(1);
   });
 
-  it("keys rows by the one identity the delivered envelope carries", () => {
-    const projection = projectFixtureShellRows([runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)]);
+  it("keys rows by the event's own canonical id, wire-verbatim", () => {
+    // THE ID IS CARRIED, NOT COMPOSED. `ConsoleSessionEvent.id` is the daemon's
+    // opaque identifier and the hydrated-event read is keyed `{sessionId, eventId}`,
+    // so a row keyed `session:sequence` names the same row to a person and resolves
+    // for no caller: the jump-by-id field compares what a person pasted against
+    // `TimelineRow.id` and answered `not-in-loaded-log` for every real id in a log
+    // that was fully loaded.
+    const events = [runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)];
+    const projection = projectFixtureShellRows(events);
 
     const ids = projection.rows.map((row) => row.id);
-    expect(ids).toStrictEqual([`${SESSION_ID}:7`, `${SESSION_ID}:8`]);
+    expect(ids).toStrictEqual(events.map((admitted) => admitted.id));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("negative control: the composed key is not what a row carries", () => {
+    // Without this the case above would pass over a projection whose composition
+    // happened to agree with the fixture's id scheme.
+    const projection = projectFixtureShellRows([runEvent(7, RUN_ONE)]);
+    expect(projection.rows[0]?.id).not.toBe(`${SESSION_ID}:7`);
   });
 
   it("restates the wire type as the summary rather than composing a sentence", () => {
@@ -194,6 +208,7 @@ describe("counting through a rewind", () => {
     // rewind would put the new epoch's rows at 5 and 6, and this second rewind — to
     // the same anchor — would find BOTH of them above its cutoff and dim a whole
     // re-execution that nothing rewound past.
+    const supersededRow = runEvent(8, RUN_ONE);
     const projection = projectFixtureShellRows([
       runEvent(1, RUN_ONE),
       runEvent(2, RUN_ONE),
@@ -202,7 +217,7 @@ describe("counting through a rewind", () => {
       runEvent(5, RUN_ONE),
       rollbackEvent(6, RUN_ONE, 3),
       runEvent(7, RUN_ONE),
-      runEvent(8, RUN_ONE),
+      supersededRow,
       rollbackEvent(9, RUN_ONE, 3),
     ]);
 
@@ -210,7 +225,7 @@ describe("counting through a rewind", () => {
       (band) => band.epoch === 1,
     );
     expect(secondEpochBands).toHaveLength(1);
-    expect(secondEpochBands[0]?.rowIds).toStrictEqual([`${SESSION_ID}:8`]);
+    expect(secondEpochBands[0]?.rowIds).toStrictEqual([supersededRow.id]);
   });
 
   it("negative control: a rewind in one run leaves another run's count alone", () => {

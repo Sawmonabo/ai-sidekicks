@@ -19,11 +19,7 @@ import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "../../structure/
 // suite's totality case, so a door line for it would be a door widened for testing.
 import { LEDGER_JUMP_ABSENCES } from "../../structure/narrowing/filters.js";
 import { foldChapterHeaders } from "../feed/ledger-chapter-fold.js";
-import {
-  SESSION_ID,
-  TERMINAL_RUN_ID,
-  projectedRowId,
-} from "../feed/ledger-feed-logs.test-support.js";
+import { TERMINAL_RUN_ID, projectedRowId } from "../feed/ledger-feed-logs.test-support.js";
 import { foldedMessageChapterLog } from "../feed/ledger-chapter-logs.test-support.js";
 import { jumpOutcomeRowId, useDeferredRowJump, useLedgerJumpReach } from "./ledger-jump.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../window/ledger-window.js";
@@ -32,7 +28,7 @@ import { deriveLedgerWindow, type LedgerWindowModel } from "../window/ledger-win
 const LOADED_WINDOW: LedgerWindowModel = deriveLedgerWindow(foldedMessageChapterLog(), false);
 
 /** A message row of the finished run, which the shut fold keeps off screen. */
-const FOLDED_ROW: TimelineRow = rowOf(projectedRowId(SESSION_ID, 1));
+const FOLDED_ROW: TimelineRow = rowOf(projectedRowId(1));
 
 function rowOf(rowId: string): TimelineRow {
   const row = LOADED_WINDOW.rowsByKey.get(rowId);
@@ -171,7 +167,7 @@ interface DeferredJumpProps {
 
 describe("the deferred jump", () => {
   const REQUESTED_ROW = FOLDED_ROW;
-  const OTHER_ROW: TimelineRow = rowOf(projectedRowId(SESSION_ID, 2));
+  const OTHER_ROW: TimelineRow = rowOf(projectedRowId(2));
 
   /** The hook over a window a case widens by rerendering with more rows. */
   function mountDeferredJump(): {

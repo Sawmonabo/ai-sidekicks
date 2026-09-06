@@ -28,10 +28,20 @@ import { deriveLedgerWindow, type LedgerWindowModel } from "../window/ledger-win
 describe("a replay across a projection change", () => {
   const REPLAY_SESSION_ID = "session-replay-walk";
 
+  /**
+   * The id one message in this log carries, and the id its row therefore carries.
+   *
+   * Written once, because the projection copies the event's id verbatim and both the
+   * log builder and the assertions below name the same row.
+   */
+  function messageEventId(index: number): string {
+    return `m${String(index)}`;
+  }
+
   /** A log of session-scoped rows one second apart, so an index names an instant. */
   function messageLog(eventCount: number): readonly ConsoleSessionEvent[] {
     return Array.from({ length: eventCount }, (_unused, index) => ({
-      id: `m${String(index)}`,
+      id: messageEventId(index),
       sessionId: REPLAY_SESSION_ID,
       sequence: index,
       kind: "user.message",
@@ -45,8 +55,8 @@ describe("a replay across a projection change", () => {
   }
 
   const STARTING_EVENT_COUNT = 4;
-  /** The id the projection gives the fifth event — the one admitted mid-walk. */
-  const ADMITTED_ROW_ID = `${REPLAY_SESSION_ID}:${String(STARTING_EVENT_COUNT)}`;
+  /** The id the fifth event carries — the one admitted mid-walk. */
+  const ADMITTED_ROW_ID = messageEventId(STARTING_EVENT_COUNT);
 
   /** The hook over a log that grows, which is what every case here changes. */
   function mountReplay(): ReturnType<typeof renderHook<LedgerReplayState, LedgerReplayInputs>> {
@@ -197,7 +207,7 @@ describe("a replay across a fold or a filter change", () => {
    * The row the disclosure is FOR, so it is what both claims here are about: it must
    * not be counted as an arrival, and it must be reachable once the chapter opens.
    */
-  const CHAPTER_MEMBER_ROW_ID = `${CHAPTERED_SESSION_ID}:2`;
+  const CHAPTER_MEMBER_ROW_ID = "e2";
 
   /**
    * The three windows one disclosure moves between, over ONE loaded log.

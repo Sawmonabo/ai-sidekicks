@@ -24,10 +24,11 @@
 // centring wrapper the frame has; `legacy-surfaces.ts` raises two more through the
 // same module, which is why it is a module and not a block in this one.
 
+import { SurfaceAbsence } from "../palette/index.js";
 import { Nothing } from "../primitives/index.js";
 import { isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
 import { ContextPicker } from "./ContextPicker.js";
-import { SurfaceAbsence } from "./SurfaceAbsence.js";
+
 import {
   consoleSurfaceRegistry,
   surfaceSlotFor,

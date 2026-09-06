@@ -122,15 +122,6 @@ export function tierTimeoutFor(bodyAllowanceMs: number): number {
 }
 
 /**
- * A shared clock for one launch: mint it, then draw from it.
- *
- * A class rather than a captured expiry timestamp because two of its three
- * members are policy rather than arithmetic — the floor under `remainingMs`, and
- * what `settleWithin` does to an operation that carries no timeout of its own —
- * and because `now` is a seam a test supplies rather than a clock a test waits
- * on.
- */
-/**
  * The rejection a deadline raises when its OWN budget, rather than the work, settled first.
  *
  * A type rather than a bare `Error` so a caller can recognise it by identity. What a
@@ -163,6 +154,15 @@ export class DeadlineExpiredError extends Error {
   }
 }
 
+/**
+ * A shared clock for one launch: mint it, then draw from it.
+ *
+ * A class rather than a captured expiry timestamp because two of its three
+ * members are policy rather than arithmetic — the floor under `remainingMs`, and
+ * what `settleWithin` does to an operation that carries no timeout of its own —
+ * and because `now` is a seam a test supplies rather than a clock a test waits
+ * on.
+ */
 export class LaunchDeadline {
   readonly #expiresAt: number;
   readonly #now: () => number;

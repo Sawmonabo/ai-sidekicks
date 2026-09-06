@@ -9,12 +9,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ConsoleRefusal } from "../../core/index.js";
+import { consoleKeyBindings } from "../../frame/command-surface.js";
 import {
   consoleCommandSurface,
   consoleCommands,
-  consoleKeyBindings,
   publishConsoleActRefusalSink,
-} from "../../frame/command-surface.js";
+} from "../../palette/index.js";
 import { CommandRegistry, KeyBindingTable, type ConsoleCommand } from "../../palette/index.js";
 import { MountedLedgerSeat, type LedgerStructureActs } from "./mounted-ledger.js";
 import {

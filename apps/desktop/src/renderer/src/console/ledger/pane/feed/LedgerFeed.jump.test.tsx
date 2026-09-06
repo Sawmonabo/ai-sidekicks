@@ -27,7 +27,6 @@ import {
 } from "./LedgerFeedFixtures.test-support.js";
 import {
   LATE_JOINER,
-  SESSION_ID,
   filterableRowId,
   openSessionStoreWithFilterableLog,
   openSessionStoreWithGeneralLog,
@@ -94,7 +93,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithFoldedMessageChapter());
 
-    typeIntoFind(feed, projectedRowId(SESSION_ID, 1));
+    typeIntoFind(feed, projectedRowId(1));
     expect(feed.textContent).toContain("inside a chapter that is not showing it");
     expect(feed.textContent).not.toContain("hidden by the filter");
 
@@ -113,7 +112,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     });
 
     // The last row of the log, which the position has not reached.
-    typeIntoFind(feed, projectedRowId(SESSION_ID, REPLAY_LOG_EVENT_COUNT - 1));
+    typeIntoFind(feed, projectedRowId(REPLAY_LOG_EVENT_COUNT - 1));
     expect(feed.textContent).toContain("behind the replay position");
     expect(feed.textContent).not.toContain("hidden by the filter");
 
@@ -130,7 +129,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));
 
-    typeIntoFind(feed, projectedRowId(SESSION_ID, 0));
+    typeIntoFind(feed, projectedRowId(0));
 
     expect(feed.textContent).toContain("no longer in this window");
     expect(feed.textContent).not.toContain("hidden by the filter");
@@ -150,7 +149,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
       target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
     });
     const surface = feed.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
-    typeIntoFind(feed, projectedRowId(SESSION_ID, REPLAY_LOG_EVENT_COUNT - 1));
+    typeIntoFind(feed, projectedRowId(REPLAY_LOG_EVENT_COUNT - 1));
     // The widening alone moves nothing, which is what makes the reading below the
     // held request being spent rather than a side effect of the act.
     expect(surface?.scrollTop).toBe(0);
@@ -186,7 +185,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     const liveRunSequence = FOLDED_CHAPTER_MESSAGE_ROW_COUNT + 2;
 
     for (let sequence = 0; sequence <= liveRunSequence; sequence += 1) {
-      typeIntoFind(feed, projectedRowId(SESSION_ID, sequence));
+      typeIntoFind(feed, projectedRowId(sequence));
       expect(jumpActionLabel(feed)).toBe(
         sequence <= lastFoldedSequence ? "Open that chapter and go to it" : REACHED,
       );

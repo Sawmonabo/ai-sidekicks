@@ -18,10 +18,11 @@ import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
 import { type DeckLayout } from "../deck/deck-layout.js";
+import { paneAddressKey } from "../deck/deck-model.js";
+import { type DeckRestoreReport } from "../deck/deck-snapshot.js";
 import {
   CoalescingLayoutWriter,
-  flushAndCloseWriter,
-  isWriterRetired,
+  WRITER_RETIREMENT,
   type PersistedLayoutRecord,
 } from "./layout-writer.js";
 /** The durable record the deck's arrangement is saved under, per session. */
@@ -166,13 +167,10 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
           );
         },
       }),
-    flushAndCloseWriter,
-    // `flushAndClose` is ONE-WAY: a retired writer drops every later request
-    // silently, so a holder that re-committed one after a double-mount would
-    // leave the person rearranging all session with nothing kept and no refusal
-    // raised. This reading is how the holder tells a retired writer from a live
-    // one and mints a fresh one instead.
-    isWriterRetired,
+    // The terminal arm: `flushAndClose` is ONE-WAY, and the reading beside it is how
+    // the holder tells a retired writer from a live one after React's double-mount
+    // rather than re-committing a writer that drops every later request in silence.
+    WRITER_RETIREMENT,
   );
 
   // Closed until the read has landed, and re-armed for the session arriving rather than
@@ -197,34 +195,53 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
       // deck is live the whole time it is running.
       const paneIdsBeforeRead = new Set(layout.snapshot().panes.map((pane) => pane.paneId));
       const revisionBeforeRead = layout.snapshot().revision;
+
+      // EVERY ADDRESS OPENED WHILE THE READ RAN, kept even once it is closed again.
+      // A close leaves nothing behind in the deck's snapshot — the pane is simply gone
+      // — so a reconciliation that compares the deck before with the deck after cannot
+      // see one, and the record puts the pane straight back: the person watches a pane
+      // they just closed return, and the write that follows files it as theirs.
+      const openedDuringRead = new Set<string>();
+      const watchActsDuringRead = layout.subscribe((state) => {
+        for (const pane of state.panes) {
+          if (!paneIdsBeforeRead.has(pane.paneId)) {
+            openedDuringRead.add(paneAddressKey(pane));
+          }
+        }
+      });
       const record = await uiStateStore.read(sessionId, DECK_LAYOUT_RECORD_KEY);
+      watchActsDuringRead();
       if (superseded) {
         return;
       }
 
-      // BOTH ARE HONOURED, IN THIS ORDER: the saved arrangement lands, and then the
-      // panes the person opened while it was being read are opened on top of it. The
-      // deck's own restore replaces wholesale — correctly, since a merge rule for two
-      // decks is a rule nothing could state — so the replay is what keeps a just-opened
-      // pane from vanishing under a record that predates it. `open` focuses a pane
-      // already showing that address, so replaying one the record also held is not a
-      // second copy of it.
+      // BOTH ARE HONOURED, AND WHICH ONE LEADS TURNS ON WHETHER THE PERSON ACTED. An
+      // untouched deck takes the record wholesale, which is the restore's own rule and
+      // the case that runs on nearly every mount. A deck the person has been arranging
+      // is the NEWER arrangement, so it wins for every address it holds — order and
+      // widths with it — and the record fills in only what it does not; `adoptBeneath`
+      // carries that rule, closes included.
       //
-      // The replay set is the panes ADDED during the read rather than the panes
-      // present, because on a route from one open session to another the deck can hold
-      // the previous session's panes, and replaying those would move them into a
-      // session nobody put them in.
+      // The panes present BEFORE the read are dropped either way. On a route from one
+      // open session to another the deck can still hold the previous session's panes,
+      // and keeping those would move them into a session nobody put them in.
       const actedDuringRead = layout.snapshot().revision !== revisionBeforeRead;
-      const panesOpenedDuringRead = actedDuringRead
-        ? layout.snapshot().panes.filter((pane) => !paneIdsBeforeRead.has(pane.paneId))
-        : [];
-
-      const report = record === undefined ? undefined : layout.restore(record.value);
+      let report: DeckRestoreReport | undefined;
+      if (!actedDuringRead) {
+        report = record === undefined ? undefined : layout.restore(record.value);
+      } else {
+        for (const paneId of paneIdsBeforeRead) {
+          layout.close(paneId);
+        }
+        const liveAddresses = new Set(layout.snapshot().panes.map(paneAddressKey));
+        const closedDuringRead = new Set(
+          [...openedDuringRead].filter((address) => !liveAddresses.has(address)),
+        );
+        report =
+          record === undefined ? undefined : layout.adoptBeneath(record.value, closedDuringRead);
+      }
       if (report !== undefined && report.refusals.length > 0) {
         setRestoreRefusals(report.refusals);
-      }
-      for (const pane of panesOpenedDuringRead) {
-        layout.open({ kind: pane.kind, entity: pane.entity });
       }
       if (layout.snapshot().panes.length === 0) {
         // This surface's own empty state: the workspace shows the ledger alone, full

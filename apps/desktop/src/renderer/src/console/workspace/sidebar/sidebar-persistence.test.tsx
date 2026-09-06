@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { UiStateStore } from "../../persistence/index.js";
 import { SIDEBAR_DEFAULT_WIDTH_PERCENT } from "../workspace-bounds.js";
 import { GatedPersistenceAdapter, drainMicrotasks } from "../Workspace.test-support.js";
-import { SIDEBAR_LAYOUT_RECORD_KEY } from "./sidebar-model.js";
+import { SIDEBAR_LAYOUT_RECORD_KEY, encodeSidebarLayout } from "./sidebar-model.js";
 import { useSidebarLayout, type SidebarLayout } from "./sidebar-state.js";
 
 const SESSION_A = "session-sidebar-a";
@@ -23,6 +23,9 @@ const SESSION_B = "session-sidebar-b";
 
 /** A width nothing else in this file uses, so a record can be traced to its session. */
 const WIDTH_ARRANGED_IN_A = SIDEBAR_DEFAULT_WIDTH_PERCENT + 7;
+
+/** And one nothing else uses either, so an adopted width can be traced to B's record. */
+const WIDTH_SAVED_IN_B = SIDEBAR_DEFAULT_WIDTH_PERCENT + 11;
 
 /**
  * The real hook, with the layout handed back so a case can drive a gesture.
@@ -170,6 +173,60 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
     await waitFor(() => {
       expect(probe.adapter.asked.map((write) => write.partition)).toContain(SESSION_B);
     });
+  });
+
+  it("keeps an act made while the arriving session's record was in flight", async () => {
+    // The write gate holds the person's act out of the store until the read lands, and
+    // then `adopt` replaces the width, the collapse and the open section wholesale —
+    // so the act survives the gate and is undone by the restore a moment later, under
+    // the person's hands and with nothing on screen to say why.
+    const probe = mountProbe({ underStrictMode: false });
+    await probe.settled();
+    await probe.uiStateStore.write(
+      SESSION_B,
+      SIDEBAR_LAYOUT_RECORD_KEY,
+      "layout",
+      encodeSidebarLayout({
+        widthPercent: WIDTH_SAVED_IN_B,
+        isCollapsed: false,
+        chosenSectionId: undefined,
+      }),
+    );
+
+    probe.adapter.holdReads();
+    probe.showSession(SESSION_B);
+    act(() => {
+      probe.layout().setCollapsed(true);
+    });
+    probe.adapter.releaseReads();
+    await drainMicrotasks();
+
+    // Theirs on the axis they touched, the record's on the two they did not.
+    expect(probe.layout().snapshot().state.isCollapsed).toBe(true);
+    expect(probe.layout().snapshot().state.widthPercent).toBe(WIDTH_SAVED_IN_B);
+  });
+
+  it("negative control: an untouched arrival takes the record whole", async () => {
+    // Without this the case above would pass over a hook that had simply stopped
+    // adopting what it reads.
+    const probe = mountProbe({ underStrictMode: false });
+    await probe.settled();
+    await probe.uiStateStore.write(
+      SESSION_B,
+      SIDEBAR_LAYOUT_RECORD_KEY,
+      "layout",
+      encodeSidebarLayout({
+        widthPercent: WIDTH_SAVED_IN_B,
+        isCollapsed: true,
+        chosenSectionId: undefined,
+      }),
+    );
+
+    probe.showSession(SESSION_B);
+    await drainMicrotasks();
+
+    expect(probe.layout().snapshot().state.widthPercent).toBe(WIDTH_SAVED_IN_B);
+    expect(probe.layout().snapshot().state.isCollapsed).toBe(true);
   });
 
   it("negative control: the reading the gate used to consult really does stay open", async () => {

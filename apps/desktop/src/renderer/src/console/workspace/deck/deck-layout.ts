@@ -35,6 +35,7 @@ import {
   applyPaneSizePercentages,
   distributeEvenly,
   highestOrdinal,
+  paneAddressKey,
   reorder,
   sizesAreEqual,
   type DeckLayoutState,
@@ -95,8 +96,7 @@ export class DeckLayout {
       return existing.paneId;
     }
 
-    const paneId = `pane-${String(this.#nextPaneOrdinal)}`;
-    this.#nextPaneOrdinal += 1;
+    const paneId = this.#mintPaneId();
     const pane: DeckPane = {
       paneId,
       kind: address.kind,
@@ -238,10 +238,11 @@ export class DeckLayout {
   /**
    * Adopt a snapshot, dropping what this build cannot interpret.
    *
-   * Replaces the deck wholesale rather than merging: a restore happens once, at
-   * mount, against an empty deck, and a merge would need a rule for a pane that
-   * exists in both — a rule nothing would ever exercise and everything would have
-   * to carry.
+   * Replaces the deck wholesale, which is right for the case it serves: a restore
+   * happens once, at mount, against a deck the person has not touched, so there is
+   * no second arrangement for it to be wrong about. The case where there IS one — a
+   * slow read the person arranged panes through — is {@link adoptBeneath}, which
+   * carries the merge rule so this path does not have to.
    */
   public restore(snapshot: unknown): DeckRestoreReport {
     const decoded = decodeDeckSnapshot(snapshot, this.#restoredPaneCap);
@@ -252,6 +253,64 @@ export class DeckLayout {
       density: decoded.density,
     });
     return { restoredPaneCount: decoded.panes.length, refusals: decoded.refusals };
+  }
+
+  /**
+   * Adopt a snapshot BENEATH an arrangement the person has already made.
+   *
+   * The other half of {@link restore}, and the reason that one may stay wholesale.
+   * The store sits on the far side of a process boundary, so its read takes real time
+   * and the deck is live for all of it. A person who arranges panes while it is in
+   * flight has made the NEWER arrangement, and replacing it with the record is the
+   * window undoing work under their hands.
+   *
+   * So the deck on screen wins for every address it holds — its ids, its order, its
+   * widths — and the record contributes only the addresses it does not, minus
+   * `retiredAddressKeys`: the addresses the person CLOSED while the read was running.
+   * A close leaves nothing behind in a snapshot, so without that set the record puts
+   * the pane straight back.
+   *
+   * ADOPTED PANES ARE RE-KEYED. A record's pane ids were minted by an earlier run of
+   * this deck and the live ones by this run, so the two id spaces collide outright;
+   * the live ids are the ones already on screen and already quoted by a focus, a drag,
+   * and an ephemeral pane's `sourcePaneId`, so those stand and the arriving panes take
+   * fresh ids. The record's focus goes with them, under the same rule — the pane the
+   * person is looking at is the one they chose last.
+   */
+  public adoptBeneath(
+    snapshot: unknown,
+    retiredAddressKeys: ReadonlySet<string>,
+  ): DeckRestoreReport {
+    const decoded = decodeDeckSnapshot(snapshot, this.#restoredPaneCap);
+    const liveAddresses = new Set(this.#state.panes.map(paneAddressKey));
+    const adopted = decoded.panes
+      .filter((pane) => {
+        const address = paneAddressKey(pane);
+        return !liveAddresses.has(address) && !retiredAddressKeys.has(address);
+      })
+      .map((pane) => ({ ...pane, paneId: this.#mintPaneId() }));
+
+    // Density is one value with no identity, so there is nothing to merge and no
+    // arrangement to lose: the record's stands unless the person has chosen one, and
+    // an untouched deck is still at the default the constructor gave it.
+    const density =
+      this.#state.density === DEFAULT_DECK_DENSITY ? decoded.density : this.#state.density;
+
+    // The record's panes land IN FRONT of the person's. They were open first, and this
+    // deck's own rule is that a pane a person opens goes at the end.
+    if (adopted.length > 0) {
+      this.#commit({ panes: distributeEvenly([...adopted, ...this.#state.panes]), density });
+    } else if (density !== this.#state.density) {
+      this.#commit({ density });
+    }
+    return { restoredPaneCount: adopted.length, refusals: decoded.refusals };
+  }
+
+  /** The next pane id this deck has not used. One counter, one mint. */
+  #mintPaneId(): string {
+    const paneId = `pane-${String(this.#nextPaneOrdinal)}`;
+    this.#nextPaneOrdinal += 1;
+    return paneId;
   }
 
   #commit(change: Partial<DeckLayoutState>): void {
