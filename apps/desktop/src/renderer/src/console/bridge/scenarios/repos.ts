@@ -37,7 +37,7 @@
 // carries them — the split `workflow-fixture-data.ts` set the precedent for, taken
 // each time this file passed the size the structure rules set.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 
 import { REPOS_SCENARIO_STARTED_AT_ISO, reposBeat } from "./repos-beats.js";
 import {

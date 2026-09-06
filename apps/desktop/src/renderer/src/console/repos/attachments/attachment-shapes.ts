@@ -14,7 +14,7 @@
 // delivering an attachment over one. There is no `AttachmentIngestInit` shape, no
 // method string for any leg of the ingest trio, and no manifest type. So the shapes
 // below are CONSOLE VIEW MODELS transcribing what `Spec-014` names, and every call that
-// would fill them goes through `bridge/growth-port.ts`, which refuses by name
+// would fill them goes through `bridge/growth-port/growth-port.ts`, which refuses by name
 // (`artifact-ingest-and-crud`, `artifact-allowlist-and-abort`). Nothing here claims the
 // daemon sends it.
 //

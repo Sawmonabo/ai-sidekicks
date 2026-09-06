@@ -17,7 +17,7 @@ import {
   INGEST_STALL_DISCLOSURE_MS,
   ManualClock,
 } from "../../core/index.js";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";

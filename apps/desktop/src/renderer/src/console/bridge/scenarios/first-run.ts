@@ -19,7 +19,7 @@
 // carries `{sessionId, config, metadata}` — the registered payload — rather than a
 // title, which its `.strict()` schema rejects.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const FIRST_RUN_SCENARIO_ID = "first-run";
 

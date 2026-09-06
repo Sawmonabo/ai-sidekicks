@@ -29,9 +29,11 @@
 //
 // WHY THE START CONTROL TAKES A FACTORY RATHER THAN IMPORTING THE PROBE. The probe
 // reads the installed bridge directly, so it is mountable only under a live one;
-// that guard belongs beside the other two legacy mounts in `legacy-surfaces.ts`,
-// which owns the table of which shipped family mounts where. Handing the built
-// node in keeps one copy of that guard and keeps this file a view.
+// that guard belongs beside the other two absorbed mounts in
+// `seats/absorbed-surfaces.ts`, which owns it for all three; `legacy-surfaces.ts`
+// beside this file owns the table of which shipped family holds which slot and calls
+// through to it. Handing the built node in keeps one copy of that guard and keeps
+// this file a view.
 
 import { useState, type ReactNode } from "react";
 
@@ -39,7 +41,7 @@ import type { GrowthPort } from "../bridge/index.js";
 import { useOpenSessionIds, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
 import { SessionsAbsence } from "./SessionsAbsence.js";
 import { WireChoiceList } from "./WireChoiceList.js";
-import { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+import { offeredSessionIds, useSessionDirectory } from "../seats/index.js";
 
 /**
  * How the list names itself, for the heading and for assistive technology.

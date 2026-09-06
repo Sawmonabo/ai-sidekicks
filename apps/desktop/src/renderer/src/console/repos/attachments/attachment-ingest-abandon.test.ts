@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import { INGEST_ABORT_SITE } from "./attachment-ingest-abort.js";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import {
   SMALL_SOURCE,
   ScriptedGrowthPort,

@@ -17,7 +17,7 @@
 // WHAT IT CALLS, AND WHAT ANSWERS TODAY. The trio `AttachmentIngestInit`,
 // `AttachmentIngestChunk`, `AttachmentIngestComplete` is typed in the corpus and
 // registers NO method string anywhere, so every leg goes through
-// `bridge/growth-port.ts` and comes back `wire-unregistered` against the
+// `bridge/growth-port/growth-port.ts` and comes back `wire-unregistered` against the
 // `artifact-ingest-and-crud` slate row. That is not a stub: the chunk loop runs, every
 // request carries exactly the members the registered shape names, the ledger advances
 // on whatever is acknowledged, and the refusal renders where the progress would have.
@@ -129,7 +129,7 @@ export class AttachmentIngestStreamDriver {
    * would re-publish into the same throwing sink and lose the diagnostic too.
    *
    * `apply-chokepoint-bypass` is the kind for it, on the two sites that already report
-   * under it (`frame/session-event-binder.ts`, `bridge/scenario-engine.ts`): a store
+   * under it (`frame/session-event-binder.ts`, `bridge/scenario-runtime/scenario-engine.ts`): a store
    * and the surfaces reading it are out of step because a delivery did not arrive. In
    * a development build the registry throws after recording, which is the console's
    * standing policy and the one arm where this promise does reject — loudly, at the

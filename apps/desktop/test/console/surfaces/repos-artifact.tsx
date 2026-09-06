@@ -30,7 +30,7 @@ import {
   type MountedFamilySurface,
 } from "./repos-mount-harness.js";
 
-import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port.js";
+import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port/growth-port.js";
 import {
   REPOS_PINNED_ARTIFACT_ID,
   REPOS_SCENARIO,

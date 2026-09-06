@@ -35,18 +35,38 @@ import "./nothing.css";
 import "./refusal.css";
 import "./ledger-row.css";
 import "./partial-read.css";
+import "./surface-absence.css";
+import "./surface-failure.css";
 
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// One boundary per surface, so a pane's render throw does not blank the window. It
+// is in this family rather than in the frame's because its only input is `core`'s
+// tripwire report, and because a view family wrapping its own rows cannot import the
+// frame's door without closing a cycle.
+export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
+  // The literal, not the binding. `PaletteOverlay.tsx` is the only module that hands
+  // this to `parseChord`; every other reader PRINTS it, and one of those readers is
+  // the primitive beside this door. Publishing it from `palette/` would have left a
+  // primitive importing upward for a string.
+  COMMAND_PALETTE_OPEN_CHORD,
   HOST_CHORD_PLATFORM,
   decodeChordKeyToken,
   formatChordForPlatform,
 } from "./chord-format.js";
+
+// The surface-scale absence wrapper. In this family rather than in `frame/` because
+// it is a presentational shell with no family of its own — a centred measure, a body
+// slot, and one hint — and because both of its producers now sit BELOW the frame:
+// `frame/RouteSurface.tsx` reaches down to it like any other consumer, and
+// `seats/absorbed-surfaces.ts` could not have reached up at all.
+export { SurfaceAbsence } from "./SurfaceAbsence.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
 // because the whole point of the primitive is that there is a single pair of
@@ -174,20 +194,24 @@ export {
 // way, and a family that wrote its own row is a family whose reader is told the list
 // is as long as the window.
 //
-// TWO SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
+// THREE SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
 // lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
-// `repos/restore/WindowedRestorePathList.tsx` — and both compose the row and the
-// hook and nothing else: the props types are inferred from the element, the two ARIA
-// marker names are written by the row rather than by its caller, and the index
-// arithmetic is what the hook returns. The ten door lines that had carried
-// `@consumedBy T-023p-1C-5` alongside these two named a consumer that has now
-// shipped without importing any of them, so they were door lines with no production
-// reader — the class `test/console/architecture/barrel-census.test.ts` owns and the
-// dead-code gate cannot see, since the tag legitimately suppressed the finding. They
-// are deleted rather than re-tagged; the co-located tests that do exercise those
-// symbols read the module that declares them, which is what the census rule asks.
+// `repos/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
+// and the one type a delegating row's renderer hands its child: the row's own props
+// type is inferred from the element, the two ARIA marker names are written by the row
+// rather than by its caller, and the index arithmetic is what the hook returns. The
+// target-props type leaves through this door rather than being read back off the
+// component, because a family deriving it again would hold a second closed set that
+// agrees with this one only until the marker attribute is renamed on one side. The
+// nine door lines that had carried `@consumedBy T-023p-1C-5` alongside these three
+// named a consumer that has now shipped without importing any of them, so they were
+// door lines with no production reader — the class
+// `test/console/architecture/barrel-census.test.ts` owns and the dead-code gate cannot
+// see, since the tag legitimately suppressed the finding. They are deleted rather than
+// re-tagged; the co-located tests that do exercise those symbols read the module that
+// declares them, which is what the census rule asks.
 //
-// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. Ten lines here
+// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. Nine lines here
 // were re-derived first and the other thirty-nine across this door, `core/`, and
 // `seats/` were left carrying the same falsified name. Each was re-checked against what
 // the family's shipped modules actually import through the door, and the claim was
@@ -195,6 +219,7 @@ export {
 // inline-card body descriptor in `seats/` — had no production reader anywhere and was
 // deleted with its tag rather than left as an untagged export.
 export { WindowedListRow } from "./WindowedListRow.js";
+export type { WindowedRowTargetProps } from "./WindowedListRow.js";
 export { useWindowedRovingIndex } from "./windowed-row-index.js";
 
 export type {

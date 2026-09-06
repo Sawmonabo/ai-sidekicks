@@ -16,7 +16,7 @@
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";

@@ -1,5 +1,4 @@
-import { WireFigure } from "../../primitives/index.js";
-import { type WindowedRowTargetProps } from "../windowed-row-target.js";
+import { WireFigure, type WindowedRowTargetProps } from "../../primitives/index.js";
 
 /** One path, and the row's own statement about where its tab stop went. */
 export type RestorePathCellProps = {

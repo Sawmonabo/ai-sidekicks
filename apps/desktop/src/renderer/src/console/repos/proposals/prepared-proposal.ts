@@ -15,7 +15,7 @@
 // EVERY SHAPE BELOW IS THE CONSOLE'S OWN, AND SAYS SO. `packages/contracts` registers
 // no `gitflow` module: there is no `ChangeRequest` and no proposal type anywhere in the
 // workspace. So these are the shapes the SURFACE needs, derived from what this family
-// draws, exactly as `bridge/growth-port.ts` derives its request and value types: they
+// draws, exactly as `bridge/growth-port/growth-port.ts` derives its request and value types: they
 // are not a claim about the eventual wire, which `Spec-011` owns.
 //
 // NO STACKED PROPOSALS. One cumulative proposal per run lineage is what

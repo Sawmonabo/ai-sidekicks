@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import { ManualClock } from "../../core/index.js";
 import {
   OTHER_ARTIFACT_ID,

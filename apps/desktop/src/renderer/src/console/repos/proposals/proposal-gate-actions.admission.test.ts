@@ -14,8 +14,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import type { GrowthPortAnswer } from "../../bridge/growth-port.js";
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import type { GrowthPortAnswer } from "../../bridge/growth-port/growth-port.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";

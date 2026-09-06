@@ -24,16 +24,16 @@ import { SCENARIO_TICK_MS } from "../core/index.js";
 import { consoleTripwires } from "../core/tripwires.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
-import { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
-import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
-import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-slate.js";
+import { createRefusingGrowthPort, growthUnavailable } from "./growth-port/growth-port.js";
+import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
+import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-port/growth-slate.js";
 import {
   CONSOLE_SCENARIO_MANIFEST,
   findOrphanedLedgerRowIds,
   mapSlateRowCoverage,
   type ConsoleScenarioManifest,
-} from "./scenario-manifest.js";
-import { ScenarioEngine } from "./scenario-engine.js";
+} from "./scenario-runtime/scenario-manifest.js";
+import { ScenarioEngine } from "./scenario-runtime/scenario-engine.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 
 // Tripwires throw in development so a breach is impossible to ignore. Under test

@@ -15,7 +15,7 @@
 // WHAT THE SEAT HANDS OVER, AND WHAT IT CANNOT. `ArtifactInlineCardProps` carries a
 // `ConsoleEntityRef` and no manifest, because the read that would fetch one —
 // `ArtifactRead` — has no method string registered anywhere and reaches the console
-// only through `bridge/growth-port.ts`, which refuses by name against the
+// only through `bridge/growth-port/growth-port.ts`, which refuses by name against the
 // `artifact-ingest-and-crud` slate row. The seat additionally hands over no bridge, so
 // this body cannot even attempt the call: it renders the identity it was given and the
 // absence that says nobody asked. The `manifest` prop is the seam the row lands on the

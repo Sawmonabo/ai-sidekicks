@@ -17,7 +17,7 @@ import {
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);

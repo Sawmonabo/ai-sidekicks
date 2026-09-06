@@ -57,10 +57,11 @@ export interface PersistenceRefusal extends ConsoleRefusal {
  * value-class table, the chokepoint, and the three adapters comes through here, so
  * `origin` is spelled once and no site can ship a refusal that names nobody.
  *
- * Built by narrowing `core`'s `refuse` rather than by writing the same three
- * fields again. `refuse` types `code` as `string` because it serves every
- * family; this module knows its own closed vocabulary, so the spread re-narrows
- * it and the literal is written in exactly one place in the console.
+ * Built on `core`'s `refuse` rather than by writing the same three fields again.
+ * That builder is generic in its code, so the closed vocabulary this module owns
+ * travels through it and arrives narrowed: the annotated return type below is
+ * satisfied by the call itself, with no spread re-stating `code` to put back what
+ * a `string` parameter would have widened away.
  *
  * This import was type-only for one release of this vocabulary, to keep a runtime
  * edge out of `core/index.js` — whose barrel pulls `core/tripwires.ts`, whose
@@ -75,5 +76,5 @@ export function refusePersistence(
   code: PersistenceRefusalCode,
   detail: string,
 ): PersistenceRefusal {
-  return { ...refuse(PERSISTENCE_REFUSAL_ORIGIN, code, detail), code };
+  return refuse(PERSISTENCE_REFUSAL_ORIGIN, code, detail);
 }

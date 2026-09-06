@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   fixtureBridgeWithGrowth,
   growthServing,
-} from "../../bridge/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ManualClock } from "../../core/index.js";

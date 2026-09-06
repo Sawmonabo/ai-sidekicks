@@ -3,7 +3,7 @@
 // EVERY ONE OF THEM GOES THROUGH `callDaemon`, and this module holds nothing that
 // door already holds. The parse in both directions, the refusal vocabulary, and the
 // normalizer that reads a rejection are the bridge family's, registered against
-// `bridge/daemon-reply-registry.ts`, so a method the corpus has not registered is a
+// `bridge/daemon/daemon-reply-registry.ts`, so a method the corpus has not registered is a
 // compile error here rather than an `unknown` somebody remembered to check. What is
 // left is the part that IS this family's: which five reads the repos and workspaces
 // sections make, and why each of them is the read it is.

@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import {

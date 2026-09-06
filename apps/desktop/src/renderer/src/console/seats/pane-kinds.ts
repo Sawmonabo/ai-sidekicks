@@ -17,7 +17,7 @@
 // the families to register would have nothing to drop against.
 //
 // The tuple is the declaration and the union is derived from it, for the reason
-// `frame/surface-registry.ts` gives about its own slots: a union written beside a
+// `surface-registry.ts` gives about its own slots: a union written beside a
 // hand-repeated array is two closed sets that agree until someone widens one.
 //
 // WHICH KINDS MAY BE TORN OFF IS DECIDED HERE TOO, AND DERIVED RATHER THAN DECLARED.

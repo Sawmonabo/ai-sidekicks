@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
-} from "../../bridge/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { refuse } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";

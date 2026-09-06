@@ -141,7 +141,7 @@ function listingScopeOf(state: ArtifactsPanelState): string {
  * The one delete confirmation this panel holds, and the listing it belongs to.
  *
  * A CONFIRMATION IS AN APPROVAL OF ONE PARTICULAR THING, so it does not outlive it —
- * `repos/proposals/ProposalActionGroup.tsx` states the rule at length one directory
+ * `repos/proposals/proposal-gate-acts/ProposalActionGroup.tsx` states the rule at length one directory
  * over and this register was the copy that had not taken it. A participant armed the
  * confirm on one artifact, the deck re-pointed the pane at another, and this component
  * stayed mounted at the same tree position while its rows unmounted and came back — so

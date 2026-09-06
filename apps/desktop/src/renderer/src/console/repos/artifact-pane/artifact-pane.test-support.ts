@@ -35,7 +35,7 @@ import type {
   GrowthOperationId,
   GrowthUnavailable,
 } from "../../bridge/index.js";
-import type { GrowthPortAnswer } from "../../bridge/growth-port.js";
+import type { GrowthPortAnswer } from "../../bridge/growth-port/growth-port.js";
 import { growthUnavailable } from "../../bridge/index.js";
 
 // Re-exported so a suite scripting this pane's port names one import rather than two.
@@ -45,10 +45,8 @@ import { growthUnavailable } from "../../bridge/index.js";
 // mount module carried a second, so the type had three import homes and a suite could
 // name whichever one it happened to be importing something else from.
 export type { GrowthPortAnswer };
-import {
-  drainMicrotasks,
-  fixtureBridgeWithGrowth,
-} from "../../bridge/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";

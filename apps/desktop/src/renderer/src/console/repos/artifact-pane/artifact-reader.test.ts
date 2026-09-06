@@ -14,10 +14,8 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  drainMicrotasks,
-  fixtureBridgeWithGrowth,
-} from "../../bridge/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import { growthUnavailable } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";

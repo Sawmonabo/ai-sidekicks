@@ -1,5 +1,4 @@
-import { DerivedFigure } from "../../primitives/index.js";
-import { type WindowedRowTargetProps } from "../windowed-row-target.js";
+import { DerivedFigure, type WindowedRowTargetProps } from "../../primitives/index.js";
 import { type DiffFileListEntry } from "./diff-file-entries.js";
 
 /** One row's control, and the row's own statement that this element holds its stop. */

@@ -16,14 +16,14 @@
 // clock is manual, so "the gate never polls" is read off `pendingCount` rather than
 // asserted.
 
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import {
   growthUnavailable,
   type ConsoleBridge,
   type GrowthPort,
   type GrowthUnavailable,
 } from "../../bridge/index.js";
-import type { GrowthPortAnswer, GrowthServedValue } from "../../bridge/growth-port.js";
+import type { GrowthPortAnswer, GrowthServedValue } from "../../bridge/growth-port/growth-port.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import {
   GIT_MOUNT_ID,

@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge } from "../fixture-bridge.js";
+import { createFixtureBridge } from "../fixture/fixture-bridge.js";
 import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SCENARIO,
@@ -30,7 +30,7 @@ import {
   REVIEWER_WORKTREE_ID,
 } from "./repos-fixture-data.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 
 /** Every beat of one kind, in scenario order. */
 function beatsOfKind(kind: string): readonly ConsoleScenario["beats"][number]["event"][] {

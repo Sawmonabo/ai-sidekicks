@@ -17,7 +17,7 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
@@ -179,7 +179,7 @@ describe("artifact pane — the ingest bounds disclosure", () => {
 
   it("negative control: the pane offers no visibility toggle", () => {
     // The wire carries an `artifact.visibility_updated` event and
-    // `bridge/growth-port.ts` registers no operation that could produce one. A
+    // `bridge/growth-port/growth-port.ts` registers no operation that could produce one. A
     // control that could only fail is worse than a control that is not there, and a
     // port entry is not this family's to add.
     const { queryByRole } = renderPane(contextFor(ARTIFACT_ENTITY));

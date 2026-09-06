@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import type { ConsoleScenario, ScenarioReply } from "../scenario.js";
+import type { ConsoleScenario, ScenarioReply } from "../scenario-runtime/scenario.js";
 
 /** A call the flagship scripts no answer for, so a case adds one rather than shadowing one. */
 const PROBE_CALL = "run.queueList";

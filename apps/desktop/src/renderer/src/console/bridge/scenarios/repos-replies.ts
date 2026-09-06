@@ -32,7 +32,7 @@ import {
   type WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 
 import { scenarioInstant } from "./repos-beats.js";
 import {

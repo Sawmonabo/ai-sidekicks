@@ -31,7 +31,7 @@
 //     returns against the session roles. Every control is offered and the daemon's
 //     typed refusal renders beside the one that was pressed.
 //   • IT OFFERS NO VISIBILITY TOGGLE. The wire carries an `artifact.visibility_updated`
-//     event and `bridge/growth-port.ts`
+//     event and `bridge/growth-port/growth-port.ts`
 //     registers no operation that could produce one — the port has `artifactRead`
 //     and `artifactDelete`
 //     and nothing that re-classifies. A control that could only fail is worse than a

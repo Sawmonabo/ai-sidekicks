@@ -14,7 +14,7 @@
 // `repoMountId` alone cannot say WHICH checkout an act runs in — and `params` is where
 // that is said, which is the whole reason the member is required and typed
 // `Record<string, unknown>`: the action vocabulary is unregistered
-// (`bridge/growth-slate.ts`, the `gitflow-actions` row), so the daemon cannot type the
+// (`bridge/growth-port/growth-slate.ts`, the `gitflow-actions` row), so the daemon cannot type the
 // parameters of an action nobody has named, and stating them is the caller's job.
 //
 // EVERY PARAMETER COMES OFF THE SERVED CONTEXT AND NOTHING IS COMPOSED. The branch

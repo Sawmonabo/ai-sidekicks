@@ -7,8 +7,14 @@
 // below are about recognition and about what survives the trip — the guard, the
 // message an error carries, and the refusal an error still holds after the throw.
 
-import { describe, expect, it } from "vitest";
-import { ConsoleRefusalError, isConsoleRefusal, refuse } from "./refusal.js";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+  ConsoleRefusalError,
+  isConsoleRefusal,
+  refuse,
+  type ConsoleRefusal,
+  type NarrowedRefusal,
+} from "./refusal.js";
 
 describe("refuse — one builder, one field order", () => {
   it("carries the three fields the renderers read", () => {
@@ -26,6 +32,61 @@ describe("refuse — one builder, one field order", () => {
     // claim the same one.
     expect(refuse("keybindings", "unparseable", "detail").origin).toBe("keybindings");
     expect(refuse("growth-port", "unparseable", "detail").origin).toBe("growth-port");
+  });
+});
+
+describe("refuse — the producer's own union survives the call", () => {
+  // The claim these three cases make together is what retired the spreads. Every
+  // producer that owns a closed code union used to write
+  // `{ ...refuse(origin, code, detail), code }`, whose only job was to put back the
+  // narrowing a `string` parameter had widened away. These say the builder carries
+  // it, that it carries the RIGHT one, and that a plain `string` caller is unmoved.
+  //
+  // Each case reads its code out of a PARAMETER rather than a local constant, which
+  // is both the honest instrument and the real shape: assignment narrowing collapses
+  // `const code: "a" | "b" = "a"` to `"a"` at every later use, so a case written that
+  // way would infer one member and prove nothing about the union — and a producer's
+  // constructor is a function taking its vocabulary as a parameter anyway, which is
+  // the call these cases stand in for.
+
+  /** A producer that owns a two-member vocabulary. No return annotation: inference is the subject. */
+  function refuseEither(code: "a" | "b") {
+    return refuse("producer", code, "detail");
+  }
+
+  /** A caller with no vocabulary at all — the many wide sites across the console. */
+  function refuseAnything(code: string) {
+    return refuse("producer", code, "detail");
+  }
+
+  it("gives back the union it was handed, not `string`", () => {
+    // The fail-first case: against a non-generic `refuse`, `code` here is `string`
+    // and `toEqualTypeOf` reports the mismatch. Nothing about it is a runtime claim
+    // — the spread it replaces was invisible at runtime too, which is exactly why the
+    // duplication it caused could survive as many copies as there were producers.
+    expectTypeOf(refuseEither("a").code).toEqualTypeOf<"a" | "b">();
+    expectTypeOf(refuseEither("a")).toEqualTypeOf<NarrowedRefusal<"a" | "b">>();
+  });
+
+  it("negative control: a refusal typed to one member refuses another member's value", () => {
+    // Without this, the case above would pass against a builder that answered `any`
+    // on `code` — which narrows nothing and would let every producer's vocabulary
+    // through every producer's door. `NarrowedRefusal<"a">` is the target a producer
+    // annotates, and a `"b"` refusal is not one.
+    // @ts-expect-error TS2322: `"b"` is not assignable to the `"a"` this target holds.
+    const mismatched: NarrowedRefusal<"a"> = refuse("producer", "b", "detail");
+    // Read it, so the directive above suppresses an assignment that really happens
+    // rather than one the compiler elided.
+    expect(mismatched.code).toBe("b");
+  });
+
+  it("leaves a caller that has no union where it was", () => {
+    // The other half of the compatibility claim: `Code` infers as `string` for a
+    // caller holding one, `NarrowedRefusal<string>` reads as `ConsoleRefusal`, and
+    // the many wide call sites across the console keep compiling untouched.
+    const wide: ConsoleRefusal = refuseAnything("whatever-the-seam-said");
+    expectTypeOf(refuseAnything("x").code).toEqualTypeOf<string>();
+    expect(wide.code).toBe("whatever-the-seam-said");
   });
 });
 

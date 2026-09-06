@@ -50,7 +50,7 @@ const INGEST_ABORT_LEG = "The spool reclaim";
 /**
  * The one refusal code that means the abort was never put to a daemon.
  *
- * Named rather than spelled at the branch, because `bridge/growth-outcome.ts` owns the
+ * Named rather than spelled at the branch, because `bridge/growth-port/growth-outcome.ts` owns the
  * word and a literal here would be a second spelling of a closed set — the failure the
  * console's vocabularies are all declared once to avoid.
  */

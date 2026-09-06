@@ -11,7 +11,7 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
+import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario-runtime/scenario.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";

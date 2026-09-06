@@ -10,7 +10,7 @@
 // `artifact.superseded`, `artifact.visibility_updated` — and no manifest type, no
 // payload variant for any of the three, and no method string for reading, listing,
 // re-classifying, or deleting one. `Plan-023 §Console growth slate` carries that
-// absence as its own rows, and `console/bridge/growth-port.ts` is where the console
+// absence as its own rows, and `console/bridge/growth-port/growth-port.ts` is where the console
 // reaches for those operations and is refused by name.
 //
 // So `ArtifactManifestRow` below is A CONSOLE VIEW MODEL AND NOT A WIRE TYPE. It

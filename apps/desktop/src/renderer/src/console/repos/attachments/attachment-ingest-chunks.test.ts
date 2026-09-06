@@ -18,7 +18,7 @@ import {
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 
 /** Whether one recorded request actually carried bytes, rather than describing them. */
 function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {

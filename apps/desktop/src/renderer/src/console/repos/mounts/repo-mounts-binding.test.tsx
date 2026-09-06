@@ -20,7 +20,7 @@ import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { SessionStore } from "../../store/index.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
