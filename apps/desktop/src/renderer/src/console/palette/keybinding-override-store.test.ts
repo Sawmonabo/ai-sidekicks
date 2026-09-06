@@ -8,7 +8,8 @@ import { CommandRegistry } from "./command-registry.js";
 import type { KeyBinding } from "./contributions.js";
 import { KeyBindingTable } from "./keybindings.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../persistence/index.js";
-import { KEYBINDING_OVERRIDES_KEY, KeybindingOverrideStore } from "./keybinding-override-store.js";
+import { KeybindingOverrideStore } from "./keybinding-override-store.js";
+import { KEYBINDING_OVERRIDES_KEY } from "./keybinding-surface.js";
 
 /**
  * This file's shipped table, authored on `Alt` rather than on `$mod`.
