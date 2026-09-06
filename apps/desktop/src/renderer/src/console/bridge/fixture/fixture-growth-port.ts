@@ -76,6 +76,15 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       answerFromScriptedReply(engine, "health.statusRead", "healthStatusRead", request, () =>
         growthUnavailable("healthStatusRead"),
       ),
+    // The handshake the shell performed, from a script and from nothing else — the
+    // health read's rule with a sharper edge. A negotiation outcome is an observation
+    // of two builds meeting, and the reply's `compatible` admits no empty form: a
+    // fabricated `true` would put the mismatch banner out of reach of every fixture
+    // window, and a fabricated `false` would raise it in all of them.
+    daemonHello: async (request) =>
+      answerFromScriptedReply(engine, "daemon.hello", "daemonHello", request, () =>
+        growthUnavailable("daemonHello"),
+      ),
     // The one accountant's own figure, from a script and from nothing else. An empty
     // form here would be a zero, and a zero is not an absence: it says this session
     // has spent nothing, which is a statement about money that no author made. The

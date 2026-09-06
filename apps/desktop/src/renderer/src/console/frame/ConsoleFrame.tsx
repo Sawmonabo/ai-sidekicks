@@ -59,6 +59,8 @@ import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useSchemePreference } from "./scheme-preference.js";
+import { VersionMark } from "./VersionMark.js";
+import { useConsoleVersionReading } from "./version-mark.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
 import { type ConsoleSurfaceContext } from "../seats/index.js";
 import { applyConsoleScheme } from "./token-installation.js";
@@ -173,6 +175,11 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     };
   }, [frameStore, sessionStoreRegistry]);
 
+  // What this console and the local runtime agreed to speak. One read per bridge, put
+  // through the console's growth-read chokepoint and followed by no timer — see
+  // `version-mark.ts` for why a handshake has no session-event trigger to watch.
+  const versionReading = useConsoleVersionReading(props.bridge.growth);
+
   const activeSessionId = frameStore.activeSessionId;
 
   const commandSurface = useFrameCommandSurface({
@@ -233,6 +240,15 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
           would vanish the moment somebody navigated to the sessions list and back.
           Under the live bridge there is no scenario engine, so this is `null` and the
           release build carries nothing. */}
+      {/* The version pair, and the banner when the two builds did not meet. Above
+          every surface for the reason the mark below it is: an incompatible handshake
+          refuses every mutating dispatch in the window, not on one route. Rendered
+          only on the settled arm — a window that has not heard back, or that could not
+          reach the seam at all, shows no version pair rather than the last one it saw,
+          which would be a claim about a runtime it is no longer talking to. */}
+      {versionReading.phase === "read" ? (
+        <VersionMark mark={versionReading.mark} mismatch={versionReading.mismatch} />
+      ) : null}
       {scenario === undefined ? null : <DemoScenarioMark scenarioLabel={scenario.label} />}
       <RouteSurface context={surfaceContext} />
     </AppFrame>

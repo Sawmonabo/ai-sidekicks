@@ -85,6 +85,17 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "restart the daemon",
       "DaemonRestart",
     ),
+    // The handshake, read by a window. It names the registered method because the
+    // method IS registered and the daemon answers it — what is missing is any seam
+    // that carries the ack past the shell, which is the row this entry serves rather
+    // than a verb nobody has written.
+    daemonHello: op(
+      "daemonHello",
+      "daemon-version-negotiation",
+      "method",
+      "read the protocol the shell negotiated with the local runtime, the versions that runtime supports, and the reason when the two do not meet",
+      "daemon.hello",
+    ),
     onboardingStateRead: op(
       "onboardingStateRead",
       "onboarding-methods",

@@ -51,7 +51,8 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
-  | "health-status-read";
+  | "health-status-read"
+  | "daemon-version-negotiation";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -366,6 +367,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-020 (the health projection); api-payload-contracts.md §Health Method-Name Registry (the method string and its two schemas, registered there and in no code package)",
     consumingSurface: "cast bar health form, health strip",
+    wireRegistered: false,
+  },
+  "daemon-version-negotiation": {
+    id: "daemon-version-negotiation",
+    wire: "the handshake's own facts carried to a window — the negotiated protocol version, the daemon's supported-protocol set, and the incompatible-handshake reason the ack answers with, beside the version this console proposed. `daemon.hello` is registered and every one of those facts is consumed inside the shell's supervision path, so no bridge or preload namespace carries any of it to the renderer",
+    owningDocument:
+      "packages/contracts/src/jsonrpc-negotiation.ts (the DaemonHello / DaemonHelloAck envelopes, the three incompatible-handshake reasons, and the daemonSupportedProtocols member); Spec-023 (the daemon supervision lifecycle, whose step 3 requires an incompatible handshake be surfaced to the renderer and names no seam that carries it)",
+    consumingSurface: "frame version mark and its mismatch banner",
     wireRegistered: false,
   },
 };

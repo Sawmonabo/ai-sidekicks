@@ -145,6 +145,17 @@
 // `findScenariosNaming` beside this file pins the callback-tool premise the way the
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
+//
+// WHY THE HANDSHAKE READ IS SERVED FROM A SCRIPT AND FROM NOTHING ELSE
+//
+// The health read's rule, for the same reason and one more. A negotiation outcome is
+// an OBSERVATION of two builds meeting — which version was agreed, which set the
+// runtime supports — and a scenario carries no runtime, so there is nothing to derive
+// one from. Nor is there an empty form: the reply's `compatible` has to say yes or no,
+// and either answer is a claim about a handshake nobody performed. The one more is
+// that the false arm is the surface's whole subject — a fabricated `true` would make
+// the mismatch banner unreachable in every fixture window, and a fabricated `false`
+// would raise it in all of them.
 
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
@@ -167,6 +178,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "sessionList",
   "sessionIdentityRead",
   "healthStatusRead",
+  "daemonHello",
   "orchestrationBudgetRead",
   "attentionProjectionRead",
   ...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
@@ -192,6 +204,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // a fabricated "healthy" would be the fixture asserting a measurement nobody made.
   "sessionIdentityRead",
   "healthStatusRead",
+  // the handshake the shell performed, read by the window rather than only by the
+  // shell — scripted for the reason above, since a fixture that answered it would be
+  // asserting which two builds met.
+  "daemonHello",
   // the accountant's committed figure, which the cast bar's
   // all-clear line renders and is forbidden to compute. Scripted, never derived: an
   // unscripted zero would be a claim about a session's spend rather than an absence.

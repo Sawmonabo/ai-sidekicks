@@ -78,6 +78,10 @@ export type GrowthOperationId =
   | "daemonStatusRead"
   | "daemonStop"
   | "daemonRestart"
+  // the handshake's own reply, read by a window rather than only by the
+  // shell that performed it: which protocol was negotiated, which set the daemon
+  // supports, and — when the two sides do not meet — why.
+  | "daemonHello"
   | "onboardingStateRead"
   | "onboardingStepAdvance"
   | "onboardingStepSkip"

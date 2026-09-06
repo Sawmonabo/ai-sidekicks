@@ -192,6 +192,24 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
       },
     },
     {
+      // The handshake this window's shell performed, which is an OBSERVATION of two
+      // builds meeting and so is scripted rather than folded out of beats: nothing in
+      // a session's log says which protocol the runtime agreed to.
+      //
+      // The AGREEING arm, deliberately. This is the composition a first launch opens
+      // into, and a scripted disagreement would put a refusal across a demonstration
+      // window every time — a claim about the operator's own install that no author
+      // made. The refusing arm is reachable from any scenario that scripts one, and
+      // the version mark's own suites drive it directly.
+      call: "daemon.hello",
+      result: {
+        compatible: true,
+        consoleProtocolVersion: "2026-05-01",
+        daemonProtocolVersion: "2026-05-01",
+        daemonSupportedProtocols: ["2026-05-01"],
+      },
+    },
+    {
       // The accountant's own committed figure — the ONE source of a spend number for
       // every surface, and the reason the cast bar sums nothing. `priced` because
       // every debit this session's four lanes raised was priced; the unpriced arm is
