@@ -86,11 +86,21 @@ export function isEmulatorAcceptingInput(surface: HTMLElement): boolean {
   return !emulatorInputOf(surface).readOnly;
 }
 
-/** Render a host and wait until its emulator is on screen. */
+/**
+ * Render a host and wait until its emulator has attached and settled a renderer.
+ *
+ * The wait is on the ATTRIBUTE rather than on the surface element, and the two are
+ * different commits: the surface appears when the chunk lands, and the adapter is built
+ * by the effect that runs after that commit. Waiting on the element alone returns in
+ * between and reads the mount-pending value — which is the whole subject of the
+ * renderer-mode suite, and is a latent race for every other case that reads the box.
+ * The stronger wait is the one every suite gets, because it strictly follows the weaker
+ * one: no host reaches a settled mode without its surface already on screen.
+ */
 export async function mountHost(element: React.JSX.Element): Promise<RenderResult> {
   const view = render(element);
   await waitFor(() => {
-    expect(view.container.querySelector(".meridian-terminal-host__surface")).not.toBeNull();
+    expect(hostBoxOf(view.container).getAttribute("data-renderer")).not.toBe("pending");
   });
   return view;
 }

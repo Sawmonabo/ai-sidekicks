@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { servingAct } from "./PartitionClearControl.test-support.js";
 import {
   closeThenClearSiteData,
   type ClearSiteDataStep,
@@ -27,14 +28,6 @@ const DIRECTORY_LOCKED: ConsoleRefusal = refuse(
   "browser.partition_locked",
   "The profile directory is still held open.",
 );
-
-/** An act that records the order it ran in and succeeds. */
-function servingAct(callLog: string[], name: string): SiteDataAct {
-  return (sessionId) => {
-    callLog.push(`${name}:${sessionId}`);
-    return Promise.resolve({ status: "done" });
-  };
-}
 
 /** An act that records the order it ran in and refuses. */
 function refusingAct(callLog: string[], name: string, refusal: ConsoleRefusal): SiteDataAct {

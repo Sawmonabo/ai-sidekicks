@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { settleReactWork } from "../../primitives/act-settlement.test-support.js";
 import { useBrowserPaneActs, type BrowserPaneActs } from "./act-sequence.js";
 
 /** The fallback a rejection with no code of its own is rendered as. */
@@ -48,13 +49,6 @@ function deferredAct(): {
       settle?.reject(failure);
     },
   };
-}
-
-/** Let a settled promise reach the hook's state, inside React's own scope. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
 const PORT_REFUSAL = refuse("browser-pane", "wire-unregistered", "No verb is registered.");
@@ -110,9 +104,9 @@ describe("the browser pane's act sequence", () => {
       result.current.run(stop.run, FALLBACK);
     });
     stop.serve();
-    await settle();
+    await settleReactWork();
     reload.reject(new Error("the reload never answered"));
-    await settle();
+    await settleReactWork();
 
     expect(result.current.refusal).toBeUndefined();
   });
@@ -131,9 +125,9 @@ describe("the browser pane's act sequence", () => {
       result.current.run(second.run, FALLBACK);
     });
     second.refuseWith(PORT_REFUSAL);
-    await settle();
+    await settleReactWork();
     first.serve();
-    await settle();
+    await settleReactWork();
 
     expect(result.current.refusal?.code).toBe("wire-unregistered");
   });
@@ -153,7 +147,7 @@ describe("the browser pane's act sequence", () => {
       result.current.refuseLocally("filesystem-destination", "Web destinations only.");
     });
     pending.serve();
-    await settle();
+    await settleReactWork();
 
     expect(result.current.refusal?.code).toBe("filesystem-destination");
   });
@@ -173,7 +167,7 @@ describe("the browser pane's act sequence", () => {
       result.current.dismiss();
     });
     pending.reject(new Error("the call never answered"));
-    await settle();
+    await settleReactWork();
 
     expect(result.current.refusal?.code).toBe("navigation-call-failed");
   });
@@ -190,7 +184,7 @@ describe("the browser pane's act sequence", () => {
       result.current.run(only.run, FALLBACK);
     });
     only.reject({ code: "permission_denied", message: "You may not navigate this pane." });
-    await settle();
+    await settleReactWork();
 
     expect(result.current.refusal?.code).toBe("permission_denied");
     expect(result.current.refusal?.detail).toBe("You may not navigate this pane.");
@@ -207,7 +201,7 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
     });
     rebindTo(SECOND_SUBJECT);
     pending.refuseWith(PORT_REFUSAL);
-    await settle();
+    await settleReactWork();
 
     expect(acts().refusal).toBeUndefined();
   });
@@ -224,7 +218,7 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
     });
     rebindTo(subject(FIRST_SUBJECT.paneId));
     pending.reject(new Error("the call never answered"));
-    await settle();
+    await settleReactWork();
 
     expect(acts().refusal).toBeUndefined();
   });
@@ -255,7 +249,7 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
       acts().run(afterRebind.run, FALLBACK);
     });
     afterRebind.refuseWith(PORT_REFUSAL);
-    await settle();
+    await settleReactWork();
 
     expect(acts().refusal?.code).toBe("wire-unregistered");
   });

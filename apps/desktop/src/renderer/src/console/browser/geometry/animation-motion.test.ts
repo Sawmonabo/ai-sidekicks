@@ -13,9 +13,12 @@ import {
   normalizeAnimatedPropertyName,
   PAINT_ONLY_ANIMATED_PROPERTIES,
 } from "./animation-motion.js";
-import { fakeAnimation, fakeAnimationOf } from "./element-motion.test-support.js";
-
-const attachedRoots: Element[] = [];
+import {
+  detachAttachedRoots,
+  fakeAnimation,
+  fakeAnimationOf,
+  trackAttachedRoot,
+} from "./element-motion.test-support.js";
 
 function attachedElement(position?: string): HTMLElement {
   const element = document.createElement("div");
@@ -23,8 +26,7 @@ function attachedElement(position?: string): HTMLElement {
     element.style.position = position;
   }
   document.body.append(element);
-  attachedRoots.push(element);
-  return element;
+  return trackAttachedRoot(element);
 }
 
 /** The caller's containment vocabulary, as `element-motion.ts` supplies it. */
@@ -35,11 +37,7 @@ function carriedBy(subject: Element): (target: Element) => boolean {
 /** Nothing carries the subject, so every case is decided by the other bound. */
 const CARRIES_NOTHING = (): boolean => false;
 
-afterEach(() => {
-  for (const root of attachedRoots.splice(0)) {
-    root.remove();
-  }
-});
+afterEach(detachAttachedRoots);
 
 describe("couldAnimationMove — what is being animated", () => {
   it("refuses an animation that only paints", () => {

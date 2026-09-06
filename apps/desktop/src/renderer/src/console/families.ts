@@ -109,6 +109,11 @@ export function registerConsoleFamilies(
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
-  // T-023p-1C-7 browser-terminal
+  // T-023p-1C-7 browser-terminal — landed, and it claims no surface slot. Its two
+  // kinds are pane bodies, registered through `registerBrowserPanes` and
+  // `registerTerminalPanes` on the pane board in `panes/index.ts`, so there is
+  // nothing for it to call here. Stated rather than left as a bare reservation: a
+  // reservation and a deliberate absence read identically, and the difference is the
+  // whole question a reader comes to this file with.
   // T-023p-1C-8 gallery
 }

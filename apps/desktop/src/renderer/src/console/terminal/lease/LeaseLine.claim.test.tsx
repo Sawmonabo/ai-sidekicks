@@ -5,7 +5,7 @@
 // nothing is ever queued or retried, and that a rebound pane gets its own control
 // rather than the last session's wait. The hook itself — the subject stamping that
 // makes that last one true on the FIRST committed render — is
-// `lease-claim.test.ts`.
+// `lease-claim.test.tsx`.
 //
 // 8.9's line is here too: stepping in is a different act from taking the shell, and
 // this surface says so in copy rather than growing a second affordance, which is a

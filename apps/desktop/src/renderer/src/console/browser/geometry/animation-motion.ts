@@ -6,7 +6,8 @@
 // whether the loop runs at all: given a running animation, could it move anything?
 //
 // IT EXISTS BECAUSE "SOMETHING IS ANIMATING" IS NOT THAT QUESTION. Every `not-loaded`
-// skeleton runs an infinite opacity pulse (`primitives/primitives.css`), so a single
+// skeleton runs an infinite opacity pulse (`meridian-skeleton-pulse`, in
+// `primitives/nothing.css`), so a single
 // loading surface anywhere on screen made the document-wide reading true forever: the
 // frame sampler re-armed on every frame and ran a pane's geometry reads on every
 // frame, for as long as anything was loading, over an animation that cannot move a

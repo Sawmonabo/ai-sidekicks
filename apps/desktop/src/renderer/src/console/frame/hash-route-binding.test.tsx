@@ -45,8 +45,12 @@ async function bind(): Promise<FrameStore> {
  *
  * A macrotask rather than a microtask: happy-dom raises `hashchange` on a task of
  * its own, so a promise flush returns before the echo the binding is waiting for.
+ * That is why this one is not `primitives/act-settlement.test-support.ts`'s and is
+ * named for what it waits on rather than for settling in general — the shared helper
+ * settles a promise chain, and folding a task wait in behind a flag would let a caller
+ * ask for "settled" and be given a wait whose reason it never stated.
  */
-async function settle(): Promise<void> {
+async function settleQueuedBrowserTask(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => {
       setTimeout(resolve, 0);
@@ -76,7 +80,7 @@ describe("useHashRouteBinding", () => {
     await act(async () => {
       window.location.hash = WORKSPACE_HASH;
     });
-    await settle();
+    await settleQueuedBrowserTask();
 
     expect(frameStore.getState().route).toEqual({ kind: "workspace", sessionId: "session-alpha" });
   });
@@ -88,7 +92,7 @@ describe("useHashRouteBinding", () => {
     await act(async () => {
       frameStore.navigate({ kind: "settings", page: undefined });
     });
-    await settle();
+    await settleQueuedBrowserTask();
 
     expect(window.location.hash).toBe(SETTINGS_HASH);
     expect(frameStore.getState().route).toEqual({ kind: "settings", page: undefined });
@@ -116,7 +120,7 @@ describe("useHashRouteBinding", () => {
     await act(async () => {
       frameStore.navigate({ kind: "workspace", sessionId: "session-alpha" });
     });
-    await settle();
+    await settleQueuedBrowserTask();
 
     expect(frameStore.getState().route).toEqual({ kind: "workspace", sessionId: "session-alpha" });
     expect(window.location.hash).toBe(WORKSPACE_HASH);
@@ -139,7 +143,7 @@ describe("useHashRouteBinding", () => {
       window.location.hash = SETTINGS_HASH;
       frameStore.navigate({ kind: "workspace", sessionId: "session-alpha" });
     });
-    await settle();
+    await settleQueuedBrowserTask();
     window.removeEventListener("hashchange", recordAddressChange);
 
     // The hash and the route agree, and the binding got there in ONE address change

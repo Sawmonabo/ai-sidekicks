@@ -19,13 +19,12 @@ import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
 import {
   browserPaneRegion,
   DEFAULT_TEST_PANE_ID,
-  fixtureBrowserBridge,
   liveBrowserBridge,
   mountBrowserPaneForSubject,
+  recordingBrowserBridge,
   releaseQueuedPaneFrames,
 } from "./BrowserPane.test-support.js";
 
@@ -60,39 +59,16 @@ function viewportCommitProbe(commits: string[]): React.ComponentType {
   };
 }
 
-/** A fixture bridge whose scripted host takes every rectangle and records the pane. */
-function recordingBrowserBridge(publishedPaneIds: string[]): ConsoleBridge {
-  return {
-    ...fixtureBrowserBridge(),
-    paneViewHostScript: {
-      transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
-      holdsPane: (paneId) => {
-        publishedPaneIds.push(paneId);
-        return { holds: true };
-      },
-    },
-  };
-}
-
-/** The same, writing which WINDOW took the rectangle into a log two of them share. */
+/** A recording bridge that writes which WINDOW took the rectangle, not which pane. */
 function labelledRecordingBridge(label: string, publishLog: string[]): ConsoleBridge {
-  return {
-    ...fixtureBrowserBridge(),
-    paneViewHostScript: {
-      transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
-      holdsPane: () => {
-        publishLog.push(label);
-        return { holds: true };
-      },
-    },
-  };
+  return recordingBrowserBridge(() => publishLog.push(label));
 }
 
 describe("browser pane rebound to another bridge", () => {
   it("never renders the retired window's published view under the new one", async () => {
     const commits: string[] = [];
     const mount = await mountBrowserPaneForSubject(
-      recordingBrowserBridge([]),
+      recordingBrowserBridge(() => undefined),
       DEFAULT_TEST_PANE_ID,
       viewportCommitProbe(commits),
     );
@@ -150,7 +126,7 @@ describe("browser pane rebound to another bridge", () => {
     // every render a rebind — which would mint a publisher per pass, re-arm every
     // observer, and never keep a rectangle long enough to dedupe one.
     const publishes: string[] = [];
-    const bridge = recordingBrowserBridge(publishes);
+    const bridge = recordingBrowserBridge((paneId) => publishes.push(paneId));
     const mount = await mountBrowserPaneForSubject(bridge, DEFAULT_TEST_PANE_ID);
     await releaseQueuedPaneFrames(bridge);
     await waitFor(() => {

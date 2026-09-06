@@ -2,7 +2,7 @@
  * The lease line: who holds the write lease, the control that asks for it, and the
  * transition history folded away behind a disclosure.
  *
- * Hand-authored, like `primitives.css`, and on the same terms: no literal colour,
+ * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal colour,
  * every value read back out of a custom property.
  *
  * One of the terminal family's four sheets, flat beside the modules it dresses:

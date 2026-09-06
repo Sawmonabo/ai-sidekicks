@@ -1,4 +1,5 @@
-// One live-emulator registry, and the builders its four suites mount through.
+// One live-emulator registry, and the builders every suite in this directory mounts
+// through.
 //
 // Every case in this directory drives `@xterm/xterm` itself — no stand-in, no mock
 // terminal. A local fake would prove that the wrapper calls the methods the fake
@@ -10,8 +11,11 @@
 // So every suite has the same two obligations — dispose the emulators it built and
 // take its host boxes out of the document — and an emulator left live is a WebGL
 // context, a data listener, and a scrollback ring surviving into the next case. One
-// registry here rather than four copies: four teardown loops drift into four ideas of
-// what "cleaned up" means, and the suite whose loop is weaker leaks into its neighbour.
+// registry here rather than a copy per suite: parallel teardown loops drift into
+// several ideas of what "cleaned up" means, and the suite whose loop is weaker leaks
+// into its neighbour. The number of consumers is deliberately not stated — it moves
+// with every case file the directory adds, and a count in prose is a claim nothing
+// checks.
 //
 // WHAT THE ENVIRONMENT CAN AND CANNOT ANSWER. The DOM shim has no WebGL2, so every
 // instance built here settles on the DOM renderer — which is exactly the fallback path

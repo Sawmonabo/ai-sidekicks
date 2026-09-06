@@ -91,7 +91,7 @@ import {
   SETTINGS_SURFACE_SELECTOR,
   WORKSPACE_SURFACE_SELECTOR,
 } from "./console-workload.js";
-import { expectPreciseHeapInstrument, readSettledHeapBytes } from "./heap-instrument.js";
+import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
 const bundleIsBuilt = fixtureBundleExists();
@@ -173,105 +173,119 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
   it("does not grow its steady-state heap across sustained use", async () => {
     await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-      // The workload is named before it is measured. A launch that fell back to
-      // the first-run scenario would churn a one-beat script and pass every
-      // reading below, so this is the negative control for the whole run rather
-      // than a sanity check: it fails on exactly the regression — no query, no
-      // read, no selection — that makes this tier idle.
-      expect(
-        await readPlayingScenarioId(consoleApplication),
-        `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
-      ).toBe(FLAGSHIP_SCENARIO.id);
+      // Both readings below are taken behind a forced collection, and they have to
+      // be: the precision precondition a few lines down allocates four megabytes and
+      // drops them, which is half this ceiling standing unreachable in front of the
+      // baseline. A sampler that forces no collection can carry them into that
+      // reading and the run can reclaim them, and the difference the gate takes is
+      // then growth minus the measurement's own scaffolding.
+      const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+      try {
+        // The workload is named before it is measured. A launch that fell back to
+        // the first-run scenario would churn a one-beat script and pass every
+        // reading below, so this is the negative control for the whole run rather
+        // than a sanity check: it fails on exactly the regression — no query, no
+        // read, no selection — that makes this tier idle.
+        expect(
+          await readPlayingScenarioId(consoleApplication),
+          `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
+        ).toBe(FLAGSHIP_SCENARIO.id);
 
-      // One warm-up cycle before the baseline. Without it the baseline is taken
-      // before the palette, its portal, and the settings route have ever been
-      // constructed, and their one-time allocation would be reported as growth —
-      // a tier that failed on first use of a feature rather than on a leak.
-      const beatsAfterWarmUp = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
-      const appliedEventsAfterWarmUp = await readAppliedEventCount(
-        consoleApplication,
-        FLAGSHIP_SESSION_ID,
-      );
-      // Every figure below is a DIFFERENCE of two heap readings, which the default
-      // quantized instrument cannot carry — so the instrument is proved before the
-      // arithmetic that rests on it.
-      await expectPreciseHeapInstrument(consoleApplication);
+        // One warm-up cycle before the baseline. Without it the baseline is taken
+        // before the palette, its portal, and the settings route have ever been
+        // constructed, and their one-time allocation would be reported as growth —
+        // a tier that failed on first use of a feature rather than on a leak.
+        const beatsAfterWarmUp = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+        const appliedEventsAfterWarmUp = await readAppliedEventCount(
+          consoleApplication,
+          FLAGSHIP_SESSION_ID,
+        );
+        // Every figure below is a DIFFERENCE of two heap readings, which the default
+        // quantized instrument cannot carry — so the instrument is proved before the
+        // arithmetic that rests on it.
+        await expectPreciseHeapInstrument(consoleApplication);
 
-      const baselineHeapBytes = await readSettledHeapBytes(consoleApplication);
+        const baselineHeapBytes = await heapProbe.readSettledBytes();
 
-      let beatsDelivered = beatsAfterWarmUp;
-      let appliedEventsAtMidRun: number | null = null;
-      for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
-        beatsDelivered = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
-        if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
-          appliedEventsAtMidRun = await readAppliedEventCount(
-            consoleApplication,
-            FLAGSHIP_SESSION_ID,
-          );
+        let beatsDelivered = beatsAfterWarmUp;
+        let appliedEventsAtMidRun: number | null = null;
+        for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
+          beatsDelivered = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+          if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
+            appliedEventsAtMidRun = await readAppliedEventCount(
+              consoleApplication,
+              FLAGSHIP_SESSION_ID,
+            );
+          }
         }
+
+        const finalHeapBytes = await heapProbe.readSettledBytes();
+        const growthBytes = finalHeapBytes - baselineHeapBytes;
+
+        // Reported before the assertion so a passing run still records the number.
+        // A gate that only speaks when it fails gives a reviewer no way to see a
+        // margin shrinking over months until the day it crosses.
+        const growthKilobytes = Math.round(growthBytes / 1024);
+        const perCycleBytes = Math.round(growthBytes / CHURN_CYCLE_COUNT);
+        const appliedEventCount = await readAppliedEventCount(
+          consoleApplication,
+          FLAGSHIP_SESSION_ID,
+        );
+        process.stdout.write(
+          `[console-endurance] baseline ${String(Math.round(baselineHeapBytes / 1024))} kB, ` +
+            `final ${String(Math.round(finalHeapBytes / 1024))} kB, ` +
+            `growth ${String(growthKilobytes)} kB over ${String(CHURN_CYCLE_COUNT)} cycles ` +
+            `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
+            `${String(beatsDelivered)} of ${String(FLAGSHIP_SCENARIO.beats.length)} at ` +
+            `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
+            `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
+            `${String(appliedEventCount)}\n`,
+        );
+
+        // The workload moved. Both halves are load-bearing: the first says the
+        // handle was reachable and the script was running, the second says it kept
+        // running rather than emptying itself into the warm-up cycle.
+        expect(beatsAfterWarmUp).not.toBeNull();
+        expect(beatsDelivered).not.toBeNull();
+        expect(Number(beatsDelivered)).toBeGreaterThan(Number(beatsAfterWarmUp));
+
+        expect(growthBytes).toBeLessThanOrEqual(STEADY_HEAP_GROWTH_CEILING_BYTES);
+
+        // Beats delivered by the engine are not the same claim as events reaching a
+        // store. Absence is a failure here for the same reason it is for the tripwire
+        // registry below — a build without the handle would make this check vacuous.
+        expect(
+          appliedEventCount,
+          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
+        ).not.toBeNull();
+        expect(appliedEventsAfterWarmUp).not.toBeNull();
+        expect(appliedEventsAtMidRun).not.toBeNull();
+
+        // The events kept arriving for the whole run rather than in a burst at the
+        // front of it. Both comparisons are strict, and both are load-bearing: the
+        // first says the workload was still delivering at the half-way point, the
+        // second that it was still delivering at the end.
+        expect(
+          Number(appliedEventsAtMidRun),
+          "the scenario stopped delivering into the store before the run was half over",
+        ).toBeGreaterThan(Number(appliedEventsAfterWarmUp));
+        expect(
+          Number(appliedEventCount),
+          "the scenario stopped delivering into the store part-way through the run",
+        ).toBeGreaterThan(Number(appliedEventsAtMidRun));
+
+        // And they reached a store through a real subscription rather than a
+        // side channel. This is what fails the day the console goes back to binding
+        // nothing — the reading that was zero in every build before the session read
+        // had a producer, which made this whole tier an idle loop wearing a
+        // workload's name.
+        expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
+      } finally {
+        // Detached before the wrapper closes the window: detaching a DevTools
+        // session from a closed application raises, and the raise would replace
+        // whatever the body was failing on with a teardown error.
+        await heapProbe.detach();
       }
-
-      const finalHeapBytes = await readSettledHeapBytes(consoleApplication);
-      const growthBytes = finalHeapBytes - baselineHeapBytes;
-
-      // Reported before the assertion so a passing run still records the number.
-      // A gate that only speaks when it fails gives a reviewer no way to see a
-      // margin shrinking over months until the day it crosses.
-      const growthKilobytes = Math.round(growthBytes / 1024);
-      const perCycleBytes = Math.round(growthBytes / CHURN_CYCLE_COUNT);
-      const appliedEventCount = await readAppliedEventCount(
-        consoleApplication,
-        FLAGSHIP_SESSION_ID,
-      );
-      process.stdout.write(
-        `[console-endurance] baseline ${String(Math.round(baselineHeapBytes / 1024))} kB, ` +
-          `final ${String(Math.round(finalHeapBytes / 1024))} kB, ` +
-          `growth ${String(growthKilobytes)} kB over ${String(CHURN_CYCLE_COUNT)} cycles ` +
-          `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
-          `${String(beatsDelivered)} of ${String(FLAGSHIP_SCENARIO.beats.length)} at ` +
-          `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
-          `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
-          `${String(appliedEventCount)}\n`,
-      );
-
-      // The workload moved. Both halves are load-bearing: the first says the
-      // handle was reachable and the script was running, the second says it kept
-      // running rather than emptying itself into the warm-up cycle.
-      expect(beatsAfterWarmUp).not.toBeNull();
-      expect(beatsDelivered).not.toBeNull();
-      expect(Number(beatsDelivered)).toBeGreaterThan(Number(beatsAfterWarmUp));
-
-      expect(growthBytes).toBeLessThanOrEqual(STEADY_HEAP_GROWTH_CEILING_BYTES);
-
-      // Beats delivered by the engine are not the same claim as events reaching a
-      // store. Absence is a failure here for the same reason it is for the tripwire
-      // registry below — a build without the handle would make this check vacuous.
-      expect(
-        appliedEventCount,
-        `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
-      ).not.toBeNull();
-      expect(appliedEventsAfterWarmUp).not.toBeNull();
-      expect(appliedEventsAtMidRun).not.toBeNull();
-
-      // The events kept arriving for the whole run rather than in a burst at the
-      // front of it. Both comparisons are strict, and both are load-bearing: the
-      // first says the workload was still delivering at the half-way point, the
-      // second that it was still delivering at the end.
-      expect(
-        Number(appliedEventsAtMidRun),
-        "the scenario stopped delivering into the store before the run was half over",
-      ).toBeGreaterThan(Number(appliedEventsAfterWarmUp));
-      expect(
-        Number(appliedEventCount),
-        "the scenario stopped delivering into the store part-way through the run",
-      ).toBeGreaterThan(Number(appliedEventsAtMidRun));
-
-      // And they reached a store through a real subscription rather than a
-      // side channel. This is what fails the day the console goes back to binding
-      // nothing — the reading that was zero in every build before the session read
-      // had a producer, which made this whole tier an idle loop wearing a
-      // workload's name.
-      expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
     });
   });
 

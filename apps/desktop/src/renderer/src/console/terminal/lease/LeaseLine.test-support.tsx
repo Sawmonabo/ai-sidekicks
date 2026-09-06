@@ -27,7 +27,11 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { CallerMembershipRoleResult } from "../../store/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
-import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
+import {
+  leaseEventWithPayload,
+  OTHER_PARTICIPANT,
+  VIEWER_PARTICIPANT,
+} from "./lease-model.test-support.js";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalParticipantMark } from "./participant-mark.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
@@ -175,6 +179,19 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
   return { ...UNREAD_TERMINAL_LEASE, ...overrides };
 }
 
+/**
+ * One folded transition, at the instant the event it was folded from carries.
+ *
+ * The instant comes off the family's own event builder rather than a template of its
+ * own. The copy that stood here spelled `16:40:0${sequence}`, whose seconds field has
+ * one digit — so a case reaching sequence 10 minted `16:40:010`, which is not an
+ * instant, and `formatClockTime` answers an em dash for it. That failure is silent in
+ * exactly the suite that would provoke it: a ledger driven to its thirty-two-row cap
+ * renders a column of dashes where it should render orderable times. `eventOfKind` is
+ * where this family already decided what an event's instant looks like, and the two
+ * sibling builders in this directory were rebound onto it for this reason; a third
+ * derivation beside them is the drift that repair exists to end.
+ */
 export function transitionAt(
   sequence: number,
   reason: TerminalLeaseTransition["reason"],
@@ -182,7 +199,7 @@ export function transitionAt(
 ): TerminalLeaseTransition {
   return {
     sequence,
-    occurredAtIso: `2026-01-01T16:40:0${String(sequence)}.000Z`,
+    occurredAtIso: leaseEventWithPayload(sequence, undefined).occurredAt,
     reason,
     holderParticipantId: reason === "taken" ? OTHER_PARTICIPANT : null,
     previousHolderParticipantId: reason === "taken" ? null : OTHER_PARTICIPANT,

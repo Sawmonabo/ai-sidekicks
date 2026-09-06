@@ -106,7 +106,8 @@ export function sharesMotionWith(element: Element, movingNode: Node): boolean {
  * FILTERED BY THE SAME BOUND AS THE DOCUMENT READING, and it used to be unfiltered.
  * The overlay registry arms its frame sampler on this predicate, so a `not-loaded`
  * skeleton inside a dialog or a popover — an infinite opacity pulse, which
- * `primitives/primitives.css` gives every read in flight — held it true for as long
+ * `primitives/nothing.css` gives every read in flight through its
+ * `meridian-skeleton-pulse` keyframes — held it true for as long
  * as the read was out, and the sampler emitted an occlusion change on every animation
  * frame. That is the permanent RAF loop the document path already closed, reached
  * through the other door. Both doors now run `animation-motion.ts`'s one filter.

@@ -10,11 +10,11 @@
 // See `webgl-fallback.test-support.ts` for what is stood in and why this is a file of
 // its own rather than a block in `XtermHost.test.tsx`.
 
-import { act, render, waitFor, type RenderResult } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { XtermHost } from "./XtermHost.js";
-import { hostBoxOf } from "./XtermHost.test-support.js";
+import { hostBoxOf, mountHost } from "./XtermHost.test-support.js";
 import { disposeLiveEmulators } from "./xterm-adapter.test-support.js";
 import { newestRenderer, resetWebglFallback } from "./webgl-fallback.test-support.js";
 
@@ -22,29 +22,19 @@ vi.mock("@xterm/addon-webgl", async () => ({
   WebglAddon: (await import("./webgl-fallback.test-support.js")).FakeWebglRenderer,
 }));
 
-/** The terminal ids this file's components mount under, reclaimed after each case. */
-const COMPONENT_TERMINAL_IDS = ["loss-host-1", "loss-host-2"] as const;
+/**
+ * The terminal ids THIS file's components mount under, reclaimed after each case.
+ *
+ * Its own ids and its own name: the shared `COMPONENT_TERMINAL_IDS` is the pair the
+ * unmocked suites hold, and two lists under one name in one directory is a page ledger
+ * one suite reclaims on another suite's behalf.
+ */
+const RENDERER_MODE_TERMINAL_IDS = ["loss-host-1", "loss-host-2"] as const;
 
 afterEach(() => {
   disposeLiveEmulators();
-  resetWebglFallback(COMPONENT_TERMINAL_IDS);
+  resetWebglFallback(RENDERER_MODE_TERMINAL_IDS);
 });
-
-/**
- * Render a host and wait until its emulator has attached.
- *
- * The wait is on the ATTRIBUTE rather than on the surface element, and the two are
- * different commits: the surface appears when the chunk lands, and the adapter is built
- * by the effect that runs after that commit. Waiting on the element alone would read the
- * box in between and see the mount-pending value.
- */
-async function mountHost(element: React.JSX.Element): Promise<RenderResult> {
-  const view = render(element);
-  await waitFor(() => {
-    expect(hostBoxOf(view.container).getAttribute("data-renderer")).not.toBe("pending");
-  });
-  return view;
-}
 
 describe("the mount point, when the renderer under it changes", () => {
   it("moves its own reading and tells the surface, rather than reporting the old one", async () => {

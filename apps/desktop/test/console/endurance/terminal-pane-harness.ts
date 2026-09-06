@@ -1,11 +1,14 @@
-// The real-window side of the terminal-instance budget: opening panes and reading
-// the renderer's settled heap.
+// The real-window side of the terminal-instance budget: opening panes and proving
+// each one is drawing before anything is measured.
 //
 // Split from `terminal-instance-memory.test.ts` so that file is its budget row's
 // argument — what the subject is, what the figure covers, and what fails the run —
 // rather than that argument buried under the Playwright plumbing that produces it.
 // Everything here is instrument: the address the harness opens at, the wait that
-// makes a reading admissible, and the DevTools session the collection runs over.
+// makes a reading admissible, and the readiness this row's subject is asserted by.
+// The heap reading itself is `heap-instrument.ts`'s — it is a reading of the
+// renderer and not of a terminal pane, and it moved there when the tier's other two
+// figures needed the same forced collection this row already took.
 //
 // WHAT THE HARNESS IS, AND WHY IT IS NOT A DECK
 //
@@ -22,12 +25,8 @@
 
 import { expect } from "vitest";
 
-import type { CDPSession } from "@playwright/test";
-
 import type { ConsoleApplication } from "../electron-harness.js";
-import { SETTLE_ROUNDS } from "../heap-sampling.js";
 import { advanceScenario, readAppliedEventCount } from "./console-workload.js";
-import { readSettledHeapBytes } from "./heap-instrument.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
 
 /** The pane kind the address names. The harness is per kind; this row is this one. */
@@ -62,70 +61,6 @@ const ROUTE_TRANSITION_TIMEOUT_MS = 30_000;
 /** How many advances the terminal script is walked in, and how many drain it. */
 const SCENARIO_DELIVERY_STEP_COUNT = 20;
 const SCENARIO_DRAIN_STEP_COUNT = 5;
-
-/**
- * The renderer's heap, read after its garbage has actually been collected.
- *
- * WHY A FORCED COLLECTION AND NOT THE SAMPLER ALONE. `readSettledHeapBytes` takes
- * the minimum over settling samples, which is the right discipline for a figure
- * bounded ONCE — the tier's at-rest ceiling — because the incremental collector
- * gets several chances to run and the smallest reading is the floor. It is not
- * enough for a DIFFERENCE of a few megabytes taken five times across one run: the
- * first pane's mount leaves the emulator chunk's own allocations uncollected, a
- * later mount triggers a major collection that reclaims them, and the second
- * instance then reads as NEGATIVE — measured on this code, −5.8 MB per instance,
- * against a real per-instance cost of about 4 MB. The sampling discipline is kept
- * and a collection is put in front of it, which is exactly what
- * `test/console/heap-sampling.ts` does for the two tiers that measure in process.
- *
- * WHY CDP AND NOT `--js-flags=--expose-gc`. The flag would have to be passed at
- * launch, and the launcher is shared with every other file in this tier and with
- * the end-to-end tier — so one file's instrument would change what all of them
- * measure. A DevTools session is scoped to this run and to this window, and
- * `HeapProfiler.collectGarbage` is the same collection the flag would expose.
- */
-export class RendererHeapProbe {
-  readonly #consoleApplication: ConsoleApplication;
-  readonly #cdpSession: CDPSession;
-
-  private constructor(consoleApplication: ConsoleApplication, cdpSession: CDPSession) {
-    this.#consoleApplication = consoleApplication;
-    this.#cdpSession = cdpSession;
-  }
-
-  public static async attachTo(consoleApplication: ConsoleApplication): Promise<RendererHeapProbe> {
-    const cdpSession = await consoleApplication.application
-      .context()
-      .newCDPSession(consoleApplication.window);
-    return new RendererHeapProbe(consoleApplication, cdpSession);
-  }
-
-  /**
-   * Collect, let finalisation run, and read the settled heap.
-   *
-   * The loop is this process's own — it collects over a DevTools session rather than
-   * through a resolved collector — but the ROUND COUNT is `heap-sampling.ts`'s, which
-   * is the console's declared home for the settling discipline. A local copy of the
-   * number would go on collecting four times after that one was raised, and the row
-   * would read a floor the in-process tier no longer reaches with nothing failing.
-   */
-  public async readSettledBytes(): Promise<number> {
-    for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
-      await this.#cdpSession.send("HeapProfiler.collectGarbage");
-      await this.#consoleApplication.window.evaluate(
-        async () =>
-          new Promise((resolve) => {
-            setTimeout(resolve, 0);
-          }),
-      );
-    }
-    return readSettledHeapBytes(this.#consoleApplication);
-  }
-
-  public async detach(): Promise<void> {
-    await this.#cdpSession.detach();
-  }
-}
 
 /** What every mounted emulator reports about itself, read in one round trip. */
 interface MountedTerminalReadings {

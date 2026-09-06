@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../core/index.js";
 import { installFakeResizeObserver } from "../../primitives/element-resize.test-support.js";
 import {
+  detachAttachedRoots,
   movingAnimation,
   settleMutationRecords,
+  trackAttachedRoot,
   withAnimations,
   withDocumentAnimations,
 } from "./element-motion.test-support.js";
@@ -26,8 +28,6 @@ import {
 // happened to invalidate, and the native view sat over whatever chrome the pane had
 // just moved away from.
 describe("PaneGeometryPublisher — the move source", () => {
-  const insertedSiblings: Element[] = [];
-
   beforeEach(() => {
     installFakeResizeObserver();
   });
@@ -35,15 +35,12 @@ describe("PaneGeometryPublisher — the move source", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     withDocumentAnimations(undefined);
-    for (const sibling of insertedSiblings.splice(0)) {
-      sibling.remove();
-    }
+    detachAttachedRoots();
   });
 
   /** Reorder the pane's parent around it, which is what a deck does to its seats. */
   function reorderAround(hostElement: HTMLElement): void {
-    const sibling = document.createElement("div");
-    insertedSiblings.push(sibling);
+    const sibling = trackAttachedRoot(document.createElement("div"));
     document.body.insertBefore(sibling, hostElement);
   }
 
@@ -108,8 +105,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     // pane is nevertheless somewhere else on the screen for the whole animation, and
     // the native view is painted over whatever it moved away from until this arm
     // reads where it actually is.
-    const sibling = document.createElement("div");
-    insertedSiblings.push(sibling);
+    const sibling = trackAttachedRoot(document.createElement("div"));
     document.body.append(sibling);
     const hostElement = elementWithRect(rect(240, 0, 100, 100));
     withAnimations(hostElement, []);
@@ -140,8 +136,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     // transition. No `transitionrun`, no `animationstart`, no size change on any
     // watched box — so before source 5 the sampler never armed and the native view
     // held the pane's old coordinates for the whole animation.
-    const sibling = document.createElement("div");
-    insertedSiblings.push(sibling);
+    const sibling = trackAttachedRoot(document.createElement("div"));
     document.body.append(sibling);
     const hostElement = elementWithRect(rect(240, 0, 100, 100));
     withAnimations(hostElement, []);

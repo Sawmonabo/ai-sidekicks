@@ -10,6 +10,15 @@
 // from the shell never having moved, and the absence says so rather than rendering an
 // empty feed a reader would take for the stronger claim.
 //
+// AND ZERO ROWS HAS TWO CAUSES, WHICH IS WHY THE ABSENCE IS NOT ONE SENTENCE. A log
+// that carried no transition and a log whose every transition was one this build
+// could not read both leave the rows empty, and only the first of them supports
+// "changed hands zero times". Said on the second, that sentence contradicts the lease
+// line directly above it on the same pane — which renders "the shell changed hands
+// under a transition this build cannot read" off the same fold — so the empty arm
+// takes the readings too, and its own sentence is chosen by the one figure that tells
+// the two causes apart.
+//
 // AND A TRUNCATED ONE IS NOT A CLAIM ABOUT THE LEASE. The fold keeps the newest
 // `TERMINAL_LEASE_LEDGER_CAP` transitions and counts every one it saw, so a lease that
 // moved forty-one times renders thirty-two rows under a disclosure whose own label
@@ -82,6 +91,30 @@ function transitionReadings(state: TerminalLeaseState): readonly ReadingState[] 
   ];
 }
 
+/**
+ * What the absence says, chosen by the figure that says why the rows are empty.
+ *
+ * The fold's `unreadableTransitionCount` is the discriminator and the only one
+ * available: `transitionCount` and `transitions.length` are equal at zero on both
+ * causes, so nothing else in the state can tell "the log carried none" from "the log
+ * carried some and none of them could be read". The count itself and what to do
+ * about it are the notice's, rendered above this by the one incomplete-reading
+ * vocabulary; this sentence says only which of the two absences a reader is looking
+ * at, and never asserts a number of moves the fold did not establish.
+ */
+function emptyLedgerDetail(unreadableTransitionCount: number): string {
+  if (unreadableTransitionCount === 0) {
+    return (
+      "The lease has changed hands zero times since this session's log was opened here. " +
+      "That is not the same as the shell never having moved."
+    );
+  }
+  return (
+    "Every transition this session's log carried here arrived in a form this build cannot read, " +
+    "so how often the shell has moved is not something this history can say."
+  );
+}
+
 export interface LeaseTransitionLedgerProps {
   readonly state: TerminalLeaseState;
   readonly markFor: TerminalParticipantMarkReader;
@@ -89,21 +122,25 @@ export interface LeaseTransitionLedgerProps {
 
 export function LeaseTransitionLedger(props: LeaseTransitionLedgerProps): React.JSX.Element {
   const { state, markFor } = props;
+  const readings = transitionReadings(state);
   if (state.transitions.length === 0) {
     return (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="No transition has been read."
-        detail="The lease has changed hands zero times since this session's log was opened here. That is not the same as the shell never having moved."
-      />
+      <div className="meridian-lease-line__ledger">
+        <PartialRead states={readings} subject="this transition history" />
+        <Nothing
+          kind="not-checked"
+          placement="surface"
+          title="No transition has been read."
+          detail={emptyLedgerDetail(state.unreadableTransitionCount)}
+        />
+      </div>
     );
   }
   const labelFor = (participantId: string): string =>
     markFor(participantId)?.displayName ?? participantId;
   return (
     <div className="meridian-lease-line__ledger">
-      <PartialRead states={transitionReadings(state)} subject="this transition history" />
+      <PartialRead states={readings} subject="this transition history" />
       <div className="meridian-lease-line__ledger-feed" role="feed" aria-label="Lease transitions">
         {state.transitions.map((transition) => {
           const actorId = transition.actorId;

@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { settleReactWork } from "../primitives/act-settlement.test-support.js";
 import {
   FrameStore,
   SessionStoreRegistry,
@@ -30,7 +31,7 @@ import {
 import { formatRoute, type ConsoleRoute } from "../routing/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RouteSurface } from "./RouteSurface.js";
-import { BARE_TIMELINE_ROUTE, settle } from "./RouteSurface.test-support.js";
+import { BARE_TIMELINE_ROUTE } from "./RouteSurface.test-support.js";
 import { type ConsoleSurfaceContext } from "./surface-registry.js";
 
 /** The bare route whose grammar takes an agent WITH its session or not at all. */
@@ -137,7 +138,7 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
     const frameStore = new FrameStore({ initialRoute: BARE_AGENT_CONSOLE_ROUTE });
 
     const { container } = renderBoundSurface(frameStore, registry);
-    await settle();
+    await settleReactWork();
     await clickChoice(SESSION_WITH_AGENT);
 
     expect(frameStore.getState().route).toStrictEqual(BARE_AGENT_CONSOLE_ROUTE);
@@ -155,10 +156,10 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
     const frameStore = new FrameStore({ initialRoute: BARE_AGENT_CONSOLE_ROUTE });
 
     renderBoundSurface(frameStore, registry);
-    await settle();
+    await settleReactWork();
     await clickChoice(SESSION_WITH_AGENT);
     await clickChoice(AGENT_ID);
-    await settle();
+    await settleReactWork();
 
     expect(frameStore.getState().route).toStrictEqual({
       kind: "auxiliary",
@@ -177,7 +178,7 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
     const frameStore = new FrameStore({ initialRoute: BARE_AGENT_CONSOLE_ROUTE });
 
     const { container } = renderBoundSurface(frameStore, registry);
-    await settle();
+    await settleReactWork();
     await clickChoice(SESSION_WITH_AGENT);
 
     expect(container.textContent).toContain("This session has no agents yet.");
@@ -193,9 +194,9 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
     const frameStore = new FrameStore({ initialRoute: BARE_TIMELINE_ROUTE });
 
     renderBoundSurface(frameStore, registry);
-    await settle();
+    await settleReactWork();
     await clickChoice(SESSION_WITH_AGENT);
-    await settle();
+    await settleReactWork();
 
     expect(frameStore.getState().route).toStrictEqual({
       kind: "auxiliary",
