@@ -15,6 +15,15 @@
 // EVERY MEMBER IS DERIVED FROM THE GROWTH SIGNATURE and none is restated: the door
 // exports the bridge and not the port's vocabulary, and a hand-written copy of an
 // outcome shape is a second declaration nothing checks against the first.
+//
+// WHY THIS DIRECTORY AND NOT `growth-values/`. That directory's own door states the
+// admission rule this shape satisfies — a shape lands there once it has a second
+// reader — so the reason it is not there is mechanical rather than a matter of taste.
+// Every member here is derived from `ConsoleBridge`, and `console-bridge.ts` reaches
+// `growth-values/index.js` by the path `growth-port/index.js` → `growth-port.ts` →
+// `growth-signatures/index.js` → `ledger.ts`. A module in `growth-values/` that
+// imported `../console-bridge.js` would close that path into a cycle `no-circular`
+// fails, so the next per-operation outcome derived from the bridge belongs here too.
 
 import type { ConsoleBridge } from "../console-bridge.js";
 

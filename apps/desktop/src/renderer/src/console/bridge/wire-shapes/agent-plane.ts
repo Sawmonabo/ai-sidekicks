@@ -16,9 +16,10 @@
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
 // is DELETED and the `growth-signatures/` planes that name these shapes — the agent
-// plane and the sidekick one — import them from the contracts package instead. The slate rows leave `growth-slate.ts` and `Plan-023 §Console growth
-// slate` in the same PR, and `failure-modes.test.ts` then fails on the port entries
-// that still claim fixture-only.
+// plane and the sidekick one — import them from the contracts package instead. The
+// slate rows leave `growth-slate.ts` and `Plan-023 §Console growth slate` in the same
+// PR, and `failure-modes.test.ts` then fails on the port entries that still claim
+// fixture-only.
 //
 // TOLERANCE IS DELIBERATE AND BOUNDED. `appliesAt`, `continuity`, `status`,
 // `reason`, `linkType`, and `state` are typed `string` rather than as the closed

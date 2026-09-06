@@ -298,7 +298,7 @@ describe("the agent console's models — the exact bridge and store they answer 
 /**
  * Let continuations run WITHOUT crossing a macrotask boundary.
  *
- * Deliberately not the shared drain in `bridge/fixture-bridge.test-support.ts`, and
+ * Deliberately not the shared drain in `bridge/fixture/fixture-bridge.test-support.ts`, and
  * deliberately not under its name: that one is a `setTimeout(…, 0)` boundary, and
  * every case below asserts that nothing fell due while the bridge's clock stood still.
  * Yielding to the macrotask queue is exactly what would let a due timer fire, so it

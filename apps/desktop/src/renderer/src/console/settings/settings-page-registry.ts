@@ -36,7 +36,7 @@ import type { OwnerSlotProps } from "../seats/index.js";
  *
  * The twelve the design enumerates, in its order, plus `sidekicks`. The rail a
  * person reads is this tuple, and the union is derived from it for the reason
- * `frame/surface-registry.ts` gives about its own slots: a union written beside a
+ * `seats/surface-registry.ts` gives about its own slots: a union written beside a
  * hand-repeated array is two closed sets that agree until one of them is widened.
  *
  * `sidekicks` is the one id that is this console's own rather than the design's.
@@ -168,7 +168,7 @@ export interface SettingsPageRegistrar {
 }
 
 export class SettingsPageRegistry implements SettingsPageRegistrar {
-  // `"owner-scoped"`, for `frame/surface-registry.ts`'s reason: a hot reload re-runs
+  // `"owner-scoped"`, for `seats/surface-registry.ts`'s reason: a hot reload re-runs
   // the owning lane's module and must replace, while two lanes on one section is a
   // conflict rather than a swap decided by module import order.
   readonly #descriptorsBySection = new KeyedRegistry<SettingsSectionId, SettingsPageDescriptor>({

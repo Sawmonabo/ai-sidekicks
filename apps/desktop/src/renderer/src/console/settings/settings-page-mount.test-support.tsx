@@ -55,7 +55,7 @@ export interface MountedMovablePage {
  * Mount a page beside a recorder, so a case can read the frames it committed.
  *
  * The subject move this supports is one commit long — see
- * `settings/committed-frame.test-support.tsx` — so the case cannot look at the DOM
+ * `core/committed-frame.test-support.tsx` — so the case cannot look at the DOM
  * afterwards and see it.
  *
  * The page arrives as a function OF the context rather than as an element, because

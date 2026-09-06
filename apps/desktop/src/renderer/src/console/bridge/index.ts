@@ -17,6 +17,15 @@
 // branches each add one line to, and it is reached through `scenario-manifest.js`
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
+//
+// HOW A CLAIM IS SPELLED HERE. A line published ahead of its importer carries the
+// `// Consumed by T-023p-1C-<n>` line comment and never a `@consumedBy` JSDoc tag —
+// measured rather than chosen: knip does not report a specifier on THIS door at all.
+// A planted dead type re-exported here raised nothing, where the same type re-exported
+// through `seats/index.ts` was reported at both its declaration and its specifier, so
+// a JSDoc tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on
+// it. `barrel-census.test.ts` is the gate that does report such a line, and it reads
+// either spelling, so the line comment satisfies the instrument that has the claim.
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
@@ -122,17 +131,20 @@ export type {
   ServedInvite,
 } from "./growth-port/invites-outcome.js";
 
-// The agent plane's reply and request shapes. Published because the agent console
-// and the cast bar RENDER them: they are declared on the substrate rather than in a
-// view family — see `agent-plane.js`'s header — so the family that draws a roster
-// card reads its shape through this door like any other cross-family import. They
-// leave through the module that declares them, never through a growth barrel, for
-// the reason the block above gives.
-// The saved definition the registry serves, published for the same reason: the
-// definition picker in the agent console projects one onto its own row shape, and a
-// projection cannot be written against a type it cannot name.
+// The saved definition the registry serves. Published because the definition picker
+// in the agent console projects one onto its own row shape, and a projection cannot
+// be written against a type it cannot name. It is declared on the substrate rather
+// than in a view family — see `wire-shapes/agent-plane.ts`'s header — and it leaves
+// through the module that DECLARES it, never through `wire-shapes/index.js`, on the
+// `console-no-barrel-chain` rule the `GrowthSessionSummary` block above states.
 export type { SidekickDefinition } from "./wire-shapes/sidekick-definition.js";
 
+// The agent plane's reply and request shapes. Published because the agent console
+// and the cast bar RENDER them: they are declared on the substrate rather than in a
+// view family — see `wire-shapes/agent-plane.ts`'s header — so the family that draws
+// a roster card reads its shape through this door like any other cross-family import.
+// They leave through the module that declares them on the same rule as the line
+// above.
 export type {
   AgentAttachReading,
   AgentAttachRequest,
@@ -158,14 +170,6 @@ export type {
 // not through `growth-port/index.js`: no sibling inside `bridge/` takes it, and an
 // inner barrel line no sibling reaches is a dead export `structure:dead-code` reports,
 // which is how two speculative lines came off that door already.
-//
-// The claim is the line-comment spelling and not a `@consumedBy` JSDoc tag, measured
-// rather than chosen: knip does not report a specifier on THIS door at all — a planted
-// dead type re-exported here raised nothing, where the same type re-exported through
-// `seats/index.ts` was reported at both its declaration and its specifier — so a JSDoc
-// tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on it.
-// `barrel-census.test.ts` is the gate that does report it, and it reads either
-// spelling, so the line comment satisfies the instrument that has the claim.
 export type { GrowthReading } from "./growth-port/growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

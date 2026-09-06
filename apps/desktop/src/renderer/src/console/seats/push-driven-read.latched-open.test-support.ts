@@ -9,10 +9,18 @@
 //
 // THE DEFECT, IN THREE LINES. `start()` marked the model started BEFORE the subscribe
 // attempt; the refusal arm settled `failed` and returned without clearing that mark;
-// and `refresh()` asked the scheduler for a read without ever taking the subscription.
-// So on the shipped Tier-1 preload — where every daemon method throws — the first open
-// refused and every repair, focus, reconnect, and press afterwards was a guaranteed
-// no-op, for the life of the window.
+// and `refresh()` could take no subscription of its own, so with none held it did
+// nothing at all. So on the shipped Tier-1 preload — where every daemon method throws
+// — the first open refused and every repair, focus, reconnect, and press afterwards
+// was a guaranteed no-op, for the life of the window.
+//
+// THE HALF THIS CONTROL DOES NOT MODEL, stated rather than implied by its absence.
+// The replaced shape also went on requesting reads behind a subscription nothing had
+// ever taken; that is `push-driven-read.ts`'s own header, and it is unmeasurable here
+// because this control holds no scheduler to request one from. What is here is the
+// half a scheduler is not needed for, and the third line above describes the trigger
+// as this control implements it — a guaranteed no-op — rather than as the model's
+// read-behind-a-dead-seam.
 //
 // It is deliberately the SMALLEST thing that reproduces that: no scheduler, no
 // emitter, no clock. What the control measures is how many times the seam was asked

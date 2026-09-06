@@ -10,7 +10,7 @@
 // A case that looks at the DOM after `rerender` cannot see it: `act` flushes the
 // passive effect before returning. The frames are recorded from a LAYOUT effect
 // instead, which React runs after the commit's DOM mutations and before any passive
-// effect — see `settings/committed-frame.test-support.tsx`.
+// effect — see `core/committed-frame.test-support.tsx`.
 
 import { describe, expect, it } from "vitest";
 

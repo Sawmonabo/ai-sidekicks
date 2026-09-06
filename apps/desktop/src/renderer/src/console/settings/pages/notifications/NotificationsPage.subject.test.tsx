@@ -7,7 +7,7 @@
 //
 // A case that looks at the DOM after `rerender` cannot see it: `act` flushes the
 // passive effect before returning. The frames are recorded from `Profiler.onRender`
-// instead — see `settings/committed-frame.test-support.tsx`.
+// instead — see `core/committed-frame.test-support.tsx`.
 
 import { describe, expect, it } from "vitest";
 

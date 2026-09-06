@@ -128,11 +128,13 @@ export class KeybindingOverrideStore {
   /**
    * The rounds this store's overrides have moved through.
    *
-   * TWO ROLES, ONE GENERATION, which is the shape `core/attempt-generation.ts`
-   * describes and `settings/shared/shell-preferences/shell-preferences-store.ts` takes the same way: a
-   * rebinding SUPERSEDES a hydration already in flight — the record that read
+   * TWO ROLES, ONE GENERATION, which is the shape `store/generation-latch.ts`
+   * describes — a monotonic serial, so a superseded settlement is IGNORED rather than
+   * claimed to have been stopped — and which
+   * `settings/shared/shell-preferences/shell-preferences-store.ts` takes the same way:
+   * a rebinding SUPERSEDES a hydration already in flight — the record that read
    * answers with is the map from before the choice, which is the rule
-   * `scheme-preference.ts` states for the colour scheme — and a second hydration
+   * `frame/scheme-preference.ts` states for the colour scheme — and a second hydration
    * supersedes the first, because two of them are two answers to one question and
    * only the later one was asked.
    */

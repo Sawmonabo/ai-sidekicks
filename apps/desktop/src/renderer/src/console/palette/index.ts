@@ -44,10 +44,11 @@ export {
   type ConsoleWhenClauseContext,
 } from "./console-commands.js";
 
-// The two contribution shapes a family outside this one writes against: what a
-// command IS, and what a key binding IS. `KeyBinding` is on this door because the
-// keyboard settings page renders one per row and composes a person's overrides onto
-// it — a view family, which can reach nothing inside this one by any other path.
+// `KeyBinding` rides beside the command shape because a view family declares a
+// binding table of its own — the workspace sidebar's — and types it by this element.
+// It is on the door for that reader and not for symmetry: the moment no production
+// module outside this family writes the type, the line comes off, which is how it
+// came off once already when the frame's own vocabulary moved into the family.
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
 // The frame's own command vocabulary — the shapes its contributions take, the rail's
@@ -82,9 +83,9 @@ export { KeyBindingTable } from "./keybindings.js";
 export type { WhenClauseContext } from "./when-clause.js";
 
 // The open chord is NOT forwarded, and it is no longer this family's to forward. The
-// overlay BINDS it and three surfaces PRINT it, one of them a primitive, so the
-// literal sits in `primitives/chord-format.ts` beside the printer and this family
-// imports it down like every other caller.
+// overlay BINDS it and two surfaces PRINT it, one of them a primitive, so the literal
+// sits in `primitives/chord-format.ts` beside the printer and this family imports it
+// down like every other caller.
 export { PaletteOverlay } from "./PaletteOverlay.js";
 
 // The keybinding surface this family added beside the table: what a chord audit

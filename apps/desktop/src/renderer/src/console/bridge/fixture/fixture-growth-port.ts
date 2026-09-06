@@ -7,8 +7,9 @@
 // WHAT THIS MODULE OWNS, AND WHAT ITS NEIGHBOURS DO
 //
 // This one owns the outcome each served operation answers with. The four answers with
-// a job of their own live beside it, because each fails in a way this one cannot — `fixture-session-snapshot.ts` derives the base state one
-// session opens with, `fixture-session-directory.ts` derives what the node HAS,
+// a job of their own live beside it, because each fails in a way this one cannot —
+// `fixture-session-snapshot.ts` derives the base state one session opens with,
+// `fixture-session-directory.ts` derives what the node HAS,
 // `fixture-attention-derivation.ts` folds beats into an attention projection, and
 // `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
