@@ -72,6 +72,32 @@ export function scenarioInstant(atMs: number): string {
   return new Date(REPOS_SCENARIO_STARTED_AT_MILLISECONDS + atMs).toISOString();
 }
 
+/**
+ * A stamp for something the session ALREADY HAD when the scenario opens.
+ *
+ * DERIVED FROM THE ONE START AND NEGATIVE ON PURPOSE. Every durable row the scenario
+ * scripts states a fact it wants already true at the first read — a mount attached, a
+ * root created, a probe taken, a clone reclaimed — and each was transcribed as a
+ * literal a fraction of a second AFTER the start. The section's read lands one debounce
+ * interval past that start, the reader stamps the instant onto its reading, and a card
+ * draws the age against it, so a root created 0.70 s after the start rendered "Created
+ * in 1 second": a future-tense age on something that had to exist before the session
+ * could run in it.
+ *
+ * Derived rather than re-transcribed, so the ordering is a property of this module and
+ * a later record cannot land ahead of the start by a typo. A disposal DEADLINE is the
+ * one instant not written through this — it is a future instant by definition — and
+ * `repos-replies.test.ts` asserts that split.
+ *
+ * IT LIVES HERE, BESIDE THE CLOCK IT READS, because two reply modules now derive
+ * stamps with it: the entity-scoped mount reads and the session-scoped rows beside
+ * them. Declared in either one, the other would import a sibling for a derivation
+ * neither owns — and copied, the two would be two clocks over one scenario.
+ */
+export function secondsBeforeStart(seconds: number): string {
+  return scenarioInstant(-seconds * 1_000);
+}
+
 /** One scripted beat, as `repos.ts` states it: when, where in the sequence, and what. */
 export interface ReposBeatScript {
   /** Milliseconds from scenario start. The beat's wire stamp is derived from this. */

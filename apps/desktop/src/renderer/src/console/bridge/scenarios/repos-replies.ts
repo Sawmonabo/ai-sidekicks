@@ -6,26 +6,20 @@
 // reply that failed to parse would render as an absence rather than as the fixture
 // the scenario meant to state.
 //
-// THE HEALTH VERDICTS ARE THE TWO THE CONTRACT SHIPS. `RepoMountHealth.status` in
-// `packages/contracts/src/repo.ts` is `healthy | unreachable` today; the third
-// verdict the console's repos design renders lands with Plan-009's own phase, and a
-// fixture that served it now would be scripting a value no daemon can send.
+// THE THREE MOUNT READS AND THEIR CAPABILITIES ARE NEXT DOOR.
+// `repos-mount-reads.ts` holds the two entity-scoped `repo.*` tables and the reader
+// that keys them, because those answer PER REQUEST while everything here answers per
+// METHOD. What is left in this module is the session-scoped rows — the workspace
+// roster, the execution-root status, and the accepted mode switch — plus the branch
+// context, which is entity-scoped and stays because it is `gitflow.*` rather than
+// `repo.*` and belongs with no repo table. The list at the bottom composes all of it,
+// and the mutation replies the acts send arrive by spread from
+// `repos-mutation-replies.ts`.
 //
-// THE THREE ENTITY-SCOPED READS ANSWER PER ENTITY. `ScenarioEngine.replyFor` matches
-// on the method name, so a constant reply is one answer for every call of that method —
-// right for `repo.workspaceList`, which is session-scoped, and wrong for
-// `repo.mountRead`, `repo.executionModeCapabilitiesRead`, and `gitflow.branchContextRead`,
-// which each name the thing they want. All three are `resultFor` computations over the
-// request, keyed by the tables below; a request naming no entity this scenario holds
-// returns `undefined` and the fixture refuses, which is the honest answer for a
-// scenario that scripts two mounts and is asked about a third.
-//
-// THE PLAIN MOUNT IS NOT A COPY OF THE GIT ONE WITH A DIFFERENT ID. It is `none`-vcs
-// and `unreachable`, agreeing with the `workspace.stale` beat and with the workspace
-// row's own `lastError`; its capabilities are the D-009-5 answer for a non-git mount —
-// `read-only` alone, with a reason per excluded mode, which is the I-009-8 explicit
-// gap. A fixture that served the git answer for both would have drawn four execution
-// modes on a mount that can host one.
+// A SCENARIO STATES BOTH ARMS OF A MUTATION, WHICH IS WHY THE SPREAD IS WORTH A FILE.
+// Every act this family sends can be refused with a typed daemon code, and a fixture
+// that only ever answered success would leave every recovery in `mount-refusal-copy.ts`
+// unreachable — the surfaces would ship having drawn one of their two states.
 
 import {
   WorktreeStatusReadResponseSchema,
@@ -34,142 +28,24 @@ import {
 
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
-import { scenarioInstant } from "./repos-beats.js";
+import { scenarioInstant, secondsBeforeStart } from "./repos-beats.js";
+import { capabilitiesFor, mountReadFor } from "./repos-mount-reads.js";
+import { REPOS_MUTATION_REPLIES } from "./repos-mutation-replies.js";
 import {
+  DRIFTED_MOUNT_ID,
+  DRIFTED_WORKSPACE_ID,
   EPHEMERAL_CLONE_ID,
   RECLAIMED_CLONE_ID,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_BRANCH_CONTEXT_ID,
   IMPLEMENTER_WORKTREE_ID,
-  NODE_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
   REVIEWER_BRANCH_CONTEXT_ID,
   REVIEWER_WORKTREE_ID,
   SESSION_ID,
 } from "./repos-fixture-data.js";
-
-/**
- * A stamp for something the session ALREADY HAD when the scenario opens.
- *
- * DERIVED FROM THE ONE START AND NEGATIVE ON PURPOSE. Every record below states a fact
- * the fixture wants already true at the first read — a mount attached, a root created,
- * a probe taken, a clone reclaimed — and each was transcribed as a literal a fraction
- * of a second AFTER `REPOS_SCENARIO_STARTED_AT_ISO`. The section's read lands one
- * debounce interval after that start, `repo-mounts-reader.ts` stamps the instant onto
- * the reading, and `WorktreeCard.tsx` draws `formatRelativeTime(record.createdAt,
- * nowMilliseconds)` — so a root created 0.70 s after the start rendered "Created in
- * 1 second", a future-tense age on something that had to exist before the session
- * could run in it.
- *
- * Derived rather than re-transcribed, so the ordering is a property of this module and
- * a later record cannot land ahead of the start by a typo. `expiresAt` is the one member
- * NOT written through this — a disposal deadline is a future instant by definition, and
- * `repos-replies.test.ts` asserts that split.
- */
-function secondsBeforeStart(seconds: number): string {
-  return scenarioInstant(-seconds * 1_000);
-}
-
-/**
- * What `repo.mountRead` answers, per mount.
- *
- * The GIT mount's `localPath` and `canonicalRoot` differ on purpose: it was entered
- * from a nested subdirectory, which is the case that separates provenance from
- * resolved identity and the reason the card surfaces both. The PLAIN mount's agree,
- * because it was entered at its own root — the contrast is what makes the pair worth
- * scripting rather than one row twice.
- *
- * The plain mount is `unreachable`, agreeing with the `workspace.stale` beat and with
- * the `lastError` its workspace row carries below. Health is the one axis this read
- * alone carries, so a session whose every mount is healthy cannot reach the degraded
- * card at all.
- */
-const MOUNT_READS_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
-  [GIT_MOUNT_ID]: {
-    id: GIT_MOUNT_ID,
-    sessionId: SESSION_ID,
-    nodeId: NODE_ID,
-    localPath: "/Users/dev/code/ai-sidekicks/packages/contracts",
-    canonicalRoot: "/Users/dev/code/ai-sidekicks",
-    vcsType: "git",
-    state: "attached",
-    health: { status: "healthy", checkedAt: secondsBeforeStart(9) },
-    attachedAt: secondsBeforeStart(53 * 60 + 11),
-  },
-  [PLAIN_MOUNT_ID]: {
-    id: PLAIN_MOUNT_ID,
-    sessionId: SESSION_ID,
-    nodeId: NODE_ID,
-    localPath: "/Users/dev/notes",
-    canonicalRoot: "/Users/dev/notes",
-    // `none`, which is `Spec-009`'s honest non-git classification (I-009-4) and not a
-    // third "unknown" verdict: the resolver either found a repository or did not.
-    vcsType: "none",
-    state: "attached",
-    health: { status: "unreachable", checkedAt: secondsBeforeStart(9) },
-    // BEHIND THE SCENARIO'S OWN START, like every stamp in this file, and therefore
-    // NOT the instant the `repo.attached` beat carries. The two are not one instant:
-    // a beat's `occurredAt` is where the line sits in a replay window two seconds
-    // wide, and this is the durable row's own field, which is what a card measures an
-    // age against. Spelled as the beat's position, as it was, every card drew an age
-    // in the future.
-    attachedAt: secondsBeforeStart(23 * 60 + 4),
-  },
-};
-
-/**
- * What the workspace-scoped arm of `repo.executionModeCapabilitiesRead` answers.
- *
- * `defaultMode` is deliberately NOT the workspace's current mode: the git row below is
- * bound `branch` and the plain one `read-only`, while this field reports the default
- * for the next writable coding run — `worktree` on the git mount, which agrees with
- * neither. The picker labels the two separately and a reader who conflates them will
- * think one is wrong.
- *
- * The plain workspace is the D-009-5 answer for a `none` mount: `read-only` alone,
- * `read-only` as the default because no writable mode exists to default to, and a
- * reason for each excluded mode — I-009-8's explicit-gap mandate, which is the half a
- * surface renders when it explains why a control is not offered.
- */
-const CAPABILITIES_BY_WORKSPACE_ID: Readonly<Record<string, unknown>> = {
-  [GIT_WORKSPACE_ID]: {
-    // All four, with no `restrictions` map at all, because a git mount restricts
-    // nothing (D-009-5), and `worktree` the default per ADR-006.
-    availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
-    defaultMode: "worktree",
-  },
-  [PLAIN_WORKSPACE_ID]: {
-    availableModes: ["read-only"],
-    defaultMode: "read-only",
-    restrictions: {
-      branch: "This mount is not a git repository, so there is no branch to create.",
-      worktree: "This mount is not a git repository, so no worktree can be added.",
-      "ephemeral clone": "This mount is not a git repository, so there is nothing to clone.",
-    },
-  },
-};
-
-/**
- * The answer this table holds for the entity one request names, or `undefined`.
- *
- * The request reaches a computed reply as `unknown` and is read rather than cast: a
- * fixture that trusted the shape would throw from inside the settlement seam on a
- * malformed call, where the fixture's own "scripts no reply" refusal is the answer a
- * surface can act on. `undefined` reaches the caller as exactly that refusal.
- */
-function answerFor(
-  answersByEntityId: Readonly<Record<string, unknown>>,
-  entityIdMember: string,
-  request: unknown,
-): unknown {
-  if (typeof request !== "object" || request === null) {
-    return undefined;
-  }
-  const requestedEntityId = (request as Readonly<Record<string, unknown>>)[entityIdMember];
-  return typeof requestedEntityId === "string" ? answersByEntityId[requestedEntityId] : undefined;
-}
 
 /**
  * What `gitflow.branchContextRead` answers, per execution root.
@@ -301,13 +177,13 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
   {
     // `Spec-009`'s only health-carrying read, answered per mount.
     call: "repo.mountRead",
-    resultFor: (request) => answerFor(MOUNT_READS_BY_MOUNT_ID, "repoMountId", request),
+    resultFor: (request) => mountReadFor(request),
   },
   {
     // The WORKSPACE-scoped arm of `repo.executionModeCapabilitiesRead` — the
     // post-bind question the mode picker asks, answered per workspace.
     call: "repo.executionModeCapabilitiesRead",
-    resultFor: (request) => answerFor(CAPABILITIES_BY_WORKSPACE_ID, "workspaceId", request),
+    resultFor: (request) => capabilitiesFor(request),
   },
   {
     // What an explicit switch answers with. `provisioning` rather than `ready`,
@@ -348,6 +224,18 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
           state: "stale",
           fsRoot: "/Users/dev/notes",
           lastError: "The bound path is no longer reachable on this node.",
+        },
+        {
+          // The drifted mount's default workspace, `read-only` and `ready` — the row
+          // states nothing about the mismatch, which is exactly the point: the
+          // workspace list carries no health member by design, so this row is where a
+          // surface must NOT be able to learn about it and the mount card is where it
+          // does.
+          id: DRIFTED_WORKSPACE_ID,
+          repoMountId: DRIFTED_MOUNT_ID,
+          executionMode: "read-only",
+          state: "ready",
+          fsRoot: "/Users/dev/code/vendor-sdk",
         },
       ],
     },
@@ -397,4 +285,7 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // never been bound per root at all.
     resultFor: (request) => branchContextFor(request),
   },
+  // The acts. Spread rather than written here, so this module's subject stays "what a
+  // READ answers" and the mutations' two-armed scripting has one home.
+  ...REPOS_MUTATION_REPLIES,
 ];

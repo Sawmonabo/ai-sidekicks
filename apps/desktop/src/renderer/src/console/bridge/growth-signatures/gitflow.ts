@@ -1,5 +1,5 @@
-// The repo plane: the git action a workspace runs, and the gitflow branch context
-// and pull-request proposal built on top of it.
+// The repo plane: the git action a workspace runs, the gitflow branch context and
+// pull-request proposal built on top of it, and the workspace's own execution context.
 //
 // One plane of `GrowthOperationSignatures`, composed into it by `index.ts`. The
 // section comment below is the file's own, kept with the rows it explains.
@@ -79,6 +79,35 @@ export interface GitflowGrowthSignatures {
       readonly prPreparationId: string;
       readonly state: GrowthPrPreparationState;
       readonly proposalBlob: Readonly<Record<string, unknown>>;
+    };
+  };
+  // The workspace execution context.
+  //
+  // THREE ROOTS AND A MARKER, and the three roots are three facts rather than one
+  // repeated: `Spec-010 §Turn-Boundary Snapshots` separates the workspace's BOUND root
+  // from the NORMALIZED CHECKOUT root the snapshot service operates on, and the mount's
+  // own resolved root is a third that neither is derived from — in `branch` mode all
+  // three can differ. The mount root is not on this reply because the console already
+  // holds it from `repo.mountRead`; asking for it twice would be two answers to one
+  // question, and the disclosure that draws all three composes them.
+  //
+  // `checkoutRoot` IS OPTIONAL BECAUSE IT IS RUN-BORNE. The column that holds it is
+  // captured per run, so a workspace that has hosted no run has no normalized checkout
+  // root yet — an absence the disclosure renders as such rather than as the bound root
+  // standing in for it.
+  //
+  // `fallbackFromMode` IS THE MARKER, and it is the SUPERSEDED mode rather than a
+  // boolean, because the badge has to say what was substituted away from. Absent means
+  // the workspace is running the mode that was selected, which is the ordinary case.
+  // `Spec-010 §Fallback Behavior` requires the selected mode to be marked distinctly
+  // from normal worktree mode, and a boolean would mark it without saying from what.
+  workspaceExecutionContextRead: {
+    request: { readonly workspaceId: string };
+    value: {
+      readonly workspaceId: string;
+      readonly boundRoot: string;
+      readonly checkoutRoot?: string;
+      readonly fallbackFromMode?: string;
     };
   };
 }

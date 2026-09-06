@@ -59,6 +59,7 @@ import {
   REPOS_ATTACHMENTS,
   SESSION_ID,
 } from "./repos-fixture-data.js";
+import { REPOS_RUNTIME_NODE_ROSTER } from "./repos-node-roster.js";
 import { REPOS_SCENARIO_REPLIES } from "./repos-replies.js";
 
 export { REPOS_WORKTREE_STATUS_REPLY } from "./repos-replies.js";
@@ -372,4 +373,5 @@ export const REPOS_SCENARIO: ConsoleScenario = {
     }),
   ],
   replies: REPOS_SCENARIO_REPLIES,
+  runtimeNodeRoster: REPOS_RUNTIME_NODE_ROSTER,
 };
