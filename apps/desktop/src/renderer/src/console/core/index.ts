@@ -59,13 +59,19 @@ export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./f
 // from who might want a duration. A `core/` sibling reaches `./instant.js` and a
 // suite reaches the declaring module, so neither is a reader a door line can be
 // retired by, and a claim naming one could never be discharged.
+//
+// `MILLISECONDS_PER_SECOND` is absent for exactly that reason, measured over the same
+// six tips: none of them carries a reader of it. `instant.ts` derives the minute from
+// it inside the module that declares it and `instant.test.ts` reaches `./instant.js`,
+// so the claim this line used to carry named a task that could never discharge it —
+// and because the tag is what suppresses the dead-code finding, the line was invisible
+// to the gate that would otherwise have reported it. A symbol no task will name is
+// deleted from the door rather than tagged.
 export {
   compareInstants,
   MILLISECONDS_PER_DAY,
   MILLISECONDS_PER_HOUR,
   MILLISECONDS_PER_MINUTE,
-  /** @consumedBy T-023p-1C-4 */
-  MILLISECONDS_PER_SECOND,
   parseInstant,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type Instant,
