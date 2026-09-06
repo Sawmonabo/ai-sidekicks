@@ -214,6 +214,7 @@ export function contextWith(options: {
       // a banner is where the window was when the item arrived.
       getState: () => ({ isWindowFocused: options.isWindowFocused ?? true }),
       activeSessionId: options.activeSessionId,
+      publishRailAttentionCount: () => undefined,
     },
     sessionStore: options.sessionStore,
     sessionStoreRegistry: {

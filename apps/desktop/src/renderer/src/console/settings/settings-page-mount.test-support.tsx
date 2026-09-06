@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import type { SessionStore } from "../store/index.js";
+import { UNREPORTED_SHELL_STATE, type SessionStore, type ShellState } from "../store/index.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import type { SettingsPageContext } from "./settings-page-registry.js";
 
@@ -28,17 +28,24 @@ import type { SettingsPageContext } from "./settings-page-registry.js";
  * `retainedSessionId` is a required parameter and not a defaulted one: `undefined` is
  * the window that has opened no session, which several cases exist to drive, and a
  * default would silently answer those with a session id instead.
+ *
+ * `shellState` IS defaulted, and to the seeded unreported value rather than to a
+ * healthy one: a page mounted by a case that says nothing about the shell is a page in
+ * a window nobody has told anything, which is the state every shipped build is in
+ * until the wire lands. A case that renders a degraded arm names its own.
  */
 export function settingsPageContextWith(
   bridge: ConsoleBridge,
   retainedSessionId: string | undefined,
   retainedSessionStore?: SessionStore | undefined,
+  shellState: ShellState = UNREPORTED_SHELL_STATE,
 ): SettingsPageContext {
   return {
     bridge,
     openSection: () => undefined,
     retainedSessionId,
     retainedSessionStore,
+    shellState,
   } satisfies SettingsPageContext;
 }
 

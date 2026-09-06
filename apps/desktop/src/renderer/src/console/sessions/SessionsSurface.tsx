@@ -69,6 +69,7 @@ import {
   attentionProjectionReaderFor,
   useAttentionNotifications,
   useAttentionProjection,
+  useRailAttentionPublisher,
   useAttentionSettlementAnnouncement,
   useOsNotificationDelivery,
 } from "./notifications/index.js";
@@ -146,6 +147,8 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     frameStore: context.frameStore,
     bridge: context.bridge,
   });
+  // The rail's count, published from this read for as long as it is mounted.
+  useRailAttentionPublisher(context.frameStore, attention);
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);

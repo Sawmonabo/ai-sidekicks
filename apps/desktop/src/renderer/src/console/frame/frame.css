@@ -126,14 +126,28 @@
 }
 
 /* Amber, and only here: something needs a person. */
+/*
+ * The count, not a dot: `Spec-023 §The surface set` asks for a number, and the badge
+ * is sized from its own content with a minimum that keeps a single digit round rather
+ * than laid out on a fixed width a two-digit count would overflow.
+ */
 .meridian-rail__attention {
   position: absolute;
-  inset-block-start: 6px;
-  inset-inline-end: 6px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--meridian-amber-mark);
+  inset-block-start: 3px;
+  inset-inline-end: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding-inline: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 /* --- Context picker ----------------------------------------------------- */

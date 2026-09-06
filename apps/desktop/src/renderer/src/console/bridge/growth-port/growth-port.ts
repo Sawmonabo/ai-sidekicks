@@ -318,6 +318,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     daemonStatusRead: async () => growthUnavailable("daemonStatusRead"),
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),
+    daemonStart: async () => growthUnavailable("daemonStart"),
     approvalProjectionRead: async () => growthUnavailable("approvalProjectionRead"),
     approvalResolve: async () => growthUnavailable("approvalResolve"),
     approvalRuleList: async () => growthUnavailable("approvalRuleList"),
@@ -389,5 +390,9 @@ export function createRefusingGrowthPort(): GrowthPort {
     // the shell
     shellNotificationPermissionRead: async () =>
       growthUnavailable("shellNotificationPermissionRead"),
+    // the shell's own condition — the one operation here whose eventual producer is
+    // the main process rather than the daemon, and which refuses exactly as the rest
+    // do until a bridge namespace carries it.
+    shellStatusSubscribe: async () => growthUnavailable("shellStatusSubscribe"),
   };
 }

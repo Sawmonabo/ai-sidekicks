@@ -28,6 +28,20 @@
 //     combobox filter again would put a second matcher in the console, and
 //     "one matcher shared with settings search" is a claim about the whole app.
 //
+// A CLOSED PALETTE IS DORMANT, and that is a cost claim rather than a style one.
+// The registry's search and its visible-command count are the two things here that
+// walk every registered command, and both used to run on every render of the frame
+// — a palette nobody had opened re-ranked the whole command set each time the route,
+// the context, or a late registration moved. Both are gated on `open` now and answer
+// from a frozen empty result while closed, which is what makes "evaluates nothing
+// while closed" true rather than aspirational.
+//
+// AND THE SCOPE IS CAPTURED, NOT TRACKED. The row naming what these commands will
+// act on is latched at the moment the palette opens and never re-resolved while it
+// is open: a person reads "acting on X", types, and presses Enter, and the target
+// must be the one they read — not whatever the frame's route happened to resolve to
+// in between.
+//
 // WHAT IS NOT HERE. The rows are `PaletteResultList.tsx` and the five kinds of
 // nothing are `PaletteAbsence.tsx`. This module is the composition, the query
 // state, and the one chord that opens the whole thing.
@@ -36,8 +50,10 @@ import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PALETTE_RESULT_CAP } from "../core/index.js";
+import type { ShellMutationBlock } from "../store/index.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
+  InlineRefusal,
   formatChordForPlatform,
   formatCount,
   type ChordPlatform,
@@ -60,8 +76,22 @@ export interface PaletteOverlayProps {
   readonly platform: ChordPlatform;
   /** Supplies each row's chord. Omit and rows print no chord rather than a wrong one. */
   readonly bindings?: KeyBindingTable;
-  /** The scoped-context row: what these commands act on. */
+  /**
+   * The scoped-context row: what these commands act on.
+   *
+   * Read once, when the palette opens. A caller may recompute it as often as it
+   * likes; what a person sees is what it said at the moment they summoned this.
+   */
   readonly scopeLabel?: string;
+  /**
+   * Why the shell is refusing mutating operations, where it is.
+   *
+   * NAMED AND NEVER ENFORCED HERE. The palette still lists every mutating command
+   * while the shell is read-only, because hiding them would hide the cause and
+   * leave a person hunting for a control that is on screen everywhere else. The
+   * dispatch renders the refusal; this line says in advance what it will say.
+   */
+  readonly shellBlock?: ShellMutationBlock;
   readonly readiness?: PaletteReadiness;
   /**
    * Bump to recompute results after late registration. The registry is a mutable
@@ -93,6 +123,7 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
     platform,
     bindings,
     scopeLabel,
+    shellBlock,
     readiness = { status: "ready" },
     revision,
     overlayContainer,
@@ -103,16 +134,35 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const results = useMemo(
-    () => registry.search(query, context),
+    // Gated on `open`: a closed palette walks no command list, ranks nothing, and
+    // answers from one frozen array — so the frame can re-render as often as the
+    // route and the command context move without paying for a surface nobody has
+    // summoned. The same array every time, so the memo below it never recomputes
+    // either.
+    () => (open ? registry.search(query, context) : NO_RESULTS),
     // `revision` is a deliberate dependency with no use in the body: it is the
     // frame's signal that the registry's contents changed under us.
-    [registry, query, context, revision],
+    [open, registry, query, context, revision],
   );
   const groups = useMemo(() => groupResults(results), [results]);
   const visibleCount = useMemo(
-    () => registry.commandsFor(context).length,
-    [registry, context, revision],
+    () => (open ? registry.commandsFor(context).length : 0),
+    [open, registry, context, revision],
   );
+
+  // The scope, latched at the open transition.
+  //
+  // Adjusted DURING RENDER rather than in an effect, which is the documented React
+  // shape for state derived from a prop change and the only one that is correct here:
+  // an effect runs after the commit, so the first frame of an open palette would
+  // print the scope from the last time it was open — which is precisely the stale
+  // target this latch exists to prevent, shown at the one moment a person is reading
+  // it.
+  const [latchedScope, setLatchedScope] = useState<LatchedScope>({ wasOpen: open, scopeLabel });
+  if (latchedScope.wasOpen !== open) {
+    setLatchedScope({ wasOpen: open, scopeLabel: open ? scopeLabel : latchedScope.scopeLabel });
+  }
+  const capturedScopeLabel = open ? latchedScope.scopeLabel : undefined;
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean): void => {
@@ -220,10 +270,19 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
             initialFocus={inputRef}
             aria-label="Command palette"
           >
-            {scopeLabel === undefined ? null : (
+            {capturedScopeLabel === undefined ? null : (
               <div className="console-palette__scope">
                 <span className="console-palette__scope-label">Acting on</span>
-                <span className="console-palette__scope-value">{scopeLabel}</span>
+                <span className="console-palette__scope-value">{capturedScopeLabel}</span>
+              </div>
+            )}
+
+            {shellBlock === undefined ? null : (
+              // Above the input, because it changes what half the list will do and a
+              // person needs it before they type — and rendered through the console's
+              // one row-scoped refusal shape rather than a line of the palette's own.
+              <div className="console-palette__degraded">
+                <InlineRefusal code={shellBlock.code} detail={shellBlock.detail} />
               </div>
             )}
 
@@ -272,4 +331,18 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
       </Dialog.Root>
     </Combobox.Root>
   );
+}
+
+/**
+ * What a closed palette's search answers with.
+ *
+ * One frozen array rather than a fresh `[]`, so the grouping memo above sees the same
+ * identity every time and a closed palette recomputes literally nothing.
+ */
+const NO_RESULTS: readonly CommandSearchResult[] = Object.freeze([]);
+
+/** The latch's two fields: which side of the transition, and what was captured. */
+interface LatchedScope {
+  readonly wasOpen: boolean;
+  readonly scopeLabel: string | undefined;
 }

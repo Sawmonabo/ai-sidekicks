@@ -41,3 +41,4 @@ export { useAttentionProjection, useAttentionSettlementAnnouncement } from "./at
 // centre; the notifier's own class stays inside, since only its hook is mounted.
 export { useAttentionNotifications } from "./attention-notifier.js";
 export { useOsNotificationDelivery } from "./os-notification-delivery.js";
+export { useRailAttentionPublisher } from "./rail-attention.js";

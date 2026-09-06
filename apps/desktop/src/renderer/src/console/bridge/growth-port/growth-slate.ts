@@ -54,7 +54,8 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
-  | "notification-permission-read";
+  | "notification-permission-read"
+  | "shell-status-signals";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -391,6 +392,16 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects)",
     consumingSurface: "notification centre (the OS-notifications-denied arm)",
+    wireRegistered: false,
+  },
+  // lane: cov-frame-chrome
+  "shell-status-signals": {
+    id: "shell-status-signals",
+    wire: "the shell's own status as one feed — the daemon supervisor's step and its attempt count out of five, the daemon.hello negotiation ack (compatible, protocolVersion, reason, daemonSupportedProtocols), the loopback-fallback signal, and the keystore-unavailable signal. Every one of them is a main-process fact and none of them is a daemon call: the renderer is not a direct daemon client, the ack belongs to the connection the main process holds, and a second handshake from here would be refused as one already completed",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (no namespace carries any of it); Spec-023 §Daemon Supervision Lifecycle (the six steps and the five-attempt ladder), §Fallback Behavior (the loopback fallback and the offline read-only mode), §Native Keystore (the memory-only degradation); Spec-007 (the DaemonHelloAck shape, which packages/contracts publishes and no bridge namespace serves)",
+    consumingSurface:
+      "frame shell-state chrome — the daemon chip, the version banner, the reconnect and read-only banners, and the loopback/keystore notice strip",
     wireRegistered: false,
   },
 };

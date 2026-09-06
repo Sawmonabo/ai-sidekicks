@@ -36,7 +36,7 @@
 //   • **The bridge is provided, never reached for.** No component below this one
 //     touches `window.sidekicks`.
 
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { type ConsoleBridge } from "../bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
@@ -47,14 +47,22 @@ import { consolePaneRegistry, consoleSurfaceRegistry } from "../seats/index.js";
 import {
   FrameStore,
   consoleEntityProjectorRegistry,
+  shellMutationBlock,
   useFrameStore,
   useLocationHash,
+  useRailAttentionCount,
+  useShellState,
 } from "../store/index.js";
 import { AppFrame } from "./AppFrame.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { useLazyBodyIdleWarm } from "./lazy-body-warm-binding.js";
-import { RAIL_ENTRIES, routeForDestination, warmDestination } from "./rail-navigation.js";
+import {
+  railEntriesWithAttention,
+  routeForDestination,
+  warmDestination,
+} from "./rail-navigation.js";
+import { ShellChrome, useDaemonStartAction, useShellStateBinding } from "./shell-state/index.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useSchemePreference } from "./scheme-preference.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
@@ -122,6 +130,26 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // of any pane or destination is warm and none of it was charged to the launch.
   useLazyBodyIdleWarm(consolePaneRegistry, consoleSurfaceRegistry);
 
+  // What this window knows about the shell it is running against, kept live for the
+  // frame's lifetime. One binding rather than a reader per consumer: the palette,
+  // the settings daemon page, and the chrome all read the same store field, and a
+  // second subscription would be a second answer to the same question.
+  useShellStateBinding(frameStore, sessionStoreRegistry);
+  const startDaemon = useDaemonStartAction(frameStore);
+
+  // The rail's count, published by whichever surface performed the attention read.
+  // Memoised so the entries keep their identity while the count does — the rail is
+  // the most-seen surface in the window and re-rendering it is the one cost this
+  // frame pays on every pass if it is not held.
+  const railAttentionCount = useRailAttentionCount(frameStore);
+  // The one derivation of "is this window read-only", read from the store's shell
+  // state so the palette's line and every disabled control name the same cause.
+  const shellBlock = shellMutationBlock(useShellState(frameStore));
+  const railEntries = useMemo(
+    () => railEntriesWithAttention(railAttentionCount),
+    [railAttentionCount],
+  );
+
   // Window focus is a refresh reason, not a poll.
   //
   // The re-read rides the TRANSITION into focus rather than the event itself. A
@@ -183,7 +211,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   return (
     <AppFrame
       route={route}
-      railEntries={RAIL_ENTRIES}
+      railEntries={railEntries}
       railDestination={railDestinationFor(route)}
       onSelectDestination={(destination) => {
         // Warmed BEFORE the navigation, which is the whole of why the two lines are in
@@ -195,6 +223,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
         frameStore.navigate(routeForDestination(destination));
       }}
       modalOverlayOpen={commandSurface.paletteOpen}
+      shellChrome={<ShellChrome frameStore={frameStore} onRetry={startDaemon} />}
       banners={banners}
       onDismissBanner={(bannerId) => {
         frameStore.dismissBanner(bannerId);
@@ -209,6 +238,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
             platform={CONSOLE_CHORD_PLATFORM}
             bindings={commandSurface.keyBindings}
             scopeLabel={describeScope(route)}
+            {...(shellBlock === undefined ? {} : { shellBlock })}
             revision={commandSurface.commandRevision}
           />
           {props.renderOverlays === undefined ? null : props.renderOverlays(surfaceContext)}
