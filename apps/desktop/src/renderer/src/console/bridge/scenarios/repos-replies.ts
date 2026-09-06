@@ -53,22 +53,20 @@ import {
 /**
  * A stamp for something the session ALREADY HAD when the scenario opens.
  *
- * DERIVED FROM THE ONE START AND NEGATIVE ON PURPOSE. Every record below states a
- * fact the fixture wants already true at the first read — a mount attached, a root
- * created, a probe taken, a clone reclaimed — and each was transcribed as a literal
- * a fraction of a second AFTER `REPOS_SCENARIO_STARTED_AT_ISO`. That is not a
- * rounding difference: the section's read lands one debounce interval after the
- * start, `repo-mounts-reader.ts` stamps that instant onto the reading, and
- * `WorktreeCard.tsx` draws `formatRelativeTime(record.createdAt, nowMilliseconds)` —
- * so a root created 0.70 s after the start rendered "Created in 1 second", a
- * future-tense age on a card describing something that had to exist before the
- * session could run in it.
+ * DERIVED FROM THE ONE START AND NEGATIVE ON PURPOSE. Every record below states a fact
+ * the fixture wants already true at the first read — a mount attached, a root created,
+ * a probe taken, a clone reclaimed — and each was transcribed as a literal a fraction
+ * of a second AFTER `REPOS_SCENARIO_STARTED_AT_ISO`. The section's read lands one
+ * debounce interval after that start, `repo-mounts-reader.ts` stamps the instant onto
+ * the reading, and `WorktreeCard.tsx` draws `formatRelativeTime(record.createdAt,
+ * nowMilliseconds)` — so a root created 0.70 s after the start rendered "Created in
+ * 1 second", a future-tense age on something that had to exist before the session
+ * could run in it.
  *
- * Derived rather than re-transcribed, so the ordering is a property of this module:
- * a stamp that belongs in the past is written as the distance it lies behind the
- * start, and a record added later cannot land ahead of it by a typo. `expiresAt` is
- * the one member that is NOT written through this, because a disposal deadline is a
- * future instant by definition — and `repos.test.ts` asserts exactly that split.
+ * Derived rather than re-transcribed, so the ordering is a property of this module and
+ * a later record cannot land ahead of the start by a typo. `expiresAt` is the one member
+ * NOT written through this — a disposal deadline is a future instant by definition, and
+ * `repos-replies.test.ts` asserts that split.
  */
 function secondsBeforeStart(seconds: number): string {
   return scenarioInstant(-seconds * 1_000);
@@ -277,9 +275,7 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
         state: "ready",
         cleanupPolicy: "on_run_complete",
         // AHEAD of the scenario's instant, which is what puts this clone on the
-        // `scheduled` arm — the disposal is still coming and the card draws the
-        // countdown to it. One of the two members in this file written forward, for
-        // the reason the sibling row states.
+        // `scheduled` arm: the disposal is coming and the card draws the countdown.
         expiresAt: scenarioInstant(12 * 60_000),
         createdAt: secondsBeforeStart(17 * 60 + 15),
       },
@@ -290,13 +286,9 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
         branchName: "probe/rate-limit-wiring",
         state: "ready",
         cleanupPolicy: "on_run_complete",
-        // Ahead of the scenario's own instant, like the row above, because a disposal
-        // deadline is a future instant by definition — and the two are the only members
-        // in this file written forward. What separates the two clones is therefore NOT
-        // the deadline: it is the stamp below. This one has been reclaimed while its
-        // deadline is still coming, which is the only way to reach the reclaimed
-        // disposition, and a card that derived disposition from `expiresAt` alone would
-        // draw it as awaiting a disposal that has already happened.
+        // Ahead of the start like the row above, so what separates the two clones is
+        // NOT the deadline but the `cleanedAt` below: this one was reclaimed while its
+        // deadline is still coming, the only way to reach the reclaimed disposition.
         expiresAt: scenarioInstant(30 * 60_000),
         createdAt: secondsBeforeStart(25 * 60 + 48),
         cleanedAt: secondsBeforeStart(9 * 60 + 12),
@@ -370,11 +362,11 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // `ephemeralClones` carries TWO rows, and this read is the only way this scenario
     // can reach that list at all: clone transitions are not separately evented, so no
     // beat can state a clone and this read is the whole surface. The first is on the
-    // SCHEDULED arm — its disposal is still coming, which is the reading the countdown
-    // is drawn from and the one the section's own clock case pins. The second carries
-    // `cleanedAt` while its deadline is likewise still ahead, which is the only way to
-    // reach the reclaimed disposition: a card that derived disposition from `expiresAt`
-    // alone would draw it as awaiting a disposal that has already happened.
+    // SCHEDULED arm, which is the reading the countdown is drawn from and the one the
+    // section's own clock case pins; the second carries `cleanedAt` while its deadline
+    // is likewise still ahead, which is what the reclaimed disposition is read from. A
+    // card deriving either from `expiresAt` alone would draw the reclaimed one as
+    // awaiting a disposal that has already happened.
     //
     // The IMPLEMENTER's root is `dirty`, agreeing with the beat above it: the reclaim
     // controls have to be unavailable somewhere, and a fixture whose every root is

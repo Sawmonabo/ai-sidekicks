@@ -35,10 +35,9 @@ type DiffPaneContext = DiffPaneProps["context"];
  * A pane context whose collaborators are never reached.
  *
  * These cases are about what the chrome renders from the address, and a real bridge,
- * store pair, and persistence stack would be constructions none of the assertions
- * below can observe — so the shared builder is handed the address alone. The entity
- * parameter is the arm's own, so a case handing this pane a subject a diff is never
- * opened over fails to compile here.
+ * store pair, and persistence stack would be constructions none of the assertions below
+ * can observe — so the shared builder is handed the address alone. The entity parameter
+ * is the arm's own, so a subject a diff is never opened over fails to compile here.
  */
 function contextFor(entity: DiffPaneContext["entity"]): DiffPaneContext {
   return paneContext({ address: { kind: "diff", entity }, paneId: "pane-diff-1" });
