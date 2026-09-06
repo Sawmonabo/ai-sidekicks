@@ -2,10 +2,11 @@
 //
 // Two tests in this tier drive the same console in the same way — one measures
 // how the heap MOVES over sustained use, the other what it IS once the console
-// has settled — and both need the same four things: a route observed, the
-// scenario advanced, the store read back, and the heap read after a settle. A
-// copy of any of those in each file would be two drivers that drift, and the
-// drift would not be loud: a route wait that stopped waiting still passes.
+// has settled — and both need the same three things: a route observed, the
+// scenario advanced, and the store read back. A copy of any of those in each
+// file would be two drivers that drift, and the drift would not be loud: a route
+// wait that stopped waiting still passes. The heap itself is read through
+// `heap-instrument.ts`, which measures rather than drives.
 //
 // WHY THE ROUTE WAITS NAME A SURFACE AND NOT THE FRAME
 //
@@ -66,10 +67,20 @@ import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scen
  * that same figure (`tierTimeoutFor`, `vitest.config.ts`). A launch that took the
  * default would be bounded nine times more tightly than the tier that runs it.
  */
-export const ENDURANCE_LAUNCH_OPTIONS: LaunchConsoleOptions = {
-  scenarioId: FLAGSHIP_SCENARIO.id,
-  bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS,
-};
+export function enduranceLaunchOptions(scenarioId: string): LaunchConsoleOptions {
+  return {
+    scenarioId,
+    bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS,
+    // Every launch in this tier reads a heap, and every figure it gates is a
+    // DIFFERENCE of two such readings. See `readSettledHeapBytes` for why the
+    // default instrument cannot carry one.
+    isPreciseHeapReadingRequired: true,
+  };
+}
+
+export const ENDURANCE_LAUNCH_OPTIONS: LaunchConsoleOptions = enduranceLaunchOptions(
+  FLAGSHIP_SCENARIO.id,
+);
 
 export const FLAGSHIP_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
 
@@ -139,50 +150,6 @@ export async function openFlagshipSessionRoute(
   consoleApplication: ConsoleApplication,
 ): Promise<void> {
   await openRoute(consoleApplication, FLAGSHIP_SESSION_ROUTE, WORKSPACE_SURFACE_SELECTOR);
-}
-
-/**
- * Read the renderer's heap after asking it to collect.
- *
- * `--expose-gc` is not passed and deliberately not required: the reading is taken
- * as the MINIMUM over several samples with a yield between them, which lets the
- * incremental collector run and gives a floor that is far more stable than a
- * single sample. A tier that depended on a non-default Electron flag would be a
- * tier CI silently stopped running the day the flag was dropped.
- *
- * `usedJSHeapSize` counts what is allocated and not yet collected, so this figure
- * is at or above the retained heap it stands in for — which is the safe direction
- * for a ceiling: a budget satisfied by this reading is satisfied by the retained
- * heap too.
- */
-export async function readSettledHeapBytes(
-  consoleApplication: ConsoleApplication,
-): Promise<number> {
-  const samples: number[] = [];
-  for (let sampleIndex = 0; sampleIndex < 6; sampleIndex += 1) {
-    const sample = await consoleApplication.window.evaluate(async () => {
-      // Two frames plus a macrotask: enough for the collector to run its
-      // incremental steps between samples without pinning the main thread.
-      await new Promise((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setTimeout(resolve, 0);
-          });
-        });
-      });
-      const memory = (
-        performance as Performance & { readonly memory?: { readonly usedJSHeapSize: number } }
-      ).memory;
-      return memory === undefined ? null : memory.usedJSHeapSize;
-    });
-    if (sample === null) {
-      throw new Error(
-        "performance.memory is unavailable in this renderer; the endurance tier cannot measure a heap without it",
-      );
-    }
-    samples.push(sample);
-  }
-  return Math.min(...samples);
 }
 
 /**

@@ -21,11 +21,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { GrowthPort } from "../bridge/index.js";
 import { createFixtureBridge } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { settleReactWork } from "../core/act-settlement.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { type ConsoleRoute } from "../routing/index.js";
 import { RouteSurface } from "./RouteSurface.js";
-import { BARE_TIMELINE_ROUTE, settle } from "./RouteSurface.test-support.js";
+import { BARE_TIMELINE_ROUTE } from "./RouteSurface.test-support.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
 // publish it, no production module calling it having landed yet.
@@ -106,7 +107,7 @@ describe("RouteSurface — the picker on a bare auxiliary route", () => {
     const { context } = contextFor(BARE_TIMELINE_ROUTE, registry);
 
     const { container } = render(<RouteSurface context={context} />);
-    await settle();
+    await settleReactWork();
 
     expect(container.querySelector("[aria-busy='true']")).toBeNull();
   });
@@ -118,7 +119,7 @@ describe("RouteSurface — the picker on a bare auxiliary route", () => {
     const { context } = contextFor(BARE_TIMELINE_ROUTE, registry, fixtureGrowthPort());
 
     render(<RouteSurface context={context} />);
-    await settle();
+    await settleReactWork();
 
     expect(screen.getByRole("button", { name: FLAGSHIP_SCENARIO.sessionId })).toBeDefined();
   });
@@ -147,7 +148,7 @@ describe("RouteSurface — the picker on a bare auxiliary route", () => {
     const { context } = contextFor(BARE_TIMELINE_ROUTE, registry);
 
     const { container } = render(<RouteSurface context={context} />);
-    await settle();
+    await settleReactWork();
 
     expect(screen.queryAllByRole("button")).toStrictEqual([]);
     expect(container.textContent).toContain("This window has no session open.");

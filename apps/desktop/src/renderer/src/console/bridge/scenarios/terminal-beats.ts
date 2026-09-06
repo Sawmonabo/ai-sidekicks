@@ -1,0 +1,175 @@
+// The terminal scenario's clock, and the two beat shapes its script writes many of.
+//
+// Split out of `terminal.ts` on the same seam `scenario.ts` split from
+// `scenario-engine.ts`: that file declares WHAT this session does, in order, and
+// this one owns the envelope every beat of it is built from. The script reads as a
+// table once the envelope stops being retyped twenty times.
+//
+// THE INSTANT IS DERIVED FROM THE TICK, and that is the point rather than a
+// convenience. Every beat used to carry `atMs` and an `occurredAt` that had to agree
+// with it by hand, which is two spellings of one fact — and the fixture's own frozen
+// clock advances on `atMs`, so a drifted `occurredAt` would put a timestamp on screen
+// that no tick of this scenario corresponds to. One of them is now computed from the
+// other, so they cannot disagree. The rule applies to the module's OWN base instant
+// too: tick zero is derived rather than spelled a second time, which is why no test
+// file stands beside this one holding two spellings together.
+//
+// THE ROW ID IS STAMPED HERE TOO, and it is a different kind of claim. `id` is the
+// daemon's own opaque identifier for the event — the member the hydrated-event read
+// is keyed by, and the one canonical member that names THIS event rather than its
+// position — so it is a fact of its own and not a second spelling of the sequence.
+// What the stamp below asserts is only that this script's twenty beats each carry a
+// distinct, stable, UUID-shaped id under the scenario's own prefix, which is exactly
+// the value a hand-written table would have held: a v7 id minted one beat after
+// another differs in its tail and nowhere else. The beats state their `sequence`
+// already, so the tail is read from there rather than written twenty more times.
+
+import type { ScenarioBeat } from "../scenario-runtime/index.js";
+import { TERMINAL_SCENARIO_SESSION_ID } from "./terminal-cast.js";
+
+/**
+ * Wall-clock instant the frozen clock reports as "now" at tick zero.
+ *
+ * `Date.UTC` names the fields rather than parsing a text, so a fixture instant is
+ * declared and never interpreted: a stamp read the other way round is read in the
+ * HOST's zone the moment its spelling loses its `Z`, which makes this a different
+ * scenario on a machine east of London.
+ */
+export const TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS: number = Date.UTC(2026, 0, 1, 16, 40, 0, 0);
+
+/**
+ * The same instant as the text the wire carries — DERIVED, which is this module's own
+ * rule applied to its own base.
+ *
+ * It was spelled out a second time by hand, defended on the grounds that deriving it
+ * needs a banned parse. It does not: the tick arithmetic below already turns a number
+ * into exactly this text through the permitted `new Date(<sum>)` form, so tick zero
+ * IS this value and a whole test file existed to hold two spellings of it together.
+ * One of them is now computed from the other, so they cannot disagree.
+ */
+export const TERMINAL_SCENARIO_STARTED_AT_ISO: string = terminalScenarioInstantAt(0);
+
+/** The scenario's own event-id prefix, shared by every beat's opaque row id. */
+const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
+
+/** The event kind every lease transition arrives on. `Spec-006`'s registered type. */
+const LEASE_TRANSITION_KIND = "pty.control_changed";
+
+/**
+ * The tick the shell's host node attached at.
+ *
+ * A tick and not an instant, because two surfaces report it — the `runtime_node.online`
+ * beat and the roster reply's `attachedAt` — and they were two hand-written copies of
+ * one timestamp. Both now read it here and pass it through the clock below.
+ */
+export const TERMINAL_HOST_NODE_ATTACHED_AT_MS = 160;
+
+/**
+ * The tick of the host node's last heartbeat before it went silent.
+ *
+ * Three surfaces report this one: the roster reply, the `runtime_node.offline` beat's
+ * `lastHeartbeatAt`, and — through the beat — the degraded line a person reads.
+ */
+export const TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS = 3_780;
+
+/**
+ * The instant a tick lands on, in the frozen clock's own wall time.
+ *
+ * A function declaration, so the base instant above may be derived from it at tick
+ * zero: hoisting is what lets the one derivation sit beside the number it derives
+ * from rather than below the table that reads it.
+ */
+export function terminalScenarioInstantAt(atMs: number): string {
+  return new Date(TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS + atMs).toISOString();
+}
+
+/**
+ * The opaque row id the daemon would have minted for the beat at this position.
+ *
+ * Exported because a suite that appends a beat AFTER the script — a second host
+ * attaching once everything scripted has played — has to give it a row id, and one
+ * spelled any other way would be the single row in that log a reader could tell was
+ * not the daemon's.
+ */
+export function terminalScenarioEventId(sequence: number): string {
+  return `${TERMINAL_EVENT_ID_PREFIX}${String(sequence).padStart(4, "0")}`;
+}
+
+/** What one beat says beyond the envelope this module stamps. */
+export interface TerminalScenarioBeatInput {
+  /** The tick this beat is due at, measured from scenario start. */
+  readonly atMs: number;
+  readonly sequence: number;
+  /** Wire-verbatim event type. Held to the registered taxonomy by `scenarios.test.ts`. */
+  readonly kind: string;
+  /** Who the log attributes the event to. Omitted where the daemon acted alone. */
+  readonly actorId?: string;
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * One scripted beat of this session, with its id, its session id, and its instant
+ * stamped.
+ *
+ * All three stamped rather than written per beat: the session id is the same string
+ * twenty times over, the instant is `atMs` in the other spelling, and the row id is
+ * the scenario's prefix with this beat's own position on the end.
+ */
+export function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioBeat {
+  return {
+    atMs: beat.atMs,
+    event: {
+      id: terminalScenarioEventId(beat.sequence),
+      sessionId: TERMINAL_SCENARIO_SESSION_ID,
+      sequence: beat.sequence,
+      kind: beat.kind,
+      occurredAt: terminalScenarioInstantAt(beat.atMs),
+      ...(beat.actorId === undefined ? {} : { actorId: beat.actorId }),
+      payload: beat.payload,
+    },
+  };
+}
+
+/** What one lease transition says. The payload members are `Spec-006`'s own. */
+export interface TerminalLeaseTransitionBeatInput {
+  readonly atMs: number;
+  readonly sequence: number;
+  /**
+   * Who holds it after this transition.
+   *
+   * `null` is the free lease, and it is written as an explicit null rather than an
+   * omitted member because `Spec-023 §Console Design (Meridian)` 8.8 makes an unheld
+   * lease an explicit state that reads differently from a suppressed one.
+   */
+  readonly holderParticipantId: string | null;
+  readonly previousHolderParticipantId: string | null;
+  /** One of the five reasons `Spec-006` closes the set at. */
+  readonly reason: string;
+  /** Omitted for a take the daemon's own lease authority performed. */
+  readonly actorId?: string;
+}
+
+/**
+ * One `pty.control_changed` beat.
+ *
+ * Its own builder rather than a `terminalScenarioBeat` call with a payload literal,
+ * because nine of this script's twenty beats are this shape and the transitions are
+ * what a reader comes to the script for. Written as a table, the hand-off sequence
+ * reads off the page; written as nine payload literals, it did not.
+ */
+export function terminalLeaseTransitionBeat(
+  transition: TerminalLeaseTransitionBeatInput,
+): ScenarioBeat {
+  return terminalScenarioBeat({
+    atMs: transition.atMs,
+    sequence: transition.sequence,
+    kind: LEASE_TRANSITION_KIND,
+    ...(transition.actorId === undefined ? {} : { actorId: transition.actorId }),
+    payload: {
+      sessionId: TERMINAL_SCENARIO_SESSION_ID,
+      holderParticipantId: transition.holderParticipantId,
+      previousHolderParticipantId: transition.previousHolderParticipantId,
+      reason: transition.reason,
+    },
+  });
+}

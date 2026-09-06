@@ -192,12 +192,13 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. No marker on either
-// line: the ledger's pane wears the chrome and narrows its own body through
-// `paneBodyForKind`, and the deck — the one host that provides the two controls —
-// mounts every pane inside `PaneControlsContext`, so a surviving tag would fail the
-// run under `--treat-tag-hints-as-errors`. The five pane-body tasks still to land are
-// consumers of an export that already has one.
+// The pane chrome and the seam its two host controls travel on. No marker on any of
+// these lines, and both halves of the reason have now happened: shipped pane bodies
+// import the chrome and narrow through `paneBodyForKind`, and the deck — the one host
+// that provides the two controls — ships and mounts every pane inside
+// `PaneControlsContext`. A surviving tag would fail the run under
+// `--treat-tag-hints-as-errors`; the pane-body tasks still to land are consumers of
+// exports that already have one.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export { PaneControlsContext, type PaneControls } from "./pane-controls.js";

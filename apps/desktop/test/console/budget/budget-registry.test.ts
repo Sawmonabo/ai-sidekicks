@@ -84,12 +84,27 @@ const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
  * different thing from `"n/a"`, and the distinction is the point: an `"n/a"` row
  * is one nothing measures, while this one is measured everywhere and adjudicated
  * where the reading is comparable.
+ *
+ * `terminal-instance-memory` made the same round trip on 2026-09-02 and came back
+ * on 2026-09-04, on the condition its withdrawal named. Its wiring was never the
+ * problem — the tier it names has always run — but the harness it pointed at built
+ * an `XtermTerminalAdapter` directly under happy-dom and read the Node process's
+ * own heap, so the WebGL renderer, the pane's React tree, its lease, and its store
+ * state, all named in the row's own subject, could not move the number. A gate
+ * whose subject is narrower than its row can report green over a pane well past
+ * the ceiling, which is the one failure a budget exists to catch. What it waited
+ * for was a way to open a registered pane in a running window, and the endurance
+ * tier has one: it mounts the `terminal` body the deck's own registry resolves,
+ * in the built console, on a live WebGL2 context, and FAILS rather than measures
+ * when the renderer falls back. Re-listing either id against a harness that holds
+ * less than its row's subject restores the false green rather than the gate.
  */
 const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "renderer-heap-at-rest",
   "time-to-first-ledger-row",
   "frame-time-p95-four-lanes",
+  "terminal-instance-memory",
   ...EXPECTED_HARNESS_BUDGET_IDS,
 ];
 

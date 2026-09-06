@@ -36,7 +36,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
-import { describeViolations, runAxe } from "./axe-run.js";
+import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import {
   SidekicksBridgeProvider,
@@ -163,7 +163,7 @@ describe("accessibility — the ledger", () => {
         "the ledger mounted no rows, so a clean axe result says nothing about a card",
       ).toBeGreaterThan(0);
 
-      expect(describeViolations(await runAxe(container))).toStrictEqual([]);
+      expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
 
     it(`has no axe violation over the ledger's empty state in the ${scheme} scheme`, async () => {
@@ -176,7 +176,7 @@ describe("accessibility — the ledger", () => {
       expect(container.textContent).toContain("Nothing has happened in this session yet.");
       expect(container.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(0);
 
-      expect(describeViolations(await runAxe(container))).toStrictEqual([]);
+      expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
   }
 
@@ -190,7 +190,7 @@ describe("accessibility — the ledger", () => {
     planted.innerHTML = '<img src="data:," />';
     container.append(planted);
     try {
-      expect((await runAxe(container)).map((violation) => violation.id)).toContain("image-alt");
+      expect((await runTierAxe(container)).map((violation) => violation.id)).toContain("image-alt");
     } finally {
       planted.remove();
     }

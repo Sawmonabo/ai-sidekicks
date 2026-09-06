@@ -1,10 +1,14 @@
 // The accessibility tier.
 //
 // `Spec-023 §Console Test Tiers` names axe-core over every surface in both
-// schemes. The run itself — which rule set, which root, and how a violation is
-// reported — is `axe-run.ts`', shared with this tier's other files so two
-// surfaces are never measured by two instruments and then compared as though the
-// results were comparable.
+// schemes. It runs INSIDE the browser-mode page rather than through
+// `@axe-core/playwright`, which wants a `@playwright/test` `Page` handle Vitest
+// browser mode hands only to server-side custom commands, never to test code,
+// and which is the orchestrator page rather than the tester iframe — same
+// engine, same rule set, one less indirection. (`axe-core` is MPL-2.0 and is
+// admitted as a never-distributed test
+// dependency by ADR-020's Decision Log; it must not reach a shipped bundle, which
+// is why it is imported here and nowhere under `src/`.)
 //
 // Two things this file is careful about:
 //
@@ -18,7 +22,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
-import { describeViolations, runAxe } from "./axe-run.js";
+import {
+  PLANTED_VIOLATION_RULE_ID,
+  describeViolations,
+  plantAxeViolation,
+  runTierAxe,
+} from "./axe-run.js";
 
 import {
   ConsoleRoot,
@@ -46,7 +55,7 @@ describe("accessibility — the frame", () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
-      expect(describeViolations(await runAxe(container))).toStrictEqual([]);
+      expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
   }
 
@@ -54,11 +63,10 @@ describe("accessibility — the frame", () => {
     // Negative control. axe returning nothing is the expected result above, and a
     // misconfigured run (wrong root, wrong tags, an exception swallowed) returns
     // exactly the same nothing. This proves the run is live.
-    const planted = document.createElement("div");
-    planted.innerHTML = '<img src="data:," />';
-    document.body.append(planted);
+    const planted = plantAxeViolation();
     try {
-      expect((await runAxe(planted)).map((violation) => violation.id)).toContain("image-alt");
+      const violations = await runTierAxe(planted);
+      expect(violations.map((violation) => violation.id)).toContain(PLANTED_VIOLATION_RULE_ID);
     } finally {
       planted.remove();
     }

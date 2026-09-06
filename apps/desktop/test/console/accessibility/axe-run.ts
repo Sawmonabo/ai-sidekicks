@@ -1,53 +1,37 @@
-// The accessibility tier's one axe invocation, shared by every file in it.
+// How this tier runs axe, and how it reports what axe found.
 //
-// Not a test file — no `include` glob reaches it. Each file in this tier asks axe
-// the same question of a different surface, and the question has three parts: which
-// rule set the run is scoped to, what a violation is reported AS, and which root it
-// is run over. A per-file copy of any of them would be two surfaces measured by two
-// instruments and then compared as though the results were comparable — and the
-// drift would be silent, because a run with a narrower tag list reports fewer
-// violations rather than reporting that it asked less.
+// Not a test file — no `include` glob reaches it. Two things every file in the tier
+// has to agree on: the RULE SET, because a file running a narrower set would report
+// clean over violations its neighbour would have caught, and the FAILURE MESSAGE,
+// because the tier's whole claim is that a red run names the rule and the node
+// rather than saying a number went up. Both live here once.
 //
-// WHY THE RUN IS IN-PAGE AND NOT THROUGH `@axe-core/playwright`
-//
-// That adapter wants a `@playwright/test` `Page` handle, which Vitest browser mode
-// hands only to server-side custom commands and never to test code — and the handle
-// it would hand over is the orchestrator page rather than the tester iframe the
-// console is actually mounted in. Same engine, same rule set, one less indirection.
-//
-// `axe-core` is MPL-2.0 and is admitted as a never-distributed test dependency by
-// ADR-020's Decision Log. It is imported here and by this tier's test files, and it
-// must not reach a shipped bundle — which is why it appears nowhere under `src/`.
+// (`axe-core` is MPL-2.0 and is admitted as a never-distributed test dependency by
+// ADR-020's Decision Log; it must not reach a shipped bundle, which is why it is
+// imported under `test/` and nowhere under `src/`.)
 
 import axe, { type Result } from "axe-core";
 
 /** WCAG 2.2 A + AA, which is the level `Spec-023 §Console Design (Meridian)` rule 3 sets. */
-export const AXE_TAGS: readonly string[] = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+const AXE_TAGS: readonly string[] = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 /**
- * Run this tier's rule set over one root, and hand back the violations alone.
+ * Run the tier's rule set over one element and hand back what it found.
  *
- * The violations rather than the whole `AxeResults`, because every caller in this
- * tier wants exactly that list and a caller holding the full result is a caller free
- * to assert on `passes.length` — a number that moves whenever axe adds a rule, which
- * would make an unrelated dependency bump look like a regression in the console.
- *
- * The tag list is spread into a fresh array on the way in: `runOnly.values` is a
- * mutable `string[]` in axe's own types, and handing it the module-level constant
- * would let a rule set the whole tier shares be edited by whatever it is passed to.
+ * Takes the element rather than the whole document so a surface-scoped case reports
+ * its own surface: a document-scoped run over a page holding three mounted surfaces
+ * would attribute every violation to whichever one a reader looked at first.
  */
-export async function runAxe(root: Element): Promise<readonly Result[]> {
-  const results = await axe.run(root, { runOnly: { type: "tag", values: [...AXE_TAGS] } });
+export async function runTierAxe(element: Element): Promise<readonly Result[]> {
+  const results = await axe.run(element, { runOnly: { type: "tag", values: [...AXE_TAGS] } });
   return results.violations;
 }
 
 /**
- * One line per violation: the rule, its impact, and the nodes that broke it.
+ * One line per violation: the rule, its impact, and the nodes it landed on.
  *
- * Assertions in this tier compare this list against `[]` rather than comparing a
- * COUNT against zero, so a failure names the rule and the element instead of saying
- * a number went up — which is the difference between a report somebody can act on
- * and one they have to reproduce locally before they can even read it.
+ * The tier asserts on this LIST rather than on a count, so a failure names what to
+ * fix instead of reporting that a number moved.
  */
 export function describeViolations(violations: readonly Result[]): string[] {
   return violations.map(
@@ -57,3 +41,21 @@ export function describeViolations(violations: readonly Result[]): string[] {
         .join(", ")}`,
   );
 }
+
+/**
+ * The tier's negative control: a node that is known to violate one of these rules.
+ *
+ * axe returning nothing is the expected result of every clean case, and a
+ * misconfigured run — wrong root, wrong tags, an exception swallowed — returns
+ * exactly the same nothing. Planting a violation and finding it is what makes a
+ * clean result evidence. The caller removes the node it is handed.
+ */
+export function plantAxeViolation(): HTMLElement {
+  const planted = document.createElement("div");
+  planted.innerHTML = '<img src="data:," />';
+  document.body.append(planted);
+  return planted;
+}
+
+/** The rule id `plantAxeViolation`'s node breaks. Named so a case can assert it. */
+export const PLANTED_VIOLATION_RULE_ID = "image-alt";
