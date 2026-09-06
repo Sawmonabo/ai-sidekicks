@@ -71,6 +71,21 @@ function scenarioDeclaring(state: string): ConsoleScenario {
 }
 
 /**
+ * The served operations whose answer depends on what the playing scenario states.
+ *
+ * Membership in the served set says the PORT implements an operation, not that every
+ * scenario has something for it to answer with. The branch-context read is the one
+ * such operation under the flagship scenario, which scripts none: the registered reply
+ * is flat and carries no absence, so there is nothing honest to serve and the read
+ * refuses. Named here rather than folded into the sweep so the sweep keeps saying
+ * exactly what it said, and so this exemption fails the moment it stops being true —
+ * the case below asserts the refusal rather than merely skipping the operation.
+ */
+const SCENARIO_CONDITIONAL_SERVED_OPERATIONS: ReadonlySet<GrowthOperationId> = new Set([
+  "gitflowBranchContextRead",
+]);
+
+/**
  * The subject-addressed workflow reads, derived from the two declarations rather than
  * retyped.
  *
@@ -97,6 +112,9 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     );
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
+      if (SCENARIO_CONDITIONAL_SERVED_OPERATIONS.has(operationId)) {
+        continue;
+      }
       const outcome = await callOperation(bridge.growth, operationId);
       expect(outcome.status, `${operationId} answered the wrong way`).toBe(
         served.has(operationId) ? "served" : "unavailable",
@@ -148,6 +166,22 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     for (const operationId of SUBJECT_ADDRESSED_WORKFLOW_READS) {
       const outcome = await callOperation(bridge.growth, operationId, WORKFLOWS_SCENARIO.sessionId);
       expect(outcome.status, `${operationId} did not answer for its own script`).toBe("served");
+    }
+  });
+
+  it("refuses a served operation the playing scenario states nothing for", async () => {
+    // The half the sweep above cannot make: an operation is in the served set because
+    // the PORT implements it, and whether a given scenario has anything to answer with
+    // is the scenario's business. The branch-context read is that case — the registered
+    // reply is flat and carries no absence, so a scenario scripting none leaves nothing
+    // honest to serve and the read takes the "not checked" refusal instead of a
+    // fabricated empty context.
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+
+    for (const operationId of SCENARIO_CONDITIONAL_SERVED_OPERATIONS) {
+      expect(FIXTURE_SERVED_GROWTH_OPERATION_IDS).toContain(operationId);
+      const outcome = await callOperation(bridge.growth, operationId);
+      expect(outcome.status, `${operationId} answered the wrong way`).toBe("unavailable");
     }
   });
 

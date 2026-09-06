@@ -85,11 +85,7 @@ export {
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon/daemon-reply.js";
-export type {
-  DaemonReply,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
-  DaemonReplyRefusalCode,
-} from "./daemon/daemon-reply.js";
+export type { DaemonReply, DaemonReplyRefusalCode } from "./daemon/daemon-reply.js";
 export type {
   ConsoleDaemonMethod,
   DaemonRequestOf,
@@ -106,22 +102,39 @@ export { heldIdAsWireId } from "./daemon/wire-ids.js";
 // refusal they render instead, and the builder that mints one all leave through this
 // door — the same door the bridge itself does, because a growth refusal IS what this
 // bridge answers for a wire the corpus has not registered.
-// `growthUnavailableFromRejection` deliberately does NOT: every growth call in the
-// console settles through `readings/read-settlement.js` below, which keeps the
-// daemon's own code rather than restamping it, so that builder's only importer is a
-// suite beside it — the class `barrel-census.test.ts` fails on this door.
-// `GrowthUnavailable` DOES, and the substrate this family sits on takes it off: the
-// one surface that named it there settles through that same reading now. Here the
-// outcome's refusal arm is named again, by the run pane's control dispatch, which
-// reads a port answer it did not settle through a hook — a reader, so a line.
+// `growthUnavailableFromRejection` AND `GrowthUnavailable` are here for readers
+// outside the session directory, which is the distinction the reading layer drew when
+// it took both off. A directory read settles through `readings/read-settlement.js`
+// below and keeps the daemon's own code, so nothing on that path mints a port refusal
+// or names the type. Two families since reach past that path: `repos/growth-call.ts`
+// catches a REJECTED call — the one path the port never answers on — and hands the
+// rejection to the builder, returning the type, and the workflow run pane's control
+// dispatch names the outcome's refusal arm for a port answer it did not settle
+// through a hook. So both travel, and the rule that took them off is unchanged: a
+// door line stands while a production module reaches it, and these two are reached.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
 // reached deep by the three modules inside this family that read several planes at
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable } from "./growth-port/growth-port.js";
+export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
+// `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
+// what the port's own refusal arms are written in, and nothing outside
+// `growth-port/growth-outcome.ts` names it at all, so a door line for it would
+// publish a specifier with no importer — the class `barrel-census.test.ts` fails.
+// `createRefusingGrowthPort` is withheld on the same rule from the other side: its
+// one production caller is `live-bridge.ts` inside this family, which takes it
+// through `growth-port/index.js`, the inner door its siblings already read.
 export type { GrowthPort } from "./growth-port/growth-port.js";
+// The operation id, beside the port and the builder that both speak it. Withheld, it
+// made `GrowthPort` unusable through this door by anyone composing a partial one: the
+// port's method types and `growthUnavailable`'s parameter are BOTH written in this
+// union, so a family scripting a port could not name the type it had to satisfy and
+// reached for `as unknown as Partial<GrowthPort>` instead — a cast that switches off
+// the checking on the whole object to get past one member it could not spell. It
+// leaves through `growth-port/growth-entry.js`, the module that declares it.
+export type { GrowthOperationId } from "./growth-port/growth-entry.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 // The attention projection's own vocabulary. Published because the notification
 // plane NARROWS against it: it used to declare a second copy of these six triggers
@@ -138,7 +151,6 @@ export {
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
-export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
 
 // The `invitesList` outcome and its served row. Published because TWO sibling view
 // families read that one operation — the sent ledger and the received shelf — and a
@@ -183,6 +195,56 @@ export type {
   PeerInvocationReading,
   PeerInvocationSetRequest,
 } from "./wire-shapes/agent-plane.js";
+
+// The manifest envelope a served `artifactList` answers with. Through this door
+// because the repos family's artifact model reads one into a row, and a family
+// reaching past a barrel into the bridge's own modules would be the deep import
+// the structure rules exist to prevent. It leaves through `artifacts.js` — the
+// module that DECLARES it — on the rule the paragraph above states.
+export type { GrowthArtifactSummary } from "./growth-values/artifacts.js";
+// The PR-preparation vocabulary, through the same door and for the reason the
+// artifact vocabularies below are here: the repos family's prepared proposal carries
+// this state and used to DECLARE a second copy of the two words, member for member,
+// each under a comment claiming to be the one home. The family aliases this one now,
+// so a member the wire drops stops being assignable in the gate.
+export {
+  GROWTH_PR_PREPARATION_STATES,
+  type GrowthPrPreparationState,
+} from "./growth-values/gitflow.js";
+// The read's own reply union and the encoding a reader switches on, for the same
+// reason and through the same module: the artifact pane consumes both arms of a
+// served payload read, and the arm it lands on is what it draws.
+export type {
+  GrowthArtifactPayloadEncoding,
+  GrowthArtifactRead,
+} from "./growth-values/artifacts.js";
+// The manifest's own closed vocabularies, through the same door and for the reason
+// that door exists: the repos family renders every one of them — a state chip, a
+// visibility chip, a type filter, a replication sentence, a delete receipt's
+// disposition — and it used to DECLARE a second copy of each, member for member,
+// under a comment claiming to be the one home. A view family derives from the shape
+// the wire declares or it drifts from it silently, and the drift that matters is the
+// wire dropping a member: a second union goes on offering it with nothing failing.
+export {
+  GROWTH_ARTIFACT_TYPES,
+  // The receipt itself, beside the disposition it carries: a surface that renders
+  // where the bytes went is holding the whole receipt, and publishing the member's
+  // vocabulary without the record it sits in left the family annotating one and
+  // inferring the other.
+  type GrowthArtifactDeleteReceipt,
+  type GrowthArtifactPayloadDisposition,
+  type GrowthArtifactReplicationStatus,
+  type GrowthArtifactState,
+  type GrowthArtifactType,
+  type GrowthArtifactVisibility,
+} from "./growth-values/artifacts.js";
+// The port's own refusal vocabulary, for the callers that turn a REJECTED call into a
+// refusal. A growth call has two failure paths — the port answers `unavailable`, or the
+// call throws — and the artifact pane used to stamp the second with the repos family's
+// daemon-read origin and a daemon-reply code, so one operation reported two subsystem
+// names and neither was the port's.
+export { GROWTH_PORT_REFUSAL_ORIGIN } from "./growth-port/growth-outcome.js";
+export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
 
 // Which kind of nothing a growth refusal IS — the console never asked, or the asking
 // failed. Every surface that offers the node's sessions has to answer it before it

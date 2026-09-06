@@ -48,18 +48,24 @@
 // the session's roster, and the memberships that roster holds, all of it
 // `fixture-session-snapshot.ts`'s, whose header carries the reasoning for each.
 //
-// WHY THE BRANCH-CONTEXT READ IS SERVED AND ANSWERS NOTHING
+// WHY THE BRANCH-CONTEXT READ IS SERVED FROM THE SCRIPT AND REFUSES WITHOUT ONE
 //
-// It is served so the repos surface can render the two different kinds of nothing
-// `Spec-023 §Console Design (Meridian)` distinguishes. "Nobody asked" is the port's
-// refusal and is what a release build still renders for this wire; "we asked and
-// this workspace has no branch context" is a state the summary has to draw too, and
-// under a refusing port it was unreachable — so the surface could only ever be built
-// against half of its own empty states.
+// It is served so a scenario that states a branch context can drive the repos
+// surface's prepared arm, which under a refusing port was unreachable — the summary
+// could only ever be built against the "nobody asked" half of its own empty states.
 //
-// The answer is the absence for every scenario, and that is a fact about the corpus
-// rather than a stub. Two things would have to be true for a scenario to state a
-// branch context, and neither is:
+// AND IT REFUSES FOR A SCENARIO THAT SCRIPTS NOTHING, which is a change from the
+// served absence this port used to answer with. The registered
+// `BranchContextReadResponse` is FLAT: it returns the context's fields directly and
+// has no member on which "there is none" could ride, because a `(workspace, worktree)`
+// pair resolving no row is a REFUSAL on that wire rather than an empty reply. So a
+// served absence here would be a shape no daemon can send, which is the one thing a
+// fixture must not script. The refusal is the same "not checked" the live bridge
+// takes, which is the honest reading of a script that has not said — the
+// `callerParticipantRead` posture below, for the same reason.
+//
+// The corpus premise behind that: two things would have to be true for a scenario to
+// derive a branch context from its beats rather than script one, and neither is:
 //
 //   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. What it
 //     does carry is a session, its roster, beats, replies, and a start instant.
@@ -69,10 +75,10 @@
 //     over beats could reach a workspace and a worktree and would still have to
 //     invent both branch names — and `BranchContextReadResponse` requires them.
 //
-// So the honest answer is that there is none, and `findScenariosNaming` in
-// `fixture-growth-port.gitflow.test.ts` beside this file is what keeps the claim
-// true: the day a scenario does carry a branch, that test fails and this derivation
-// is what has to change.
+// So a scenario says it in a reply or it does not say it, and `findScenariosNaming`
+// in `fixture-growth-port.gitflow.test.ts` beside this file is what keeps that claim
+// true: it names every scenario that states a branch, and the day the set changes
+// that case fails and this derivation is what has to change.
 //
 // AND WHY ITS SIBLING ON THE SAME SLATE ROW REFUSES
 //
@@ -81,9 +87,7 @@
 // PREPARATION is not an absence a surface has to draw: a proposal was either assembled
 // or it was not, so there is no "we asked and there is none" state here for the served
 // arm to answer with, and the port would have to mint a `prPreparationId` and a
-// `proposalBlob` out of nothing. Nor could a caller reach it: the request is keyed on a
-// `branchContextId`, and the read next door answers the absence for every scenario, so
-// under this bridge there is no id to send. `Spec-011 §Required Behavior` puts the
+// `proposalBlob` out of nothing. `Spec-011 §Required Behavior` puts the
 // review before any remote mutation, which is the last of it — a fixture that answered
 // would be standing in for the review rather than for the wire.
 //
@@ -186,9 +190,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // they leave out are five mutations and the gate-chain verification;
   // `fixture-workflow-reads.ts` carries the whole of that reasoning.
   ...FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
-  // gitflow — the branch-context read, whose whole answer today is that there is none.
-  // Its sibling `gitflowPrPrepare` is on the same slate row and refuses, which is the
-  // rule above rather than an omission: see the branch-context section of the header.
+  // gitflow — the branch-context read, answered from a scenario that scripts one and
+  // refused for one that does not. Its sibling `gitflowPrPrepare` is on the same slate
+  // row and refuses under every scenario, which is the rule above rather than an
+  // omission: see the branch-context section of the header.
   "gitflowBranchContextRead",
   // identity — answered from a scenario that states its own viewer, refused from one
   // that does not.
