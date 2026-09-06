@@ -37,8 +37,13 @@ export { attentionProjectionReaderFor } from "./attention-projection-read.js";
 export { useAttentionProjection, useAttentionSettlementAnnouncement } from "./attention-read.js";
 
 // The emission path and the fact that decides whether it reaches anyone. Both leave
-// through this door because the destination mounts one and hands the other to the
-// centre; the notifier's own class stays inside, since only its hook is mounted.
+// through this door because the window's attention binding mounts them for the frame's
+// lifetime and provides the reading on to the centre; the notifier's own class stays
+// inside, since only its hook is mounted. The type leaves with them, because the
+// binding publishes the reading on its own context value.
 export { useAttentionNotifications } from "./attention-notifier.js";
-export { useOsNotificationDelivery } from "./os-notification-delivery.js";
+export {
+  useOsNotificationDelivery,
+  type OsNotificationDelivery,
+} from "./os-notification-delivery.js";
 export { useRailAttentionPublisher } from "./rail-attention.js";

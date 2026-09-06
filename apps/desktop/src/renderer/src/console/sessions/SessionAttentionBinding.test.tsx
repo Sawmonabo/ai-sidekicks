@@ -33,7 +33,7 @@ import { SidekicksBridgeProvider } from "../bridge/index.js";
 import { settle } from "./session-surface.test-support.js";
 import { FrameStore, type SessionStore, type SessionStoreRegistry } from "../store/index.js";
 import type { FrameBindingContext } from "../seats/index.js";
-import { SessionAttentionBinding } from "./SessionAttentionBinding.js";
+import { SessionAttentionBinding, useSessionAttention } from "./SessionAttentionBinding.js";
 import { useAttentionProjection, useRailAttentionPublisher } from "./notifications/index.js";
 import { attentionProjectionReaderFor } from "./notifications/index.js";
 
@@ -50,8 +50,17 @@ const WAITING_SESSION_IDS: readonly string[] = ["session-a"];
  * declares every operation the console has a slate row for, and building all of them
  * to answer two would make the setup the subject.
  */
-function growthPortServing(options: { readonly waitingSessionIds: readonly string[] }): unknown {
+function growthPortServing(options: {
+  /** Read on every pass, so a case can move the projection between two reads. */
+  readonly readWaitingSessionIds: () => readonly string[];
+  readonly permissionState?: string;
+}): unknown {
   return {
+    shellNotificationPermissionRead: () =>
+      Promise.resolve({
+        status: "served",
+        value: { state: options.permissionState ?? "granted" },
+      }),
     sessionList: () =>
       Promise.resolve({
         status: "served",
@@ -61,7 +70,7 @@ function growthPortServing(options: { readonly waitingSessionIds: readonly strin
       Promise.resolve({
         status: "served",
         value: {
-          items: options.waitingSessionIds.includes(sessionId)
+          items: options.readWaitingSessionIds().includes(sessionId)
             ? [
                 {
                   id: `item-${sessionId}`,
@@ -92,20 +101,48 @@ interface Harness {
   readonly frameStore: FrameStore;
   readonly context: FrameBindingContext;
   readonly bridge: unknown;
+  /** One entry per `native.showNotification` call this window made. */
+  readonly raisedNotifications: unknown[];
+  /** Move the projection, so the next read answers with something new. */
+  readonly setWaitingSessionIds: (sessionIds: readonly string[]) => void;
 }
 
-function harness(options: { readonly waitingSessionIds?: readonly string[] } = {}): Harness {
+function harness(
+  options: {
+    readonly waitingSessionIds?: readonly string[];
+    readonly permissionState?: string;
+  } = {},
+): Harness {
   const frameStore = new FrameStore();
   const sessionStoreRegistry = emptyRegistry();
+  const raisedNotifications: unknown[] = [];
+  let waitingSessionIds = options.waitingSessionIds ?? WAITING_SESSION_IDS;
   const bridge = {
     source: "fixture",
     growth: growthPortServing({
-      waitingSessionIds: options.waitingSessionIds ?? WAITING_SESSION_IDS,
+      readWaitingSessionIds: () => waitingSessionIds,
+      ...(options.permissionState === undefined
+        ? {}
+        : { permissionState: options.permissionState }),
     }),
+    // Recorded rather than asserted on the shell: the claim is that a call LEFT this
+    // window, and `showNotification` returns `void` on the real bridge too, so the
+    // count of calls is the whole observable.
+    sidekicks: {
+      native: {
+        showNotification: (options_: unknown) => {
+          raisedNotifications.push(options_);
+        },
+      },
+    },
   };
   return {
     frameStore,
     bridge,
+    raisedNotifications,
+    setWaitingSessionIds: (next: readonly string[]) => {
+      waitingSessionIds = next;
+    },
     context: {
       bridge,
       frameStore,
@@ -210,6 +247,38 @@ describe("the window's attention binding — the count outlives a destination", 
     expect(railCount(frameStore)).toBeUndefined();
   });
 
+  it("raises an OS notification while a non-sessions destination is mounted", async () => {
+    // The defect the emitter's move fixes, stated as a case. A banner exists for
+    // somebody who is looking somewhere else, and it used to be mounted on the one
+    // screen they were not on — so an approval that started waiting while a person sat
+    // in Settings reached them nowhere at all. The subtree here is never the sessions
+    // destination, on this file's own navigation convention.
+    const { bridge, context, raisedNotifications, setWaitingSessionIds } = harness({
+      waitingSessionIds: [],
+    });
+
+    render(
+      <SidekicksBridgeProvider bridge={bridge as never}>
+        <SessionAttentionBinding context={context}>
+          <RetryOnDemand />
+        </SessionAttentionBinding>
+      </SidekicksBridgeProvider>,
+    );
+    await settle();
+    // The baseline: the first settled read is the state of the world as this window
+    // found it, and announcing it would fire one banner per outstanding item at every
+    // launch.
+    expect(raisedNotifications).toStrictEqual([]);
+
+    setWaitingSessionIds(WAITING_SESSION_IDS);
+    await act(async () => {
+      retryHeldAttention?.();
+      await settle();
+    });
+
+    expect(raisedNotifications).toHaveLength(1);
+  });
+
   it("planted control: the same read mounted on the destination loses the count", async () => {
     // The old shape, planted. It publishes the same number from the same hooks and
     // differs in one thing only — where it is mounted — so a swap that leaves the
@@ -249,3 +318,25 @@ describe("the window's attention binding — the count outlives a destination", 
     expect(railCount(frameStore)).toBeUndefined();
   });
 });
+
+/**
+ * The child's own handle on the binding's re-read, captured for the case above.
+ *
+ * A module-level cell rather than a prop, because what the case needs is the function
+ * the PROVIDER published, and the child is a stand-in for whatever destination happens
+ * to be mounted. Written on every render of the component below.
+ */
+let retryHeldAttention: (() => void) | undefined;
+
+/**
+ * A subtree that is emphatically not the sessions destination.
+ *
+ * It reads the binding exactly as any consumer does and draws a screen that has
+ * nothing to do with sessions — which is the whole point of the case above: the
+ * notification has to leave the window from a screen the sessions list is not on.
+ */
+function RetryOnDemand(): React.JSX.Element {
+  const { retry } = useSessionAttention();
+  retryHeldAttention = retry;
+  return <div>the workspace</div>;
+}

@@ -73,7 +73,15 @@ const HEALTH_STATE_MEANINGS: Readonly<Record<ProviderAccountHealthState, string>
   indeterminate: "Nothing decided. Treated as not signed in, which is not the same as a failure.",
 };
 
-/** The answer run admission will reach, pre-computed. It authorizes nothing. */
+/**
+ * The answer run admission will reach, pre-computed. It authorizes nothing.
+ *
+ * The onboarding walkthrough holds a second table over this same closed union, and
+ * the two are kept apart on REGISTER: these are an operator's reference and say what
+ * admission WOULD do; those are a first-run step and say what is true of the provider
+ * now. The union itself has one home in `packages/contracts`, so an arm added there is
+ * a compile error in both.
+ */
 const READINESS_STATE_MEANINGS: Readonly<Record<ProviderReadinessState, string>> = {
   authenticated: "A run would be admitted against the account this resolved to.",
   reauth_required: "An account resolved, and its home needs signing in again.",

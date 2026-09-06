@@ -23,6 +23,25 @@
 // and once there to draw the list. It is read once and provided, and the destination
 // takes it from the same place it takes the reading.
 //
+// AND THE OS NOTIFICATION CAME WITH IT, for the reason that moved the count and one
+// more. `Spec-019 §Required Behavior` requires attention-worthy states to surface
+// "even when the user is not actively watching the timeline", and its §Default
+// Behavior scopes the banner to whether the app is UNFOCUSED — neither says anything
+// about which destination is open, and a notification whose whole purpose is to reach
+// someone who is looking elsewhere was the one thing still mounted on the screen they
+// had left. A person on the settings page got no banner and no OS notification for an
+// approval that had just started waiting on them.
+//
+// ONE READ AND ONE EMITTER, not a second projection. The permission reading is taken
+// here and PROVIDED, so the destination's notification centre renders the same answer
+// this emitter acted on — two reads of one machine fact could disagree about whether
+// the centre is the only surface these items reach. The global-only mute and the
+// never-stale rules are unchanged and live where they already did: no preference
+// filter and no quiet-hours rule is applied here (the control plane drops non-matching
+// events before emission and the shell honours do-not-disturb), a withheld permission
+// remembers the arrival without raising it, and the first settled read still raises
+// nothing at all.
+//
 // NOTHING HERE POLLS AND NOTHING HERE RENDERS. The read re-runs when the session
 // projections underneath it move, through the console's one push-driven read
 // discipline; this component draws no markup and returns the subtree it was handed.
@@ -38,9 +57,12 @@ import { useSessionDirectory, type SessionDirectoryState } from "../seats/index.
 import { useOpenSessionIds } from "../store/index.js";
 import {
   attentionProjectionReaderFor,
+  useAttentionNotifications,
   useAttentionProjection,
+  useOsNotificationDelivery,
   useRailAttentionPublisher,
   type AttentionReading,
+  type OsNotificationDelivery,
 } from "./notifications/index.js";
 import { mergeSessionRows } from "./rows/session-directory-rows.js";
 import type { SessionListRow } from "./rows/session-rows.js";
@@ -51,8 +73,9 @@ const SESSION_ATTENTION_ORIGIN = "session-attention-binding";
 /**
  * What this window holds about the sessions it can name, read once.
  *
- * The four members are what the two consumers between them need, and no more: the
- * rail counts the reading, the destination renders the reading and offers its
+ * The five members are what the consumers between them need, and no more: the rail
+ * counts the reading, this binding's own emitter raises what the delivery reading
+ * permits, the destination renders the reading and its delivery arm and offers the
  * re-open, and both the list and the invitations fan-out are addressed by the same
  * session set this binding already merged to address its own read.
  */
@@ -62,6 +85,15 @@ export interface SessionAttention {
   /** Every session this window can name — the directory merged with its open set. */
   readonly sessionIds: readonly string[];
   readonly reading: AttentionReading;
+  /**
+   * Whether an OS notification this window raises will reach anybody.
+   *
+   * Read here rather than on the destination so the emitter above and the centre
+   * below act on ONE answer. Advisory in both places: it changes what the centre
+   * says and whether the emitter spends a call, never whether the shell is the
+   * authority on delivery, which it is.
+   */
+  readonly delivery: OsNotificationDelivery;
   /** Re-open or re-read the projection. Offered on the refused phase and nowhere else. */
   readonly retry: () => void;
 }
@@ -94,9 +126,25 @@ export function SessionAttentionBinding(props: FrameBindingProps): React.JSX.Ele
   // phase but the answered one, so a window that cannot reach the projection shows no
   // badge rather than the last number it was given.
   useRailAttentionPublisher(frameStore, projection.reading);
+  const delivery = useOsNotificationDelivery(growth);
+  // The emission, on the window's lifetime rather than the sessions destination's.
+  // What decides a banner is where the window was when the item arrived — never which
+  // screen was open, which is the audience rule read backwards.
+  useAttentionNotifications({
+    reading: projection.reading,
+    delivery,
+    frameStore,
+    bridge,
+  });
   const held = useMemo<SessionAttention>(
-    () => ({ directory, sessionIds, reading: projection.reading, retry: projection.retry }),
-    [directory, sessionIds, projection],
+    () => ({
+      directory,
+      sessionIds,
+      reading: projection.reading,
+      delivery,
+      retry: projection.retry,
+    }),
+    [directory, sessionIds, delivery, projection],
   );
   return (
     <SessionAttentionContext.Provider value={held}>

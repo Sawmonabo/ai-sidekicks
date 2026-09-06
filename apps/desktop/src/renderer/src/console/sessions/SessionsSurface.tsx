@@ -70,12 +70,7 @@ import { useMemo, useState } from "react";
 
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/index.js";
-import {
-  NotificationCenter,
-  useAttentionNotifications,
-  useAttentionSettlementAnnouncement,
-  useOsNotificationDelivery,
-} from "./notifications/index.js";
+import { NotificationCenter, useAttentionSettlementAnnouncement } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
 import { renderAbsorbedSessionProbe } from "../seats/index.js";
 import { useOpenSessionIds } from "../store/index.js";
@@ -107,6 +102,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     directory,
     sessionIds: attentionSessionIds,
     reading: attention,
+    delivery,
     retry: retryAttention,
   } = useSessionAttention();
   const windowSessionIds = useOpenSessionIds(context.sessionStoreRegistry);
@@ -127,21 +123,13 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // harnesses that render it with no announcer above them. The panel draws the same
   // read for everyone who can see it — this is the half for everyone who cannot.
   useAttentionSettlementAnnouncement(attention);
-  // Whether a banner raised from this read would reach anyone. Advisory: it changes
-  // what the centre SAYS and never whether the shell is asked, because the OS is the
-  // authority on delivery and a reading this console could not obtain would otherwise
-  // silence every notification on every host whose permission it cannot read.
-  const delivery = useOsNotificationDelivery(context.bridge.growth);
-  // The destination is where the read lives, so it is where the emission belongs: the
-  // centre is handed a reading and mounted in harnesses that hold none, and an
-  // emitter inside it would announce a projection twice on any surface that rendered
-  // two centres.
-  useAttentionNotifications({
-    reading: attention,
-    delivery,
-    frameStore: context.frameStore,
-    bridge: context.bridge,
-  });
+  // Whether a banner raised from this read would reach anyone, from the binding that
+  // took the reading. Advisory: it changes what the centre SAYS and never whether the
+  // shell is asked, because the OS is the authority on delivery and a reading this
+  // console could not obtain would otherwise silence every notification on every host
+  // whose permission it cannot read. The EMISSION is the binding's — a banner exists
+  // for someone who is looking elsewhere, so mounting the emitter on this destination
+  // meant the one surface it could never reach was every other screen.
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);

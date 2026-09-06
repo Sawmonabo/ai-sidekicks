@@ -88,6 +88,10 @@ describe("browser — the sign-in card holds the keyboard", () => {
     const passkey = [...popup.querySelectorAll("button")].find(
       (control) => control.textContent === "Sign in with a passkey",
     );
+    // Asserted before it is focused: optional-chaining past a missing control would
+    // leave the claim below satisfied by the dialog's own autofocus, so a renamed
+    // button would take this case green over a trap it never exercised.
+    expect(passkey).toBeDefined();
     passkey?.focus();
     expect(popup.contains(document.activeElement)).toBe(true);
 

@@ -6,12 +6,15 @@
 // and because reading an unrecognised value as success would sign somebody in on the
 // strength of nothing.
 //
-// AND THE FAMILY IS HELD TO ITS OWN RULE BY READING ITS SOURCE. `deriveKeyMaterial`
+// AND THE CONSOLE IS HELD TO ITS OWN RULE BY READING ITS SOURCE. `deriveKeyMaterial`
 // is main's, by the credential flow's own step 5 and by I-023-16, which leaves this
 // renderer with no salt to derive against. A call to it from here would be this
 // console choosing a PRF input — the exact trust-boundary inversion the invariant was
-// minted to close — so no file in this family may name it, and no file but the
-// adapter may name the namespace at all.
+// minted to close — so no file in the whole console tree may call it, exactly one
+// module may call the namespace at all, and every call it makes hands the ceremony an
+// EMPTY object: the third case reads the arguments, because the first two are
+// satisfied by an adapter that names the namespace once and passes it a challenge
+// this window composed.
 
 import { describe, expect, it } from "vitest";
 
@@ -32,17 +35,34 @@ declare global {
 // `node:fs` is banned in renderer programs, so the source arrives inlined at
 // transform time through Vite's raw glob — the form `panes/panes.test.ts`
 // established for the console's source-text reads.
-const FAMILY_SOURCES = import.meta.glob("./*.{ts,tsx}", {
+//
+// SCOPED TO THE CONSOLE TREE AND NOT TO THIS FAMILY. The claim is that no OTHER
+// module reaches the ceremony, and a family-scoped glob could only ever say that
+// about the family that already obeys it: a second caller written under `sessions/`
+// or `settings/` would have been invisible to a check whose whole subject was
+// `./*.ts`.
+const CONSOLE_SOURCES = import.meta.glob("../**/*.{ts,tsx}", {
   query: "?raw",
   import: "default",
   eager: true,
 });
 
-/** Every source file this family SHIPS, as `[path, text]`. Suites are excluded. */
-function familySources(): readonly { name: string; text: string }[] {
-  return Object.entries(FAMILY_SOURCES)
-    .filter(([name]) => !name.includes(".test."))
+/** Every source file the console SHIPS, as `[path, text]`. Suites are excluded. */
+function consoleSources(): readonly { name: string; text: string }[] {
+  return Object.entries(CONSOLE_SOURCES)
+    .filter(([name]) => !name.includes(".test.") && !name.includes(".test-support."))
     .map(([name, text]) => ({ name, text }));
+}
+
+/**
+ * Every ceremony CALL in one source text, as written.
+ *
+ * Matched through the bridge path the adapter actually takes rather than on the bare
+ * namespace, so a header sentence naming a method is prose and not a caller — which
+ * is what it is, and the alternative was a case that failed on a comment.
+ */
+function ceremonyCallsIn(source: string): readonly string[] {
+  return source.match(/\bsidekicks\.webAuthn\.\w+\([^)]*\)/g) ?? [];
 }
 
 describe("the adapter's answers", () => {
@@ -108,21 +128,35 @@ describe("the adapter's answers", () => {
   });
 });
 
-describe("what this family may never name", () => {
-  it("names the bridge namespace in the adapter and nowhere else", () => {
-    const shipped = familySources();
-    // Vacuity guard: an empty glob would make both cases assert nothing at all.
-    expect(shipped.length).toBeGreaterThan(4);
-    const namers = shipped
-      .filter((source) => source.text.includes("webAuthn."))
+describe("what this console may never name", () => {
+  it("calls the ceremony from the adapter and nowhere else in the tree", () => {
+    const shipped = consoleSources();
+    // Vacuity guard: an empty glob would make all three cases assert nothing at all,
+    // and the number is the console's rather than this family's now.
+    expect(shipped.length).toBeGreaterThan(100);
+    const callers = shipped
+      .filter((source) => ceremonyCallsIn(source.text).length > 0)
       .map((source) => source.name);
-    expect(namers).toStrictEqual(["./ceremony-adapter.ts"]);
+    expect(callers).toStrictEqual(["./ceremony-adapter.ts"]);
+  });
+
+  it("passes the ceremony nothing this renderer chose", () => {
+    // I-023-16 in its own terms: the untrusted renderer supplies no challenge, no
+    // relying-party identifier, and no PRF salt. The preload stub's option types are
+    // empty interfaces, so an empty object literal is the whole admissible argument —
+    // and a member added to one of those calls is what this case is watching for,
+    // which the two claims above cannot see at all.
+    const calls = consoleSources().flatMap((source) => ceremonyCallsIn(source.text));
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call).toMatch(/\(\{\}\)$/);
+    }
   });
 
   it("calls the PRF derivation from nowhere at all", () => {
     // The adapter's own header explains why it names the method and never calls it,
     // so the check is on the CALL rather than on the word.
-    for (const source of familySources()) {
+    for (const source of consoleSources()) {
       expect(source.text, source.name).not.toContain("deriveKeyMaterial(");
     }
   });

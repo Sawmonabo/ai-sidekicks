@@ -64,7 +64,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
   // One host per bridge, because the assertion sequence is per WINDOW: see its own
   // declaration for why the count lives here and not on the scenario.
-  const ceremonyHost = createScriptedCeremonyHost(scenarioEngine);
+  const ceremonyHost = new ScriptedCeremonyRunner(scenarioEngine);
   const sidekicks: SidekicksBridge = {
     daemon: {
       // `DaemonResult<M>` is a Plan-007 stub that resolves to `unknown`, so the
@@ -191,32 +191,39 @@ interface ScriptedCeremonyHost {
  * `capability-absent` refusal every other unstandable native surface takes, so the
  * sign-in adapter reads one absence and not two.
  *
- * IT COUNTS ASSERTIONS, AND THAT COUNTER IS THE ONE PIECE OF STATE HERE. It is scoped
+ * IT COUNTS ASSERTIONS, IN A PRIVATE FIELD RATHER THAN A CLOSURE. It is scoped
  * to the bridge — one window, one host — so a replayed scenario opens a fresh bridge
  * and starts at the first answer again, which is what keeps the fixture deterministic.
  * The last scripted answer repeats for every call past the sequence, so a script
  * states as many steps as it has and no scenario has to pad one.
  */
-function createScriptedCeremonyHost(scenarioEngine: ScenarioEngine): ScriptedCeremonyHost {
-  let answeredAssertions = 0;
-  return {
-    assert: async (): Promise<object> => {
-      const scripted = scenarioEngine.scenario.signInCeremony;
-      if (scripted === undefined) {
-        return refuseAbsentCapability("webAuthn.getAssertion");
-      }
-      const { assertions } = scripted;
-      const position = Math.min(answeredAssertions, assertions.length - 1);
-      answeredAssertions += 1;
-      // Non-null by the tuple's own shape: `assertions` carries at least one member,
-      // and `position` is clamped to its last index.
-      return encodeCeremonyResolution(assertions[position] ?? assertions[0]);
-    },
-    register: async (): Promise<object> => {
-      const scripted = scenarioEngine.scenario.signInCeremony?.registration;
-      return scripted === undefined
-        ? refuseAbsentCapability("webAuthn.createCredential")
-        : encodeCeremonyResolution(scripted);
-    },
-  };
+class ScriptedCeremonyRunner implements ScriptedCeremonyHost {
+  readonly #scenarioEngine: ScenarioEngine;
+  #answeredAssertions = 0;
+
+  public constructor(scenarioEngine: ScenarioEngine) {
+    this.#scenarioEngine = scenarioEngine;
+  }
+
+  public async assert(): Promise<object> {
+    const scripted = this.#scenarioEngine.scenario.signInCeremony;
+    if (scripted === undefined) {
+      return refuseAbsentCapability("webAuthn.getAssertion");
+    }
+    const { assertions } = scripted;
+    const position = Math.min(this.#answeredAssertions, assertions.length - 1);
+    this.#answeredAssertions += 1;
+    // `assertions` is a non-empty tuple and `position` is clamped to its last index,
+    // so the read cannot miss. Asserted rather than branched: a fallback here would
+    // be a second answer for the same call that no case could ever reach.
+    const answer = assertions[position] as (typeof assertions)[number];
+    return encodeCeremonyResolution(answer);
+  }
+
+  public async register(): Promise<object> {
+    const scripted = this.#scenarioEngine.scenario.signInCeremony?.registration;
+    return scripted === undefined
+      ? refuseAbsentCapability("webAuthn.createCredential")
+      : encodeCeremonyResolution(scripted);
+  }
 }

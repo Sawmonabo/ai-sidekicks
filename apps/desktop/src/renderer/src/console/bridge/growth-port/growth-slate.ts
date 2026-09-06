@@ -386,7 +386,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
     wireRegistered: false,
   },
-  // lane: cov-sessions
   "notification-permission-read": {
     id: "notification-permission-read",
     wire: "the shell's own reading of whether this machine will display an OS notification for this application. `native.showNotification` is on the preload contract and returns void, so the renderer cannot observe a denial through it, and no bridge member reports the permission",
@@ -395,7 +394,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "notification centre (the OS-notifications-denied arm)",
     wireRegistered: false,
   },
-  // lane: cov-frame-chrome
   "shell-status-signals": {
     id: "shell-status-signals",
     wire: "the shell's own status as one feed — the daemon supervisor's step and its attempt count out of five, the daemon.hello negotiation ack (compatible, protocolVersion, reason, daemonSupportedProtocols), the loopback-fallback signal, and the keystore-unavailable signal. Every one of them is a main-process fact and none of them is a daemon call: the renderer is not a direct daemon client, the ack belongs to the connection the main process holds, and a second handshake from here would be refused as one already completed",
@@ -405,7 +403,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "frame shell-state chrome — the daemon chip, the version banner, the reconnect and read-only banners, and the loopback/keystore notice strip",
     wireRegistered: false,
   },
-  // lane: cov-signin-onboarding
   "onboarding-desktop-surface": {
     id: "onboarding-desktop-surface",
     wire: "`onboarding.presentChoice` and `onboarding.telemetryPrompt`, the two preload-bridge methods `Spec-026 §Desktop Surface` names — the main-process hosts for the relay choice's secret entry and the telemetry answer",
