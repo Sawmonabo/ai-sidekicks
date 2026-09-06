@@ -34,6 +34,7 @@ import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js"
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities.js";
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
 import type { SessionStoreRegistry } from "./session-store-registry.js";
+import type { TimelineResumeDecision } from "./timeline-resume.js";
 import { selectEntity, selectPartition, type SessionStore } from "./session-store.js";
 import type { SessionStoreState } from "./session-store.js";
 
@@ -379,6 +380,32 @@ export function useSessionDegraded(store: SessionStore): boolean {
 
 function readDegraded(state: SessionStoreState): boolean {
   return state.degradedCause !== undefined;
+}
+
+/**
+ * What one session's newest completed read said about resuming its stream, or
+ * `undefined` before one has landed.
+ *
+ * SUBSCRIBED THROUGH THE STORE, SAMPLED OFF THE REGISTRY, and the pairing that makes
+ * that sound is stated in `open-session-entry.ts`: a completed read writes the
+ * decision and calls `initialise` in the same tick, so the store's own revision bump
+ * is the notification a new decision has landed. There is no third emitter to
+ * subscribe to and no interval anywhere in this path — the revision read below IS the
+ * subscription, and the value it returns is deliberately discarded, because what a
+ * caller renders is the decision and not how many transitions preceded it.
+ *
+ * The registry rather than the store holds the decision because the store is the
+ * PROJECTION and this is a fact about the READ that produced it — a store that never
+ * initialises still has a refusal to report, which is precisely the version-skew case
+ * this reading exists for.
+ */
+export function useTimelineResume(
+  registry: SessionStoreRegistry,
+  store: SessionStore,
+  sessionId: string,
+): TimelineResumeDecision | undefined {
+  useSessionProjectionRevision(store);
+  return registry.timelineResumeFor(sessionId);
 }
 
 /** Select from the frame store. */

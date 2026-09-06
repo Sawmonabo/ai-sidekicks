@@ -110,6 +110,11 @@ export class SessionStoreRegistry {
     return this.#entriesBySessionId.has(sessionId);
   }
 
+  /**
+   * How many sessions are open. An assertion seam: tests read it, and every surface
+   * that needs the SET reads `openSessionIds`, whose identity is stable enough to
+   * subscribe through — which a count is not.
+   */
   public get openCount(): number {
     return this.#entriesBySessionId.size;
   }
@@ -199,12 +204,23 @@ export class SessionStoreRegistry {
     return this.#entriesBySessionId.get(sessionId)?.timelineResume;
   }
 
-  /** How many reads a session's scheduler has performed. The coalescing assertion. */
+  /**
+   * How many reads a session's scheduler has performed. The coalescing assertion.
+   *
+   * An assertion seam: its readers are tests, and no surface renders it. Said here
+   * rather than left to be inferred, because a member with no production reader and
+   * no stated intention is indistinguishable from one whose consumer was forgotten.
+   */
   public refreshCountFor(sessionId: string): number {
     return this.#entriesBySessionId.get(sessionId)?.refreshScheduler.performCount ?? 0;
   }
 
-  /** How many drains a session's queue has performed. The coalescing assertion. */
+  /**
+   * How many drains a session's queue has performed. The coalescing assertion.
+   *
+   * An assertion seam, on the same terms as the read count above: tests read it and
+   * no surface does.
+   */
   public applyDrainCountFor(sessionId: string): number {
     return this.#entriesBySessionId.get(sessionId)?.applyQueue.drainCount ?? 0;
   }

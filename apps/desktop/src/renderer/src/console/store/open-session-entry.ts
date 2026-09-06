@@ -30,12 +30,16 @@
 // THE RESUME RULE LANDS BESIDE THAT REPAIR, and for the same reason. Every read this
 // entry performs answers with the log's own three positions, and
 // `api-payload-contracts.md` puts a rule on them the CONSUMER owns: resume from
-// `acknowledged ?? earliest`, reset the projection when the acknowledged position has
-// fallen below the floor, and refuse the whole cycle SDK-locally when the responder
-// carries no floor at all. `timeline-resume.ts` decides; this entry is what acts,
-// because the reset is a write to the store and the store has exactly one owner. The
-// decision is kept rather than discarded so a surface can render the refused arm —
-// which for an older daemon is a standing state and not an incident.
+// `acknowledged ?? earliest`, and refuse the whole cycle SDK-locally when the
+// responder carries no floor at all. `timeline-resume.ts` decides — and says there
+// why it takes no lost-event arm — while this entry is what KEEPS the decision,
+// because a refusal nothing holds is a refusal no surface can render, and for an
+// older daemon that refusal is a standing state rather than an incident.
+//
+// THE DECISION IS WRITTEN IN THE SAME TICK AS `initialise`, and every reader depends
+// on that pairing: a completed read either produces a decision AND establishes a base
+// state, or produces neither. So the store's own revision bump is the notification
+// that a new decision has landed, and no second emitter is owed for one.
 //
 // It reads no wire itself. The `read` performer is supplied by the composition
 // root, which is what keeps this family below `bridge/` in the console's DAG.
@@ -181,15 +185,11 @@ export class OpenSessionEntry {
         if (snapshot === undefined) {
           return;
         }
-        // The resume decision is taken BEFORE the base state is established, which is
-        // the order the rule itself names: the reset has to happen ahead of the read
-        // that lands on it, or `admitsSnapshotAt` refuses a floor-positioned snapshot
-        // for arriving behind a cursor built on rows the daemon no longer holds.
-        const decision = resolveTimelineResume(snapshot.timelineCursors);
-        this.#timelineResume = decision;
-        if (decision.outcome === "reset") {
-          this.store.resetProjection("stream-diverged");
-        }
+        // Taken BEFORE the base state is established, so the decision a reader sees
+        // beside an initialised store is the one that read produced rather than its
+        // predecessor's — and taken unconditionally, so the pairing the header states
+        // holds for every completed read and not only for the refusing ones.
+        this.#timelineResume = resolveTimelineResume(snapshot.timelineCursors);
         // A completed re-pull is the ONE thing that clears the sticky degraded
         // flag — `initialise` does that — which is why the read lands here and
         // not on a caller that might forget.

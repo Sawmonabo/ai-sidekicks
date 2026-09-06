@@ -186,3 +186,12 @@ export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch
 // view family that can passes one in.
 export { useCallerMembershipRole } from "./hooks.js";
 export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
+
+// The resume reading, forwarded with the decision type a caller has to name to render
+// it. Its consumer is the ledger surface that mounts a session's workspace: the
+// refused arm is what a console talking to a responder with no cursor floor is
+// PERMANENTLY in, and a refusal nothing renders is a version skew a person meets as an
+// ordinary-looking session that quietly never resumes. Through this door rather than a
+// deep import, on the family's one-subscription-path rule.
+export { useTimelineResume } from "./hooks.js";
+export type { TimelineResumeDecision } from "./timeline-resume.js";

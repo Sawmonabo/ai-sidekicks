@@ -51,7 +51,6 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
-  // lane: ld-cov-b
   | "health-status-read";
 
 export interface GrowthSlateRow {
@@ -361,7 +360,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
     wireRegistered: false,
   },
-  // lane: ld-cov-b
   "health-status-read": {
     id: "health-status-read",
     wire: "the one-shot node health read — the overall status category and the per-component readings a compact form renders, beside the subscription the strip follows",

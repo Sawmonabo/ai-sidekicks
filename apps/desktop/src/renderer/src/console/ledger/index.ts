@@ -53,6 +53,7 @@ import {
   type ConsoleSurfaceDescriptor,
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
+import { SessionResumeAbsence } from "./SessionResumeAbsence.js";
 import { registerFixtureShellRows } from "./cards/shell/FixtureShellRows.js";
 import { TimelinePane } from "./pane/index.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
@@ -238,11 +239,26 @@ function mountWorkspace(
   context: ConsoleSurfaceContext,
   Workspace: ComponentType<WorkspaceMountProps>,
 ): ReactNode {
+  const sessionId = routeSessionId(context.route);
+  const store = context.sessionStore;
   return createElement(
     "div",
     { className: "meridian-ledger-surface" },
+    // ABOVE the workspace body and never in place of it. The refused arm says the
+    // reconnect-time resume is unavailable, which the surface below is unaffected by:
+    // the store projects, the subscription tails, and only the resume cycle is gone.
+    // Both guards are the same guard — a route with no session has neither — and the
+    // component is conditional rather than its hooks, which is the only shape React
+    // allows for a subscription whose source may not exist.
+    sessionId === undefined || store === undefined
+      ? null
+      : createElement(SessionResumeAbsence, {
+          registry: context.sessionStoreRegistry,
+          store,
+          sessionId,
+        }),
     createElement(Workspace, {
-      key: routeSessionId(context.route) ?? "no-session",
+      key: sessionId ?? "no-session",
       bridge: context.bridge,
       frameStore: context.frameStore,
       sessionStore: context.sessionStore,

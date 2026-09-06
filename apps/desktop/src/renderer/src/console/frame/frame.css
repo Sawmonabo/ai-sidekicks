@@ -50,6 +50,23 @@
   padding: var(--meridian-space-3) var(--meridian-space-4) 0;
 }
 
+/* The demonstration mark: one quiet line above every surface, never a banner.
+   Sunken rather than tinted, because nothing here is a warning — it is a statement
+   about what the rows below it are — and the console reserves its accent hues for
+   attention and identity. */
+.meridian-demo-mark {
+  margin: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-demo-mark__lead {
+  color: var(--meridian-text);
+  font-weight: 600;
+}
+
 .meridian-frame__surface {
   flex: 1 1 auto;
   min-height: 0;

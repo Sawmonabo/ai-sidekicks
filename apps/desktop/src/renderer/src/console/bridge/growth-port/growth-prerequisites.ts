@@ -134,7 +134,6 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "governing-document",
       "the spec that will govern provider-session import",
     ),
-    // lane: ld-cov-b
     timelineResumeCursorMember: prerequisite(
       "timelineResumeCursorMember",
       "session-directory-read",

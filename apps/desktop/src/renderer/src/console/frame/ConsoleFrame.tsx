@@ -51,6 +51,8 @@ import {
   useLocationHash,
 } from "../store/index.js";
 import { AppFrame } from "./AppFrame.js";
+import { DemoScenarioMark } from "./DemoScenarioMark.js";
+import { playsTheDemonstrationScenario } from "./first-launch.js";
 import { useFirstLaunchOpening } from "./first-launch-opening.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
@@ -93,6 +95,14 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // one costs; `UiStateStore.opening` still returns immediately, so first paint
   // waits on no storage.
   const uiStateStore = useUiStateStore();
+
+  // Which scripted composition this window is playing, or `undefined` where it plays
+  // none — the release build's only answer, since `bridge.scenarioEngine` exists only
+  // under the `define`-gated fixture. Read here and narrowed by the rule beside the
+  // first-launch opening, so which composition counts as the demonstration is decided
+  // in one module rather than restated by the component that marks it.
+  const playingScenario = props.bridge.scenarioEngine?.scenario;
+  const scenario = playsTheDemonstrationScenario(playingScenario?.id) ? playingScenario : undefined;
 
   // A ref is right for this one: a draft store owns a `Map` and nothing outside its
   // own memory, so the window dropping it is the whole of its teardown.
@@ -218,6 +228,12 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
         </>
       }
     >
+      {/* The demonstration mark, above every surface rather than inside one: what it
+          claims is true of the whole window, and a mark that lived in the workspace
+          would vanish the moment somebody navigated to the sessions list and back.
+          Under the live bridge there is no scenario engine, so this is `null` and the
+          release build carries nothing. */}
+      {scenario === undefined ? null : <DemoScenarioMark scenarioLabel={scenario.label} />}
       <RouteSurface context={surfaceContext} />
     </AppFrame>
   );

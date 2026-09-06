@@ -4,6 +4,10 @@
 // clean result has the negative control the rule needs to mean anything: a predicate
 // that answered "resume from earliest" for every input would satisfy half of these
 // on its own, and one that refused everything would satisfy the other half.
+//
+// The suite also pins what this module DOES NOT do. It orders no cursors, so a pair
+// a retired leading-integer decoder would have called a loss is resumed from — and
+// the negative control drives that with cursors of the shape actually on the wire.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,90 +47,51 @@ describe("the resume rule takes `acknowledged ?? earliest`", () => {
   });
 });
 
-describe("an acknowledged position below the floor means events were lost", () => {
-  it("resets the projection and resumes from the floor", () => {
-    // `decode(acknowledged) < decode(earliest)`: the rows between the two are gone,
-    // so the projection built on them is a projection of rows the daemon no longer
-    // has.
+describe("no lost-event arm exists, because no ordering is published", () => {
+  it("resumes from an acknowledged cursor that a leading-integer scan would rank below the floor", () => {
+    // The retired decoder read a leading integer run and called 120 < 900 a loss.
+    // The contract publishes no `decode`, and `earliest` is the V1-constant floor
+    // nothing acknowledged can be below — so this pair resumes, and a rule that
+    // reset here would be discarding a live projection on an invented ordering.
     const decision = resolveTimelineResume({
       earliest: "900_1723291400000000000",
       latest: "1200_1723291500000000000",
       acknowledged: "120_1723200000000000000",
     });
 
-    expect(decision.outcome).toBe("reset");
-    expect(decision.outcome === "reset" ? decision.fromCursor : undefined).toBe(
-      "900_1723291400000000000",
-    );
-  });
-
-  it("negative control: the same pair the right way round resumes without a reset", () => {
-    // Without this, a rule that reset on every acknowledged cursor would pass the
-    // case above — and would throw away a whole projection on every reconnect.
-    const decision = resolveTimelineResume({
-      earliest: "120_1723200000000000000",
-      latest: "1200_1723291500000000000",
-      acknowledged: "900_1723291400000000000",
-    });
-
     expect(decision.outcome).toBe("resume");
     expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(
-      "900_1723291400000000000",
+      "120_1723200000000000000",
     );
   });
 
-  it("treats an equal pair as resumable rather than lost", () => {
-    // The floor is the position immediately BEFORE the oldest surviving row, so an
-    // acknowledged position equal to it has lost nothing — the comparison the
-    // contract states is strict.
-    const decision = resolveTimelineResume({
-      earliest: EARLIEST,
-      latest: LATEST,
-      acknowledged: EARLIEST,
-    });
+  it("negative control: two arbitrary opaque cursors are resumed from, never reset", () => {
+    // The cursors on the wire TODAY are UUIDs the client SDK synthesizes from an
+    // event id, so a leading-integer scan ordered them by whichever hex digit each
+    // happened to start with — one pair refusing, the next resetting, on nothing.
+    // Every one of these resumes from its own acknowledged cursor, unchanged.
+    const opaquePairs = [
+      ["4f2ab8c1-6d3e-4a11-9f70-1c2d3e4f5a6b", "0b9c7d21-8e4f-4c22-8a31-9d8e7f6a5b4c"],
+      ["0b9c7d21-8e4f-4c22-8a31-9d8e7f6a5b4c", "4f2ab8c1-6d3e-4a11-9f70-1c2d3e4f5a6b"],
+      ["ledger-cursor-0", "ledger-cursor-12"],
+      ["ledger-cursor-12", "ledger-cursor-0"],
+      ["-1_1723291400000000000", "ac9f1e77-2b40-4d55-b6c8-0e1f2a3b4c5d"],
+    ] as const;
 
-    expect(decision.outcome).toBe("resume");
-  });
-});
+    for (const [earliest, acknowledged] of opaquePairs) {
+      const decision = resolveTimelineResume({ earliest, latest: LATEST, acknowledged });
 
-describe("a cursor pair this console cannot order refuses the cycle", () => {
-  it("refuses rather than guessing which side of the floor the acknowledged cursor is", () => {
-    // The cursor is opaque by contract. Where its leading position cannot be read,
-    // the console neither resumes past rows it cannot account for nor discards a
-    // projection on a loss nothing established — it declines the cycle and says why.
-    const decision = resolveTimelineResume({
-      earliest: "ledger-cursor-0",
-      latest: "ledger-cursor-33",
-      acknowledged: "ledger-cursor-12",
-    });
-
-    expect(decision.outcome).toBe("refused");
-    expect(decision.outcome === "refused" ? decision.refusal.code : undefined).toBe(
-      "cursor-order-undecidable",
-    );
+      expect(decision.outcome).toBe("resume");
+      expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(acknowledged);
+    }
   });
 
-  it("negative control: one readable position is not enough to order the pair", () => {
-    // Half a comparison is not a comparison. Without this the rule could read the
-    // one position it understood and rank it against a string.
-    const decision = resolveTimelineResume({
-      earliest: "-1_1723291400000000000",
-      latest: LATEST,
-      acknowledged: "ledger-cursor-12",
-    });
+  it("negative control: the floor is still taken when nothing was acknowledged", () => {
+    // Without this, a rule that answered `acknowledged` for every input would pass
+    // every case above — including the first read, which has none to answer with.
+    const decision = resolveTimelineResume({ earliest: EARLIEST, latest: LATEST });
 
-    expect(decision.outcome === "refused" ? decision.refusal.code : undefined).toBe(
-      "cursor-order-undecidable",
-    );
-  });
-
-  it("negative control: an orderable pair of the same shape is decided", () => {
-    // Without this the pair above would pass over a rule that refused every
-    // acknowledged cursor, which is the version-skew arm swallowing the ordinary one.
-    expect(
-      resolveTimelineResume({ earliest: EARLIEST, latest: LATEST, acknowledged: ACKNOWLEDGED })
-        .outcome,
-    ).toBe("resume");
+    expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(EARLIEST);
   });
 });
 
@@ -177,7 +142,6 @@ describe("the refusal set is closed, in both directions", () => {
     { earliest: EARLIEST },
     { latest: LATEST },
     { latest: LATEST, acknowledged: ACKNOWLEDGED },
-    { earliest: "not-a-position", latest: LATEST, acknowledged: ACKNOWLEDGED },
   ];
 
   it("raises every code it declares, and declares every code it raises", () => {

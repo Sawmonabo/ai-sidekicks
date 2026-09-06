@@ -9,7 +9,12 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_SCENARIO_ID } from "../bridge/index.js";
-import { FIRST_LAUNCH_SEEN_VALUE, firstLaunchRoute, hasSeenFirstLaunch } from "./first-launch.js";
+import {
+  FIRST_LAUNCH_SEEN_VALUE,
+  firstLaunchRoute,
+  hasSeenFirstLaunch,
+  playsTheDemonstrationScenario,
+} from "./first-launch.js";
 
 const DEMO_SESSION_ID = "019b78ff-f900-75e5-8510-ada11a5a46a5";
 
@@ -78,5 +83,36 @@ describe("the mark that makes it happen once", () => {
     // demo a second time costs a minute, and skipping it costs the first launch.
     expect(hasSeenFirstLaunch(undefined)).toBe(false);
     expect(hasSeenFirstLaunch({ value: FIRST_LAUNCH_SEEN_VALUE })).toBe(true);
+  });
+});
+
+describe("the demonstration mark's own rule", () => {
+  it("marks the composition an unnamed fixture window opens into", () => {
+    // The `Never` bullet: fixture content is never presented as live, and the
+    // scenario is labeled. The default opening is the launch that asked for nothing,
+    // which is the one most likely to be read as a real room.
+    expect(playsTheDemonstrationScenario(DEFAULT_SCENARIO_ID)).toBe(true);
+  });
+
+  it("negative control: a named scenario carries no mark", () => {
+    // Without this, a rule that marked every scenario would pass the case above and
+    // would put standing chrome into every suite's own fixture — including the
+    // screenshot references, which would then be marks rather than surfaces.
+    expect(playsTheDemonstrationScenario("first-run")).toBe(false);
+    expect(playsTheDemonstrationScenario("flagship")).toBe(false);
+  });
+
+  it("negative control: a window with no scenario at all carries none either", () => {
+    // The release build. `bridge.scenarioEngine` is `undefined` there, so the frame
+    // reads `undefined` here — and a rule that answered `true` for it would mark
+    // every live session as a demonstration.
+    expect(playsTheDemonstrationScenario(undefined)).toBe(false);
+  });
+
+  it("does not turn on whether the install has already been shown the demo", () => {
+    // The opening happens once per install; the claim that these rows are scripted is
+    // true every time they are on screen. This asserts the rule's SHAPE — it takes the
+    // playing scenario and nothing else, so there is no seen-mark input to forget.
+    expect(playsTheDemonstrationScenario.length).toBe(1);
   });
 });

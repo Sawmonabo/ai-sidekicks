@@ -59,6 +59,15 @@ import { LEDGER_FIRST_SIXTY_SCENARIO_ID } from "../scenarios/ledger-first-sixty.
  * something this build does not have", which is a mistake to recover from, and
  * recovering into a live scripted session would answer a typo with a room full of
  * agents.
+ *
+ * THE BLAST RADIUS OF THIS CONSTANT IS EVERY UNNAMED FIXTURE WINDOW, which is why it
+ * moved with a sweep rather than on its own. Whatever it points at is what a fixture
+ * build plays when nothing names a scenario: the first-launch opening rule compares
+ * against it, and any suite, driver, or launch argument that does NOT pass a scenario
+ * id gets it. Every browser, endurance, accessibility, and screenshot case in this
+ * repository names its scenario explicitly and is therefore unaffected — that is the
+ * property that makes this constant safe to move, and it is a property to re-check
+ * rather than assume the next time it moves.
  */
 export const DEFAULT_SCENARIO_ID: string = LEDGER_FIRST_SIXTY_SCENARIO_ID;
 

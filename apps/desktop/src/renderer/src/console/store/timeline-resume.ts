@@ -5,16 +5,13 @@
 // member itself, and it is the consumer's to obey rather than the daemon's:
 //
 //   • resume from `acknowledged ?? earliest`;
-//   • `decode(acknowledged) < decode(earliest)` means events were lost, so the
-//     projection resets and resumes from `earliest`;
 //   • an absent `earliest` means the responder predates the whole read surface, and
-//     the resume cycle is refused SDK-locally — before any projection reset and
-//     before any replay or subscribe call.
+//     the resume cycle is refused SDK-locally — before any replay or subscribe call.
 //
 // A PURE MODULE. It decides; it holds nothing and it calls nothing. `open-session-
 // entry.ts` is what acts on the decision, beside the gap re-pull it already performs,
 // because that entry is the one object holding a store, its queue, and its scheduler
-// together — and a reset that landed anywhere else would be a second writer of a
+// together — and a decision acted on anywhere else would be a second writer of a
 // store whose whole design is one.
 //
 // WHY THE REFUSAL IS A VALUE AND NOT A THROW. The refused arm is the state a console
@@ -23,25 +20,41 @@
 // the scheduler records as a degradation. It carries the console's refusal grammar so
 // a surface renders it as the `not-checked` kind of nothing.
 //
-// WHY THE COMPARISON IS THREE-VALUED
+// WHY THERE IS NO LOST-EVENT ARM, AND WHAT WOULD RE-ARM ONE
 //
-// The cursor is OPAQUE. `packages/contracts/src/session.ts` says so in as many
-// words — "its internal structure (sequence + monotonic_ns) is owned by Plan-006",
-// and the schema is a bounded non-empty string — so the console cannot claim to
-// decode one. What the corpus does state is that the cursors are ORDERED and that
-// `earliest` is `encode(-1)` in V1, which is an integer position. So the decoder here
-// reads exactly the part of a cursor the corpus commits to — a leading, optionally
-// negative integer run — and answers `undefined` for anything else rather than
-// inventing an ordering over strings.
+// The contract's third sentence — `decode(acknowledged) < decode(earliest)` means
+// events were lost — names `decode` as the inverse of an `encode` Plan-006 owns and
+// PUBLISHES NEITHER. `packages/contracts/src/session.ts` says the cursor is opaque in
+// as many words: "its internal structure (sequence + monotonic_ns) is owned by
+// Plan-006", the schema is a bounded non-empty string, and "any non-empty bounded
+// string is accepted" until that format is published. So this console has no ordering
+// to take, and reading one out of a cursor's leading characters is not a narrow
+// reading of the contract — it is an ordering invented for bytes the contract calls
+// opaque. It also mis-fires on the cursor that is on the wire TODAY: the client SDK
+// synthesizes every cursor from an event's UUID, and a leading-integer scan orders two
+// UUIDs by whichever hex digits they happen to start with — then discards a live
+// projection on a loss nothing established.
 //
-// An undecidable comparison then REFUSES THE CYCLE, on exactly the terms the absent
-// floor does: the console cannot place the resume, so it declines to run it rather
-// than guessing. Both of the other arms would be a guess. Resuming from an
-// unverifiable `acknowledged` would silently skip every row between the two
-// positions; resetting would destroy a live projection to record a loss nothing
-// established. Refusing leaves the store exactly as it is — which is a stream the
-// subscription still replays and tails — and names why, so the console never claims
-// to have decided what it could not read.
+// The arm is also DORMANT in V1 on the contract's own terms, which is why removing it
+// costs nothing rather than deferring a behaviour: `earliest` is the V1-CONSTANT
+// `encode(-1)`, the position immediately before the oldest surviving row, and
+// compaction stubs rows in place rather than deleting them. Nothing a V1 daemon
+// acknowledges can be below a floor that never moves.
+//
+// WHAT RE-ARMS IT. Either half is enough, and neither is a renderer's to invent:
+//
+//   • an ordering published by the cursor's OWNER — a `compareEventCursors` exported
+//     from `@ai-sidekicks/contracts` beside `EventCursorSchema`, or the structural
+//     cursor format that schema's own comment says would tighten its regex; or
+//   • a divergence the DAEMON reports. None is registered: the only cursor refusal in
+//     `docs/architecture/contracts/error-contracts.md` is `event.cursor_unresolvable`,
+//     raised at 400 when a submitted cursor cannot be decoded at all, which is a
+//     refusal of a request rather than a report that rows were lost, and no member of
+//     the session read or the subscribe reply carries one either.
+//
+// Until then the store is left exactly as it is — a stream the subscription still
+// replays and tails — and the two version-skew refusals below are the only arms that
+// decline a cycle, on the one ground the contract does state.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 
@@ -75,15 +88,13 @@ export interface TimelineCursors {
 /**
  * Why a resume cycle was refused before it started. Closed.
  *
- * Two version skews and one unreadable pair. They are separate codes rather than one
- * because the remedies differ: the first two are answered by a newer daemon, and the
- * third is answered by this console learning an encoding the corpus has not published.
+ * Two version skews, and they are separate codes rather than one because a reader
+ * acts on the difference: a responder carrying no cursor block at all predates the
+ * read surface entirely, while one carrying a block without its floor predates only
+ * the member the resume rule is stated on. Both are answered by a newer daemon; only
+ * the second says a partial surface is there.
  */
-export const TIMELINE_RESUME_REFUSAL_CODES = [
-  "cursors-absent",
-  "earliest-cursor-absent",
-  "cursor-order-undecidable",
-] as const;
+export const TIMELINE_RESUME_REFUSAL_CODES = ["cursors-absent", "earliest-cursor-absent"] as const;
 
 /** One refusal code, derived from the enumeration above. */
 export type TimelineResumeRefusalCode = (typeof TIMELINE_RESUME_REFUSAL_CODES)[number];
@@ -91,20 +102,15 @@ export type TimelineResumeRefusalCode = (typeof TIMELINE_RESUME_REFUSAL_CODES)[n
 /**
  * What a read's cursor block says a store should do next.
  *
- * A discriminated union rather than a cursor plus a pair of booleans: "resume here",
- * "throw the projection away and resume here", and "there is no resume cycle to run"
- * are three different acts, and a caller that had to combine two flags to tell them
- * apart would eventually combine them wrongly in the one direction that loses rows.
+ * A discriminated union rather than a cursor plus a boolean: "resume here" and "there
+ * is no resume cycle to run" are two different acts, and a caller that had to read a
+ * flag beside a possibly-absent cursor would eventually read the cursor without the
+ * flag — which is the one direction that resumes from a position nothing established.
  */
 export type TimelineResumeDecision =
   | {
       readonly outcome: "resume";
       /** The cursor to resume from — `acknowledged`, or `earliest` where none. */
-      readonly fromCursor: string;
-    }
-  | {
-      readonly outcome: "reset";
-      /** Always `earliest`: the loss arm resumes from the floor and nowhere else. */
       readonly fromCursor: string;
     }
   | {
@@ -134,22 +140,11 @@ export function resolveTimelineResume(cursors: unknown): TimelineResumeDecision 
     );
   }
   const { earliest, acknowledged } = block;
-  if (acknowledged === undefined) {
-    // Nothing has been acknowledged for this participant, so the floor IS the resume
-    // position. Not a loss and not a reset: a first read is exactly this.
-    return { outcome: "resume", fromCursor: earliest };
-  }
-  const order = compareCursors(acknowledged, earliest);
-  if (order === undefined) {
-    return refuseResume(
-      "cursor-order-undecidable",
-      "this session read's cursors carry no position this console can order, so whether events were lost cannot be established. The cursor is opaque by contract and only its leading position is committed to; the console refuses the resume cycle here rather than resuming past rows it cannot account for or discarding a projection on a loss nothing established.",
-    );
-  }
-  if (order < 0) {
-    return { outcome: "reset", fromCursor: earliest };
-  }
-  return { outcome: "resume", fromCursor: acknowledged };
+  // `acknowledged ?? earliest`, and nothing between the two is inspected. Nothing
+  // acknowledged means the floor IS the resume position — a first read is exactly
+  // this — and an acknowledged cursor is taken as the daemon issued it, because the
+  // only thing that could disqualify it is an ordering nobody has published.
+  return { outcome: "resume", fromCursor: acknowledged ?? earliest };
 }
 
 /**
@@ -196,43 +191,4 @@ function readCursorBlock(cursors: unknown): TimelineCursors | undefined {
 /** One optional cursor member: a non-empty string, or nothing. */
 function readCursor(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/**
- * Order two cursors, or `undefined` where this console cannot.
- *
- * The only part of a cursor the corpus commits to is its leading integer position —
- * `earliest` is `encode(-1)` in V1, and both members of one reply come from one
- * daemon under one encoding. Everything past that leading run is Plan-006's and is
- * deliberately not read: a lexicographic tie-break over the remainder would be an
- * ordering this console invented for bytes it was told are opaque.
- */
-function compareCursors(left: string, right: string): number | undefined {
-  const leftPosition = decodeCursorPosition(left);
-  const rightPosition = decodeCursorPosition(right);
-  if (leftPosition === undefined || rightPosition === undefined) {
-    return undefined;
-  }
-  return leftPosition - rightPosition;
-}
-
-/**
- * The integer position at the head of a cursor, or `undefined` for a cursor whose
- * head is not one.
- *
- * The expression anchors at the start and takes the whole leading digit run, so a
- * cursor that does not BEGIN with a position is undecidable rather than half-read —
- * which is the case this module has to be able to report. `Number.parseInt` would
- * answer for a cursor whose head is not a position at all only by accident of where
- * it happens to stop, and reading a position out of an unanchored scan is exactly the
- * invented ordering the header rules out.
- */
-function decodeCursorPosition(cursor: string): number | undefined {
-  const match = /^(-?\d+)/.exec(cursor);
-  const digits = match?.[1];
-  if (digits === undefined) {
-    return undefined;
-  }
-  const position = Number(digits);
-  return Number.isSafeInteger(position) ? position : undefined;
 }

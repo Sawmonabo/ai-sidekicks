@@ -116,6 +116,29 @@ export function firstLaunchRoute(inputs: FirstLaunchInputs): ConsoleRoute | unde
 }
 
 /**
+ * Whether a window playing this scenario must carry the demonstration mark.
+ *
+ * THE `Never` BULLET THIS SERVES. The first-sixty-seconds surface may not present
+ * fixture content as live, and the scenario is labeled. Since `DEFAULT_SCENARIO_ID`
+ * became the demo, an unnamed fixture window OPENS into a scripted session with
+ * several sidekicks and several people apparently at work — so the one launch nobody
+ * asked anything of is exactly the launch most likely to be read as real.
+ *
+ * IT IS THE OPENING ARM AND NOT EVERY SCENARIO, deliberately, and the discriminator is
+ * conjunct 3 of {@link firstLaunchRoute} rather than a second rule: a window playing
+ * something else was told which composition to play by whoever launched it, and a
+ * standing mark on a suite's own fixture is chrome in every screenshot it takes.
+ *
+ * IT IS NOT `hasSeenFirstLaunch`-GATED, and that difference is the point. The opening
+ * happens once per install; the claim that these rows are scripted is true every time
+ * they are on screen, and a mark that disappeared on the second launch would be a
+ * label for people who have already seen the disclosure and nothing for anyone else.
+ */
+export function playsTheDemonstrationScenario(playingScenarioId: string | undefined): boolean {
+  return playingScenarioId === DEFAULT_SCENARIO_ID;
+}
+
+/**
  * Whether the opening hash asked for nothing.
  *
  * Compared against what an EMPTY hash parses to rather than against the route the

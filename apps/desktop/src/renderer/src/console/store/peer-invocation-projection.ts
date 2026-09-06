@@ -12,6 +12,17 @@
 // one copy answering `false` for an absent member presents an enabled session as
 // safe.
 //
+// NO SHIPPED CONTRACT REGISTERS THE MEMBER THIS FOLD READS, and every reader has to
+// know that before it reads one. `peerInvocationEnabled` — and the
+// `session.peer_invocation_set` event whose fold would produce it — appear nowhere in
+// `packages/contracts/src/`: the member is registered in the canonical payload
+// contract and its producer is owned by a plan that has not shipped. So on every path
+// a person can reach today, live and fixture alike, the reading below answers
+// `undefined`, and the sentence a projected `false` changes is exercised only by the
+// unit tests that construct one. That is deliberately not a reason to default the
+// absence to `false`: an enabled session reported as safe is the one wrong answer
+// here, and the fold stays honest so the day the producer lands it needs no edit.
+//
 // WHAT DOES NOT LIVE HERE. The RE-READ — the scheduler, the bridge call, the refusal
 // it renders — stays with the control that offers it. This family sits below
 // `bridge/` and may not reach a port at all, so the read that refreshes the
