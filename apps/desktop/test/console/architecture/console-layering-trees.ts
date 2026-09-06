@@ -296,6 +296,26 @@ export const SHIPPING_TEST_SUPPORT_TREE: PlantedTree = {
 };
 
 /**
+ * A VIEW family importing the cross-process leaf, beside a LAYER family doing it.
+ *
+ * `src/shared/` is not a console family and sits on no rung of the DAG, so every
+ * ordering rule is silent about it. The console's own answer is that a layer family
+ * owns the shared shape and everything above it reads the console's, and this tree is
+ * that answer's control: the two modules write the same edge and only the view
+ * family's is reported.
+ *
+ * THE EDGE LEAVES THE CONSOLE, so the specifier climbs out of the planted root the
+ * way `OUTSIDE_RENDERER_TREE`'s does — the harness plants relative to
+ * `src/renderer/src/console`, and `src/shared/` is three directories above it.
+ */
+export const VIEW_FAMILY_SHARED_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "../../../shared/wire-errors.ts": `export interface WireRejection {\n  readonly code: string;\n}\n`,
+  "core/wire-rejection.ts": `import type { WireRejection } from "../../../../shared/wire-errors.js";\n\nexport type ConsoleWireRejection = WireRejection;\n`,
+  "repos/RepoList.ts": `import type { WireRejection } from "../../../../shared/wire-errors.js";\n\nexport type RepoRefusal = WireRejection;\n`,
+};
+
+/**
  * Every tree that carries a rule control — the clean shape and the ones that offend.
  *
  * The aggregate case below reads this rather than naming three of them, so a control
@@ -315,6 +335,7 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   TEST_SUPPORT_SUBTRACTION_TREE,
   TEST_SUPPORT_UPWARD_EDGE_TREE,
   SHIPPING_TEST_SUPPORT_TREE,
+  VIEW_FAMILY_SHARED_TREE,
   OUTSIDE_RENDERER_TREE,
   CONSOLE_ROOT_TREE,
 ];

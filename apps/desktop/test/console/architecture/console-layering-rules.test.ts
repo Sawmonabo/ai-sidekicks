@@ -1,4 +1,10 @@
-// The layering rules that had no failing control until now.
+// The layering rules over the console's OWN families, and their failing controls.
+//
+// The rules about the console's boundary with the rest of the package — who outside
+// it may reach in, what a module that ships may import, and what a view family may
+// reach out to — are `console-boundary-rules.test.ts` beside this file. Two claims,
+// two files, one corpus: both read `console-layering-trees.ts` and both cruise
+// through `console-layering-cruise.ts`, so neither restates a rule.
 //
 // `structure:layering` is a command, not a suite: it reports on THIS tree, and a
 // tree that happens not to contain a violation reports clean whether the rule
@@ -38,7 +44,6 @@ import {
   CONSOLE_ROOT_RULE,
   DEEP_IMPORT_RULE,
   IMPORTED_PANE_BODY_RULE,
-  OUTSIDE_DOOR_RULE,
   PANE_BODY_RULE,
   PlantedTreeCache,
   STATE_UPWARD_EDGE_RULE,
@@ -52,7 +57,6 @@ import {
   DEEP_IMPORT_TREE,
   DEEP_SOURCE_TREE,
   EVERY_PLANTED_TREE,
-  OUTSIDE_RENDERER_TREE,
   PANE_BOARD_DEEP_IMPORT_TREE,
   PANE_BOARD_SUBDIRECTORY_TREE,
   PROOF_TREE,
@@ -69,10 +73,10 @@ const ONE_TREE_MS = layeringTimeoutFor(1);
 /**
  * What the aggregate case may spend: one allowance per tree it NAMES.
  *
- * Not per tree it cruises, which in practice is none — every tree it names has been
- * answered by the case above it. Budgeting the names rather than the cruises makes
- * the figure independent of the order the cases run in, which a budget that assumed
- * a warm memo would not be.
+ * Not per tree it cruises, which is the few `console-boundary-rules.test.ts` answers
+ * rather than this file. Budgeting the names rather than the cruises makes the figure
+ * independent of the order the cases run in, and of which file answers which tree,
+ * which a budget that assumed a warm memo would not be.
  */
 const EVERY_TREE_MS = layeringTimeoutFor(RULE_CONTROL_TREES.length);
 
@@ -266,34 +270,6 @@ describe("console layering rules", () => {
           `${STATE_UPWARD_EDGE_RULE}: ${join(CONSOLE_ROOT, "store/session-directory-store.ts")} → ${target}`,
         ].sort(),
       );
-    },
-    ONE_TREE_MS,
-  );
-
-  it(
-    "fails a renderer subtree outside the console that reaches past a door",
-    async () => {
-      // The rule every other one here is blind to: they are all `from`-scoped to
-      // `console/`, so an importer beside the console matches none of them. The sibling
-      // that imports the DOOR is planted in the same tree and must not be reported, and
-      // neither is a `.test-support` module writing the OFFENDING edge — the
-      // subtraction's own control, on the same shape as the deep-import rule's: the
-      // exact list below is what a widened pattern cannot produce, because exempting one
-      // more module empties it and exempting one fewer lengthens it.
-      //
-      // Proved fail-first by removing the `pathNot` from
-      // `renderer-reaches-console-through-doors`: the harness line joins the list and
-      // this case fails naming `session-bootstrap/seeded.test-support.ts`.
-      const outside = join("src", "renderer", "src", "session-bootstrap", "SessionBootstrap.ts");
-      const harness = join("src", "renderer", "src", "session-bootstrap", "seeded.test-support.ts");
-      const through = join("src", "renderer", "src", "session-members", "SessionMembers.ts");
-      const violations = await cruiseCache.violationsFor(OUTSIDE_RENDERER_TREE);
-
-      expect(violations).toEqual([
-        `${OUTSIDE_DOOR_RULE}: ${outside} → ${join(CONSOLE_ROOT, "frame/session-lifecycle.ts")}`,
-      ]);
-      expect(violations.filter((line) => line.includes(harness))).toEqual([]);
-      expect(violations.filter((line) => line.includes(through))).toEqual([]);
     },
     ONE_TREE_MS,
   );

@@ -57,6 +57,10 @@ export const CONSOLE_ROOT_RULE = "console-root-is-composition-only";
  * would restate the family list this file deliberately does not carry.
  */
 export const STATE_UPWARD_EDGE_RULE = "console-layering-store-persistence";
+/** The edge rule that makes the two test-support source subtractions safe to hold. */
+export const TEST_SUPPORT_READER_RULE = "test-support-has-no-shipping-reader";
+/** The rule that keeps the cross-process leaf behind a layer family. */
+export const SHARED_THROUGH_CORE_RULE = "console-view-family-shared-through-core";
 const OWNED_RULES: readonly string[] = [
   BARREL_CHAIN_RULE,
   VIEW_FAMILY_ISOLATION_RULE,
@@ -66,6 +70,8 @@ const OWNED_RULES: readonly string[] = [
   OUTSIDE_DOOR_RULE,
   CONSOLE_ROOT_RULE,
   STATE_UPWARD_EDGE_RULE,
+  TEST_SUPPORT_READER_RULE,
+  SHARED_THROUGH_CORE_RULE,
 ];
 
 /**
