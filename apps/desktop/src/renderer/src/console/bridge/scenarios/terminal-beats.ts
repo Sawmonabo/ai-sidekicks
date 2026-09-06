@@ -24,7 +24,7 @@
 // another differs in its tail and nowhere else. The beats state their `sequence`
 // already, so the tail is read from there rather than written twenty more times.
 
-import type { ScenarioBeat } from "../scenario.js";
+import type { ScenarioBeat } from "../scenario-runtime/index.js";
 import { TERMINAL_SCENARIO_SESSION_ID } from "./terminal-cast.js";
 
 /**

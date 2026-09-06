@@ -19,6 +19,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 import {
   CALLER_IDENTITY_READ_FAILED,
   useCallerMembershipRole,
@@ -48,7 +49,7 @@ function storeWithRoster(rolesByParticipantId: Readonly<Record<string, string>>)
  * The hook under test chains an identity read to a roster lookup and decides neither
  * — which participant it is comes from the injected reader, and what a body member
  * means comes from the injected lookup. The real lookup narrows against the
- * registered wire shape and is driven by `bridge/entity-body-reads.test.ts`; driving
+ * registered wire shape and is driven by `bridge/daemon/entity-body-reads.test.ts`; driving
  * it here as well would test that module twice and this one not at all.
  */
 const readRosterRole: MembershipRoleReader = (participant) => {
@@ -220,7 +221,7 @@ describe("useCallerMembershipRole — a reader that rejects rather than refusing
       await body();
       // An unhandled rejection is reported a macrotask after the microtask queue
       // drains, so a body that only awaited microtasks would report clean either way.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await drainMicrotasks();
     } finally {
       runnerHost.process.off("unhandledRejection", record);
     }

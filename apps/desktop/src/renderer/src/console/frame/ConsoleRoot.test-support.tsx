@@ -9,7 +9,7 @@
 import { act, render, type RenderResult } from "@testing-library/react";
 
 import { ConsoleRoot, type ConsoleRootProps } from "./ConsoleRoot.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { type ConsoleSurfaceContext } from "../seats/index.js";
 
 /** Where a window with no particular address lands. */
 export const SESSIONS_HASH = "#/sessions";

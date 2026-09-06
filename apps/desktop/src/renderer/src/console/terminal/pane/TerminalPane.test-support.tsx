@@ -11,8 +11,8 @@
 import { render } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { fixtureSessionSnapshot } from "../../bridge/fixture-session-snapshot.js";
-import { growthUnavailable } from "../../bridge/growth-port.js";
+import { fixtureSessionSnapshot } from "../../bridge/fixture/fixture-session-snapshot.js";
+import { growthUnavailable } from "../../bridge/growth-port/growth-port.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";

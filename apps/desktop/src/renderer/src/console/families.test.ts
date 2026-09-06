@@ -16,9 +16,12 @@
 import { describe, expect, it } from "vitest";
 
 import { registerConsoleFamilies } from "./families.js";
-import { CONSOLE_SURFACE_SLOTS, ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { ConsoleEntityProjectorRegistry, consoleEntityProjectorRegistry } from "./store/index.js";
-import { ConsolePaneRegistry, consolePaneRegistry } from "./seats/index.js";
+import { ConsolePaneRegistry, ConsoleSurfaceRegistry, consolePaneRegistry } from "./seats/index.js";
+// The slot tuple by its own specifier: the seats door does not publish it, because
+// this suite is its only reader and a door line no production module reaches is one
+// the barrel census fails.
+import { CONSOLE_SURFACE_SLOTS } from "./seats/surface-registry.js";
 
 declare global {
   interface ImportMeta {
@@ -136,7 +139,13 @@ describe("console families — the pane board a composition writes into", () => 
     // module does not import it. A value import would be a default waiting to be
     // reintroduced.
     expect(seatBoardSource).not.toContain("registerConsolePanes(consolePaneRegistry)");
-    expect(seatBoardSource).toContain('import type { ConsolePaneRegistry } from "./seats');
+    // The whole statement, so what is asserted is that the board takes the pane
+    // registry as a TYPE from the seats door — `import type` and the door together.
+    // The surface registry rides the same statement because it comes from the same
+    // door, having moved there from `frame/` with the rest of that seat.
+    expect(seatBoardSource).toContain(
+      'import type { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "./seats/index.js";',
+    );
   });
 
   it("forwards the projector board it was handed and reaches for no singleton", () => {
@@ -169,7 +178,8 @@ describe("console families — the pane board a composition writes into", () => 
     // registry refuses a second owner: a kind a shipped family claims would be
     // claimed twice by the composition below and throw before the assertion. It is
     // the sibling board's own probe kind (`panes/panes.test.ts`), so the two move
-    // together the day the family that owns it lands.
+    // together the day the family that owns it lands. This is the one line in this
+    // file a landing family may have to move, and it moves for that reason alone.
     const { surfaces, panes, projectors } = ownedRegistries();
     panes.register({ kind: "timeline", owner: "families.test", render: () => null });
 
@@ -182,5 +192,118 @@ describe("console families — the pane board a composition writes into", () => 
     // show up here as a production board that has been claimed by this test's run.
     expect(projectors.ownerOf("run.running")).toBe("frame");
     expect(consoleEntityProjectorRegistry.ownerOf("run.running")).toBeUndefined();
+  });
+});
+
+/**
+ * Every seat at the foot of the composition, as the task each names.
+ *
+ * The list a branch replaces one line of, read off the board's own source: nothing in
+ * the compiler counts them, so the header's count was kept in step by hand until this
+ * case.
+ *
+ * BOTH STATES OF A SEAT MATCH, which is what makes the count stable as families land.
+ * A seat is the task marker, whether it stands alone as the reserved comment or rides
+ * the registration that replaced it — the shape `panes/index.ts` already uses. Reading
+ * only the reserved form would count seats DOWN as the board fills, so the first
+ * family to land would have had to edit the header it was supposed to be held to.
+ */
+const SEAT_LINE = /^\s*(?:\/\/|[^\n]*;\s*\/\/) T-023p-1C-\d+ [a-z-]+(?: [a-z-]+)*$/gmu;
+
+/**
+ * Spelled cardinals, indexed by the number each spells.
+ *
+ * Spelled rather than numeric because that is how the header writes a count, and
+ * the header is what this compares against.
+ */
+const SPELLED_CARDINALS: readonly string[] = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+];
+
+/** The board's header: everything above the first import, which is its whole prose. */
+function seatBoardHeader(): string {
+  const firstImport = seatBoardSource.indexOf("\nimport ");
+  return firstImport === -1 ? seatBoardSource : seatBoardSource.slice(0, firstImport);
+}
+
+/**
+ * Every spelled cardinal in a header that names a number other than the seat count.
+ *
+ * The one home for the rule, read by the claim below and by its control, so a change
+ * to what counts as a stray moves both. Values below two are not strays: "one" and
+ * "zero" are ordinary English in prose about a single seat or an empty board, and
+ * neither reads as a count of families. The seat count's own spelling is not a stray
+ * either — repeating it names the same number, which is what the header is for; what
+ * the defect looked like was a SECOND, DIFFERENT number standing beside it.
+ */
+function straySpelledCardinals(header: string, seatCount: number): readonly string[] {
+  return SPELLED_CARDINALS.filter(
+    (word, value) =>
+      value > 1 && value !== seatCount && new RegExp(`\\b${word}\\b`, "iu").test(header),
+  );
+}
+
+describe("console families — the header states the seat count, once", () => {
+  it("spells the number of reserved seats and no other number", () => {
+    // The defect this replaces: the header opened with "Seven surface families" and
+    // three lines later said six branches produce six diffs at six positions, while
+    // seven seats stood below — 1C-8 read as an audit task when it lands a family of
+    // its own. Nothing reported the disagreement, because a count in prose is a claim
+    // no compiler holds.
+    //
+    // So the rule is one count in one place, and this is what makes it one: the seat
+    // count is DERIVED by counting the lines — reserved and filled alike — the header
+    // has to spell that number, and any cardinal in the header naming a DIFFERENT
+    // number is an offence.
+    const seatCount = [...seatBoardSource.matchAll(SEAT_LINE)].length;
+    expect(seatCount).toBe(7);
+    const header = seatBoardHeader();
+    const spelled = SPELLED_CARDINALS[seatCount];
+    expect(header.toLowerCase()).toContain(`${spelled ?? "?"} surface families`);
+    expect(straySpelledCardinals(header, seatCount)).toStrictEqual([]);
+  });
+
+  it("negative control: a header spelling a second, different count is an offence", () => {
+    // Without this the clean result above could come from a predicate that reports
+    // nothing at all. It plants the shape the defect actually took — a header opening
+    // on one number and naming another three lines down — and drives the SHIPPED
+    // predicate the claim above evaluates, so emptying that predicate reddens this
+    // case rather than leaving it green over a hand-copied rule.
+    //
+    // The other direction is planted too, and it is deliberately NOT an offence: the
+    // seat count spelled twice is still one number, and a rule that reported it would
+    // forbid a header from using its own count in a sentence.
+    //
+    // The number here is the one the PLANTED headers spell, not a second copy of the
+    // board's: the last assertion is the one that reads the real header, and it takes
+    // the same derived count the claim above does.
+    const plantedSeatCount = 7;
+    expect(
+      straySpelledCardinals(
+        "// Seven surface families, and six branches that build them.",
+        plantedSeatCount,
+      ),
+    ).toStrictEqual(["six"]);
+    expect(
+      straySpelledCardinals(
+        "// Seven surface families. Seven branches, seven diffs.",
+        plantedSeatCount,
+      ),
+    ).toStrictEqual([]);
+    expect(
+      straySpelledCardinals(seatBoardHeader(), [...seatBoardSource.matchAll(SEAT_LINE)].length),
+    ).toStrictEqual([]);
   });
 });

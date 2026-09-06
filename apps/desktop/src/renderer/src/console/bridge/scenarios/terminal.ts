@@ -65,7 +65,7 @@
 // resolves — it carries a result, never an error. They are reachable today only
 // through the growth port's own refusal, which the lease operations return.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   TERMINAL_HOST_NODE_ATTACHED_AT_MS,
   TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS,

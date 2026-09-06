@@ -26,17 +26,16 @@ import { useEffect } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { type ConsoleRoute } from "../routing/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext, type PaneKind } from "../seats/index.js";
 import { FrameStore } from "../store/index.js";
 import { PaneHarnessSurface } from "./PaneHarnessSurface.js";
 import { RouteSurface } from "./RouteSurface.js";
-import {
-  consoleSurfaceRegistry,
-  registerConsoleSurface,
-  type ConsoleSurfaceContext,
-} from "./surface-registry.js";
+import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
+// The module-scope registration door by its own specifier: the seats door does not
+// publish it, no production module calling it having landed yet.
+import { registerConsoleSurface } from "../seats/surface-registry.js";
 
 afterEach(cleanup);
 

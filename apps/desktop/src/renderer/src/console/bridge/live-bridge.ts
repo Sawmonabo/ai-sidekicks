@@ -17,7 +17,7 @@
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 import { SIDEKICKS_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { createRefusingGrowthPort } from "./growth-port.js";
+import { createRefusingGrowthPort } from "./growth-port/index.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
 export function readInstalledBridge(): SidekicksBridge | undefined {

@@ -2,12 +2,19 @@
 //
 // WHY THIS FILE EXISTS AT ALL
 //
-// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that
-// run at the same time. Each has to become reachable from the entry point, and
-// there is exactly one way to do that without every branch editing the same
-// registry: give each family a SEAT — one line, reserved in advance, that only
-// that family replaces. Six branches then produce six one-line diffs at six
-// distinct positions and none of them conflicts.
+// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that run
+// at the same time. Each has to become reachable from the entry point, and there is
+// exactly one way to do that without every branch editing the same registry: give
+// each family a SEAT — one line, reserved in advance, that only that family
+// replaces. Each branch then produces one one-line diff at a position no other
+// branch touches, and none of them conflicts.
+//
+// SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
+// lines at the foot of the composition — asserted by `families.test.ts` rather than
+// kept in step by hand. It was not: this header spelled the count twice and the
+// spellings disagreed, because 1C-8 was read as an audit task when it lands a family
+// of its own. A second spelling of one count is a second thing to edit, and the one
+// that goes stale is the one nothing reads.
 //
 // WHAT A FAMILY DOES
 //
@@ -17,10 +24,11 @@
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `frame/surface-registry.ts`, `bridge/scenario-manifest.ts`,
-// `bridge/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
-// six-way concurrent edit to any of them is a guaranteed conflict, and worse, a
-// merge that resolves cleanly while silently dropping one family's registration.
+// A family never edits `seats/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
+// `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
+// concurrent edit to any of them from every one of those branches at once is a
+// guaranteed conflict, and worse, a merge that resolves cleanly while silently
+// dropping one family's registration.
 // A family registers through its own `index.ts` and its own reserved lines — here,
 // and in `bridge/scenarios/index.ts` for its fixture scenario.
 //
@@ -38,10 +46,9 @@
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
-import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
-import type { ConsolePaneRegistry } from "./seats/index.js";
+import type { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "./seats/index.js";
 
 /**
  * Register every shipped view family against the three registries a composition owns.
@@ -109,11 +116,13 @@ export function registerConsoleFamilies(
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
-  // T-023p-1C-7 browser-terminal — landed, and it claims no surface slot. Its two
+  // The browser-terminal family has landed and claims no surface slot: both of its
   // kinds are pane bodies, registered through `registerBrowserPanes` and
-  // `registerTerminalPanes` on the pane board in `panes/index.ts`, so there is
-  // nothing for it to call here. Stated rather than left as a bare reservation: a
-  // reservation and a deliberate absence read identically, and the difference is the
-  // whole question a reader comes to this file with.
+  // `registerTerminalPanes` on the pane board in `panes/index.ts`, so it has nothing
+  // to call here. Said out loud because a reservation and a deliberate absence read
+  // identically, and the difference is the whole question a reader arrives with. The
+  // seat line itself stays in its reserved shape, which is the shape it would take
+  // either way — a seat is a seat filled or not, and `families.test.ts` counts it.
+  // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery
 }

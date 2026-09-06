@@ -168,7 +168,7 @@ export function resolveSoleHoldingNode(
  *
  * Read through the contract's own guard rather than against a second copy of the
  * vocabulary, so the set is declared once; the read itself lives in
- * `bridge/node-state-read.ts`, which is where a registered wire shape may be
+ * `bridge/daemon/node-state-read.ts`, which is where a registered wire shape may be
  * imported at all. The switch below is exhaustive over the vocabulary, so a sixth
  * state is a compile error rather than a silent `unknown`.
  *

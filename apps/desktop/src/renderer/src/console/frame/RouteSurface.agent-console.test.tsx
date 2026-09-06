@@ -20,7 +20,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 import { settleReactWork } from "../primitives/act-settlement.test-support.js";
 import {
   FrameStore,
@@ -32,7 +33,7 @@ import { formatRoute, type ConsoleRoute } from "../routing/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { BARE_TIMELINE_ROUTE } from "./RouteSurface.test-support.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { type ConsoleSurfaceContext } from "../seats/index.js";
 
 /** The bare route whose grammar takes an agent WITH its session or not at all. */
 const BARE_AGENT_CONSOLE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "agent-console" };
@@ -123,9 +124,7 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
     // it out of the next case's flush — `hash-route-binding.test.tsx` records the
     // same reason for the same shape.
     window.location.hash = "";
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
+    await drainMicrotasks();
   });
 
   it("writes no hash when a session is chosen, because the target is not complete yet", async () => {

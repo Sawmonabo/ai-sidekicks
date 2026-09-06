@@ -6,7 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { compareInstants, parseInstant } from "./instant.js";
+import {
+  compareInstants,
+  MILLISECONDS_PER_DAY,
+  MILLISECONDS_PER_HOUR,
+  MILLISECONDS_PER_MINUTE,
+  MILLISECONDS_PER_SECOND,
+  parseInstant,
+} from "./instant.js";
 
 describe("parseInstant — the encoding the wire declares, and nothing wider", () => {
   it("reads a Z-terminated instant", () => {
@@ -305,5 +312,31 @@ describe("compareInstants — unreadable last, in both directions", () => {
     // caller to read one.
     expect(compareInstants(parseInstant("2020-01-01T00:00:00Z"), later)).toBe(-1);
     expect(compareInstants(parseInstant("2026-09-01T11:59:59.999Z"), later)).toBe(-1);
+  });
+});
+
+describe("the millisecond unit factors", () => {
+  it("names the magnitude of each unit, independently of the chain that derives it", () => {
+    // The factors are written as arithmetic over one base so a reader can check the
+    // sentence rather than count digits, and this is the other half of that trade:
+    // the magnitudes are stated here as literals, so a wrong multiplier in the chain
+    // fails here instead of travelling into every duration the console composes.
+    expect(MILLISECONDS_PER_SECOND).toBe(1_000);
+    expect(MILLISECONDS_PER_MINUTE).toBe(60_000);
+    expect(MILLISECONDS_PER_HOUR).toBe(3_600_000);
+    expect(MILLISECONDS_PER_DAY).toBe(86_400_000);
+  });
+
+  it("agrees with the platform's own calendar arithmetic", () => {
+    // The negative control for a chain that is internally consistent and wrong: four
+    // factors derived from a base of 100 would satisfy every ratio above and none of
+    // these. `Date.UTC` is the independent instrument, and the day is measured across
+    // a boundary the parser has no say in.
+    expect(Date.UTC(2026, 8, 2) - Date.UTC(2026, 8, 1)).toBe(MILLISECONDS_PER_DAY);
+    expect(Date.UTC(2026, 8, 1, 1) - Date.UTC(2026, 8, 1, 0)).toBe(MILLISECONDS_PER_HOUR);
+    expect(Date.UTC(2026, 8, 1, 0, 1) - Date.UTC(2026, 8, 1, 0, 0)).toBe(MILLISECONDS_PER_MINUTE);
+    expect(Date.UTC(2026, 8, 1, 0, 0, 1) - Date.UTC(2026, 8, 1, 0, 0, 0)).toBe(
+      MILLISECONDS_PER_SECOND,
+    );
   });
 });

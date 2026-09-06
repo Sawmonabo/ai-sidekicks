@@ -32,21 +32,20 @@
 // output rather than a second reading of the route, so there is one grammar deciding
 // what "a different address" means.
 //
-// Three of the four reach the screen through `SurfaceAbsence.tsx`, which is the one
-// centring wrapper the frame has; `legacy-surfaces.ts` raises two more through the
-// same module, which is why it is a module and not a block in this one.
+// Three of the four reach the screen through the `SurfaceAbsence` primitive, which
+// is the console's one centring wrapper; `seats/absorbed-surfaces.ts` raises two more
+// through the same component, which is why it is a module and not a block in here.
 
 import { Fragment } from "react";
 
-import { Nothing } from "../primitives/index.js";
+import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { formatRoute, isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
 import { ContextPicker } from "./ContextPicker.js";
-import { SurfaceAbsence } from "./SurfaceAbsence.js";
 import {
   consoleSurfaceRegistry,
   surfaceSlotFor,
   type ConsoleSurfaceContext,
-} from "./surface-registry.js";
+} from "../seats/index.js";
 
 export interface RouteSurfaceProps {
   readonly context: ConsoleSurfaceContext;

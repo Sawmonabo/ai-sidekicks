@@ -14,7 +14,7 @@
 //
 // WHAT IS NOT HERE. The predicate over declared beats, and its controls, are the
 // sibling's. Delivery ORDER — the engine's due-prefix rule — is
-// `bridge/scenario-engine.test.ts`'s. This file owns delivered SHAPE.
+// `bridge/scenario-runtime/scenario-engine.test.ts`'s. This file owns delivered SHAPE.
 
 import { EventEnvelopeSchema } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -22,10 +22,10 @@ import { describe, expect, it } from "vitest";
 import {
   createFixture,
   subscribeThroughBridge,
-} from "../../../src/renderer/src/console/bridge/fixture-bridge.test-support.js";
+} from "../../../src/renderer/src/console/bridge/fixture/fixture-bridge.test-support.js";
 import { CONSOLE_SCENARIOS } from "../../../src/renderer/src/console/bridge/scenarios/index.js";
-import { SESSION_EVENT_STREAM } from "../../../src/renderer/src/console/bridge/session-event-streams.js";
-import { readConsoleSessionEvent } from "../../../src/renderer/src/console/bridge/session-event-payload.js";
+import { SESSION_EVENT_STREAM } from "../../../src/renderer/src/console/bridge/daemon/session-event-streams.js";
+import { readConsoleSessionEvent } from "../../../src/renderer/src/console/bridge/daemon/session-event-payload.js";
 
 describe("scenario delivery shape — what the fixture bridge actually delivers", () => {
   it.each(CONSOLE_SCENARIOS.map((scenario) => [scenario.id, scenario] as const))(

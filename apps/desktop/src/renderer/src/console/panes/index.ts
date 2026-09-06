@@ -16,8 +16,15 @@
 //
 // A family exports `register<Family>Panes(registry: ConsolePaneRegistry): void`
 // from its own `index.ts`, claims its pane kinds inside that function, and replaces
-// its own placeholder line below with the import and the call. Its line names the
-// kinds it claims, so a reviewer can read the whole deck off this file.
+// its own placeholder line below with the import and the call. The task marker rides
+// the call rather than being dropped with the comment, so a filled seat is still a
+// seat and the board reads the same whether a family has landed or not. Each line
+// names the kinds it claims, so a reviewer can read the whole deck off this file.
+//
+// ONE LINE PER FAMILY, WHICH IS NOT ALWAYS ONE LINE PER SEAT. A task that ships two
+// families ships two doors and therefore two calls, each carrying that task's marker
+// and the kind it is claiming — the one-line-per-position property the branches
+// depend on is about the line, and two families were never going to share one.
 //
 // WHAT A FAMILY DOES NOT DO
 //
@@ -57,6 +64,6 @@ export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
   // T-023p-1C-6 workflow-run workflow-builder
-  registerBrowserPanes(registry);
-  registerTerminalPanes(registry);
+  registerBrowserPanes(registry); // T-023p-1C-7 browser
+  registerTerminalPanes(registry); // T-023p-1C-7 terminal
 }

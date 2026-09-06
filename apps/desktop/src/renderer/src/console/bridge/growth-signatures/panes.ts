@@ -8,7 +8,7 @@
 // window operations that detach a pane into an auxiliary window and report the
 // errors it raises there.
 
-import type { GrowthStream } from "../growth-outcome.js";
+import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type {
   GrowthNavigationState,
   GrowthPaneError,

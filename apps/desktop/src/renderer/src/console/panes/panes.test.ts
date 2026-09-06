@@ -1,14 +1,15 @@
-// The pane seat board holds reserved lines and nothing else.
+// The pane seat board holds one line per family and nothing else.
 //
 // Its whole value is that six branches can each replace one line without touching
 // another's. That property survives only while the file stays composition-only: a
 // condition, a shared local, or a registration made outside a family's own line
 // turns six one-line diffs back into six edits to one region.
 //
-// So this file reads the seat board's SOURCE. The behavioural check below — that
-// composing registers nothing — is the stronger claim about today, but it says
-// nothing about whether the six reserved lines still exist, in order, spelled the
-// way the branches are cutting against. A branch that renamed or reordered them
+// So this file reads the seat board's SOURCE. The behavioural check below — which
+// kinds composing claims — is the stronger claim about today, but it says nothing
+// about whether the seat lines still exist, in order, spelled the way the branches
+// are cutting against: a landed family's call sits at its own line, and the ones
+// that have not landed are still comments. A branch that renamed or reordered them
 // would pass every behavioural assertion and conflict with five other branches.
 //
 // `node:fs` is banned in renderer programs (`Spec-023 §Trust Stance`), so the
@@ -39,30 +40,27 @@ const seatBoardSources = import.meta.glob("./index.ts", {
 /** The seat board's own text. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
-/** The reserved lines still waiting for their family, in cut order. */
-const RESERVED_LINES: readonly string[] = [
+/**
+ * The seat lines, in the order the branches cut against.
+ *
+ * A family that has landed occupies its seat with its own call; one that has not
+ * still holds the comment naming the kinds it will claim. Both forms are one line
+ * at one position, which is the property the branches depend on — and a task that
+ * ships two families spends its seat on two of them, one per door, which is why
+ * this list is the board's lines rather than its task ids.
+ */
+const SEAT_LINES: readonly string[] = [
   "// T-023p-1C-2 timeline",
   "// T-023p-1C-3 runs approvals inspector",
   "// T-023p-1C-4 agent-console",
   "// T-023p-1C-5 diff artifact",
   "// T-023p-1C-6 workflow-run workflow-builder",
+  "registerBrowserPanes(registry); // T-023p-1C-7 browser",
+  "registerTerminalPanes(registry); // T-023p-1C-7 terminal",
 ];
 
-/**
- * The calls that have replaced their reserved line, in the same cut order.
- *
- * A landing family moves its own entry from the list above to this one, and the
- * body assertion below is their concatenation — so the two lists together are
- * still the whole seat board, and a family that added a call without retiring its
- * reserved line (or the reverse) fails here rather than merging quietly.
- */
-const LANDED_REGISTRATIONS: readonly string[] = [
-  "registerBrowserPanes(registry);",
-  "registerTerminalPanes(registry);",
-];
-
-/** The pane kinds those calls claim, in `PANE_KINDS` declaration order. */
-const LANDED_PANE_KINDS: readonly PaneKind[] = ["browser", "terminal"];
+/** Which pane kinds the landed families claim, in `PANE_KINDS` declaration order. */
+const CLAIMED_PANE_KINDS: readonly PaneKind[] = ["browser", "terminal"];
 
 /** The body of `registerConsolePanes`, from its brace to the matching close. */
 function seatBoardFunctionBody(source: string): string {
@@ -74,7 +72,7 @@ function seatBoardFunctionBody(source: string): string {
   return bodyMatch.groups["body"];
 }
 
-describe("pane seat board — reserved lines only", () => {
+describe("pane seat board — one line per family", () => {
   it("reads its own source", () => {
     // The glob would silently resolve to nothing if the pattern stopped matching,
     // and every assertion below would then run against an empty string and pass
@@ -83,18 +81,15 @@ describe("pane seat board — reserved lines only", () => {
     expect(seatBoardSource).toContain("export function registerConsolePanes");
   });
 
-  it("carries every seat in task order, reserved or landed", () => {
+  it("carries every seat line in task order", () => {
     const body = seatBoardFunctionBody(seatBoardSource);
-    expect(body.split("\n").map((line) => line.trim())).toStrictEqual([
-      ...RESERVED_LINES,
-      ...LANDED_REGISTRATIONS,
-    ]);
+    expect(body.split("\n").map((line) => line.trim())).toStrictEqual([...SEAT_LINES]);
   });
 
-  it("negative control: a body with a real registration is rejected", () => {
+  it("negative control: a body with another family's registration is rejected", () => {
     // Without this, the case above would pass over an implementation of
-    // `seatBoardFunctionBody` that returned the reserved lines whatever the file
-    // said — and over a regex that matched a prefix of a longer body.
+    // `seatBoardFunctionBody` that returned the seat lines whatever the file said —
+    // and over a regex that matched a prefix of a longer body.
     const withRegistration = seatBoardSource.replace(
       "  // T-023p-1C-2 timeline\n",
       "  registerLedgerPanes(registry);\n",
@@ -104,15 +99,15 @@ describe("pane seat board — reserved lines only", () => {
       seatBoardFunctionBody(withRegistration)
         .split("\n")
         .map((line) => line.trim()),
-    ).not.toStrictEqual([...RESERVED_LINES, ...LANDED_REGISTRATIONS]);
+    ).not.toStrictEqual([...SEAT_LINES]);
   });
 });
 
 describe("pane seat board — composing it today", () => {
-  it("registers exactly the kinds the landed families claim", () => {
+  it("claims exactly the kinds the landed families own", () => {
     const registry = new ConsolePaneRegistry();
     registerConsolePanes(registry);
-    expect(registry.registeredPaneKinds()).toStrictEqual([...LANDED_PANE_KINDS]);
+    expect(registry.registeredPaneKinds()).toStrictEqual([...CLAIMED_PANE_KINDS]);
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
@@ -123,13 +118,15 @@ describe("pane seat board — composing it today", () => {
     }).not.toThrow();
   });
 
-  it("negative control: the registry itself does report a claimed kind", () => {
+  it("negative control: a fresh registry reports only what was put in it", () => {
     // The result above would also be produced by a `registeredPaneKinds` that
-    // answered the landed kinds and nothing else whatever else was claimed, which
-    // would make the first case vacuous.
+    // answered from the module-scope singleton rather than from the registry it was
+    // handed, which would make the case vacuous the moment a family registered
+    // globally. A kind no seat claims, claimed here, must survive composition.
     const registry = new ConsolePaneRegistry();
+    expect(registry.registeredPaneKinds()).toStrictEqual([]);
     registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     registerConsolePanes(registry);
-    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline", ...LANDED_PANE_KINDS]);
+    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline", ...CLAIMED_PANE_KINDS]);
   });
 });

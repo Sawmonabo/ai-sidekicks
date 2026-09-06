@@ -18,7 +18,7 @@ import {
   type ConsoleBridge,
 } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
-import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
+import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore } from "../../store/index.js";
 import type { PaneContextOf } from "../../seats/index.js";

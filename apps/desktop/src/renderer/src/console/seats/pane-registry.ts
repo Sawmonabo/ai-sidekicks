@@ -6,7 +6,7 @@
 // calls `registerConsolePane` at module scope with the kind it owns; the deck
 // resolves a pane's kind to a descriptor and mounts it.
 //
-// WHY THIS IS NOT `frame/surface-registry.ts`
+// WHY THIS IS NOT `surface-registry.ts`, BESIDE IT IN THIS FAMILY
 //
 // A SURFACE is what a route mounts — one per navigable destination, at most one on
 // screen. A PANE is what the deck holds — several at once, opened by the sidebar,
@@ -142,7 +142,7 @@ export interface ConsolePaneDescriptor {
 }
 
 export class ConsolePaneRegistry {
-  // `"owner-scoped"`, for `frame/surface-registry.ts`'s reason: re-registering
+  // `"owner-scoped"`, for `surface-registry.ts`'s reason: re-registering
   // under the same owner replaces (a hot reload re-runs a family's module), and a
   // different owner claiming a taken kind is a conflict rather than a swap,
   // because which body mounts would otherwise depend on module import order.

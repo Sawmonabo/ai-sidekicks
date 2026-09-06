@@ -18,11 +18,7 @@
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 
-export type {
-  ConsoleBridge,
-  // Consumed by T-023p-1C-4
-  ConsoleBridgeSource,
-} from "./console-bridge.js";
+export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
 // The one answer to "which clock does this window run on". Exported because the
 // two composition roots that build a clocked subsystem — the session registry and
@@ -36,7 +32,7 @@ export { consoleClockFor } from "./console-bridge.js";
 // `run.*` stream NAMES beside it in that table are still not re-exported: their
 // consumers so far are in this family, which reaches them directly, and a barrel
 // specifier no cross-family import uses is a dead export rather than a convenience.
-export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
+export { SESSION_EVENT_STREAM } from "./daemon/session-event-streams.js";
 
 // Which run state a `run.*` transition kind announces — the same table, on the
 // same rule, now that it has a cross-family consumer: the run-lifecycle projector
@@ -44,7 +40,7 @@ export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 // state. That check has to read THIS mapping rather than re-derive one, or the
 // console would hold two answers to which state a kind announces and the fold
 // would be measured against the wrong one.
-export { runStateForTransitionKind } from "./session-event-streams.js";
+export { runStateForTransitionKind } from "./daemon/session-event-streams.js";
 
 export {
   SidekicksBridgeProvider,
@@ -53,7 +49,7 @@ export {
   useConsoleClock,
 } from "./BridgeProvider.js";
 
-export { createFixtureBridge } from "./fixture-bridge.js";
+export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 
 // The one door a daemon reply enters the console through. Exported as the CALL
 // plus the answer it gives and the method set it admits — and deliberately not the
@@ -65,18 +61,18 @@ export {
   callDaemon,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DAEMON_REPLY_REFUSAL_ORIGIN,
-} from "./daemon-reply.js";
+} from "./daemon/daemon-reply.js";
 export type {
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DaemonReply,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DaemonReplyRefusalCode,
-} from "./daemon-reply.js";
+} from "./daemon/daemon-reply.js";
 export type {
   ConsoleDaemonMethod,
   DaemonRequestOf,
   DaemonResponseOf,
-} from "./daemon-reply-registry.js";
+} from "./daemon/daemon-reply-registry.js";
 // The live bridge, for the surfaces and suites that build one over an installed
 // preload contract rather than reading `window.sidekicks` themselves.
 export { createLiveBridge } from "./live-bridge.js";
@@ -89,24 +85,44 @@ export { createLiveBridge } from "./live-bridge.js";
 // suites that assert on the marker read the module that declares it, which is what
 // `test/console/architecture/barrel-census.test.ts` names for a door line no
 // production module would ever import.
-export type { ScriptedPaneViewHost } from "./pane-view-host-script.js";
+export type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
 // port type, the one summary shape those surfaces render, the refusal they render
-// instead, and the builder that mints one all leave through this door — the same
-// door the bridge itself does, because a growth refusal IS what this bridge
-// answers for a wire the corpus has not registered.
+// instead, and the two builders that mint one all leave through this door — the
+// same door the bridge itself does, because a growth refusal IS what this bridge
+// answers for a wire the corpus has not registered. The second builder is for the
+// arm a caller cannot answer for itself: a call that REJECTED rather than
+// resolving, whose refusal has to keep this port's `origin` and this port's code
+// rather than one the caller invented.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
 // reached deep by the three modules inside this family that read several planes at
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable } from "./growth-port.js";
-export type { GrowthPort } from "./growth-port.js";
+export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
+export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
-export type { GrowthUnavailable } from "./growth-outcome.js";
+export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
+// The two-arm reading a surface holds for one such call — the port's answer, or the
+// refusal a call that produced none was read as. Through this door and deliberately
+// not through `growth-port/index.js`: no sibling inside `bridge/` takes it, and an
+// inner barrel line no sibling reaches is a dead export `structure:dead-code` reports,
+// which is how two speculative lines came off that door already.
+//
+// The claim is the line-comment spelling and not a `@consumedBy` JSDoc tag, measured
+// rather than chosen: knip does not report a specifier on THIS door at all — a planted
+// dead type re-exported here raised nothing, where the same type re-exported through
+// `seats/index.ts` was reported at both its declaration and its specifier — so a JSDoc
+// tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on it.
+// `barrel-census.test.ts` is the gate that does report it, and it reads either
+// spelling, so the line comment satisfies the instrument that has the claim.
+export type {
+  // Consumed by T-023p-1C-4
+  GrowthReading,
+} from "./growth-port/growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
@@ -114,12 +130,12 @@ export type { GrowthUnavailable } from "./growth-outcome.js";
 // family. `ScenarioFixtureControl` deliberately does NOT ship through here: its
 // only caller is the provider beside it, and its only reader is a driver in
 // another process that imports the module directly.
-export { ScenarioSelection } from "./scenario-selection.js";
+export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 
 // The decode boundary for a delivered session-event envelope. Through the door
 // because the frame's binder is the reader and the parse is this family's job: the
 // wire's own shapes are read here and nowhere above.
-export { readConsoleSessionEvent } from "./session-event-payload.js";
+export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 
 // `membershipRoleOf` is the injected lookup `useCallerMembershipRole` takes: the
 // store's roster holds the role and deliberately names no wire member, so the read
@@ -130,11 +146,11 @@ export { readConsoleSessionEvent } from "./session-event-payload.js";
 // importer is a test is the class `test/console/architecture/barrel-census.test.ts`
 // fails — its suite reads the declaring module, which is the disposition that census
 // names for exactly this state.
-export { membershipRoleOf } from "./entity-body-reads.js";
+export { membershipRoleOf } from "./daemon/entity-body-reads.js";
 
 // The reported node state a payload member carries. Through the door for the reason
 // the line above is: the narrowing runs against the contract's own schema, which this
 // family admits and no view family may import, so the read belongs here and travels
 // out — and the terminal's host-presence fold is the production reader that makes the
 // line a door line rather than a claim.
-export { readNodeState } from "./node-state-read.js";
+export { readNodeState } from "./daemon/node-state-read.js";

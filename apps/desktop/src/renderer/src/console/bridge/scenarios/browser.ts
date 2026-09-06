@@ -45,7 +45,7 @@
 // ingest, and `ScenarioReply` always resolves. They are reachable only through the
 // growth port's refusal today, which is what the ingest trio returns.
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const BROWSER_SCENARIO_ID = "browser";
 

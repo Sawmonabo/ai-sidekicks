@@ -26,7 +26,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixture, withDaemonCall } from "../bridge/fixture-bridge.test-support.js";
+import { createFixture, withDaemonCall } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { SidekicksBridgeProvider, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import { ConsoleEntityProjectorRegistry, type SessionStoreRegistry } from "../store/index.js";
 import { useSessionStoreRegistry } from "./session-lifecycle.js";

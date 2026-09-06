@@ -4,7 +4,7 @@
 // One plane of `GrowthOperationSignatures`, composed into it by `index.ts`. The row
 // comment below is the file's own, kept with the row it explains.
 
-import type { AttentionProjection } from "../attention-projection.js";
+import type { AttentionProjection } from "../wire-shapes/index.js";
 import type { GrowthAttentionPreference } from "../growth-values/index.js";
 
 export interface AttentionGrowthSignatures {

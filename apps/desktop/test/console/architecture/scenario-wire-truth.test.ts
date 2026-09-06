@@ -33,7 +33,7 @@ import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SCENARIOS } from "../../../src/renderer/src/console/bridge/scenarios/index.js";
 import { findScenarioWireTruthDefects } from "../../../src/renderer/src/console/bridge/scenarios/wire-truth.js";
-import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario.js";
+import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario.js";
 import { parseInstant } from "../../../src/renderer/src/console/core/instant.js";
 
 /** A UUID the branded id types accept, so a control fails for its own reason. */

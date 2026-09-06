@@ -18,7 +18,7 @@ import type {
   ConsolePaneContext,
   ConsolePaneDescriptor,
 } from "../seats/index.js";
-import type { ConsoleSurfaceContext } from "./surface-registry.js";
+import type { ConsoleSurfaceContext } from "../seats/index.js";
 
 /** One mounted pane: its key, the registered body, and what that body is handed. */
 export interface PaneHarnessInstance {

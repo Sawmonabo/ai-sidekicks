@@ -35,6 +35,8 @@ import "./nothing.css";
 import "./refusal.css";
 import "./ledger-row.css";
 import "./partial-read.css";
+import "./surface-absence.css";
+import "./surface-failure.css";
 
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
@@ -48,6 +50,12 @@ export { ChordHint } from "./ChordHint.js";
 // site is the only other way either could have one.
 export { observeElementResize } from "./element-resize.js";
 
+// One boundary per surface, so a pane's render throw does not blank the window. It
+// is in this family rather than in the frame's because its only input is `core`'s
+// tripwire report, and because a view family wrapping its own rows cannot import the
+// frame's door without closing a cycle.
+export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
+
 // The chord vocabulary, and not only the printer. A surface that decides something
 // ABOUT a chord — the browser family's page handback, which may claim a keystroke
 // only when it holds a modifier — needs the same closed token set, the same
@@ -57,6 +65,11 @@ export { observeElementResize } from "./element-resize.js";
 export type { ChordModifierToken, ChordPlatform } from "./chord-format.js";
 export {
   CHORD_MODIFIER_TOKENS,
+  // The literal, not the binding. `PaletteOverlay.tsx` is the only module that hands
+  // this to `parseChord`; every other reader PRINTS it, and one of those readers is
+  // the primitive beside this door. Publishing it from `palette/` would have left a
+  // primitive importing upward for a string.
+  COMMAND_PALETTE_OPEN_CHORD,
   HOST_CHORD_PLATFORM,
   PLATFORM_MODIFIER_CHORD_TOKEN,
   PLATFORM_MODIFIER_TOKEN,
@@ -64,6 +77,13 @@ export {
   formatChordForPlatform,
   splitChordTokens,
 } from "./chord-format.js";
+
+// The surface-scale absence wrapper. In this family rather than in `frame/` because
+// it is a presentational shell with no family of its own — a centred measure, a body
+// slot, and one hint — and because both of its producers now sit BELOW the frame:
+// `frame/RouteSurface.tsx` reaches down to it like any other consumer, and
+// `seats/absorbed-surfaces.ts` could not have reached up at all.
+export { SurfaceAbsence } from "./SurfaceAbsence.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
 // because the whole point of the primitive is that there is a single pair of

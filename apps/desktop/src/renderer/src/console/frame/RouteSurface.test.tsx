@@ -20,18 +20,17 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { GrowthPort } from "../bridge/index.js";
 import { createFixtureBridge } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { settleReactWork } from "../primitives/act-settlement.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { type ConsoleRoute } from "../routing/index.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { BARE_TIMELINE_ROUTE } from "./RouteSurface.test-support.js";
-import {
-  consoleSurfaceRegistry,
-  registerConsoleSurface,
-  type ConsoleSurfaceContext,
-} from "./surface-registry.js";
+import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
+// The module-scope registration door by its own specifier: the seats door does not
+// publish it, no production module calling it having landed yet.
+import { registerConsoleSurface } from "../seats/surface-registry.js";
 
 /** The rail's middle destination, whose family (T-023p-1C-6) ships separately. */
 const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
@@ -191,7 +190,7 @@ describe("RouteSurface — a declared slot with no registrant", () => {
 
     const { container } = render(<RouteSurface context={context} />);
 
-    expect(container.querySelector(".meridian-frame__absence")).not.toBeNull();
+    expect(container.querySelector(".meridian-surface-absence")).not.toBeNull();
     expect(container.textContent).toContain("This surface has not been built yet.");
     expect(container.textContent).toContain("workflows");
     expect(container.querySelector("[aria-busy='true']")).toBeNull();
@@ -212,7 +211,7 @@ describe("RouteSurface — a declared slot with no registrant", () => {
       const { container } = render(<RouteSurface context={context} />);
 
       expect(container.textContent).toContain("the workflow builder rendered");
-      expect(container.querySelector(".meridian-frame__absence")).toBeNull();
+      expect(container.querySelector(".meridian-surface-absence")).toBeNull();
     } finally {
       consoleSurfaceRegistry.unregister("workflows");
     }
