@@ -46,6 +46,7 @@ import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
 import { TerminalAddonSuite, type TerminalRendererMode } from "./xterm-addons.js";
 import { TerminalHostBinding } from "./xterm-host-binding.js";
 import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./xterm-links.js";
+import { applyDeclaredMonospaceFamily } from "./xterm-typeface.js";
 
 // Re-exported from the module that DECLARES it, so a consumer that names the mode
 // keeps naming it through the emulator's own entry point — which is also the only
@@ -162,6 +163,10 @@ export class XtermTerminalAdapter {
       return;
     }
     const terminal = this.#terminal ?? this.#buildTerminal();
+    // Before the same-host return below rather than after it, so a remount onto a
+    // host whose declared face has moved follows it. The call is a no-op when it
+    // has not; `xterm-typeface.ts` says why that matters.
+    applyDeclaredMonospaceFamily(terminal, hostElement);
     if (this.#hostBinding.hostElement === hostElement) {
       this.fitToHost();
       return;
