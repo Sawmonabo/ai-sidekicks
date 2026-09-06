@@ -27,11 +27,21 @@
 // editor still renders the sentence, which is why the shape survives review; one
 // family branch carries seventeen of them.
 //
-// AND BOTH ARE ASKED AT MEMBER POSITIONS, not at statements alone.
+// AND BOTH ARE ASKED AT EVERY NESTED POSITION, not at statements alone.
 // `sourceFile.statements` is the top level and nothing under it, so a block stacked on
 // an interface member, a type-literal member, a class member or an enum member sat
 // outside the claim entirely — and a member is where the copied-with-its-declaration
 // shape lands most, because a member and the sentence above it are one thing to copy.
+//
+// Four more positions carry documentation in this package and are asked here for the
+// same reason. An EXPORT or IMPORT SPECIFIER is where the console concentrates its
+// JSDoc: `apps/desktop/AGENTS.md` §Module shape makes the `@consumedBy` claim ride the
+// barrel's own specifier, because that is the export knip reports, so a door line is a
+// documented declaration and a stacked pair there is the shape a merge of two doors
+// produces. An object literal's PROPERTY ASSIGNMENT is a documented declaration
+// wherever a table of rows is written as one. And a `declare global` or `declare
+// module` body holds STATEMENTS a top-level walk never reaches, none of which is a
+// module header — nothing makes a block written inside a brace one.
 //
 // THE FIRST STATEMENT IS EXEMPT FROM THE STACKED SHAPE, and the exemption is
 // structural rather than a grandfather clause: a module whose header is written as a
@@ -83,12 +93,32 @@ function documentationBlocksInModifiers(source: string, position: number): numbe
   );
 }
 
-/** How many of `ranges` open a JSDoc rather than a line or a plain block comment. */
+/**
+ * The width of `/**\/`, the one block that opens a JSDoc and documents nothing.
+ *
+ * Four characters, and the two stars are the same star: an empty block comment opens
+ * with `/*` and closes with `*\/` sharing it, so a prefix test alone reads it as a
+ * documentation block. Any real block is wider — `/***\/` already is — so the width
+ * separates the two without a second reading of the text.
+ */
+const EMPTY_BLOCK_COMMENT_WIDTH = 4;
+
+/**
+ * How many of `ranges` open a JSDoc rather than a line or a plain block comment.
+ *
+ * AN EMPTY BLOCK IS NOT DOCUMENTATION, and the prefix test alone says it is: `/**\/`
+ * starts with `/**` because its closing star is its second one. Counting it would
+ * report a real JSDoc under one as a declaration carrying two blocks — a false
+ * positive on a gate whose whole value is that its report is trustworthy.
+ */
 function countDocumentation(
   source: string,
   ranges: readonly ts.CommentRange[] | undefined,
 ): number {
-  return (ranges ?? []).filter((range) => source.startsWith("/**", range.pos)).length;
+  return (ranges ?? []).filter(
+    (range) =>
+      source.startsWith("/**", range.pos) && range.end - range.pos > EMPTY_BLOCK_COMMENT_WIDTH,
+  ).length;
 }
 
 /** One position a documentation block can lead, and whether a header excuses one there. */
@@ -127,6 +157,31 @@ function isMemberContainer(node: ts.Node): node is MemberContainer {
 }
 
 /**
+ * The positions `node` holds that a documentation block can lead in its own right.
+ *
+ * ASKED PER CONTAINER KIND rather than per child, because the child list is what
+ * differs: members hang off `members`, a named clause off `elements`, an object
+ * literal off `properties`, and an ambient body off `statements`. A walk that took
+ * every child of every node would report the annotation, the initialiser and the
+ * argument list as documented positions, and none of those is a declaration.
+ */
+function documentedChildrenOf(node: ts.Node): readonly ts.Node[] {
+  if (isMemberContainer(node)) {
+    return node.members;
+  }
+  if (ts.isNamedExports(node) || ts.isNamedImports(node)) {
+    return node.elements;
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties;
+  }
+  if (ts.isModuleBlock(node)) {
+    return node.statements;
+  }
+  return [];
+}
+
+/**
  * The top-level statements — every position this gate read before it walked members.
  *
  * Its own function because the control below drives it as the FOIL: the reading this
@@ -142,22 +197,20 @@ function statementDeclarationSites(sourceFile: ts.SourceFile): readonly Declarat
 }
 
 /**
- * Every member of every container under `node`, itself included, none of them exempt.
+ * Every nested position under `node`, itself included, none of them exempt.
  *
  * NONE EXEMPT, unlike the first statement: the exemption above is structural — a
  * module header written as a block leads whatever statement comes first — and there is
  * no analogue inside a brace. A container's own documentation sits ABOVE it, where the
  * statement reading already judges it, so the first member has no excuse the fourth
- * does not.
+ * does not, and neither has the first specifier of a door or the first statement of an
+ * ambient body.
  */
-function memberDeclarationSites(node: ts.Node): readonly DeclarationSite[] {
+function nestedDeclarationSites(node: ts.Node): readonly DeclarationSite[] {
   const sites: DeclarationSite[] = [];
   const collect = (candidate: ts.Node): void => {
-    if (!isMemberContainer(candidate)) {
-      return;
-    }
-    for (const member of candidate.members) {
-      sites.push({ node: member, exemptFromStacked: false });
+    for (const child of documentedChildrenOf(candidate)) {
+      sites.push({ node: child, exemptFromStacked: false });
     }
   };
   collect(node);
@@ -165,11 +218,11 @@ function memberDeclarationSites(node: ts.Node): readonly DeclarationSite[] {
   return sites;
 }
 
-/** Every position in `sourceFile` a documentation block can lead, statements and members. */
+/** Every position in `sourceFile` a documentation block can lead, top level and nested. */
 function declarationSites(sourceFile: ts.SourceFile): readonly DeclarationSite[] {
   return statementDeclarationSites(sourceFile).flatMap((site) => [
     site,
-    ...memberDeclarationSites(site.node),
+    ...nestedDeclarationSites(site.node),
   ]);
 }
 
