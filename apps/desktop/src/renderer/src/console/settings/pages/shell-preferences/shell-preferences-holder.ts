@@ -13,7 +13,7 @@
 // keep it: three pages read these keys, each would own a separate store, and the
 // store would die with the page — so switching settings sections destroyed a choice
 // while the row still said it was held for the window. {@link consoleShellPreferences}
-// is the one holder, on the precedent `frame/keybinding-override-store.ts` states in
+// is the one holder, on the precedent `palette/keybinding-override-store.ts` states in
 // its own words: module scope IS window scope here, because an auxiliary window is
 // its own renderer process and no channel joins two windows' module graphs.
 
@@ -107,7 +107,7 @@ class ShellPreferenceStoreHolder {
  * This window's shell preferences.
  *
  * Module scope IS window scope here, for the reason
- * `frame/keybinding-override-store.ts` gives about the overrides it holds the same
+ * `palette/keybinding-override-store.ts` gives about the overrides it holds the same
  * way: an auxiliary window is its own renderer process, so no channel joins two
  * windows' module graphs — and a choice held for this window then outlives the page
  * that was open when it was made, which is what the row's own note promises.

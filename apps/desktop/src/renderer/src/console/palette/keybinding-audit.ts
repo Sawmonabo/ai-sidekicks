@@ -29,8 +29,9 @@
 // and a guessed list would be wrong in exactly the direction that matters — telling
 // somebody a chord is free when the menu bar will take it.
 
-import { CommandRegistry, KeyBindingTable } from "../palette/index.js";
-import type { KeyBinding } from "../palette/index.js";
+import { CommandRegistry } from "./command-registry.js";
+import type { KeyBinding } from "./contributions.js";
+import { KeyBindingTable } from "./keybindings.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 
 /** One chord the host consumes before this application can see it. */

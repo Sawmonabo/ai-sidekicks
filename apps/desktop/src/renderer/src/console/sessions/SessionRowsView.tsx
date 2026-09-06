@@ -5,7 +5,7 @@ import { SessionsAbsence } from "./SessionsAbsence.js";
 import { mergeSessionRows, withAttentionSeverity } from "./rows/session-directory-rows.js";
 import type { SessionListRow } from "./rows/session-rows.js";
 import { type AttentionSeverity } from "../bridge/index.js";
-import type { SessionDirectoryState } from "../frame/session-directory.js";
+import type { SessionDirectoryState } from "../seats/index.js";
 import { formatCount } from "../primitives/index.js";
 import { type AttentionReading } from "./notifications/index.js";
 import { type SessionPinBinding } from "./rows/session-pins.js";

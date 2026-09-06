@@ -1,6 +1,6 @@
 // The frame's own commands, and the palette wiring that carries them.
 //
-// `command-surface.ts` next door is the DOOR — the registry, the `when` vocabulary,
+// `palette/command-surface.ts` is the DOOR — the registry, the `when` vocabulary,
 // the chords the frame binds. This module is what the frame contributes THROUGH it,
 // and it is a hook rather than a table for the same reason those commands cannot be
 // declared at module scope: every one of them closes over this window's store, so
@@ -18,7 +18,7 @@
 //
 // The chords this window installs are `FRAME_KEY_BINDINGS` with a person's overrides
 // composed onto them, read through the one accessor
-// (`keybinding-override-store.ts`). Registration, the binding set, and the listener
+// (`palette/keybinding-override-store.ts`). Registration, the binding set, and the listener
 // then move on three different clocks — the commands change when this window's store
 // or bridge acts do, the set changes when somebody rebinds, and the listener comes
 // and goes while a chord is being recorded — so they are three effects rather than
@@ -30,8 +30,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConsoleRefusal } from "../core/index.js";
 import {
   KeyBindingTable,
+  RAIL_NAVIGATION_DETAILS,
+  consoleCommands,
+  consoleKeybindingOverrides,
+  registerConsoleCommands,
   useBridgeCommands,
+  useKeybindingSurface,
   type ConsoleCommand,
+  type FrameCommand,
+  type FrameWhenClauseContext,
   type WhenClauseContext,
 } from "../palette/index.js";
 import {
@@ -43,15 +50,7 @@ import {
 import type { UiStateStore } from "../persistence/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
-import {
-  RAIL_NAVIGATION_DETAILS,
-  consoleCommands,
-  registerConsoleCommands,
-  type FrameCommand,
-  type FrameWhenClauseContext,
-} from "./command-surface.js";
 import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
-import { consoleKeybindingOverrides, useKeybindingSurface } from "./keybinding-override-store.js";
 import { routeForDestination } from "./rail-navigation.js";
 
 /** What the frame's own commands are built against: this window's store and acts. */

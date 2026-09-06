@@ -69,6 +69,14 @@ import type { AgentRosterEntry, AgentSwitchSettlement } from "../../bridge/index
 export interface ProviderSwitchProps {
   readonly agent: AgentRosterEntry;
   readonly catalog: PushDrivenReadState<DriverCatalogReading>;
+  /**
+   * Re-open the catalog read, from the column that owns it.
+   *
+   * This form renders the catalog's refusal and holds no stream, so without a way out
+   * handed in the switch reads as permanently broken on a catalog that would answer
+   * on the next attempt.
+   */
+  readonly onCatalogReopen?: (() => void) | undefined;
   /** Submits `agent.configUpdate`. The immediate arm dispatches the interrupt. */
   readonly onApply: (axes: AxisDraft, interruptAndSwitch: boolean) => void;
   /**
@@ -99,7 +107,18 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
   const { binding, axes: draft, setAxis } = useProviderSwitchDraft(agent, catalogValue);
 
   if (catalog.kind === "failed") {
-    return <RefusalCard {...catalog.refusal} />;
+    return (
+      <RefusalCard
+        {...catalog.refusal}
+        action={
+          props.onCatalogReopen === undefined ? undefined : (
+            <button type="button" onClick={props.onCatalogReopen}>
+              Try again
+            </button>
+          )
+        }
+      />
+    );
   }
   if (catalogValue === undefined) {
     return <Nothing kind="not-loaded" title="Reading what this agent may be moved to" />;

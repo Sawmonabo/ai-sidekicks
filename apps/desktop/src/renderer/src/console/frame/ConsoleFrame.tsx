@@ -40,7 +40,7 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 import { type ConsoleBridge } from "../bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
-import { PaletteOverlay } from "../palette/index.js";
+import { CONSOLE_CHORD_PLATFORM, PaletteOverlay, consoleCommands } from "../palette/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
 import {
@@ -50,7 +50,6 @@ import {
   useLocationHash,
 } from "../store/index.js";
 import { AppFrame } from "./AppFrame.js";
-import { CONSOLE_CHORD_PLATFORM, consoleCommands } from "./command-surface.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";

@@ -12,12 +12,12 @@ import {
   MOUNT_A,
   MOUNT_B,
   SESSION_ID,
-  eventOfKind,
   mountIdAt,
   mountReadFor,
   workspaceListWith,
 } from "./mounts.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
+import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { initialisedStore } from "../../../store/session-store-registry.test-support.js";
 
 /**
@@ -236,7 +236,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
     expect(listCallCount()).toBe(1);
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
@@ -248,7 +248,7 @@ describe("what refreshes the inventory", () => {
     const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
-    sessionStore.apply(eventOfKind(sessionStore, "repo.detached", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "repo.detached", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
@@ -260,7 +260,7 @@ describe("what refreshes the inventory", () => {
     const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
-    sessionStore.apply(eventOfKind(sessionStore, "workspace.ready", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "workspace.ready", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
@@ -275,9 +275,9 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.applyBatch([
-      eventOfKind(sessionStore, "run.completed", 1),
-      eventOfKind(sessionStore, "repo.attached", 2),
-      eventOfKind(sessionStore, "workspace.ready", 3),
+      eventOfKind(sessionStore.sessionId, "run.completed", 1),
+      eventOfKind(sessionStore.sessionId, "repo.attached", 2),
+      eventOfKind(sessionStore.sessionId, "workspace.ready", 3),
     ]);
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
@@ -292,7 +292,7 @@ describe("what refreshes the inventory", () => {
     const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.starting", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.starting", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
@@ -307,7 +307,7 @@ describe("what refreshes the inventory", () => {
     const sessionStore = initialisedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(undefined);
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
@@ -320,7 +320,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
     read.dispose();
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.failed", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.failed", 1));
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 

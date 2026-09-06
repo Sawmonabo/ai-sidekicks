@@ -211,16 +211,12 @@ export function useAttentionProjection(
     };
   }, [projectionRead]);
 
-  // THE STREAM FIRST, THE READ SECOND, AND NEVER BOTH. A read whose stream never
-  // opened is behind a dead channel, and refreshing that one paints a current-looking
-  // panel over a subscription nobody holds; a read whose stream IS live failed at the
-  // read alone, and a fresh read is the whole recovery.
+  // ONE CALL, because the seam owns the stream-then-read order now: `refresh` takes
+  // the subscription first where it is not held and requests the read either way. A
+  // branch here would be a second reading of a decision the read already makes, and
+  // the branch this replaced could only be right while both halves agreed.
   const retry = useCallback(() => {
-    if (projectionRead.isSubscribed) {
-      projectionRead.refresh("participant-request");
-      return;
-    }
-    projectionRead.start();
+    projectionRead.refresh("participant-request");
   }, [projectionRead]);
 
   const state = usePushDrivenRead(projectionRead);

@@ -19,30 +19,42 @@
 //      an absolute deadline, so a continuous stream still gets a read.
 //   4. **No stale reply wins.** The scheduler serializes: a read requested while one
 //      is in flight becomes the NEXT read rather than a parallel one, so two replies
-//      are never racing and no sequence counter is needed to drop the loser. The
-//      shipped Tier-1 roster needs one because it calls the bridge directly; routing
-//      through the chokepoint is what retires it.
-//   5. **No flicker.** `not-loaded` is entered once, at construction. A refresh
-//      replaces the value in place and never returns the surface to its loading
-//      shape, because a roster that blinked on every presence push would be
-//      unreadable in a busy room.
+//      never race and no sequence counter is needed to drop the loser. The shipped
+//      Tier-1 roster needs one because it calls the bridge directly; routing through
+//      the chokepoint is what retires it.
+//   5. **No flicker.** A refresh replaces the value in place and never returns a
+//      loaded surface to its loading shape, because a roster that blinked on every
+//      presence push would be unreadable in a busy room. `not-loaded` is entered at
+//      construction and on one other occasion — an open that succeeded after a
+//      refusal, where nothing has arrived behind the new subscription yet.
 //
 // AND ONE THAT IS ABOUT TEARDOWN. `dispose()` is terminal: the subscription is
-// released and the scheduler is disposed, so a late push cannot re-arm a timer
-// behind a section that unmounted. The clock is injected rather than read off the
-// platform, so a test drives all of this on frozen time with no real timers.
+// released and the scheduler is disposed, so a late push cannot re-arm a timer behind
+// a section that unmounted. The clock is injected rather than read off the platform,
+// so a test drives all of this on frozen time with no real timers.
 //
 // AND ONE ABOUT THE SUBSCRIPTION THAT CANNOT BE OPENED AT ALL. Rule 1 puts the
-// subscribe first, which means a `subscribe` that throws SYNCHRONOUSLY throws out of
-// `start()` — and `start()` is called from a mount effect, so the throw lands in
-// React's commit phase and takes the surface down instead of producing the model's
-// own `failed` state. That is not hypothetical: the installed Tier-1 preload bridge
-// implements every daemon method by throwing, so the presence roster's subscribe is
-// exactly this call under a live window. So `start()` catches it, releases whatever
-// partial subscription it may have taken, and settles the read as `failed` carrying
-// the thrower's own words — and requests no read, because a value fetched behind a
-// subscription that never opened could never be refreshed and would render as a
-// live surface that has quietly stopped listening.
+// subscribe first, so a `subscribe` that throws SYNCHRONOUSLY throws out of the open
+// — which runs from a mount effect, so the throw lands in React's commit phase and
+// takes the surface down instead of producing the model's own `failed` state. Not
+// hypothetical: the installed Tier-1 preload bridge implements every daemon method
+// by throwing, so the presence roster's subscribe is exactly this call under a live
+// window. So the open catches it and settles `failed` carrying the thrower's own
+// words — and requests no read, because a value fetched behind a subscription that
+// never opened could never be refreshed and would render as a live surface that has
+// quietly stopped listening.
+//
+// WHICH IS WHY A REFUSED OPEN IS NOT THE END OF THE SURFACE. What "started" means here
+// is the subscription HANDLE and nothing else. A separate flag, set before the attempt
+// rather than after it, made a refused open permanent: every later open returned at the
+// guard, `refresh()` went on requesting reads behind a subscription nothing had ever
+// taken, and the surface stayed `failed` for the life of the window — under the shipped
+// Tier-1 preload, whose subscribe throws, that is the ordinary path and not the unlucky
+// one. So a trigger — repair, focus, reconnect, a person asking again — re-attempts the
+// open, and one that succeeds clears the refusal rather than leaving `failed` beside a
+// live subscription. `#opening` is the single flight: an attempt already running is not
+// a second subscription, which matters because a seam may signal synchronously from
+// inside its own `subscribe` and re-enter holding nothing. `dispose()` beats all of it.
 
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -117,7 +129,7 @@ export class PushDrivenRead<TValue> {
   readonly #scheduler: RefreshScheduler;
   #state: PushDrivenReadState<TValue> = { kind: "not-loaded" };
   #unsubscribe: Unsubscribe | undefined;
-  #started = false;
+  #opening = false;
   #disposed = false;
 
   public constructor(options: PushDrivenReadOptions<TValue>) {
@@ -147,7 +159,11 @@ export class PushDrivenRead<TValue> {
     return this.#scheduler.performCount;
   }
 
-  /** Whether a subscription is open. Asserted by the subscribe-first test. */
+  /**
+   * Whether a subscription is held — and the model's ONLY reading of started. Two
+   * readings of one fact is how a refused open left a model that believed it had
+   * started while holding nothing.
+   */
   public get isSubscribed(): boolean {
     return this.#unsubscribe !== undefined;
   }
@@ -160,35 +176,28 @@ export class PushDrivenRead<TValue> {
   /**
    * Open the subscription and request the first read, in that order.
    *
-   * Idempotent, because React mounts an effect twice under strict mode and a second
-   * subscription would double every refresh for the life of the surface.
+   * Idempotent while the subscription is held, because React mounts an effect twice
+   * under strict mode and a second subscription would double every refresh for the
+   * life of the surface — and deliberately not idempotent after an open that
+   * refused, which is how a re-mounting surface gets its subscription back.
    */
   public start(): void {
-    if (this.#started || this.#disposed) {
-      return;
-    }
-    this.#started = true;
-    try {
-      this.#unsubscribe = this.#options.subscribe(() => {
-        this.refresh("terminal-event");
-      });
-    } catch (subscriptionFailure: unknown) {
-      // Released rather than merely dropped: a seam that registered the handler and
-      // then threw on its way out has left a live registration, and the handle it
-      // never returned is unreachable from anywhere else.
-      this.#releaseSubscription();
-      this.#settle({
-        kind: "failed",
-        refusal: consoleRefusalFrom(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
-      });
-      return;
-    }
-    this.refresh("subscribe");
+    this.#open("subscribe");
   }
 
-  /** Ask for a read. Repeated calls inside the coalescing window cost one read. */
+  /**
+   * Ask for a read, taking the subscription first where it is not held.
+   *
+   * Repeated calls inside the coalescing window cost one read. A caller asking while
+   * the subscription is down wants the live surface back, not one read behind a dead
+   * seam — so the open is part of what this does.
+   */
   public refresh(reason: RefreshReason): void {
     if (this.#disposed) {
+      return;
+    }
+    if (this.#unsubscribe === undefined) {
+      this.#open(reason);
       return;
     }
     this.#scheduler.request(reason);
@@ -202,6 +211,49 @@ export class PushDrivenRead<TValue> {
     this.#disposed = true;
     this.#scheduler.dispose();
     this.#releaseSubscription();
+  }
+
+  /**
+   * Take the subscription, then request the read the caller came for. The handle is
+   * stored only once `subscribe` has RETURNED it, so a seam signalling synchronously
+   * from inside its own subscribe re-enters holding nothing — which `#opening`
+   * catches rather than take a second subscription no one can release.
+   */
+  #open(reason: RefreshReason): void {
+    if (this.#disposed || this.#opening || this.#unsubscribe !== undefined) {
+      return;
+    }
+    this.#opening = true;
+    try {
+      const release = this.#options.subscribe(() => {
+        this.refresh("terminal-event");
+      });
+      if (this.#disposed) {
+        // Disposed from inside the subscribe call. The handle has just been handed
+        // over and nothing else holds it, so here is the only place it can close.
+        release();
+        return;
+      }
+      this.#unsubscribe = release;
+    } catch (subscriptionFailure: unknown) {
+      // Nothing to release: the handle is assigned above, AFTER `subscribe` returns,
+      // so a seam that threw handed this object no way to undo what it registered —
+      // the seam's defect, and a release here would only look like a repair.
+      this.#settle({
+        kind: "failed",
+        refusal: consoleRefusalFrom(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
+      });
+      return;
+    } finally {
+      this.#opening = false;
+    }
+    if (this.#state.kind === "failed") {
+      // The subscription is live again, so the refusal beside it has stopped being
+      // true. `not-loaded` because this model holds no value — the read requested
+      // below is what fills it.
+      this.#settle({ kind: "not-loaded" });
+    }
+    this.#scheduler.request(reason);
   }
 
   /** Close whatever subscription is open, at most once. Safe with none. */

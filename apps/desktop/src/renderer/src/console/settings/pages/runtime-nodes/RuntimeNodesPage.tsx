@@ -32,7 +32,7 @@
 
 import type { ReactNode } from "react";
 
-import { renderAbsorbedNodeRoster } from "../../../frame/legacy-surfaces.js";
+import { renderAbsorbedNodeRoster } from "../../../seats/index.js";
 import { Chip, Nothing } from "../../../primitives/index.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 

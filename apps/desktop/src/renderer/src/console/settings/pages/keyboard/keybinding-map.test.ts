@@ -1,11 +1,14 @@
 // The map joins commands to bindings, and the recorder reads one keystroke as one
 // act. Every verdict about a binding SET is the keybinding service's own and is
-// driven where that service is asked (`frame/keybinding-audit.test.ts`).
+// driven where that service is asked (`palette/keybinding-audit.test.ts`).
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleCommand, KeyBinding } from "../../../palette/index.js";
-import { composeEffectiveBindings } from "../../../frame/keybinding-overrides.js";
+import {
+  composeEffectiveBindings,
+  type ConsoleCommand,
+  type KeyBinding,
+} from "../../../palette/index.js";
 import {
   composeKeybindingRows,
   composeStaleOverrideRows,

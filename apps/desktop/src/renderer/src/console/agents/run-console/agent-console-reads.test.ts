@@ -16,7 +16,8 @@ import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { createChildRunLinkage, createDriverCatalog } from "./agent-console-reads.js";
 import { initialisedStore } from "../../store/session-store-registry.test-support.js";
-import { eventOfKind, unscriptedBridge } from "./run-console.test-support.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
+import { unscriptedBridge } from "./run-console.test-support.js";
 
 const PARENT_RUN_ID = "run-7";
 
@@ -53,11 +54,11 @@ describe("the agent console's models — what re-reads one run's child links", (
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
     await settleReads(clock);
     expect(read.readCount).toBe(afterFirstRead + 1);
 
-    sessionStore.apply(eventOfKind(sessionStore, "orchestration.rejected", 2));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "orchestration.rejected", 2));
     await settleReads(clock);
     expect(read.readCount).toBe(afterFirstRead + 2);
   });
@@ -69,9 +70,9 @@ describe("the agent console's models — what re-reads one run's child links", (
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 2));
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 3));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 2));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 3));
     await settleReads(clock);
 
     expect(read.readCount).toBe(afterFirstRead + 1);
@@ -84,7 +85,7 @@ describe("the agent console's models — what re-reads one run's child links", (
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 
-    sessionStore.apply(eventOfKind(sessionStore, "assistant.message", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "assistant.message", 1));
     await settleReads(clock);
 
     expect(read.readCount).toBe(afterFirstRead);
@@ -98,7 +99,7 @@ describe("the agent console's models — what re-reads one run's child links", (
     const afterFirstRead = read.readCount;
 
     read.dispose();
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
     await settleReads(clock);
 
     expect(read.readCount).toBe(afterFirstRead);
@@ -116,7 +117,7 @@ describe("the agent console's models — what re-reads one run's child links", (
     await settleReads(clock);
     const afterFirstRead = catalog.readCount;
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
     await settleReads(clock);
 
     expect(afterFirstRead).toBeGreaterThan(0);

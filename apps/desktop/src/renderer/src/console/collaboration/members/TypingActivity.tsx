@@ -17,6 +17,7 @@
 import { DerivedFigure, Glyph, formatCount } from "../../primitives/index.js";
 import type { ChannelActivity, ChannelActivityLabels } from "../activity-model.js";
 import { COMPOSING_NAMED_CAP } from "../../core/index.js";
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 
 export interface TypingActivityProps {
   readonly activity: ChannelActivity;
@@ -30,8 +31,6 @@ export interface TypingActivityProps {
   readonly labels: ChannelActivityLabels;
 }
 
-const ACTIVITY_GLYPH_SIZE = 12;
-
 export function TypingActivity(props: TypingActivityProps): React.JSX.Element | null {
   const { activity, labels } = props;
   if (activity.composing.length === 0 && activity.agentRuns.length === 0) {
@@ -42,13 +41,13 @@ export function TypingActivity(props: TypingActivityProps): React.JSX.Element | 
     <p className="meridian-activity" role="status">
       {activity.composing.length === 0 ? null : (
         <span className="meridian-activity__part meridian-activity__part--composing">
-          <Glyph name="pencil" size={ACTIVITY_GLYPH_SIZE} />
+          <Glyph name="pencil" size={GLYPH_SIZE_ROW} />
           <DerivedFigure text={composingSentence(activity, labels)} />
         </span>
       )}
       {activity.agentRuns.length === 0 ? null : (
         <span className="meridian-activity__part meridian-activity__part--running">
-          <Glyph name="run" size={ACTIVITY_GLYPH_SIZE} />
+          <Glyph name="run" size={GLYPH_SIZE_ROW} />
           <DerivedFigure text={agentSentence(activity, labels)} />
         </span>
       )}

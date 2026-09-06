@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { KeyBinding } from "../palette/index.js";
+import type { KeyBinding } from "./contributions.js";
 import {
   KEYBINDING_OVERRIDE_REFUSAL_CODES,
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,

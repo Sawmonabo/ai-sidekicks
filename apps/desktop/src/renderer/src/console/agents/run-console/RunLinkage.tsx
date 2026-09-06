@@ -49,6 +49,14 @@ export interface RunLinkageProps {
   readonly state: PushDrivenReadState<ChildRunLinkReading> | undefined;
   /** Renderer-local navigation into a child's own run surface. */
   readonly onOpenChildRun?: ((childRunId: string) => void) | undefined;
+  /**
+   * Re-open the linkage read, from whoever holds its lease.
+   *
+   * This view renders a stream it does not own, so the way out of a refusal has to be
+   * handed in. Absent exactly where `state` is — the arm above returns before the
+   * refusal arm is reachable, so a refusal is never rendered without one.
+   */
+  readonly onReopen?: (() => void) | undefined;
 }
 
 export function RunLinkage(props: RunLinkageProps): React.JSX.Element {
@@ -66,7 +74,18 @@ export function RunLinkage(props: RunLinkageProps): React.JSX.Element {
     return <Nothing kind="not-loaded" title="Reading what this run started" />;
   }
   if (props.state.kind === "failed") {
-    return <RefusalCard {...props.state.refusal} />;
+    return (
+      <RefusalCard
+        {...props.state.refusal}
+        action={
+          props.onReopen === undefined ? undefined : (
+            <button type="button" onClick={props.onReopen}>
+              Try again
+            </button>
+          )
+        }
+      />
+    );
   }
 
   const { links, rejectedCreates } = props.state.value;

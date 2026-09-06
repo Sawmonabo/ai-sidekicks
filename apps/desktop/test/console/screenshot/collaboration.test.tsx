@@ -29,16 +29,16 @@
 // reproduced — the `macos-15` runner, or a host that asked for the comparison
 // deliberately — and skips with a stated reason everywhere else, which is the honest
 // state: a lane that wrote its own references would have committed images no CI run
-// reproduces. `baseline-comparison.ts` holds that verdict for the whole tier.
+// reproduces. `baseline-host.ts` holds that verdict for the whole tier.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
 import {
-  announceSkippedBaselines,
   requireCapturedElement,
   skipOffBaselineHost,
-} from "./baseline-comparison.js";
+  warnOnceOffBaselineHost,
+} from "./baseline-host.js";
 
 import "../../../src/renderer/src/console/collaboration/index.js";
 // The settings family's door, for its stylesheet: the nodes page below is mounted as
@@ -87,7 +87,7 @@ beforeEach(() => {
 });
 
 describe("screenshot — the destinations this family owns", () => {
-  announceSkippedBaselines();
+  warnOnceOffBaselineHost();
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the sessions destination in the ${scheme} scheme`, async (context) => {

@@ -16,25 +16,8 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 
 /** A real fixture bridge that scripts no reply, so every read settles as refused. */
 export function unscriptedBridge(id: string): ConsoleBridge {
   return fixtureBridgeWithGrowth(unscriptedScenario(id), {});
-}
-
-/** One admitted event of the given kind, numbered so the cursor moves. */
-export function eventOfKind(
-  sessionStore: SessionStore,
-  kind: ConsoleSessionEvent["kind"],
-  sequence: number,
-): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: sessionStore.sessionId,
-    sequence,
-    kind,
-    occurredAt: "2026-01-01T10:06:00.000Z",
-    payload: {},
-  };
 }

@@ -49,6 +49,15 @@ export interface AttachSidekickProps {
   readonly sessionId: string;
   readonly catalog: PushDrivenReadState<DriverCatalogReading>;
   readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
+  /**
+   * Re-open each read, from the column that owns them.
+   *
+   * This form renders two streams and holds neither, so a refusal it draws has no way
+   * out of its own. Handed in rather than derived, because the owner is the one place
+   * that can say what re-opening means.
+   */
+  readonly onCatalogReopen?: (() => void) | undefined;
+  readonly onDefinitionsReopen?: (() => void) | undefined;
   readonly onSubmit: () => void;
   /**
    * Whether the caller has an attach outstanding.
@@ -124,7 +133,11 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
           </div>
 
           {form.arm === "definition" ? (
-            <DefinitionPicker form={form} definitions={definitions} />
+            <DefinitionPicker
+              form={form}
+              definitions={definitions}
+              onReopen={props.onDefinitionsReopen}
+            />
           ) : null}
 
           {catalog.kind === "not-loaded" ? (
@@ -136,7 +149,18 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
               </p>
             </>
           ) : null}
-          {catalog.kind === "failed" ? <RefusalCard {...catalog.refusal} /> : null}
+          {catalog.kind === "failed" ? (
+            <RefusalCard
+              {...catalog.refusal}
+              action={
+                props.onCatalogReopen === undefined ? undefined : (
+                  <button type="button" onClick={props.onCatalogReopen}>
+                    Try again
+                  </button>
+                )
+              }
+            />
+          ) : null}
 
           <AxisCombobox
             label="Driver"

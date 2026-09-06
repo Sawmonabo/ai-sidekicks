@@ -38,7 +38,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import type { KeyBinding } from "../palette/index.js";
+import type { KeyBinding } from "./contributions.js";
 import type { UiStateStore } from "../persistence/index.js";
 import { GenerationLatch } from "../store/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";

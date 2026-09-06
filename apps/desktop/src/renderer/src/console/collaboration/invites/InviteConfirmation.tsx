@@ -44,7 +44,7 @@
 
 import type { JoinMode } from "@ai-sidekicks/contracts";
 
-import { renderAbsorbedInviteAcceptance } from "../../frame/legacy-surfaces.js";
+import { renderAbsorbedInviteAcceptance } from "../../seats/index.js";
 import type { ConsoleBridgeSource } from "../../bridge/index.js";
 import { Chip, Nothing, WireFigure, formatDateTime } from "../../primitives/index.js";
 

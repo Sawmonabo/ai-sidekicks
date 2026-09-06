@@ -20,12 +20,12 @@ import {
   MOUNT_A,
   MOUNT_B,
   SESSION_ID,
-  eventOfKind,
   mountIdAt,
   mountReadFor,
   workspaceListWith,
 } from "./mounts.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
+import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { initialisedStore } from "../../../store/session-store-registry.test-support.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 
@@ -360,7 +360,7 @@ describe("the page's refresh signals", () => {
     expect(listReadsBefore).toBe(1);
 
     await act(async () => {
-      sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+      sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
       clock.advance(PAST_REFRESH_DEBOUNCE_MS);
       await settle();
     });
@@ -384,7 +384,7 @@ describe("the page's refresh signals", () => {
     const { settle } = await renderSettledPage(clock, context);
 
     await act(async () => {
-      sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+      sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
       clock.advance(PAST_REFRESH_DEBOUNCE_MS);
       await settle();
     });

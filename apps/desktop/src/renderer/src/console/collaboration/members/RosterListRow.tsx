@@ -1,5 +1,5 @@
 import { Chip, Glyph, WireFigure, formatRelativeTime } from "../../primitives/index.js";
-import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
+import { GLYPH_SIZE_ROW, participantHueTokenName, tokenReference } from "../../tokens/index.js";
 import type { RosterRow } from "./presence-model.js";
 
 export interface RosterListRowProps {
@@ -45,7 +45,7 @@ export function RosterListRow(props: RosterListRowProps): React.JSX.Element {
         <Chip label={participant.state} mono tone={PRESENCE_TONE[participant.state] ?? "neutral"} />
         {composingChannelId === undefined ? null : (
           <span className="meridian-roster-row__composing">
-            <Glyph name="pencil" size={ROSTER_GLYPH_SIZE} title="Composing" />
+            <Glyph name="pencil" size={GLYPH_SIZE_ROW} title="Composing" />
             <WireFigure value={composingChannelId} />
           </span>
         )}
@@ -74,5 +74,3 @@ export const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = 
   reconnecting: "attention",
   offline: "neutral",
 };
-
-export const ROSTER_GLYPH_SIZE = 12;

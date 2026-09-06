@@ -11,7 +11,7 @@
 //
 // EVERY VERDICT ABOUT A BINDING SET IS THE KEYBINDING SERVICE'S OWN
 //
-// None of them is decided here, and none may be. `frame/keybinding-audit.ts` asks
+// None of them is decided here, and none may be. `palette/keybinding-audit.ts` asks
 // the service — the same service that will install the result — and this module
 // only joins the answers to rows a person reads. The reserved-chord table lives
 // there too: it was here, and the frame's override store became its second reader,
@@ -28,10 +28,13 @@
 // is layout-independent, so a binding stays on the same physical key on AZERTY and
 // Dvorak.
 
-import { reservedChordReason } from "../../../frame/keybinding-audit.js";
-import type { KeybindingOverrideMap } from "../../../frame/keybinding-overrides.js";
-import type { ConsoleCommand, KeyBinding } from "../../../palette/index.js";
-import { scoreSubsequence } from "../../../palette/index.js";
+import {
+  reservedChordReason,
+  scoreSubsequence,
+  type ConsoleCommand,
+  type KeyBinding,
+  type KeybindingOverrideMap,
+} from "../../../palette/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../../../primitives/index.js";
 
 /** One row of the keyboard map. */

@@ -35,6 +35,7 @@ import "./nothing.css";
 import "./refusal.css";
 import "./ledger-row.css";
 import "./partial-read.css";
+import "./surface-absence.css";
 
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
@@ -42,6 +43,7 @@ export { Glyph } from "./Glyph.js";
 export { ChordHint } from "./ChordHint.js";
 
 export type { ChordPlatform } from "./chord-format.js";
+export { COMMAND_PALETTE_OPEN_CHORD } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,
   decodeChordKeyToken,
@@ -100,6 +102,7 @@ export type {
   PartialReadProps,
 } from "./PartialRead.js";
 export { PartialRead } from "./PartialRead.js";
+export { SurfaceAbsence } from "./SurfaceAbsence.js";
 
 // The reading's sentence, said out loud. Through the door because it is the ONLY
 // route a surface has to the announcer for this case: a family that wrote its own

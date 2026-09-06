@@ -12,7 +12,8 @@
 // which module scope cannot reach, so `ConsoleRoot` registers them in an effect and
 // removes them on unmount.
 
-import { CommandRegistry, type ConsoleCommand, type KeyBinding } from "../palette/index.js";
+import { CommandRegistry } from "./command-registry.js";
+import type { ConsoleCommand, KeyBinding } from "./contributions.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 import { RAIL_DESTINATIONS, type RailDestination } from "../routing/index.js";
 

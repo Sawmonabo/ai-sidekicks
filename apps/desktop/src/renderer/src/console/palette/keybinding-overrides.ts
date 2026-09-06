@@ -19,7 +19,7 @@
 // `keybinding-override-store.ts`.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
-import type { KeyBinding } from "../palette/index.js";
+import type { KeyBinding } from "./contributions.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 

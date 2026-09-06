@@ -42,7 +42,7 @@
 
 import { useAgentConsoleModels } from "../run-console/agent-console-model.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
+import { renderAbsorbedNodeRoster } from "../../seats/index.js";
 import { Nothing } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";

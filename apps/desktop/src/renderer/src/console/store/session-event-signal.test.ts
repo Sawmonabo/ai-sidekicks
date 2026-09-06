@@ -12,25 +12,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SessionStore, type ConsoleSessionEvent } from "./index.js";
+import type { SessionStore } from "./index.js";
+import { eventOfKind } from "./session-event.test-support.js";
 import { subscribeToSessionEventKinds } from "./session-event-signal.js";
 import { initialisedStore } from "./session-store-registry.test-support.js";
-
-/** One admitted event of the given kind, numbered so the cursor moves. */
-function eventOfKind(
-  sessionStore: SessionStore,
-  kind: ConsoleSessionEvent["kind"],
-  sequence: number,
-): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: sessionStore.sessionId,
-    sequence,
-    kind,
-    occurredAt: "2026-01-01T10:06:00.000Z",
-    payload: {},
-  };
-}
 
 /** A subscribed counter over one watched set, plus the store it watches. */
 function watchedSignalCount(sessionId: string): {
@@ -50,7 +35,7 @@ describe("the session-event signal", () => {
   it("signals once for a transition that admitted a watched kind", () => {
     const { sessionStore, signalCount, unsubscribe } = watchedSignalCount("signal-watched");
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
 
     expect(signalCount()).toBe(1);
     unsubscribe();
@@ -59,7 +44,7 @@ describe("the session-event signal", () => {
   it("signals nothing for a kind it does not watch", () => {
     const { sessionStore, signalCount, unsubscribe } = watchedSignalCount("signal-unwatched");
 
-    sessionStore.apply(eventOfKind(sessionStore, "assistant.message", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "assistant.message", 1));
 
     expect(signalCount()).toBe(0);
     unsubscribe();
@@ -71,18 +56,18 @@ describe("the session-event signal", () => {
     // transition admitted would signal on the run already sitting in it, on a
     // transition that carried nothing the caller watches.
     const sessionStore = initialisedStore("signal-newly-admitted");
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
     let signals = 0;
     const unsubscribe = subscribeToSessionEventKinds(sessionStore, ["run.queued"], () => {
       signals += 1;
     });
 
-    sessionStore.apply(eventOfKind(sessionStore, "assistant.message", 2));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "assistant.message", 2));
     expect(signals).toBe(0);
 
     // And the next watched one still signals, so the zero above is the filter
     // being right rather than a subscription that never fires.
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 3));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 3));
     expect(signals).toBe(1);
 
     unsubscribe();
@@ -92,7 +77,7 @@ describe("the session-event signal", () => {
     const { sessionStore, signalCount, unsubscribe } = watchedSignalCount("signal-released");
     unsubscribe();
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
 
     expect(signalCount()).toBe(0);
   });
@@ -106,8 +91,8 @@ describe("the session-event signal", () => {
       transitions += 1;
     });
 
-    sessionStore.apply(eventOfKind(sessionStore, "run.queued", 1));
-    sessionStore.apply(eventOfKind(sessionStore, "assistant.message", 2));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "assistant.message", 2));
 
     expect(transitions).toBeGreaterThanOrEqual(2);
     unsubscribe();

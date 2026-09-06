@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { SessionDirectoryState } from "../../frame/session-directory.js";
+import type { SessionDirectoryState } from "../../seats/index.js";
 import {
   SESSIONS_ABSENCE_KINDS,
   mergeSessionRows,

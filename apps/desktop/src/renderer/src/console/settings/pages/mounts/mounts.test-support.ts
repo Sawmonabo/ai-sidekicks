@@ -3,9 +3,13 @@
 // Hoisted on second use, per `apps/desktop/AGENTS.md`. The two files ask different
 // questions — one about the composed read and its cap, the other about what the page
 // draws — but they name the same session, the same node, and the same two mounts,
-// and they built the same four id generators and the same store opener twice, 350
-// lines apart in files whose readers are not looking at each other. `SessionStore`
-// gaining one required field on `initialise` moved two bodies; it now moves one.
+// and they built the same four id generators and the same read shapes twice, 350
+// lines apart in files whose readers are not looking at each other. A registered
+// response shape gaining one required member moved two bodies; it now moves one.
+//
+// The store both suites open is `store/session-store-registry.test-support.ts`'s, and
+// the event they apply to it is `store/session-event.test-support.ts`'s. Neither is
+// re-declared here: this module is the mounts cast, not a second store cast.
 //
 // THE IDS ARE UUIDS rather than readable strings, because the call door parses the
 // REQUEST against the registered schema before it sends: `sessionId`, `repoMountId`,
@@ -15,8 +19,6 @@
 // cases still read as "the first mount" rather than as a hex string.
 
 import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
-
-import { SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
 
 /** The session both suites read for. */
 export const SESSION_ID = "019b7911-0000-7000-8000-000000000001";
@@ -74,21 +76,5 @@ export function mountReadFor(
     health: { status: "healthy", checkedAt: "2026-09-02T10:00:00.000Z" },
     attachedAt: "2026-09-01T10:00:00.000Z",
     ...overrides,
-  };
-}
-
-/** One admitted event of the given kind, numbered so the store's cursor moves. */
-export function eventOfKind(
-  sessionStore: SessionStore,
-  kind: ConsoleSessionEvent["kind"],
-  sequence: number,
-): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: sessionStore.sessionId,
-    sequence,
-    kind,
-    occurredAt: "2026-09-02T10:00:00.000Z",
-    payload: {},
   };
 }
