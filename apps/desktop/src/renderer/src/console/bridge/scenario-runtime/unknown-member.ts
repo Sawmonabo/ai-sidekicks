@@ -5,8 +5,8 @@
 // a computed reply is handed, which is `unknown` for the same reason at the other end
 // of the seam. Both are read the same way — narrow the container, then narrow the
 // member — and both were being read by a private copy of that narrowing, one in each
-// of the two `fixture/` modules that derive from a scenario's `result`, differing only
-// in whether the string check was fused into the member read.
+// reader that derived from a scenario's `result`, differing only in whether the string
+// check was fused into the member read.
 //
 // A CAST WOULD BE THE ALTERNATIVE AND IS NOT ONE. Asserting the shape of a scenario's
 // reply or of an incoming request states a fact nothing established: a scenario is
@@ -16,11 +16,11 @@
 // has an arm for.
 //
 // It lives beside the scripted-reply seam rather than inside any one reader because its
-// three importers straddle that seam. `fixture/fixture-workflow-scope.ts` and
-// `fixture/fixture-session-directory.ts` derive what a scenario DECLARES;
-// `scenarios/workflow-fixture-replies.ts` reads the REQUEST a computed reply is handed.
-// A helper owned by either side would be reached from the other across a boundary that
-// is not there. The seam is this directory's, so the pair leaves through its door.
+// two importers straddle that seam. `fixture/fixture-workflow-scope.ts` derives what a
+// scenario DECLARES; `scenarios/workflow-fixture-replies.ts` reads the REQUEST a computed
+// reply is handed. A helper owned by either side would be reached from the other across a
+// boundary that is not there. The seam is this directory's, so the string read leaves
+// through its door and the container read it is built on does not.
 //
 // THE CONTAINER CHECK IS `core`'s, AND IT NARROWS. `isWireRecord` is the console's one
 // reading of "this untyped value is a record" and it answers `false` for an array,

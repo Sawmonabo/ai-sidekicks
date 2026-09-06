@@ -217,11 +217,16 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  *
  * Every other served operation has an honest answer for a scenario that scripts
  * nothing — an empty ledger, an empty roster, a workspace with no branch context —
- * and answers `served` under any scenario at all. A WRITE has no such answer: there
- * is no such thing as "the attach that happened and produced nothing", and serving a
- * synthesized receipt would tell a surface the daemon did something no author said it
- * did. So these are implemented, and refuse by name under a scenario that does not
- * script them.
+ * and answers `served` under any scenario at all. Two classes have no such answer.
+ * A WRITE: there is no such thing as "the attach that happened and produced nothing",
+ * and serving a synthesized receipt would tell a surface the daemon did something no
+ * author said it did. And a READ ADDRESSED BY A SUBJECT: a run's snapshot, a finished
+ * phase's outputs, a definition's version chain — each answers with facts ABOUT a
+ * named thing, so an empty form would assert that the thing exists and holds nothing,
+ * which for a run no author declared is the same invention as a receipt. The
+ * enumerations beside them stay out of this set: a list of none is a real answer to
+ * "what does this session hold". So these are implemented, and refuse by name under a
+ * scenario that does not script them.
  *
  * A declared subset rather than a rule the sweep re-derives, because the sweep cannot
  * see the difference: both arms answer through the same port method, and what
@@ -232,4 +237,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "agentConfigUpdate",
   "agentDetach",
   "sidekickPeerInvocationSet",
+  "workflowRunRead",
+  "workflowPhaseOutputRead",
+  "workflowVersionChainRead",
 ];
