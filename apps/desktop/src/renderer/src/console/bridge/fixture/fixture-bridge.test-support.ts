@@ -16,10 +16,13 @@ import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/con
 import type { ConsoleBridge } from "../console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import type { GrowthUnavailable } from "../growth-port/growth-outcome.js";
-import type { GrowthOperationId, GrowthOutcome } from "../growth-port/index.js";
-import { growthUnavailable, type GrowthPort } from "../growth-port/index.js";
-import type { ScenarioEngine } from "../scenario-runtime/index.js";
-import type { ConsoleScenario, ScenarioBeat } from "../scenario-runtime/index.js";
+import {
+  growthUnavailable,
+  type GrowthOperationId,
+  type GrowthOutcome,
+  type GrowthPort,
+} from "../growth-port/index.js";
+import type { ConsoleScenario, ScenarioBeat, ScenarioEngine } from "../scenario-runtime/index.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */

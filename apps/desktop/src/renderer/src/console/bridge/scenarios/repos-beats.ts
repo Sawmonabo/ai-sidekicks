@@ -29,7 +29,7 @@
 // payload to fill in a member would be inventing wire content, which is the one thing
 // a fixture may never do.
 
-import type { ScenarioBeat } from "../scenario-runtime/scenario.js";
+import type { ScenarioBeat } from "../scenario-runtime/index.js";
 
 import { SESSION_ID } from "./repos-fixture-data.js";
 

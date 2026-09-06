@@ -19,11 +19,6 @@ export type DiffFileEntryButtonProps = {
  * prop left the row marking ITSELF as the focus target while the stop sat on this
  * button, so the roving effect focused an `<li>` with no `tabindex`, which Chromium
  * ignores: the ring never moved and the next Tab left the list.
- *
- * The primitive is named by module rather than by symbol on purpose: the architecture
- * census that reports a hand-rolled window excuses a row component whose SOURCE TEXT
- * carries the primitive's name, prose included, so a mention here would switch off the
- * planted control that proves the census can still see one.
  */
 export function DiffFileEntryButton({
   entry,

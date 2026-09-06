@@ -211,13 +211,23 @@ export {
 // re-tagged; the co-located tests that do exercise those symbols read the module that
 // declares them, which is what the census rule asks.
 //
-// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. Nine lines here
-// were re-derived first and the other thirty-nine across this door, `core/`, and
-// `seats/` were left carrying the same falsified name. Each was re-checked against what
-// the family's shipped modules actually import through the door, and the claim was
-// dropped from every one of them; the one line whose only claim was that task's — the
-// inline-card body descriptor in `seats/` — had no production reader anywhere and was
-// deleted with its tag rather than left as an untagged export.
+// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The nine lines
+// above went first; every other claim naming that task — on this door, on `core/`, and
+// on `seats/` — was then re-checked the same way, against what the family's shipped
+// modules actually import through the door rather than against who might want the
+// symbol.
+//
+// NO COUNT IS SPELLED FOR THAT SWEEP, and the omission is the point. The number would
+// describe a set spread over three trees that no merge preserves, so a reader here
+// cannot re-derive it and a stale one reads as a fact — the failure the counts in this
+// header were rewritten to stop. What is checkable stands in its place: `T-023p-1C-5`
+// names a consumer that has SHIPPED, so a surviving `@consumedBy` or `// Consumed by`
+// claim naming it on any of the three doors is a false one, and there is none. Every
+// remaining mention under `console/` is either prose about this sweep or a seat marker
+// on a composition board, and neither is a claim about a reader. The one line whose
+// only claim was that task's — the inline-card body descriptor in `seats/` — had no
+// production reader anywhere and was deleted with its tag rather than left as an
+// untagged export.
 export { WindowedListRow } from "./WindowedListRow.js";
 export type { WindowedRowTargetProps } from "./WindowedListRow.js";
 export { useWindowedRovingIndex } from "./windowed-row-index.js";

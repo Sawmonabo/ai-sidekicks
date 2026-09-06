@@ -59,7 +59,7 @@ export {
   MILLISECONDS_PER_DAY,
   /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_HOUR,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_MINUTE,
   /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_SECOND,

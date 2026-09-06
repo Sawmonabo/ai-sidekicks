@@ -58,7 +58,7 @@ export const SIDEBAR_SECTION_IDS = [
   "members",
 ] as const;
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
+// Consumed by T-023p-1C-3, T-023p-1C-4
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
@@ -83,7 +83,7 @@ export interface SidebarSectionContext {
   readonly isOpen: boolean;
 }
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
+// Consumed by T-023p-1C-3, T-023p-1C-4
 export interface SidebarSectionDescriptor {
   readonly id: SidebarSectionId;
   /** The task or family that owns it, so an unfilled section names someone. */

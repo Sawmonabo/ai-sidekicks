@@ -41,11 +41,11 @@ const INLINE_CARD_ORIGIN = "inline-card-seats";
  */
 export const INLINE_CARD_KINDS = ["diff", "attachment", "artifact"] as const;
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
+// Consumed by T-023p-1C-2
 /** One inline-card kind. Derived from the enumeration, never restated. */
 export type InlineCardKind = (typeof INLINE_CARD_KINDS)[number];
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
+// Consumed by T-023p-1C-2
 /**
  * A reference to an attachment on a message.
  *
@@ -97,7 +97,7 @@ export interface AttachmentInlineCardProps {
   readonly attachment: InlineCardAttachmentRef;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
+// Consumed by T-023p-1C-2
 /**
  * A reference to one entity in the console's `artifact` partition.
  *
@@ -131,7 +131,7 @@ export interface ArtifactInlineCardProps {
   readonly artifact: ArtifactEntityRef;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
+// Consumed by T-023p-1C-2
 /**
  * The props each card kind's body receives, declared once and indexed by kind.
  *
@@ -151,7 +151,6 @@ export interface InlineCardPropsByKind {
 /** The discriminated union of every card's props. Narrow on `kind`. */
 export type InlineCardSeatProps = InlineCardPropsByKind[InlineCardKind];
 
-// Consumed by T-023p-1C-5
 /** What a family registers to fill one card kind's body. */
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
   /** The task or family that owns it, so an unfilled card names someone. */

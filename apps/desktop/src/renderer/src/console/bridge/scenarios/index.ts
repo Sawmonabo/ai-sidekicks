@@ -29,7 +29,7 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
-  REPOS_SCENARIO,
+  REPOS_SCENARIO, // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery

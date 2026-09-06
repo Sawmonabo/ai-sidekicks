@@ -123,7 +123,7 @@ interface ConsolePaneBinding {
   readonly focusHue: string | undefined;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7
 /**
  * What a family registers to claim a pane kind.
  *
@@ -181,7 +181,7 @@ export class ConsolePaneRegistry {
 /** The process-wide registry the view families call at module scope. */
 export const consolePaneRegistry: ConsolePaneRegistry = new ConsolePaneRegistry();
 
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7
 /** The call a view family makes to claim a pane kind. */
 export function registerConsolePane(descriptor: ConsolePaneDescriptor): void {
   consolePaneRegistry.register(descriptor);

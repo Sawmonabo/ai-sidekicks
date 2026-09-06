@@ -141,12 +141,12 @@ function listingScopeOf(state: ArtifactsPanelState): string {
  * The one delete confirmation this panel holds, and the listing it belongs to.
  *
  * A CONFIRMATION IS AN APPROVAL OF ONE PARTICULAR THING, so it does not outlive it —
- * `repos/proposals/proposal-gate-acts/ProposalActionGroup.tsx` states the rule at length one directory
- * over and this register was the copy that had not taken it. A participant armed the
- * confirm on one artifact, the deck re-pointed the pane at another, and this component
- * stayed mounted at the same tree position while its rows unmounted and came back — so
- * the row rendered again with a destructive act armed and one click from firing, its
- * consequence text having been off screen in between.
+ * `repos/proposals/proposal-gate-acts/ProposalActionGroup.tsx` states the rule at length
+ * in the proposals sub-module, and this register was the copy that had not taken it. A
+ * participant armed the confirm on one artifact, the deck re-pointed the pane at
+ * another, and this component stayed mounted at the same tree position while its rows
+ * unmounted and came back — so the row rendered again with a destructive act armed and
+ * one click from firing, its consequence text having been off screen in between.
  *
  * SEEDED DURING THE RENDER THAT RE-ADDRESSES, which is what `useSubjectScopedState`
  * buys over an effect: no committed frame carries the previous listing's confirmation,
