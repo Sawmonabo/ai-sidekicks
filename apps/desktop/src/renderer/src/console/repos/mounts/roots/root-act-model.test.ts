@@ -13,6 +13,7 @@ import {
   EMPTY_PREPARE_FORM,
   REUSE_VERDICT_COPY,
   disposalSubjectFor,
+  prepareAcknowledgement,
   prepareFormVerdict,
   reuseConsentRequired,
   reusePreparable,
@@ -114,6 +115,48 @@ describe("prepareFormVerdict", () => {
     expect(verdict.status === "incomplete" && verdict.because).toBe(
       REUSE_VERDICT_COPY.incompatible,
     );
+  });
+});
+
+describe("prepareAcknowledgement", () => {
+  it("carries the consent on the verdict that asked for it", () => {
+    expect(
+      prepareAcknowledgement(
+        { branchName: "feat/x", acknowledgeDirtyCandidate: true },
+        { kind: "dirty", worktreeId: WORKTREE_ID, reason: undefined },
+      ),
+    ).toBe(true);
+  });
+
+  it("drops a consent the verdict no longer calls for, which a refresh can leave set", () => {
+    // The reachable state: the checkbox is ticked under a `dirty` verdict, another
+    // participant commits, the re-check settles `reusable`, and the checkbox unmounts
+    // with the flag still true. The act reads the verdict at the send, so nothing
+    // acknowledges a condition that has gone.
+    expect(
+      prepareAcknowledgement(
+        { branchName: "feat/x", acknowledgeDirtyCandidate: true },
+        { kind: "reusable", worktreeId: WORKTREE_ID },
+      ),
+    ).toBe(false);
+  });
+
+  it("negative control: no verdict but `dirty` carries one, ticked or not", () => {
+    const ticked = { branchName: "feat/x", acknowledgeDirtyCandidate: true } as const;
+    expect(prepareAcknowledgement(ticked, { kind: "none" })).toBe(false);
+    expect(
+      prepareAcknowledgement(ticked, {
+        kind: "incompatible",
+        worktreeId: WORKTREE_ID,
+        reason: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      prepareAcknowledgement(
+        { branchName: "feat/x", acknowledgeDirtyCandidate: false },
+        { kind: "dirty", worktreeId: WORKTREE_ID, reason: undefined },
+      ),
+    ).toBe(false);
   });
 });
 

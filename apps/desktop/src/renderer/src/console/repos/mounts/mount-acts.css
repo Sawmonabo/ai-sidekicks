@@ -1,0 +1,236 @@
+/*
+ * The shape every mount ACT wears: the trigger, the dialog, the field, and the ground
+ * behind it.
+ *
+ * SPLIT OUT OF `mounts.css` WHEN THIS DIRECTORY SPLIT, which is the condition that
+ * sheet's own header set for splitting: `mounts/` now carries `attach/`, `bind/` and
+ * `roots/`, and each of those has a sheet of its own beside its components. What is
+ * here is what NONE of them owns alone — one rule reaching all four act surfaces at
+ * once. Pushing a copy of it into three sheets would be three chances for one of them
+ * to arrive without a focus ring, which is the defect the single rule was written
+ * against; leaving it in `mounts.css` would have left that sheet where it was.
+ *
+ * ITS HOME IS THE PARENT DIRECTORY BECAUSE THE PARENT IS WHAT THEY SHARE. A shape
+ * spanning three sibling directories cannot live in one of them without making the
+ * other two depend on a neighbour's sheet, and `mounts/` carries no barrel — so this
+ * enters at `repos/index.ts` exactly as `mounts.css` does.
+ *
+ * IMPORTED FROM `repos/index.ts` AFTER `mounts.css` AND BEFORE THE THREE SUB-SHEETS,
+ * which is the order these rules were in when they were one file. Nothing about the
+ * cascade turns on the split: a per-surface rule that overrides one of these — the
+ * excluded mode's `cursor`, say — still comes after it.
+ *
+ * NO LITERAL VALUES, on the family sheet's rule: every length is on the space scale,
+ * every size on the type scale, and every colour is read out of a custom property.
+ */
+
+/*
+ * ONE CONTROL SHAPE FOR EVERY BUTTON THIS DIRECTORY ADDS, declared once. The attach,
+ * re-attach, prepare, and disposal surfaces each carry a trigger, a cancel, a confirm,
+ * and a retry, and a rule per class would have been sixteen copies of one declaration
+ * — and sixteen chances for one of them to arrive without a focus ring.
+ */
+.meridian-repo-attach__trigger,
+.meridian-repo-attach__cancel,
+.meridian-repo-attach__confirm,
+.meridian-repo-attach__retry,
+.meridian-bind__trigger,
+.meridian-bind__cancel,
+.meridian-bind__confirm,
+.meridian-bind__retry,
+.meridian-reattach__trigger,
+.meridian-reattach__cancel,
+.meridian-reattach__confirm,
+.meridian-prepare-root__confirm,
+.meridian-prepare-root__reread,
+.meridian-root-disposal__trigger,
+.meridian-root-disposal__cancel,
+.meridian-root-disposal__confirm,
+.meridian-root-disposal__reread {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-repo-attach__trigger:hover:enabled,
+.meridian-bind__trigger:hover:enabled,
+.meridian-reattach__trigger:hover:enabled,
+.meridian-prepare-root__confirm:hover:enabled,
+.meridian-root-disposal__trigger:hover:enabled {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-repo-attach__confirm:disabled,
+.meridian-bind__confirm:disabled,
+.meridian-reattach__trigger:disabled,
+.meridian-prepare-root__confirm:disabled,
+.meridian-root-disposal__trigger:disabled {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+/*
+ * Focus is visible on every control these surfaces ship, in one rule rather than one
+ * per class, so a control added later cannot arrive without it.
+ */
+.meridian-repo-attach__dialog :focus-visible,
+.meridian-bind__dialog :focus-visible,
+.meridian-reattach :focus-visible,
+.meridian-reattach__dialog :focus-visible,
+.meridian-prepare-root :focus-visible,
+.meridian-root-disposal :focus-visible,
+.meridian-root-disposal__dialog :focus-visible,
+.meridian-repo-section > .meridian-repo-attach__trigger:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The three popups share one geometry: the members dialog's, which this follows. */
+.meridian-repo-attach__backdrop,
+.meridian-bind__backdrop,
+.meridian-reattach__backdrop,
+.meridian-root-disposal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-repo-attach__dialog,
+.meridian-bind__dialog,
+.meridian-reattach__dialog,
+.meridian-root-disposal__dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-repo-attach__title,
+.meridian-bind__title,
+.meridian-reattach__title,
+.meridian-root-disposal__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-repo-attach__body,
+.meridian-bind__body,
+.meridian-reattach__body,
+.meridian-root-disposal__body {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-repo-attach__acts,
+.meridian-bind__acts,
+.meridian-reattach__acts,
+.meridian-root-disposal__acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-repo-attach__path,
+.meridian-bind__directory,
+.meridian-prepare-root__branch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* The field label, and the node group's legend, at one size. */
+.meridian-repo-attach__legend,
+.meridian-bind__legend,
+.meridian-prepare-root__legend {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * A path and a branch name are wire values a person is composing, so both are set in
+ * the mono face the surface renders wire strings in — the field and the figure it
+ * becomes read as the same kind of thing.
+ */
+.meridian-repo-attach__path-input,
+.meridian-bind__directory-input,
+.meridian-prepare-root__branch-input {
+  font: inherit;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+.meridian-repo-attach__nodes,
+.meridian-bind__modes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+/* One node per row: the radio, the id, and both health axes side by side. */
+.meridian-repo-attach__node,
+.meridian-bind__mode {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-repo-attach__roster-refusal,
+.meridian-bind__modes-refusal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-repo-attach__attached,
+.meridian-bind__settlement,
+.meridian-reattach__attached {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The sentence saying why a control is closed. Amber rather than red: nothing has
+ * failed, something is missing — and spending the failure colour here would leave it
+ * meaning less where a refusal actually lands.
+ */
+.meridian-repo-attach__blocked,
+.meridian-bind__blocked,
+.meridian-prepare-root__blocked {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}

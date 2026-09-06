@@ -28,10 +28,10 @@ export interface NodePickerProps {
 
 export function NodePicker(props: NodePickerProps): React.JSX.Element {
   return (
-    <fieldset className="meridian-attach__nodes">
-      <legend className="meridian-attach__legend">Node</legend>
+    <fieldset className="meridian-repo-attach__nodes">
+      <legend className="meridian-repo-attach__legend">Node</legend>
       {props.options.map((option) => (
-        <label className="meridian-attach__node" key={option.nodeId}>
+        <label className="meridian-repo-attach__node" key={option.nodeId}>
           <input
             type="radio"
             name={props.groupName}

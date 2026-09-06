@@ -135,6 +135,23 @@ export function prepareFormVerdict(
   return { status: "sendable" };
 }
 
+/**
+ * The acknowledgement this prepare may carry, which is none unless the verdict asks.
+ *
+ * THE RULE ABOVE, MADE INTO A VALUE RATHER THAN LEFT AS A SENTENCE. `prepareFormVerdict`
+ * reads the consent to decide whether the form may be sent; this decides what is sent,
+ * and until it existed the two disagreed on one reachable state: the checkbox sets the
+ * flag under a `dirty` verdict, a refresh — another participant committing, say — then
+ * settles the candidate `reusable`, the checkbox unmounts with the flag still set, and
+ * the act carried a consent to a condition that had gone. Reading the verdict at the
+ * moment of the send is what closes it, and a stale `true` is dropped rather than
+ * cleared, because clearing it would lose a consent that is still good if the candidate
+ * goes dirty again.
+ */
+export function prepareAcknowledgement(form: PrepareFormState, verdict: ReuseVerdict): boolean {
+  return reuseConsentRequired(verdict) && form.acknowledgeDirtyCandidate;
+}
+
 /** What one disposal is about, and the consequence its confirmation must state. */
 export interface DisposalSubject {
   /** Which of the two roots this is. Decides which call the act sends. */

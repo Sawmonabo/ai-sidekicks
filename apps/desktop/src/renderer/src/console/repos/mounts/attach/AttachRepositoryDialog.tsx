@@ -105,21 +105,21 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
 
   return (
     <Dialog.Root onOpenChange={openChanged}>
-      <Dialog.Trigger className="meridian-attach__trigger">Attach a repository</Dialog.Trigger>
+      <Dialog.Trigger className="meridian-repo-attach__trigger">Attach a repository</Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="meridian-attach__backdrop" />
-        <Dialog.Popup className="meridian-attach__dialog">
-          <Dialog.Title className="meridian-attach__title">Attach a repository</Dialog.Title>
-          <Dialog.Description className="meridian-attach__body">
+        <Dialog.Backdrop className="meridian-repo-attach__backdrop" />
+        <Dialog.Popup className="meridian-repo-attach__dialog">
+          <Dialog.Title className="meridian-repo-attach__title">Attach a repository</Dialog.Title>
+          <Dialog.Description className="meridian-repo-attach__body">
             The path is resolved on the node that holds it. Attaching mints one read-only workspace;
             choosing an execution mode is a separate step on the workspace itself.
           </Dialog.Description>
 
-          <label className="meridian-attach__path">
-            <span className="meridian-attach__legend">Path</span>
+          <label className="meridian-repo-attach__path">
+            <span className="meridian-repo-attach__legend">Path</span>
             <input
               type="text"
-              className="meridian-attach__path-input"
+              className="meridian-repo-attach__path-input"
               value={form.localPath}
               spellCheck={false}
               autoComplete="off"
@@ -135,11 +135,11 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
           {renderRoster(reading, form.nodeId, selectNode, retryRoster)}
           {renderSettlement(reading)}
 
-          <div className="meridian-attach__acts">
-            <Dialog.Close className="meridian-attach__cancel">Cancel</Dialog.Close>
+          <div className="meridian-repo-attach__acts">
+            <Dialog.Close className="meridian-repo-attach__cancel">Cancel</Dialog.Close>
             <button
               type="button"
-              className="meridian-attach__confirm"
+              className="meridian-repo-attach__confirm"
               disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
               onClick={submit}
             >
@@ -152,7 +152,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
             the one thing missing, in the order a person fills the form in.
           */}
           {verdict.status === "incomplete" ? (
-            <p className="meridian-attach__blocked" role="status">
+            <p className="meridian-repo-attach__blocked" role="status">
               {verdict.because}
             </p>
           ) : null}
@@ -186,12 +186,12 @@ function renderRoster(
       return <Nothing kind="computing" title="Reading this session's nodes." />;
     case "refused":
       return (
-        <div className="meridian-attach__roster-refusal">
+        <div className="meridian-repo-attach__roster-refusal">
           <InlineRefusal
             code={reading.roster.refusal.code}
             detail={reading.roster.refusal.detail}
           />
-          <button type="button" className="meridian-attach__retry" onClick={onRetry}>
+          <button type="button" className="meridian-repo-attach__retry" onClick={onRetry}>
             Read the nodes again
           </button>
         </div>
@@ -243,9 +243,9 @@ function renderSettlement(reading: AttachReading): React.JSX.Element | null {
     }
     case "attached":
       return (
-        <div className="meridian-attach__attached" role="status">
+        <div className="meridian-repo-attach__attached" role="status">
           <p>Attached. Its default read-only workspace is ready.</p>
-          <dl className="meridian-attach__minted">
+          <dl className="meridian-repo-attach__minted">
             <dt>Mount</dt>
             <dd>
               <WireFigure

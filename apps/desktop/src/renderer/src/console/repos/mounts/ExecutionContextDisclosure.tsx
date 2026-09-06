@@ -11,8 +11,8 @@
 // execution mode is a fact about the row that a person must not have to open anything
 // to see: `Spec-010 §Fallback Behavior` requires it marked distinctly from the mode
 // that was asked for, and a marker behind a summary is not marked. The three paths are
-// reference detail — correct, needed when something looks wrong, and noise on the
-// eighteen rows where all three agree — so they sit behind the summary.
+// reference detail — correct, needed when something looks wrong, and noise on every
+// row where all three agree — so they sit behind the summary.
 //
 // THE REFUSAL RENDERS INLINE AND NAMES ITS OWN WIRE. This read's ordinary answer in a
 // shipped build is the growth port's typed absence, which carries the slate row and
@@ -26,6 +26,7 @@ import { useWorkspaceExecutionContext } from "./execution-context-binding.js";
 import { ExecutionPathRow } from "./ExecutionPathRow.js";
 import {
   executionPathRows,
+  executionRootsSummaryLine,
   fallbackBadgeFor,
   type ExecutionContextReading,
 } from "./execution-context-model.js";
@@ -55,37 +56,14 @@ export function ExecutionContextDisclosure(
       <details className="meridian-execution-context__paths">
         <summary className="meridian-execution-context__summary">
           Execution roots
-          <span className="meridian-execution-context__line">{summaryLineFor(reading)}</span>
+          <span className="meridian-execution-context__line">
+            {executionRootsSummaryLine(reading, props.mountCanonicalRoot)}
+          </span>
         </summary>
         {renderBody(props, reading)}
       </details>
     </div>
   );
-}
-
-/**
- * One honest line per reading, for a summary that has room for exactly one.
- *
- * TOTAL OVER THE FOUR ARMS, so a fifth would fail to compile here rather than falling
- * through to a line about some other state. The served arm's line reports what the
- * disclosure would show — whether the three roots agree — because that is the one
- * question a person opens it to answer, and a summary that answered it saves the open.
- */
-function summaryLineFor(reading: ExecutionContextReading): string {
-  switch (reading.status) {
-    case "not-read":
-      return "not read";
-    case "reading":
-      return "reading";
-    case "refused":
-      return `not available — ${reading.refusal.code}`;
-    case "read":
-      return reading.context.checkoutRoot === undefined
-        ? "no captured checkout root"
-        : reading.context.checkoutRoot === reading.context.boundRoot
-          ? "all three roots agree"
-          : "the roots differ";
-  }
 }
 
 /**

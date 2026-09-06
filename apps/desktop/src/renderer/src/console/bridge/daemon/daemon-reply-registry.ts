@@ -145,8 +145,10 @@ export type ConsoleDaemonMethodBindings = {
 /**
  * Bind one method's two schemas, frozen.
  *
- * A factory rather than eighteen object literals so the table below reads as a
- * table, and so the freeze is not something a row can forget. Frozen because this
+ * A factory rather than one hand-written object literal per row, so the table below
+ * reads as a table and so the freeze is not something a row can forget. Count-free
+ * deliberately: the count moves with every method this console learns to call, and a
+ * sentence carrying it goes stale on the diff that adds one. Frozen because this
  * is a registry and not a builder: a module that could re-point
  * `CONSOLE_DAEMON_METHOD_BINDINGS["run.pause"].requestSchema` at start-up would be
  * able to change what the console will send on a method without touching either the
