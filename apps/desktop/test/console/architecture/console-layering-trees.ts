@@ -46,12 +46,12 @@ export const CLEAN_TREE: PlantedTree = {
   "bridge/growth-signatures.ts": `import type { GrowthSessionSummary } from "./growth-values/index.js";\n\nexport type SessionDirectoryReply = readonly GrowthSessionSummary[];\n`,
   "bridge/index.ts": `export type { GrowthSessionSummary } from "./growth-values/sessions.js";\nexport type { SessionDirectoryReply } from "./growth-signatures.js";\n`,
   "seats/pane-address.ts": `export interface ConsolePaneRegistry {\n  readonly size: number;\n}\n`,
-  "seats/index.ts": `export type { ConsolePaneRegistry } from "./pane-address.js";\n`,
-  "frame/surface-registry.ts": `export interface ConsoleSurfaceContext {\n  readonly slot: string;\n}\n`,
+  "seats/surface-registry.ts": `export interface ConsoleSurfaceContext {\n  readonly slot: string;\n}\n`,
+  "seats/index.ts": `export type { ConsolePaneRegistry } from "./pane-address.js";\nexport type { ConsoleSurfaceContext } from "./surface-registry.js";\n`,
   "frame/session-lifecycle.ts": `export interface ActiveSession {\n  readonly sessionId: string;\n}\n`,
   "frame/index.ts": `export type { ActiveSession } from "./session-lifecycle.js";\n`,
   "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  return registry.size;\n}\n`,
-  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../frame/surface-registry.js";\n\nexport type InviteRefusal = ConsoleRefusal & { readonly context: ConsoleSurfaceContext };\n`,
+  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../seats/index.js";\n\nexport type InviteRefusal = ConsoleRefusal & { readonly context: ConsoleSurfaceContext };\n`,
   "repos/RepoList.ts": `import type { ConsoleRefusal } from "../core/index.js";\n\nexport type RepoRefusal = ConsoleRefusal;\n`,
   "repos/index.ts": `export type { RepoRefusal } from "./RepoList.js";\n`,
 };
@@ -76,16 +76,24 @@ export const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
 
 /**
  * The shape the door rule was added for: a view family reaching a layer family's
- * MODULE, beside the one deep specifier the rule exempts by name.
+ * MODULE, beside the DOOR import it is allowed to write.
  *
  * Both edges leave the same file, which is what makes this one tree two controls: the
- * `frame/session-lifecycle.js` specifier must be reported, and the exempted
- * `frame/surface-registry.js` specifier — carried over from the clean tree — must not.
- * An exemption written against the family rather than the module would report neither.
+ * `frame/session-lifecycle.js` specifier must be reported, and the `seats/index.js`
+ * door import — carried over from the clean tree — must not. One edge alone would
+ * prove only that the rule fires, not that it leaves the legal shape alone.
+ *
+ * A THIRD edge carries what used to be the rule's one named exemption. While the
+ * surface registry lived in `frame/`, `frame/surface-registry.ts` was subtracted from
+ * this rule's targets by name — a view family needs it and cannot import the frame's
+ * door — so a deep specifier to it was reported as nothing. The module now lives in
+ * `seats/`, the family whose contracts it is one of; the subtraction is gone, and a
+ * deep specifier to it is an ordinary violation. That is the claim the third import
+ * plants: the rule covers the whole console with no module exempted by name.
  */
 export const DEEP_IMPORT_TREE: PlantedTree = {
   ...CLEAN_TREE,
-  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../frame/surface-registry.js";\nimport type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type InviteRefusal = ConsoleRefusal & {\n  readonly context: ConsoleSurfaceContext;\n  readonly session: ActiveSession;\n};\n`,
+  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../seats/index.js";\nimport type { ConsoleSurfaceContext as DeepContext } from "../seats/surface-registry.js";\nimport type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type InviteRefusal = ConsoleRefusal & {\n  readonly context: ConsoleSurfaceContext;\n  readonly deep: DeepContext;\n  readonly session: ActiveSession;\n};\n`,
 };
 
 /**

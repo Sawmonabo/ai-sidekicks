@@ -47,7 +47,7 @@ import {
   type ConsoleSurfaceContext,
   type ConsoleSurfaceDescriptor,
   type ConsoleSurfaceRegistry,
-} from "./surface-registry.js";
+} from "../seats/index.js";
 
 /**
  * The three shipped families, and the slot each mounts in.

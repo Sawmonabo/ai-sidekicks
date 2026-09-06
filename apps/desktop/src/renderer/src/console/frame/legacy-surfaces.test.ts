@@ -18,7 +18,7 @@ import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { SessionsSurface } from "./SessionsSurface.js";
-import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
+import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 
 /**
  * The two fields the descriptors read, and nothing else.

@@ -119,9 +119,21 @@ describe("console layering rules", () => {
   it(
     "fails a cross-family import that names a module instead of the family door",
     async () => {
-      expect(await cruiseCache.violationsFor(DEEP_IMPORT_TREE)).toEqual([
-        `${DEEP_IMPORT_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "frame/session-lifecycle.ts")}`,
-      ]);
+      // Three edges leave the same file and exactly two are reported: the seats DOOR
+      // import is the legal shape and must not be, and the two deep specifiers must
+      // be. The `seats/surface-registry.js` one is the claim that the rule's last
+      // named exemption is gone — that module was subtracted by name while it lived
+      // in `frame/`, and a specifier to it was reported as nothing.
+      const source = join(CONSOLE_ROOT, "collaboration/SentInvites.ts");
+      const violations = await cruiseCache.violationsFor(DEEP_IMPORT_TREE);
+
+      expect([...violations].sort()).toEqual(
+        [
+          `${DEEP_IMPORT_RULE}: ${source} → ${join(CONSOLE_ROOT, "frame/session-lifecycle.ts")}`,
+          `${DEEP_IMPORT_RULE}: ${source} → ${join(CONSOLE_ROOT, "seats/surface-registry.ts")}`,
+        ].sort(),
+      );
+      expect(violations.filter((line) => line.includes("seats/index.ts"))).toEqual([]);
     },
     ONE_TREE_MS,
   );

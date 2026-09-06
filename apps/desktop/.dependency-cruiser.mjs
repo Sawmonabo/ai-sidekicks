@@ -36,7 +36,6 @@ import {
   CONSOLE_BARRELS,
   CONSOLE_FAMILY_DOORS,
   CORE,
-  FRAME_SURFACE_REGISTRY,
   LAYER_FAMILIES,
   PALETTE,
   PANE_BOARD_SUBDIRECTORY,
@@ -263,12 +262,7 @@ export default {
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: [TEST_SUPPORT_MODULES] },
       to: {
         path: `${CONSOLE}/[^/]+/`,
-        pathNot: [
-          `${CONSOLE}/$1/`,
-          CONSOLE_FAMILY_DOORS,
-          COMPOSITION_PANE_BOARD,
-          FRAME_SURFACE_REGISTRY,
-        ],
+        pathNot: [`${CONSOLE}/$1/`, CONSOLE_FAMILY_DOORS, COMPOSITION_PANE_BOARD],
       },
     },
     {

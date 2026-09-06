@@ -32,7 +32,7 @@ import { formatRoute, type ConsoleRoute } from "../routing/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { BARE_TIMELINE_ROUTE, settle } from "./RouteSurface.test-support.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { type ConsoleSurfaceContext } from "../seats/index.js";
 
 /** The bare route whose grammar takes an agent WITH its session or not at all. */
 const BARE_AGENT_CONSOLE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "agent-console" };

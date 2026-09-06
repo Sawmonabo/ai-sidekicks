@@ -32,7 +32,7 @@ import {
   consoleSurfaceRegistry,
   surfaceSlotFor,
   type ConsoleSurfaceContext,
-} from "./surface-registry.js";
+} from "../seats/index.js";
 
 export interface RouteSurfaceProps {
   readonly context: ConsoleSurfaceContext;

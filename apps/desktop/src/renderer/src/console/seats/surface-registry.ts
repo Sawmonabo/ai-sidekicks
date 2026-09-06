@@ -10,6 +10,18 @@
 // and mounts it inside an error boundary. A slot with no renderer is the
 // "reserved, not stubbed" rule in action: the frame says the surface has not been
 // built rather than rendering a placeholder that looks like a broken feature.
+//
+// IT LIVES IN `seats/` AND NOT IN `frame/`, WHERE IT WAS WRITTEN. This is a contract
+// through which a view family hands the frame a body, which is what this family is
+// for, and its inputs stop at `bridge/` — `core/`'s keyed registry, the bridge
+// contract, the two stores, the two persistence stores, the route union — so the
+// lowest home above all of them is the slot immediately above `bridge/`, which is
+// here. In `frame/` it was the console's last named layering exemption: a view family
+// cannot import `frame/index.ts` (that door reaches `ConsoleRoot`, which reaches
+// `families.ts`, which composes every view family in), so every family wrote a deep
+// specifier past the frame's door and `.dependency-cruiser.mjs` carried a
+// module-named subtraction to tolerate it. The move deletes the subtraction, and
+// `console-cross-family-deep-import` now covers the whole console with no exception.
 
 import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";

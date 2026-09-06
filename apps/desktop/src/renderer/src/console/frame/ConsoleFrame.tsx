@@ -55,7 +55,7 @@ import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useSchemePreference } from "./scheme-preference.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { type ConsoleSurfaceContext } from "../seats/index.js";
 import { applyConsoleScheme } from "./token-installation.js";
 import { useUiStateStore } from "./ui-state-lifecycle.js";
 

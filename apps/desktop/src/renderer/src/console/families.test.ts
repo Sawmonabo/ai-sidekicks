@@ -16,9 +16,12 @@
 import { describe, expect, it } from "vitest";
 
 import { registerConsoleFamilies } from "./families.js";
-import { CONSOLE_SURFACE_SLOTS, ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { ConsoleEntityProjectorRegistry, consoleEntityProjectorRegistry } from "./store/index.js";
-import { ConsolePaneRegistry, consolePaneRegistry } from "./seats/index.js";
+import { ConsolePaneRegistry, ConsoleSurfaceRegistry, consolePaneRegistry } from "./seats/index.js";
+// The slot tuple by its own specifier: the seats door does not publish it, because
+// this suite is its only reader and a door line no production module reaches is one
+// the barrel census fails.
+import { CONSOLE_SURFACE_SLOTS } from "./seats/surface-registry.js";
 
 declare global {
   interface ImportMeta {
@@ -136,7 +139,13 @@ describe("console families — the pane board a composition writes into", () => 
     // module does not import it. A value import would be a default waiting to be
     // reintroduced.
     expect(seatBoardSource).not.toContain("registerConsolePanes(consolePaneRegistry)");
-    expect(seatBoardSource).toContain('import type { ConsolePaneRegistry } from "./seats');
+    // The whole statement, so what is asserted is that the board takes the pane
+    // registry as a TYPE from the seats door — `import type` and the door together.
+    // The surface registry rides the same statement because it comes from the same
+    // door, having moved there from `frame/` with the rest of that seat.
+    expect(seatBoardSource).toContain(
+      'import type { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "./seats/index.js";',
+    );
   });
 
   it("forwards the projector board it was handed and reaches for no singleton", () => {

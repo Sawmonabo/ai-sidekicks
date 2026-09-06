@@ -71,22 +71,6 @@ export const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
 export const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
- * The one cross-family deep specifier the tree still carries, and why it is named here.
- *
- * `frame/surface-registry.ts` declares `ConsoleSurfaceContext` and the registry a view
- * family registers itself into, and a view family cannot import the FRAME's door to
- * reach them: that door composes the view families through `families.ts`, so an import
- * back closes a cycle `no-circular` fails. Its right home is `seats/` — it is a contract
- * through which families hand each other bodies, and it imports nothing above `bridge/`
- * — and the pane registry now travels through the surface context, but the module still
- * sits in `frame/`; moving it is the cross-family structure audit's, at which point this
- * exemption is deleted and the rule covers the whole console. Naming the one module
- * rather than excepting `frame/` keeps the rule's reach exact: a second deep specifier
- * into this family, including one into this same module's neighbours, still fails.
- */
-export const FRAME_SURFACE_REGISTRY = `${CONSOLE}/frame/surface-registry\\.ts$`;
-
-/**
  * Test scaffolding, subtracted from the DOOR rule alone and from no other rule here.
  *
  * A `.test-support.*` module is a module like any other — `apps/desktop/AGENTS.md`

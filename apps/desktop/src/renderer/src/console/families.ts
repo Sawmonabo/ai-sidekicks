@@ -24,7 +24,7 @@
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `frame/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
+// A family never edits `seats/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
 // `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
 // concurrent edit to any of them from every one of those branches at once is a
 // guaranteed conflict, and worse, a merge that resolves cleanly while silently
@@ -45,10 +45,9 @@
 
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
-import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
-import type { ConsolePaneRegistry } from "./seats/index.js";
+import type { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "./seats/index.js";
 
 /**
  * Register every shipped view family against the three registries a composition owns.
