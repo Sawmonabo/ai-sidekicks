@@ -17,7 +17,7 @@
 // to `runtime_node.online` alone — one of five, which is the configuration the
 // sibling module argues is the worst available, because a roster that updates
 // sometimes is the hardest kind of staleness to notice. So the default arm is gone
-// rather than repaired: every mount supplies the seam, `console/frame/legacy-surfaces.ts`
+// rather than repaired: every mount supplies the seam, `console/seats/absorbed-surfaces.ts`
 // composes it from the console's own bridge, and this view names no wire at all.
 //
 // WHY IT IS A SEAM RATHER THAN A DIRECT BRIDGE CALL. A host that resolves its own

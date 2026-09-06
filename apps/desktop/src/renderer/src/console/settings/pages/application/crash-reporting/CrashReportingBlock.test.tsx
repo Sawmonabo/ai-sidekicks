@@ -7,11 +7,11 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge.test-support.js";
-import { CrashReportingPage } from "./CrashReportingPage.js";
-import type { ConsoleBridge } from "../../../bridge/index.js";
+} from "../../../../bridge/fixture-bridge.test-support.js";
+import { CrashReportingBlock } from "./CrashReportingBlock.js";
+import type { ConsoleBridge } from "../../../../bridge/index.js";
 
-const SCENARIO = unscriptedScenario("crash-reporting-page-test");
+const SCENARIO = unscriptedScenario("crash-reporting-block-test");
 
 /**
  * The shipped fixture bridge with the preference carrier refusing.
@@ -29,14 +29,14 @@ function bridge(): ConsoleBridge {
 
 describe("crash reporting", () => {
   it("is on until somebody turns it off", () => {
-    const { container } = render(<CrashReportingPage bridge={bridge()} />);
+    const { container } = render(<CrashReportingBlock bridge={bridge()} />);
     expect(
       container.querySelector(".meridian-settings-row__switch")?.getAttribute("aria-checked"),
     ).toBe("true");
   });
 
   it("names each thing that is stripped, and the three process kinds it covers", () => {
-    const { container } = render(<CrashReportingPage bridge={bridge()} />);
+    const { container } = render(<CrashReportingBlock bridge={bridge()} />);
     const text = container.textContent ?? "";
     expect(text).toContain("stable hashes");
     expect(text).toContain("reduced to their extension");
@@ -48,7 +48,7 @@ describe("crash reporting", () => {
   it("negative control: it never calls a report anonymous and names no recipient", () => {
     // Both are claims the corpus does not make — the sink is unsettled, and a stable
     // hash is not anonymity. This fails the moment a comfortable sentence arrives.
-    const { container } = render(<CrashReportingPage bridge={bridge()} />);
+    const { container } = render(<CrashReportingBlock bridge={bridge()} />);
     const text = (container.textContent ?? "").toLowerCase();
     // The word appears exactly once, inside the sentence that DENIES the claim.
     expect(text).toContain("not the same as being anonymous");

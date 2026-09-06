@@ -29,7 +29,7 @@
 // effect or an event handler calls and is the only place a binding is minted or
 // disposed. One method doing both would let a render React discards dispose the
 // binding the committed tree is subscribed to — the exact failure
-// `settings/pages/shell-preferences/shell-preferences-holder.ts` records against its own first shape.
+// `settings/shared/shell-preferences/shell-preferences-holder.ts` records against its own first shape.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -127,7 +127,7 @@ export interface DurableViewBindingAccess<TBinding extends DurableViewBinding> {
  *
  * THE BINDING IS ACQUIRED IN AN EFFECT AND ONLY READ DURING RENDER, which is the
  * shape every bridge-bound holder in this console already takes — see
- * `settings/pages/shell-preferences/shell-preferences-holder.ts` and `agents/run-console/agent-console-model.ts`.
+ * `settings/shared/shell-preferences/shell-preferences-holder.ts` and `agents/run-console/agent-console-model.ts`.
  * State replaced from an effect lags its own inputs by one committed frame, and the
  * opening arm is what that frame renders.
  *

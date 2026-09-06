@@ -24,9 +24,9 @@
 // Acceptance starts idle and is button-triggered, so no mount can burn a
 // single-use invite; and a synchronous throw from the bridge normalizes into the
 // same rejected state as an asynchronous rejection. Both are the shipped
-// component's, unaltered — the console mounts it through the frame's absorption
-// helper, which also carries the fixture guard, because that component reads the
-// installed bridge directly and the console's fixture cannot stand in for it.
+// component's, unaltered — the console mounts it through `seats/absorbed-surfaces.ts`,
+// which also carries the fixture guard, because that component reads the installed
+// bridge directly and the console's fixture cannot stand in for it.
 //
 // WHAT THIS COMPONENT WILL NOT DO
 //

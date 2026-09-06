@@ -1,7 +1,7 @@
 /* The provider switch's own styles: the draft's caution line and its settlement.
  *
  * Beside the module rather than inside `agents.css`, on the
- * `definitions/definitions-page.css` precedent — one surface's rules in one file, so
+ * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one file, so
  * a reader looking for what a settlement draws is not scrolling past the agent card
  * and the attach dialog to find it.
  *

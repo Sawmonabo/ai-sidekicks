@@ -5,11 +5,14 @@
 //
 // EVERY STYLESHEET IN THIS FAMILY IS IMPORTED HERE AND NOWHERE ELSE, so a page can
 // never render into a pane whose sheet arrived by accident, and the bundler sees one
-// edge into each sheet rather than one per component. There are eight rather than one
-// because six pages and one shared row carry their own; that is a split of the SHEETS
-// and not of the rule — the rule is one import site, and it is this one. The sibling
-// families paid for learning it the other way round: `agents/index.ts` records how one
-// BEM block came to be written across two files when a page imported its own sheet.
+// edge into each sheet rather than one per component. There is more than one because
+// the family sheet, the shared scaffolding, and the pages whose rules are their own
+// each carry theirs — read the import block below for which, rather than a count in
+// prose that goes stale the next time a page grows a sheet. That is a split of the
+// SHEETS and not of the rule — the rule is one import site, and it is this one. The
+// sibling families paid for learning it the other way round: `agents/index.ts` records
+// how one BEM block came to be written across two files when a page imported its own
+// sheet.
 //
 // WHY THE PAGE SEAT BOARD LIVES IN THIS FILE
 //

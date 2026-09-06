@@ -5,8 +5,9 @@
 // arrive from route params, from authored scenario data, and off rendered rows,
 // none of which carries a brand. So every caller that sends one has to widen at the
 // seam where a held id meets a registered request, and the console has been writing
-// that widening — plus a paragraph explaining it — once per call site. The shipped
-// `frame/legacy-surfaces.ts` carries one; the sent-invite ledger carried a second.
+// that widening — plus a paragraph explaining it — once per call site. The absorbed
+// mounts in `seats/absorbed-surfaces.ts` carry one; the sent-invite ledger carried a
+// second.
 //
 // WHY IT SITS BESIDE THE CALL DOOR AND NOWHERE ELSE. `callDaemon` parses the whole
 // request through the contracts schema before anything is sent, and that schema is

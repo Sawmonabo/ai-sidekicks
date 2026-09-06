@@ -12,8 +12,8 @@
 // `moduleResolution: "bundler"` graph as well.
 //
 // `@public` on each line below, added by Plan-023 T-023p-1C-1. That task is the
-// first consumer this barrel has ever had — the console mounts `NodeRoster` on its
-// `agent-console` slot — and making the file reachable is exactly what exposed the
+// first consumer this barrel has ever had — the console mounts `NodeRoster` on the
+// settings `nodes` page — and making the file reachable is exactly what exposed the
 // other three views to the dead-code gate, which had nothing to report while
 // nobody imported the barrel at all. The three are not dead: they are the rest of
 // the attach flow, waiting on the console surfaces that mount them, which is the
@@ -29,7 +29,7 @@ export { type RuntimeNodeAttachDraft } from "./attach-request.js";
 export { CapabilityDeclaration, type CapabilityDeclarationProps } from "./CapabilityDeclaration.js";
 /** @public Plan-003 T5.3; mounted by a later Plan-023 console surface. */
 export { MixedVersionStatus, type MixedVersionStatusProps } from "./MixedVersionStatus.js";
-/** @public Plan-003 T5.1; mounted by the console's `agent-console` slot. */
+/** @public Plan-003 T5.1; mounted by the console's settings `nodes` page. */
 export { NodeRoster, type NodeRosterProps } from "./NodeRoster.js";
 /** @public The read seam every mount supplies; declared beside the read it names. */
 export { type NodeRosterReads } from "./node-roster-reads.js";

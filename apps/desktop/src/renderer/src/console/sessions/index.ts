@@ -9,7 +9,7 @@
 // This family REPLACES the shipped session probe's claim on the `sessions` slot.
 // The probe itself is not discarded: it is the only caller of `session.create` and
 // `session.join` that exists, so the list absorbs it into its own layout through
-// the frame's absorption helper rather than re-authoring two live calls beside it —
+// `seats/absorbed-surfaces.ts` rather than re-authoring two live calls beside it —
 // and mounts it ON THE START PRESS rather than with the surface, because the probe
 // creates from its mount effect and the route lifecycle remounts this slot.
 

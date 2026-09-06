@@ -22,8 +22,8 @@
 import type { ReactNode } from "react";
 
 import { WireFigure } from "../../../primitives/index.js";
-import { CrashReportingPage } from "../crash-reporting/CrashReportingPage.js";
-import { UpdatesPage } from "../updates/UpdatesPage.js";
+import { CrashReportingBlock } from "./crash-reporting/CrashReportingBlock.js";
+import { UpdatesBlock } from "./updates/UpdatesBlock.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
@@ -61,8 +61,8 @@ export function ApplicationPage(props: { readonly context: SettingsPageContext }
         </div>
       </dl>
 
-      <UpdatesPage bridge={bridge} />
-      <CrashReportingPage bridge={bridge} />
+      <UpdatesBlock bridge={bridge} />
+      <CrashReportingBlock bridge={bridge} />
     </div>
   );
 }

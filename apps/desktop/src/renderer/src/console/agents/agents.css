@@ -2,7 +2,7 @@
  *
  * WHAT IS HERE AND WHAT IS NOT. Three sub-modules carry their own sheets beside
  * their components — `provider-switch/provider-switch.css`,
- * `run-console/run-console.css`, and `definitions/definitions-page.css` — so a
+ * `run-console/run-console.css`, and `definitions/sidekick-definitions-page.css` — so a
  * reader looking for one surface's rules is not scrolling past three others'. What
  * stays here is the family's: the agent card, the axis field both forms draw, the
  * attach dialog, the peer-invocation grant, and the grouped rules that give the

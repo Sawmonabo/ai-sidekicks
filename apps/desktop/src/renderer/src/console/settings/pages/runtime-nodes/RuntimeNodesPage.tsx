@@ -11,7 +11,7 @@
 // That section says so in terms: "Absorb the four shipped views under
 // `runtime-node-attach/` … wholesale and with every tripwire intact: no collapsed
 // health scalar, no filter that hides a node, no loading flash on re-read, and the
-// out-of-order read guard." The absorbed mount is `frame/legacy-surfaces.ts`'s —
+// out-of-order read guard." The absorbed mount is `seats/absorbed-surfaces.ts`'s —
 // it hands the view the roster read and the presence subscription this page's own
 // bridge serves — and this page composes it rather than reaching for the
 // component, exactly as the agent console does. Restyling is Meridian tokens over
@@ -25,7 +25,7 @@
 // no session, so the page asks for the session the console has open and renders the
 // absence when there is none. The attach and refresh controls take an attach draft
 // — a node identity plus its declared capability map — that no address and no
-// registered read supplies to this renderer; `frame/legacy-surfaces.ts` states the
+// registered read supplies to this renderer; `seats/absorbed-surfaces.ts` states the
 // same fact about the same component. Composing one here would be inventing the
 // declaration a node makes about itself, so the page renders the absence and names
 // what is missing instead.
