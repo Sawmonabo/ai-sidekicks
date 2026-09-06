@@ -67,7 +67,7 @@ import type { ConsolePaneRegistry } from "../seats/index.js";
  * second code path.
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
-  registerLedgerPanes(registry);
+  registerLedgerPanes(registry); // T-023p-1C-2 timeline
   // T-023p-1C-3 runs approvals inspector
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
