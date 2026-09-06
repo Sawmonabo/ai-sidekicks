@@ -19,7 +19,11 @@ import {
   type LedgerFilter,
 } from "../../structure/index.js";
 import { narrowChapterToAdmittedRows } from "../feed/ledger-chapter-fold.js";
-import { type LedgerWindowModel } from "../window/index.js";
+import {
+  NO_ROWS_REMOVED,
+  type LedgerPipelineStage,
+  type LedgerWindowModel,
+} from "../window/index.js";
 
 /** What a person has narrowed this ledger to, and what the bar may offer them. */
 export interface LedgerFilterState {
@@ -84,17 +88,26 @@ export function useLedgerFilter(ledgerWindow: LedgerWindowModel): LedgerFilterSt
  * The unnarrowed case returns the model BY IDENTITY, so a ledger nobody has
  * filtered reconciles nothing and pays nothing — `foldChapterHeaders`' own early
  * return, for its reason.
+ *
+ * AND THE STAGE REPORTS WHAT IT REMOVED, because the find field counts it and this is
+ * the only pass that already holds the answer. Derived downstream it cost a `Set` over
+ * this stage's rows and a filter over the previous stage's, re-run on every appended
+ * row for as long as a query was in the field.
  */
 export function useFilteredLedgerWindow(
   ledgerWindow: LedgerWindowModel,
   filter: LedgerFilter,
-): LedgerWindowModel {
+): LedgerPipelineStage {
   return useMemo(() => {
     if (!isLedgerFiltered(filter)) {
-      return ledgerWindow;
+      return { window: ledgerWindow, removedRows: NO_ROWS_REMOVED };
     }
-    const rows = applyLedgerFilter(ledgerWindow.rows, filter);
+    // Read once and held: this is the loaded projection, and the two derivations below
+    // are the only passes over it this stage may cost.
+    const loadedRows = ledgerWindow.rows;
+    const rows = applyLedgerFilter(loadedRows, filter);
     const admittedRowIds = new Set(rows.map((row) => row.id));
+    const removedRows = loadedRows.filter((row) => !admittedRowIds.has(row.id));
     const chapterByHeaderKey = new Map<string, LedgerChapter>();
     for (const [runId, chapter] of ledgerWindow.chapterByHeaderKey) {
       const narrowedChapter = narrowChapterToAdmittedRows(chapter, admittedRowIds);
@@ -102,7 +115,7 @@ export function useFilteredLedgerWindow(
         chapterByHeaderKey.set(runId, narrowedChapter);
       }
     }
-    return {
+    const window = {
       ...ledgerWindow,
       rows,
       rowsByKey: new Map([...ledgerWindow.rowsByKey].filter(([key]) => admittedRowIds.has(key))),
@@ -119,5 +132,6 @@ export function useFilteredLedgerWindow(
         [...ledgerWindow.seamByRowId].filter(([rowId]) => admittedRowIds.has(rowId)),
       ),
     };
+    return { window, removedRows };
   }, [ledgerWindow, filter]);
 }

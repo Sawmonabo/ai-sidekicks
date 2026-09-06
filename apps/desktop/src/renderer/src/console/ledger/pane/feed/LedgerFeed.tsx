@@ -32,8 +32,9 @@
 //     boundary find states is the boundary that is actually true of what is on
 //     screen, and every tick the rail draws is a row the viewport can scroll to.
 //     Matches outside that window are counted beside the field rather than walked
-//     into and lost — in TWO counts, because a match the cap took and a match the
-//     replay position has not reached are different states with different exits.
+//     into and lost — in FOUR counts, one per narrowing, because a match the cap
+//     took, one the replay position has not reached, one the facet bar is hiding and
+//     one a folded chapter holds are four states with four different exits.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
 //
@@ -45,7 +46,7 @@
 //
 // AND WHAT THIS FILE RENDERS IS THREE CHILDREN, NOT TWENTY ELEMENTS. What the ledger
 // says ABOVE its rows is `LedgerFeedHeader.tsx`' — the find field, the facet bar, the
-// id jump, and the two absences a person can still act on, one subject — and the
+// id jump, and the four absences a person can still act on, one subject — and the
 // right-hand column is `LedgerFeedRail.tsx`', where the dock's reveal is a property
 // of the strip that reveals it. Both DERIVE NOTHING: every value they take is a
 // reading already held here, so neither can become a second answer to a question the
@@ -151,13 +152,20 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // truthful at all: folded first, a closed terminal chapter reaches the filter as
   // one receipt, so its messages and tools are absent from the facet counts and
   // unreachable by narrowing until somebody expands the chapter by hand.
+  //
+  // AND EACH STAGE REPORTS WHAT IT REMOVED, which is what the four counts beside the
+  // find field are made of: the stage that separated the rows is the one that has
+  // them, and re-deriving the difference downstream re-walked the whole projection on
+  // every appended row for as long as a query sat in the field.
   const ledgerFilter = useLedgerFilter(unfurledWindow);
-  const narrowedWindow = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
-  const ledgerWindow = useFoldedChapters(
+  const narrowing = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
+  const narrowedWindow = narrowing.window;
+  const fold = useFoldedChapters(
     narrowedWindow,
     chapterDisclosure.openedTerminalRunIds,
     props.sessionStore.sessionId,
   );
+  const ledgerWindow = fold.window;
   const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
@@ -204,6 +212,8 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     unfurledWindow,
     narrowedWindow,
     foldedWindow: ledgerWindow,
+    filteredAwayRows: narrowing.removedRows,
+    foldedAwayRows: fold.removedRows,
     visible,
     openedTerminalRunIds: chapterDisclosure.openedTerminalRunIds,
     toggleChapter: chapterDisclosure.toggle,

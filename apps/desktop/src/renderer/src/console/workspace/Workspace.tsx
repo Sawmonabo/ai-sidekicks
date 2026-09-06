@@ -5,7 +5,7 @@
 // panes (six families', through one mount door), and the composer (the composer
 // family's, through its seat) — and owns exactly one thing itself: the arrangement.
 //
-// FOUR DECISIONS:
+// THE DECISIONS THIS SURFACE MAKES:
 //
 //   • **The layout is restored once, at mount, and saved through the persistence
 //     chokepoint.** `Spec-023 §Persistence on the renderer scheme`: "Layout, scroll

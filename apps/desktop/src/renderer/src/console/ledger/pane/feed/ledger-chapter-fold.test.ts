@@ -56,7 +56,7 @@ function foldedOverOneRun(memberCount: number, isOpen: boolean): LedgerWindowMod
   return foldChapterHeaders(
     deriveLedgerWindow(oneRunLog(memberCount), false),
     new Set(isOpen ? [RUN_ID] : []),
-  );
+  ).window;
 }
 
 /** The chapter's rows in the viewport, which is every row hanging off its header. */

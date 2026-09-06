@@ -28,7 +28,13 @@ import {
   type LedgerChapter,
 } from "../../structure/index.js";
 import { useSessionScopedState, type TimelineRowDensity } from "../../../seats/index.js";
-import { chapterKeyFor, LedgerRowRetention, type LedgerWindowModel } from "../window/index.js";
+import {
+  NO_ROWS_REMOVED,
+  chapterKeyFor,
+  LedgerRowRetention,
+  type LedgerPipelineStage,
+  type LedgerWindowModel,
+} from "../window/index.js";
 
 /**
  * Fold every terminal chapter that is not open into a header and its receipt.
@@ -61,14 +67,19 @@ import { chapterKeyFor, LedgerRowRetention, type LedgerWindowModel } from "../wi
  * what is not rendered. The receipt is admitted whatever the cap says: a chapter
  * whose terminal fell outside the window would report how it ended in a header that
  * could no longer show it.
+ *
+ * AND THE FOLD REPORTS WHAT IT WITHHELD, on the narrowing stage's rule and for its
+ * reason: rule 7 folds every finished run by default, so this is the largest of the
+ * find field's four counts on any session that has finished a run, and the pass below
+ * is the one that already separates those rows.
  */
 export function foldChapterHeaders(
   model: LedgerWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
   retention: LedgerRowRetention = new LedgerRowRetention(),
-): LedgerWindowModel {
+): LedgerPipelineStage {
   if (model.chapterByHeaderKey.size === 0) {
-    return model;
+    return { window: model, removedRows: NO_ROWS_REMOVED };
   }
   // ITS OWN table, never the projection's: this pass files a live chapter's rows
   // under no parent while the projection files them under their run, so one table
@@ -78,6 +89,7 @@ export function foldChapterHeaders(
   retention.beginPass();
   const viewportRows: LedgerViewportRow[] = [];
   const rows: TimelineRow[] = [];
+  const removedRows: TimelineRow[] = [];
   const rowsByKey = new Map<string, TimelineRow>();
   const headeredRunIds = new Set<string>();
   // Computed once per opened chapter rather than per row: the selection is a fact
@@ -112,14 +124,19 @@ export function foldChapterHeaders(
       viewportRows.push(retention.retainRowIdentity(row, runId));
       rows.push(row);
       rowsByKey.set(row.id, row);
+      continue;
     }
+    removedRows.push(row);
   }
   return {
-    ...model,
-    viewportRows,
-    rows,
-    rowsByKey,
-    seamByRowId: new Map([...model.seamByRowId].filter(([rowId]) => rowsByKey.has(rowId))),
+    window: {
+      ...model,
+      viewportRows,
+      rows,
+      rowsByKey,
+      seamByRowId: new Map([...model.seamByRowId].filter(([rowId]) => rowsByKey.has(rowId))),
+    },
+    removedRows,
   };
 }
 
@@ -184,7 +201,7 @@ export function useFoldedChapters(
   model: LedgerWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
   sessionId: string,
-): LedgerWindowModel {
+): LedgerPipelineStage {
   // One table per SESSION rather than per mount — the projection hook's own idiom,
   // for its reason, and a second INSTANCE rather than a second class. The session is
   // the subject because this pane follows a navigation that changes which log it is

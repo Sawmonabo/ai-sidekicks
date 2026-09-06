@@ -127,7 +127,7 @@ describe("the marks and the thumb are one measurement over one ordering", () => 
     // and one id.
     log.push(messageEvent(log.length));
     log.push(messageEvent(log.length));
-    return foldChapterHeaders(deriveLedgerWindow(log, false), new Set<string>());
+    return foldChapterHeaders(deriveLedgerWindow(log, false), new Set<string>()).window;
   }
 
   function messageEvent(sequence: number): ConsoleSessionEvent {

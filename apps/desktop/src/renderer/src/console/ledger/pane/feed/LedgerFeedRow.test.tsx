@@ -67,7 +67,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     return foldChapterHeaders(
       deriveLedgerWindow(sessionStore.snapshot().timeline, false),
       new Set<string>(),
-    );
+    ).window;
   }
 
   it("draws a chapter header for the run's own key, never through the seat", () => {

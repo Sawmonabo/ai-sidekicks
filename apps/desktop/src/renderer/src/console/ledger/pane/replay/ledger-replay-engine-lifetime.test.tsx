@@ -111,8 +111,8 @@ describe("the replay engine's lifetime across a walk it does not survive", () =>
   ): { readonly beforeDisclosure: number; readonly afterDisclosure: number } {
     const { bridge, clock } = fixtureBridgeOnFrozenClock();
     const loadedWindow: LedgerWindowModel = deriveLedgerWindow(chapteredLog(), false);
-    const shut = foldChapterHeaders(loadedWindow, new Set<string>());
-    const open = foldChapterHeaders(loadedWindow, new Set([CHAPTER_RUN_ID]));
+    const shut = foldChapterHeaders(loadedWindow, new Set<string>()).window;
+    const open = foldChapterHeaders(loadedWindow, new Set([CHAPTER_RUN_ID])).window;
     let latestReplay: LedgerReplayState | undefined;
     const treeAt = (ledgerWindow: LedgerWindowModel): ReactElement => {
       const probe: ReactNode = (

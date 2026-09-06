@@ -16,6 +16,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 
+import { type TimelineRow } from "@ai-sidekicks/contracts";
+
 import {
   emptyFindResult,
   findInLedger,
@@ -23,7 +25,7 @@ import {
   type FindStepDirection,
   type LedgerFindResult,
 } from "../../structure/index.js";
-import { type LedgerWindowModel, type VisibleLedgerWindow } from "../window/index.js";
+import { type VisibleLedgerWindow } from "../window/index.js";
 
 /** The find field's state, and the walk over one window's matches. */
 export interface LedgerFindState {
@@ -94,12 +96,18 @@ export interface LedgerFindState {
 export interface LedgerFindInputs {
   /** The rows the walk searches — the only ones a step can land on. */
   readonly visible: VisibleLedgerWindow;
-  /** Every loaded row, before the facet bar narrowed anything. */
-  readonly unfurledWindow: LedgerWindowModel;
-  /** What survived the narrowing, before the terminal-run fold. */
-  readonly narrowedWindow: LedgerWindowModel;
-  /** What survived the fold, before the cap and the replay position. */
-  readonly foldedWindow: LedgerWindowModel;
+  /**
+   * The rows the facet bar took out, as the narrowing stage reported them.
+   *
+   * TAKEN FROM THE STAGE RATHER THAN DERIVED HERE, because the stage is the pass that
+   * already separated them. Re-deriving it meant a `Set` over the narrowed rows and a
+   * filter over the whole unfurled projection, on every appended row, for as long as a
+   * query sat in the field — and the empty answer, which is the one nearly every
+   * ledger gives, cost exactly as much as a real one.
+   */
+  readonly filteredAwayRows: readonly TimelineRow[];
+  /** The rows the terminal-run fold withheld, as the fold reported them. */
+  readonly foldedAwayRows: readonly TimelineRow[];
 }
 
 /**
@@ -121,7 +129,7 @@ export interface LedgerFindInputs {
  * previous result is a position in a list that no longer exists.
  */
 export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
-  const { visible, unfurledWindow, narrowedWindow, foldedWindow } = inputs;
+  const { visible, filteredAwayRows, foldedAwayRows } = inputs;
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
@@ -152,13 +160,13 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
   );
 
   const filteredAwayMatchCount = useMemo(
-    () => matchesRemovedBetween(unfurledWindow, narrowedWindow, query),
-    [unfurledWindow, narrowedWindow, query],
+    () => matchesAmong(filteredAwayRows, query),
+    [filteredAwayRows, query],
   );
 
   const foldedAwayMatchCount = useMemo(
-    () => matchesRemovedBetween(narrowedWindow, foldedWindow, query),
-    [narrowedWindow, foldedWindow, query],
+    () => matchesAmong(foldedAwayRows, query),
+    [foldedAwayRows, query],
   );
 
   // Looked up rather than remembered, so a result that recomputed under the walk
@@ -221,21 +229,18 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
 }
 
 /**
- * Matches in the rows one stage of the pipeline removed from the next.
+ * Matches in one stage's removals.
  *
- * A difference over row ids rather than over the rows themselves: the two stages
- * hold the same row objects, and identity is what makes the four counts a partition
- * rather than four overlapping tallies of the same match.
+ * The set arrives already separated, so this walks it and nothing else — and a stage
+ * that removed nothing hands back the one shared empty set, which the memo above keys
+ * on, so an appended row does not even reach this function.
+ *
+ * The four counts stay a partition because the stages report DISJOINT removals: a row
+ * the filter took never reaches the fold, so it cannot be reported as folded away.
  */
-function matchesRemovedBetween(
-  before: LedgerWindowModel,
-  after: LedgerWindowModel,
-  query: string,
-): number {
-  if (query.trim().length === 0) {
+function matchesAmong(rows: readonly TimelineRow[], query: string): number {
+  if (rows.length === 0 || query.trim().length === 0) {
     return 0;
   }
-  const survivingRowIds = new Set(after.rows.map((row) => row.id));
-  const removed = before.rows.filter((row) => !survivingRowIds.has(row.id));
-  return removed.length === 0 ? 0 : findInLedger(removed, query, false).totalMatchCount;
+  return findInLedger(rows, query, false).totalMatchCount;
 }
