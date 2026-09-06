@@ -26,6 +26,7 @@ import { BROWSER_SCENARIO } from "./browser.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { REPOS_SCENARIO } from "./repos.js";
 import { SETTINGS_SCENARIO } from "./settings.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
@@ -40,7 +41,7 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   COLLABORATION_SCENARIO,
   AGENTS_SCENARIO,
   SETTINGS_SCENARIO,
-  // T-023p-1C-5 repos
+  REPOS_SCENARIO, // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   BROWSER_SCENARIO,
   TERMINAL_SCENARIO,

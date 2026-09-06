@@ -25,6 +25,7 @@ import {
   growthUnavailable,
   type GrowthPort,
 } from "../growth-port/index.js";
+import type { GrowthBranchContext } from "../growth-values/gitflow.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
@@ -59,40 +60,43 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             { items: [] },
     }),
     // gitflow
-    gitflowBranchContextRead: async (request) =>
-      // Routed through the scripted-reply seam so a repos scenario that DOES script
+    gitflowBranchContextRead: async (request) => {
+      // Routed through the scripted-reply seam so a scenario that DOES script
       // `gitflow.branchContextRead` is answered from the script, on the frozen clock,
-      // with the loading window and the two non-arrival refusals a real read has. No
-      // scenario scripts one today, and none can — see the header — so the unscripted
-      // arm is the one that runs, and it answers with the absence rather than a
-      // refusal: the operation IS answered here and what it found is nothing, whereas
-      // a refusal would say the wire is missing, which under this bridge is not what
-      // happened.
+      // with the loading window and the two non-arrival refusals a real read has.
       //
-      // The REQUEST travels with the call because this operation is entity-scoped:
-      // it names a workspace and a worktree, and a scenario answering it per worktree
+      // The REQUEST travels with the call because this operation is entity-scoped: it
+      // names a workspace and a worktree, and a scenario answering it per worktree
       // reads exactly that. Discarded, every branch-context read in a session was
       // computed about no worktree, so a two-worktree session got one answer twice or
       // none at all.
-      answerFromScriptedReply(
+      //
+      // The unscripted arm REFUSES. The registered reply is flat and carries no
+      // absence to serve — a pair that resolves no row refuses on that wire — so the
+      // honest answer for a script that has not said is the "not checked" refusal,
+      // and a fabricated empty context would be a shape no daemon sends.
+      const scripted = await answerFromScriptedReply<GrowthBranchContext | undefined>(
         engine,
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
         request,
-        () => ({
-          branchContext: undefined,
-        }),
-      ),
+        () => undefined,
+      );
+      if (scripted.status === "unavailable") {
+        return scripted;
+      }
+      return scripted.value === undefined
+        ? growthUnavailable("gitflowBranchContextRead")
+        : { status: "served", value: scripted.value };
+    },
     // identity
     callerParticipantRead: async (request) => {
       const { viewingParticipantId } = engine.scenario;
-      // Refused rather than answered with an absence, and the distinction is the
-      // opposite of the branch-context read's above. There, the operation was
-      // answered and what it found was nothing — a state a surface has to draw.
-      // Here there is no such state: a session always HAS a viewer, and a scenario
-      // that has not said which one has left the question unasked rather than
-      // answered it emptily. So this takes the same "not checked" refusal the live
-      // bridge takes, which is the one honest reading.
+      // Refused rather than answered with an absence, on the same reading the
+      // branch-context read above takes: a scenario that has not said has left the
+      // question unasked rather than answered it emptily, and a session always HAS a
+      // viewer, so there is no "we asked and there is none" state to serve. Both
+      // take the "not checked" refusal the live bridge takes.
       if (viewingParticipantId === undefined) {
         return growthUnavailable("callerParticipantRead");
       }

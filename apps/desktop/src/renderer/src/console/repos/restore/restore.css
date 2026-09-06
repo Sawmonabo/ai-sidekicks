@@ -1,0 +1,122 @@
+/*
+ * The file-restore disclosure: its enumerations, and the windowed path list.
+ *
+ * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
+ * why, and for the import rule every sheet in this family obeys.
+ */
+
+/* ------------------------------------------------- file-restore disclosure */
+
+/*
+ * A read surface, so it carries no act chrome at all. The counts are on the face and
+ * the path lists are `<details>` — the disclosure's density — and the not-an-all-clear sentence
+ * sits under both lists because it qualifies the pair rather than either one.
+ */
+.meridian-restore-disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-restore-disclosure__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-restore-disclosure__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+.meridian-restore-disclosure__meaning,
+.meridian-restore-disclosure__step,
+.meridian-restore-disclosure__no-enumerations,
+.meridian-restore-disclosure__count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-restore-disclosure__enumerations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding-block-start: var(--meridian-space-1);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-restore-disclosure__detail-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-restore-disclosure__detail-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-restore-disclosure__paths {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2) 0 0;
+  list-style: none;
+}
+
+/*
+ * The windowed enumeration's scroller.
+ *
+ * The two rules here are the ones that do not depend on the window arithmetic, so
+ * they belong in the sheet rather than on the element: scrolling is what a scroller
+ * IS, and `overscroll-behavior: contain` keeps a flick that reaches the end of this
+ * list from carrying on into the pane behind it — which on a disclosure nested inside
+ * a scrolling section reads as the surface jumping while a person is still reading
+ * the list they opened.
+ *
+ * `max-block-size` stays inline, and that is the seam rather than an inconsistency:
+ * the same constant is the virtualizer's `initialRect` height, so the window's bound
+ * and the arithmetic computed against it have one home in the module that owns both.
+ */
+.meridian-restore-disclosure__path-scroller {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/*
+ * What the windowed mode gives up.
+ *
+ * The gap and the leading padding the sheet gives this list are space the window
+ * arithmetic does not account for, so the windowed rows stack at the heights they
+ * measured. A modifier rather than an inline pair, because it is a variant of this
+ * list's own presentation and the rules it overrides are two lines above it — the
+ * two read as one decision here and read as nothing at all when they are apart.
+ */
+.meridian-restore-disclosure__paths--windowed {
+  gap: 0;
+  padding-block-start: 0;
+}
+
+/*
+ * The sentence that stops an empty pair reading as an all-clear. Amber, because both
+ * of its two readings are a person's to resolve and neither is a clean result.
+ */
+.meridian-restore-disclosure__not-all-clear {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}

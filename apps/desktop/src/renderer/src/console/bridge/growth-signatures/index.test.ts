@@ -43,7 +43,9 @@ describe("the growth signature table — composed from planes, closed as one set
       readonly sessionId: string;
     }>();
     expectTypeOf<GrowthOperationSignatures["gitActionExecute"]["value"]>().toEqualTypeOf<{
-      readonly accepted: boolean;
+      readonly success: boolean;
+      readonly output?: string;
+      readonly error?: string;
     }>();
     expectTypeOf<GrowthOperationSignatures["artifactIngestAbort"]["value"]>().toEqualTypeOf<void>();
     expectTypeOf<GrowthOperationSignatures["attentionPreferenceUpdate"]["value"]>().toEqualTypeOf<{

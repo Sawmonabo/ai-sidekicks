@@ -66,6 +66,7 @@
 
 import { registerAgentConsolePane } from "../agents/index.js";
 import { registerBrowserPanes } from "../browser/index.js";
+import { registerReposPanes } from "../repos/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { registerTerminalPanes } from "../terminal/index.js";
 
@@ -81,7 +82,7 @@ export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-2 timeline
   // T-023p-1C-3 runs approvals inspector
   registerAgentConsolePane(registry); // T-023p-1C-4 agent-console
-  // T-023p-1C-5 diff artifact
+  registerReposPanes(registry); // T-023p-1C-5 diff artifact
   // T-023p-1C-6 workflow-run workflow-builder
   registerBrowserPanes(registry); // T-023p-1C-7 browser
   registerTerminalPanes(registry); // T-023p-1C-7 terminal

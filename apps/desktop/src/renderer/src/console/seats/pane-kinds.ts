@@ -84,7 +84,6 @@ export function isPaneKind(value: unknown): value is PaneKind {
  */
 export const DETACHABLE_PANE_KINDS: readonly PaneKind[] = AUXILIARY_ROUTE_NAMES;
 
-// Consumed by T-023p-1C-2
 /**
  * Whether a pane of this kind may be torn off into a window of its own.
  *

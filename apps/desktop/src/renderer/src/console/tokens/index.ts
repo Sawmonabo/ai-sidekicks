@@ -70,14 +70,6 @@ export {
   GLYPH_DEFAULT_SIZE,
   GLYPH_PATHS,
   GLYPH_SIZE_CHROME,
-  /**
-   * The dense step's one reader is the repos family's diff gutter, which is not in
-   * this tree yet — so the step is published and tagged rather than withheld, because
-   * a scale missing its smallest step is not a scale and the family that spends it
-   * would have to mint the value again to use it.
-   *
-   * @consumedBy T-023p-1C-5
-   */
   GLYPH_SIZE_DENSE,
   GLYPH_SIZE_ROW,
   GLYPH_STROKE_WIDTH,

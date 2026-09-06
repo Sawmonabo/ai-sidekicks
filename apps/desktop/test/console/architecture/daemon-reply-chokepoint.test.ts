@@ -120,21 +120,25 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * FIVE, and PINNED rather than left as a floor. It was zero while no surface called
+ * SIX, and PINNED rather than left as a floor. It was zero while no surface called
  * the daemon at all, and zero made the two reach claims above vacuous: a scan reports
  * an unrebound tree compliant for the same reason it reports a fully rebound one, and
  * only a number tells them apart.
  *
- * The five are the collaboration family's rebinding — `agent-console-reads.ts`,
+ * Five are the collaboration family's rebinding — `agent-console-reads.ts`,
  * `channel-model.ts`, `mutation-coordinator.ts`, `presence-model.ts`, and
- * `settings/pages/mounts/mount-inventory.ts` — every surface in this family that reaches a
- * method the registry binds. The count fails the moment it moves in either
- * direction, so the next family lane that binds a surface moves this constant in its
- * own PR and a reader learns from that diff which surfaces joined; and a surface
- * QUIETLY LEAVING the door, which is the regression this pin exists for, fails it
- * just as loudly.
+ * `settings/pages/mounts/mount-inventory.ts` — every surface in that family that reaches
+ * a method the registry binds. The sixth is `console/repos/repo-reads.ts`, the repos
+ * family's five `repo.*` reads: it used to reach `daemon.call` itself and hold its own
+ * parser and its own two refusal codes beside it, and it now names five registry keys
+ * and holds none of the three.
+ *
+ * The count fails the moment it moves in either direction, so the next family lane that
+ * binds a surface moves this constant in its own PR and a reader learns from that diff
+ * which surfaces joined; and a surface QUIETLY LEAVING the door, which is the regression
+ * this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 5;
+const CALL_DOOR_CONSUMER_COUNT = 6;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
