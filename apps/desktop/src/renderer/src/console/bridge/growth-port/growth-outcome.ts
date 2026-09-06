@@ -13,7 +13,7 @@
 // that ACTUALLY serves an operation returns, and such a fixture has no business
 // importing the refusing port to describe a success.
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleRefusal, WireRefusal } from "../../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthSlateRowId } from "./growth-slate.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES } from "../scenario-runtime/index.js";
@@ -27,6 +27,16 @@ import { SCRIPTED_REPLY_REFUSAL_CODES } from "../scenario-runtime/index.js";
  * there is a second place for one wire string to be edited.
  */
 export const WIRE_UNREGISTERED_REFUSAL_CODE = "wire-unregistered" as const;
+
+/**
+ * The code a call that REJECTED rather than answering refuses under.
+ *
+ * Named on the same rule as its sibling above rather than left as a literal in the
+ * tuple: the two arms of {@link GrowthUnavailable} are discriminated on it, so the
+ * string is read by the type declarations as well as by the builder, and a literal
+ * in three positions is three places for one wire string to be edited.
+ */
+export const CALL_REJECTED_REFUSAL_CODE = "call-rejected" as const;
 
 /**
  * Why the port refused. A closed set, and each member is a decision:
@@ -43,6 +53,9 @@ export const WIRE_UNREGISTERED_REFUSAL_CODE = "wire-unregistered" as const;
  *     pinned on the read-in-flight state for the life of the mount. A caller minting
  *     its own refusal for this instead would put a second `origin` on a failure of
  *     THIS port, which is the vocabulary sprawl `core/refusal.ts` was written to end.
+ *     It is the one code that answers WHICH SEAM broke rather than what the other
+ *     side said, so the refusal carrying it carries the other side's own refusal on
+ *     `cause` as well — see {@link GrowthCallRejected}.
  *   • `reply-abandoned` — the fixture asked, and the scenario engine was torn down
  *     before the frozen clock reached the answer.
  *   • `reply-backlog-full` — the fixture asked, and the engine was already holding
@@ -59,9 +72,9 @@ export const WIRE_UNREGISTERED_REFUSAL_CODE = "wire-unregistered" as const;
  */
 export const GROWTH_PORT_REFUSAL_CODES: readonly [
   typeof WIRE_UNREGISTERED_REFUSAL_CODE,
-  "call-rejected",
+  typeof CALL_REJECTED_REFUSAL_CODE,
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
-] = [WIRE_UNREGISTERED_REFUSAL_CODE, "call-rejected", ...SCRIPTED_REPLY_REFUSAL_CODES];
+] = [WIRE_UNREGISTERED_REFUSAL_CODE, CALL_REJECTED_REFUSAL_CODE, ...SCRIPTED_REPLY_REFUSAL_CODES];
 
 /** One growth-port refusal code. Derived, so the vocabulary is declared once. */
 export type GrowthPortRefusalCode = (typeof GROWTH_PORT_REFUSAL_CODES)[number];
@@ -70,26 +83,82 @@ export type GrowthPortRefusalCode = (typeof GROWTH_PORT_REFUSAL_CODES)[number];
 export const GROWTH_PORT_REFUSAL_ORIGIN = "growth-port";
 
 /**
- * The refusal a live bridge returns for an unbuilt wire.
+ * What every growth-port refusal knows beyond the console's three fields.
  *
- * The console's ONE refusal shape (`core/refusal.ts`), widened with what a growth
- * refusal knows and nothing else does: which operation was called, which slate row
- * it serves, and who owes the wire. `core/refusal.ts` names this port as one of the
- * five producers that had minted a refusal vocabulary of its own — the cost was
- * that a surface rendering a growth refusal beside a persistence one had to
- * translate between two shapes to reach one renderer. Extending means
- * `isConsoleRefusal` answers true here and `<RefusalCard {...outcome} />` works.
+ * `core/refusal.ts` names this port as one of the five producers that had minted a
+ * refusal vocabulary of its own — the cost was that a surface rendering a growth
+ * refusal beside a persistence one had to translate between two shapes to reach one
+ * renderer. The ledger is what a growth refusal adds and nothing else does: which
+ * operation was called, which slate row it serves, and who owes the wire.
  *
  * `status` stays, and is not replaced by the presence of `code`: this value is one
  * arm of `GrowthOutcome`, and the discriminant is what makes the served arm
  * narrowable.
  */
-export interface GrowthUnavailable extends ConsoleRefusal {
+export interface GrowthRefusalLedger {
   readonly status: "unavailable";
-  readonly code: GrowthPortRefusalCode;
   readonly operationId: GrowthOperationId;
   readonly slateRow: GrowthSlateRowId;
   readonly owningDocument: string;
+}
+
+/**
+ * The refusal a port returns when it did not ask, or when its answer never came.
+ *
+ * The console's ONE refusal shape (`core/refusal.ts`) plus the ledger, so
+ * `isConsoleRefusal` answers true here and `<RefusalCard {...outcome} />` works.
+ * `cause` is declared ABSENT rather than omitted: it is the union's second member
+ * below, and a caller narrowing on `code` reads `undefined` on this arm instead of a
+ * type error, which is what makes the narrowing worth having at a call site.
+ */
+export interface GrowthWireRefused extends ConsoleRefusal, GrowthRefusalLedger {
+  readonly code: Exclude<GrowthPortRefusalCode, typeof CALL_REJECTED_REFUSAL_CODE>;
+  readonly cause?: undefined;
+}
+
+/**
+ * The refusal a caller returns when a port call REJECTED instead of answering.
+ *
+ * `cause` IS THE POINT OF THE SECOND ARM, and it is required here rather than
+ * optional everywhere. A rejection off this seam may carry a daemon envelope — the
+ * scripted-reply seam throws one verbatim, and the live seam will throw the same
+ * shape the day the wire lands — so the rejection is normalized by the console's one
+ * total reader before it reaches this value, and what that reader recovered travels
+ * on. Without it the daemon's own dotted code was read and then dropped, and one
+ * surface rendered `call-rejected` where its sibling one navigation later rendered
+ * `workflow.session_not_found` for the same failure.
+ *
+ * `code` still says `call-rejected`, and that is not a contradiction: this port's
+ * vocabulary answers WHICH SEAM broke, and `cause.code` answers what the other side
+ * said. A consumer that must branch on the daemon's word branches on the second.
+ */
+export interface GrowthCallRejected extends ConsoleRefusal, GrowthRefusalLedger {
+  readonly code: typeof CALL_REJECTED_REFUSAL_CODE;
+  readonly cause: WireRefusal;
+}
+
+/** A growth refusal, on whichever of the two arms produced it. */
+export type GrowthUnavailable = GrowthWireRefused | GrowthCallRejected;
+
+/**
+ * True where a refusal means the console never asked, rather than that asking failed.
+ *
+ * THE ONE READING OF THAT QUESTION, and it is a question every surface offering a
+ * growth-backed list has to answer: `Spec-023 §Console Design (Meridian)` rule 8
+ * separates "we have not asked" from a read that was put and failed, and a surface
+ * that renders one as the other tells a person the console is idle while a channel is
+ * down. The three surfaces that render the node's session directory each asked it by
+ * eye and each got it wrong the same way, so it is answered here — beside the code it
+ * is about, which is the only place the answer cannot drift from the vocabulary.
+ *
+ * Takes a `ConsoleRefusal` rather than a `GrowthUnavailable`: by the time a refusal
+ * reaches a surface it may have been settled by `bridge/readings/read-settlement.ts`,
+ * which carries the port's own refusals through untouched and rebuilds a rejection
+ * into the console's shape. Both are refusals and only one of them can carry this
+ * code, so the code is the whole of the question.
+ */
+export function isUnbuiltWireRefusal(refusal: ConsoleRefusal): boolean {
+  return refusal.code === WIRE_UNREGISTERED_REFUSAL_CODE;
 }
 
 /** A served result, from the fixture bridge. */

@@ -77,22 +77,30 @@ export type {
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and every surface that offers sessions reads the directory through
 // `seats/`, so the port type, the one summary shape those surfaces render, the
-// refusal they render instead, and the two builders that mint one all leave through
-// this door — the same door the bridge itself does, because a growth refusal IS what
-// this bridge answers for a wire the corpus has not registered. The second builder is
-// for the arm a caller cannot answer for itself: a call that REJECTED rather than
-// resolving, whose refusal has to keep this port's `origin` and this port's code
-// rather than one the caller invented.
+// refusal they render instead, and the builder that mints one all leave through this
+// door — the same door the bridge itself does, because a growth refusal IS what this
+// bridge answers for a wire the corpus has not registered.
+// `growthUnavailableFromRejection` deliberately does NOT: every growth call in the
+// console settles through `readings/read-settlement.js` below, which keeps the
+// daemon's own code rather than restamping it, so that builder's only importer is a
+// suite beside it — the class `barrel-census.test.ts` fails on this door.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
 // reached deep by the three modules inside this family that read several planes at
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
+export { growthUnavailable } from "./growth-port/growth-port.js";
 export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
+
+// Which kind of nothing a growth refusal IS — the console never asked, or the asking
+// failed. Every surface that offers the node's sessions has to answer it before it
+// can choose an absence, and three of them were answering it by eye and each getting
+// it wrong the same way, so the reading leaves through this door beside the code it
+// reads.
+export { isUnbuiltWireRefusal } from "./growth-port/growth-outcome.js";
 // The two-arm reading a surface holds for one such call — the port's answer, or the
 // refusal a call that produced none was read as. Through this door and deliberately
 // not through `growth-port/index.js`: no sibling inside `bridge/` takes it, and an
@@ -119,9 +127,11 @@ export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js"
 // How a growth read ENDS when its seam can also REJECT. It lives in this family
 // because it settles a promise the growth port returned and knows nothing about any
 // surface, and in `readings/` because what it is about is the READING rather than any
-// one wire. It leaves through this door and through no inner one: every reader is a
-// view family, so a `readings/index.ts` would publish a name no sibling inside
-// `bridge/` reaches, which is the dead export `structure:dead-code` reports.
+// one wire. It leaves through this door and through no inner one, and the rule for
+// that is stated once — in `readings/read-settlement.ts`'s own header, where a reader
+// meets the module: no `bridge/` sibling reads this pair, so an inner barrel would
+// publish a name nothing inside the family takes, which is the dead export
+// `structure:dead-code` reports.
 // `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door for the same
 // rule from the other side: its only readers are the suites that assert who a
 // synthesized refusal names, and a door line no production reader uses is a dead

@@ -17,11 +17,18 @@
 // generic over the whole outcome and knows nothing about workflows: what it settles
 // is a promise the GROWTH PORT returned, so `bridge/` is the lowest family on the
 // console's DAG that owns its input. It was written inside `workflows/`, which made
-// it unreachable to `seats/session-directory.ts` — the fourth read on this same
-// seam, one family below — and that read went without it, attaching a fulfilment
-// handler alone and leaving a rejecting directory reading forever. A view family
-// reaches it through this family's door; the two modules inside `bridge/` that need
-// it reach it directly.
+// it unreachable to `seats/session-directory.ts` — the fourth read on this same seam,
+// one family below — and that read went without it, settling its rejection arm
+// through the growth port's own builder instead: the port's `call-rejected` stamped
+// over whatever the daemon had said, so the console held two refusal vocabularies for
+// one seam and a person met whichever the surface they were on happened to use. That
+// read settles here now, and every growth read in the console does.
+//
+// AND THIS PAIR LEAVES THROUGH `bridge/index.ts` AND THROUGH NO INNER DOOR. Every
+// reader is a view family or `seats/`; no module inside `bridge/` takes it, so a
+// `readings/index.ts` would publish a name no sibling reaches — the dead export
+// `structure:dead-code` reports. The door states the consequence and this states the
+// rule, which is the one place it is decided.
 //
 // WHAT IS LEFT HERE IS THE SETTLEMENT, AND THE CLASSIFICATION IS NOT. This module
 // used to carry its own four-armed reading of a thrown value — a bare refusal, one
