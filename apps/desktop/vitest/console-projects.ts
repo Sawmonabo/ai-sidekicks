@@ -80,6 +80,13 @@ export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
       name: "console-screenshot",
       include: ["test/console/screenshot/**/*.test.{ts,tsx}"],
       globals: true,
+      // The capture conditions that live in the PAGE rather than in the context.
+      // `SCREENSHOT_TIER_PROVIDER_OPTIONS` below pins everything Playwright can be
+      // told; the monospace face is a property of the document, so it is pinned
+      // per test here instead. A setup file rather than a per-suite hook because
+      // the tier grows a file per family, and a condition each new file has to
+      // remember is a condition the next family renders without.
+      setupFiles: ["./test/console/screenshot/capture-faces.setup.ts"],
       browser: {
         ...browserModeOptions(SCREENSHOT_TIER_PROVIDER_OPTIONS),
         expect: { toMatchScreenshot: SCREENSHOT_TIER_MATCH_OPTIONS },

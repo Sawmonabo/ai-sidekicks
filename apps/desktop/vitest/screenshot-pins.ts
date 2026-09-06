@@ -1,9 +1,14 @@
 // The rendering conditions the screenshot tier's references are minted under.
 //
-// Its own module beside `browser-mode.ts` because it is the one place a capture's
-// conditions are written down, and a reference image is only a gate while the next
-// run renders under the same ones. Everything here is a value the tier ALREADY
-// depended on and did not state.
+// Its own module beside `browser-mode.ts` because a reference image is only a gate
+// while the next run renders under the same conditions. Everything here is a value
+// the tier ALREADY depended on and did not state.
+//
+// These are the conditions Playwright can be TOLD — a context option, set once when
+// the page is built. The one condition that lives in the page instead is the
+// typeface, which is a custom property on the document; it is pinned per test from
+// `test/console/screenshot/capture-faces.ts`, and that module says why a runner pin
+// was not enough on its own.
 
 import type { PlaywrightProviderOptions } from "@vitest/browser-playwright";
 
@@ -66,15 +71,19 @@ export const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
  * on measurement rather than on caution. The measurements are worth carrying,
  * because they are what refuses a tolerance rather than what sizes one.
  *
- * After the pins above, this tier's residue is exactly SIX pixels: one in
- * `frame-first-run-light`, six in `palette-open-light`, none in
- * `frame-first-run-dark`, comparing a macOS 26.6.1 host against references minted
- * on GitHub's `macos-15` image (2026-09-02). Every one of them sits on the corner
- * of a `⌘` keycap glyph — (645,552) in the frame, (992..993, 493..533) in the
- * palette — which is the one character on these surfaces no stack in
- * `tokens/palette.ts` supplies: nothing self-hosts IBM Plex yet, so `system-ui`
- * and `ui-monospace` resolve to the host's own face and its outline moves with the
- * operating system. So the residue is real and it is bounded and it is six.
+ * After the pins above and the typeface pin the header names, this tier's residue
+ * is SIX pixels in one reference: `palette-open-light`, comparing a macOS 26.6.1
+ * host against references minted on GitHub's `macos-15` image (2026-09-06). Every
+ * one of them sits on the corner of a `⌘` keycap glyph, at (992..993, 493..533),
+ * which is the one character on these surfaces no stack in `tokens/palette.ts`
+ * supplies: nothing self-hosts IBM Plex yet, so the sans stack resolves through
+ * `system-ui` to the host's own face and its outline moves with the operating
+ * system. So the residue is real and it is bounded and it is six.
+ *
+ * `frame-first-run-light` used to carry one more on the same glyph and no longer
+ * does, which is not noise: that reading was taken while the monospace face was
+ * still the host's own choice, and pinning it is what closed the difference. Both
+ * frame references compare clean now, and only the sans keycap is left.
  *
  * A budget above it would have to fit UNDER the smallest change worth catching,
  * and that ceiling was measured too, by planting regressions and reading the count
