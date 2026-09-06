@@ -24,6 +24,7 @@ type SessionOperationId = Extract<
   | `providerSessionImport${string}`
   | "invitesList"
   | "healthSubscribe"
+  | "healthStatusRead"
 >;
 
 /** The session and shell rows, in the order the single table carried them. */
@@ -43,6 +44,18 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "session-directory-read",
       "method",
       "read one session's snapshot, so its store can reach a base state and project the stream bound to it",
+      "session.read",
+    ),
+    // lane: ld-cov-b — the identity a session header renders. A read of its own
+    // rather than a member on `sessionRead`, because that operation answers with the
+    // console's STORE-shaped snapshot: a base state for a projection, which carries a
+    // cursor and a roster and deliberately no display title and no session state.
+    // Widening it would make every store initialisation carry two unrelated jobs.
+    sessionIdentityRead: op(
+      "sessionIdentityRead",
+      "session-directory-read",
+      "method",
+      "read one session's display title and its wire-verbatim state, so a header names the session rather than only its identifier",
       "session.read",
     ),
     sessionList: op(
@@ -127,6 +140,14 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "subscription",
       "node health for the strip and the park banner",
       "health.subscribe",
+    ),
+    // lane: ld-cov-b
+    healthStatusRead: op(
+      "healthStatusRead",
+      "health-status-read",
+      "method",
+      "read the node's overall health category and its per-component readings once, for the compact form a session header carries",
+      "health.statusRead",
     ),
     sessionSearch: op(
       "sessionSearch",

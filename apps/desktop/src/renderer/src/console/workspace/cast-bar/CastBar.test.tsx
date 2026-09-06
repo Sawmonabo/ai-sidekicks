@@ -37,12 +37,37 @@ describe("CastBar — the session's identity", () => {
     expect(bar.querySelector(".meridian-cast-bar__identity")?.textContent).toContain(SESSION_ID);
   });
 
-  it("says the session is opening rather than drawing an empty cast", () => {
+  it("says the session is opening, and holds the bar's height while it does", () => {
+    const bar = renderBar(
+      <CastBar
+        sessionId={SESSION_ID}
+        sessionStore={undefined}
+        expectedMemberCount={3}
+        onFollow={() => undefined}
+      />,
+    );
+    expect(bar.textContent).toContain("This session is opening.");
+    // One placeholder per member the caller was told about, so the bar is already the
+    // height it will be when the chips arrive and nothing below it moves.
+    expect(bar.querySelectorAll(".meridian-cast-chip--skeleton")).toHaveLength(3);
+    // And they name nobody: every one of them is a placeholder, so a screenshot of a
+    // session mid-open cannot be read as a session with three unnamed participants.
+    expect(bar.querySelectorAll(".meridian-cast-chip")).toHaveLength(3);
+    expect(bar.querySelectorAll(".meridian-cast-chip__name")).toHaveLength(0);
+    expect(bar.querySelector(".meridian-cast-bar__members")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+  });
+
+  it("negative control: with no member count it draws one placeholder, never none", () => {
+    // Without this the case above would pass over a skeleton that sized itself from
+    // the caller alone — and a window restoring a route it saved last run holds no
+    // membership slice, which is the common case rather than the rare one. A bar that
+    // drew nothing there is the height jump this exists to prevent.
     const bar = renderBar(
       <CastBar sessionId={SESSION_ID} sessionStore={undefined} onFollow={() => undefined} />,
     );
-    expect(bar.textContent).toContain("This session is opening.");
-    expect(bar.querySelectorAll(".meridian-cast-chip")).toHaveLength(0);
+    expect(bar.querySelectorAll(".meridian-cast-chip--skeleton")).toHaveLength(1);
   });
 });
 
@@ -147,7 +172,7 @@ describe("CastBar — the name the wire gave each participant", () => {
     // chip with "Presence has not been read". The documented example is the head of
     // the name; a chip that is waiting on a person also says so.
     expect(
-      within(bar).getByRole("button", { name: "priya, waiting on approval, needs you" }),
+      within(bar).getByRole("button", { name: "priya, waiting on approval, waiting on you" }),
     ).toBeDefined();
   });
 

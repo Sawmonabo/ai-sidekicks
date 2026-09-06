@@ -50,7 +50,9 @@ export type GrowthSlateRowId =
   | "sidekick-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
-  | "workflow-version-chain";
+  | "workflow-version-chain"
+  // lane: ld-cov-b
+  | "health-status-read";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -357,6 +359,15 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  // lane: ld-cov-b
+  "health-status-read": {
+    id: "health-status-read",
+    wire: "the one-shot node health read — the overall status category and the per-component readings a compact form renders, beside the subscription the strip follows",
+    owningDocument:
+      "Spec-020 (the health projection); api-payload-contracts.md §Health Method-Name Registry (the method string and its two schemas, registered there and in no code package)",
+    consumingSurface: "cast bar health form, health strip",
     wireRegistered: false,
   },
 };

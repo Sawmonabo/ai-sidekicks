@@ -11,11 +11,23 @@ import { CAST_BAR_CHIP_CAP } from "../../core/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { useSessionStore, type SessionStore } from "../../store/index.js";
 import { CastChip } from "./CastChip.js";
+import { CastBarSpend } from "./CastBarSpend.js";
 import { FoldedMembers } from "./FoldedMembers.js";
+import { type CastBarSpendReading } from "./cast-bar-readings.js";
+import { type CastBarReadState } from "./cast-bar-reads.js";
 import { deriveCastBar } from "./cast-bar-model.js";
 
 export interface CastBarBodyProps {
   readonly sessionStore: SessionStore;
+  /**
+   * The accountant's figure, put by the bar above.
+   *
+   * Handed down rather than read here, because the read is keyed on the SESSION and
+   * this component is mounted only once the session's store has opened — putting it
+   * here would tie a question about the session to the arrival of its store, and a
+   * bar whose store never opened would never ask.
+   */
+  readonly spend: CastBarReadState<CastBarSpendReading>;
   readonly onFollow: (participantId: string) => void;
   readonly onShowMembers?: () => void;
 }
@@ -69,12 +81,9 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
         {model.isAllClear ? (
           <span className="meridian-cast-bar__all-clear-line">Nothing needs you.</span>
         ) : null}
-        {/* The receipt is the only source of a spend figure and the console has no
-            read for it, so the figure is drawn as the "not checked" kind of nothing.
-            Summing the rows here would be the one thing `Spec-023 §Rules every console
-            surface obeys` forbids by name: under One accountant, "the renderer never
-            sums visible rows". */}
-        <Nothing kind="not-checked" title="Session spend" detail="No cost receipt has been read." />
+        {/* The figure the accountant settled, or the honest absence where it did not
+            answer. `CastBarSpend.tsx` owns both arms; nothing is summed on either. */}
+        <CastBarSpend spend={props.spend} />
       </span>
     </>
   );

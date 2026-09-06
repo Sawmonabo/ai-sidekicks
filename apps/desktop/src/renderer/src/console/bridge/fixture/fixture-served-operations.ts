@@ -165,6 +165,9 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "sessionRead",
   "sessionList",
+  "sessionIdentityRead",
+  "healthStatusRead",
+  "orchestrationBudgetRead",
   "attentionProjectionRead",
   ...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
   "gitflowBranchContextRead",
@@ -183,6 +186,16 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // name are the ones this window happens to have open.
   "sessionRead",
   "sessionList",
+  // lane: ld-cov-b — the header's own two reads. The identity is derived from the
+  // same scripted reply the base state is, and the health read is answered from a
+  // script alone: a node's health is not a fact any scenario carries implicitly, and
+  // a fabricated "healthy" would be the fixture asserting a measurement nobody made.
+  "sessionIdentityRead",
+  "healthStatusRead",
+  // lane: ld-cov-b — the accountant's committed figure, which the cast bar's
+  // all-clear line renders and is forbidden to compute. Scripted, never derived: an
+  // unscripted zero would be a claim about a session's spend rather than an absence.
+  "orchestrationBudgetRead",
   // The one projection the console must not compute for itself.
   "attentionProjectionRead",
   // workflow — the reads a workflows scenario scripts, taken from the module that

@@ -58,7 +58,7 @@ describe("CastBar — what the console has not measured", () => {
   });
 });
 
-describe("CastBar — the chip that needs you", () => {
+describe("CastBar — the chip that is waiting on you", () => {
   /** A blocked run, and a later ordinary row from a DIFFERENT run by the same actor. */
   function blockedInOneRunBusyInAnother(): readonly TimelineRow[] {
     return [
@@ -87,12 +87,14 @@ describe("CastBar — the chip that needs you", () => {
       />,
     );
     const chip = bar.querySelector(".meridian-cast-chip");
-    // The state is the chip's ground and its name. The ring is untouched: it
-    // answers "who", and two participants sharing a wheel step have only it.
+    // The state is the chip's WORDS and its name — never its colour. The ring is
+    // untouched because it answers "who", and two participants sharing a wheel step
+    // have only it; the chip carries no ground of its own for either question.
     expect(chip?.getAttribute("data-attention")).toBe("true");
     expect(chip?.getAttribute("data-ring")).toBe("solid");
+    expect(chip?.querySelector(".meridian-cast-chip__verb")?.textContent).toBe("waiting on you");
     expect(
-      within(bar).getByRole("button", { name: "Architect, running a tool, needs you" }),
+      within(bar).getByRole("button", { name: "Architect, running a tool, waiting on you" }),
     ).toBeDefined();
   });
 

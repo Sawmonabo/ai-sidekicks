@@ -102,14 +102,22 @@ export const CAST_LABEL_SOURCE_BY_EVENT_KIND: Readonly<Record<string, CastLabelS
 const CAST_STALE_CLAUSE = "the connection dropped, so this may be out of date";
 
 /**
- * The clause a blocked chip adds to its own accessible name.
+ * What a blocked chip SAYS — on screen and in its own accessible name, one sentence
+ * for both.
  *
  * The exact negation of the bar's own all-clear line, because the two answer one
- * question: while "Nothing needs you." is absent, this is what says WHO. It is a
- * clause and not a colour, so the state survives the amber treatment being
- * unreadable — which for a screen reader it always is.
+ * question: while "Nothing needs you." is absent, this is what says WHO.
+ *
+ * AND IT IS THE WHOLE OF THE TREATMENT. The chip used to carry this state as an amber
+ * ground as well, and the ground is gone: `Spec-023 §The four bars` makes the hue
+ * ring identity — which participant this is — and a chip tinted for state is a second
+ * meaning on the one surface whose entire job is telling people apart. Amber stays
+ * where a person acts on it, on the approval card, the sidebar row, and the rail
+ * tick. So the state is text, which every reader gets: the sighted one reads it in
+ * the chip, the screen-reader one hears it in the name, and neither is reading a
+ * colour.
  */
-const CAST_ATTENTION_CLAUSE = "needs you";
+export const CAST_ATTENTION_CLAUSE = "waiting on you";
 
 /** One chip. */
 export interface CastMember {

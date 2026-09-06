@@ -8,7 +8,9 @@
 
 import { render } from "@testing-library/react";
 
+import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
+import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
 
 export const SESSION_ID = "session-cast";
 
@@ -82,8 +84,41 @@ export function attachedAgent(sequence: number, agentId: string, name: string): 
   };
 }
 
-export function renderBar(element: React.JSX.Element): HTMLElement {
-  const { container } = render(element);
+/**
+ * A scenario that answers none of the bar's three reads.
+ *
+ * The bar puts an identity read, a health read and a spend read the moment it mounts,
+ * so every case here renders inside a bridge whether it is about those reads or not.
+ * This is the one that keeps the other cases about what they are about: it scripts no
+ * reply at all, so all three refuse, and a case that says nothing about a reading gets
+ * a bar whose readings are all honestly absent rather than one carrying a figure some
+ * other suite's scenario happened to declare.
+ *
+ * `CastBar.readings.test.tsx` is where a scenario that DOES answer them lives.
+ */
+export const CAST_BAR_SILENT_SCENARIO: ConsoleScenario = {
+  id: "cast-bar-silent",
+  label: "Cast bar, nothing read",
+  purpose: "A session whose identity, health and spend reads all refuse.",
+  sessionId: SESSION_ID,
+  participantIdsInJoinOrder: [PARTICIPANT_PRIYA],
+  startedAtIso: "2026-01-01T14:20:00.000Z",
+  beats: [],
+  replies: [],
+};
+
+export interface RenderBarOptions {
+  /** Which scenario the bar's reads are answered from. Silent by default. */
+  readonly scenario?: ConsoleScenario;
+}
+
+export function renderBar(element: React.JSX.Element, options: RenderBarOptions = {}): HTMLElement {
+  const scenario = options.scenario ?? CAST_BAR_SILENT_SCENARIO;
+  const { container } = render(
+    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario })}>
+      {element}
+    </SidekicksBridgeProvider>,
+  );
   const bar = container.querySelector(".meridian-cast-bar");
   if (!(bar instanceof HTMLElement)) {
     throw new Error("CastBar rendered no bar element");

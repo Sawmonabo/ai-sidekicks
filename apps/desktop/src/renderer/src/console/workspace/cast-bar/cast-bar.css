@@ -119,28 +119,23 @@
 }
 
 /*
- * The chip somebody is blocked on. The ledger-side amber triple, verbatim from the
- * `.meridian-chip--attention` precedent, on the chip's GROUND and its three plain
- * edges — `border-inline-start` is the hue ring and is deliberately untouched,
- * because the hue answers "who" and repurposing it for state would strand two
- * participants who share a wheel step.
+ * NO CHIP GROUND FOR ATTENTION, AND THAT ABSENCE IS THE RULE.
  *
- * Placed after `:hover`, which it therefore outranks by source order at equal
- * specificity: a state colour that a passing cursor replaced would flicker off the
- * one chip a person is looking for.
+ * This block used to paint the amber triple — ground, mark, text — on the chip of
+ * whoever was blocked. `Spec-023 §The four bars` spends the two-hue rule on IDENTITY
+ * here: `border-inline-start` is that participant's wheel step, and a second colour
+ * on the same chip made one element answer two questions. Worse, it put the amber
+ * vocabulary on a surface nobody acts from — the act is on the approval card, the
+ * sidebar row, and the rail tick, and those keep their amber.
+ *
+ * What survives is the OTHER half of the same sentence in that spec: attention is
+ * steered "by luminance and the two-hue rule". The chip says the state in words, and
+ * this is the luminance that gives those words their weight — the clause reads at
+ * full strength where the derived verb reads muted, which is a contrast every reader
+ * gets on every display, including a monochrome one.
  */
-.meridian-cast-chip[data-attention="true"] {
-  border-block-color: var(--meridian-amber-mark);
-  border-inline-end-color: var(--meridian-amber-mark);
-  background: var(--meridian-amber-ground);
-  color: var(--meridian-amber-text);
-}
-
-/* The verb gives up its muted grey here rather than keeping it: grey is measured
- * for contrast on the plain surfaces and on no tinted one, and amber-on-amber is
- * the pair the palette actually proves. */
 .meridian-cast-chip[data-attention="true"] .meridian-cast-chip__verb {
-  color: var(--meridian-amber-text);
+  color: var(--meridian-text);
 }
 
 .meridian-cast-chip__name {
@@ -166,4 +161,58 @@
 .meridian-cast-chip__verb[data-stale="true"] {
   color: var(--meridian-text-faint);
   font-style: italic;
+}
+
+/* --- The identity, the status mark, and the figure ----------------------- */
+
+/*
+ * The display title sits between the id and the state chip and gives way first: the
+ * id is the session's only unambiguous name and the state is one short word, so when
+ * the bar runs out of room it is the title that ellipses rather than either of them.
+ */
+.meridian-cast-bar__session-title {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 24ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-cast-bar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 0 0 auto;
+}
+
+.meridian-cast-bar__spend {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * The qualifier reads as a qualifier: smaller and muted beside the figure, never
+ * mistakable for part of it. It says the accountant could not price every debit, so
+ * the number is a floor — a fact about the figure and not a second figure.
+ */
+.meridian-cast-bar__spend-qualifier {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * A skeleton chip is the SHAPE of a chip and nothing else: the same height and a
+ * plausible width, so the bar's height is settled before the first member arrives.
+ * No animation — a row of pulsing pills on a surface that is about to fill with real
+ * ones is motion that reports nothing, and `Spec-023 §Meridian, the design language`
+ * spends motion on things that carry meaning.
+ */
+.meridian-cast-chip--skeleton {
+  display: inline-block;
+  width: 9ch;
+  height: var(--meridian-space-6);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
 }

@@ -6,8 +6,7 @@
 
 import type { ReactNode } from "react";
 
-import { WireFigure } from "../../../primitives/index.js";
-import { formatCentsAsCurrency } from "./cost-receipt-model.js";
+import { WireFigure, formatCentsAsCurrency } from "../../../primitives/index.js";
 
 /**
  * A cents figure as money, with the daemon's own integer on the title — where the

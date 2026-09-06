@@ -19,20 +19,20 @@
 // boolean per axis and nothing else. That is deliberate, and it is why this
 // verification is not the arithmetic the page forbids.
 //
-// WHY THE FORMATTER IS AN ADAPTER AND NOT AN IMPLEMENTATION
+// WHERE THE CENTS FORMATTER WENT
 //
-// `apps/desktop/AGENTS.md` makes `console/primitives/wire-figures.ts` the only
-// module that formats a wire value, and `formatMoney` is its money formatter —
-// minor-unit aware, sub-unit aware, and already tested against six currencies. What
-// it does not know is that this wire counts in CENTS. So the only thing added here
-// is the unit conversion, which is a fact about the receipt's wire shape rather than
-// about money formatting, and it lives beside the receipt for that reason. Reaching
-// for `Intl` here instead would be the second money formatter in a tree whose rule
-// is one implementation per job.
+// `formatCentsAsCurrency` was declared here while this page was its only reader. The
+// session cast bar renders the same committed figure from the same accountant, and
+// `workspace/` and `settings/` are sibling view families that may not import each
+// other — so the adapter is hoisted to `console/primitives/wire-figures.ts`, which
+// `apps/desktop/AGENTS.md` already makes the one module that formats a wire value.
+// What it added was the unit conversion, which is a fact about the receipt's wire
+// shape; that fact now sits beside the money formatter it adapts, where both readers
+// reach it and neither owns it.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { GrowthReading } from "../../../bridge/index.js";
-import { formatCount, formatMoney } from "../../../primitives/index.js";
+import { formatCount } from "../../../primitives/index.js";
 
 /**
  * What one `orchestrationCostReceiptRead` call answers.
@@ -81,34 +81,6 @@ export type ReceiptAxisId = (typeof RECEIPT_AXIS_IDS)[number];
  * fourth axis added upstream is a compile error here rather than an unchecked table.
  */
 export type ReceiptPartitionVerdicts = Readonly<Record<ReceiptAxisId, boolean>>;
-
-/**
- * The currency the receipt counts in.
- *
- * Not a guess and not a house default: the budget state this receipt's session total
- * IS carries `hardCapUsdCents` on its unpriced-family caps, so the fold's own unit is
- * a US-dollar cent. It lives here rather than in the console's cap table because it
- * is not a cap — it is half of what a cents figure MEANS, and the other half is the
- * divisor below.
- */
-const RECEIPT_CURRENCY_CODE = "USD";
-
-/** Cents to the currency unit. The whole of what this module adds to `formatMoney`. */
-const CENTS_PER_CURRENCY_UNIT = 100;
-
-/**
- * Render a cents figure the accountant supplied as money.
- *
- * The precision is `formatMoney`'s and none of it is re-decided here — including
- * its sub-unit arm, which keeps four fractional digits below a whole unit so a
- * figure of a few cents is not rounded to a number the daemon never sent.
- *
- * @param cents The exact wire value. Never a figure this renderer computed.
- * @param locale Passed through, so a test can pin the formatting it asserts on.
- */
-export function formatCentsAsCurrency(cents: number, locale?: string): string {
-  return formatMoney(cents / CENTS_PER_CURRENCY_UNIT, RECEIPT_CURRENCY_CODE, locale);
-}
 
 /**
  * Check each axis against the figure the daemon settled.

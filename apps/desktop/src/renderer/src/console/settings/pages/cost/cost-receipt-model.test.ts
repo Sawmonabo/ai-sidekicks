@@ -1,5 +1,9 @@
-// The two things the cost model is for: turning the wire's cents into money without
-// re-deciding precision, and answering whether each axis accounts for the figure.
+// What the cost model is for: answering whether each axis accounts for the figure.
+//
+// Its cents-to-money adapter is no longer here — it is `primitives/wire-figures.ts`'
+// now that a second view family renders the same accountant's figure — and its cases
+// moved with it, which is what keeps a formatter's rules asserted beside the
+// formatter rather than beside one of its callers.
 //
 // The partition check is the case worth the most. A receipt whose axes do not add up
 // is not a cosmetic defect — it is a row counted twice or a row dropped, and both
@@ -11,7 +15,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   RECEIPT_AXIS_IDS,
-  formatCentsAsCurrency,
   verifyReceiptPartitions,
   type CostReceipt,
 } from "./cost-receipt-model.js";
@@ -81,33 +84,6 @@ function balancedReceipt(): CostReceipt {
     accountCosts: [1_000],
   });
 }
-
-describe("formatCentsAsCurrency — the wire counts in cents and a person reads money", () => {
-  it("scales the wire's cents into the currency unit", () => {
-    expect(formatCentsAsCurrency(123_456, "en-US")).toBe("$1,234.56");
-    expect(formatCentsAsCurrency(0, "en-US")).toBe("$0.00");
-  });
-
-  it("negative control: it does not render the cents figure as though it were dollars", () => {
-    // Without the divisor this would read "$123,456.00" — a figure a hundred times
-    // the one the daemon sent, and the single most expensive way to be wrong here.
-    expect(formatCentsAsCurrency(123_456, "en-US")).not.toBe("$123,456.00");
-  });
-
-  it("keeps the shared formatter's precision rather than re-deciding it", () => {
-    // Below a whole unit `formatMoney` raises its fractional-digit ceiling to four.
-    // A ceiling is not a pad, so seven cents keeps its own two digits...
-    expect(formatCentsAsCurrency(7, "en-US")).toBe("$0.07");
-    // ...and a figure finer than a cent keeps the digits it arrived with instead of
-    // being rounded to the cent it is near, which is why that ceiling is raised.
-    // This module supplies a divisor and no precision policy at all.
-    expect(formatCentsAsCurrency(0.5, "en-US")).toBe("$0.005");
-  });
-
-  it("carries a figure it cannot render through the shared formatter's own dash", () => {
-    expect(formatCentsAsCurrency(Number.NaN, "en-US")).toBe("—");
-  });
-});
 
 describe("verifyReceiptPartitions — each axis accounts for the whole figure, or it does not", () => {
   it("answers for every declared axis and nothing else", () => {

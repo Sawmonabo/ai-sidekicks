@@ -33,6 +33,7 @@ import {
   BYTE_UNIT_LABELS,
   BYTE_UNIT_STEP,
   formatByteQuantity,
+  formatCentsAsCurrency,
   formatMoney,
 } from "./wire-figures.js";
 
@@ -201,5 +202,32 @@ describe("formatMoney — the wire's own precision, and never fewer than two dig
   it("renders a dash for an amount that is not a number", () => {
     expect(formatMoney(Number.NaN, "USD", "en-US")).toBe("—");
     expect(formatMoney(Number.POSITIVE_INFINITY, "USD", "en-US")).toBe("—");
+  });
+});
+
+describe("formatCentsAsCurrency — the wire counts in cents and a person reads money", () => {
+  it("scales the wire's cents into the currency unit", () => {
+    expect(formatCentsAsCurrency(123_456, "en-US")).toBe("$1,234.56");
+    expect(formatCentsAsCurrency(0, "en-US")).toBe("$0.00");
+  });
+
+  it("negative control: it does not render the cents figure as though it were dollars", () => {
+    // Without the divisor this would read "$123,456.00" — a figure a hundred times
+    // the one the daemon sent, and the single most expensive way to be wrong here.
+    expect(formatCentsAsCurrency(123_456, "en-US")).not.toBe("$123,456.00");
+  });
+
+  it("keeps the shared formatter's precision rather than re-deciding it", () => {
+    // Below a whole unit `formatMoney` raises its fractional-digit ceiling to four.
+    // A ceiling is not a pad, so seven cents keeps its own two digits...
+    expect(formatCentsAsCurrency(7, "en-US")).toBe("$0.07");
+    // ...and a figure finer than a cent keeps the digits it arrived with instead of
+    // being rounded to the cent it is near, which is why that ceiling is raised.
+    // This module supplies a divisor and no precision policy at all.
+    expect(formatCentsAsCurrency(0.5, "en-US")).toBe("$0.005");
+  });
+
+  it("carries a figure it cannot render through the shared formatter's own dash", () => {
+    expect(formatCentsAsCurrency(Number.NaN, "en-US")).toBe("—");
   });
 });

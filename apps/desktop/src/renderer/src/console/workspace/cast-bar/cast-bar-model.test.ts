@@ -177,7 +177,7 @@ describe("castChipAccessibleName — the identifier and the verb", () => {
     // attention fold, which is not suppressed as redundant when the verb happens to
     // be a waiting one: the two are folded from different questions.
     expect(member === undefined ? "" : castChipAccessibleName(member)).toBe(
-      "priya, waiting on approval, needs you",
+      "priya, waiting on approval, waiting on you",
     );
   });
 

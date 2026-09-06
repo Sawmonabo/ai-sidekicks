@@ -22,6 +22,7 @@ import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
+import { scenarioSessionIdentity } from "./fixture-session-identity.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
   createRefusingGrowthPort,
@@ -55,6 +56,39 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       status: "served",
       value: directorySessionsOf(engine.scenario),
     }),
+    // The header's identity, from the same scripted reply the base state comes from.
+    // REFUSED rather than answered emptily for a session this scenario is not
+    // playing or has said nothing about: a summary carries a required state, so
+    // there is no absence to serve, and inventing one would put a session state on
+    // screen that no author declared.
+    sessionIdentityRead: async (request) => {
+      const identity = scenarioSessionIdentity(engine.scenario, request.sessionId);
+      return identity === undefined
+        ? growthUnavailable("sessionIdentityRead")
+        : { status: "served", value: identity };
+    },
+    // The node's health, from a script and from nothing else — the branch-context
+    // read's rule, for a stronger version of its reason. A health reading is a
+    // MEASUREMENT, and the empty form would not be an absence but a claim: a reply
+    // carrying `overall` has to say one of the three categories, and every one of
+    // them asserts something about a node nobody probed.
+    healthStatusRead: async (request) =>
+      answerFromScriptedReply(engine, "health.statusRead", "healthStatusRead", request, () =>
+        growthUnavailable("healthStatusRead"),
+      ),
+    // The one accountant's own figure, from a script and from nothing else. An empty
+    // form here would be a zero, and a zero is not an absence: it says this session
+    // has spent nothing, which is a statement about money that no author made. The
+    // receipt beside it stays unserved — a decomposition has the same problem three
+    // times over, and no console surface reads one.
+    orchestrationBudgetRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        "orchestration.budgetRead",
+        "orchestrationBudgetRead",
+        request,
+        () => growthUnavailable("orchestrationBudgetRead"),
+      ),
     attentionProjectionRead: async (request) => ({
       status: "served",
       value:

@@ -24,6 +24,7 @@ export interface SessionGrowthSignatures {
   sessionReactivate: { request: { readonly sessionId: string }; value: void };
   sessionRead: { request: { readonly sessionId: string }; value: SessionSnapshot };
   sessionList: { request: Record<string, never>; value: readonly GrowthSessionSummary[] };
+  sessionIdentityRead: { request: { readonly sessionId: string }; value: GrowthSessionSummary };
   daemonStatusRead: {
     request: Record<string, never>;
     value: { readonly state: string; readonly version: string };
@@ -42,6 +43,13 @@ export interface SessionGrowthSignatures {
   shellConfigWrite: { request: { readonly key: string; readonly enabled: boolean }; value: void };
   invitesList: { request: { readonly sessionId: string }; value: readonly GrowthInviteSummary[] };
   healthSubscribe: { request: Record<string, never>; value: GrowthStream<GrowthHealthReading> };
+  // The one-shot read's reply, typed inline rather than as a named growth value: it
+  // is this operation's own answer and nothing else names it, and the per-component
+  // rows ARE `GrowthHealthReading`, which the stream beside it already publishes.
+  healthStatusRead: {
+    request: { readonly scope?: string };
+    value: { readonly overall: string; readonly components: readonly GrowthHealthReading[] };
+  };
   sessionSearch: { request: { readonly query: string }; value: readonly GrowthSessionSummary[] };
   providerSessionImportBegin: {
     request: { readonly providerName: string; readonly sourceRef: string };

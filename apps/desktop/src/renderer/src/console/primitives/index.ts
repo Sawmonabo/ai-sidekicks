@@ -317,7 +317,7 @@ export {
   formatCount,
   formatDateTime,
   formatDuration,
-  formatMoney,
+  formatCentsAsCurrency,
   formatPercent,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatRate,

@@ -317,3 +317,35 @@ export function formatMoney(amount: number, currency: string, locale?: string): 
     return `${new Intl.NumberFormat(locale, { minimumFractionDigits, maximumFractionDigits: floorFractionDigits }).format(amount)}\u00A0${currency}`;
   }
 }
+
+/**
+ * The currency a cents figure the console's accountant supplied counts in.
+ *
+ * Not a guess and not a house default: the budget state a session's cost receipt IS
+ * carries `hardCapUsdCents` on its unpriced-family caps, so the fold's own unit is a
+ * US-dollar cent. It is half of what a cents figure MEANS, and the other half is the
+ * divisor below.
+ */
+const ACCOUNTANT_CURRENCY_CODE = "USD";
+
+/** Cents to the currency unit. The whole of what the adapter below adds. */
+const CENTS_PER_CURRENCY_UNIT = 100;
+
+/**
+ * Render a cents figure the accountant supplied as money.
+ *
+ * HERE RATHER THAN BESIDE EITHER READER. The cost-receipt settings page and the
+ * session cast bar both render the same committed-spend figure from the same
+ * accountant, and they are sibling view families that may not import each other. It
+ * belongs in this module on its own terms too: the precision is `formatMoney`'s and
+ * none of it is re-decided — including its sub-unit arm, which keeps four fractional
+ * digits below a whole unit so a figure of a few cents is not rounded to a number the
+ * daemon never sent — and what is added is one unit conversion, which is exactly the
+ * kind of thing the console's one figure chokepoint is for.
+ *
+ * @param cents The exact wire value. Never a figure a renderer computed.
+ * @param locale Passed through, so a test can pin the formatting it asserts on.
+ */
+export function formatCentsAsCurrency(cents: number, locale?: string): string {
+  return formatMoney(cents / CENTS_PER_CURRENCY_UNIT, ACCOUNTANT_CURRENCY_CODE, locale);
+}
