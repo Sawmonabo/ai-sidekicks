@@ -30,30 +30,40 @@
 // passing them. The agent partition has no projector on this branch, so the target
 // chip renders the binding it could not read as an absence; that is the family's
 // own wire-true state and not a gap in this mount.
+//
+// AND EVERY SURFACE HERE READS, SO EVERY SURFACE HERE SETTLES ITS READS —
+// {@link mountSurfaceSettled} is the one seam that does it, rather than each mount
+// remembering to. Each of these compositions arms at least one `RefreshScheduler` on
+// the fixture's frozen clock, and `renderSettled` moves no clock: without the advance
+// the roster read behind the paying-account chip and the capability read behind the
+// runs pane's controls never perform at all, and both tiers photograph an in-flight
+// phase under a name that claims to be the answered composition. The settlement is
+// then ASSERTED rather than assumed — see {@link requireNoReadInFlight} — because a
+// capture of a skeleton is a green case in both tiers.
 
-import type { FunctionComponent } from "react";
-
-import { act } from "@testing-library/react";
+import type { FunctionComponent, ReactElement } from "react";
 
 import { renderSettled } from "../console-harness.js";
 
 import { APPROVALS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/approvals.js";
 import { COMPOSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/composer.js";
 import { RUNS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/runs.js";
-import { REFRESH_DEBOUNCE_MS } from "../../../src/renderer/src/console/core/index.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
+import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/scheduled-read.test-support.js";
 // Deep-imported rather than taken off the frame barrel, which does not publish it:
 // it is the registry the window's own composition root registers, and a test that
 // built its own would be projecting the run partition a second way.
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../src/renderer/src/console/frame/run-lifecycle-projector.js";
+import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
   SessionStore,
   type ConsoleSessionEvent,
+  type EntityProjectorRegistry,
 } from "../../../src/renderer/src/console/store/index.js";
 import { MessageComposer } from "../../../src/renderer/src/shell/MessageComposer.js";
 import { registerApprovalsPane } from "../../../src/renderer/src/console/approvals/index.js";
@@ -117,13 +127,60 @@ function composerSessionStore(throughKind: string): SessionStore {
   return store;
 }
 
+/**
+ * Mount one surface, let its scheduled reads answer, and prove that they did.
+ *
+ * THE SEAM RATHER THAN EACH MOUNT, because "remember to advance the clock" is a rule
+ * a sixth surface added to this file would not know about. `renderSettled` owns the
+ * promise flush and moves no clock; every composition here arms a `RefreshScheduler`
+ * on the scenario's frozen one, so the advance is not an option a mount takes but the
+ * second half of what settling MEANS for a surface that reads.
+ *
+ * The absolute deadline is `settleScheduledRead`'s to spend, not this file's — which
+ * is why the constant it advances by is not imported here any more.
+ */
+async function mountSurfaceSettled(
+  bridge: ConsoleBridge,
+  element: ReactElement,
+): Promise<HTMLElement> {
+  const { container } = await renderSettled(element);
+  await settleScheduledRead(bridge);
+  requireNoReadInFlight(container);
+  return container;
+}
+
+/**
+ * Throw if anything in the mounted tree is still reporting a read in flight.
+ *
+ * THE PREDICATE IS THE ONE ASSISTIVE TECHNOLOGY READS, and that is deliberate: the
+ * console's `not-loaded` absence is the only thing it renders with `aria-busy`, so
+ * this asks the tree the same question a screen reader does rather than restating a
+ * class name the primitive composes. A capture taken while one is up photographs a
+ * skeleton under a name that claims to be the answered composition, and both tiers
+ * that mount these surfaces would pass on it — the screenshot tier by minting the
+ * skeleton as its reference, the accessibility tier by auditing a surface whose
+ * controls have not been offered yet.
+ */
+function requireNoReadInFlight(container: HTMLElement): void {
+  const inFlight = [...container.querySelectorAll('[aria-busy="true"]')];
+  if (inFlight.length === 0) {
+    return;
+  }
+  throw new Error(
+    `${String(inFlight.length)} read(s) were still in flight after the surface settled: ${inFlight
+      .map((element) => element.textContent ?? element.className)
+      .join(" | ")}`,
+  );
+}
+
 /** Mount the composer at one address, over a store fed to one point in the log. */
 async function mountComposerAt(options: {
   readonly throughKind: string;
   readonly focusedPane: ConsolePaneAddress | undefined;
 }): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
-  const { container } = await renderSettled(
+  const container = await mountSurfaceSettled(
+    bridge,
     <MessageComposer
       sessionStore={composerSessionStore(options.throughKind)}
       bridge={bridge}
@@ -173,6 +230,36 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedFamily
 }
 
 /**
+ * A store OPENED at one scenario's own beat range and fed every beat in it.
+ *
+ * Opening it is not a formality. `useSessionInitialised` is what the runs pane's own
+ * `hasRead` reads, and a store nobody opened answers `false` for the window's life —
+ * so that pane says "Reading the runs in this session" over a snapshot that was never
+ * going to arrive, and both tiers photograph the skeleton. It reached that state with
+ * no read in flight and no refusal to render, which is why the mount and not the clock
+ * is where it is fixed.
+ *
+ * The cursor is taken one below the scenario's own lowest sequence rather than from
+ * zero: the store admits the batch as the continuation of what it opened at, and a
+ * scenario whose log starts at a higher sequence would otherwise be applying beats the
+ * store believes it has already seen.
+ */
+function scenarioSeededStore(
+  scenario: ConsoleScenario,
+  projectors: EntityProjectorRegistry,
+): SessionStore {
+  const store = new SessionStore({ sessionId: scenario.sessionId, projectors });
+  const sequences = scenario.beats.map((beat) => beat.event.sequence);
+  store.initialise({
+    cursor: Math.min(...sequences) - 1,
+    entities: [],
+    participantJoinLog: [...scenario.participantIdsInJoinOrder],
+  });
+  store.applyBatch(scenario.beats.map((beat) => beat.event as ConsoleSessionEvent));
+  return store;
+}
+
+/**
  * The runs pane, mounted out of the deck's registry rather than by importing its body.
  *
  * A tier that imported the component would capture a component that happens to sit
@@ -183,13 +270,14 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedFamily
 export async function mountRunsPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
   const RunsPaneBody = paneBodyComponent("runs", registerRunsPane);
-  const { container } = await renderSettled(
+  const container = await mountSurfaceSettled(
+    bridge,
     <RunsPaneBody
       kind="runs"
       paneId="pane-runs-surface"
       linkedSourcePaneId={undefined}
       bridge={bridge}
-      sessionStore={new SessionStore({ sessionId: RUNS_SCENARIO.sessionId })}
+      sessionStore={scenarioSeededStore(RUNS_SCENARIO, RUN_LIFECYCLE_PROJECTORS)}
       frameStore={new FrameStore()}
       uiStateStore={UiStateStore.opening()}
       draftStore={new DraftStore()}
@@ -215,32 +303,15 @@ export async function mountRunsPane(): Promise<MountedFamilySurface> {
  * table `registerComposerFamily` registers — so the provider-ask framing these tiers
  * capture is the one a person would see, and a change to the projector reaches them
  * rather than passing them.
- *
- * The clock is advanced after the mount because this pane READS: its two reads settle
- * through the console's one refresh scheduler, and a capture taken before that
- * deadline would photograph the in-flight phase under a name that claims to be the
- * answered one.
  */
 export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
   const projectorRegistry = new ConsoleEntityProjectorRegistry();
   registerApprovalFlowProjectors(projectorRegistry);
-  const sessionStore = new SessionStore({
-    sessionId: APPROVALS_SCENARIO.sessionId,
-    projectors: projectorRegistry.snapshot(),
-  });
-  const sequences = APPROVALS_SCENARIO.beats.map((beat) => beat.event.sequence);
-  sessionStore.initialise({
-    cursor: Math.min(...sequences) - 1,
-    entities: [],
-    participantJoinLog: [...APPROVALS_SCENARIO.participantIdsInJoinOrder],
-  });
-  sessionStore.applyBatch(
-    APPROVALS_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent),
-  );
-
+  const sessionStore = scenarioSeededStore(APPROVALS_SCENARIO, projectorRegistry.snapshot());
   const ApprovalsPaneBody = paneBodyComponent("approvals", registerApprovalsPane);
-  const { container } = await renderSettled(
+  const container = await mountSurfaceSettled(
+    bridge,
     <ApprovalsPaneBody
       kind="approvals"
       paneId="pane-approvals-surface"
@@ -253,13 +324,6 @@ export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
       focusHue={undefined}
     />,
   );
-  await act(async () => {
-    bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
-  });
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
   const pane = container.querySelector(".meridian-approvals");
   if (!(pane instanceof HTMLElement)) {
     throw new Error("the approvals pane rendered no .meridian-approvals element to capture");
