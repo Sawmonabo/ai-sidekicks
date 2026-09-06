@@ -169,11 +169,13 @@ export function CostReceiptPage(props: { readonly context: SettingsPageContext }
     }),
     [bridge, sessionId, announce, clock, publishReading, publishRetained],
   );
-  // The mount and the window regaining focus. A receipt is a SESSION's, but the two
-  // session-scoped triggers are deliberately not wired: this page holds no session
-  // store to read a timeline or a repair edge from, and asking for one here would tie
-  // the figure to whichever store the settings address happened to resolve.
-  useWindowReadTriggers(readTarget);
+  // The mount, the window regaining focus, and the transport coming back. A receipt
+  // is a SESSION's, but the two session-scoped triggers are deliberately not wired:
+  // this page holds no session store to read a timeline or a repair edge from, and
+  // asking for one here would tie the figure to whichever store the settings address
+  // happened to resolve — which is also why the reconnect edge is taken from the
+  // bridge rather than from a session's own repair.
+  useWindowReadTriggers(readTarget, bridge.transportReconnect);
 
   return (
     <div className="meridian-settings-page">

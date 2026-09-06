@@ -184,8 +184,11 @@ export function useShellPreferences(bridge: ConsoleBridge): ShellPreferenceBindi
   const store = acquiredStore === liveStore ? acquiredStore : undefined;
 
   // The window half only: the preferences are per user rather than per session, so
-  // no session's repair and no session's timeline bear on them.
-  useWindowReadTriggers(store ?? NO_STORE_HELD);
+  // no session's repair and no session's timeline bear on them. The window half now
+  // carries the transport's own reconnect, which a per-user reading needs exactly as
+  // much as a session-scoped one — a preference read that refused while the wire was
+  // away is a row rendering its default with nothing asking again.
+  useWindowReadTriggers(store ?? NO_STORE_HELD, bridge.transportReconnect);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => store?.subscribe(onStoreChange) ?? noPreferenceSubscription,

@@ -92,6 +92,25 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthTerminalChunk",
   "GrowthToolCall",
   "GrowthUnpricedFamilyCap",
+  // The diagnostics plane's six reply shapes, added with the page that reads them.
+  // Each name is added in the diff that adds the export, which is what keeps "nothing
+  // silently added under cover of a refactor" a real claim rather than a comment. The
+  // plane's vocabularies and row shapes are deliberately NOT here: no sibling inside
+  // this family reads them, so they leave through the family door instead.
+  "GrowthFailureDetail",
+  "GrowthHealthStatus",
+  "GrowthRecoveryAction",
+  "GrowthRecoveryReceipt",
+  "GrowthRedactionPolicy",
+  "GrowthStuckRunInspection",
+  // The governance plane's three shapes, added with the inventory the servers page
+  // renders: the binding reference both mutations are keyed by, the row the unified
+  // read answers with, and the per-leg result a mutation settles as. The status
+  // vocabulary and the leg and override shapes stay off this list for the reason the
+  // diagnostics plane's do — no sibling in this family reads them.
+  "GrowthMcpBindingRef",
+  "GrowthMcpInventoryEntry",
+  "GrowthMcpMutationResult",
 ];
 
 /**

@@ -57,10 +57,13 @@ import type { AgentGrowthSignatures } from "./agents.js";
 import type { ApprovalGrowthSignatures } from "./approvals.js";
 import type { ArtifactGrowthSignatures } from "./artifacts.js";
 import type { AttentionGrowthSignatures } from "./attention.js";
+import type { DiagnosticsGrowthSignatures } from "./diagnostics.js";
 import type { GitflowGrowthSignatures } from "./gitflow.js";
 import type { IdentityGrowthSignatures } from "./identity.js";
 import type { LedgerGrowthSignatures } from "./ledger.js";
+import type { McpGrowthSignatures } from "./mcp.js";
 import type { PaneGrowthSignatures } from "./panes.js";
+import type { ProviderAccountGrowthSignatures } from "./provider-accounts.js";
 import type { SessionGrowthSignatures } from "./sessions.js";
 import type { SidekickGrowthSignatures } from "./sidekicks.js";
 import type { WorkflowGrowthSignatures } from "./workflows.js";
@@ -86,4 +89,7 @@ export interface GrowthOperationSignatures
     AgentGrowthSignatures,
     ApprovalGrowthSignatures,
     SidekickGrowthSignatures,
-    LedgerGrowthSignatures {}
+    LedgerGrowthSignatures,
+    DiagnosticsGrowthSignatures,
+    ProviderAccountGrowthSignatures,
+    McpGrowthSignatures {}

@@ -256,10 +256,12 @@ export function useNodeRosterObservation(
 /**
  * Re-read the absorbed roster when this window comes back to the front.
  *
- * ONLY THE FOCUS ARM IS FORWARDED. `useWindowReadTriggers` also fires on mount, and
- * that arm is the absorbed view's own initial read — forwarding it would put a second
- * `runtimenode.roster` on the wire for one mount, which is the duplication this whole
- * module exists to avoid.
+ * THE MOUNT ARM IS THE ONE THAT IS DROPPED. `useWindowReadTriggers` fires on mount,
+ * on focus, and on the transport coming back; the mount arm is the absorbed view's own
+ * initial read, so forwarding it would put a second `runtimenode.roster` on the wire
+ * for one mount, which is the duplication this whole module exists to avoid. The other
+ * two are re-reads of a roster this window already holds and are both forwarded — a
+ * reconnect is exactly the edge after which the held roster is most likely stale.
  *
  * `NO_TRIGGERING_EVENT_KINDS` is the claim that goes with it: the roster is served by
  * the control plane and pushed over the daemon's presence channel, so nothing in any
@@ -274,7 +276,7 @@ export function useNodeRosterFocusReRead(
     () => ({
       triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
       requestRead: (reason) => {
-        if (reason !== "window-focus" || sessionId === undefined) {
+        if (reason === "subscribe" || sessionId === undefined) {
           return;
         }
         seam.requestReRead(sessionId);
@@ -282,5 +284,5 @@ export function useNodeRosterFocusReRead(
     }),
     [seam, sessionId],
   );
-  useWindowReadTriggers(target);
+  useWindowReadTriggers(target, bridge.transportReconnect);
 }

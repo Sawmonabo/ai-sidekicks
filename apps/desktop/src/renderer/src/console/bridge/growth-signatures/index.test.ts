@@ -1,4 +1,4 @@
-// The composition itself: that eleven plane modules still add up to one closed table.
+// The composition itself: that twelve plane modules still add up to one closed table.
 //
 // The single file this directory replaced defended its length by arguing that
 // splitting it would split one closed set across two files, so a member landing in

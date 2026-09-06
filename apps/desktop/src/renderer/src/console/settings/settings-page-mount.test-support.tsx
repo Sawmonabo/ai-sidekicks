@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import type { SessionStore } from "../store/index.js";
+import { SessionStore, type ConsoleEntity } from "../store/index.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import type { SettingsPageContext } from "./settings-page-registry.js";
 
@@ -113,4 +113,66 @@ export function renderMovablePage(
       rerender(tree(nextSessionId));
     },
   };
+}
+
+/**
+ * A session store holding a fixed set of entities, for a page that reads a partition.
+ *
+ * HERE RATHER THAN IN ONE PAGE'S HARNESS. Two suites in this family need a store to
+ * hand `settingsPageContextWith` — the restart confirmation, which names the runs a
+ * restart interrupts, and the diagnostics page, which picks which run it inspects —
+ * and the second one is what turns a four-line local helper into the second copy the
+ * package rule forbids. The context builder for this family already lives here, and a
+ * store the context carries belongs beside it.
+ */
+export function sessionStoreHolding(
+  sessionId: string,
+  entities: readonly ConsoleEntity[],
+): SessionStore {
+  const sessionStore = new SessionStore({ sessionId });
+  sessionStore.initialise({ cursor: 0, entities, participantJoinLog: [] });
+  return sessionStore;
+}
+
+/**
+ * One run entity in the shape the store's `run` partition holds.
+ *
+ * `state` is a bare string because that is what the store holds — the wire's own word,
+ * unvalidated — which is exactly what lets a case drive a state this build has never
+ * heard of and assert that the surface neither counts it nor asserts it finished.
+ */
+export function runEntity(id: string, state: string, touchedAt?: string): ConsoleEntity {
+  return touchedAt === undefined
+    ? { kind: "run", id, state }
+    : { kind: "run", id, state, touchedAt };
+}
+
+/**
+ * The regions a settings page composes ITSELF, with any seat body left out.
+ *
+ * A page whose seat carries a body renders two things at once: the frame's own words —
+ * the lede, the posture chips, and the labelled blocks — and, below them, a body the
+ * frame did not author. A claim about what THE PAGE says, or offers, or refuses to put
+ * on screen is a claim about the first of those, so it is read from the first of those;
+ * reading the whole container would make such a case an assertion about whichever body
+ * happened to be mounted, which is the drift the seat exists to prevent.
+ *
+ * Scoped by the frame's own regions rather than by subtracting the seat, because a seat
+ * body may render a fragment and then has no single node to subtract. The frame's
+ * blocks carry an `aria-label` — each is a landmark a screen reader announces — and a
+ * seat body's sections do not, which is what makes the two separable from here.
+ */
+export function pageChromeRegions(container: HTMLElement): readonly HTMLElement[] {
+  return [
+    ...container.querySelectorAll<HTMLElement>(
+      ".meridian-settings-page__lede, .meridian-settings-page__chips, .meridian-settings-page__block[aria-label]",
+    ),
+  ];
+}
+
+/** Everything the page's own regions say, as one string. */
+export function pageChromeText(container: HTMLElement): string {
+  return pageChromeRegions(container)
+    .map((region) => region.textContent ?? "")
+    .join(" ");
 }

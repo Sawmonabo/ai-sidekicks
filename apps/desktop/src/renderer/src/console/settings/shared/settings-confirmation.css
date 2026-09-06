@@ -1,0 +1,86 @@
+/* The settings family's confirming dialog.
+ *
+ * A sheet of its own beside `settings-page.css` for the same reason that file is a
+ * sibling of `settings.css`: the rail and pane belong to the surface, the block and
+ * the action row belong to a page, and a dialog belongs to neither — it is drawn over
+ * both, in a portal, outside the pane's own box.
+ *
+ * The trigger deliberately carries NO rules here. It is a page action and wears the
+ * page's `__action` classes, so a confirming act and a plain one sit on the same row
+ * looking the same until they are pressed — which is the honest reading, because the
+ * difference between them is what happens next and not what they are.
+ */
+
+.meridian-settings-confirm__backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-settings-confirm {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-settings-confirm__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-settings-confirm__body {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-settings-confirm__acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-settings-confirm__keep,
+.meridian-settings-confirm__confirm {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-settings-confirm__keep:hover,
+.meridian-settings-confirm__confirm:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-settings-confirm :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-settings-confirm__confirm--primary {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent);
+}
+
+.meridian-settings-confirm__confirm--destructive {
+  border-color: var(--meridian-red-mark);
+  color: var(--meridian-red-text);
+}

@@ -36,9 +36,10 @@ import type { ConsoleRefusal } from "../../../../core/index.js";
 import { InlineRefusal, useSettlementAnnouncement } from "../../../../primitives/index.js";
 import { consoleRefusalFrom } from "../../../../seats/index.js";
 import type { ConsoleBridge } from "../../../../bridge/index.js";
-import { useSubjectScopedState } from "../../../../store/index.js";
+import { useSubjectScopedState, type SessionStore } from "../../../../store/index.js";
 import { PreferenceToggleRow } from "../../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../../../shared/shell-preferences/shell-preferences-holder.js";
+import { RestartConfirmation } from "./RestartConfirmation.js";
 import { UpdaterReadingHolder, type UpdateReading } from "./updater-reading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 
@@ -119,8 +120,19 @@ function updateSettlementSentence(reading: UpdateReading): string | undefined {
   }
 }
 
-export function UpdatesBlock(props: { readonly bridge: ConsoleBridge }): ReactNode {
-  const { bridge } = props;
+export function UpdatesBlock(props: {
+  readonly bridge: ConsoleBridge;
+  /**
+   * The retained session's store, or `undefined` where this window has none open.
+   *
+   * REQUIRED AND NOT OPTIONAL, because `undefined` is a real answer here and an
+   * absent prop would be indistinguishable from it: the restart confirmation says
+   * which runs stop, and a construction site that simply forgot to pass the store
+   * would render "this window has no session open" over a window that has one.
+   */
+  readonly retainedSessionStore: SessionStore | undefined;
+}): ReactNode {
+  const { bridge, retainedSessionStore } = props;
   const reading = useUpdateReading(bridge);
   // Said once, when the updater read lands. The preference carrier this block also
   // reaches is NOT announced from here: it renders nothing of its own on either
@@ -202,15 +214,12 @@ export function UpdatesBlock(props: { readonly bridge: ConsoleBridge }): ReactNo
           Check now
         </button>
         {isReady ? (
-          <button
-            type="button"
-            className="meridian-settings-page__action meridian-settings-page__action--primary"
-            onClick={() => {
+          <RestartConfirmation
+            sessionStore={retainedSessionStore}
+            onConfirm={() => {
               void runControl(() => bridge.sidekicks.update.requestRestart());
             }}
-          >
-            Restart to apply
-          </button>
+          />
         ) : null}
       </div>
 

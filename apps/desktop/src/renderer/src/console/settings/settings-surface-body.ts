@@ -7,12 +7,12 @@
 // the registrar's `body` loader, so what it imports is what a person pays for when they
 // open settings and never before.
 //
-// WHICH IS WHY THE TWELVE PAGES AND EVERY STYLESHEET ARE IMPORTED HERE. The pages are
-// the family's weight — a dozen forms, their tables, and the combobox stack two of them
+// WHICH IS WHY THE THIRTEEN PAGES AND EVERY STYLESHEET ARE IMPORTED HERE. The pages are
+// the family's weight — thirteen forms, their tables, and the combobox stack two of them
 // mount — and none of it is reachable except through this surface. `apps/desktop`'s
 // stylesheet rule names this exact case: a directory carrying a lazily-loaded chunk has
 // an owner of its own, and importing its sheets from the family door would put the rules
-// for twelve settings pages on the initial document of every session that never opens
+// for thirteen settings pages on the initial document of every session that never opens
 // one.
 //
 // The registry is composed PER MOUNT rather than at module scope, which keeps the
@@ -23,11 +23,15 @@ import "./settings.css";
 import "./shared/settings-page.css";
 import "./shared/preference-toggle-row.css";
 import "./shared/account-plane-handoff/account-plane-handoff.css";
+import "./shared/settings-confirmation.css";
 import "./pages/appearance/appearance.css";
 import "./pages/cost/cost-receipt.css";
+import "./pages/diagnostics/diagnostics.css";
 import "./pages/keyboard/keyboard.css";
+import "./pages/mcp-servers/shell/mcp-servers-shell.css";
 import "./pages/mounts/mounts.css";
 import "./pages/notifications/notifications.css";
+import "./pages/provider-accounts/shell/provider-accounts-shell.css";
 import "./pages/runtime-nodes/runtime-nodes.css";
 
 import { createElement, useState } from "react";

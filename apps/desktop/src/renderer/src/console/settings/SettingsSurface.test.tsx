@@ -127,6 +127,27 @@ function echoedSession(container: HTMLElement): string | undefined {
   return container.querySelector(`.${SESSION_ECHO_CLASS}`)?.textContent ?? undefined;
 }
 
+/** What the probe page below renders, and nothing else in this file says. */
+const PROBE_PAGE_MARKER = "settings-surface-test probe page";
+
+/**
+ * One page registered for the section the reservation case leaves empty.
+ *
+ * The two cases are one pair over one branch: the same address against a registry
+ * holding no page and against a registry holding this one.
+ */
+function registeredProbePage(): SettingsPageRegistry {
+  const pages = new SettingsPageRegistry();
+  pages.register({
+    section: "keyboard",
+    owner: "settings-surface-test",
+    label: "Keyboard",
+    keywords: [],
+    render: () => <p>{PROBE_PAGE_MARKER}</p>,
+  });
+  return pages;
+}
+
 /** A window parked on a settings address, plus the store that remembers where it has been. */
 interface SettingsWindow {
   readonly context: ConsoleSurfaceContext;
@@ -276,10 +297,15 @@ describe("settings pane — the three ways there is no page", () => {
 
   it("renders a registered page instead of the reservation", async () => {
     // Negative control for the case above: it would pass over a pane that rendered
-    // the reservation for every section, registered or not. `mcp-servers` carries a
-    // page in this build — its body is another plan's, but the PAGE is registered.
-    const { container } = await renderSurface(contextFor("mcp-servers"));
-    expect(container.textContent ?? "").toContain("MCP server page");
+    // the reservation for every section, registered or not. The foil is a registry
+    // this case OWNS, exactly as the empty one above is — the branch under test is the
+    // pane's, and pinning the claim to whichever shipped section happened to carry a
+    // page made it fail the moment a lane filled that section's seat, which is a stale
+    // test rather than a real regression.
+    const { container } = await renderSurface(contextFor("keyboard"), registeredProbePage());
+    const text = container.textContent ?? "";
+    expect(text).toContain(PROBE_PAGE_MARKER);
+    expect(text).not.toContain("has not been built yet");
   });
 });
 

@@ -165,7 +165,7 @@ export function useStoredAttentionPreferences(
     }),
     [bridge, participantId, announce, publishPreferenceReading, publishReadInFlight],
   );
-  useWindowReadTriggers(preferenceReadTarget);
+  useWindowReadTriggers(preferenceReadTarget, bridge.transportReconnect);
 
   // Rebuilt when the participant changes, because everything it holds — the queue,
   // the busy records, the refusals — belongs to one person's set. The old writer's
@@ -258,6 +258,6 @@ export function useOsNotificationPermission(
     }),
     [bridge, publishReading],
   );
-  useWindowReadTriggers(target);
+  useWindowReadTriggers(target, bridge.transportReconnect);
   return reading;
 }

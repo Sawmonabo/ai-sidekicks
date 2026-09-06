@@ -49,11 +49,81 @@ describe("the settings scenario", () => {
     );
   });
 
-  it("scripts nothing for the settings reads the wire does not register", () => {
+  it("scripts the roster and the three unbound planes, and nothing else", () => {
     const scriptedCalls = SETTINGS_SCENARIO.replies.map((reply) => reply.call);
     // The whole scripted surface, stated by enumeration rather than by exclusion: a
-    // reply added for an unregistered settings read fails here, which is the point.
-    expect(scriptedCalls).toStrictEqual(["agent.list"]);
+    // reply added for a settings read this scenario has not decided about fails here,
+    // which is the point.
+    //
+    // Three planes are scripted, and each for the same reason: it is the whole content
+    // of a settings surface, so every region of that page was otherwise reachable only
+    // in its absence — the node's health, the provider-account registry with its
+    // sign-in handoff and its per-limit quota, and the unified governance inventory
+    // with the two mutations the operator page sends. Every OTHER settings read this
+    // console makes stays unscripted on purpose: each of those pages renders the
+    // growth port's refusal, which is exactly what the shipped build does.
+    expect(scriptedCalls).toStrictEqual([
+      "agent.list",
+      "health.statusRead",
+      "health.stuckRunInspect",
+      "health.failureDetailRead",
+      "health.recoveryActionRequest",
+      "health.redactionPolicyRead",
+      "providerAccount.list",
+      "providerAccount.login",
+      "providerAccount.loginCancel",
+      "providerAccount.register",
+      "mcp.list",
+      "mcp.setEnabled",
+      "mcp.setTrust",
+    ]);
+  });
+
+  it("scripts the interesting arm of each diagnostics read, not the calm one", () => {
+    // The claim that makes scripting them worth it. The unscripted fallbacks already
+    // answer a healthy machine and the default retention posture, so a deck that
+    // scripted those too would leave the degraded banner, the suspected stall, and the
+    // override notice unreachable in the one place they are reviewed.
+    const resultFor = (call: string): Record<string, unknown> => {
+      const reply = SETTINGS_SCENARIO.replies.find((candidate) => candidate.call === call);
+      return (reply?.result ?? {}) as Record<string, unknown>;
+    };
+
+    expect(resultFor("health.statusRead")["overall"]).toBe("degraded");
+    expect(resultFor("health.stuckRunInspect")["healthSignal"]).toBe("stuck-suspected");
+    expect(resultFor("health.redactionPolicyRead")["retentionPolicyOverrideActive"]).toBe(true);
+  });
+
+  it("addresses the stall and the recovery to one run, and the failure to another", () => {
+    // The page asks two different questions of two different runs, because only a
+    // moving run can have stalled and only a failed run has a failure to detail. The
+    // stall and the recovery ARE one story about one run — the recovery is offered on
+    // the run the inspection was about — and the failure is a second run entirely, so
+    // a scenario naming one id for all three could reach only one of the two regions.
+    const runIdFor = (call: string): string | undefined => {
+      const reply = SETTINGS_SCENARIO.replies.find((candidate) => candidate.call === call);
+      return (reply?.result as { runId?: string } | undefined)?.runId;
+    };
+    const stalledRunId = runIdFor("health.stuckRunInspect");
+
+    expect(stalledRunId).toBeDefined();
+    expect(runIdFor("health.recoveryActionRequest")).toBe(stalledRunId);
+    expect(runIdFor("health.failureDetailRead")).not.toBe(stalledRunId);
+  });
+
+  it("gives the page a moving run and a failed one to address those reads to", () => {
+    // The subjects are resolved from the session's own run partition, so a scenario
+    // with no run reaches only the "nothing was asked" arm of both regions. The two
+    // terminal states these beats settle on are what make both reachable.
+    const finalStateByRunId = new Map<string, string>();
+    for (const beat of SETTINGS_SCENARIO.beats) {
+      const payload = beat.event.payload as { runId?: string; newState?: string };
+      if (payload.runId !== undefined && payload.newState !== undefined) {
+        finalStateByRunId.set(payload.runId, payload.newState);
+      }
+    }
+
+    expect([...finalStateByRunId.values()].toSorted()).toStrictEqual(["failed", "running"]);
   });
 
   it("states a viewer the session actually joins", () => {

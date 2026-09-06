@@ -92,3 +92,28 @@ export {
 // reply type the port already publishes — so the claim could never be retired by the
 // task it named. A door line with no reader is deleted rather than re-dated.
 export type { GrowthBudgetState, GrowthCostReceipt } from "./cost-receipts.js";
+
+// The diagnostics plane's reply shapes — exactly the six `growth-signatures/
+// diagnostics.ts` names, and no more. This door publishes what a SIBLING takes: the
+// vocabularies and the row shapes the diagnostics page renders have no reader inside
+// this family, so they leave through `bridge/index.ts` from the module that declares
+// them rather than through here, where they would be door lines no sibling reaches.
+export type {
+  GrowthFailureDetail,
+  GrowthHealthStatus,
+  GrowthRecoveryAction,
+  GrowthRecoveryReceipt,
+  GrowthRedactionPolicy,
+  GrowthStuckRunInspection,
+} from "./diagnostics.js";
+
+// The MCP governance plane's shapes. Through this door because a SIBLING takes them:
+// `growth-signatures/mcp.ts` composes the inventory entry, the binding identity, and
+// the mutation result into its request and value members. The vocabularies and the row
+// shapes only the operator page renders leave through `bridge/index.ts` from the module
+// that declares them, where they are not door lines no sibling reaches.
+export type {
+  GrowthMcpBindingRef,
+  GrowthMcpInventoryEntry,
+  GrowthMcpMutationResult,
+} from "./mcp.js";

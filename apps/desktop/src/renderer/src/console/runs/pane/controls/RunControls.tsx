@@ -38,7 +38,7 @@ import { type RunControl } from "./run-control-dispatch.js";
 import { isControlOffered } from "./run-control-gating.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
 import { type RunProjection } from "../run-state-projection.js";
-import { isLiveRunState } from "../run-status.js";
+import { isLiveRunState } from "../../../bridge/index.js";
 import { ControlButton } from "./ControlButton.js";
 import { StepIn } from "./StepIn.js";
 

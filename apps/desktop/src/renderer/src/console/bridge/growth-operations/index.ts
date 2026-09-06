@@ -47,10 +47,13 @@ import { AGENT_GROWTH_OPERATIONS } from "./agents.js";
 import { APPROVAL_GROWTH_OPERATIONS } from "./approvals.js";
 import { ARTIFACT_GROWTH_OPERATIONS } from "./artifacts.js";
 import { ATTENTION_GROWTH_OPERATIONS } from "./attention.js";
+import { DIAGNOSTICS_GROWTH_OPERATIONS } from "./diagnostics.js";
 import { GITFLOW_GROWTH_OPERATIONS } from "./gitflow.js";
 import { IDENTITY_GROWTH_OPERATIONS } from "./identity.js";
 import { LEDGER_GROWTH_OPERATIONS } from "./ledger.js";
+import { MCP_GROWTH_OPERATIONS } from "./mcp.js";
 import { PANE_GROWTH_OPERATIONS } from "./panes.js";
+import { PROVIDER_ACCOUNT_GROWTH_OPERATIONS } from "./provider-accounts.js";
 import { SESSION_GROWTH_OPERATIONS } from "./sessions.js";
 import { SIDEKICK_GROWTH_OPERATIONS } from "./sidekicks.js";
 import { WORKFLOW_GROWTH_OPERATIONS } from "./workflows.js";
@@ -76,6 +79,9 @@ export const GROWTH_OPERATION_PLANES: readonly Readonly<
   APPROVAL_GROWTH_OPERATIONS,
   SIDEKICK_GROWTH_OPERATIONS,
   LEDGER_GROWTH_OPERATIONS,
+  DIAGNOSTICS_GROWTH_OPERATIONS,
+  PROVIDER_ACCOUNT_GROWTH_OPERATIONS,
+  MCP_GROWTH_OPERATIONS,
 ];
 
 /**
@@ -95,4 +101,7 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...SIDEKICK_GROWTH_OPERATIONS,
   ...AGENT_GROWTH_OPERATIONS,
   ...LEDGER_GROWTH_OPERATIONS,
+  ...DIAGNOSTICS_GROWTH_OPERATIONS,
+  ...PROVIDER_ACCOUNT_GROWTH_OPERATIONS,
+  ...MCP_GROWTH_OPERATIONS,
 };

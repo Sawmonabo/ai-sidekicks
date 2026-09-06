@@ -20,7 +20,7 @@
 
 import { useMemo } from "react";
 
-import { type ConsoleRefusal } from "../../../../core/index.js";
+import { NO_TRANSPORT_RECONNECT, type ConsoleRefusal } from "../../../../core/index.js";
 import { consoleRefusalFrom } from "../../../../seats/index.js";
 import { type PersistenceHealth, type UiStateStore } from "../../../../persistence/index.js";
 import {
@@ -76,7 +76,10 @@ export function useStoreStateReading(uiStateStore: UiStateStore): StoreStateRead
     }),
     [uiStateStore, publishReading],
   );
-  useWindowReadTriggers(readTarget);
+  // The one reading in the console that takes no reconnect signal: it asks the
+  // WINDOW's storage adapter how it is, so the transport coming back moves nothing
+  // in its answer. Stated rather than defaulted — see `NO_TRANSPORT_RECONNECT`.
+  useWindowReadTriggers(readTarget, NO_TRANSPORT_RECONNECT);
 
   return reading;
 }

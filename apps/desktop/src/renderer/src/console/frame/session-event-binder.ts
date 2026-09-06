@@ -65,7 +65,11 @@
 // wrong in the other's way.
 
 import type { Unsubscribe } from "../core/index.js";
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
+import {
+  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
+  lossyStringify,
+  reportTripwire,
+} from "../core/index.js";
 import {
   SESSION_EVENT_STREAM,
   readConsoleSessionEvent,
@@ -254,17 +258,45 @@ export class SessionEventBinder {
     this.#removeFixtureDiagnostics();
   }
 
+  /**
+   * Open one session's stream, and report what that told us about the transport.
+   *
+   * THE TRY IS THE CONSOLE'S ONE LIVE READING OF ITS OWN CONNECTION. This class holds
+   * every `daemon.subscribe` the window takes, so whether the wire answered is
+   * observable here and nowhere else — which is why the transport-reconnect signal is
+   * reported into from this method rather than probed from a timer somewhere.
+   *
+   * A throw used to leave this method as itself, out of the registry callback that
+   * called it and into a mount effect, taking the window down for a transport that
+   * was merely away. It is now recorded: the signal is told the wire is unreachable,
+   * the tripwire says which session could not be bound, and no handle is stored — so
+   * the session stays unbound and the next `opened` change re-attempts it, which is
+   * the returning edge the signal exists to report.
+   */
   #bindSession(sessionId: string): void {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
       return;
     }
     const subscribe = this.#bridge.sidekicks.daemon.subscribe as SessionStreamSubscribe;
-    this.#unsubscribeBySessionId.set(
-      sessionId,
-      subscribe(SESSION_EVENT_STREAM, (payload) => {
+    let release: Unsubscribe;
+    try {
+      release = subscribe(SESSION_EVENT_STREAM, (payload) => {
         this.#deliver(sessionId, payload);
-      }),
-    );
+      });
+    } catch (subscriptionFailure: unknown) {
+      this.#bridge.transportReconnect.observe("unreachable");
+      reportTripwire(
+        "apply-chokepoint-bypass",
+        SITE,
+        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the binder holds no subscription for it and the transport is reported unreachable`,
+      );
+      return;
+    }
+    // Reported per bind rather than once per window, and the repetition is free: the
+    // signal emits on a CHANGE, so a window with four sessions open reports
+    // `reachable` four times for one transport and wakes no reading three of them.
+    this.#bridge.transportReconnect.observe("reachable");
+    this.#unsubscribeBySessionId.set(sessionId, release);
     // The read that gives the store its base state, asked for at the one moment
     // that knows a stream just started. `subscribe` is a registered refresh reason
     // and means precisely this. Without it a bound session buffers forever —

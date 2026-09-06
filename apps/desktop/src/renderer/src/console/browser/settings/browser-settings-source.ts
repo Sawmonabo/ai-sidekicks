@@ -124,7 +124,7 @@ export function useBrowserSettingsSource(bridge: ConsoleBridge): BrowserSettings
     }),
     [bridge, publishPolicyReading, publishPartitions],
   );
-  useWindowReadTriggers(readTarget);
+  useWindowReadTriggers(readTarget, bridge.transportReconnect);
 
   const toggleSwitch = useCallback(
     (switchId: BrowserPolicySwitchId, nextEnabled: boolean): void => {
