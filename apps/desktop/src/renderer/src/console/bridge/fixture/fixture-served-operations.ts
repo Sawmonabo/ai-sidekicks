@@ -188,6 +188,7 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
+import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "./fixture-collaboration-reads.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
 /**
@@ -223,6 +224,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  ...typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -265,6 +267,11 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // channels and memberships — the four lifecycle verbs, the channel roster read, the
+  // membership roster read, and one participant's per-device presence, taken from the
+  // module that implements them so the ids and the handlers cannot disagree. Every one
+  // is script-only, and `fixture-collaboration-reads.ts` carries the reasoning for each.
+  ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -298,4 +305,5 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
 ];

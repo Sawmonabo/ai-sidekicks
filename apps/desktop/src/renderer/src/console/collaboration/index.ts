@@ -16,7 +16,9 @@
 
 import "./collaboration.css";
 import "./channels/channels.css";
+import "./channels/create-channel.css";
 import "./invites/invites.css";
 import "./members/members.css";
 
 export { registerCollaborationSections } from "./sections.js";
+export { registerCollaborationProjectors } from "./members/membership-projector.js";

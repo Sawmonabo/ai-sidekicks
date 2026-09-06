@@ -21,13 +21,17 @@
 // here — off the read's order, which is the daemon's — would give a person a
 // different colour in this list than in the log beside it.
 //
-// THE SHIPPED TIER-1 ROSTER IS NOT THIS. `session-members/participant-roster.tsx`
-// reads `window.sidekicks` directly, so the console's fixture cannot stand in for
-// it and the frame mounts it behind a live-bridge guard. This model reaches the
-// bridge the console resolved, which is what lets a scenario drive it, and it
-// routes its refresh through the scheduler rather than through a hand-rolled
-// sequence counter. Retiring that component from the `workspace` slot is the
-// workspace family's own diff, not this one's.
+// THIS IS THE ONLY PLACE THE APPLICATION DRAWS PRESENCE, and it became that here.
+// `session-members/participant-roster.tsx` drew it too, mounted at the `workspace`
+// slot behind a live-bridge guard, so one window read one session's presence twice
+// over two reads free to disagree — and the shipped one could not be the survivor:
+// it reads `window.sidekicks` directly, so no scenario can drive it, and it carries
+// no seam for the role, the terminal-lease holder, or the per-device fan-out the
+// rows beside this model render. That slot claim is retired; giving the shipped
+// component a read seam instead would be an edit inside `session-members/`, which is
+// Plan-002's subtree. This model reaches the bridge the console resolved, which is
+// what lets a scenario drive it, and it routes its refresh through the scheduler
+// rather than through a hand-rolled sequence counter.
 
 import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 

@@ -61,6 +61,7 @@
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import type { ParticipantId } from "@ai-sidekicks/contracts";
 
+import { collaborationGrowthReplies } from "./collaboration-growth-replies.js";
 import {
   collaborationRuntimeNodeBeats,
   collaborationRuntimeNodeRoster,
@@ -90,6 +91,7 @@ const MEMBERSHIP_NOAH = "019b7904-8ce0-7e3b-8130-cca0117a0375";
 const CHANNEL_MAIN = "019b7904-8ce0-7c11-8110-cca0117a0380";
 const CHANNEL_REVIEW = "019b7904-8ce0-7c11-8120-cca0117a0390";
 const CHANNEL_HANDOFF = "019b7904-8ce0-7c11-8130-cca0117a0395";
+const CHANNEL_DIRECT = "019b7904-8ce0-7c11-8135-cca0117a0396";
 const INVITE_EXPIRING = "019b7904-8ce0-7f22-8110-cca0117a03a0";
 const INVITE_ACCEPTED = "019b7904-8ce0-7f22-8120-cca0117a03b0";
 
@@ -165,15 +167,18 @@ type CollaborationParticipant = (typeof COLLABORATION_PARTICIPANTS)[number];
  * The channels, as `channel.list` serves them and `channel.created` announces them.
  *
  * `ChannelListResponseChannel` is exactly `{id, name?, state, participantCount}`
- * (`packages/contracts/src/channels.ts`), so this table carries those four members
- * and nothing about audience or kind — the wire has neither, and
- * `collaboration/channels/channel-model.ts` classifies rows from `state` and the bootstrap
- * name alone. That name is taken from `MAIN_CHANNEL_NAME` rather than spelled here:
- * the value belongs to the producer, and a fixture that wrote the word down would
- * go on serving the old one after the wire vocabulary moved — teaching the
- * directory a bootstrap row it would then refuse to lift. The archived row is here
- * because the directory renders live and archived as two regions and a list with no
- * archived row leaves one of them dead.
+ * (`packages/contracts/src/channels.ts`), so this table carries those four members and
+ * nothing about audience, kind, or pairing: those reach the console from the roster
+ * read in `collaboration-growth-replies.ts`, which is a different wire. The bootstrap
+ * name is taken from `MAIN_CHANNEL_NAME` rather than spelled here — the value belongs
+ * to the producer, and a fixture that wrote the word down would go on serving the old
+ * one after the vocabulary moved.
+ *
+ * FOUR ROWS, BECAUSE THE DIRECTORY HAS FOUR RENDERINGS. The bootstrap row is hoisted
+ * and never badged, a live named row carries its audience, an archived row sinks below
+ * the live ones into their own region, and the unnamed row is the `direct` channel the
+ * list labels by the other human in its pair. A table without the last two leaves two
+ * of the four dead.
  */
 const COLLABORATION_CHANNELS = [
   {
@@ -197,6 +202,15 @@ const COLLABORATION_CHANNELS = [
     state: "archived",
     participantCount: 2,
   },
+  {
+    channelId: CHANNEL_DIRECT,
+    eventId: "019b7904-8ce0-7ea1-8175-cca0117a0407",
+    // No name, which is the wire shape a `direct` channel has: its label is the other
+    // human in the pair and the row reaches that through the roster read.
+    name: undefined,
+    state: "active",
+    participantCount: 2,
+  },
 ] as const;
 
 /**
@@ -209,16 +223,16 @@ const COLLABORATION_CHANNELS = [
 const RUNTIME_NODE_SCRIPT: CollaborationRuntimeNodeScript = {
   sessionId: SESSION_ID,
   ownerParticipantIds: [PARTICIPANT_YOU, PARTICIPANT_PRIYA, PARTICIPANT_TOMAS],
-  // Eleven beats precede them: the session, three memberships, three channels, one
+  // Twelve beats precede them: the session, three memberships, four channels, one
   // archival, and three presence transitions.
-  firstSequence: 12,
+  firstSequence: 13,
 };
 
 export const COLLABORATION_SCENARIO: ConsoleScenario = {
   id: COLLABORATION_SCENARIO_ID,
   label: "A room with people in it",
   purpose:
-    "Four participants across all four presence states, three channels including an archived one, and one invitation about to expire — the roster, the channel list, the members section, and the sent-invite ledger are built against this one.",
+    "Four participants across all four presence states, four channels including an archived one and a direct pair, and one invitation about to expire — the roster, the channel list, the members section, and the sent-invite ledger are built against this one.",
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: COLLABORATION_PARTICIPANTS.map(
     (participant) => participant.participantId,
@@ -286,8 +300,13 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
         actorId: PARTICIPANT_YOU,
         // The registered shape, verbatim: `{channelId, name?}`. A channel's state
         // and its participant count reach the console from `channel.list`, never
-        // from the creation event, so neither is carried here.
-        payload: { channelId: channel.channelId, name: channel.name },
+        // from the creation event, so neither is carried here — and an unnamed
+        // channel OMITS the member rather than carrying it undefined, because
+        // `name?` is an absent member on this wire and never a present empty one.
+        payload:
+          channel.name === undefined
+            ? { channelId: channel.channelId }
+            : { channelId: channel.channelId, name: channel.name },
       },
     })),
     {
@@ -295,7 +314,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7904-8ce0-7ea1-8180-cca0117a0408",
         sessionId: SESSION_ID,
-        sequence: 8,
+        sequence: 9,
         kind: "channel.archived",
         occurredAt: "2026-01-01T10:05:00.340Z",
         actorId: PARTICIPANT_YOU,
@@ -316,7 +335,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
       event: {
         id: participant.presenceEventId,
         sessionId: SESSION_ID,
-        sequence: 9 + presenceIndex,
+        sequence: 10 + presenceIndex,
         kind: `presence.${participant.presenceState}` as const,
         occurredAt: participant.lastSeenIso,
         actorId: participant.participantId,
@@ -375,5 +394,20 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
     // No agent has been attached, and the empty list is the honest reading rather
     // than an absent reply: the read succeeded and this room has no agents in it.
     { call: "agent.list", result: { agents: [] } },
+    // Everything the growth port serves for this room, from the sibling that owns it:
+    // the channel roster, the membership roster, one participant's device fan-out, and
+    // the four channel-lifecycle writes.
+    ...collaborationGrowthReplies({
+      participants: COLLABORATION_PARTICIPANTS,
+      channelIds: {
+        review: CHANNEL_REVIEW,
+        handoff: CHANNEL_HANDOFF,
+        direct: CHANNEL_DIRECT,
+      },
+      directChannelPair: [PARTICIPANT_YOU, PARTICIPANT_PRIYA],
+      // Somebody else holds the shell. The viewer holding it would draw the one
+      // arm every surface renders the same way it renders no holder at all.
+      terminalControlHolder: PARTICIPANT_TOMAS,
+    }),
   ],
 };

@@ -277,6 +277,14 @@ export {
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
 
+// The per-operation request and value table. Published for exactly one reader: the
+// collaboration family's mutation coordinator, which binds a growth WRITE the way it
+// already binds a daemon method — reading both halves off the registry rather than
+// declaring them at the call site, so a surface naming an operation the slate does not
+// carry, or sending it the wrong payload, does not compile. It travels as a type and
+// carries no port with it, so nothing gains a way to CALL an operation through it.
+export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
+
 // The `invitesList` outcome and its served row. Published because TWO sibling view
 // families read that one operation — the sent ledger and the received shelf — and a
 // view family may not import its sibling, so each had declared the pair itself under
@@ -286,6 +294,36 @@ export type {
   InvitesListRefusal,
   ServedInvite,
 } from "./growth-port/invites-outcome.js";
+
+// The channel plane's shapes, published because the collaboration family RENDERS
+// them: an audience badge, a pair-labelled row, a create form whose every field is one
+// member of `GrowthChannelConfig`, and the receipts the four lifecycle writes answer
+// with. They leave through the module that DECLARES them rather than through
+// `growth-values/index.js`, on the `console-no-barrel-chain` rule — and the three
+// vocabularies are here rather than on that inner door because their only readers are
+// outside this family, which is exactly what a sub-module door does not publish.
+export {
+  GROWTH_CHANNEL_AUDIENCES,
+  GROWTH_CHANNEL_KINDS,
+  GROWTH_CHANNEL_TURN_POLICIES,
+  type GrowthChannelAudience,
+  type GrowthChannelConfig,
+  type GrowthChannelCreateReceipt,
+  type GrowthChannelKind,
+  type GrowthChannelLifecycleReceipt,
+  type GrowthChannelRosterEntry,
+  type GrowthChannelTurnPolicy,
+} from "./growth-values/channels.js";
+
+// The membership plane's two, on the same rule: the ledger renders the identifier its
+// controls are keyed by, and the roster's detail card renders the devices behind one
+// person's aggregate. The device ROW inside that fan-out is deliberately not a third
+// line — the card maps over `GrowthPresenceDetail["devices"]` and names the row type
+// nowhere, and a door is never widened for symmetry.
+export type {
+  GrowthMembershipRosterEntry,
+  GrowthPresenceDetail,
+} from "./growth-values/memberships.js";
 
 // The saved definition the registry serves. Published because the definition picker
 // in the agent console projects one onto its own row shape, and a projection cannot

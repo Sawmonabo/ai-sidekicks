@@ -80,7 +80,7 @@ describe("console families — the seat block holds nothing but seats", () => {
       reservedSeatLine(taskOrdinal, "seat-kind"),
     );
     const composition = [
-      "  registerLegacySurfaces(registry);",
+      "  registerConsolePanes(panes);",
       "  // Prose explaining the call above it, which is where prose belongs.",
     ];
 

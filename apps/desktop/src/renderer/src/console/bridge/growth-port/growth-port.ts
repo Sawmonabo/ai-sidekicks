@@ -386,5 +386,13 @@ export function createRefusingGrowthPort(): GrowthPort {
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
+    channelCreate: async () => growthUnavailable("channelCreate"),
+    channelMute: async () => growthUnavailable("channelMute"),
+    channelUnmute: async () => growthUnavailable("channelUnmute"),
+    channelArchive: async () => growthUnavailable("channelArchive"),
+    channelRosterRead: async () => growthUnavailable("channelRosterRead"),
+    membershipRosterRead: async () => growthUnavailable("membershipRosterRead"),
+    participantPresenceDetailRead: async () => growthUnavailable("participantPresenceDetailRead"),
+    terminalControlHolderRead: async () => growthUnavailable("terminalControlHolderRead"),
   };
 }

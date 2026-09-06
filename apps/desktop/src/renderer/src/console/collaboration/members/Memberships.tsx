@@ -7,16 +7,20 @@
 // been asked and has not arrived. Presence is deliberately not read again here —
 // one reader per read, and the section already holds it.
 //
-// TWO FACTS, AND ONE OF THEM HAS NO READ
+// TWO SOURCES, AND THE ROWS ARE DERIVED FROM BOTH BEFORE THEY REACH HERE
 //
-//   • ROLE AND MEMBERSHIP STATE come from the session store's projected
-//     participants — the ledger's own account of who joined and as what. Where an
-//     event has not stated a role, the row says so instead of inventing one.
-//   • A MEMBERSHIP ID has no read at all. `presence.read` does not carry one,
-//     `SessionReadResponse` carries no memberships, and `MembershipSummary` — the
-//     only shape with all three facts — is returned by `session.create` alone. So
-//     a row that has no membership id cannot be the subject of `membership.update`
-//     and says which read would let it be.
+//   • THE LOG. The session store's projected participants — who joined and as what,
+//     folded from the one `membership.*` beat that carries a payload the contract
+//     declares. Where no beat stated a fact, the row says so instead of inventing it.
+//   • THE MEMBERSHIP ROSTER READ, on the growth port, which is where a membership id
+//     comes from for everyone the log did not see admitted — including the session's
+//     own opener, who has no admission beat at all. It refuses on a live build, and
+//     its refusal is one line beside the rows rather than instead of them: the
+//     log-derived rows are still the best reading there is.
+//
+// The merge is `members-model.ts`'s and the derivation is the section body's, so this
+// component renders rows and never composes them. A row that still has no membership
+// id after both sources cannot be the subject of `membership.update` and says so.
 //
 // ELIGIBILITY IS THE DAEMON'S, NOT THIS SECTION'S
 //
@@ -40,13 +44,13 @@
 // reading; printed in the confirmation it is the sentence they are agreeing to.
 
 import { useMemo, useState } from "react";
-import { useSessionPartition } from "../../store/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import {
   InviteConfirmation,
   type PendingInviteConfirmation,
 } from "../invites/InviteConfirmation.js";
-import { deriveMembershipRows } from "./members-model.js";
+import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
@@ -60,6 +64,19 @@ const MEMBERSHIP_UPDATE_METHOD = "membership.update";
 
 export interface MembershipsProps {
   readonly context: SidebarSectionContext;
+  /** The merged rows, derived once by the section body and read by two surfaces. */
+  readonly rows: readonly MembershipRow[];
+  /** Why the membership roster read did not answer, where it did not. */
+  readonly rosterRefusal: ConsoleRefusal | undefined;
+  /**
+   * True when the collaboration channel has dropped.
+   *
+   * The four controls close under it, because none of them can reach the control
+   * plane while it holds — a control offered here would be a control whose press
+   * cannot leave the machine. This is a fact about the console's own transport and
+   * never a fact about what the caller may do, which stays the daemon's to answer.
+   */
+  readonly isLastKnown: boolean;
   /**
    * An invitation waiting on this person's confirmation.
    *
@@ -74,10 +91,8 @@ export interface MembershipsProps {
 }
 
 export function Memberships(props: MembershipsProps): React.JSX.Element {
-  const { context } = props;
+  const { context, rows } = props;
   const { bridge, sessionStore } = context;
-  const participantEntities = useSessionPartition(sessionStore, "participant");
-  const rows = useMemo(() => deriveMembershipRows(participantEntities), [participantEntities]);
   const [isConfirmationDismissed, setIsConfirmationDismissed] = useState(false);
 
   const coordinator = useMemo(
@@ -118,6 +133,8 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
 
       <MembershipLedger
         rows={rows}
+        rosterRefusal={props.rosterRefusal}
+        isReadOnly={props.isLastKnown}
         mutation={mutation}
         onApply={(row, update) => {
           if (row.membershipId === undefined) {

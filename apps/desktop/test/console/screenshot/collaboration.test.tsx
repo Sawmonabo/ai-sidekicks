@@ -156,6 +156,10 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
             channel("channel-old", "old", "archived"),
           ],
         }}
+        bridge={createFixtureBridge({ scenario: COLLABORATION_SCENARIO })}
+        sessionId={COLLABORATION_SCENARIO.sessionId}
+        viewerParticipantId="participant-sawyer"
+        participantIds={["participant-sawyer", "participant-priya"]}
         openPane={() => undefined}
         activity={new ActivityIndicatorRegistry(new ManualClock())}
         labels={LABELS}
@@ -195,6 +199,25 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
         composingChannelFor={(participantId) =>
           participantId === "participant-priya" ? "review" : undefined
         }
+        roleFor={(participantId) =>
+          participantId === "participant-sawyer" ? "owner" : "collaborator"
+        }
+        holding={{ kind: "held", participantId: "participant-priya" }}
+        openDetailParticipantId="participant-priya"
+        detailReading={{
+          kind: "answered",
+          outcome: {
+            status: "served",
+            value: {
+              participantId: "participant-priya",
+              aggregateState: "idle",
+              devices: [
+                { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
+              ],
+            },
+          },
+        }}
+        onToggleDetail={() => undefined}
         isLastKnown={false}
         onReopen={() => undefined}
       />,

@@ -62,10 +62,10 @@
 // NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
 //
 // `absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
-// component it builds is owned by a renderer subtree outside the console: the four
+// component it builds is owned by a renderer subtree outside the console: the three
 // shipped Tier-1 families the console absorbed by import. That is not a sibling's
 // body — it is a component with no owner left to mount it, handed to whichever
-// console surface absorbed it. Four view families reach for one of those mounts, so
+// console surface absorbed it. Three view families reach for one of those mounts, so
 // the mounts sit here for exactly the reason every other seat does.
 //
 //
@@ -83,20 +83,21 @@ import "./pane-chrome.css";
 // `frame/` because this is the same kind of contract every other seat is — a family
 // hands the frame a body through it — and because a view family cannot import the
 // frame's door at all without closing a cycle back through `families.ts`. No
-// `@consumedBy` claims: the frame, the composition root and the legacy surfaces all
-// read these today.
+// `@consumedBy` claims: the frame and the composition root read these today.
 //
-// Three names are deliberately absent, each because no PRODUCTION module reaches it
+// Four names are deliberately absent, each because no PRODUCTION module reaches it
 // through this door and the barrel census fails a line like that. `ConsoleSurfaceSlot`
 // is reached through the descriptor a family fills in. `CONSOLE_SURFACE_SLOTS`'s only
 // reader is `families.test.ts`. `registerConsoleSurface` — the module-scope door a
 // plan-owned subtree mounting into the console would call — has no caller outside this
-// family yet; the family that lands the first one adds the line in its own diff.
+// family yet; the family that lands the first one adds the line in its own diff. And
+// `ConsoleSurfaceDescriptor` joined them when the last shipped Tier-1 slot claim was
+// retired: every surviving registrar hands `register` an object literal and names the
+// type nowhere, so the line had only a test left reading it.
 export {
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
   surfaceSlotFor,
-  type ConsoleSurfaceDescriptor,
 } from "./surface-registry.js";
 
 // The two contexts come off their own modules rather than off the boards that hand them
@@ -294,6 +295,13 @@ export {
   type PushDrivenReadState,
 } from "./push-driven-read.js";
 
+// The read discipline for the OTHER kind of wire: one the console does not have yet.
+// A growth-port operation has no push signal to subscribe to and no re-read that
+// could answer differently, so it is asked once per subject and held — the sibling
+// rule to the one above, on this door for the same reason and against the same
+// hazard, four surfaces in two sibling families each holding one answer.
+export { useGrowthReadOnMount } from "./growth-read.js";
+
 // The console's single copy of the daemon-EVENT cast. The brand
 // `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
 // it, and every caller casts; one module casts, and the day the brand narrows one
@@ -301,16 +309,16 @@ export {
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./wire-access.js";
 
-// The mounts for the four shipped Tier-1 families the console absorbed, three of them
+// The mounts for the three shipped Tier-1 families the console absorbed, two of them
 // carrying the bridge-source guard that decides whether they may be mounted at all.
 //
 // In this family because a mount reads a bridge source, two primitives and the console's
 // own bridge, and nothing above `bridge/`, and on this door because the surfaces that
-// mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
-// reaches them here like every other consumer.
+// mount them are view families. The fourth shipped family is absent on purpose: the
+// participant roster rendered a session's presence a second time beside the
+// collaboration family's own roster, and it is retired rather than published here.
 export {
   renderAbsorbedInviteAcceptance,
   renderAbsorbedNodeRoster,
-  renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";

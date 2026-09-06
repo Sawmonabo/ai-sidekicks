@@ -92,6 +92,17 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthTerminalChunk",
   "GrowthToolCall",
   "GrowthUnpricedFamilyCap",
+  // Added by the channel and membership planes: the audience badge, the `direct`
+  // pair label, the create form's two closed choices, the four receipts the growth
+  // port answers with, and the membership identifier the ledger's controls are keyed
+  // by. Each is registered in a governing document and carried by no code package.
+  "GrowthChannelConfig",
+  "GrowthChannelCreateReceipt",
+  "GrowthChannelKind",
+  "GrowthChannelLifecycleReceipt",
+  "GrowthChannelRosterEntry",
+  "GrowthMembershipRosterEntry",
+  "GrowthPresenceDetail",
 ];
 
 /**

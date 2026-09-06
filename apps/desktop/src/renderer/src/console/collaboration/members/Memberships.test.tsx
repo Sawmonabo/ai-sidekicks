@@ -13,10 +13,43 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import { Memberships } from "./Memberships.js";
+import { deriveMembershipRows } from "./members-model.js";
+import { Memberships as MembershipsSurface } from "./Memberships.js";
 import type { PendingInviteConfirmation } from "../invites/InviteConfirmation.js";
+
+/**
+ * The surface, with the rows its section body derives.
+ *
+ * The rows moved up to `MembersSectionBody` when the roster read landed, because the
+ * roster above and this ledger below read the same three facts about the same people
+ * and two derivations would put two answers on one screen. The cases here are about
+ * the LEDGER, so this probe performs the section body's one derivation — through the
+ * real `deriveMembershipRows`, never a stand-in for it — and hands the result over.
+ */
+function Memberships(props: {
+  readonly context: SidebarSectionContext;
+  readonly pendingInvite?: PendingInviteConfirmation | undefined;
+  readonly rosterEntries?: ReadonlyMap<string, never> | undefined;
+  readonly rosterRefusal?: ConsoleRefusal | undefined;
+  readonly isLastKnown?: boolean;
+}): React.JSX.Element {
+  const rows = deriveMembershipRows(
+    props.context.sessionStore.snapshot().partitions.participant,
+    props.rosterEntries,
+  );
+  return (
+    <MembershipsSurface
+      context={props.context}
+      rows={rows}
+      rosterRefusal={props.rosterRefusal}
+      isLastKnown={props.isLastKnown ?? false}
+      pendingInvite={props.pendingInvite}
+    />
+  );
+}
 
 type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
 
@@ -208,12 +241,13 @@ describe("memberships — a row with no membership id", () => {
   });
 });
 
-describe("memberships — nothing projected", () => {
-  it("says nobody asked rather than that the session is empty", () => {
+describe("memberships — nothing read", () => {
+  it("names both sources rather than saying the session is empty", () => {
     const { container } = render(<Memberships context={contextFor(storeHolding([]))} />);
     const text = container.textContent ?? "";
     expect(text).toContain("No membership has been read");
-    expect(text).toContain("nobody asked");
+    expect(text).toContain("event log and from the membership roster read");
+    expect(text).toContain("not an empty session");
   });
 
   it("negative control: a projected membership renders a count instead", () => {
@@ -222,6 +256,56 @@ describe("memberships — nothing projected", () => {
     );
     expect(container.textContent ?? "").toContain("2 memberships");
     expect(container.textContent ?? "").not.toContain("No membership has been read");
+  });
+});
+
+describe("memberships — what the two reads cost when one of them refuses", () => {
+  it("says the roster read refused beside the rows rather than instead of them", () => {
+    const { container } = render(
+      <Memberships
+        context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))}
+        rosterRefusal={{
+          origin: "membership-roster",
+          code: "growth.wire_unregistered",
+          detail: "membershipRosterRead has no wire.",
+        }}
+      />,
+    );
+    const text = container.textContent ?? "";
+    // The rows are still there. That is the whole claim: a refused enrichment costs
+    // the ledger its identifiers, never its memberships.
+    expect(container.querySelectorAll(".meridian-members__row")).toHaveLength(2);
+    expect(text).toContain("growth.wire_unregistered");
+    expect(text).toContain("these memberships");
+  });
+
+  it("negative control: a served read leaves no notice at all", () => {
+    const { container } = render(
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
+    );
+    expect(container.textContent ?? "").not.toContain("growth.wire_unregistered");
+    expect(container.querySelector(".meridian-reading-notice")).toBeNull();
+  });
+});
+
+describe("memberships — the control plane out of reach", () => {
+  it("keeps every row and offers no control, under one line saying why", () => {
+    const { container } = render(
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} isLastKnown />,
+    );
+    expect(container.querySelectorAll(".meridian-members__row")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-members__read-only")).toHaveLength(1);
+    expect(container.textContent ?? "").toContain("no membership can be changed from here");
+    expect(container.querySelector(".meridian-members__manage")).toBeNull();
+    expect(container.querySelector(".meridian-members__revoke")).toBeNull();
+  });
+
+  it("negative control: with the control plane reachable the controls are offered", () => {
+    const { container } = render(
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
+    );
+    expect(container.querySelector(".meridian-members__read-only")).toBeNull();
+    expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
   });
 });
 

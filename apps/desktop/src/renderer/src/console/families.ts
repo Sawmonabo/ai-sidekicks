@@ -45,7 +45,6 @@
 
 import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerComposerFamily } from "../shell/index.js";
-import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import { registerConsolePanes } from "./panes/index.js";
@@ -102,13 +101,16 @@ export function registerConsoleFamilies(
   sidebarSections: SidebarSectionRegistry,
   inlineCardSeats: InlineCardSeatRegistry,
 ): void {
-  // The three shipped Tier-1 families come first, because they were mounted
-  // before any of the seats below existed. A family filling a seat that one of
-  // them currently holds REPLACES it — delete that line, do not add beside it.
-  // The registry refuses a second owner on one slot rather than letting import
-  // order decide which surface mounts, so a seat added without the deletion is a
-  // conflict the composition test names by slot rather than a silent swap.
-  registerLegacySurfaces(surfaces);
+  // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Three of them are
+  // absorbed by the console surfaces that mount them, through the helpers
+  // `seats/absorbed-surfaces.ts` publishes, so they reach the screen inside a
+  // console-authored surface rather than beside one. The fourth — the shipped
+  // participant roster — was the last slot claimant, and it is retired rather than
+  // re-homed: it rendered presence a second time in one application, and the
+  // collaboration family renders presence from the bridge the console resolved.
+  // The `workspace` slot is therefore RESERVED, which is what the frame renders for
+  // a slot no family has claimed, and it is the deck's to claim when it lands.
+  //
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
   // whole console, and it takes the pane registry this function was HANDED —
@@ -157,7 +159,7 @@ export function registerConsoleFamilies(
   // reads the block as a census and refuses anything that is not a seat.
   // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
-  registerCollaborationFamily(surfaces, sidebarSections); // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections, projectors); // T-023p-1C-4 collaboration
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
   registerWorkflowSurfaces(surfaces); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

@@ -65,9 +65,13 @@
   flex: none;
 }
 
-.meridian-channel-row__count {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
+/* The one row drawn before the read lands: the bootstrap channel, named because
+ * every session has one. It carries no control, so it is padded like the open
+ * button it does not have and never reads as pressable. */
+.meridian-channel-row--loading {
+  padding-block: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-1);
+  font-size: var(--meridian-text-sm);
 }
 
 /* Mute suppresses attention and nothing else — the row stays readable, still
@@ -102,44 +106,133 @@
   overflow-y: auto;
 }
 
-/* --------------------------------------------------------- creating a channel */
+/* ------------------------------------------------- what a row is FOR, and its acts */
 
-.meridian-create-channel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  border-block-start: 1px solid var(--meridian-edge);
-  padding-block-start: var(--meridian-space-3);
+.meridian-channel-row__audience {
+  display: inline-flex;
 }
 
-.meridian-create-channel__title {
+.meridian-channel-row__acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-1);
+  padding-block-end: var(--meridian-space-1);
+}
+
+.meridian-channel-row__act {
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  padding-block: var(--meridian-space-1);
+  padding-inline: var(--meridian-space-2);
+  cursor: pointer;
+}
+
+.meridian-channel-row__act:hover:enabled {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-channel-row__act:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.meridian-channel-row__act:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-channel-row__refusal-dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* A channel the daemon says is gone: its row is removed and the daemon's own
+ * sentence stands where it was, with no control on it. */
+.meridian-channels__gone {
+  padding-block: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-1);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+/* The roster is an ENRICHMENT of the list, so its refusal is one quiet line under the
+ * rows rather than a card standing where they were. */
+.meridian-channels__roster-refusal {
+  margin: 0;
+  padding-block-start: var(--meridian-space-1);
+}
+
+/* ------------------------------------------------------- the archive confirmation */
+
+.meridian-channels__dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-channels__dialog {
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  inline-size: min(28rem, calc(100vw - var(--meridian-space-6)));
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-channels__dialog-title {
   margin: 0;
   font-size: var(--meridian-text-sm);
   font-weight: 500;
-  color: var(--meridian-text);
 }
 
-.meridian-create-channel__standing {
+.meridian-channels__dialog-body {
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
 
-.meridian-create-channel__decisions {
-  margin: 0;
+.meridian-channels__dialog-acts {
   display: flex;
-  flex-direction: column;
+  justify-content: flex-end;
   gap: var(--meridian-space-2);
 }
 
-.meridian-create-channel__decision-label {
-  font-size: var(--meridian-text-xs);
-  font-weight: 500;
+.meridian-channels__dialog-cancel,
+.meridian-channels__dialog-confirm {
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
   color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  padding-block: var(--meridian-space-1);
+  padding-inline: var(--meridian-space-3);
+  cursor: pointer;
 }
 
-.meridian-create-channel__decision-consequence {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
+/* The same ink correction the create form's pressed arms take, applied here because
+   it is the same defect and not a second one: the accessibility tier cannot see this
+   button — the dialog is closed on the render it audits — so a sweep is what finds it
+   rather than the gate. */
+.meridian-channels__dialog-confirm {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
 }

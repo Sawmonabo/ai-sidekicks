@@ -10,14 +10,20 @@
 
 .meridian-roster-row {
   position: relative;
-  display: grid;
-  grid-template-columns: 2px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--meridian-space-2);
   padding-block: var(--meridian-space-2);
   padding-inline-end: var(--meridian-space-1);
   border-block-end: 1px solid var(--meridian-edge);
   font-size: var(--meridian-text-sm);
+}
+
+/* The line is the grid and the row is the box around it, because the row now has a
+ * second child: the device panel the disclosure opens. A grid on the row itself put
+ * that panel in a fifth column beside the last-seen stamp. */
+.meridian-roster-row__line {
+  display: grid;
+  grid-template-columns: 2px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--meridian-space-2);
 }
 
 .meridian-roster-row:last-child {
@@ -87,6 +93,72 @@
 
 .meridian-roster-row__seen {
   flex: none;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The lease mark. It carries its own title, so it is a name and not decoration —
+ * which is why it needs no label beside it and no colour of its own to be read. */
+.meridian-roster-row__holder {
+  display: inline-flex;
+  align-items: center;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-roster-row__detail-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-faint);
+  cursor: pointer;
+}
+
+.meridian-roster-row__detail-toggle:hover {
+  color: var(--meridian-text-muted);
+}
+
+/* Indented past the identity edge, so the panel reads as belonging to the row above
+ * it rather than as a row of its own. */
+.meridian-roster-row__detail {
+  padding-block-start: var(--meridian-space-2);
+  padding-inline-start: calc(2px + var(--meridian-space-2));
+}
+
+.meridian-roster-detail__summary-only,
+.meridian-roster-detail__disagreement {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-roster-detail__devices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-roster-detail__device {
+  display: flex;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* What the roster says about the shared terminal, under the rows. One line, and only
+ * where the read answered. */
+.meridian-roster__terminal-control {
+  margin: 0;
+  padding-block-start: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The one line a read-only ledger renders. It says what is unreachable and what that
+ * costs; the rows below it keep every fact they had. */
+.meridian-members__read-only {
+  margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }

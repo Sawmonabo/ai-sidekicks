@@ -2,7 +2,10 @@
 //
 // Three of the four families reach the screen through a console-authored surface
 // rather than through a slot of their own, so this file covers the mounts those
-// surfaces call and the guard two of them carry. The guard is a CLAIM — a helper
+// surfaces call and the guard two of them carry. The fourth is absent, and its
+// absence is a case here rather than a silence: the shipped participant roster drew
+// a session's presence a second time beside the collaboration family's own roster,
+// so its mount was retired and the published set is what says so. The guard is a CLAIM — a helper
 // that mounted its component past the check would look identical from the outside
 // until it answered from the live daemon in a window showing fixture data. The
 // roster's half carries a different claim: it is handed the bridge's own reads, so
@@ -33,6 +36,10 @@ import { SurfaceAbsence } from "../primitives/index.js";
 import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { renderAbsorbedNodeRoster, renderAbsorbedSessionProbe } from "./absorbed-surfaces.js";
+// The whole module beside the two named above, for the published-set case: reaching
+// for each export by name would assert only that the mounts this file drives exist,
+// which was already true while a fourth stood beside them.
+import * as absorbedSurfaceMounts from "./absorbed-surfaces.js";
 
 /** The element a helper produced, or a failure that names what came back instead. */
 function renderedElement(node: ReactNode): { type: unknown; props: Record<string, unknown> } {
@@ -77,6 +84,18 @@ function fixtureBridge(): ConsoleBridge {
 }
 
 describe("absorbed surfaces — the families a console surface mounts", () => {
+  it("publishes a mount for three families, and none for the roster it retired", () => {
+    // The application draws a session's presence in ONE place, and this is the half
+    // of that claim a module can carry: a fourth mount here is what the frame's slot
+    // table used to call, so a mount published again is a second presence render
+    // re-entering the console through the door it left by.
+    expect(Object.keys(absorbedSurfaceMounts).toSorted()).toStrictEqual([
+      "renderAbsorbedInviteAcceptance",
+      "renderAbsorbedNodeRoster",
+      "renderAbsorbedSessionProbe",
+    ]);
+  });
+
   it("mounts the session probe with no props to give it", () => {
     expect(renderedElement(renderAbsorbedSessionProbe("live")).type).toBe(SessionBootstrap);
   });

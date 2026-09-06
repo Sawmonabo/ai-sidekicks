@@ -53,7 +53,13 @@ export type GrowthSlateRowId =
   | "sidekick-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
-  | "workflow-version-chain";
+  | "workflow-version-chain"
+  // lane: cov-collab-channels
+  | "channel-lifecycle-verbs"
+  | "channel-roster-read"
+  | "membership-roster-read"
+  | "participant-presence-detail"
+  | "terminal-control-holder";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -381,6 +387,47 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  // lane: cov-collab-channels
+  "channel-lifecycle-verbs": {
+    id: "channel-lifecycle-verbs",
+    wire: "channel.create / channel.mute / channel.unmute / channel.archive — the four channel lifecycle verbs, with their request and reply shapes and the channel.* refusal codes they raise",
+    owningDocument:
+      "Spec-016 §Interfaces And Contracts (the create-time-immutable ChannelConfig and the two-value kind domain); api-payload-contracts.md §Plan-016 (the four method strings and their payload shapes, registered there and in no code package)",
+    consumingSurface: "channel list (mute / unmute / archive), create-a-channel form",
+    wireRegistered: false,
+  },
+  "channel-roster-read": {
+    id: "channel-roster-read",
+    wire: "channel.rosterRead — the daemon-native channel roster carrying each channel's kind, a direct channel's memberPair, and the ChannelConfig whose audience says whether this session's agents read it",
+    owningDocument:
+      "Spec-016 §Interfaces And Contracts (D-016-21: the kind discriminator, the immutable member pair, and the audience the daemon forces on a direct channel); api-payload-contracts.md §Plan-016 (ChannelRosterReadRequest / ChannelRosterReadResponse, registered there and in no code package)",
+    consumingSurface: "channel list (the audience badge and the direct-pair label)",
+    wireRegistered: false,
+  },
+  "membership-roster-read": {
+    id: "membership-roster-read",
+    wire: "a read returning a membershipId beside each of a session's participants — the identifier membership.update is keyed by, which every registered carrier answers only from a join or a write",
+    owningDocument:
+      "Spec-002 §Interfaces And Contracts (MembershipUpdate is keyed by membershipId and no read returns one); api-payload-contracts.md §Tier 2: Plan-002 (the five shapes that carry one, all of them a join or a write)",
+    consumingSurface: "membership ledger (the four membership.update controls)",
+    wireRegistered: false,
+  },
+  "participant-presence-detail": {
+    id: "participant-presence-detail",
+    wire: "participant.presenceDetail — the owner/operator-only per-device presence fan-out behind the aggregated summary every role may read",
+    owningDocument:
+      "Spec-018 §Interfaces And Contracts (D-018-5 / I-018-6: the aggregated summary is the unauthorized-default projection); api-payload-contracts.md §Participant Method-Name Registry (Tier 5) (PresenceDetailReadRequest / PresenceDetailReadResponse, registered there and in no code package)",
+    consumingSurface: "roster (the per-device detail behind a row)",
+    wireRegistered: false,
+  },
+  "terminal-control-holder": {
+    id: "terminal-control-holder",
+    wire: "the session's shared-terminal write-lease holder, registered as RuntimeNodeRosterResponse.controlHolder and carried by no shipped schema: RuntimeNodeRosterResponseSchema is strict and declares nodes alone, so the transport that reads the roster today refuses a reply that carries the member at all",
+    owningDocument:
+      "Spec-003 §Required Behavior (one shared terminal per session, one holder at a time); api-payload-contracts.md §Session Terminal-Control Method Registry (controlHolder, and the null it resolves to when the holding node reads offline)",
+    consumingSurface: "roster (the holder mark on the holding participant's row)",
     wireRegistered: false,
   },
 };
