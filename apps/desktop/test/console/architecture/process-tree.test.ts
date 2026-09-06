@@ -2,7 +2,7 @@
 // checked.
 //
 // Two harnesses spawn Electron — the Tier-1 smoke probe and the console launcher
-// — and each had grown its own terminator over the same three platform facts.
+// — and each had grown its own terminator over the same platform facts.
 // They had already disagreed: one read `taskkill`'s exit status and the other did
 // not, so the second reported kills it had not performed. The implementation is
 // now shared, and so are these cases; both consumers are bound to it rather than
@@ -23,7 +23,14 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { processExists, terminationSucceeded } from "../../helpers/process-tree.js";
+import {
+  isTerminatedProcessState,
+  processExists,
+  processHasTerminated,
+  processStateFromProcStat,
+  readProcessLiveness,
+  terminationSucceeded,
+} from "../../helpers/process-tree.js";
 
 describe("process termination — a kill that was refused is not a kill", () => {
   /** A probe that records whether it was consulted, so "not consulted" is checkable. */
@@ -79,5 +86,67 @@ describe("process termination — asking whether a pid is still there", () => {
     expect(reaped.status).toBe(0);
     expect(reaped.pid).toBeGreaterThan(0);
     expect(processExists(reaped.pid)).toBe(false);
+  });
+});
+
+describe("process termination — a zombie is terminated, and existence cannot say so", () => {
+  // WHY THE STATE READ IS A PAIR OF PURE FUNCTIONS. A zombie is not a state a
+  // test can manufacture: it exists only between a process exiting and its
+  // parent reaping it, and for a grandchild that parent is an init this process
+  // does not own — prompt on a hosted runner, indefinite in a container whose
+  // init does not reap, which is exactly the run this reading was written for.
+  // So the platform I/O stays unexecuted and the two decisions it funnels
+  // through are driven directly, with real text on both sides.
+
+  it("reads the state out of a `/proc` line whose executable name has spaces and parens", () => {
+    // THE PARSING TRAP, and the reason this is not a whitespace split: field 2
+    // is the executable name, unescaped, in parentheses. Both samples are real
+    // shapes — Firefox's content process is literally `(Web Content)`.
+    expect(processStateFromProcStat("4242 (Web Content) Z 1 4242 0 0 -1 4194560")).toBe("Z");
+    expect(processStateFromProcStat("4242 (a) b) S 1 4242 0")).toBe("S");
+  });
+
+  it("reports nothing readable rather than guessing at text of another shape", () => {
+    // `undefined` is the caller's cue to fail towards "running", which is the
+    // whole failure direction of this module: claiming a process is gone
+    // without evidence is the false success it exists to prevent.
+    expect(processStateFromProcStat("")).toBeUndefined();
+    expect(processStateFromProcStat("4242 no-parenthesis-here Z 1")).toBeUndefined();
+  });
+
+  it("counts the exited states as terminated, decoration and all", () => {
+    // `ps` decorates the code — `Z+` is a zombie in the foreground group — and
+    // the modifiers say nothing about whether the process still runs, so only
+    // the first letter is read. `X` is Linux's dying state; both are gone.
+    expect(isTerminatedProcessState("Z")).toBe(true);
+    expect(isTerminatedProcessState("Z+")).toBe(true);
+    expect(isTerminatedProcessState("X")).toBe(true);
+  });
+
+  it("counts every state a process can still run in as running", () => {
+    // The negative control, and the one that matters: a probe that called a
+    // sleeping or stopped process terminated would report every leaked Electron
+    // — which idles at 0% CPU, which is how the four orphans were found — as a
+    // clean tree.
+    for (const stateCode of ["R", "S", "D", "T", "I", "Ss", "S+", "R<", "U"]) {
+      expect(isTerminatedProcessState(stateCode), `${stateCode} is not a terminated state`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("reads this very process as running, through the real platform arm", () => {
+    // The one pid guaranteed to be alive and, being the reader itself, the one
+    // whose state read is guaranteed to be legible. It is what makes the arm
+    // this platform actually takes non-vacuous rather than only parsed.
+    expect(readProcessLiveness(process.pid)).toBe("running");
+    expect(processHasTerminated(process.pid)).toBe(false);
+  });
+
+  it("reads a reaped pid as gone without asking the platform for a state", () => {
+    const reaped = spawnSync(process.execPath, ["-e", ""]);
+    expect(reaped.pid).toBeGreaterThan(0);
+    expect(readProcessLiveness(reaped.pid)).toBe("gone");
+    expect(processHasTerminated(reaped.pid)).toBe(true);
   });
 });

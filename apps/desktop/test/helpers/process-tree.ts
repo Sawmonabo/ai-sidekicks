@@ -2,12 +2,12 @@
 //
 // Two harnesses spawn Electron — the Tier-1 smoke probe in `electron-probe.ts`
 // and the console launcher behind `test/console/bounded-cleanup.ts` — and each
-// grew its own copy of the same three platform facts. They had already diverged:
+// grew its own copy of the same platform facts. They had already diverged:
 // only one of them read `taskkill`'s exit status, so the other reported a kill it
 // had not performed. A rule with two homes is a rule that will disagree with
 // itself; this is the home.
 //
-// The three facts, each measured rather than assumed:
+// The four facts, each measured rather than assumed:
 //
 //   • POSIX group delivery is safe HERE and catastrophic in general.
 //     `playwright-core` spawns with `detached: process.platform !== "win32"`
@@ -29,7 +29,10 @@
 //     WM_CLOSE to each windowed process (the graceful analog — the tree members
 //     that matter here all have windows), with `/f` it terminates every node
 //     outright (the SIGKILL analog). This is also the form `playwright-core`
-//     itself runs for this process.
+//     itself runs for this process. It is a SEPARATE PROGRAM rather than a
+//     delivered signal, which is why the mode below is named and exported: a
+//     tree terminated that way reports no signal on the child's `exit`, so a
+//     test asserting one is asserting a POSIX detail on a platform that has none.
 //
 //   • Delivery and survival are two questions, and answering only the first was
 //     the divergence. A `taskkill` that SPAWNS and exits non-zero — termination
@@ -40,17 +43,61 @@
 //     Which one it was is asked of the OS, never read out of taskkill's message,
 //     because that message is localised and this must not depend on the runner's
 //     display language.
+//
+//   • Survival itself is two questions, and `kill(pid, 0)` answers the wrong one.
+//     A process that has exited and has not been reaped by its parent is a
+//     ZOMBIE: it holds its pid, it answers signal 0, and it will never run
+//     another instruction. That is not an edge case for this module — a group
+//     SIGKILL takes the direct child down alongside its own children, so a
+//     grandchild is reparented to init at the moment it dies and stays a zombie
+//     for exactly as long as that init takes to reap it, which in a container
+//     whose init does not reap is forever. So "still there" and "still running"
+//     are different readings, and a leak probe must take the second: Linux
+//     reports it in `/proc/<pid>/stat`'s state field, macOS in `ps -o stat=`,
+//     and Windows is asked nothing at all, because it keeps no such entry and
+//     its tree kill is external, so disappearance is the only evidence there is.
 
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import process from "node:process";
 
+/** How this platform's tree kill reaches a tree. */
+export type ProcessTreeTerminationMode = "signal" | "external";
+
 /**
- * Whether a pid names a live process, without signalling it.
+ * Whether `terminateProcessTree` DELIVERS a signal or runs another program.
+ *
+ * Exported because it is the honest key for a caller that wants to say
+ * something about how a tree died. On POSIX the group kill is a delivered
+ * signal, so the child's `exit` names it; on Windows the tree is walked by
+ * `taskkill /f`, an external termination the child reports as an exit code with
+ * `signal === null`. A test branching on `process.platform` to say the same
+ * thing would be restating this module's own fact somewhere it can drift.
+ */
+export const PROCESS_TREE_TERMINATION_MODE: ProcessTreeTerminationMode =
+  process.platform === "win32" ? "external" : "signal";
+
+/**
+ * What a pid is doing, as three states rather than two.
+ *
+ * `gone` — the pid names nothing. `zombie` — it names an exited process its
+ * parent has not reaped, which is terminated for every purpose this package
+ * has. `running` — it names a process that may still execute, which is the one
+ * reading that should ever fail a leak assertion.
+ */
+export type ProcessLiveness = "gone" | "zombie" | "running";
+
+/**
+ * Whether a pid names a process at all, without signalling it.
  *
  * Signal 0 performs the permission and existence checks and delivers nothing —
  * on Windows too, where Node maps it onto a handle open. `EPERM` means the
- * process is there and out of reach, which for this question is "still running":
+ * process is there and out of reach, which for this question is "still there":
  * reporting it gone would be the same false success this probe exists to catch.
+ *
+ * It answers EXISTENCE and deliberately not liveness — a zombie answers this
+ * `true`. Callers asking whether anything is still running want
+ * `processHasTerminated`, which is this reading plus the state below.
  */
 export function processExists(processId: number): boolean {
   try {
@@ -59,6 +106,114 @@ export function processExists(processId: number): boolean {
   } catch (error: unknown) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/**
+ * Whether a process-table state code names a process that has already exited.
+ *
+ * `Z` is the zombie state on both POSIX platforms this package runs on; Linux
+ * additionally reports `X` for a process in the act of being torn down. Only
+ * the FIRST letter is read, because `ps` decorates the code with modifiers
+ * (`Z+`, `Ss`, `R<`) that say nothing about whether the process still runs.
+ *
+ * A pure function over the text so both arms below can be driven by a test
+ * without a real zombie, which is not a thing a test can reliably manufacture:
+ * whether one lingers at all is the reaping behaviour of an init this process
+ * does not own.
+ */
+export function isTerminatedProcessState(stateCode: string): boolean {
+  const stateLetter = stateCode.trim().charAt(0).toUpperCase();
+  return stateLetter === "Z" || stateLetter === "X";
+}
+
+/**
+ * The state code out of the text of `/proc/<pid>/stat`.
+ *
+ * Read from the LAST `)` rather than by splitting on whitespace, and that is
+ * the whole reason this is a named function: field 2 is the executable name in
+ * parentheses, it is not escaped, and it may contain spaces and parentheses of
+ * its own — `(Web Content)` and `(a) b)` both parse wrongly under a naive
+ * split, and the state is the field immediately after it.
+ *
+ * `undefined` means the text was not that format, which is not evidence of
+ * anything and is treated as such by the caller.
+ */
+export function processStateFromProcStat(statText: string): string | undefined {
+  const executableNameEnd = statText.lastIndexOf(")");
+  if (executableNameEnd < 0) {
+    return undefined;
+  }
+  const stateCode = statText
+    .slice(executableNameEnd + 1)
+    .trim()
+    .split(/\s+/)[0];
+  return stateCode === undefined || stateCode === "" ? undefined : stateCode;
+}
+
+/**
+ * This platform's state code for `processId`, or `undefined` if it has none.
+ *
+ * `undefined` is returned for three different reasons and they are deliberately
+ * not distinguished: an unreadable entry, an unparseable one, and a platform
+ * that keeps no such state. All three mean the same thing to the only caller —
+ * no evidence that the process has exited — and the caller fails towards
+ * "running" on that, because claiming a process is gone without evidence is the
+ * false success this whole module exists to prevent.
+ */
+function readProcessStateCode(processId: number): string | undefined {
+  if (process.platform === "linux") {
+    try {
+      return processStateFromProcStat(readFileSync(`/proc/${String(processId)}/stat`, "utf8"));
+    } catch {
+      // The entry vanished between the existence probe and this read. The pid is
+      // gone rather than lingering, which the existence probe reports on its own.
+      return undefined;
+    }
+  }
+  if (process.platform === "darwin") {
+    const inspected = spawnSync("ps", ["-o", "stat=", "-p", String(processId)], {
+      encoding: "utf8",
+    });
+    if (inspected.error !== undefined || inspected.status !== 0) {
+      return undefined;
+    }
+    const reported = inspected.stdout.trim();
+    return reported === "" ? undefined : reported;
+  }
+  // Windows keeps no exited-but-unreaped entry to read, so there is nothing to
+  // ask and disappearance is the only termination evidence the platform gives.
+  return undefined;
+}
+
+/**
+ * What `processId` is doing right now.
+ *
+ * Existence first, because it is one syscall and settles most calls; the state
+ * read only for a pid that is still there. Both readings race the process they
+ * describe, which is why every assertion on this in the tests is a bounded
+ * observation rather than a single sample.
+ */
+export function readProcessLiveness(processId: number): ProcessLiveness {
+  if (!processExists(processId)) {
+    return "gone";
+  }
+  const stateCode = readProcessStateCode(processId);
+  if (stateCode === undefined) {
+    return "running";
+  }
+  return isTerminatedProcessState(stateCode) ? "zombie" : "running";
+}
+
+/**
+ * Whether `processId` will never run another instruction.
+ *
+ * The reading a leak assertion wants. A zombie counts as terminated: it holds a
+ * pid and nothing else, and waiting for it to disappear waits on an init this
+ * process does not own — which on a hosted runner is prompt and in a container
+ * whose init does not reap is unbounded.
+ */
+export function processHasTerminated(processId: number): boolean {
+  return readProcessLiveness(processId) !== "running";
 }
 
 /**
@@ -77,9 +232,9 @@ export function processExists(processId: number): boolean {
  */
 export function terminationSucceeded(
   signalDelivered: boolean,
-  processStillExists: () => boolean,
+  processStillRunning: () => boolean,
 ): boolean {
-  return signalDelivered || !processStillExists();
+  return signalDelivered || !processStillRunning();
 }
 
 /**
@@ -94,13 +249,13 @@ export function terminateProcessTree(
   processId: number,
   signal: NodeJS.Signals = "SIGKILL",
 ): boolean {
-  const stillExists = (): boolean => processExists(processId);
-  if (process.platform === "win32") {
+  const stillRunning = (): boolean => !processHasTerminated(processId);
+  if (PROCESS_TREE_TERMINATION_MODE === "external") {
     const forced = signal === "SIGKILL" ? ["/f"] : [];
     const result = spawnSync("taskkill", ["/pid", String(processId), "/t", ...forced], {
       stdio: "ignore",
     });
-    return terminationSucceeded(result.error === undefined && result.status === 0, stillExists);
+    return terminationSucceeded(result.error === undefined && result.status === 0, stillRunning);
   }
   for (const target of [-processId, processId]) {
     try {
@@ -114,5 +269,5 @@ export function terminateProcessTree(
   // already gone. Reporting that as a failed termination would tell a reader an
   // Electron may still be holding a profile when nothing is — the same
   // misdescription as the Windows arm, in the opposite direction.
-  return terminationSucceeded(false, stillExists);
+  return terminationSucceeded(false, stillRunning);
 }

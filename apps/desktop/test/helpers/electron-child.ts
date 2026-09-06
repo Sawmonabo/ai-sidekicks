@@ -35,8 +35,8 @@
 //
 // WHAT THIS MODULE IS NOT
 //
-// It is not a second terminator. `process-tree.ts` owns the three platform
-// facts about delivering a signal to a tree, and stays their home; this module
+// It is not a second terminator. `process-tree.ts` owns the platform facts
+// about delivering a signal to a tree, and stays their home; this module
 // owns WHEN that call is made and how many times. It asserts nothing, and the
 // one test-framework symbol it imports is a teardown registrar rather than an
 // assertion API — a helper that could fail a test would be a second place a
@@ -103,6 +103,17 @@ export type SettleTimeDisposer = () => void | Promise<void>;
 export type SettleTimeRegistrar = (dispose: SettleTimeDisposer) => void;
 
 /**
+ * How a whole tree is signalled, and whether the signal landed.
+ *
+ * Injected for the same reason the registrar is, and it is the same shape of
+ * reason: the case that matters is a tree that REFUSED the kill — a `taskkill`
+ * that spawned and exited non-zero against a live Electron — and there is no
+ * way to make a real platform refuse on demand. The default is the real one, so
+ * every production caller signals a real tree.
+ */
+export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) => boolean;
+
+/**
  * Bind a disposer to the end of the current test, however it ends.
  *
  * The door every Electron harness in this package walks through, including the
@@ -141,6 +152,15 @@ export interface ElectronChildSpawnOptions {
    * running test, which is where `onTestFinished` is legal.
    */
   readonly registerSettleTimeTermination?: SettleTimeRegistrar;
+  /**
+   * Overrides the tree terminator. Tests of this module pass a refusing one;
+   * every production caller takes the default and signals a real tree.
+   *
+   * `undefined` is admitted explicitly, under `exactOptionalPropertyTypes`, so a
+   * caller forwarding its own optional through reads the same as one that never
+   * mentioned it — which is what a caller means by passing nothing.
+   */
+  readonly terminateProcessTree?: ProcessTreeTerminator | undefined;
 }
 
 /**
@@ -165,12 +185,18 @@ export interface ElectronChildSpawnOptions {
 export class ManagedElectronChild {
   readonly #child: ManagedChildProcess;
   readonly #abortController: AbortController;
+  readonly #terminateTree: ProcessTreeTerminator;
   #escalationTimer: NodeJS.Timeout | null = null;
   #killDelivered = false;
 
-  constructor(child: ManagedChildProcess, abortController: AbortController) {
+  constructor(
+    child: ManagedChildProcess,
+    abortController: AbortController,
+    terminateTree: ProcessTreeTerminator = terminateProcessTree,
+  ) {
     this.#child = child;
     this.#abortController = abortController;
+    this.#terminateTree = terminateTree;
   }
 
   /** The spawned process, for stream wiring and event listeners. */
@@ -178,7 +204,7 @@ export class ManagedElectronChild {
     return this.#child;
   }
 
-  /** Whether a SIGKILL has already been delivered to this child's tree. */
+  /** Whether a SIGKILL has already been DELIVERED to this child's tree. */
   get isKilled(): boolean {
     return this.#killDelivered;
   }
@@ -190,22 +216,29 @@ export class ManagedElectronChild {
    * ordinary outcome when the process exited between a deadline expiring and
    * the kill being issued — see `terminateProcessTree` for why that is a
    * success rather than a silent failure.
+   *
+   * THE MARKER RECORDS THE VERDICT, NEVER THE ATTEMPT. Setting it before the
+   * call made a refused tree kill indistinguishable from a delivered one — the
+   * `taskkill` that spawns, exits non-zero and leaves Electron running is
+   * exactly the case `terminateProcessTree` reports `false` for — and from that
+   * point `dispose` aborted the direct handle alone while every later disposer
+   * returned early on the marker. The retry that settle-time cleanup exists to
+   * perform therefore never ran, on the one path that needed it.
    */
   terminate(signal: NodeJS.Signals): boolean {
     if (this.#killDelivered) {
       return true;
     }
-    if (signal === "SIGKILL") {
+    const processId = this.#child.pid;
+    // No pid means the spawn itself failed, so there is no group and no tree —
+    // the direct handle is the only thing that can be addressed, and this is
+    // the one question `terminateProcessTree` cannot be asked.
+    const delivered =
+      processId === undefined ? this.#child.kill(signal) : this.#terminateTree(processId, signal);
+    if (signal === "SIGKILL" && delivered) {
       this.#killDelivered = true;
     }
-    const processId = this.#child.pid;
-    if (processId === undefined) {
-      // No pid means the spawn itself failed, so there is no group and no tree
-      // — the direct handle is the only thing that can be addressed, and this
-      // is the one question `terminateProcessTree` cannot be asked.
-      return this.#child.kill(signal);
-    }
-    return terminateProcessTree(processId, signal);
+    return delivered;
   }
 
   /**
@@ -236,6 +269,10 @@ export class ManagedElectronChild {
    * and the abort second: the abort reaches the direct handle alone, so running
    * it first would take the shim down and orphan exactly the browser process
    * the group kill exists to reach.
+   *
+   * Idempotent in the sense that matters and not in the lazier one: a call
+   * after a DELIVERED kill signals nothing, and a call after a REFUSED one asks
+   * again, because the tree that refused is still there.
    */
   dispose(): void {
     if (this.#escalationTimer !== null) {
@@ -279,7 +316,7 @@ export function spawnManagedElectronChild(
     signal: abortController.signal,
     killSignal: "SIGKILL",
   });
-  const managed = new ManagedElectronChild(child, abortController);
+  const managed = new ManagedElectronChild(child, abortController, options.terminateProcessTree);
   disposeWhenTestFinishes(() => {
     managed.dispose();
   }, options.registerSettleTimeTermination);
