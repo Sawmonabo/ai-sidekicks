@@ -1,4 +1,4 @@
-import { RESTORE_PATH_VIRTUALIZATION_THRESHOLD } from "./restore-bounds.js";
+import { RESTORE_PATH_VIRTUALIZATION_THRESHOLD } from "../../core/index.js";
 import { WindowedRestorePathList } from "./WindowedRestorePathList.js";
 import { RestorePathCell } from "./RestorePathCell.js";
 import { type RestorePathListProps } from "./restore-path-window.js";

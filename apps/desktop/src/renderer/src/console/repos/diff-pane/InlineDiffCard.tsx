@@ -40,7 +40,7 @@ import { useId, useRef, useState } from "react";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph, Nothing } from "../../primitives/index.js";
 import type { InlineCardSeatRegistry, DiffInlineCardProps } from "../../seats/index.js";
-import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
+import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../core/index.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "./DiffToolbar.js";
 import { type ConsoleDiffModel } from "./diff-model.js";

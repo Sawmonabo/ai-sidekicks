@@ -2,7 +2,8 @@ import { useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { useSubjectScopedState } from "../../store/index.js";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph, WindowedListRow, useWindowedRovingIndex } from "../../primitives/index.js";
-import { DIFF_FILE_LIST_SCROLL_THRESHOLD, DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
+import { DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
+import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "../../core/index.js";
 import {
   HIDDEN_SELECTION_COPY,
   diffFileListReading,

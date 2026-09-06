@@ -13,7 +13,7 @@ import {
   inlineCardSeatRegistry,
   type DiffInlineCardProps,
 } from "../../seats/index.js";
-import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
+import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../core/index.js";
 import { buildDiffFixture } from "./diff-fixture.test-support.js";
 import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import {

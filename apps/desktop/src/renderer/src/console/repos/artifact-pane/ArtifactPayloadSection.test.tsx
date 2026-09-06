@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { growthUnavailable } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { handAnsweredCall } from "../held-calls.test-support.js";
 import { ArtifactPane } from "./ArtifactPane.js";

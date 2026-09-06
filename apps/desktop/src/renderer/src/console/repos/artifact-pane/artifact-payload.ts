@@ -14,7 +14,7 @@
 
 import type { GrowthArtifactPayloadEncoding, GrowthArtifactRead } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
 
 /**
  * What one artifact's payload fetch has established.
@@ -149,8 +149,17 @@ function previewBoundedText(text: string): string {
 const BASE64_GROUP_CHARACTERS = 4;
 const BASE64_GROUP_BYTES = 3;
 
-/** The most bytes one code point can occupy in UTF-8. */
-const UTF8_MAX_BYTES_PER_CODE_POINT = 4;
+/**
+ * How wide UTF-8's widest code point is, in bytes.
+ *
+ * A FACTOR AND NOT A CEILING, which is why it sits beside the two base64 facts above
+ * rather than in `core/constants.ts` with the console's bounds. Nothing is checked
+ * against it — it is multiplied by, to turn a character cap into the byte length that
+ * certainly holds it — and `cap-constant-home.test.ts` draws exactly that line between
+ * a bound and a measurement. It was named `UTF8_MAX_…` after the encoding's own word
+ * for it, which read as a ceiling this module had invented.
+ */
+const UTF8_WIDEST_CODE_POINT_BYTES = 4;
 
 /**
  * Base64 characters that can hold `characterCap` code points of UTF-8 text.
@@ -163,7 +172,7 @@ const UTF8_MAX_BYTES_PER_CODE_POINT = 4;
  * as undecodable.
  */
 function base64PrefixLengthFor(characterCap: number): number {
-  const byteCap = characterCap * UTF8_MAX_BYTES_PER_CODE_POINT;
+  const byteCap = characterCap * UTF8_WIDEST_CODE_POINT_BYTES;
   return Math.ceil(byteCap / BASE64_GROUP_BYTES) * BASE64_GROUP_CHARACTERS;
 }
 

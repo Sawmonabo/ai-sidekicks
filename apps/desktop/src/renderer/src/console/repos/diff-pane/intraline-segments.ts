@@ -54,7 +54,7 @@ import {
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
-} from "./diff-bounds.js";
+} from "../../core/index.js";
 import {
   diffLineText,
   wholeLineSegments,

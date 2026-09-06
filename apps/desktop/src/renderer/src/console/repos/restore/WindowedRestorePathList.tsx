@@ -7,7 +7,7 @@ import { RestorePathCell } from "./RestorePathCell.js";
 import {
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
-} from "./restore-bounds.js";
+} from "../../core/index.js";
 import { type RestorePathListProps } from "./restore-path-window.js";
 
 /**

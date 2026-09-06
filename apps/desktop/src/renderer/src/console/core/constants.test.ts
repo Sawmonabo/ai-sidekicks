@@ -16,13 +16,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   APPLY_COALESCE_MS,
+  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
   BASE64_ENCODE_STRIDE_BYTES,
   CAST_BAR_CHIP_CAP,
+  DIFF_FILE_LIST_SCROLL_THRESHOLD,
+  DIFF_INTRALINE_CACHE_ENTRY_CAP,
+  DIFF_INTRALINE_LINE_CHARACTER_CAP,
+  DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
+  INLINE_DIFF_CARD_HEIGHT_CAP_PX,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
@@ -34,6 +40,10 @@ import {
   PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  RESTORE_PATH_ROW_HEIGHT_PX,
+  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
+  RESTORE_PATH_VISIBLE_ROW_CAP,
+  RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
   TRIPWIRE_REPORT_CAP,
@@ -59,6 +69,16 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["INGEST_STREAM_LIFETIME_CEILING_MS", INGEST_STREAM_LIFETIME_CEILING_MS],
   ["INGEST_STALL_DISCLOSURE_MS", INGEST_STALL_DISCLOSURE_MS],
   ["BASE64_ENCODE_STRIDE_BYTES", BASE64_ENCODE_STRIDE_BYTES],
+  ["ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP", ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP],
+  ["DIFF_FILE_LIST_SCROLL_THRESHOLD", DIFF_FILE_LIST_SCROLL_THRESHOLD],
+  ["DIFF_INTRALINE_CACHE_ENTRY_CAP", DIFF_INTRALINE_CACHE_ENTRY_CAP],
+  ["DIFF_INTRALINE_LINE_CHARACTER_CAP", DIFF_INTRALINE_LINE_CHARACTER_CAP],
+  ["DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP", DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP],
+  ["INLINE_DIFF_CARD_HEIGHT_CAP_PX", INLINE_DIFF_CARD_HEIGHT_CAP_PX],
+  ["RESTORE_PATH_ROW_HEIGHT_PX", RESTORE_PATH_ROW_HEIGHT_PX],
+  ["RESTORE_PATH_VIRTUALIZATION_THRESHOLD", RESTORE_PATH_VIRTUALIZATION_THRESHOLD],
+  ["RESTORE_PATH_VISIBLE_ROW_CAP", RESTORE_PATH_VISIBLE_ROW_CAP],
+  ["RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX", RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -191,6 +211,44 @@ function base64Length(decodedByteLength: number): number {
 function isInsideRange(value: number, lowest: number, highest: number): boolean {
   return value >= lowest && value <= highest;
 }
+
+describe("console bounds — the restore enumerations' four describe one list", () => {
+  it("windows only an enumeration longer than the window would show", () => {
+    // Below the threshold the whole list is shorter than the container, so windowing
+    // would add a scrollbar and a focus stop and remove no node. A threshold at or
+    // under the visible-row cap would make the scroll container decorative.
+    expect(RESTORE_PATH_VIRTUALIZATION_THRESHOLD).toBeGreaterThan(RESTORE_PATH_VISIBLE_ROW_CAP);
+  });
+
+  it("keeps the window shorter than the enumeration that opens it", () => {
+    // The height cap is the row height times the visible-row cap, and the point of it
+    // is that a threshold-length enumeration does not fit: if it did, the first
+    // windowed list would render whole and the window would never be exercised.
+    const thresholdListHeightPx =
+      RESTORE_PATH_VIRTUALIZATION_THRESHOLD * RESTORE_PATH_ROW_HEIGHT_PX;
+    expect(RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX).toBeLessThan(thresholdListHeightPx);
+  });
+});
+
+describe("console bounds — the intraline diff's two cost bounds", () => {
+  it("bounds the pair by more than one admissible line can reach alone", () => {
+    // The line cap bounds ONE side; the product cap bounds what the algorithm is
+    // actually quadratic in. A product cap at or below the line cap would make the
+    // line cap unreachable, so the pair bound would be the only one that ever fired
+    // and the per-line rationale would describe nothing.
+    expect(DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP).toBeGreaterThan(
+      DIFF_INTRALINE_LINE_CHARACTER_CAP,
+    );
+  });
+
+  it("admits a pair of two cap-length lines only if the product allows it", () => {
+    // The two bounds are checkable against each other rather than by eye: the widest
+    // pair the line cap alone admits is the square of it, and whether that pair is
+    // computed is the product cap's answer and not a second reading of the first.
+    const widestAdmissiblePair = DIFF_INTRALINE_LINE_CHARACTER_CAP ** 2;
+    expect(DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP).toBeLessThan(widestAdmissiblePair);
+  });
+});
 
 describe("console bounds — the attachment bounds against their wire sources", () => {
   for (const [name, value, lowest, highest] of WIRE_MIRRORED_BOUNDS) {
