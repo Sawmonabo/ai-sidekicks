@@ -35,6 +35,7 @@
 import Anser from "anser";
 
 import { ANSI_SPAN_RENDER_CAP } from "../card-bounds.js";
+import { withoutResidualEscapes } from "./escape-sequences.js";
 
 /**
  * One parsed run, as the library reports it.
@@ -182,7 +183,10 @@ export function parseAnsiSpans(
       elidedSpanCount += 1;
       continue;
     }
-    spans.push(toSpan(entry));
+    const span = toSpan(entry);
+    // The residue anser left inside the chunk, removed before it can become a text
+    // node. `escape-sequences.ts` states why it happens after the parse and not before.
+    spans.push({ ...span, text: withoutResidualEscapes(span.text) });
   }
 
   return { spans, elidedSpanCount };

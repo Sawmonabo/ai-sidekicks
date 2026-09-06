@@ -107,7 +107,6 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
             <MachineBody
               content={props.content}
               {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-              kind="prose"
               sourceId={props.row.id}
               footnotes={props.footnotes}
               label={family.label}

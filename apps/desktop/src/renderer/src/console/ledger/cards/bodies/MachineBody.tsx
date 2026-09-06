@@ -27,6 +27,7 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
 import { Nothing } from "../../../primitives/index.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
+import { carriesAnsiEscapes } from "../ansi/escape-sequences.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
 import { UnavailableBody } from "./UnavailableBody.js";
@@ -40,11 +41,24 @@ import { type FootnoteRegistry } from "../markdown/index.js";
  * result is neither still renders as prose — that is the honest default for text whose
  * shape the wire does not declare, and inventing a third kind from the tool's name is
  * the same invention `card-family.ts` refuses.
+ *
+ * AND THE CHOICE IS READ OFF THE BODY, NOT PASSED IN. It was a prop, and every call
+ * site passed the same literal, which made the command-output arm unreachable and
+ * routed a shell-shaped result through a renderer that strips nothing — so a build
+ * log's escape sequences rendered as text. No registered payload declares a body's
+ * shape (`ToolActivityPayload` and `HydratedSessionEventContent` both carry the bytes
+ * and no content type), so the bytes are the only reading the wire supplies, and
+ * `carriesAnsiEscapes` is where that reading lives.
  */
 export const MACHINE_BODY_KINDS = ["prose", "command-output"] as const;
 
 /** One body shape. Derived from the enumeration, never restated. */
 export type MachineBodyKind = (typeof MACHINE_BODY_KINDS)[number];
+
+/** Which of the two a body is, from the only thing the wire supplies: its bytes. */
+export function machineBodyKindOf(body: string): MachineBodyKind {
+  return carriesAnsiEscapes(body) ? "command-output" : "prose";
+}
 
 export interface MachineBodyProps {
   /**
@@ -62,7 +76,6 @@ export interface MachineBodyProps {
    * happened.
    */
   readonly liveText?: string | undefined;
-  readonly kind: MachineBodyKind;
   /** The row this body belongs to — the footnote registry's first key half. */
   readonly sourceId: string;
   readonly footnotes: FootnoteRegistry;
@@ -103,13 +116,13 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   );
 }
 
-/** The body's bytes, through whichever renderer this kind names. */
+/** The body's bytes, through whichever renderer the body's own shape names. */
 function renderBodyText(
   props: MachineBodyProps,
   body: string,
   isComplete: boolean,
 ): React.JSX.Element {
-  if (props.kind === "command-output") {
+  if (machineBodyKindOf(body) === "command-output") {
     return <AnsiOutput source={body} label={props.label} />;
   }
   return (
