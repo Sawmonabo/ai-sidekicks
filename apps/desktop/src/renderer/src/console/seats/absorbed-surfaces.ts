@@ -1,28 +1,32 @@
-// The shipped Tier-1 families the console absorbed, and the guard two of them share.
+// The shipped Tier-1 families the console absorbed, and the guard one of them uses.
 //
 // Four families shipped before the console existed and were rendered by the
 // renderer root directly: the session probe, the participant roster, the runtime-node
 // roster, and the invite acceptance prompt. When the console took over the root they
 // stopped being rendered by anything, which is not a decision anybody made — it is
 // what happens when a new mount point lands before the old surfaces are re-homed.
-// This module re-homes THREE of them.
+// This module re-homes TWO of them. The other two are mounted by nothing at all, and
+// each is retired for its own reason rather than for one shared one.
 //
-// THE PARTICIPANT ROSTER IS THE ONE IT DOES NOT, and the reason is not that nowhere
-// would take it. It rendered presence for a session, and so does `collaboration/`,
-// which means one application drew one session's presence twice from two reads whose
-// answers were free to disagree. One of the two had to go, and it could only be this
-// one: the shipped component reads `window.sidekicks` on mount, so it cannot be
-// handed the bridge the console resolved and cannot render under the fixture at all,
-// while the collaboration roster carries the role, the terminal-lease holder and the
-// per-device fan-out that the shipped one has no seam for. Handing the shipped
-// component a read seam — the remedy the node roster took — is an edit inside
-// `session-members/`, which is Plan-002's subtree and not the console's to author.
+// THE PARTICIPANT ROSTER IS THE FIRST, and the reason is not that nowhere would take
+// it. It rendered presence for a session, and so does `collaboration/`, which means
+// one application drew one session's presence twice from two reads whose answers were
+// free to disagree. One of the two had to go, and it could only be this one: the
+// collaboration roster carries the role, the terminal-lease holder and the per-device
+// fan-out, and the shipped component has a seam for none of the three — so beside the
+// roster that draws all of them it has no fact left to contribute. It reads
+// `window.sidekicks` on mount besides, so it could never be handed the bridge the
+// console resolved and could not render under the fixture at all.
 //
-// ABSORBED BY IMPORT, NOT BY CALL. A plan-owned subtree whose owner MOUNTS INTO the
-// console reaches the frame by calling `registerConsoleSurface`; the console imports
-// it through no path, which is why the layering gate bans those subtrees outright.
-// These are the stated exception — they are shipped Tier-1 components with no owner
-// left to make the call, so the console absorbs them.
+// THE INVITE ACCEPTANCE PROMPT IS THE SECOND, AND ITS MOUNT IS GONE RATHER THAN
+// DORMANT. That component takes the raw invite token as a prop and issues
+// `invite.accept` with it, and the deep-link invariants confine that token to the
+// main process — the renderer holds an opaque reference instead. So there is no
+// caller left that could supply what the component's one prop requires, and the
+// acceptance it performs is performed by main behind the reference
+// (`collaboration/invites/pending-invite.ts`). Its own header records the same
+// reshape from the other side. Both components are untouched; nothing here mounts
+// either of them.
 //
 // IN `seats/` RATHER THAN IN `frame/`, WHICH IS WHERE THEY WERE WRITTEN. A mount here
 // reads a bridge source, two primitives, and a branded id, and nothing above
@@ -49,17 +53,16 @@
 // a renderer subtree OUTSIDE the console, absorbed by the console as a whole rather
 // than authored by any family in it.
 //
-// WHY TWO OF THE THREE MOUNTS ARE GUARDED ON THE BRIDGE SOURCE. The probe and the
-// acceptance prompt read `window.sidekicks` directly rather
-// than taking a bridge from context, so the console's fixture cannot stand in for the
-// preload the way it does for every console-authored surface. Under the fixture they
-// would reach past it: in a window with no preload at all they throw into the surface
-// boundary and read as a crash, and in the fixture build they would answer from the
-// live daemon beside fixture data in the same window, which is worse than answering
-// nothing. So the console says the question was not put, which is exactly what
-// happened.
+// WHY ONE OF THE TWO MOUNTS IS GUARDED ON THE BRIDGE SOURCE. The probe reads
+// `window.sidekicks` directly rather than taking a bridge from context, so the
+// console's fixture cannot stand in for the preload the way it does for every
+// console-authored surface. Under the fixture it would reach past it: in a window
+// with no preload at all it throws into the surface boundary and reads as a crash,
+// and in the fixture build it would answer from the live daemon beside fixture data
+// in the same window, which is worse than answering nothing. So the console says the
+// question was not put, which is exactly what happened.
 //
-// THE NODE ROSTER IS NO LONGER ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
+// THE NODE ROSTER IS NOT ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
 // That view now takes an optional read seam and this module builds one from the bridge
 // the console has already resolved, so it asks whichever bridge this window is running
 // on: the control plane under the preload, the scenario's own roster frames under the
@@ -77,10 +80,6 @@ import { ConsoleRefusalError } from "../core/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
-// Deep, because `session-members/` ships no barrel. The other two are reached
-// through theirs. Adding one is that family's own diff, not the console's — the
-// console does not author files inside a subtree it merely absorbs.
-import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
 
 /**
  * The session probe, built on the participant's own act.
@@ -215,22 +214,6 @@ function nodeRosterReadsFrom(bridge: ConsoleBridge): NodeRosterReads {
       return subscription.unsubscribe;
     },
   };
-}
-
-/**
- * The invite acceptance prompt, mounted inside the console's invite confirmation.
- *
- * Takes the token rather than a route for the reason the slot table gives: no
- * address carries one, so a route could never supply it. The component performs
- * the acceptance itself — this console authors no second `invite.accept` caller —
- * and the guard travels with it, so a confirmation cannot mount the prompt past
- * the fixture check.
- */
-export function renderAbsorbedInviteAcceptance(
-  bridgeSource: ConsoleBridgeSource,
-  token: string,
-): ReactNode {
-  return mountAbsorbedSurface(bridgeSource, () => createElement(InviteAcceptView, { token }));
 }
 
 /**

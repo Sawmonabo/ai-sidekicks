@@ -48,7 +48,16 @@ import type { SessionStore } from "../../store/index.js";
 import { PushDrivenRead, servedValueOrRaise, subscribeDaemonEvent } from "../../seats/index.js";
 
 const PRESENCE_READ_METHOD = "presence.read";
-const PRESENCE_SUBSCRIBE_EVENT = "presence.subscribe";
+/**
+ * The registered Awareness change signal, declared once for both of its readers.
+ *
+ * The roster below and `collaboration/activity-feed.ts` answer the same push with
+ * two different reads — who is present, and what they are doing — and one seam
+ * spelled twice is the drift `apps/desktop/AGENTS.md §Shared code` forbids: a name
+ * corrected in one module and not the other leaves the second subscribed to a
+ * string the daemon does not serve, which reads exactly like a quiet session.
+ */
+export const PRESENCE_SUBSCRIBE_EVENT = "presence.subscribe";
 
 /** The refusal origin every roster-read failure carries. */
 export const PRESENCE_ROSTER_ORIGIN = "presence-roster";

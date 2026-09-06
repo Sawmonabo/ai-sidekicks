@@ -46,6 +46,7 @@ import type { ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { isCurrentSessionSubject, type SessionSubject } from "../seats/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activity-model.js";
+import { createActivityFeed, type ActivityFeed } from "./activity-feed.js";
 import { createChannelDirectory, type ChannelDirectory } from "./channels/channel-model.js";
 import { createPresenceRoster, type PresenceRoster } from "./members/presence-model.js";
 
@@ -61,6 +62,16 @@ export interface CollaborationSessionModels {
   readonly subject: SessionSubject;
   readonly clock: ConsoleClock;
   readonly activity: ActivityIndicatorRegistry;
+  /**
+   * The one producer that fills {@link activity}.
+   *
+   * Held beside the registry rather than inside it because the two have different
+   * jobs and different failure modes: the registry is the settled reading every
+   * indicator renders from, and this is the read that keeps it current — which can
+   * refuse, and whose refusal a surface may show without the registry knowing what a
+   * wire is.
+   */
+  readonly activityFeed: ActivityFeed;
   readonly channelDirectory: ChannelDirectory;
   readonly presenceRoster: PresenceRoster;
   readonly labels: ChannelActivityLabels;
@@ -131,6 +142,7 @@ export class CollaborationSessionModelHolder {
     const built = buildSessionModels(bridge, sessionStore);
     built.channelDirectory.start();
     built.presenceRoster.start();
+    built.activityFeed.start();
     this.#current = built;
     this.#outstandingLeaseCount = 1;
     return this.#leaseOn(built);
@@ -146,6 +158,9 @@ export class CollaborationSessionModelHolder {
     }
     held.channelDirectory.dispose();
     held.presenceRoster.dispose();
+    // The feed before the registry it writes into: a settlement landing between the
+    // two would note an indicator on a registry that had already released its timers.
+    held.activityFeed.dispose();
     held.activity.dispose();
   }
 
@@ -186,10 +201,12 @@ function buildSessionModels(
   sessionStore: SessionStore,
 ): CollaborationSessionModels {
   const clock = consoleClockFor(bridge);
+  const activity = new ActivityIndicatorRegistry(clock);
   return {
     subject: { bridge, sessionStore },
     clock,
-    activity: new ActivityIndicatorRegistry(clock),
+    activity,
+    activityFeed: createActivityFeed({ bridge, sessionStore, clock, registry: activity }),
     channelDirectory: createChannelDirectory({ bridge, sessionStore, clock }),
     presenceRoster: createPresenceRoster({ bridge, sessionStore, clock }),
     labels: sessionProjectionLabels(sessionStore),

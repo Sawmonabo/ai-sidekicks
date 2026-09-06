@@ -264,7 +264,7 @@ describe("the growth ledger's two identity-and-registry rows — no method to na
   });
 });
 
-describe("the composed ledger — eleven planes, one key space", () => {
+describe("the composed ledger — thirteen planes, one key space", () => {
   /** Every key that appears in more than one plane, in the order planes are spread. */
   function keysCarriedByTwoPlanes(
     planes: readonly Readonly<Record<string, unknown>>[],

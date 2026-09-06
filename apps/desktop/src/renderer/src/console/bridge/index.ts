@@ -276,6 +276,11 @@ export {
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
+// The served shape of a growth SUBSCRIPTION, published beside the outcome for the
+// same reason: the deep-link path's owner drains one, and a view family that had to
+// name the shape itself would be declaring a second reading of what this port
+// promises.
+export type { GrowthStream } from "./growth-port/growth-outcome.js";
 
 // The per-operation request and value table. Published for exactly one reader: the
 // collaboration family's mutation coordinator, which binds a growth WRITE the way it
@@ -492,3 +497,25 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // out — and the terminal's host-presence fold is the production reader that makes the
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
+
+// The two Awareness activity fields' readings, through the door because the
+// collaboration family folds a snapshot of them into its indicator registry and a
+// view family may not reach past a barrel into this one. They leave through
+// `growth-values/presence.js`, the module that DECLARES them, on the rule the
+// `GrowthArtifactSummary` line above states.
+export type {
+  GrowthActivitySnapshot,
+  GrowthAgentActivityReading,
+  GrowthComposingReading,
+} from "./growth-values/presence.js";
+
+// The pending confirmation and the four arms one attempt on it can end in. Through
+// the door and from their declaring module for the same reason: the confirmation
+// surface is the collaboration family's, and every arm it renders is one of these.
+export type { GrowthInviteOutcome, GrowthPendingInvite } from "./growth-values/invites.js";
+
+// The composer's own composing publisher. It lives in this family because it is a
+// write adapter over the growth port — the `quotas/` reads' mirror image — and it
+// leaves through this door because its one production reader is the composer, which
+// sits outside the console entirely and reaches every console family through a door.
+export { ComposingPublisher } from "./presence/composing-publisher.js";

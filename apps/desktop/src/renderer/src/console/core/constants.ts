@@ -365,12 +365,37 @@ export const RESOLVED_PROSE_INLINE_CAP = 240;
  * staleness window, so an indicator is gone from the screen long before the
  * protocol would garbage-collect the client that wrote it.
  *
- * The publisher half is deliberately absent: no surface in this console emits a
- * composing signal, because no transport carries one, and a bound spent by nobody
- * is a number that would go stale unread before its first reader arrived. It lands
- * beside the emitter, in the change that adds one.
+ * The publisher half is the two bounds below, and both are stated against this one
+ * rather than beside it: a receiver that clears at ten seconds is only correct while
+ * a still-composing sender refreshes inside that window, so the three numbers are one
+ * decision and a reader who moves this one has to see the other two.
  */
 export const COMPOSING_RECEIVED_STALE_MS = 10_000;
+
+/**
+ * How often a composing sender re-publishes while a person is still typing, in
+ * milliseconds.
+ *
+ * Comfortably under {@link COMPOSING_RECEIVED_STALE_MS}, so a reader's indicator is
+ * refreshed twice over before it would expire and one dropped publication does not
+ * blink the indicator off a screen the sender is still typing at. It is not smaller
+ * than that margin needs: every publication is a wire call, and a keystroke-rate
+ * emit would put one on the wire per character for the length of a message.
+ */
+export const COMPOSING_PUBLISH_INTERVAL_MS = 4_000;
+
+/**
+ * How long after the last keystroke a composing sender publishes its own clear, in
+ * milliseconds.
+ *
+ * The sender's stop is an EDGE and the receiver's is a deadline, and this is why both
+ * exist: a person who stops mid-sentence to think is not composing, and waiting for
+ * the receiver's bound to notice would leave the indicator up for the whole of
+ * {@link COMPOSING_RECEIVED_STALE_MS} after they had already stopped. Three seconds
+ * is long enough that an ordinary pause between words does not flicker the indicator
+ * and short enough that a reader is not told someone is typing when nobody is.
+ */
+export const COMPOSING_IDLE_STOP_MS = 3_000;
 
 /**
  * Concurrent composers rendered by name before the line folds to a count.
@@ -805,3 +830,21 @@ export const PHASE_GRAPH_MIN_ZOOM = 0.35;
  * there is nothing on this surface to inspect at pixel scale.
  */
 export const PHASE_GRAPH_MAX_ZOOM = 1.5;
+
+// ── The deep-link invite path's bounds ───────────────────────────────────────
+
+/**
+ * How many invitations awaiting confirmation this window holds at once.
+ *
+ * A bound rather than an unbounded list, because the pending feed's producer is the
+ * operating system: every press of an invite link fires the protocol handler again,
+ * and a window that queued each one would grow a list nobody is reading for as long
+ * as it stays open.
+ *
+ * DROPPING THE SURPLUS IS RECOVERABLE, WHICH IS WHY A BOUND IS ADMISSIBLE AT ALL. The
+ * main process holds each reference until an act releases it, and re-opening the feed
+ * re-delivers every one that is still held — so a frame this window declines to queue
+ * is not lost, it is simply not on screen yet. Eight is well past any real arrival
+ * burst and small enough that the whole queue fits in one reading.
+ */
+export const PENDING_INVITE_QUEUE_MAX = 8;

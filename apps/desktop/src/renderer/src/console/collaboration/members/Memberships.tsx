@@ -42,14 +42,22 @@
 // ends read access after a thirty-second grace window. Neither is undone by
 // pressing Reactivate. Printed on every row that copy is noise a person stops
 // reading; printed in the confirmation it is the sentence they are agreeing to.
+//
+// AND WHY THE DEEP LINK'S CONFIRMATION IS ANNOUNCED HERE RATHER THAN OPENED
+//
+// An invitation arriving on the operating-system deep link is a whole-screen
+// question, and it arrives on somebody else's schedule: mid-approval, mid-run,
+// mid-sentence. A dialog that opened itself would take the screen from whatever was
+// being done, which is the one thing every console surface is forbidden to do. So an
+// arrival draws a notice, unmissable and persistent, and the confirmation opens on a
+// press — one gesture later, and never a moment the person did not choose.
 
 import { useMemo, useState } from "react";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import {
-  InviteConfirmation,
-  type PendingInviteConfirmation,
-} from "../invites/InviteConfirmation.js";
+import { InlineRefusal } from "../../primitives/index.js";
+import { InviteConfirmation } from "../invites/InviteConfirmation.js";
+import { usePendingInvites } from "../invites/use-pending-invites.js";
 import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
@@ -77,23 +85,13 @@ export interface MembershipsProps {
    * never a fact about what the caller may do, which stays the daemon's to answer.
    */
   readonly isLastKnown: boolean;
-  /**
-   * An invitation waiting on this person's confirmation.
-   *
-   * Always absent today, and the absence is the wire's rather than a default: the
-   * deep-link pending-invite subscription, its preview, and its confirm / retry /
-   * dismiss verbs are on no bridge namespace and on no growth-slate row, so
-   * nothing in this console can produce one. It is a prop rather than a read for
-   * exactly that reason — a reader supplies it when one exists, and until then the
-   * confirmation renders nothing at all.
-   */
-  readonly pendingInvite?: PendingInviteConfirmation | undefined;
 }
 
 export function Memberships(props: MembershipsProps): React.JSX.Element {
   const { context, rows } = props;
   const { bridge, sessionStore } = context;
-  const [isConfirmationDismissed, setIsConfirmationDismissed] = useState(false);
+  const { snapshot: pendingInvites, adapter } = usePendingInvites(bridge);
+  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
 
   const coordinator = useMemo(
     () =>
@@ -105,24 +103,52 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
   );
   const mutation = useWireMutation(coordinator);
 
-  const pendingInvite = isConfirmationDismissed ? undefined : props.pendingInvite;
-  if (pendingInvite !== undefined) {
-    // One screen, one job. Nothing else this body renders survives a pending
-    // confirmation — an early return rather than a conditional wrapper, so there is
-    // no branch in which the ledger's own controls are reachable behind the dialog.
-    return (
-      <InviteConfirmation
-        pending={pendingInvite}
-        bridgeSource={bridge.source}
-        onDismiss={() => {
-          setIsConfirmationDismissed(true);
-        }}
-      />
-    );
-  }
-
   return (
     <section className="meridian-members" aria-label="Memberships">
+      {pendingInvites.invite === undefined ? null : (
+        <div className="meridian-members__invitation" role="status">
+          <p className="meridian-members__invitation-lede">
+            {pendingInvites.waitingBehind > 0
+              ? `You have ${String(pendingInvites.waitingBehind + 1)} invitations waiting.`
+              : "You have an invitation waiting."}
+          </p>
+          <button
+            type="button"
+            className="meridian-members__invitation-open"
+            onClick={() => {
+              setIsConfirmationOpen(true);
+            }}
+          >
+            Look at it
+          </button>
+        </div>
+      )}
+      {pendingInvites.feedRefusal === undefined ? null : (
+        <InlineRefusal
+          code={pendingInvites.feedRefusal.code}
+          detail={pendingInvites.feedRefusal.detail}
+        />
+      )}
+      <InviteConfirmation
+        open={isConfirmationOpen && pendingInvites.invite !== undefined}
+        onOpenChange={setIsConfirmationOpen}
+        snapshot={pendingInvites}
+        onConfirm={() => {
+          adapter.confirm();
+        }}
+        onRetry={() => {
+          adapter.retry();
+        }}
+        onDiscard={() => {
+          adapter.dismiss();
+          setIsConfirmationOpen(false);
+        }}
+        onAcknowledge={() => {
+          adapter.acknowledge();
+          setIsConfirmationOpen(false);
+        }}
+      />
+
       <header className="meridian-members__head">
         <h3 className="meridian-members__title">Memberships</h3>
         <p className="meridian-members__lede">

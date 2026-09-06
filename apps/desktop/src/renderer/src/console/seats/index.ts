@@ -311,14 +311,12 @@ export { subscribeDaemonEvent } from "./wire-access.js";
 
 // The mounts for the three shipped Tier-1 families the console absorbed, two of them
 // carrying the bridge-source guard that decides whether they may be mounted at all.
+// The fourth, the invite acceptance prompt, is mounted by nothing: its one prop is the
+// raw invite token, which the deep-link lifecycle confines to the main process.
 //
 // In this family because a mount reads a bridge source, two primitives and the console's
 // own bridge, and nothing above `bridge/`, and on this door because the surfaces that
 // mount them are view families. The fourth shipped family is absent on purpose: the
 // participant roster rendered a session's presence a second time beside the
 // collaboration family's own roster, and it is retired rather than published here.
-export {
-  renderAbsorbedInviteAcceptance,
-  renderAbsorbedNodeRoster,
-  renderAbsorbedSessionProbe,
-} from "./absorbed-surfaces.js";
+export { renderAbsorbedNodeRoster, renderAbsorbedSessionProbe } from "./absorbed-surfaces.js";

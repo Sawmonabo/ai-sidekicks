@@ -129,7 +129,16 @@
 .meridian-members__dialog-cancel,
 .meridian-members__dialog-confirm,
 .meridian-members__refusal-dismiss,
-.meridian-invites__refusal-dismiss {
+.meridian-invites__refusal-dismiss,
+.meridian-invite-create__send,
+.meridian-invite-create__refusal-dismiss,
+.meridian-invite-reveal__copy,
+.meridian-invite-reveal__done,
+.meridian-invite-confirmation__confirm,
+.meridian-invite-confirmation__discard,
+.meridian-invite-outcome__retry,
+.meridian-invite-outcome__acknowledge,
+.meridian-members__invitation-open {
   font: inherit;
   font-size: var(--meridian-text-xs);
   padding: var(--meridian-space-1) var(--meridian-space-3);
@@ -142,13 +151,22 @@
 
 .meridian-members__manage:hover:enabled,
 .meridian-members__revoke:hover:enabled,
-.meridian-invites__row-action:hover:enabled {
+.meridian-invites__row-action:hover:enabled,
+.meridian-invite-create__send:hover:enabled,
+.meridian-invite-reveal__copy:hover:enabled,
+.meridian-invite-confirmation__confirm:hover:enabled,
+.meridian-invite-outcome__retry:hover:enabled,
+.meridian-members__invitation-open:hover:enabled {
   border-color: var(--meridian-edge-strong);
 }
 
 .meridian-members__manage:disabled,
 .meridian-members__revoke:disabled,
-.meridian-invites__row-action:disabled {
+.meridian-invites__row-action:disabled,
+.meridian-invite-create__send:disabled,
+.meridian-invite-confirmation__confirm:disabled,
+.meridian-invite-confirmation__discard:disabled,
+.meridian-invite-outcome__retry:disabled {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;
@@ -163,4 +181,25 @@
 .meridian-members__dialog :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
+}
+
+/* An invitation waiting on this window. A notice rather than a dialog that opens
+ * itself: the arrival is on somebody else's schedule, and taking the screen from
+ * whatever was being done is the one thing a console surface may not do. */
+.meridian-members__invitation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-members__invitation-lede {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
 }

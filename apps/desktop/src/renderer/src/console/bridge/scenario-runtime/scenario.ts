@@ -20,6 +20,11 @@
 
 import type { MembershipRole, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
 
+import type {
+  GrowthActivitySnapshot,
+  GrowthInviteOutcome,
+  GrowthPendingInvite,
+} from "../growth-values/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
 
@@ -51,6 +56,49 @@ export interface ScenarioBeat {
 export interface ScenarioRuntimeNodeRosterFrame {
   readonly atMs: number;
   readonly nodes: readonly RuntimeNodeRosterEntry[];
+}
+
+/**
+ * One reading of the session's live activity, and the tick it becomes current.
+ *
+ * A frame rather than a scripted reply, for {@link ScenarioRuntimeNodeRosterFrame}'s
+ * reason applied to a faster-moving fact: composing STARTS and STOPS inside one
+ * scenario, and a reply table keyed by call name answers every read with one fixed
+ * value. A frame table is what lets a scenario show a person begin to type, a second
+ * person join them, and the first one stop — which is the only way the indicator's
+ * folding rule and its empty state are both reachable from one script.
+ *
+ * The two Awareness fields are carried TOGETHER because one read answers both, and
+ * because a scenario that could move them independently would invite an author to
+ * script an agent indicator that outlives the run it belongs to.
+ */
+export interface ScenarioActivityFrame {
+  readonly atMs: number;
+  readonly activity: GrowthActivitySnapshot;
+}
+
+/**
+ * One invitation arriving on this window's deep link, and what confirming it does.
+ *
+ * THE OUTCOME IS SCRIPTED BESIDE THE INVITATION rather than in the reply table,
+ * because it is the answer to an ACT and not to a read: nothing produces an outcome
+ * until a person presses the one control that accepts, so a scenario states what
+ * would happen if they did and the fixture holds it until they do.
+ *
+ * `onRetry` is separate and optional for the same reason it exists on the wire: a
+ * retryable failure is followed by a SECOND attempt on the same reference, and a
+ * scenario that could only state one outcome could never show one succeed. Absent, a
+ * retry re-delivers whatever `onConfirm` states.
+ *
+ * The invitation carries an opaque reference and no token, which is
+ * `Plan-023 §Invariants` I-023-5 made unrepresentable: a fixture cannot script a raw
+ * token onto this surface because the shape has nowhere to put one.
+ */
+export interface ScenarioPendingInviteFrame {
+  readonly atMs: number;
+  readonly invite: GrowthPendingInvite;
+  readonly onConfirm: GrowthInviteOutcome;
+  readonly onRetry?: GrowthInviteOutcome;
 }
 
 /** What every canned reply carries, whichever way it settles. */
@@ -217,6 +265,40 @@ export interface ConsoleScenario {
    * whose ANSWER is a function of the clock.
    */
   readonly runtimeNodeRoster?: readonly ScenarioRuntimeNodeRosterFrame[];
+  /**
+   * The session's live activity as it reads over scenario time.
+   *
+   * OPTIONAL, and the optionality is the answer rather than a gap — the roster
+   * member's reading, applied here: a scenario that names no activity has not been
+   * asked, so the read refuses with the "not checked" absence instead of resolving
+   * with two empty lists. A scenario that DOES name activity and states a frame with
+   * both lists empty has been asked and answered, and the indicators render nothing,
+   * which is their ordinary state.
+   */
+  readonly activity?: readonly ScenarioActivityFrame[];
+  /**
+   * Invitations arriving on this window's deep link, and what accepting each does.
+   *
+   * OPTIONAL on the same rule, and load-bearing in the other direction too: the
+   * confirmation is a whole-surface takeover, so a scenario that scripted one by
+   * default would put a dialog in front of every screenshot of every other surface.
+   */
+  readonly pendingInvites?: readonly ScenarioPendingInviteFrame[];
+  /**
+   * The host this scenario's node answers its control plane on.
+   *
+   * OPTIONAL on the roster member's rule, and the two states are different facts a
+   * surface draws differently: a scenario that names a host lets the invite create
+   * path reveal the link a person would actually send, and one that names none
+   * leaves the host read refusing, which is what a console that has not been told
+   * its own control plane renders.
+   *
+   * A BARE HOST, never a URL and never a scheme. `Spec-002 §Invite Delivery` fixes
+   * the link's form, so the scenario states the one fact the wire would supply and
+   * the composition stays in the one module that owns it — a scenario carrying a
+   * whole link could spell the path differently from the console that renders it.
+   */
+  readonly controlPlaneHost?: string;
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
 }

@@ -188,6 +188,43 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
+// WHY THE ACTIVITY READ IS SERVED, AND WHY THE COMPOSER'S TWO WRITES ARE NOT
+//
+// The read is served so a scenario that states who is composing where can drive the
+// indicators at all: every one of them rendered permanently empty while the operation
+// refused, which is a surface whose only reachable state is its absence. Its
+// unscripted arm REFUSES rather than serving two empty lists, on the runtime-node
+// roster's rule — a scenario that has not said has left the question unasked, and
+// "nobody is composing" is a claim about the room that nothing checked.
+//
+// The composer's `presenceComposingSet` / `presenceComposingClear` are writes with no
+// empty state and no receipt, and there is a second reason beside that one: what a
+// publish PRODUCES is somebody else's reading, so the fixture serving them would have
+// to write into the very snapshot the read above answers from — a fixture publishing
+// to itself, which would show this window its own indicator, something no real
+// Awareness client ever does. They refuse, and the emitter's own fail-closed rule
+// (it stops after a refusal) is exercised by that refusal rather than around it.
+//
+// WHY THE PENDING-INVITE NAMESPACE IS SERVED IN FULL
+//
+// All five, because the surface is a lifecycle rather than a read: a confirmation
+// that could be shown but never confirmed, or confirmed but never answered, leaves
+// three of its four outcome arms unreachable from any scenario, screenshot, or
+// bridge-driven test. `fixture-pending-invites.ts` holds the whole of it and states
+// why the reference is spent where it is.
+//
+// WHY THE CONTROL-PLANE HOST READ IS SERVED FROM THE SCENARIO AND FROM NOWHERE ELSE
+//
+// A minted invitation is only sendable as a link, and the link is composed from this
+// host — so leaving the read refusing left the one-time reveal permanently unable to
+// show what a person would actually paste, which is the whole act. It is served from
+// a scenario member the author writes down, exactly as the caller-identity read is,
+// and refused by a scenario that names none. What it may never do is INVENT one: a
+// plausible hostname nobody declared would put a copyable link in front of a person
+// that opens nothing, and that is worse than the sentence saying the host has not
+// been read. A scenario declaring one is not that — it is a fixture stating a fact
+// about the node it stands for, like every other fact in it.
+
 import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "./fixture-collaboration-reads.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
@@ -225,6 +262,13 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
   ...typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  "presenceActivityRead",
+  "invitePendingSubscribe",
+  "inviteOutcomeSubscribe",
+  "inviteConfirmPending",
+  "inviteRetryPending",
+  "inviteDismissPending",
+  "controlPlaneHostRead",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -272,6 +316,22 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // module that implements them so the ids and the handlers cannot disagree. Every one
   // is script-only, and `fixture-collaboration-reads.ts` carries the reasoning for each.
   ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  // presence — the activity read, answered from a scenario that states its own
+  // activity frames and refused from one that does not. The composer's two writes
+  // are deliberately absent: see the header.
+  "presenceActivityRead",
+  // invite — the whole pending-invite lifecycle, so the confirmation's four outcome
+  // arms are each reachable from a scenario rather than only from a unit case.
+  "invitePendingSubscribe",
+  "inviteOutcomeSubscribe",
+  "inviteConfirmPending",
+  "inviteRetryPending",
+  "inviteDismissPending",
+  // The node's own control-plane host, so a minted invitation can be revealed as the
+  // link it will be sent as. Answered from a scenario that names one; refused by a
+  // scenario that does not, which is the state a console that has not been told its
+  // own control plane is in.
+  "controlPlaneHostRead",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -306,4 +366,16 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
   ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  // The three acts on a pending invitation. Each addresses a reference the scenario
+  // minted, so a scenario that scripted no invitation has no reference for any of
+  // them to name — and serving a receipt for one would tell the confirmation that
+  // main accepted an invitation no author ever wrote down.
+  "inviteConfirmPending",
+  "inviteRetryPending",
+  "inviteDismissPending",
+  // Neither has an honest empty answer. "Nobody is composing anywhere" is a claim
+  // about the room that nothing checked, and there is no empty host — a node either
+  // answers on one or this fixture has not been told which.
+  "presenceActivityRead",
+  "controlPlaneHostRead",
 ];

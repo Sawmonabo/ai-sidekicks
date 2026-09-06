@@ -23,7 +23,9 @@ import {
   readRememberedRuleList,
   type ParsedRows,
 } from "../approvals/index.js";
+import { readActivityFromScenario } from "./fixture-activity.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
+import { FixturePendingInvites } from "./fixture-pending-invites.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { answerScriptedWrite } from "./fixture-scripted-write.js";
 import { fixtureCollaborationReads } from "./fixture-collaboration-reads.js";
@@ -51,6 +53,10 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  * function` in a surface.
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
+  // The deep link's whole lifecycle, held for this engine's life. An instance rather
+  // than five helpers, because the five operations share one table of references and
+  // one open outcome feed — the reasoning is that module's own.
+  const pendingInvites = new FixturePendingInvites(engine);
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow — spread from the module that implements them, so the served ids next
     // door and the handlers here are held to each other by the `Pick` above.
@@ -238,6 +244,38 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "sidekickPeerInvocationSet",
         request,
       ),
+    // presence — the session's live activity, resolved by the frame that has fallen
+    // due on the frozen clock. Not routed through the scripted-reply seam, for the
+    // runtime-node roster's reason: this answer is a function of the CLOCK, and the
+    // reply table answers each call with one fixed value.
+    presenceActivityRead: async (request) => readActivityFromScenario(engine, request),
+    // invite — the pending lifecycle. The two feeds are opened per subscribe, so a
+    // window that re-subscribes after a teardown is handed a live one rather than a
+    // stream somebody else already closed.
+    invitePendingSubscribe: async () => ({
+      status: "served",
+      value: pendingInvites.openPendingFeed(),
+    }),
+    inviteOutcomeSubscribe: async () => ({
+      status: "served",
+      value: pendingInvites.openOutcomeFeed(),
+    }),
+    inviteConfirmPending: async (request) => pendingInvites.confirm(request.reference),
+    inviteRetryPending: async (request) => pendingInvites.retry(request.reference),
+    inviteDismissPending: async (request) => pendingInvites.dismiss(request.reference),
+    // The node's control-plane host, from the scenario's own declaration. Refused as
+    // the SCENARIO's gap where none is declared — this fixture serves the operation,
+    // so naming an unbuilt wire would send a reader to a document owing something
+    // that already has a stand-in — and never answered with a host this fixture
+    // chose, which would compose a link that opens nothing and looks exactly like
+    // one that works.
+    controlPlaneHostRead: async () => {
+      const { controlPlaneHost } = engine.scenario;
+      if (controlPlaneHost === undefined) {
+        return growthUnscriptedReply("controlPlaneHostRead", "this node's control-plane host");
+      }
+      return { status: "served", value: { host: controlPlaneHost } };
+    },
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

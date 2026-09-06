@@ -17,6 +17,7 @@ function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
     inviteId: "invite-1",
     state: "pending",
     expiresAt: "2026-01-08T10:05:00.000Z",
+    joinMode: "collaborator",
     ...overrides,
   };
 }

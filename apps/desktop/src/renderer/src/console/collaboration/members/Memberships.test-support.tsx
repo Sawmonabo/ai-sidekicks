@@ -15,7 +15,6 @@ import { SessionStore } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import { deriveMembershipRows } from "./members-model.js";
 import { Memberships as MembershipsSurface } from "./Memberships.js";
-import type { PendingInviteConfirmation } from "../invites/InviteConfirmation.js";
 
 /**
  * The surface, with the rows its section body derives.
@@ -28,7 +27,6 @@ import type { PendingInviteConfirmation } from "../invites/InviteConfirmation.js
  */
 export function Memberships(props: {
   readonly context: SidebarSectionContext;
-  readonly pendingInvite?: PendingInviteConfirmation | undefined;
   readonly rosterEntries?: ReadonlyMap<string, never> | undefined;
   readonly rosterRefusal?: ConsoleRefusal | undefined;
   readonly isLastKnown?: boolean;
@@ -43,7 +41,6 @@ export function Memberships(props: {
       rows={rows}
       rosterRefusal={props.rosterRefusal}
       isLastKnown={props.isLastKnown ?? false}
-      pendingInvite={props.pendingInvite}
     />
   );
 }

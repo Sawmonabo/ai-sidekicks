@@ -10,26 +10,33 @@
 // rather than as an empty ledger: "the read is not registered" and "you have sent
 // nobody an invitation" are different facts.
 //
-// Two of this surface's three designed controls are NOT drawn, each for a reason
-// that is a missing input rather than a policy choice:
+// ALL THREE OF THIS SURFACE'S DESIGNED CONTROLS ARE NOW DRAWN, and the two that
+// were not each needed a read rather than a decision:
 //
 //   • CREATE. `InviteCreate` is `{sessionId, inviter, joinMode, expiresAt}` and
-//     `inviter` is the SENDER'S OWN participant id. No registered read tells this
-//     console who it is — `presence.read` answers other people's ids and their
-//     presence, `SessionReadResponse` carries a snapshot and cursors, and the
-//     store projects participants without marking which one is the operator. The
-//     request cannot be composed, so the region says which read would let it be
-//     rather than drawing a control that would compose a request with a guess in
-//     it. The all-sessions list sets the precedent in its own header: an offered
-//     control with no wire behind it is the capability-claimed-but-not-implemented
-//     shape, and drawing it disabled is the same claim with a tooltip.
+//     `inviter` is the SENDER'S OWN participant id, which no session read marks —
+//     `presence.read` answers other people's ids and their presence,
+//     `SessionReadResponse` carries a snapshot and cursors, and the store projects
+//     participants without saying which one is the operator. The growth port's
+//     `callerParticipantRead` is that read, and `CreateInvite.tsx` composes the
+//     request from it. A read still in flight closes the send control and a refused
+//     one says why, which is the request's own missing member rather than a
+//     permission this console decided.
 //
-//   • COPY LINK. The link is `https://<control-plane-host>/invite/<token>`, and
-//     the ledger row carries neither half: `GrowthInviteSummary` is
-//     `{inviteId, state, expiresAt}`, the plaintext token is returned exactly once
-//     by `invite.create` (which this console cannot call), and no read anywhere
-//     hands the renderer its control-plane host. A copy control would copy an
-//     identifier that opens nothing.
+//   • COPY LINK. `Spec-002 §Invite Delivery` writes the link as
+//     `https://<control-plane-host>/invite/<token>`. The token is returned exactly
+//     once by `invite.create` and by nothing else, so the copy control belongs to
+//     the moment of the mint and not to a ledger row — `InviteLinkReveal.tsx` is
+//     that moment. The host is the growth port's `controlPlaneHostRead`; a host
+//     that refuses leaves the invitation minted and says the link could not be
+//     composed, rather than composing one around a guess.
+//
+// A MINT RE-READS THE LEDGER RATHER THAN WRITING INTO IT. `InviteCreateResponse`
+// carries no `state` and no `joinMode`, so folding a row in would mean composing two
+// members the wire did not send — the opposite of the revoke path below, whose reply
+// IS the row. One re-read at the moment a person acted is not a scheduled refresh:
+// nothing here polls, and `store/scheduling.ts` is still where a periodic re-read
+// would go if there were one.
 //
 // REVOKE IS DRAWN, because both of its inputs exist: the session comes from the
 // store this section is scoped to, and the invite id is on the served row. It is
@@ -72,7 +79,7 @@
 // to read. A timer counting down from a number the console invented would be
 // worse than the sentence.
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
@@ -84,7 +91,7 @@ import {
   useWireMutation,
 } from "../mutation-coordinator.js";
 import { SentInvitesLedger } from "./SentInvitesLedger.js";
-import { InviteCreationAbsence } from "./InviteCreationAbsence.js";
+import { CreateInvite } from "./CreateInvite.js";
 
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
@@ -115,6 +122,10 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   const { value: reading, publish: publishReading } = useSubjectScopedState<
     LedgerReading | undefined
   >(bridge, sessionId, () => undefined);
+  // How many times a person has minted an invitation here. Bumped by the form and
+  // read by the effect below, which is what makes the ledger re-ask after an act —
+  // a counter rather than a boolean, so two mints in a row both re-read.
+  const [mintCount, setMintCount] = useState(0);
 
   const revokeCoordinator = useMemo(
     () =>
@@ -140,9 +151,10 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   }, [revokeCoordinator]);
 
   useEffect(() => {
-    // One read, on mount, for the received shelf's reason: the wire behind this
-    // seam refuses today, so a repeat would re-ask a question with no answer, and
-    // `store/scheduling.ts` is where a real re-read will go when there is one.
+    // One read on mount, and one more each time this session mints an invitation.
+    // Nothing else re-asks: there is no interval here and no signal on this wire to
+    // wake on, so the only other thing that changes this ledger is the revoke below,
+    // whose own reply IS the row it changed.
     if (sessionId === undefined) {
       return;
     }
@@ -165,7 +177,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         });
       },
     );
-  }, [bridge, sessionId, publishReading]);
+  }, [bridge, sessionId, publishReading, mintCount]);
 
   const ledger = useMemo(
     () =>
@@ -185,7 +197,13 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         </p>
       </header>
 
-      <InviteCreationAbsence />
+      <CreateInvite
+        bridge={bridge}
+        sessionId={sessionId}
+        onMinted={() => {
+          setMintCount((count) => count + 1);
+        }}
+      />
 
       <SentInvitesLedger
         sessionId={sessionId}

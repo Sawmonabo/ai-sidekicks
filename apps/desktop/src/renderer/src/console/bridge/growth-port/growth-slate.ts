@@ -54,12 +54,14 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
-  // lane: cov-collab-channels
   | "channel-lifecycle-verbs"
   | "channel-roster-read"
   | "membership-roster-read"
   | "participant-presence-detail"
-  | "terminal-control-holder";
+  | "terminal-control-holder"
+  | "presence-activity-fields"
+  | "control-plane-host"
+  | "pending-invite-namespace";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -389,7 +391,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
     wireRegistered: false,
   },
-  // lane: cov-collab-channels
   "channel-lifecycle-verbs": {
     id: "channel-lifecycle-verbs",
     wire: "channel.create / channel.mute / channel.unmute / channel.archive — the four channel lifecycle verbs, with their request and reply shapes and the channel.* refusal codes they raise",
@@ -428,6 +429,35 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-003 §Required Behavior (one shared terminal per session, one holder at a time); api-payload-contracts.md §Session Terminal-Control Method Registry (controlHolder, and the null it resolves to when the holding node reads offline)",
     consumingSurface: "roster (the holder mark on the holding participant's row)",
+    wireRegistered: false,
+  },
+  // The two Awareness activity fields, on ONE row rather than two. They are a single
+  // publication surface with two mechanisms — the composer scalar is timed and the
+  // run-keyed map is edge-triggered — and every operation this row serves reads or
+  // writes both halves through the same daemon presence handler. Two rows would put
+  // one wire's registration under two owners with nothing to say which lands first.
+  "presence-activity-fields": {
+    id: "presence-activity-fields",
+    wire: "the two Awareness activity fields `activity.typing` and `activity.runs` — a read of the session's live activity state, and the composer's own set and clear emit for the human field",
+    owningDocument:
+      "Spec-002 §Default Behavior (both fields and the membership-restricted-channel suppression); Plan-002 T3.5 (the daemon presence handler surface the composer emits through); Spec-023 §Preload Bridge Contract (no presence namespace is on the shipped bridge)",
+    consumingSurface: "typing and agent-activity indicators (channel rows, roster rows)",
+    wireRegistered: false,
+  },
+  "control-plane-host": {
+    id: "control-plane-host",
+    wire: "the node's control-plane host, which an invitation's shareable link is composed from",
+    owningDocument:
+      "Spec-002 §Invite Delivery (the link's form); Spec-023 §Preload Bridge Contract (no shell read carries the host)",
+    consumingSurface: "invites surface (the one-time link reveal)",
+    wireRegistered: false,
+  },
+  "pending-invite-namespace": {
+    id: "pending-invite-namespace",
+    wire: "the five-method pending-invite bridge namespace, through which the main-confined result of the registered `invite.preview` mutation reaches the renderer as an opaque, single-use, TTL-bounded reference",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (the namespace is named there and is on no shipped bridge); Spec-002 §Interfaces And Contracts (the anonymous non-consuming invite preview main issues behind it)",
+    consumingSurface: "invite confirmation (the deep-link surface)",
     wireRegistered: false,
   },
 };
