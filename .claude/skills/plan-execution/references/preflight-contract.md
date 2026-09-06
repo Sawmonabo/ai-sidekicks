@@ -280,7 +280,7 @@ The survey ALSO runs the Gate-4 cite check (`gateTasksBlockCites`) on every surv
 | #83 | 5     | T5.3         | `a70de3e` | 2026-05-20 |
 | #87 | 5     | P5-residuals | `bc33f30` | 2026-05-21 |
 
-(#6/#8/#9/#10 reuse their on-disk entries when the manifest exists. On a true from-scratch rebuild they are **body-only matches** — their pre-mandate titles carry no `Plan-001` token — so the default run lists them as `skipped (no title token)`; the operator MUST re-run with `--include-body-matches` to pull them into synthesis/confirmation, and PR #6 additionally exceeds the 100-file page, routing through the truncation → operator-confirmation path.)
+(#6/#8/#9/#10 reuse their on-disk entries when the manifest exists. On a true from-scratch rebuild they are **body-only matches** — their pre-mandate titles carry no `Plan-001` token — so the default run lists them as `skipped (no title token)`; the operator MUST re-run with `--include-body-matches` to pull them into synthesis/confirmation. PR #6 is a 205-file monorepo bootstrap; the rebuild tool's paginated file fetch carries it whole, so it synthesizes with a complete `files:` array like any other candidate.)
 
 ## Stability
 

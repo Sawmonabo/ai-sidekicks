@@ -228,6 +228,15 @@ const SAMPLE_DETAILS = {
   files: [{ path: "packages/client-sdk/src/sessionClient.ts" }],
 };
 
+// What `gh pr view` itself returns now that the file list is fetched
+// separately: the same fixture without `files`.
+const METADATA_ONLY_SAMPLE = {
+  title: SAMPLE_DETAILS.title,
+  body: SAMPLE_DETAILS.body,
+  mergedAt: SAMPLE_DETAILS.mergedAt,
+  mergeCommit: SAMPLE_DETAILS.mergeCommit,
+};
+
 test("buildEntryFromPr: happy path with all fields", () => {
   const { entry, ambiguities } = buildEntryFromPr({ pr: 30, details: SAMPLE_DETAILS, plan: "001" });
   assert.deepEqual(ambiguities, []);
@@ -326,58 +335,129 @@ test("fetchMergedPrNumbers: does NOT throw when result is below FETCH_LIMIT", ()
   assert.equal(result.length, 999);
 });
 
-test("fetchPrDetails: forwards PR number into command", () => {
-  let calledWith = null;
+// fetchPrDetails issues TWO commands: `gh pr view` for metadata (no `files`)
+// and the paginated REST file endpoint, whose real output is newline-separated
+// raw filenames. This mock serves both and records what it was asked for.
+function makeDetailsGhRunner({ metadata, filePaths }) {
+  const commands = [];
   const ghRunner = (cmd) => {
-    calledWith = cmd;
-    return JSON.stringify(SAMPLE_DETAILS);
+    commands.push(cmd);
+    if (/gh api /.test(cmd)) {
+      return filePaths.length === 0 ? "" : `${filePaths.join("\n")}\n`;
+    }
+    return JSON.stringify(metadata);
   };
+  return { ghRunner, commands };
+}
+
+test("fetchPrDetails: forwards PR number into both commands", () => {
+  const { ghRunner, commands } = makeDetailsGhRunner({
+    metadata: { ...METADATA_ONLY_SAMPLE, changedFiles: 1 },
+    filePaths: ["packages/client-sdk/src/sessionClient.ts"],
+  });
   const result = fetchPrDetails({ pr: 30, ghRunner });
-  assert.deepEqual(result, SAMPLE_DETAILS);
-  assert.match(calledWith, /gh pr view 30 --json title,body,mergedAt,mergeCommit,files/);
+  assert.deepEqual(result.files, SAMPLE_DETAILS.files);
+  assert.equal(result.title, SAMPLE_DETAILS.title);
+  assert.match(commands[0], /gh pr view 30 --json title,body,mergedAt,mergeCommit,changedFiles/);
+  // The metadata read must NOT ask for `files`: the GraphQL page is a second,
+  // shorter answer to the question the paginated walk already answers in full.
+  assert.doesNotMatch(commands[0], /,files\b/);
+  assert.match(
+    commands[1],
+    /gh api repos\/\{owner\}\/\{repo\}\/pulls\/30\/files --paginate --jq '\.\[\]\.filename'/,
+  );
 });
 
-// Codex P2 finding on PR #35 round 4: gh pr view --json files issues a single
-// pullRequest.files(first: 100) GraphQL query with no internal pagination, so
-// PRs above the 100-file ceiling silently truncate. fetchPrDetails now also
-// requests changedFiles (the authoritative count) and halts with exit 7 when
-// returned files.length is below it.
-test("fetchPrDetails: requests changedFiles alongside files", () => {
-  let calledWith = null;
-  const ghRunner = (cmd) => {
-    calledWith = cmd;
-    return JSON.stringify({ ...SAMPLE_DETAILS, changedFiles: 1 });
-  };
-  fetchPrDetails({ pr: 30, ghRunner });
-  assert.match(calledWith, /--json title,body,mergedAt,mergeCommit,files,changedFiles/);
+// The file list comes from GitHub's REST "list pull request files" endpoint,
+// walked with `--paginate`. `gh pr view --json files` compiles to a single
+// `pullRequest.files(first: 100)` GraphQL page and silently drops everything
+// past it — the defect that halted this tool on the 263-file PR below. The
+// authoritative `changedFiles` count reconciles the walk; any disagreement is
+// exit 7, because the endpoint's own 3000-file ceiling ends a walk with no
+// in-band signal.
+test("fetchPrDetails: paginated walk of a 263-file PR returns every path", () => {
+  const filePaths = Array.from({ length: 263 }, (_, i) => `apps/desktop/src/console/m${i}.ts`);
+  const { ghRunner } = makeDetailsGhRunner({
+    metadata: { ...METADATA_ONLY_SAMPLE, changedFiles: 263 },
+    filePaths,
+  });
+  const result = fetchPrDetails({ pr: 416, ghRunner });
+  assert.equal(result.files.length, 263);
+  assert.deepEqual(
+    result.files.map((file) => file.path),
+    filePaths,
+  );
 });
 
-test("fetchPrDetails: throws exitCode=7 when files.length < changedFiles (truncation)", () => {
-  const ghRunner = () =>
-    JSON.stringify({
-      ...SAMPLE_DETAILS,
-      files: Array.from({ length: 100 }, (_, i) => ({ path: `f${i}.ts` })),
-      changedFiles: 137,
-    });
+test("fetchPrDetails: throws exitCode=7 when the walk returns 262 of 263 changed files", () => {
+  const { ghRunner } = makeDetailsGhRunner({
+    metadata: { ...METADATA_ONLY_SAMPLE, changedFiles: 263 },
+    filePaths: Array.from({ length: 262 }, (_, i) => `f${i}.ts`),
+  });
   try {
-    fetchPrDetails({ pr: 99, ghRunner });
-    assert.fail("expected fetchPrDetails to throw on truncation");
+    fetchPrDetails({ pr: 416, ghRunner });
+    assert.fail("expected fetchPrDetails to throw when the file list does not reconcile");
   } catch (e) {
     assert.equal(e.exitCode, 7);
-    assert.match(e.message, /returned 100 of 137 changed files/);
+    assert.match(e.message, /returned 262 of 263 changed files/);
+    assert.match(e.message, /repos\/\{owner\}\/\{repo\}\/pulls\/416\/files/);
+    assert.match(e.message, /at most 3000 files/);
   }
 });
 
-test("fetchPrDetails: does NOT throw when files.length === changedFiles", () => {
-  const ghRunner = () =>
-    JSON.stringify({
-      ...SAMPLE_DETAILS,
-      files: [{ path: "a.ts" }, { path: "b.ts" }],
-      changedFiles: 2,
-    });
+// The other direction is the same defect: a filename may legally contain a
+// newline, which the raw `--jq` stream cannot express, so an over-long list
+// means a path was split rather than that a file was found.
+test("fetchPrDetails: throws exitCode=7 when the walk returns MORE paths than changedFiles", () => {
+  const { ghRunner } = makeDetailsGhRunner({
+    metadata: { ...METADATA_ONLY_SAMPLE, changedFiles: 2 },
+    filePaths: ["a.ts", "b", "c.ts"],
+  });
+  try {
+    fetchPrDetails({ pr: 30, ghRunner });
+    assert.fail("expected fetchPrDetails to throw on an over-long file list");
+  } catch (e) {
+    assert.equal(e.exitCode, 7);
+    assert.match(e.message, /returned 3 of 2 changed files/);
+  }
+});
+
+test("fetchPrDetails: throws exitCode=7 when changedFiles is absent (no evidence of completeness)", () => {
+  const { ghRunner } = makeDetailsGhRunner({
+    metadata: METADATA_ONLY_SAMPLE,
+    filePaths: ["a.ts"],
+  });
+  try {
+    fetchPrDetails({ pr: 30, ghRunner });
+    assert.fail("expected fetchPrDetails to throw when the count is missing");
+  } catch (e) {
+    assert.equal(e.exitCode, 7);
+    assert.match(e.message, /returned no changedFiles count/);
+  }
+});
+
+test("fetchPrDetails: does NOT throw when the walk reconciles", () => {
+  const { ghRunner } = makeDetailsGhRunner({
+    metadata: { ...METADATA_ONLY_SAMPLE, changedFiles: 2 },
+    filePaths: ["a.ts", "b.ts"],
+  });
   const r = fetchPrDetails({ pr: 30, ghRunner });
   assert.equal(r.changedFiles, 2);
-  assert.equal(r.files.length, 2);
+  assert.deepEqual(
+    r.files.map((file) => file.path),
+    ["a.ts", "b.ts"],
+  );
+});
+
+// A zero-file PR is a real shape (an empty merge commit) and the raw stream
+// for it is the empty string, which must read as zero paths and not as one.
+test("fetchPrDetails: an empty file stream reconciles against changedFiles 0", () => {
+  const { ghRunner } = makeDetailsGhRunner({
+    metadata: { ...METADATA_ONLY_SAMPLE, changedFiles: 0 },
+    filePaths: [],
+  });
+  const r = fetchPrDetails({ pr: 30, ghRunner });
+  assert.deepEqual(r.files, []);
 });
 
 // ---------- resolvePlanFile ----------
@@ -474,15 +554,32 @@ shipped: []
 
 `;
 
+// Fixtures keep declaring `files` in the [{ path }] shape the entry builder
+// consumes; this runner splits one fixture across the two commands the tool
+// now issues — `gh pr view` for metadata (never `files`) and the paginated
+// REST file endpoint, whose real output is newline-separated raw filenames.
+// `changedFiles` defaults to the fixture's own file count, so only a fixture
+// that means to exercise a reconciliation failure has to state one.
 function makeGhRunner({ prList, prDetails }) {
-  return (cmd) => {
-    if (/gh pr list/.test(cmd)) return JSON.stringify(prList.map((n) => ({ number: n })));
-    const m = /gh pr view (\d+)/.exec(cmd);
-    if (!m) throw new Error(`unexpected gh cmd: ${cmd}`);
-    const pr = Number(m[1]);
+  const fixtureFor = (pr) => {
     const details = prDetails[pr];
     if (!details) throw new Error(`no fixture for PR #${pr}`);
-    return JSON.stringify(details);
+    return details;
+  };
+  return (cmd) => {
+    if (/gh pr list/.test(cmd)) return JSON.stringify(prList.map((n) => ({ number: n })));
+    const filesCommand = /gh api repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)\/files/.exec(cmd);
+    if (filesCommand) {
+      const paths = (fixtureFor(Number(filesCommand[1])).files ?? []).map((file) => file.path);
+      return paths.length === 0 ? "" : `${paths.join("\n")}\n`;
+    }
+    const viewCommand = /gh pr view (\d+)/.exec(cmd);
+    if (!viewCommand) throw new Error(`unexpected gh cmd: ${cmd}`);
+    const details = fixtureFor(Number(viewCommand[1]));
+    if (/--json title$/.test(cmd)) return JSON.stringify({ title: details.title });
+    const metadata = { changedFiles: (details.files ?? []).length, ...details };
+    delete metadata.files;
+    return JSON.stringify(metadata);
   };
 }
 
@@ -920,8 +1017,8 @@ test("rebuildManifest skips a body-only PR before the truncation-sensitive detai
           body: "Sweeping refactor.\n\nRefs: Plan-001",
           mergedAt: "2026-07-01T12:00:00Z",
           mergeCommit: { oid: "abc9876def0000" },
-          // files truncated far below changedFiles — fetchPrDetails would halt
-          // with exit 7 if it ran; the title-only probe must skip PR #42 first.
+          // file list far below changedFiles — fetchPrDetails would halt with
+          // exit 7 if it ran; the title-only probe must skip PR #42 first.
           changedFiles: 200,
           files: [{ path: "packages/runtime-daemon/src/session-cleanup.ts" }],
         },
@@ -1101,18 +1198,21 @@ test("CLI --dry-run keeps stdout a pure YAML stream (summary on stderr)", () => 
     writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
 
     // PATH-shimmed gh: the CLI path uses defaultGhRunner (real shell-outs),
-    // so the fake binary serves the three command shapes the script issues.
-    // The full-details case is matched FIRST — its --json list is a superset
-    // of the title-only probe's.
+    // so the fake binary serves the four command shapes the script issues.
+    // The full-details case is matched before the title-only probe — its
+    // --json list is a superset of the probe's — and the paginated file
+    // endpoint answers with raw newline-separated filenames, the way gh's
+    // own --jq stream does.
     const binDir = join(tmp, "bin");
     mkdirSync(binDir);
-    const detailsJson = JSON.stringify({ ...SAMPLE_DETAILS, changedFiles: 1 });
+    const detailsJson = JSON.stringify({ ...METADATA_ONLY_SAMPLE, changedFiles: 1 });
     writeFileSync(
       join(binDir, "gh"),
       [
         "#!/bin/sh",
         'case "$*" in',
         `  *"pr list"*) printf '%s' '[{"number":30}]' ;;`,
+        `  *"/files"*) printf '%s\\n' 'packages/client-sdk/src/sessionClient.ts' ;;`,
         `  *"--json title,body,"*) printf '%s' '${detailsJson}' ;;`,
         `  *"--json title"*) printf '%s' '{"title":"feat(client-sdk): add sessionClient transports (Plan-001 T5.1)"}' ;;`,
         "esac",
@@ -1137,7 +1237,7 @@ test("CLI --dry-run keeps stdout a pure YAML stream (summary on stderr)", () => 
   }
 });
 
-test("rebuildManifest --include-body-matches routes >100-file candidates to operator confirmation", async () => {
+test("rebuildManifest --include-body-matches routes an above-ceiling candidate to operator confirmation", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -1145,12 +1245,13 @@ test("rebuildManifest --include-body-matches routes >100-file candidates to oper
     const planFile = join(planDir, "001-shared-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
-    // Legacy monorepo-bootstrap shape: body-only, file list truncated at the
-    // 100-file page. Pre-fix the include path threw exit 7 here.
+    // Body-only, and past the file endpoint's own 3000-file ceiling — the one
+    // shape pagination cannot rescue. The include path must still emit an
+    // editable candidate rather than abort the whole backfill with exit 7.
     const ghRunner = makeGhRunner({
       prList: [42],
       prDetails: {
-        42: { ...UNPARSEABLE_BODY_DETAILS, changedFiles: 200 },
+        42: { ...UNPARSEABLE_BODY_DETAILS, changedFiles: 3200 },
       },
     });
 
@@ -1169,13 +1270,71 @@ test("rebuildManifest --include-body-matches routes >100-file candidates to oper
     assert.equal(r.exitCode, 0);
     assert.match(
       stderr.text(),
-      /file list truncated at the 100-file page — PR #42 routed to operator confirmation/,
+      /file list did not reconcile against changedFiles — PR #42 routed to operator confirmation/,
     );
     const out = stdout.text();
     assert.match(out, /# Operator confirmation needed \(body-only matches, unparseable markers\):/);
     assert.match(out, /^#\s+pr: 42$/m);
-    assert.match(out, /unresolved: file list truncated at the 100-file GraphQL page/);
+    assert.match(out, /unresolved: file list did not reconcile against changedFiles/);
+    assert.match(out, /3000-file endpoint ceiling/);
     assert.doesNotMatch(out, /^\s*pr: 42$/m); // never a live shipped[] entry with partial files
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// End-to-end shape of the defect this pagination fix closes: PR #416 carries
+// 263 changed files, so the old single-GraphQL-page fetch returned 100 of them
+// and the tool halted with exit 7 on a PR that is in no way pathological. The
+// paginated walk must produce a LIVE entry carrying every path, sorted.
+test("rebuildManifest emits all 263 sorted paths for a PR the GraphQL page would have truncated", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    // Deliberately emitted in reverse order: the walk preserves the endpoint's
+    // order and buildEntryFromPr is what sorts, so a fixture already in order
+    // would prove nothing about either.
+    const paths = Array.from(
+      { length: 263 },
+      (_, i) => `apps/desktop/src/renderer/src/console/module-${String(i).padStart(3, "0")}.ts`,
+    );
+    const ghRunner = makeGhRunner({
+      prList: [416],
+      prDetails: {
+        416: {
+          title: "feat(desktop): console substrate (Plan-001 T5.1)",
+          body: "Implements T5.1 of Plan-001 Phase 5.",
+          mergedAt: "2026-09-01T12:00:00Z",
+          mergeCommit: { oid: "abcdef1234567" },
+          files: [...paths].reverse().map((path) => ({ path })),
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr: makeCaptureStream(),
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(r.message, /^1 entries emitted/);
+
+    const out = stdout.text();
+    assert.match(out, /^\s*pr: 416$/m); // a live shipped[] entry, not operator-confirmation
+    const emitted = out
+      .split("\n")
+      .filter((line) => line.startsWith("      - apps/desktop/"))
+      .map((line) => line.replace("      - ", ""));
+    assert.equal(emitted.length, 263);
+    assert.deepEqual(emitted, [...paths].sort());
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
