@@ -31,6 +31,7 @@ import {
   markFor,
   refusingBridge,
   renderLease,
+  scriptlessLeaseBridge,
   requestShapeOf,
   servingBridge,
 } from "./LeaseLine.test-support.js";
@@ -56,12 +57,20 @@ const RETRY_HORIZON_MS = 60 * 60 * 1000;
 
 describe("the claim control — one affordance, and three things it never does", () => {
   it("renders the port's own refusal beside the control", async () => {
-    const { container } = renderLease(leaseState({ holding: "unheld", holderVouching: "vouched" }));
+    // The FIXTURE's refusal and not a daemon's: this bridge plays a scenario that
+    // scripts neither lease call, so a served operation with nothing to answer from
+    // takes `reply-unscripted`. The daemon-side arm — a scripted refusal naming a
+    // holder — is `LeaseLine.refusal-holder.test.tsx`'s, and the two are different
+    // facts about the same control.
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      scriptlessLeaseBridge(),
+    );
     fireEvent.click(claimControl(container));
     await waitFor(() => {
       expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     });
-    expect(container.textContent).toContain("wire-unregistered");
+    expect(container.textContent).toContain("reply-unscripted");
   });
 
   it("renders the wire's own code when the call REJECTED rather than refused", async () => {

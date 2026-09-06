@@ -190,12 +190,17 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "terminal-pane",
     "method",
     "take the shared-terminal write lease",
+    // The registered pair, named here rather than left to a scenario to invent:
+    // `api-payload-contracts.md §Session Terminal-Control Method Registry` declares
+    // both, and a scenario scripting either is held to these names.
+    "session.takeControl",
   ),
   terminalReleaseWriteLease: op(
     "terminalReleaseWriteLease",
     "terminal-pane",
     "method",
     "give the write lease back",
+    "session.releaseControl",
   ),
   devServerProbe: op(
     "devServerProbe",

@@ -135,6 +135,7 @@ export {
   refuse,
   refusedMemberPaths,
   type ConsoleRefusal,
+  type NarrowedRefusal,
 } from "./refusal.js";
 // The registered widenings of that shape. Through the door because a family rendering
 // a refusal's ledger reads the members, and a family that widened a refusal without

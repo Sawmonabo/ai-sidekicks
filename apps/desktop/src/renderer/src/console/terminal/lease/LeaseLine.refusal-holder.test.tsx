@@ -12,7 +12,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
 import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 import { claimControl, leaseState, renderLease } from "./LeaseLine.test-support.js";
 
@@ -88,6 +88,28 @@ describe("a refused claim and the holder it names (8.8)", () => {
   it("negative control: a member that is not a string names nobody", async () => {
     const text = await claimAndRead(jsonRpcRejection({ holderParticipantId: 7 }));
     expect(text).not.toContain("Ask them to release the shell");
+  });
+
+  it("reaches the holder line from the shipped scenario, through no hand-built rejection", async () => {
+    // The case the five above cannot make. Each of them replaces the lease call with a
+    // rejection this file composed, so together they prove the READER and say nothing
+    // about whether any scenario can drive it — and until the two lease operations
+    // joined the fixture's served set, none could: the refusing port answered by name
+    // and no script was ever consulted, so this component was reachable from no
+    // scenario, no screenshot, and no bridge-driven test. Here the bridge is the
+    // fixture's own, unmodified, playing the scenario the selector opens.
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      createFixtureBridge({ scenario: TERMINAL_SCENARIO }),
+    );
+    fireEvent.click(claimControl(container));
+    await waitFor(() => {
+      expect(container.textContent).toContain(
+        "Ask them to release the shell, then claim it again.",
+      );
+    });
+    expect(container.textContent).toContain(CONTROL_HELD_BY_OTHER);
+    expect(container.textContent).toContain(TERMINAL_SCENARIO_CAST.collaborator);
   });
 
   it("negative control: it does not read the holder off the flat envelope's root", async () => {

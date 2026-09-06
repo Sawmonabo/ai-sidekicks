@@ -83,9 +83,18 @@ export type ProducedObjectCard =
   | { readonly kind: "capture"; readonly props: BrowserCaptureCardProps }
   | { readonly kind: "download"; readonly props: BrowserDownloadCardProps };
 
-/** Which produced object a card is about, whichever of the two shapes it has. */
+/**
+ * Which produced object a card is about, whichever of the two shapes it has.
+ *
+ * BOTH ARMS ANSWER WITH THE SHELF'S KEY, which is the artifact id the log's fold
+ * carries — `ProducedObjects.tsx` looks cards up by exactly that. The capture arm
+ * reads it off `captureName` because `captured-objects.ts` assigns the artifact id
+ * into that member, and the download arm carries it as its own `artifactId` because a
+ * proposed file name is a page's suggestion and never an identity: a card keyed on one
+ * would never be found and would always render as the identity-only row.
+ */
 export function producedObjectArtifactId(card: ProducedObjectCard): string {
-  return card.kind === "capture" ? card.props.captureName : card.props.proposedFileName;
+  return card.kind === "capture" ? card.props.captureName : card.props.artifactId;
 }
 
 /** A payload member as a non-empty string, or nothing. */

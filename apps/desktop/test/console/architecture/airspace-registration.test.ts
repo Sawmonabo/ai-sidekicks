@@ -7,11 +7,21 @@
 // a set the native view's visibility predicate consulted and that nothing ever put an
 // overlay into — so the vacuity guard is not decoration here, it is the finding.
 //
-// TWO CLAIMS, and they are different. The first is that the hook is REACHED: at least
-// one console module calls `useAirspaceRegistration`, so the airspace has a registrant
-// at all. The second is that the hook is the ONLY door: no module outside the two that
-// own the seam reaches the registry directly, because a hand-rolled registration at a
-// call site is the shape 12.3's Never forbids and the shape that forgets to remove.
+// THREE CLAIMS, and they are different. The first is that the hook is REACHED: at
+// least one console module calls `useAirspaceRegistration`, so the airspace has a
+// registrant at all. The second is that the hook is the ONLY door: no module outside
+// the ones that own the seam reaches the registry accessor directly, because a
+// hand-rolled registration at a call site is the shape 12.3's Never forbids and the
+// shape that forgets to remove. The third is that the registry is SINGULAR: exactly one
+// production module constructs an `AirspaceRegistry`, and it is the holder.
+//
+// THE THIRD IS NOT IMPLIED BY THE SECOND, which is why it is written. The accessor
+// rule constrains who may ASK the holder for a registry and says nothing about who may
+// build one: a family constructing `new AirspaceRegistry()` of its own passes the
+// accessor rule untouched, and every overlay registered into it would be invisible to
+// the native view's visibility predicate — a second airspace nothing reconciles,
+// which is worse than none, because the first failure mode announces itself and this
+// one renders correctly right up until a native view is on screen.
 //
 // THE INSTRUMENT IS THE PARSER, on `resize-observer-chokepoint.test.ts`'s reasoning:
 // a substring scan cannot tell a call from a sentence about one, and this file's own
@@ -41,6 +51,12 @@ const REGISTRATION_HOOK = "useAirspaceRegistration";
 /** The registry accessor the hook calls, and nothing else in a view family may. */
 const REGISTRY_ACCESSOR = "airspaceRegistryFor";
 
+/** The class whose one construction site is the holder. */
+const REGISTRY_CLASS = "AirspaceRegistry";
+
+/** The one production module allowed to construct one. Its holder is the singleton. */
+const REGISTRY_HOLDER = "core/airspace-registries.ts";
+
 /**
  * The modules allowed to reach the registry accessor directly.
  *
@@ -54,6 +70,21 @@ const REGISTRY_READERS: readonly string[] = [
   "primitives/airspace-registration.ts",
   "browser/pane/geometry-binding.ts",
 ];
+
+/** Whether a module CONSTRUCTS the named class, as a tree shape rather than a substring. */
+function constructsClassNamed(fileName: string, source: string, className: string): boolean {
+  let constructed = false;
+  forEachDescendant(parseSourceText(fileName, source), (node) => {
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === className
+    ) {
+      constructed = true;
+    }
+  });
+  return constructed;
+}
 
 /** Whether a module CALLS the named function, as a tree shape rather than a substring. */
 function callsFunctionNamed(fileName: string, source: string, functionName: string): boolean {
@@ -103,6 +134,19 @@ describe("airspace — the overlay registration has registrants and one door", (
     expect(offenders).toStrictEqual([]);
   });
 
+  it("exactly one production module constructs a registry, and it is the holder", () => {
+    // The claim the accessor rule cannot make. A second `new AirspaceRegistry()`
+    // anywhere — in a view family, in a test-support module that ships, under any
+    // other name for the variable it lands in — is a second airspace, and every
+    // overlay put into it is invisible to the predicate that decides whether a native
+    // view yields. The declaring module is not exempt: it declares the class and does
+    // not construct one.
+    const constructors = modules.filter((module) =>
+      constructsClassNamed(module, readConsoleSource(module), REGISTRY_CLASS),
+    );
+    expect(constructors).toStrictEqual([REGISTRY_HOLDER]);
+  });
+
   it("negative control: the checker bites on a planted registration", () => {
     // Without this, a wrong node predicate would leave both clean results above
     // meaningless — which is exactly the state the registry itself was found in.
@@ -120,6 +164,9 @@ describe("airspace — the overlay registration has registrants and one door", (
         REGISTRY_ACCESSOR,
       ),
     ).toBe(true);
+    expect(
+      constructsClassNamed("planted.tsx", "const own = new AirspaceRegistry();", REGISTRY_CLASS),
+    ).toBe(true);
   });
 
   it("negative control: a sentence about the hook is not a call", () => {
@@ -132,6 +179,13 @@ describe("airspace — the overlay registration has registrants and one door", (
     ).toBe(false);
     expect(
       callsFunctionNamed("explainer.ts", 'const name = "airspaceRegistryFor";', REGISTRY_ACCESSOR),
+    ).toBe(false);
+    expect(
+      constructsClassNamed(
+        "explainer.ts",
+        "// The holder builds the one AirspaceRegistry.\nconst x = 1;",
+        REGISTRY_CLASS,
+      ),
     ).toBe(false);
   });
 });

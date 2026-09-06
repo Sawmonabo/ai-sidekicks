@@ -26,6 +26,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { normalizeWireRejection } from "../../core/index.js";
 import type { ReadingState } from "../../primitives/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
+import type { BrowserPaneRejectionFallback } from "./pane-refusals.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
 const PAGE_LIST_REFUSAL_ORIGIN = "browser-pages";
@@ -38,7 +39,7 @@ const PAGE_LIST_REFUSAL_ORIGIN = "browser-pages";
  * where it is. Collapsing them onto one code would tell a person the pane has stopped
  * being told anything when half of it is still being told.
  */
-const PAGE_SUBSCRIPTION_FAILURE_FALLBACK = {
+const PAGE_SUBSCRIPTION_FAILURE_FALLBACK: BrowserPaneRejectionFallback = {
   code: "page-subscription-failed",
   detail:
     "The pages this session owns are no longer being reported to this window. Closing the pane and opening it again starts a new subscription.",

@@ -15,10 +15,17 @@
 // stay rendered on the meter, and no half-check here pretends otherwise — a renderer
 // that guessed at a node-wide count would be deriving eligibility the daemon owns.
 //
-//   • **The session page cap.** The strip knows how many pages it is drawing, so the
-//     create control can answer before it dispatches. 12.10's refusal state names
-//     this case exactly: "a per-run or per-session page cap answers with the cap's
-//     name and the current count".
+//   • **The session page cap, spent against a PANE-local count.** The strip knows how
+//     many pages it is drawing, so the create control can answer before it dispatches.
+//     12.10's refusal state names this case exactly: "a per-run or per-session page cap
+//     answers with the cap's name and the current count". The count is the strip's and
+//     the ceiling is the session's, so two browser panes on one session under-count and
+//     this admission lets a create through that the cap would refuse — which is the
+//     paragraph above applied one level down, and it resolves the same way: the daemon
+//     enforces its own ceiling, the person sees the daemon's refusal, and this
+//     admission never admits something the daemon would have refused TWICE. It is a
+//     cheap early answer and never the authority, which is why it under-counts rather
+//     than guessing at the session's own page set.
 //   • **The full-page capture extent.** A capture asking for a box is a box this
 //     renderer composed, so the pair is checkable here against the one bound that is
 //     measured in pixels.
@@ -34,9 +41,13 @@
 // make every call site compose the sentence again — which is how one bound acquires
 // four spellings of the number it protects.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { refuse, type NarrowedRefusal } from "../../core/index.js";
 import { formatByteQuantity, formatCount } from "../../primitives/index.js";
-import { BROWSER_BOUNDS, type BrowserBoundName } from "./browser-bounds.js";
+import {
+  BROWSER_BOUNDS,
+  type BrowserBoundMeasure,
+  type BrowserBoundName,
+} from "./browser-bounds.js";
 
 /** The subsystem every refusal raised here names as its author. */
 export const BROWSER_BOUND_REFUSAL_ORIGIN = "browser-bounds";
@@ -51,6 +62,17 @@ export const BROWSER_BOUND_REFUSAL_ORIGIN = "browser-bounds";
  * to enumerate twenty codes to know it is looking at a bound.
  */
 export const BROWSER_BOUND_REFUSAL_CODE = "bound-reached";
+
+/**
+ * A refusal this module raised, carrying that one code as a LITERAL.
+ *
+ * Named rather than widened to `ConsoleRefusal`, because a caller that renders one of
+ * these through a closed vocabulary — `browser/pane/pane-refusals.ts` — needs the code
+ * to survive as a literal. A `ConsoleRefusal` return type would widen it to `string`
+ * at the boundary and force that caller either to re-spell the constant or to loosen
+ * its own set, which is the drift the set exists to end.
+ */
+export type BrowserBoundRefusal = NarrowedRefusal<typeof BROWSER_BOUND_REFUSAL_CODE>;
 
 /**
  * The bounds a byte admission may name, hand-stated and then checked twice.
@@ -100,7 +122,7 @@ function scalarValueOf(name: BrowserBoundName): number {
  * subscription owns, and it would be wrong for exactly as long as a frame was in
  * flight.
  */
-export function admitAnotherPage(currentCount: number): ConsoleRefusal | undefined {
+export function admitAnotherPage(currentCount: number): BrowserBoundRefusal | undefined {
   const cap = scalarValueOf("PAGES_PER_SESSION_MAX");
   if (currentCount < cap) {
     return undefined;
@@ -122,12 +144,36 @@ export function admitAnotherPage(currentCount: number): ConsoleRefusal | undefin
 export function admitFullPageCapture(
   widthPx: number,
   heightPx: number,
-): ConsoleRefusal | undefined {
-  const measure = BROWSER_BOUNDS.FULL_PAGE_CAPTURE_MAX.measure;
+): BrowserBoundRefusal | undefined {
+  return admitCaptureAgainstMeasure(
+    BROWSER_BOUNDS.FULL_PAGE_CAPTURE_MAX.measure,
+    widthPx,
+    heightPx,
+  );
+}
+
+/**
+ * The same decision, against a measure the caller supplies rather than the block's.
+ *
+ * SPLIT OUT SO THE FAIL-CLOSED ARM CAN BE DRIVEN. The measure below is read out of a
+ * block that declares `FULL_PAGE_CAPTURE_MAX` as an extent, so the non-extent arm is
+ * unreachable through {@link admitFullPageCapture} and no case could execute it — the
+ * branch that decides what happens when this bound loses its shape was the one branch
+ * nothing had ever run. Taking the measure as a parameter makes the arm reachable
+ * without a mock of the block, and the co-located case drives it with a scalar measure
+ * and asserts a refusal rather than an admission.
+ *
+ * The parameter is the MEASURE and not a bound name, because a name would send this
+ * function back to the same block and leave the arm exactly as unreachable.
+ */
+export function admitCaptureAgainstMeasure(
+  measure: BrowserBoundMeasure,
+  widthPx: number,
+  heightPx: number,
+): BrowserBoundRefusal | undefined {
   if (measure.kind !== "extent") {
-    // Unreachable while the block declares this bound as an extent, and it refuses
-    // rather than admits for `scalarValueOf`'s reason: a bound that lost its shape
-    // refuses everything, never admits everything.
+    // Refuses rather than admits for `scalarValueOf`'s reason: a bound that lost its
+    // shape refuses everything, never admits everything.
     return refuse(
       BROWSER_BOUND_REFUSAL_ORIGIN,
       BROWSER_BOUND_REFUSAL_CODE,
@@ -155,7 +201,7 @@ export function admitFullPageCapture(
 export function admitByteLength(
   bound: BrowserByteBoundName,
   byteLength: number,
-): ConsoleRefusal | undefined {
+): BrowserBoundRefusal | undefined {
   const ceiling = scalarValueOf(bound);
   if (byteLength <= ceiling) {
     return undefined;

@@ -46,6 +46,7 @@ import {
   useSubjectScopedState,
   type SubjectScopedDisposal,
 } from "../../store/index.js";
+import type { BrowserPaneRefusalCode } from "./pane-refusals.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
@@ -112,8 +113,14 @@ export interface BrowserPaneActs {
    * wire-rejection reader, so a code the other side sent survives.
    */
   run(act: () => Promise<ConsoleRefusal | undefined>, fallback: RejectionFallback): void;
-  /** Refuse here and now, without crossing the boundary. Outranks anything in flight. */
-  refuseLocally(code: string, detail: string): void;
+  /**
+   * Refuse here and now, without crossing the boundary. Outranks anything in flight.
+   *
+   * The code is one of the pane's OWN closed set (`pane-refusals.ts`) rather than a
+   * free string: every code that reaches here was decided by this renderer, so a
+   * caller inventing a fourteenth one is a decision and reads as one.
+   */
+  refuseLocally(code: BrowserPaneRefusalCode, detail: string): void;
   /** Clear what is on screen. Starts nothing, and supersedes nothing. */
   dismiss(): void;
 }
@@ -165,7 +172,7 @@ export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): Brows
   );
 
   const refuseLocally = useCallback(
-    (code: string, detail: string): void => {
+    (code: BrowserPaneRefusalCode, detail: string): void => {
       sequence.begin();
       publish(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
     },

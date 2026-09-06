@@ -21,6 +21,7 @@ import {
   BROWSER_BYTE_BOUND_NAMES,
   admitByteLength,
   admitAnotherPage,
+  admitCaptureAgainstMeasure,
   admitFullPageCapture,
 } from "./bound-enforcement.js";
 import {
@@ -71,6 +72,27 @@ describe("the full-page capture extent", () => {
     const overHeight = admitFullPageCapture(measure.widthPx, measure.heightPx + 1);
     expect(overWidth?.detail).toContain("FULL_PAGE_CAPTURE_MAX");
     expect(overHeight?.detail).toContain("FULL_PAGE_CAPTURE_MAX");
+  });
+
+  it("negative control: a bound that lost its extent refuses instead of admitting", () => {
+    // The arm both cases above leave unexecuted, and the one this module would fail
+    // OPEN on if it were written the other way round: the two cases read the measure
+    // out of a block that declares an extent, so a build in which this bound stopped
+    // being one would take a branch nothing had ever run. Driven here through the
+    // measure-taking seam, with a box well inside every ceiling the block declares —
+    // so an implementation that admitted an unmeasurable capture fails on this line
+    // rather than on a number.
+    const refusal = admitCaptureAgainstMeasure({ kind: "scalar", value: 4, unit: "pages" }, 1, 1);
+    expect(refusal?.code).toBe(BROWSER_BOUND_REFUSAL_CODE);
+    expect(refusal?.origin).toBe(BROWSER_BOUND_REFUSAL_ORIGIN);
+    expect(refusal?.detail).toContain("FULL_PAGE_CAPTURE_MAX");
+  });
+
+  it("negative control: the deferred measure refuses too, so no shape admits by default", () => {
+    // A second shape through the same arm. Without it the case above would hold over
+    // an implementation that special-cased `scalar` and admitted every other measure.
+    const refusal = admitCaptureAgainstMeasure({ kind: "deferred", owner: "somebody else" }, 1, 1);
+    expect(refusal?.code).toBe(BROWSER_BOUND_REFUSAL_CODE);
   });
 });
 

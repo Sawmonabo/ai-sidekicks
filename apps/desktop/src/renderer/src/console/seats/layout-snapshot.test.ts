@@ -7,7 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { panesForLayoutSnapshot, panesFromLayoutSnapshot } from "./layout-snapshot.js";
+import {
+  LAYOUT_RESTORE_REFUSAL_ORIGIN,
+  panesForLayoutSnapshot,
+  panesFromLayoutSnapshot,
+} from "./layout-snapshot.js";
 import { EPHEMERAL_PANE_KINDS, PANE_KINDS, isEphemeralPaneKind } from "./pane-kinds.js";
 
 describe("the ephemeral pane kinds", () => {
@@ -49,7 +53,16 @@ describe("what a restore re-opens", () => {
       { kind: "timeline", address: "session:s1" },
     ]);
     expect(reading.restored.map((entry) => entry.kind)).toStrictEqual(["timeline"]);
-    expect(reading.dropped).toStrictEqual([{ kind: "browser", reason: "ephemeral-kind" }]);
+    expect(reading.dropped).toStrictEqual([
+      {
+        kind: "browser",
+        refusal: {
+          origin: LAYOUT_RESTORE_REFUSAL_ORIGIN,
+          code: "ephemeral-kind",
+          detail: expect.stringContaining("never restored"),
+        },
+      },
+    ]);
   });
 
   it("drops and reports a kind this build does not have", () => {
@@ -58,9 +71,13 @@ describe("what a restore re-opens", () => {
       { kind: 7, address: "session:s1" },
     ]);
     expect(reading.restored).toStrictEqual([]);
-    expect(reading.dropped).toStrictEqual([
-      { kind: "hologram", reason: "unknown-kind" },
-      { kind: 7, reason: "unknown-kind" },
+    // The kind is kept VERBATIM beside the refusal — a string this build does not
+    // know and a value that is not a string at all — so the deck renders what the
+    // snapshot held rather than a sentence about it.
+    expect(reading.dropped.map((drop) => drop.kind)).toStrictEqual(["hologram", 7]);
+    expect(reading.dropped.map((drop) => drop.refusal.code)).toStrictEqual([
+      "unknown-kind",
+      "unknown-kind",
     ]);
   });
 

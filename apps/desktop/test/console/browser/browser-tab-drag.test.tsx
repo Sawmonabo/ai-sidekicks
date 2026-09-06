@@ -26,13 +26,22 @@ import { renderSettled } from "../console-harness.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-import { TabStrip } from "../../../src/renderer/src/console/browser/pane/TabStrip.js";
+import { TabStrip } from "../../../src/renderer/src/console/browser/pane/chrome/TabStrip.js";
 import { threeBrowserPages } from "../../../src/renderer/src/console/browser/pane/page-state.test-support.js";
-import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "../../../src/renderer/src/console/browser/pane/tab-reorder.js";
+import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "../../../src/renderer/src/console/browser/pane/chrome/tab-reorder.js";
 // The family door, imported for its side effect: this package puts a family's
 // stylesheet behind its own barrel and nowhere else, and two of the cases below are
 // about what that stylesheet computes to.
 import "../../../src/renderer/src/console/browser/index.js";
+
+/**
+ * What an unselected tab's border computes to — the base rule's own `transparent`.
+ *
+ * Written as the resolved value rather than the keyword because `getComputedStyle`
+ * resolves `transparent` to this, and the case is about what the browser computed and
+ * not about how the sheet spelled it.
+ */
+const TRANSPARENT_BORDER = "rgba(0, 0, 0, 0)";
 
 /** What the strip reported, so a case can assert the translated move index. */
 interface DraggedStrip {
@@ -138,9 +147,13 @@ describe("dragging a tab, against the browser's own drag store", () => {
     const strip = await mountStrip();
     const selected = strip.tabs[0] as HTMLElement;
     const neighbour = strip.tabs[1] as HTMLElement;
-    expect(getComputedStyle(selected).borderTopColor).not.toBe(
-      getComputedStyle(neighbour).borderTopColor,
-    );
+    // The neighbour is asserted at the base rule's own transparent value rather than
+    // only as "different from the selected one". Inequality alone passes for a rule
+    // that stopped matching in EITHER direction — the defect this case was written
+    // after was a selector that matched nothing — so the unselected side is pinned to
+    // a value and the selected side is held away from it.
+    expect(getComputedStyle(neighbour).borderTopColor).toBe(TRANSPARENT_BORDER);
+    expect(getComputedStyle(selected).borderTopColor).not.toBe(TRANSPARENT_BORDER);
   });
 
   it("negative control: a drag carrying another type is not this strip's", async () => {

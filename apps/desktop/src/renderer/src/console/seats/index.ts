@@ -142,7 +142,7 @@ export {
   /** @consumedBy T-023p-1C-2 */
   type LayoutPaneDrop,
   /** @consumedBy T-023p-1C-2 */
-  type LayoutPaneDropReason,
+  type LayoutPaneDropCode,
   /** @consumedBy T-023p-1C-2 */
   type LayoutRestoreReading,
 } from "./layout-snapshot.js";

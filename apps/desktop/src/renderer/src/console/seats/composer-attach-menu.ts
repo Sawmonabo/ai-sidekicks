@@ -35,10 +35,14 @@ export interface ComposerAttachMenuContext {
    * The deck pane the person is looking at, or `undefined` where focus is not in the
    * deck.
    *
-   * The pane's ID and not its kind: an entry contributed by a family knows which kind
-   * it cares about, and a context that reported the kind would invite the composer to
-   * decide which entries apply — which is the composer deriving an eligibility the
-   * contributing family owns.
+   * The pane's ID and not its kind, and an entry therefore cannot filter on kind: an
+   * id is a handle and says nothing about what is behind it, so an entry sees only
+   * that SOME pane is focused. That is deliberate and it is not the entry knowing
+   * better — it is the composer declining to decide which entries apply, because a
+   * context that reported the kind would invite exactly that. What follows is that an
+   * entry offered against the wrong kind is refused by the DAEMON rather than hidden
+   * here, which is the honest division: this window knows what is focused, and what
+   * may be attached from it is the owning family's authority and not this seat's.
    */
   readonly focusedPaneId: string | undefined;
 }

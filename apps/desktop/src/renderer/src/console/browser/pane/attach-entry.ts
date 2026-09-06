@@ -26,12 +26,13 @@
 
 import type { ComposerAttachMenuEntry, ComposerAttachOutcome } from "../../seats/index.js";
 import { normalizeWireRejection, refuse } from "../../core/index.js";
+import type { BrowserPaneRejectionFallback } from "./pane-refusals.js";
 
 /** The subsystem name the entry's own refusals carry. */
 const ATTACH_ENTRY_REFUSAL_ORIGIN = "browser-attach-entry";
 
 /** What an attach that never answered says, where the rejection carries no code. */
-const ATTACH_CALL_FALLBACK = {
+const ATTACH_CALL_FALLBACK: BrowserPaneRejectionFallback = {
   code: "pane-attach-failed",
   detail: "The page could not be attached, because the call into the browser never answered.",
 };
@@ -50,6 +51,10 @@ export const browserAttachMenuEntry: ComposerAttachMenuEntry = {
   glyph: "browser",
   detail: "Attach the page the focused browser pane is showing to this conversation.",
   attach: async (context): Promise<ComposerAttachOutcome> => {
+    // SOME pane is focused, which is all the context can report: `focusedPaneId` is a
+    // handle and carries no kind, so this entry cannot tell a browser pane from a
+    // timeline one and does not try. A dispatch against the wrong kind is refused by
+    // the daemon, whose page registry is the authority on which panes hold pages.
     const paneId = context.focusedPaneId;
     if (paneId === undefined) {
       return {

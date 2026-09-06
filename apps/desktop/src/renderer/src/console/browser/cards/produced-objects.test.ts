@@ -133,10 +133,14 @@ describe("which object a card is about", () => {
         ingest: { status: "stored", artifactId: "artifact-a", byteLength: 4096 },
       },
     };
+    // The proposed name is deliberately NOT the artifact id here. A download card
+    // keyed on what the page suggested would never be found by the shelf, which looks
+    // cards up by the id the log's fold carries — the defect this member closes.
     const download: ProducedObjectCard = {
       kind: "download",
       props: {
-        proposedFileName: "artifact-b",
+        artifactId: "artifact-b",
+        proposedFileName: "quarterly-report.pdf",
         sourcePageLabel: "Page 1",
         ingest: { status: "stored", artifactId: "artifact-b", byteLength: 128 },
       },
