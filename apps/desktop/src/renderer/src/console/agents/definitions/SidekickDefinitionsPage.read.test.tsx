@@ -18,12 +18,12 @@
 import { describe, expect, it } from "vitest";
 
 import { growthUnavailable } from "../../bridge/index.js";
+import { liveRegionText, politeText } from "../../primitives/live-region.test-support.js";
 import {
   RegistryStub,
   buttonNamed,
   confirmDeleteIn,
   definition,
-  politeText,
   press,
   releaseAnnouncementHold,
   renderPage,
@@ -139,7 +139,7 @@ describe("the sidekicks page — the settlement it announces", () => {
     await settle();
     expect(politeText(container)).toBe("Read 2 saved sidekicks.");
     // The interrupting lane is for room-wide refusals; a settled read is not one.
-    expect(container.querySelector('[data-live-region="assertive"]')?.textContent ?? "").toBe("");
+    expect(liveRegionText(container, "assertive")).toBe("");
   });
 
   it("speaks a refusal's sentence when the read refused", async () => {

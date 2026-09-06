@@ -7,6 +7,7 @@
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { describe, expect, it, vi } from "vitest";
 import { growthUnavailable } from "../../../bridge/index.js";
+import { politeText } from "../../../primitives/live-region.test-support.js";
 import { registerNotificationsPage } from "./NotificationsPage.js";
 import type { AttentionPreference } from "./attention-preference-model.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";
@@ -14,7 +15,6 @@ import {
   PARTICIPANT_ID,
   SERVED_PARTICIPANT,
   bridgeWith,
-  politeAnnouncement,
   press,
   renderPageAt,
   renderSettledPage,
@@ -96,7 +96,7 @@ describe("the notifications page — the chain that starts with who you are", ()
       }),
     );
     expect(container.textContent ?? "").toContain(refusal.detail);
-    expect(politeAnnouncement(container)).toBe(refusal.detail);
+    expect(politeText(container)).toBe(refusal.detail);
   });
 
   it("negative control: it never guesses a participant to ask with", async () => {
@@ -168,9 +168,7 @@ describe("the notifications page — what it draws from a record nobody named", 
     const container = await renderSettledPage(
       bridgeServing([{ key: "attention", value: { mentions: true } }]),
     );
-    expect(politeAnnouncement(container)).toBe(
-      "Your notification preferences were read. Stored: 1.",
-    );
+    expect(politeText(container)).toBe("Your notification preferences were read. Stored: 1.");
   });
 });
 

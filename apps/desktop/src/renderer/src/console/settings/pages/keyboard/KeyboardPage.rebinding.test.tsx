@@ -8,10 +8,10 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { consoleKeybindingOverrides } from "../../../palette/index.js";
 import { LiveAnnouncerProvider, formatCount } from "../../../primitives/index.js";
+import { liveRegionText, politeText } from "../../../primitives/live-region.test-support.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 import {
   RECORDED_PRESS,
-  politeAnnouncement,
   recordOnto,
   recorderOf,
   renderPage,
@@ -40,9 +40,9 @@ describe("keyboard page — what it changes", () => {
     await recordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
 
     await waitFor(() => {
-      expect(politeAnnouncement(container)).toContain("Check for updates now runs on");
+      expect(politeText(container)).toContain("Check for updates now runs on");
     });
-    const spoken = politeAnnouncement(container);
+    const spoken = politeText(container);
 
     // The negative control for "once": a re-render is not an act, so the region must
     // hold what it already held rather than repeat or add to it.
@@ -51,8 +51,8 @@ describe("keyboard page — what it changes", () => {
         <KeyboardPage />
       </LiveAnnouncerProvider>,
     );
-    expect(politeAnnouncement(container)).toBe(spoken);
-    expect(container.querySelector('[data-live-region="assertive"]')?.textContent).toBe("");
+    expect(politeText(container)).toBe(spoken);
+    expect(liveRegionText(container, "assertive")).toBe("");
   });
 
   it("refuses a chord another command holds, naming that command on the row", async () => {
@@ -93,7 +93,7 @@ describe("keyboard page — what it changes", () => {
     await waitFor(() => {
       expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
     });
-    expect(politeAnnouncement(container)).toContain("back to the chord the console ships");
+    expect(politeText(container)).toContain("back to the chord the console ships");
   });
 
   it("names the command in every control's label, so a list of rows can be navigated", async () => {
@@ -138,7 +138,7 @@ describe("keyboard page — what it changes", () => {
     expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
     // Still armed, so the next press is the chord.
     expect(recorderOf(container, "app.checkForUpdates").getAttribute("aria-pressed")).toBe("true");
-    expect(politeAnnouncement(container)).toBe("");
+    expect(politeText(container)).toBe("");
   });
 });
 
@@ -191,7 +191,7 @@ describe("keyboard page — a chord kept for a command this build does not have"
         (binding) => binding.commandId === RETIRED_COMMAND_ID,
       ),
     ).toBe(false);
-    expect(politeAnnouncement(container)).toContain(RETIRED_COMMAND_ID);
+    expect(politeText(container)).toContain(RETIRED_COMMAND_ID);
   });
 
   it("negative control: with no such entry the region is absent, not a count of zero", async () => {

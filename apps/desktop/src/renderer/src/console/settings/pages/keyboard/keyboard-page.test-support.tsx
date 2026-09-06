@@ -43,10 +43,6 @@ export function renderPage(): ReturnType<typeof render> {
   );
 }
 
-export function politeAnnouncement(container: HTMLElement): string {
-  return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
-}
-
 /** The recorder on one row, found by the command id printed beside it. */
 export function rowOf(container: HTMLElement, commandId: string): HTMLElement {
   const row = [...container.querySelectorAll<HTMLElement>(".meridian-keymap__row")].find(

@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
   SESSION_ID,
   bridgeWith,
-  renderMovablePage,
+  renderMovableNotificationsPage,
   servedPreferences,
   settle,
 } from "./notifications-page.test-support.js";
@@ -51,7 +51,7 @@ function bridgeResolvingPerSession(): ReturnType<typeof bridgeWith> {
 
 describe("the notifications page — whose switches are on screen", () => {
   it("commits no frame carrying the previous session's person under the new one", async () => {
-    const page = renderMovablePage(bridgeResolvingPerSession(), SESSION_ID);
+    const page = renderMovableNotificationsPage(bridgeResolvingPerSession(), SESSION_ID);
     await settle();
     expect(page.container.textContent ?? "").toContain("participant-ana");
 
@@ -67,14 +67,14 @@ describe("the notifications page — whose switches are on screen", () => {
     // Without this, the case above would hold for a recorder that captured nothing,
     // and the frame it exists to inspect would go unexamined while the suite stayed
     // green.
-    const page = renderMovablePage(bridgeResolvingPerSession(), SESSION_ID);
+    const page = renderMovableNotificationsPage(bridgeResolvingPerSession(), SESSION_ID);
     await settle();
 
     expect(page.frames.filter((frame) => frame.includes("participant-ana"))).not.toStrictEqual([]);
   });
 
   it("reads the new session's person once the frames after it settle", async () => {
-    const page = renderMovablePage(bridgeResolvingPerSession(), SESSION_ID);
+    const page = renderMovableNotificationsPage(bridgeResolvingPerSession(), SESSION_ID);
     await settle();
     page.showSession(OTHER_SESSION_ID);
     await settle();

@@ -11,11 +11,14 @@
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
 
-import { SidekicksBridgeProvider } from "../../../bridge/index.js";
-import type { ManualClock } from "../../../core/index.js";
+import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { unscriptedScenario, withDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
+import { ManualClock } from "../../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";
+import { politeText } from "../../../primitives/live-region.test-support.js";
 import type { SessionStore } from "../../../store/index.js";
+import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounts.test-support.js";
 import { WorkspaceMountsPage } from "./WorkspaceMountsPage.js";
@@ -24,14 +27,21 @@ import { WorkspaceMountsPage } from "./WorkspaceMountsPage.js";
  * A settings context whose bridge answers the two registered reads on a clock the
  * test owns.
  *
- * The clock rides `scenarioEngine`, which is where the page looks for one: a
- * fixture bridge supplies the story's clock and a live bridge supplies none, and
- * this test drives the same resolution rather than reaching around it. Without it
- * the page builds a `RealClock` and the read's coalescing window becomes a real
- * timer nothing here can advance.
+ * THE BRIDGE IS THE SHIPPED FIXTURE WITH ONE ARM REPLACED, not an object shaped like
+ * one. It used to be a literal ending `as unknown as SettingsPageContext`, which made
+ * this the one of the family's three harnesses a widened `SettingsPageContext` would
+ * NOT have failed — the cast answered for every member nobody had written yet. The
+ * daemon arm is swapped through `bridge/fixture-bridge.test-support.ts`'s own
+ * `withDaemonCall`, which is the console's one seam for that, and the context is
+ * built by the family's one builder.
+ *
+ * The clock is the fixture engine's, which is where the page looks for one: a fixture
+ * bridge supplies the story's clock and a live bridge supplies none, and this test
+ * drives the same resolution rather than reaching around it. It is handed back beside
+ * the context, because a case that advanced a clock the page was not reading would be
+ * asserting about a timer that never fell due.
  */
 export function contextReading(options: {
-  readonly clock: ManualClock;
   readonly mountIds: readonly string[];
   readonly mountOverrides?: Readonly<Record<string, Partial<RepoMountReadResponse>>>;
   readonly retainedSessionId?: string | undefined;
@@ -49,40 +59,40 @@ export function contextReading(options: {
    * could not tell a permanent refusal apart from a transient one.
    */
   readonly rejectionCount?: number;
-}): SettingsPageContext {
+}): { readonly context: SettingsPageContext; readonly clock: ManualClock } {
   let refusedCallCount = 0;
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("workspace-mounts-page") });
+  const clock = fixture.scenarioEngine?.clock;
+  if (!(clock instanceof ManualClock)) {
+    throw new Error("the fixture bridge did not supply a frozen clock");
+  }
+  const { bridge } = withDaemonCall(fixture, async (recorded) => {
+    options.onCall?.(recorded.method);
+    if (
+      options.rejectWith !== undefined &&
+      refusedCallCount < (options.rejectionCount ?? Number.POSITIVE_INFINITY)
+    ) {
+      refusedCallCount += 1;
+      // A wire ENVELOPE and not a bare `Error`: the call door normalizes a
+      // rejection into the console's refusal shape, and only an envelope
+      // carries a code of its own for it to keep. A bare message would be
+      // normalized under the door's own code, which is a different assertion.
+      throw options.rejectWith;
+    }
+    if (recorded.method === "repo.workspaceList") {
+      return workspaceListWith(options.mountIds);
+    }
+    const { repoMountId } = recorded.params as { repoMountId: string };
+    return mountReadFor(repoMountId, options.mountOverrides?.[repoMountId] ?? {});
+  });
   return {
-    bridge: {
-      source: "fixture",
-      scenarioEngine: { clock: options.clock },
-      sidekicks: {
-        daemon: {
-          call: async (method: string, request: unknown): Promise<unknown> => {
-            options.onCall?.(method);
-            if (
-              options.rejectWith !== undefined &&
-              refusedCallCount < (options.rejectionCount ?? Number.POSITIVE_INFINITY)
-            ) {
-              refusedCallCount += 1;
-              // A wire ENVELOPE and not a bare `Error`: the call door normalizes a
-              // rejection into the console's refusal shape, and only an envelope
-              // carries a code of its own for it to keep. A bare message would be
-              // normalized under the door's own code, which is a different assertion.
-              throw options.rejectWith;
-            }
-            if (method === "repo.workspaceList") {
-              return workspaceListWith(options.mountIds);
-            }
-            const { repoMountId } = request as { repoMountId: string };
-            return mountReadFor(repoMountId, options.mountOverrides?.[repoMountId] ?? {});
-          },
-        },
-      },
-    },
-    openSection: () => undefined,
-    retainedSessionId: "retainedSessionId" in options ? options.retainedSessionId : SESSION_ID,
-    retainedSessionStore: options.sessionStore,
-  } as unknown as SettingsPageContext;
+    context: settingsPageContextWith(
+      bridge,
+      "retainedSessionId" in options ? options.retainedSessionId : SESSION_ID,
+      options.sessionStore,
+    ),
+    clock,
+  };
 }
 
 /** The page's own element, so a case never reads the announcer's regions by accident. */
@@ -102,14 +112,16 @@ export function mountsPageOf(root: HTMLElement): HTMLElement {
  * because the number of ticks a fan-out takes is a function of how many mounts the
  * fixture named.
  */
-export async function renderSettledPage(
-  clock: ManualClock,
-  context: SettingsPageContext,
-): Promise<{
+export async function renderSettledPage(reading: {
+  readonly context: SettingsPageContext;
+  readonly clock: ManualClock;
+}): Promise<{
   readonly page: HTMLElement;
+  readonly clock: ManualClock;
   readonly politeText: () => string;
   readonly settle: () => Promise<void>;
 }> {
+  const { context, clock } = reading;
   // One announcer, on the page's own frozen clock — the resolution `AppFrame` makes
   // in a window. A second time base here would make "was it said again" a question
   // about the runner rather than about the read.
@@ -137,7 +149,8 @@ export async function renderSettledPage(
   await settle();
   return {
     page: mountsPageOf(container),
-    politeText: () => container.querySelector('[data-live-region="polite"]')?.textContent ?? "",
+    clock,
+    politeText: () => politeText(container),
     settle,
   };
 }

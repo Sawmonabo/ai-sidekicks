@@ -8,11 +8,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  LIVE_ANNOUNCEMENT_HOLD_MS,
-  MOUNT_INVENTORY_READ_CAP,
-  ManualClock,
-} from "../../../core/index.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS, MOUNT_INVENTORY_READ_CAP } from "../../../core/index.js";
 import { formatClockTime, formatDateTime } from "../../../primitives/index.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";
 import { MOUNT_A, MOUNT_B, mountIdAt } from "./mounts.test-support.js";
@@ -21,11 +17,8 @@ import { contextReading, renderSettledPage } from "./workspace-mounts-page.test-
 
 describe("workspace mounts page", () => {
   it("renders the mount's path and both health axes, never folded together", async () => {
-    const clock = new ManualClock();
     const { page: container } = await renderSettledPage(
-      clock,
       contextReading({
-        clock,
         mountIds: [MOUNT_A],
         mountOverrides: {
           [MOUNT_A]: { health: { status: "unreachable", checkedAt: "2026-09-02T10:00:00.000Z" } },
@@ -46,11 +39,8 @@ describe("workspace mounts page", () => {
     // at" is read precisely to tell how stale the reachability chip is.
     const probedToday = "2026-09-02T10:00:00.000Z";
     const probedLastWeek = "2026-08-26T10:00:00.000Z";
-    const clock = new ManualClock();
     const { page: container } = await renderSettledPage(
-      clock,
       contextReading({
-        clock,
         mountIds: [MOUNT_A, MOUNT_B],
         mountOverrides: {
           [MOUNT_A]: { health: { status: "healthy", checkedAt: probedToday } },
@@ -69,11 +59,8 @@ describe("workspace mounts page", () => {
   });
 
   it("keeps an unreachable mount listed rather than hiding it", async () => {
-    const clock = new ManualClock();
     const { page: container } = await renderSettledPage(
-      clock,
       contextReading({
-        clock,
         mountIds: [MOUNT_A, MOUNT_B],
         mountOverrides: {
           [MOUNT_B]: { health: { status: "unreachable", checkedAt: "2026-09-02T10:00:00.000Z" } },
@@ -84,31 +71,21 @@ describe("workspace mounts page", () => {
   });
 
   it("says this window has opened no session rather than reading for one", async () => {
-    const clock = new ManualClock();
     const { page: container } = await renderSettledPage(
-      clock,
-      contextReading({ clock, mountIds: [MOUNT_A], retainedSessionId: undefined }),
+      contextReading({ mountIds: [MOUNT_A], retainedSessionId: undefined }),
     );
     expect(container.textContent ?? "").toContain("Mounts belong to a session");
     expect(container.querySelector(".meridian-mount-list")).toBeNull();
   });
 
   it("reports an empty session as empty and not as unread", async () => {
-    const clock = new ManualClock();
-    const { page: container } = await renderSettledPage(
-      clock,
-      contextReading({ clock, mountIds: [] }),
-    );
+    const { page: container } = await renderSettledPage(contextReading({ mountIds: [] }));
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(container.textContent ?? "").toContain("mounted no repositories");
   });
 
   it("offers no detach control and no control at all on a row", async () => {
-    const clock = new ManualClock();
-    const { page: container } = await renderSettledPage(
-      clock,
-      contextReading({ clock, mountIds: [MOUNT_A] }),
-    );
+    const { page: container } = await renderSettledPage(contextReading({ mountIds: [MOUNT_A] }));
     expect(container.querySelectorAll("button, input, select, textarea")).toHaveLength(0);
   });
 
@@ -134,34 +111,25 @@ describe("workspace mounts page", () => {
 
 describe("workspace mounts page — the read says it landed, once", () => {
   it("announces what was read and how many", async () => {
-    const clock = new ManualClock();
     const { politeText } = await renderSettledPage(
-      clock,
-      contextReading({ clock, mountIds: [MOUNT_A, MOUNT_B] }),
+      contextReading({ mountIds: [MOUNT_A, MOUNT_B] }),
     );
     expect(politeText()).toBe("Mounts read for this session: 2.");
   });
 
   it("names the tail it did not open rather than reporting a smaller session", async () => {
-    const clock = new ManualClock();
     const overCap = Array.from({ length: MOUNT_INVENTORY_READ_CAP + 3 }, (_unused, index) =>
       mountIdAt(index),
     );
-    const { politeText } = await renderSettledPage(
-      clock,
-      contextReading({ clock, mountIds: overCap }),
-    );
+    const { politeText } = await renderSettledPage(contextReading({ mountIds: overCap }));
     expect(politeText()).toBe(
       `Mounts read for this session: ${String(MOUNT_INVENTORY_READ_CAP)}, with 3 more not read.`,
     );
   });
 
   it("announces a refused read in the words the refusal arrived in", async () => {
-    const clock = new ManualClock();
     const { page, politeText } = await renderSettledPage(
-      clock,
       contextReading({
-        clock,
         mountIds: [MOUNT_A],
         rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
       }),
@@ -175,12 +143,9 @@ describe("workspace mounts page — the read says it landed, once", () => {
   it("negative control: a focus refresh finding the same mounts says nothing again", async () => {
     // Without this, a page that announced on every settlement would speak the same
     // sentence every time the window regained focus.
-    const clock = new ManualClock();
     const methodsAsked: string[] = [];
-    const { politeText, settle } = await renderSettledPage(
-      clock,
+    const { clock, politeText, settle } = await renderSettledPage(
       contextReading({
-        clock,
         mountIds: [MOUNT_A, MOUNT_B],
         onCall: (method) => methodsAsked.push(method),
       }),

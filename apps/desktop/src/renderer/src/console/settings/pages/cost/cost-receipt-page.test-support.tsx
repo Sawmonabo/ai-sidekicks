@@ -10,10 +10,13 @@ import { afterEach, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
-import { CommittedFrameRecorder } from "../../committed-frame.test-support.js";
+import {
+  renderMovablePage,
+  settingsPageContextWith,
+  type MountedMovablePage,
+} from "../../settings-page-mount.test-support.js";
 import { CostReceiptPage } from "./CostReceiptPage.js";
 import type { CostReceipt, CostReceiptOutcome } from "./cost-receipt-model.js";
-import { type SettingsPageContext } from "../../settings-page-registry.js";
 import { settle as settlePasses } from "../../../core/settle.test-support.js";
 
 export type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
@@ -84,18 +87,6 @@ export function balancedReceipt(): CostReceipt {
   };
 }
 
-export function contextWith(
-  bridge: ConsoleBridge,
-  retainedSessionId: string | undefined,
-): SettingsPageContext {
-  return {
-    bridge,
-    openSection: () => undefined,
-    retainedSessionId,
-    retainedSessionStore: undefined,
-  } satisfies SettingsPageContext;
-}
-
 /**
  * The real fixture bridge with the one operation this page reads overridden.
  *
@@ -126,49 +117,16 @@ export async function settle(): Promise<void> {
   await settlePasses(3);
 }
 
-/** What one mounted page exposes to a case that moves it between sessions. */
-export interface MountedCostPage {
-  readonly container: HTMLElement;
-  /** Every frame committed since the last {@link MountedCostPage.forgetFrames}. */
-  readonly frames: readonly string[];
-  readonly forgetFrames: () => void;
-  readonly showSession: (retainedSessionId: string | undefined) => void;
-}
-
-/**
- * Mount the page beside a recorder, so a case can read the frames it committed.
- *
- * The subject move this supports is one commit long — see
- * `settings/committed-frame.test-support.tsx` — so the case cannot look at the DOM
- * afterwards and see it.
- */
-export function renderMovablePage(
+/** Mount the cost page beside a recorder. See the family's shared harness. */
+export function renderMovableCostPage(
   bridge: ConsoleBridge,
   retainedSessionId: string | undefined,
-): MountedCostPage {
-  const frames: string[] = [];
-  const tree = (sessionId: string | undefined): React.JSX.Element => (
-    <LiveAnnouncerProvider>
-      <CommittedFrameRecorder
-        onFrame={(committedText) => {
-          frames.push(committedText);
-        }}
-      >
-        <CostReceiptPage context={contextWith(bridge, sessionId)} />
-      </CommittedFrameRecorder>
-    </LiveAnnouncerProvider>
+): MountedMovablePage {
+  return renderMovablePage(
+    (context) => <CostReceiptPage context={context} />,
+    bridge,
+    retainedSessionId,
   );
-  const { container, rerender } = render(tree(retainedSessionId));
-  return {
-    container,
-    frames,
-    forgetFrames: () => {
-      frames.length = 0;
-    },
-    showSession: (nextSessionId) => {
-      rerender(tree(nextSessionId));
-    },
-  };
 }
 
 export function renderPage(
@@ -177,7 +135,7 @@ export function renderPage(
 ): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <CostReceiptPage context={contextWith(bridge, retainedSessionId)} />
+      <CostReceiptPage context={settingsPageContextWith(bridge, retainedSessionId)} />
     </LiveAnnouncerProvider>,
   );
   return container;
@@ -190,10 +148,6 @@ export async function renderSettledPage(
   const container = renderPage(bridge, retainedSessionId);
   await settle();
   return container;
-}
-
-export function politeAnnouncement(container: HTMLElement): string {
-  return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
 }
 
 /** The rows of one split's table, by the heading the section carries. */
