@@ -22,11 +22,13 @@
 import "./settings.css";
 import "./shared/settings-page.css";
 import "./shared/preference-toggle-row.css";
+import "./shared/account-plane-handoff/account-plane-handoff.css";
 import "./pages/appearance/appearance.css";
 import "./pages/cost/cost-receipt.css";
 import "./pages/keyboard/keyboard.css";
 import "./pages/mounts/mounts.css";
 import "./pages/notifications/notifications.css";
+import "./pages/runtime-nodes/runtime-nodes.css";
 
 import { createElement, useState } from "react";
 
@@ -41,6 +43,7 @@ import { registerMcpServersPage } from "./pages/mcp-servers/McpServersPage.js";
 import { registerNotificationsPage } from "./pages/notifications/NotificationsPage.js";
 import { registerProviderAccountsPage } from "./pages/provider-accounts/ProviderAccountsPage.js";
 import { registerRuntimeNodesPage } from "./pages/runtime-nodes/RuntimeNodesPage.js";
+import { registerBrowserSettingsPage } from "../browser-settings-page.js";
 import { registerSidekicksPage } from "../sidekicks-settings-page.js";
 import { registerWorkspaceMountsPage } from "./pages/mounts/WorkspaceMountsPage.js";
 import { SettingsPageRegistry } from "./settings-page-registry.js";
@@ -79,6 +82,8 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerProviderAccountsPage(registry);
   registerMcpServersPage(registry);
   registerCostReceiptPage(registry);
+  // The browser page: the console root's second one-line seam, the browser family's body.
+  registerBrowserSettingsPage(registry);
 }
 
 /**

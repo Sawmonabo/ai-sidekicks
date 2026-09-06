@@ -47,3 +47,18 @@ export { MemoryPersistenceAdapter } from "./memory-adapter.js";
 export { UiStateStore } from "./ui-state-store.js";
 
 export { DraftStore } from "./draft-store.js";
+
+// What the store knows about ITSELF, published because a settings page reports it.
+// Plan-023 §Target Areas states the obligation in terms — until the durable adapter
+// ships, the console "runs on an in-memory adapter and reports that state in its own
+// settings page" — and a page that could not read the health reading would have had
+// to infer durability from a write that failed, which reports a symptom rather than
+// the state. `describeQuotaUnavailability` travels with it for the reason the table
+// it reads states: one vocabulary, so two surfaces cannot disagree about what
+// `open-timed-out` means.
+export { describeQuotaUnavailability } from "./adapter.js";
+// `QuotaGauge` and not `PersistenceAdapterKind` beside it: the page renders the
+// adapter kind as the string the health reading already carries, and a door line
+// for the union nothing annotates with would be a name published for symmetry.
+export type { QuotaGauge } from "./adapter.js";
+export type { PersistenceHealth } from "./store-health.js";

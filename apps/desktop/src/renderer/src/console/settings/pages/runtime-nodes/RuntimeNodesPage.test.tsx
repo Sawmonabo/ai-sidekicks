@@ -15,6 +15,8 @@ import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-p
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { unscriptedScenario } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
+import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
+import { settle } from "../../../core/settle.test-support.js";
 
 /**
  * The tick this scenario's two machines are both online at, one axis apart.
@@ -34,6 +36,7 @@ function contextFor(
     openSection: () => undefined,
     retainedSessionId,
     retainedSessionStore: undefined,
+    uiStateStore: consoleTestUiStateStore(),
   };
 }
 
@@ -122,13 +125,18 @@ describe("runtime nodes page", () => {
     expect(screen.queryByRole("alert", { name: "node-roster-error" })).toBeNull();
   });
 
-  it("offers no attachment it cannot compose", () => {
+  it("offers no attachment it cannot compose", async () => {
     const { container } = render(
       <RuntimeNodesPage context={contextFor(bridgeWithRoster(), SETTINGS_SCENARIO.sessionId)} />,
     );
     const text = container.textContent ?? "";
-    expect(text).toContain("composes no attachment");
+    expect(text).toContain("A machine attaches itself");
     expect(container.querySelectorAll("button")).toHaveLength(0);
+    // The assertions are the case and they are taken first. This mount put a roster
+    // read on the wire, and a case that ends before it answers leaves the arrival to
+    // land outside React's scope on a tree already coming down — an unwrapped-update
+    // warning charged to whichever file ran next. Nothing above is waiting for it.
+    await settle();
   });
 
   it("claims the nodes section with a search vocabulary", () => {

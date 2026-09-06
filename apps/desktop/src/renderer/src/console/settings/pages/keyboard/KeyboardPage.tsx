@@ -38,10 +38,10 @@ import {
   InlineRefusal,
   Nothing,
   formatChordForPlatform,
-  formatCount,
   useAnnounce,
 } from "../../../primitives/index.js";
 import { KeybindingRowBody } from "./KeybindingRowBody.js";
+import { ResetAllChords } from "./ResetAllChords.js";
 import { StaleKeybindingOverrides } from "./StaleKeybindingOverrides.js";
 import {
   composeKeybindingRows,
@@ -90,6 +90,11 @@ export function KeyboardPage(): ReactNode {
   const rows = composeKeybindingRows({
     commands,
     bindings: keybindingSurface.bindings,
+    // The SHIPPED table beside the effective one, so every row can name the chord its
+    // reset restores. The effective table is this one with the overrides already
+    // composed onto it, so reading a default out of it would answer with the override
+    // the reset removes.
+    shippedBindings: keybindingSurface.shippedBindings,
     overrides: consoleKeybindingOverrides.overrides,
   });
   const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
@@ -104,7 +109,7 @@ export function KeyboardPage(): ReactNode {
     overrides: consoleKeybindingOverrides.overrides,
   });
   const visibleRows = matchKeybindingRows(rows, query);
-  const overriddenRowCount = rows.filter((row) => row.overridden).length;
+  const changedRows = rows.filter((row) => row.overridden);
 
   // A recorder still armed when the page goes away would leave the console keyboard
   // suspended for the life of the window.
@@ -186,7 +191,7 @@ export function KeyboardPage(): ReactNode {
         <h3 className="meridian-settings-page__block-title">Chords</h3>
         <div className="meridian-keymap__filter">
           <label className="meridian-keymap__filter-label" htmlFor={FILTER_FIELD_ID}>
-            Filter by command
+            Filter by command, chord, or scope
           </label>
           <input
             id={FILTER_FIELD_ID}
@@ -195,7 +200,7 @@ export function KeyboardPage(): ReactNode {
             value={query}
             spellCheck={false}
             autoComplete="off"
-            placeholder="Go to settings"
+            placeholder="Go to settings, $mod+K, session"
             onChange={(event) => {
               setQuery(event.target.value);
             }}
@@ -213,7 +218,7 @@ export function KeyboardPage(): ReactNode {
             detail={
               rows.length === 0
                 ? "Commands are contributed by the surfaces that own them, and this window has none registered yet. A row appears here as soon as one does."
-                : "The filter matches a command's name, its id, and its category. Clearing the field brings every command back."
+                : "The filter matches a command's name, its id, its category, the chord it runs on, and the scope that chord is live in. Clearing the field brings every command back."
             }
           />
         ) : (
@@ -265,24 +270,12 @@ export function KeyboardPage(): ReactNode {
             row, naming the command that holds it; Reset puts a row back to the shipped chord.
           </p>
         </div>
-        {overriddenRowCount === 0 ? (
-          <Nothing
-            kind="empty"
-            placement="inline"
-            title="Every chord is the one the console ships."
-          />
-        ) : (
-          <button
-            type="button"
-            className="meridian-keymap__reset-all"
-            onClick={() => {
-              void resetEveryRow();
-            }}
-          >
-            Reset all {formatCount(overriddenRowCount)} changed{" "}
-            {overriddenRowCount === 1 ? "chord" : "chords"}
-          </button>
-        )}
+        <ResetAllChords
+          changedRows={changedRows}
+          onResetAll={() => {
+            void resetEveryRow();
+          }}
+        />
       </section>
 
       <section className="meridian-settings-page__block" aria-label="What the keyboard reports">

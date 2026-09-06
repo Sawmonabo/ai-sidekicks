@@ -86,3 +86,9 @@ export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
     body: () => import("./pane/browser-pane-body.js"),
   });
 }
+
+// The settings section, for the console root that registers it into the settings
+// board. The BOUND component and not the projection beside it: what leaves this family
+// is one thing a composition site can mount with a bridge, so no caller outside the
+// browser has to know which reads dress the page.
+export { BrowserSettingsSection } from "./settings/BrowserSettingsSection.js";

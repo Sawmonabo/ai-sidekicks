@@ -23,6 +23,17 @@
 // a copy of it here would be this console composing a remedy — which the design
 // forbids in terms, because the remedy carries a credential-home path and a
 // first-party sign-in command that only the node that owns the home can name.
+//
+// ONE READ THIS PAGE DOES MAKE, AND WHY IT IS NOT A ROW
+//
+// The node's account-plane reading is already taken once per window at the bridge —
+// `useProviderQuotas`, whose own door says a settings surface listing accounts asks
+// the same question of the same registry. What this page renders off it is exactly
+// one thing: the REFUSAL, where that read failed. A refused registry read is why the
+// rows below are missing, and rendering the page's vocabulary above an empty slot
+// with nothing saying the read failed is the dead end the post-refusal handoff
+// exists to end. The readings themselves stay the slot owner's; nothing here draws a
+// registry row, and a served read renders nothing extra at all.
 
 import {
   BILLING_MODES,
@@ -38,7 +49,9 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
+import { readRefusalOf, useProviderQuotas } from "../../../bridge/index.js";
 import { Chip, WireFigure } from "../../../primitives/index.js";
+import { AccountPlaneRefusal } from "../../shared/account-plane-handoff/AccountPlaneRefusal.js";
 import { PROVIDER_ACCOUNTS_PAGE } from "./provider-accounts-slot.js";
 import {
   renderOwnerSlotPage,
@@ -90,6 +103,7 @@ const QUOTA_SOURCE_MEANINGS: Readonly<Record<ProviderAccountUsageWindowSource, s
 };
 
 export function ProviderAccountsPage(props: { readonly context: SettingsPageContext }): ReactNode {
+  const registryReadRefusal = readRefusalOf(useProviderQuotas(props.context.bridge));
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
@@ -167,6 +181,17 @@ export function ProviderAccountsPage(props: { readonly context: SettingsPageCont
           </p>
         </div>
       </section>
+
+      {registryReadRefusal === undefined ? null : (
+        <section className="meridian-settings-page__block" aria-label="Reading the registry">
+          <h3 className="meridian-settings-page__block-title">Reading the registry</h3>
+          <AccountPlaneRefusal
+            refusal={registryReadRefusal}
+            openSection={props.context.openSection}
+            currentSection="accounts"
+          />
+        </section>
+      )}
 
       {renderOwnerSlotPage(PROVIDER_ACCOUNTS_PAGE, props.context)}
     </div>

@@ -1,9 +1,16 @@
+// The pane: three absences, or the page the address names.
+//
+// The PAGE itself is `SettingsSectionPage.tsx` beside this file, and the split is the
+// package's one-component-per-module rule doing real work: that component holds hooks
+// and this one may not, because two of the three arms below render before any section
+// is resolved and a hook run for them would be reaching for a heading that is not on
+// screen.
 import { Nothing } from "../primitives/index.js";
-import {
-  SETTINGS_SECTION_LABELS,
-  type SettingsPageContext,
-  type SettingsPageRegistry,
-  type SettingsSectionId,
+import { SettingsSectionPage } from "./SettingsSectionPage.js";
+import type {
+  SettingsPageContext,
+  SettingsPageRegistry,
+  SettingsSectionId,
 } from "./settings-page-registry.js";
 
 export interface SettingsPaneProps {
@@ -12,6 +19,12 @@ export interface SettingsPaneProps {
   readonly attempted: string | undefined;
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
+  /**
+   * How many search hits this surface has opened. Moves on every hit, including a
+   * second hit on the section already open — which is the case a boolean could not
+   * express, and the one where a reader most needs to be told they did not move.
+   */
+  readonly settleOrdinal: number;
 }
 
 /**
@@ -47,23 +60,12 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
     );
   }
 
-  const descriptor = props.pages.descriptorFor(props.section);
-  const label = SETTINGS_SECTION_LABELS[props.section];
   return (
-    <article className="meridian-settings__page" aria-label={label}>
-      <h2 className="meridian-settings__page-heading">{descriptor?.label ?? label}</h2>
-      <div className="meridian-settings__page-body">
-        {descriptor === undefined ? (
-          <Nothing
-            kind="empty"
-            placement="surface"
-            title={`The ${label.toLowerCase()} page has not been built yet.`}
-            detail="It is reserved rather than missing — the section exists and its page is still being built. Nothing was asked of the daemon for it."
-          />
-        ) : (
-          descriptor.render(props.context)
-        )}
-      </div>
-    </article>
+    <SettingsSectionPage
+      section={props.section}
+      context={props.context}
+      pages={props.pages}
+      settleOrdinal={props.settleOrdinal}
+    />
   );
 }

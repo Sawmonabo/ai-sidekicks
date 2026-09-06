@@ -71,6 +71,11 @@ import { SentInvites } from "../../../src/renderer/src/console/collaboration/inv
 import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
+// The console's own store harness rather than a second construction: the page
+// context requires a store, and one built here would be a second answer to a
+// question `settings-page-mount.test-support.ts` already answers for every case
+// that mounts a settings page.
+import { consoleTestUiStateStore } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
@@ -273,6 +278,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
       openSection: () => undefined,
       retainedSessionId: COLLABORATION_SCENARIO.sessionId,
       retainedSessionStore: undefined,
+      uiStateStore: consoleTestUiStateStore(),
     };
     const { container } = await renderSettled(<RuntimeNodesPage context={pageContext} />);
     // Throws rather than capturing a spinner: a picture of the loading arm would

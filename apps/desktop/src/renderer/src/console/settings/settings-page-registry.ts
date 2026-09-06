@@ -28,6 +28,7 @@ import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { scoreSubsequence } from "../palette/index.js";
 import { Nothing } from "../primitives/index.js";
+import type { UiStateStore } from "../persistence/index.js";
 import type { SessionStore } from "../store/index.js";
 import type { OwnerSlotProps } from "../seats/index.js";
 
@@ -132,6 +133,21 @@ export interface SettingsPageContext {
    * and a page reads that as one refresh signal fewer rather than as a failure.
    */
   readonly retainedSessionStore: SessionStore | undefined;
+  /**
+   * This window's durable store, for the one page that reports on the store itself.
+   *
+   * Required rather than optional, because the surface that builds this context is
+   * handed one and every window has exactly one. An optional member would be a type
+   * saying a page might have to do without a store the composition always supplies,
+   * and the page reporting the store's own state would then carry an absence arm
+   * that is unreachable — an absence nothing can produce reads as a state a person
+   * might one day see.
+   *
+   * A page reaching for it to hold its OWN durable state is not what this admits:
+   * the chokepoint's value classes are closed, and a page storing something outside
+   * them is refused by the store rather than by this comment.
+   */
+  readonly uiStateStore: UiStateStore;
 }
 
 /** What a page renders. A function rather than a component type, as the seats are. */

@@ -1,10 +1,28 @@
+// Every state the two-read chain can be in, and what each one renders.
+//
+// TWO OF THOSE STATES CHANGED, AND BOTH FOR THE SAME REASON: a page that says nothing
+// is a page a person cannot use.
+//
+//   • **Nothing stored is not nothing to show.** The empty arm used to be a sentence
+//     and no controls, which inverts the surface — an empty store is exactly the state
+//     a person arrives in, and the one where they most need a switch. Every trigger the
+//     daemon holds no record for now renders at its default, tagged as a default, and
+//     flipping one writes it. The tag is what keeps the two facts apart: a default
+//     drawn without one reads as the person's own answer.
+//
+//   • **A re-read does not blank the rows.** The set is re-read when the window comes
+//     back, and the reading is held beside the in-flight flag rather than replaced by
+//     it, so what is on screen stays there and goes unpressable while the answer is
+//     refreshed. Returning to "Reading your preferences." on every focus would read as
+//     the console forgetting.
+
 import { type ReactNode } from "react";
-import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { Chip, InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
 import { projectPreferenceRows } from "./attention-preference-model.js";
+import { preferencesWithDefaults } from "./default-preferences.js";
 import { StoredPreferenceValue } from "./StoredPreferenceValue.js";
 import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
 
-/** Every state the two-read chain can be in, and what each one renders. */
 export function StoredPreferences(props: {
   readonly binding: StoredPreferenceBinding;
   readonly hasSession: boolean;
@@ -52,23 +70,15 @@ export function StoredPreferences(props: {
       />
     );
   }
-  const rows = projectPreferenceRows(binding.preferenceReading.outcome.value.preferences);
-  if (rows.length === 0) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="The daemon holds no preference for you yet."
-        detail="Nothing is stored under your name, and nothing is assumed in its place."
-      />
-    );
-  }
+  const stored = preferencesWithDefaults(binding.preferenceReading.outcome.value.preferences);
+  const rows = projectPreferenceRows(stored.preferences);
   return (
-    <ul className="meridian-attention-preferences">
+    <ul className="meridian-attention-preferences" aria-busy={binding.isReadInFlight}>
       {rows.map((row) => (
         // `aria-busy` on the RECORD rather than on one switch, because that is the
         // scope the write locks: the value goes back whole, so every member of it is
-        // unpressable until the daemon answers.
+        // unpressable until the daemon answers. The list carries its own for the
+        // re-read, which locks every record at once and replaces none of them.
         <li
           className="meridian-attention-preferences__row"
           key={row.key}
@@ -76,8 +86,15 @@ export function StoredPreferences(props: {
         >
           <p className="meridian-attention-preferences__key">
             <WireFigure value={row.key} />
+            {stored.defaultedKeys.has(row.key) ? (
+              <Chip tone="neutral" label="default" glyph="dot" />
+            ) : null}
           </p>
-          <StoredPreferenceValue row={row} binding={binding} />
+          <StoredPreferenceValue
+            row={row}
+            binding={binding}
+            isDefault={stored.defaultedKeys.has(row.key)}
+          />
         </li>
       ))}
     </ul>

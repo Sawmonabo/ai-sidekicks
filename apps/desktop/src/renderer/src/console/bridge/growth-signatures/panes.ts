@@ -34,6 +34,37 @@ export interface PaneGrowthSignatures {
     request: { readonly toolCallId: string; readonly resultJson: string };
     value: void;
   };
+  /**
+   * The two node-wide browser switches, keyed by the console's own switch ids.
+   *
+   * A record rather than a pair of named booleans, so a third switch is a value the
+   * daemon sends rather than a shape change here — and the console's own closed
+   * `BROWSER_POLICY_SWITCHES` tuple decides which of them it draws a row for, which
+   * is where that set is already declared once.
+   */
+  browserPolicyRead: { request: Record<string, never>; value: Readonly<Record<string, boolean>> };
+  browserPolicyWrite: {
+    request: { readonly switchId: string; readonly enabled: boolean };
+    value: void;
+  };
+  /**
+   * The partitions this node stores, one per session that has opened a browser pane.
+   *
+   * `storedByteLength` is optional rather than zero-defaulted: a partition the node
+   * could not measure is a different fact from an empty one, and the settings page
+   * renders the two differently — a zero standing in for an unmeasured partition is
+   * the one claim a clear control must not make falsely.
+   */
+  browserSiteDataList: {
+    request: Record<string, never>;
+    value: readonly {
+      readonly sessionId: string;
+      readonly sessionTitle: string;
+      readonly storedByteLength?: number | undefined;
+      readonly hasOpenPane: boolean;
+    }[];
+  };
+  browserSiteDataClear: { request: { readonly sessionId: string }; value: void };
   terminalSubscribeOutput: {
     request: { readonly terminalId: string };
     value: GrowthStream<GrowthTerminalChunk>;

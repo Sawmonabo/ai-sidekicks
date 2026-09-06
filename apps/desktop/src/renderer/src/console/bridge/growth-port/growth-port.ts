@@ -303,6 +303,10 @@ export function createRefusingGrowthPort(): GrowthPort {
     browserSubscribeNavigation: async () => growthUnavailable("browserSubscribeNavigation"),
     browserSubscribeToolCalls: async () => growthUnavailable("browserSubscribeToolCalls"),
     browserRespondToToolCall: async () => growthUnavailable("browserRespondToToolCall"),
+    browserPolicyRead: async () => growthUnavailable("browserPolicyRead"),
+    browserPolicyWrite: async () => growthUnavailable("browserPolicyWrite"),
+    browserSiteDataList: async () => growthUnavailable("browserSiteDataList"),
+    browserSiteDataClear: async () => growthUnavailable("browserSiteDataClear"),
     terminalSubscribeOutput: async () => growthUnavailable("terminalSubscribeOutput"),
     terminalWrite: async () => growthUnavailable("terminalWrite"),
     terminalResize: async () => growthUnavailable("terminalResize"),
@@ -353,6 +357,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     attentionProjectionRead: async () => growthUnavailable("attentionProjectionRead"),
     attentionPreferenceRead: async () => growthUnavailable("attentionPreferenceRead"),
     attentionPreferenceUpdate: async () => growthUnavailable("attentionPreferenceUpdate"),
+    attentionOsPermissionRead: async () => growthUnavailable("attentionOsPermissionRead"),
     // workflow
     workflowDefinitionList: async () => growthUnavailable("workflowDefinitionList"),
     workflowRunStart: async () => growthUnavailable("workflowRunStart"),

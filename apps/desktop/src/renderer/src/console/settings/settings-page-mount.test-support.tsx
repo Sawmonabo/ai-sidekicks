@@ -17,6 +17,7 @@ import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
+import { MemoryPersistenceAdapter, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
@@ -33,13 +34,34 @@ export function settingsPageContextWith(
   bridge: ConsoleBridge,
   retainedSessionId: string | undefined,
   retainedSessionStore?: SessionStore | undefined,
+  uiStateStore: UiStateStore = consoleTestUiStateStore(),
 ): SettingsPageContext {
   return {
     bridge,
     openSection: () => undefined,
     retainedSessionId,
     retainedSessionStore,
+    uiStateStore,
   } satisfies SettingsPageContext;
+}
+
+/**
+ * A store every settings-page case can be handed, on the adapter that says so.
+ *
+ * The memory adapter and not a stub: it is the one the console itself falls back to,
+ * it reports `durable: false` with a reason from the same table the durable path
+ * reads, and it is exported for exactly this — a case driving a failure a real disk
+ * would take a real disk to reproduce. A hand-written double would be a second
+ * answer to what a store does, and the page reporting the store's state would then
+ * be tested against a fiction.
+ *
+ * A fresh one per call, because the health ledger's counts are cumulative for the
+ * store's lifetime: two cases sharing one store would read each other's refusals.
+ */
+export function consoleTestUiStateStore(
+  adapter: MemoryPersistenceAdapter = new MemoryPersistenceAdapter(),
+): UiStateStore {
+  return new UiStateStore({ adapter });
 }
 
 /** What one mounted page exposes to a case that moves it between sessions. */

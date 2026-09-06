@@ -14,7 +14,7 @@
 // snapshotted.
 
 import { act, render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { settle } from "../core/settle.test-support.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
@@ -39,7 +39,7 @@ import {
  * It also makes the slot claim itself a covered fact: a registrar that claimed nothing
  * fails here rather than rendering an empty rail.
  */
-async function shippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
+async function loadShippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
   const surfaces = new ConsoleSurfaceRegistry();
   registerSettingsSurface(surfaces);
   // The chunk, before the mount — which is what a window does too: the idle warm walks
@@ -53,6 +53,51 @@ async function shippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"
   }
   return descriptor.render;
 }
+
+/**
+ * That chunk, fetched once for the whole file and warmed off the per-case clock.
+ *
+ * THE COST IS REAL AND IT IS NOT WHAT ANY CASE MEASURES. The loader above pulls the
+ * settings chunk — twelve page modules, the combobox stack two of them mount, and
+ * eight stylesheets — and the first case to await it pays the transform for all of
+ * them inside vitest's 5 s per-case default. That is comfortable when the file runs
+ * alone and it is not comfortable when the tier runs beside a dozen others on one
+ * machine: the first case times out, the render it abandoned keeps its effects, and
+ * every case after it fails against a document the aborted one left behind — twelve
+ * failures reported as twelve defects, none of them real, green standalone and red in
+ * the suite. `test/console/architecture/act-settling.test.ts` records the same finding
+ * about its own parse and takes the same remedy.
+ *
+ * So the fetch is memoised in a holder and awaited once in `beforeAll`, where the
+ * budget belongs to a hook rather than to an assertion, and every case below then
+ * measures the rail. A class with a private field rather than a module-level `let`,
+ * per `apps/desktop/AGENTS.md`.
+ */
+class ShippedSurfaceRenderHolder {
+  #fetched: Promise<ConsoleSurfaceDescriptor["render"]> | undefined;
+
+  public fetch(): Promise<ConsoleSurfaceDescriptor["render"]> {
+    this.#fetched ??= loadShippedSurfaceRender();
+    return this.#fetched;
+  }
+}
+
+const shippedSurfaceRender = new ShippedSurfaceRenderHolder();
+
+/**
+ * Long enough for a cold transform of that chunk on a loaded machine, and no case's.
+ *
+ * Measured rather than guessed: the file's own cold run reports ~50 s of transform and
+ * import while a dozen sibling suites hold the machine, and about a second when the
+ * transform cache is warm. The bound is roughly twice the measured worst case, because
+ * it gates nothing — the bundle and endurance tiers own what this chunk may cost — and
+ * a bound too tight here reintroduces exactly the cascade it exists to prevent.
+ */
+const CHUNK_WARM_TIMEOUT_MS = 120_000;
+
+beforeAll(async () => {
+  await shippedSurfaceRender.fetch();
+}, CHUNK_WARM_TIMEOUT_MS);
 
 /**
  * One page that renders the session member and nothing else.
@@ -152,7 +197,7 @@ async function renderSurface(
 ): Promise<ReturnType<typeof render>> {
   const surface =
     pages === undefined ? (
-      (await shippedSurfaceRender())(context)
+      (await shippedSurfaceRender.fetch())(context)
     ) : (
       <SettingsSurface context={context} pages={pages} />
     );
@@ -243,8 +288,14 @@ describe("settings search — one field above the rail", () => {
     const field = container.querySelector(".meridian-settings__search-input");
     const input = field as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-    setter?.call(input, query);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    // INSIDE `act`, like the press below it. The dispatch drives a state write through
+    // React's own change handler, and outside React's scope that write is applied
+    // without the surrounding commit — so an assertion taken next reads the render
+    // before it, and React reports the escape on stderr rather than failing.
+    act(() => {
+      setter?.call(input, query);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
   }
 
   it("replaces the rail with ranked hits while a query stands", async () => {
@@ -269,6 +320,77 @@ describe("settings search — one field above the rail", () => {
     searchFor(container, "mcp");
     searchFor(container, "");
     expect(railLabels(container)).toHaveLength(SETTINGS_SECTION_IDS.length);
+  });
+
+  /**
+   * Where a hit LANDS the reader.
+   *
+   * The design asks for three things from a match — that it name where it landed,
+   * that it reach the pane, and that it settle there with one brief highlight. The
+   * first is the hit row's own text and is covered above; these cases cover the other
+   * two. The reach is asserted as FOCUS rather than as a scroll because focus is what
+   * this module writes: the viewport following it is the platform's own behaviour, and
+   * a case asserting a scroll offset in a layout-free DOM would be asserting nothing.
+   */
+  function pressHit(container: HTMLElement, label: string): void {
+    const hits = [...container.querySelectorAll(".meridian-settings__section--result")];
+    const hit = hits.find((element) => (element.textContent ?? "").includes(label));
+    if (hit === undefined) {
+      throw new Error(`no search hit named ${label}`);
+    }
+    act(() => {
+      (hit as HTMLButtonElement).click();
+    });
+  }
+
+  it("lands the reader on the page a hit names, and settles it once", async () => {
+    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    const page = container.querySelector(".meridian-settings__page");
+    expect(page?.className).not.toContain("--settling");
+
+    searchFor(container, "cost");
+    pressHit(container, "Cost");
+
+    const heading = container.querySelector(".meridian-settings__page-heading");
+    expect(document.activeElement).toBe(heading);
+    expect(container.querySelector(".meridian-settings__page")?.className).toContain("--settling");
+  });
+
+  it("settles again on a second hit into the section already open", async () => {
+    // The case a boolean could not express: the state is already true, so a second
+    // press would change nothing downstream and the reader would be told nothing.
+    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    searchFor(container, "cost");
+    pressHit(container, "Cost");
+    const page = container.querySelector(".meridian-settings__page");
+    // The animation's end is what clears it, and jsdom runs no animation — so the
+    // case fires the event the browser would, and then asserts the second press
+    // brings the highlight back.
+    act(() => {
+      page?.dispatchEvent(new Event("animationend", { bubbles: true }));
+    });
+    expect(container.querySelector(".meridian-settings__page")?.className).not.toContain(
+      "--settling",
+    );
+
+    pressHit(container, "Cost");
+    expect(container.querySelector(".meridian-settings__page")?.className).toContain("--settling");
+  });
+
+  it("negative control: opening a section from the rail settles nothing", async () => {
+    // Without this, the two cases above would pass over a page that flashed on every
+    // arrival — which would say "you landed here" to someone who navigated by hand.
+    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    const railEntry = container.querySelector(".meridian-settings__section");
+    act(() => {
+      (railEntry as HTMLButtonElement).click();
+    });
+    expect(container.querySelector(".meridian-settings__page")?.className).not.toContain(
+      "--settling",
+    );
+    expect(document.activeElement).not.toBe(
+      container.querySelector(".meridian-settings__page-heading"),
+    );
   });
 });
 

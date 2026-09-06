@@ -52,6 +52,26 @@ export type CostReceiptReading = GrowthReading<CostReceiptOutcome>;
 /** The receipt itself: one session figure, decomposed three ways. */
 export type CostReceipt = Extract<CostReceiptOutcome, { readonly status: "served" }>["value"];
 
+/**
+ * The last receipt this page was served, and when it was served.
+ *
+ * Held BESIDE the current reading rather than inside it, which is the whole of what
+ * it is for: a re-read that is in flight, and a re-read that was refused, both used
+ * to replace the figure on screen with an absence — so a window coming back from
+ * elsewhere lost the number it was showing and gave a person nothing to compare the
+ * refusal against. Retaining it turns both of those into the same, honest statement:
+ * here is what was last true, here is when, and here is why it is not being confirmed
+ * right now.
+ *
+ * The instant is an ISO string rather than the clock's own milliseconds because that
+ * is what `formatClockTime` takes, and the console formats every wire instant through
+ * that one module.
+ */
+export interface RetainedReceipt {
+  readonly receipt: CostReceipt;
+  readonly readAtIso: string;
+}
+
 /** One run's line. Derived, so the row type has exactly one home. */
 export type CostReceiptRunRow = CostReceipt["runs"][number];
 

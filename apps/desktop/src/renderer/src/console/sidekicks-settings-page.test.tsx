@@ -20,6 +20,7 @@ import {
 import { createFixtureBridge } from "./bridge/index.js";
 import { ManualClock } from "./core/index.js";
 import { LiveAnnouncerProvider } from "./primitives/index.js";
+import { consoleTestUiStateStore } from "./settings/settings-page-mount.test-support.js";
 
 /**
  * A real context, because the body now reads through the bridge on it.
@@ -45,6 +46,7 @@ const CONTEXT: SettingsPageContext = {
   openSection: () => undefined,
   retainedSessionId: undefined,
   retainedSessionStore: undefined,
+  uiStateStore: consoleTestUiStateStore(),
 };
 
 /** The page speaks its settlement, so it is mounted inside the console's announcer. */

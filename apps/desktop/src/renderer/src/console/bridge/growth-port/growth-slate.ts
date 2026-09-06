@@ -53,7 +53,9 @@ export type GrowthSlateRowId =
   | "sidekick-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
-  | "workflow-version-chain";
+  | "workflow-version-chain"
+  // lane: cov-settings-a
+  | "os-notification-permission";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -381,6 +383,15 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  // lane: cov-settings-a
+  "os-notification-permission": {
+    id: "os-notification-permission",
+    wire: "whether this machine's operating system permits the shell to raise a notification at all — a shell reading, registered on no bridge namespace and in no document",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (the shell namespace a permission reading would join); Spec-019 §Required Behavior (which requires in-app attention to survive a denied OS permission, and never says how a surface learns of one)",
+    consumingSurface: "notifications settings page",
     wireRegistered: false,
   },
 };

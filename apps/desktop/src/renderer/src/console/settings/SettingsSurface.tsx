@@ -26,7 +26,7 @@
 // up on the first pass, and resolving in an effect would mean the first paint has
 // already said the page is missing.
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFrameStore, useOpenSessionStore } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
@@ -64,6 +64,13 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   const requestedPage = route.kind === "settings" ? route.page : undefined;
   const selectedSection = requestedSection(requestedPage);
   const [searchQuery, setSearchQuery] = useState("");
+  // ONE-SHOT, AND A COUNTER RATHER THAN A BOOLEAN. A search hit has to land the
+  // reader in the pane and settle there — "a match names where it landed, scrolls
+  // into the pane, and settles with one brief highlight" — and the second hit on the
+  // SAME section has to settle again. A boolean cannot express that: it is already
+  // true, so nothing downstream changes and the second press does nothing at all. The
+  // ordinal moves on every hit, which is what makes each one an act.
+  const [settleOrdinal, setSettleOrdinal] = useState(0);
   // SUBSCRIBED, not snapshotted. A getter read during render answers whatever the
   // store held on that pass and nothing re-renders when it changes, so a session
   // opened in another destination would reach these pages only on the next
@@ -71,9 +78,25 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   // does this one, which is also why the settings family holds no copy of the id.
   const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
 
-  const openSection = (section: SettingsSectionId): void => {
-    context.frameStore.navigate({ kind: "settings", page: section });
-  };
+  const openSection = useCallback(
+    (section: SettingsSectionId): void => {
+      context.frameStore.navigate({ kind: "settings", page: section });
+    },
+    [context.frameStore],
+  );
+
+  /**
+   * Open a section from a SEARCH HIT, which is a different act from pressing a rail
+   * entry: the rail already tells a person where they are, and a hit has to say
+   * where it landed them.
+   */
+  const openSearchHit = useCallback(
+    (section: SettingsSectionId): void => {
+      openSection(section);
+      setSettleOrdinal((held) => held + 1);
+    },
+    [openSection],
+  );
 
   // The RETAINED session, never the route's projection. Every settings address is
   // `kind: "settings"` and names no session, so the projection is `undefined` on all
@@ -91,6 +114,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
     openSection,
     retainedSessionId,
     retainedSessionStore,
+    uiStateStore: context.uiStateStore,
   };
 
   // Memoised on the registry and the query: the registry is composed once by the
@@ -112,7 +136,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
             query={searchQuery}
             matches={matches}
             selectedSection={selectedSection}
-            onOpenSection={openSection}
+            onOpenSection={openSearchHit}
           />
         ) : (
           <SettingsSectionRail selectedSection={selectedSection} onOpenSection={openSection} />
@@ -124,6 +148,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
           attempted={requestedPage}
           context={pageContext}
           pages={pages}
+          settleOrdinal={settleOrdinal}
         />
       </div>
     </section>

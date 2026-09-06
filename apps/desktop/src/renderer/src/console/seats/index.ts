@@ -309,8 +309,23 @@ export { subscribeDaemonEvent } from "./wire-access.js";
 // mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
 // reaches them here like every other consumer.
 export {
+  renderAbsorbedCapabilityDeclaration,
   renderAbsorbedInviteAcceptance,
+  renderAbsorbedMixedVersionStatus,
   renderAbsorbedNodeRoster,
   renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";
+
+// What the absorbed roster's own read answered, for a surface that renders beside it.
+//
+// The mount above is the only caller that needs the read SEAM, and it takes it by its
+// own specifier; what leaves this family is the OBSERVATION — a settings page renders a
+// node's declared capabilities and its version from the response that view already read,
+// rather than putting a second `runtimenode.roster` on the wire that could disagree with
+// what is on screen beside it.
+export {
+  useNodeRosterFocusReRead,
+  useNodeRosterObservation,
+  type NodeRosterObservation,
+} from "./node-roster-seam.js";
