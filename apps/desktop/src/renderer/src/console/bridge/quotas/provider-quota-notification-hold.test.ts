@@ -58,16 +58,51 @@ describe("ProviderQuotaNotificationHold", () => {
     expect(hold.release()).toHaveLength(PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP);
   });
 
-  it("negative control: a fresh read starts empty rather than replaying the last one's", () => {
-    // Without this the overflow path would replay one attempt's frames into the next,
-    // which is the double-apply the release above is written to rule out.
+  it("a read begun after a release starts empty rather than replaying the last one's", () => {
+    // The overflow path's sequence, and the double-apply the release above rules out:
+    // frames handed to the caller once must not be handed over a second time.
     const hold = new ProviderQuotaNotificationHold();
     hold.begin();
     hold.hold(removalOf("acct-one"));
+    hold.release();
 
     hold.begin();
 
     expect(hold.isHolding).toBe(true);
     expect(hold.release()).toStrictEqual([]);
+  });
+
+  it("a read begun while another is still holding inherits its frames", () => {
+    // The superseded-attempt sequence, which nothing releases: a `window-focus`
+    // trigger begins a second read while the opening one is still travelling, and the
+    // opening one's reply is then discarded by its ordinal. Clearing here dropped
+    // every frame it held — silently, by the method whose purpose is that none is.
+    const hold = new ProviderQuotaNotificationHold();
+    hold.begin();
+    hold.hold(removalOf("acct-one"));
+
+    hold.begin();
+    hold.hold(removalOf("acct-two"));
+
+    expect(hold.isHolding).toBe(true);
+    expect(hold.release().map((notification) => JSON.stringify(notification))).toStrictEqual([
+      JSON.stringify(removalOf("acct-one")),
+      JSON.stringify(removalOf("acct-two")),
+    ]);
+  });
+
+  it("counts an inherited frame against the cap rather than past it", () => {
+    // The cap bounds the BUFFER and not one attempt's share of it, so an inherited
+    // hold that fills degrades to the same re-read as any other. A cap re-based per
+    // attempt would let a run of superseded reads grow the buffer without bound.
+    const hold = new ProviderQuotaNotificationHold();
+    hold.begin();
+    for (let held = 0; held < PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP; held += 1) {
+      expect(hold.hold(removalOf(`acct-${String(held)}`))).toBe("held");
+    }
+
+    hold.begin();
+
+    expect(hold.hold(removalOf("acct-overflowing"))).toBe("overflowed");
   });
 });

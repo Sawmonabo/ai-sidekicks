@@ -43,6 +43,7 @@ import {
   PRIMITIVES,
   ROUTING,
   SEATS,
+  SHELL,
   STATE,
   TEST_SUPPORT_MODULES,
   TOKENS,
@@ -156,7 +157,7 @@ export default {
         "which is what makes the shell a seat above the console rather than a body inside it.",
       severity: "error",
       from: { path: `${CONSOLE}/`, pathNot: COMPOSITION_ROOT_FILES },
-      to: { path: "^src/renderer/src/shell/" },
+      to: { path: SHELL },
     },
     {
       name: "renderer-reaches-console-through-doors",

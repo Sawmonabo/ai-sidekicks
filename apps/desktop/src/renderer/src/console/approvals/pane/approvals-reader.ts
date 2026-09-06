@@ -16,6 +16,12 @@
 //   • **Refusals are values, not exceptions.** Every rejection is normalised into
 //     the console's one `ConsoleRefusal` shape and kept beside the record it
 //     belongs to, so `primitives/Refusal` renders it without translating anything.
+//     That is a rule this class had to be given rather than one it kept: all three
+//     of its calls awaited the port's two OUTCOME arms and guarded no rejection at
+//     all, and a rejection is what a call that never completed produces — the
+//     fixture throws for a scripted reply it cannot read, the row narrowing throws
+//     for a shape it cannot parse, and a live transport rejects whenever the call
+//     fails. Each one left an in-flight marker set and nothing rendered beside it.
 //
 // WHAT IT DOES NOT DO. It never filters by state — the history rule
 // `approvals-wire.ts` states is that the read is unfiltered and the surface drops
@@ -25,6 +31,7 @@
 
 import {
   Emitter,
+  normalizeWireRejection,
   type ConsoleClock,
   type ConsoleRefusal,
   type Unsubscribe,
@@ -46,6 +53,15 @@ import {
   revokeRememberedRule,
   type ApprovalResolveRequest,
 } from "./approvals-wire.js";
+
+/**
+ * The subsystem name a rejected approvals call is refused under.
+ *
+ * This surface's own, and not the growth port's: a rejection never reached the port's
+ * outcome arms, so wearing that name would attribute the failure to a refusal the port
+ * did not make and send a reader to a slate row for a wire that is registered.
+ */
+export const APPROVALS_REFUSAL_ORIGIN = "approvals";
 
 /**
  * Where one read has got to.
@@ -185,26 +201,43 @@ export class ApprovalsReader implements ReadTriggerTarget {
         request.approvalRequestId,
       ),
     });
-    void resolveApproval(this.#bridge, request).then((outcome) => {
-      // Deliberately nothing about the record's state on the served arm. The reply
-      // confirms the request; what the record BECAME is the next projection read's
-      // answer, and a card that settled itself here would be the renderer deciding
-      // an authorization outcome.
-      this.#clearResolving(request.approvalRequestId);
-      if (outcome.status === "unavailable") {
-        this.#update({
-          resolveRefusalByApprovalId: withEntry(
-            this.#snapshot.resolveRefusalByApprovalId,
-            request.approvalRequestId,
-            outcome,
-          ),
-        });
-      }
-      // A concurrent resolver's `approval.already_resolved` drops the card on the
-      // next signal re-read, so the surface asks for one on BOTH arms rather than
-      // leaving a stale pending card beside a refusal that explains why it is stale.
-      this.requestRead("terminal-event");
-    });
+    void resolveApproval(this.#bridge, request).then(
+      (outcome) => {
+        // Deliberately nothing about the record's state on the served arm. The reply
+        // confirms the request; what the record BECAME is the next projection read's
+        // answer, and a card that settled itself here would be the renderer deciding
+        // an authorization outcome.
+        this.#settleResolve(
+          request.approvalRequestId,
+          outcome.status === "unavailable" ? outcome : undefined,
+        );
+      },
+      // BESIDE THE HANDLER AND NOT CHAINED AFTER IT, so a defect in the update above
+      // is not re-reported as the wire refusing. A rejection settles the card exactly
+      // as a refusal does: the call did not complete, so this surface knows no more
+      // about the record than it did before, and the re-read is what will say.
+      (rejection: unknown) => {
+        this.#settleResolve(request.approvalRequestId, this.#refusalFor(rejection));
+      },
+    );
+  }
+
+  /** One resolve call ended. The card stops waiting, and a re-read is asked for. */
+  #settleResolve(approvalRequestId: string, refusal: ConsoleRefusal | undefined): void {
+    this.#clearResolving(approvalRequestId);
+    if (refusal !== undefined) {
+      this.#update({
+        resolveRefusalByApprovalId: withEntry(
+          this.#snapshot.resolveRefusalByApprovalId,
+          approvalRequestId,
+          refusal,
+        ),
+      });
+    }
+    // A concurrent resolver's `approval.already_resolved` drops the card on the
+    // next signal re-read, so the surface asks for one on EVERY arm rather than
+    // leaving a stale pending card beside a refusal that explains why it is stale.
+    this.requestRead("terminal-event");
   }
 
   /** Revoke one standing permission. Fired only by a confirming click. */
@@ -216,15 +249,25 @@ export class ApprovalsReader implements ReadTriggerTarget {
       revokingRuleIds: withMember(this.#snapshot.revokingRuleIds, ruleId),
       revokeRefusalByRuleId: withoutKey(this.#snapshot.revokeRefusalByRuleId, ruleId),
     });
-    void revokeRememberedRule(this.#bridge, ruleId).then((outcome) => {
-      this.#clearRevoking(ruleId);
-      if (outcome.status === "unavailable") {
-        this.#update({
-          revokeRefusalByRuleId: withEntry(this.#snapshot.revokeRefusalByRuleId, ruleId, outcome),
-        });
-      }
-      this.requestRead("terminal-event");
-    });
+    void revokeRememberedRule(this.#bridge, ruleId).then(
+      (outcome) => {
+        this.#settleRevoke(ruleId, outcome.status === "unavailable" ? outcome : undefined);
+      },
+      (rejection: unknown) => {
+        this.#settleRevoke(ruleId, this.#refusalFor(rejection));
+      },
+    );
+  }
+
+  /** One revoke call ended, on the same terms a resolve does. */
+  #settleRevoke(ruleId: string, refusal: ConsoleRefusal | undefined): void {
+    this.#clearRevoking(ruleId);
+    if (refusal !== undefined) {
+      this.#update({
+        revokeRefusalByRuleId: withEntry(this.#snapshot.revokeRefusalByRuleId, ruleId, refusal),
+      });
+    }
+    this.requestRead("terminal-event");
   }
 
   /** Terminal. The scheduler is dropped, so no read can outlive the pane. */
@@ -235,13 +278,26 @@ export class ApprovalsReader implements ReadTriggerTarget {
   }
 
   async #performReads(): Promise<void> {
-    // `Promise.all` rather than `allSettled`: the port never rejects, so a settled
-    // wrapper here would be a second failure vocabulary over a seam that already has
-    // exactly one, and the two `unavailable` arms below are what a refusal is.
-    const [approvals, rules] = await Promise.all([
-      readApprovals(this.#bridge, this.#sessionId),
-      readRememberedRules(this.#bridge, this.#sessionId),
-    ]);
+    // `Promise.all` rather than `allSettled`, and the two reads settle TOGETHER on
+    // purpose: they compose one answer about this session's approvals, and a pane
+    // showing an answered list beside a rules read still on `loading` would be
+    // reporting two moments as one. A rejection therefore refuses both, because a
+    // rejection says the call did not complete and neither read has an answer.
+    let approvals;
+    let rules;
+    try {
+      [approvals, rules] = await Promise.all([
+        readApprovals(this.#bridge, this.#sessionId),
+        readRememberedRules(this.#bridge, this.#sessionId),
+      ]);
+    } catch (rejection) {
+      if (this.#disposed) {
+        return;
+      }
+      const refused = { status: "refused", refusal: this.#refusalFor(rejection) } as const;
+      this.#update({ approvals: refused, rules: refused });
+      return;
+    }
     if (this.#disposed) {
       return;
     }
@@ -249,6 +305,11 @@ export class ApprovalsReader implements ReadTriggerTarget {
       approvals: readPhaseFor(approvals),
       rules: readPhaseFor(rules),
     });
+  }
+
+  /** One rejection as the console's refusal shape, in this surface's name. */
+  #refusalFor(rejection: unknown): ConsoleRefusal {
+    return normalizeWireRejection(APPROVALS_REFUSAL_ORIGIN, rejection);
   }
 
   #clearResolving(approvalRequestId: string): void {
@@ -271,13 +332,14 @@ export class ApprovalsReader implements ReadTriggerTarget {
 }
 
 /**
- * One growth outcome, as the phase a render reads.
+ * One growth OUTCOME, as the phase a render reads.
  *
- * The port answers `served` or `unavailable` and NEVER rejects, so there is no
- * rejection to normalize here and no third arm to guard against. `GrowthUnavailable`
- * extends `ConsoleRefusal` structurally, which is why the refused arm carries the
- * outcome itself: the refusal a person reads still names the operation that refused
- * and the document that owes its wire, rather than a sentence this surface composed.
+ * Two arms and not three, because a rejection is not an outcome and never reaches
+ * here: a call that did not complete produced no value to map, so it is caught at the
+ * await and normalised there. `GrowthUnavailable` extends `ConsoleRefusal`
+ * structurally, which is why the refused arm carries the outcome itself: the refusal
+ * a person reads still names the operation that refused and the document that owes
+ * its wire, rather than a sentence this surface composed.
  */
 function readPhaseFor<TRow>(outcome: GrowthOutcome<ParsedRows<TRow>>): ReadPhase<TRow> {
   return outcome.status === "unavailable"

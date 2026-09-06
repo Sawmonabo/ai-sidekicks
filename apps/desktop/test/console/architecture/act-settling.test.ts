@@ -21,14 +21,25 @@
 // and forbidding it would forbid the thing rather than the misuse. Inside an `act`
 // body the same line is a claim that React has finished, which it is not.
 //
-// TESTS ARE THE SUBJECT, so the walk includes them. That is the opposite of the
-// byte-scaling chokepoint's scope and for the same reason: what a rule is ABOUT
-// decides what it scans, and this rule is about how a suite waits.
+// TESTS ARE THE SUBJECT, so the walk includes them — AND SO ARE THE ROOTS THEY LIVE
+// UNDER. `{ tests: true }` widens the FILE filter and not the root list, and this gate
+// shipped taking the default roots, `console/` + `shell/`, which reach no file under
+// `apps/desktop/test/`. The two largest homes of the defect were therefore outside the
+// walk: the single settle every browser-tier mount goes through, and the family
+// surface module both pinned tiers mount — each running the exact counted pair this
+// header forbids, and each green. `DESKTOP_PROSE_ROOTS` is the package-wide root list
+// that already existed for this widening, and the floor case below asserts the walk
+// reached the added root rather than trusting that it did.
 
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 
-import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
+import {
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+  DESKTOP_PROSE_ROOTS,
+} from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /** The settle a case must reach for instead. Named so a failure can say it. */
@@ -85,13 +96,24 @@ function countedSettleLines(fileName: string, sourceText: string): readonly numb
 }
 
 describe("act-settling — a settle is a boundary, never a count", () => {
-  // Tests included, because they are what this rule is about.
-  const modules = consoleSourceModules({ tests: true });
+  // Tests included, because they are what this rule is about, and the package-wide
+  // roots because the tier harnesses they run through are tests too.
+  const modules = consoleSourceModules({ roots: DESKTOP_PROSE_ROOTS, tests: true });
+  const displayPaths = modules.map((module) => module.displayPath);
 
-  it("finds a console tree to scan at all", () => {
+  it("reaches every root a suite waits in, not the console alone", () => {
     // Without this a wrong root would scan nothing and the assertion below would pass
-    // over the empty set.
-    expect(modules.length).toBeGreaterThan(200);
+    // over the empty set — and, since this gate shipped scoped to the console once
+    // already, the added root is named rather than left to a count that a large
+    // console alone would satisfy. `test/console/` is where both offenders that
+    // prompted the widening live; the co-located classes are named for the reason
+    // `one-doc-per-declaration.test.ts` names its own — each is a separate way for
+    // the walk to narrow back with nothing reporting the difference.
+    expect(displayPaths.length).toBeGreaterThan(400);
+    expect(displayPaths).toContain("test/console/console-harness.tsx");
+    expect(displayPaths).toContain("src/renderer/src/console/frame/ConsoleRoot.tsx");
+    expect(displayPaths.filter((path) => path.endsWith(".test.tsx"))).not.toStrictEqual([]);
+    expect(displayPaths.filter((path) => path.includes(".test-support."))).not.toStrictEqual([]);
   });
 
   it("no act body waits on a counted microtask", () => {
@@ -103,6 +125,28 @@ describe("act-settling — a settle is a boundary, never a count", () => {
       .filter((entry) => entry.lines.length > 0)
       .map((entry) => `${entry.module}: line(s) ${entry.lines.join(", ")}`);
     expect(offenders).toStrictEqual([]);
+  });
+
+  it("planted control: the shape is caught in the root this gate had not been reaching", () => {
+    // The widening proved rather than asserted. The two offenders that prompted it
+    // both sat under `test/`, so the plant is made in a module found THERE — its own
+    // real text, with the forbidden pair spliced into its real settle — and the
+    // checker is asked about the result. A walk that stopped at the console roots
+    // would not have this module's text to plant into, and `moduleNamed` would throw
+    // before the assertion rather than passing over an empty set.
+    const harness = moduleNamed(
+      modules,
+      "test/console/console-harness.tsx",
+      "the settle every browser-tier mount goes through",
+    );
+    const clean = readConsoleSourceModule(harness);
+    expect(countedSettleLines(harness.displayPath, clean)).toStrictEqual([]);
+    const planted = clean.replace(
+      "    await drainMicrotasks();",
+      "    await Promise.resolve();\n    await Promise.resolve();",
+    );
+    expect(planted).not.toBe(clean);
+    expect(countedSettleLines(harness.displayPath, planted)).toHaveLength(2);
   });
 
   it("negative control: the checker bites on the shape it forbids", () => {

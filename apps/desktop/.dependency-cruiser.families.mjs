@@ -13,6 +13,18 @@
 /** Console family homes, low to high. A family may import any home below it and none above. */
 export const CONSOLE = "^src/renderer/src/console";
 
+/**
+ * The shell that MOUNTS the console, which is why it is a home here and not a literal.
+ *
+ * It is not a console family and sits on no rung of the ladder below — it composes
+ * console seats, so it is above the whole DAG, and the only rule that names it forbids
+ * an edge INTO it. It is exported from here anyway because this file is where a home
+ * lives: spelled at its one rule as a string literal it was the one family home a
+ * `grep` of this vocabulary could not find, and a rename of that directory would have
+ * left the rule silently matching nothing.
+ */
+export const SHELL = "^src/renderer/src/shell/";
+
 // `core/` is the DAG floor: `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`,
 // `emitter.ts`, `clock.ts`. Nothing below it, so its rule below is the only one that forbids
 // every other family at once.

@@ -12,6 +12,7 @@ import { refuse } from "../../../console/core/index.js";
 import {
   NO_COMPOSER_REFUSALS,
   addressedOperationKey,
+  attemptIdsAtAddress,
   isSettlementCurrent,
   renderableRefusal,
   withSettledRefusal,
@@ -150,5 +151,61 @@ describe("composer settlement slots — one act never erases another's refusal",
     // held under `(bridge, draftKey)` now, so a re-address DROPS them rather than
     // hiding them behind a read-time comparison the return trip stopped satisfying.
     expect(renderableRefusal(NO_COMPOSER_REFUSALS)).toBeUndefined();
+  });
+});
+
+describe("the attempt register is bounded by the address, not by the mount", () => {
+  it("keeps every operation's entry for the address it is narrowed to", () => {
+    const send = identity(ADDRESS_A, "send", 3);
+    const stop = identity(ADDRESS_A, "stop", 4);
+
+    expect(attemptIdsAtAddress(newestAttempts(send, stop), ADDRESS_A, FIRST_VISIT)).toStrictEqual(
+      newestAttempts(send, stop),
+    );
+  });
+
+  it("drops the entries of another address and of an earlier visit to this one", () => {
+    // Both classes are unreadable the moment the composer re-addresses: `isCurrent`
+    // compares the identity's own pair before it consults the register at all, so
+    // nothing can ever look either of these up again.
+    const current = identity(ADDRESS_A, "send", 9);
+    const otherAddress = identity(ADDRESS_B, "send", 7);
+    const earlierVisit = identity(ADDRESS_A, "send", 5, FIRST_VISIT);
+
+    expect(
+      attemptIdsAtAddress(
+        newestAttempts(earlierVisit, otherAddress, { ...current, visit: SECOND_VISIT }),
+        ADDRESS_A,
+        SECOND_VISIT,
+      ),
+    ).toStrictEqual(newestAttempts({ ...current, visit: SECOND_VISIT }));
+  });
+
+  it("holds at most one entry per operation however many acts were dispatched", () => {
+    // The bound itself. A register that was never narrowed grew one entry per act for
+    // the life of the mounted composer; the ceiling here is the closed operation
+    // vocabulary and is independent of how much was dispatched.
+    let register: Record<string, number> = {};
+    for (let attemptId = 1; attemptId <= 40; attemptId += 1) {
+      const visit = attemptId;
+      register = {
+        ...register,
+        ...newestAttempts(
+          identity(ADDRESS_A, "send", attemptId, visit),
+          identity(ADDRESS_A, "stop", attemptId, visit),
+        ),
+      };
+      register = attemptIdsAtAddress(register, ADDRESS_A, visit);
+    }
+
+    expect(Object.keys(register)).toHaveLength(2);
+  });
+
+  it("negative control: an address with no act on it narrows to nothing", () => {
+    // Without this a function that returned its input unchanged would satisfy the
+    // retention case above.
+    expect(
+      attemptIdsAtAddress(newestAttempts(identity(ADDRESS_B, "send", 3)), ADDRESS_A, FIRST_VISIT),
+    ).toStrictEqual({});
   });
 });

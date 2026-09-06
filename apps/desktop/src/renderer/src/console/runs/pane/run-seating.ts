@@ -24,7 +24,7 @@
 // not described are appended after them, newest-touched first. A run the stream has
 // said nothing about cannot be ranked against one it has — the two readings measure
 // different things — so it is appended rather than interleaved, which is the same
-// rule `bridge/queue-feed.ts` keeps for its own snapshot and tail.
+// rule `bridge/queue/queue-feed.ts` keeps for its own snapshot and tail.
 //
 // AND "COMPLETE" IS A CLAIM WITH A LIST BEHIND IT. `awaitingProjectionRunIds` names
 // the runs the pane is drawing from the session's record rather than from the live

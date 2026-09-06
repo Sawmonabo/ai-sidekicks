@@ -80,6 +80,41 @@ describe("the settlement mirrors move at the commit", () => {
     expect(seen.current?.isCurrent(issued as NonNullable<typeof issued>)).toBe(true);
   });
 
+  it("keeps the act on screen current after the register is narrowed to its address", () => {
+    // The narrowing runs in the same layout effect that moves the mirrors, so the one
+    // way it can go wrong is by dropping the key for the address it just committed —
+    // which would make the composer's own newest act read as superseded and silently
+    // discard its settlement. The bound itself is asserted over literals in
+    // `send-settlement.test.ts`; this is the wiring, driven through a real re-address.
+    const seen: { current: SettlementIdentities | undefined } = { current: undefined };
+    const readdress: { current: (() => void) | undefined } = { current: undefined };
+    render(
+      <ComposerHost
+        bridge={createFixtureBridge({ scenario: COMPOSER_SCENARIO })}
+        seen={seen}
+        readdress={readdress}
+      />,
+    );
+    seen.current?.issue("send");
+
+    act(() => {
+      readdress.current?.();
+    });
+    const afterReaddress = seen.current?.issue("send");
+    const stopAfterReaddress = seen.current?.issue("stop");
+
+    expect(afterReaddress).toBeDefined();
+    expect(stopAfterReaddress).toBeDefined();
+    // The send was superseded by the Stop only in the sense that both are current:
+    // they are different operations, so each holds its own entry at this address.
+    expect(seen.current?.isCurrent(afterReaddress as NonNullable<typeof afterReaddress>)).toBe(
+      true,
+    );
+    expect(
+      seen.current?.isCurrent(stopAfterReaddress as NonNullable<typeof stopAfterReaddress>),
+    ).toBe(true);
+  });
+
   it("negative control: a committed re-address retires the earlier visit's act", () => {
     // Without this the case above would pass over a hook that called every settlement
     // current, which is the defect the identity exists to prevent.

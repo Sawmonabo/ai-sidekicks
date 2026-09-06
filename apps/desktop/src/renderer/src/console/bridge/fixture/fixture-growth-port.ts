@@ -192,7 +192,7 @@ import {
   readApprovalProjection,
   readRememberedRuleList,
   type ParsedRows,
-} from "../approvals/approval-records.js";
+} from "../approvals/index.js";
 import { readAgentRoster } from "./fixture-agent-roster.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";

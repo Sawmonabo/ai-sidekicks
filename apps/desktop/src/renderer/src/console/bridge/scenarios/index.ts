@@ -2,7 +2,7 @@
 //
 // Same reason as `console/families.ts`, applied to fixture data. Seven families
 // build concurrently and each ships a scenario that exercises its own surface. If
-// every one of them edited `bridge/scenario-manifest.ts` to add itself to
+// every one of them edited `bridge/scenario-runtime/scenario-manifest.ts` to add itself to
 // `CONSOLE_SCENARIOS`, six of the seven branches would conflict on one array —
 // and the merge that "resolves" such a conflict by keeping one side silently
 // deletes a family's scenario while leaving its file on disk, which is the failure

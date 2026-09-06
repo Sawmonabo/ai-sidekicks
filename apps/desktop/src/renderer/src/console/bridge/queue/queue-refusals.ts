@@ -6,37 +6,11 @@
 // stream will not open or a delivery will not parse. Both are pure functions of what
 // failed, so they are testable without a bridge and readable without the fold.
 
-import {
-  normalizeWireRejection,
-  refuse,
-  refusedMemberPaths,
-  type ConsoleRefusal,
-} from "../../core/index.js";
+import { refuse, refusedMemberPaths, type ConsoleRefusal } from "../../core/index.js";
 import type { UnreadableDeliveryIssues } from "../readings/index.js";
 
 /** The subsystem name every refusal the queue reading raises carries. */
 export const QUEUE_REFUSAL_ORIGIN = "session-queue";
-
-/**
- * The refusal an unopenable stream settles as.
- *
- * The console's ONE reading of a rejected promise, consumed rather than re-derived.
- * `normalizeWireRejection` already unwraps a `ConsoleRefusalError`'s carried refusal
- * structurally — which is what keeps the subscription wrapper's own unscoped-open
- * code intact instead of replacing it with this module's origin and a stringified
- * message — and already takes a typed envelope's dotted code off `data.type`, where
- * a `{ code: string }` guard cannot see it. All this module supplies is the one
- * thing that is its own: the origin.
- *
- * NO FALLBACK PAIR, deliberately. The fallback exists for a seam that knows its
- * failure better than the thrown value does, and this one does not: a stream that
- * would not open failed for a transport reason the transport already states — "the
- * preload is a stub" is the sentence someone acts on, and a house sentence about a
- * live tail would displace it with a paraphrase that names nothing to fix.
- */
-export function streamRefusalFor(rejection: unknown): ConsoleRefusal {
-  return normalizeWireRejection(QUEUE_REFUSAL_ORIGIN, rejection);
-}
 
 /**
  * One unreadable delivery as the refusal a surface renders.

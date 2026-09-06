@@ -2,15 +2,18 @@
 //
 // A `ConsoleEntity.body` is wire-verbatim: the store holds what the daemon sent and
 // narrows nothing, so every member arrives `unknown` and every surface that reads one
-// has to decide what counts as present. Four surfaces had each decided, identically
-// and separately — `runs/pane/run-seating.ts` as `readString(body, member)`,
-// `approvals/pane/card/provider-ask.ts` as `nonEmptyString(value)`,
-// `inspector/pane/entity-detail/entity-facets.ts` inline in its wire facet, and
-// `shell/composer/chips/chip-models.ts` under this module's OWN exported name at a
-// different arity — which is one rule with four spellings and no instrument holding
-// them together. The fourth is the reason the census is stated here rather than
-// counted: a private copy sharing the export's name is unfindable by a reader and
-// invisible to a change of the rule the name records.
+// has to decide what counts as present. Surfaces across three view families and the
+// shell had each decided, identically and separately, under spellings that shared
+// nothing but the rule: `readString(body, member)`, `nonEmptyString(value)`, an
+// inline `typeof` inside a wire facet, and this module's OWN exported name at a
+// different arity. One rule with that many spellings has no instrument holding it
+// together, which is exactly how the sweep that hoisted it here left a fifth copy
+// standing in the shell — `nonEmptyString` again, in the family that authored the
+// hoist — and why the count is deliberately NOT written down: a number in this
+// paragraph is a claim nothing reads, and the last one was wrong before the sweep
+// that stated it had finished. A private copy sharing an exported name is unfindable
+// by a reader and invisible to a change of the rule the name records, and the only
+// standing claim here is that this module is where the rule lives.
 //
 // THE NUMBER READ IS THE SAME RULE ABOUT A DIFFERENT TYPE, and it is here for the
 // same reason and not a weaker one: `run-seating.ts` and `chip-models.ts` carried

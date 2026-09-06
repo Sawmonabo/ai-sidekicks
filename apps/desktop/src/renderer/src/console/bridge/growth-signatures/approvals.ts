@@ -9,7 +9,7 @@ import type {
   ApprovalResolveRequest,
   ParsedRows,
   RememberedRule,
-} from "../approvals/approval-records.js";
+} from "../approvals/index.js";
 
 export interface ApprovalGrowthSignatures {
   // approval — the four methods the approvals pane calls. The corpus REGISTERS all

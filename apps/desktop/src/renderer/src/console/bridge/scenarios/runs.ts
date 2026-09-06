@@ -6,7 +6,7 @@
 // `run.waiting_for_approval` and `run.paused` are separate beats for the same reason
 // they are separate rows there.
 //
-// TWO STREAMS ARE FED FROM THE BEATS, not one. `bridge/session-event-streams.ts`
+// TWO STREAMS ARE FED FROM THE BEATS, not one. `bridge/daemon/session-event-streams.ts`
 // routes a beat to a subscription by KIND: `run.subscribeState` carries the nine
 // `run.${RunState}` transitions plus the forward, non-state `run.rolled_back`, and
 // `run.subscribeQueue` carries the five `queue_item.*` kinds and nothing else. So a

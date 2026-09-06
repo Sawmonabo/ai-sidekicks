@@ -9,7 +9,7 @@
 // claim worth a unit is that they agree: the row whose id the reading reports as
 // pending is disabled and `aria-busy`, and every other row stays live. The
 // authoritative single-flight is the reading's own chokepoint — asserted where it
-// lives, in `console/bridge/queue-feed.test.tsx` — and what is asserted here is that
+// lives, in `console/bridge/queue/queue-feed.test.tsx` — and what is asserted here is that
 // a person can see it, because a control that stays live while its mutation is in
 // flight invites the second press the chokepoint then swallows silently.
 

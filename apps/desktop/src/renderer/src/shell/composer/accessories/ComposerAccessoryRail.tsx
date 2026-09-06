@@ -18,7 +18,7 @@
 // session, so no session store this rail can select from ever holds one. The chips
 // were therefore reachable only under a fixture that put the row in a session's log,
 // and against a daemon the seat would have rendered nothing forever. They now read
-// `console/bridge/provider-account-quota.ts`, which is one `providerAccount.list` and
+// `console/bridge/quotas/provider-account-quota.ts`, which is one `providerAccount.list` and
 // one `providerAccount.subscribe` per BRIDGE — node-scoped, like the readings — and a
 // read that failed says so beside the meters rather than leaving a quota-shaped
 // silence that reads as healthy.

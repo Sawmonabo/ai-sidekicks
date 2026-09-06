@@ -139,7 +139,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * Every surface in this family that reaches the wire, each through `callDaemon` and
  * none around it. It was six until the composer's target chip stopped taking a
  * `providerAccount.list` of its own to join a paying account's label: that registry is
- * node-scoped and `console/bridge/provider-account-quota.ts` already reads it once per
+ * node-scoped and `console/bridge/quotas/provider-account-quota.ts` already reads it once per
  * window, so the label rows are folded off that reading and the chip joins them.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:

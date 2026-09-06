@@ -48,7 +48,7 @@
 // on `Plan-023 §Console growth slate` under `agent-provider-switch-failure`, and
 // nothing here invents a third carrier to render it from.
 
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import {
   consoleClockFor,
@@ -58,7 +58,12 @@ import {
   type GrowthAgentPendingSwitch,
 } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import { useReadTriggers, type SessionStore } from "../../../console/store/index.js";
+import {
+  useReadTriggers,
+  useSubjectScopedResource,
+  type SessionStore,
+  type SubjectScopedDisposal,
+} from "../../../console/store/index.js";
 import {
   AgentRosterReading,
   type AgentBindingPhase,
@@ -66,6 +71,24 @@ import {
 } from "./agent-roster-reading.js";
 
 export type { AgentBindingPhase } from "./agent-roster-reading.js";
+
+/**
+ * The TERMINAL arm, because `dispose()` ends this reading rather than releasing it.
+ *
+ * It drops the scheduler and latches a flag every later `requestRead` short-circuits
+ * on, so a disposed reading is not a working value a later commit may hold again —
+ * which is exactly the pairing `{ dispose, isClosed }` exists to state and the reason
+ * the reading it belongs to has to be able to report the state.
+ *
+ * At module level so the hook's dependency lists compare stable identities across
+ * renders rather than a fresh literal each pass.
+ */
+const rosterReadingDisposal: SubjectScopedDisposal<AgentRosterReading> = {
+  dispose: (reading: AgentRosterReading): void => {
+    reading.dispose();
+  },
+  isClosed: (reading: AgentRosterReading): boolean => reading.isDisposed,
+};
 
 /** What one addressed agent's binding reads say, or why they say nothing. */
 export interface AgentBindingReading {
@@ -92,6 +115,18 @@ export interface AgentBindingReading {
  * reading taken through one is not a reading of what the new one holds. Keying on
  * the agent as well is what makes the render that first sees a different agent read
  * that agent's own seed rather than the previous one's account for a frame.
+ *
+ * AND IT IS HELD BY `useSubjectScopedResource`, NOT BY `useMemo`. The two look alike
+ * and answer different questions. A memo plus an unconditional cleanup effect disposes
+ * the reading on React's double-mount and then re-commits the value it just disposed —
+ * the memo's dependencies have not moved, so nothing re-mints it — leaving the chip on
+ * a reading that refuses every `requestRead` for the life of the window: the corpse
+ * `store/subject-scoped-resource.ts` takes a terminal disposal in order to recognise.
+ * StrictMode is a deferred opt-in rather than a never (`main.tsx` records it), and a
+ * discarded concurrent pass reaches the same state by a second door. The holder
+ * additionally closes a reading a pass React threw away opened, which the memo could
+ * not: a memo's value is minted in the render and reachable by no cleanup unless that
+ * render commits.
  */
 export function useAgentBindingReading(
   bridge: ConsoleBridge,
@@ -104,15 +139,22 @@ export function useAgentBindingReading(
   // a channel-addressed composer joins an open reading instead of opening one.
   const quotas = useProviderQuotas(bridge);
   const { sessionId } = sessionStore;
-  const reading = useMemo(
+  const openReading = useCallback(
     () => new AgentRosterReading({ bridge, sessionId, agentId, clock: consoleClockFor(bridge) }),
     [bridge, sessionId, agentId],
   );
-  useEffect(() => {
-    return () => {
-      reading.dispose();
-    };
-  }, [reading]);
+  // THE BRIDGE IS THE SUBJECT AND THE ADDRESS IS THE KEY, which is the same identity
+  // the memo this replaced declared and not a new one: the bridge is what every call
+  // this reading makes travels through, so its replacement is what retires the
+  // reading, and the session-and-agent pair is what the reading is ABOUT. A composer
+  // addressed at a channel names no agent and takes the pair's own empty half, which
+  // is a real address — the reading it opens is the one that answers `not-checked`.
+  const { value: reading } = useSubjectScopedResource<AgentRosterReading>(
+    bridge,
+    `${sessionId}::${agentId ?? ""}`,
+    openReading,
+    rosterReadingDisposal,
+  );
   // All four reasons, from the one place the console wires them. What stood here was
   // an effect armed once per addressing, so a switch queued by a collaborator after
   // this composer mounted never reached the chip.
