@@ -19,6 +19,19 @@
 // exactly the silent loss this class exists to prevent. Each overflow costs a full
 // buffer's worth of traffic, so the re-read rate is the tail's rate divided by the cap
 // and converges as the tail quiets.
+//
+// A SECOND ATTEMPT INHERITS WHAT THE FIRST WAS HOLDING, WHICH IS THE SAME RULE
+// ARRIVED AT FROM THE OTHER SIDE. `begin()` used to clear, and a read begun while an
+// earlier one was still travelling therefore threw away every frame that earlier one
+// had held — silently, and by the very method whose purpose is that no frame is
+// dropped. It is reachable without anything failing: the opening read is taken
+// straight, a tail frame is held across it, and a `window-focus` trigger begins a
+// second read before the first reply lands. The superseded reply is then discarded by
+// its ordinal, so nothing releases what it held, and on the refused arm the console is
+// left presenting a removed account as present with no second notification coming.
+// Holding is CUMULATIVE instead: the cap applies to the union, so an inherited buffer
+// that fills degrades to the same re-read as any other, and the frames reach the fold
+// in arrival order whichever attempt was holding when each one landed.
 
 import type { ProviderAccountNotification } from "@ai-sidekicks/contracts";
 
@@ -34,8 +47,10 @@ export type QuotaNotificationHoldOutcome = "held" | "overflowed";
  * The notifications one reading is holding, and whether it is holding at all.
  *
  * A class with private fields rather than an array on the reading, because "am I
- * holding" and "what am I holding" are one piece of state: a caller that could set the
- * flag without clearing the list would replay one read's frames into the next.
+ * holding" and "what am I holding" are one piece of state, and only one transition
+ * may move both: a caller able to lower the flag without taking the frames would
+ * strand them, and one able to take them without lowering it would hand the same
+ * frames over twice. {@link release} is that transition and is the only one.
  */
 export class ProviderQuotaNotificationHold {
   #held: ProviderAccountNotification[] = [];
@@ -46,10 +61,18 @@ export class ProviderQuotaNotificationHold {
     return this.#isHolding;
   }
 
-  /** Start holding for a read attempt. Anything a previous attempt held is dropped. */
+  /**
+   * Start holding for a read attempt, keeping whatever a superseded one held.
+   *
+   * NOTHING IS CLEARED HERE, and {@link release} is the only thing that empties the
+   * buffer — which is what makes the two safe together: a released hold is already
+   * empty, so the frames a fresh attempt inherits are exactly the frames of an
+   * attempt that began and never released. That attempt is the one whose reply the
+   * caller's ordinal will discard, so this is the only path by which its frames can
+   * still reach the fold.
+   */
   public begin(): void {
     this.#isHolding = true;
-    this.#held = [];
   }
 
   /** Hold one frame, or say the caller must apply live and re-read. */

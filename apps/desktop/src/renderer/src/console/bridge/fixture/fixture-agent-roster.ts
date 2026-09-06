@@ -27,9 +27,17 @@
 //
 // A REPLY THIS CANNOT READ THROWS, and the rejection is left to travel. It is a
 // scenario authoring error of the class `assertScriptedReplyOnContract` raises on the
-// call arm, the caller renders it as a refusal, and that is what a live transport's
-// own rejection would reach the same caller as. Returning an empty roster instead
-// would report "this session has no such agent" for a script nobody could read.
+// call arm, and that is what a live transport's own rejection would reach the same
+// caller as. Returning an empty roster instead would report "this session has no such
+// agent" for a script nobody could read.
+//
+// WHICH CALLER CATCHES IT IS NAMED HERE RATHER THAN ASSUMED. This paragraph used to
+// say the caller rendered it as a refusal and no caller did: the rejection reached the
+// refresh scheduler's error arm and was dropped, so the chip sat on `loading` with
+// nothing said. The reading — `shell/composer/chips/agent-roster-reading.ts` — now
+// catches it and publishes its `refused` phase, and the picker seat does the same for
+// its own read. A THIRD caller of this fixture owes itself the same arm; leaving the
+// rejection to travel is a decision about where it is answered, never about whether.
 
 import { z } from "zod";
 

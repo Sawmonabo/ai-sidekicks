@@ -116,6 +116,46 @@ describe("the picker asks before it offers", () => {
     });
     expect(screen.getByText(growthUnavailable("artifactAllowlistRead").code)).not.toBeNull();
   });
+
+  it("renders a rejected read as a refusal rather than leaving the control busy", async () => {
+    // The read's third ending: the call itself failed, which is neither of the port's
+    // outcome arms. With no rejection arm the promise rejected unhandled, no phase was
+    // published, and the button announced work in progress that had already stopped —
+    // for the life of the surface, with nothing rendered beside it.
+    const bridge = bridgeReadingAllowListWith(() =>
+      Promise.reject(new Error("the preload is a stub")),
+    );
+    mountSeat(bridge, SESSION_ONE);
+    pressAttach();
+    await act(async () => {
+      await drainMicrotasks();
+    });
+
+    expect(screen.getByRole("button", { name: "Attach files" }).getAttribute("aria-busy")).toBe(
+      "false",
+    );
+    expect(screen.getByText(/the preload is a stub/)).not.toBeNull();
+  });
+
+  it("negative control: a served read leaves the control unbusy and shows no refusal", async () => {
+    // Without this the case above would pass over a seat that refused every read and
+    // over one that never set `aria-busy` in the first place.
+    const reads = deferredAllowListReads();
+    mountSeat(bridgeReadingAllowListWith(reads.read), SESSION_ONE);
+    pressAttach();
+    expect(screen.getByRole("button", { name: "Attach files" }).getAttribute("aria-busy")).toBe(
+      "true",
+    );
+    await act(async () => {
+      reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
+      await drainMicrotasks();
+    });
+
+    expect(screen.getByRole("button", { name: "Attach files" }).getAttribute("aria-busy")).toBe(
+      "false",
+    );
+    expect(screen.queryByText(/the preload is a stub/)).toBeNull();
+  });
 });
 
 describe("the reading belongs to the session it was read for", () => {

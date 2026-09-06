@@ -100,6 +100,44 @@ export function addressedOperationKey(
   return `${draftKey}::${visit}::${operation}`;
 }
 
+/**
+ * The attempt register narrowed to one address, dropping every key it retired.
+ *
+ * WHY THE REGISTER NEEDS NARROWING AT ALL. Nothing ever removed a key, so it grew one
+ * entry per dispatched act for the life of the mounted composer — an unbounded
+ * register in a family that bounds every wire-controlled list it renders. The entries
+ * were not merely surplus: {@link isSettlementCurrent} reads a key only when the
+ * identity's own `draftKey` and `visit` are the composer's current pair, so every key
+ * from a retired visit or another target is dead the instant the composer
+ * re-addresses, and no later act can ever read one again.
+ *
+ * BUILT BY ENUMERATION AND NOT BY FILTERING, which is what makes it exact. The
+ * retained set is one key per operation in a closed two-member vocabulary, composed
+ * through the same function that wrote them, so this cannot disagree with
+ * `addressedOperationKey` about what a key looks like. A prefix or `split` test would
+ * have to reason about a separator inside a caller-supplied `draftKey` — which the key
+ * function itself deliberately never does — and would be a second, weaker statement of
+ * a shape stated once next door.
+ *
+ * The result is a fresh record rather than a mutation, so a caller holding the old one
+ * across the swap reads a consistent register either way.
+ */
+export function attemptIdsAtAddress(
+  newestAttemptIdByKey: Readonly<Record<string, number>>,
+  draftKey: string,
+  visit: number,
+): Record<string, number> {
+  const retained: Record<string, number> = {};
+  for (const operation of COMPOSER_SEND_OPERATIONS) {
+    const key = addressedOperationKey(draftKey, visit, operation);
+    const attemptId = newestAttemptIdByKey[key];
+    if (attemptId !== undefined) {
+      retained[key] = attemptId;
+    }
+  }
+  return retained;
+}
+
 /** A refusal held under the identity of the act that produced it. */
 export interface HeldComposerRefusal {
   readonly identity: ComposerSettlementIdentity;

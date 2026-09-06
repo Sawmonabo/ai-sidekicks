@@ -45,6 +45,36 @@ describe("the ids are an enumeration and the figure is a reading", () => {
     expect(text).toContain("have no row on this pane");
   });
 
+  it("never counts a withheld run among the rows read from the session's record", () => {
+    // The paragraph's two figures describe two disjoint sets, and the withheld ones
+    // are the set with no row at all. Reporting them as "more" of the enumeration
+    // said the pane had drawn rows it had explicitly declined to draw, and then said
+    // the opposite about the same runs one sentence later.
+    const { container } = render(<AwaitingProjection runIds={runIds(2)} withheldCount={7} />);
+    const text = container.textContent ?? "";
+
+    expect(container.querySelectorAll(".meridian-figure--wire")).toHaveLength(2);
+    expect(text).not.toContain("more");
+    expect(text).toContain("7 have no row on this pane");
+  });
+
+  it("counts only the seated runs past the naming cap as 'more'", () => {
+    // The same disjointness from the other side: with runs on BOTH sides of the cap
+    // and runs withheld, the "more" figure is the seated overflow alone. Without this
+    // the case above would pass over a component that dropped the clause entirely.
+    const overflow = 3;
+    const { container } = render(
+      <AwaitingProjection
+        runIds={runIds(AWAITING_RUN_IDS_NAMED_CAP + overflow)}
+        withheldCount={5}
+      />,
+    );
+    const text = container.textContent ?? "";
+
+    expect(text).toContain(`and ${String(overflow)} more`);
+    expect(text).toContain("5 have no row on this pane");
+  });
+
   it("negative control: a short list names every id and claims nothing is withheld", () => {
     // Without this the cases above would pass over a component that always truncated
     // and always claimed rows were missing.

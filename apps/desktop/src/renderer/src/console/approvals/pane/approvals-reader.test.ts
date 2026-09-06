@@ -141,6 +141,68 @@ describe("answering a request", () => {
   });
 });
 
+describe("a call that rejects is a refusal and never a stuck control", () => {
+  /** The fixture bridge with one growth operation replaced by a rejecting stand-in. */
+  function bridgeRejecting(operation: "approvalProjectionRead" | "approvalResolve"): ConsoleBridge {
+    const fixture = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
+    return {
+      ...fixture,
+      growth: {
+        ...fixture.growth,
+        [operation]: () => Promise.reject(new Error("the preload is a stub")),
+      },
+    };
+  }
+
+  it("refuses BOTH reads when the pair does not complete", async () => {
+    // The two reads compose one answer, so a rejection cannot leave one of them on
+    // `loading` beside the other's refusal: that would report two moments as one.
+    const { reader, clock } = readerOver(bridgeRejecting("approvalProjectionRead"));
+    reader.requestRead("subscribe");
+    await settle(clock, reader);
+
+    const phase = reader.snapshot.approvals;
+    expect(phase.status).toBe("refused");
+    if (phase.status !== "refused") {
+      throw new Error("a rejected read did not refuse");
+    }
+    expect(phase.refusal.origin).toBe("approvals");
+    expect(phase.refusal.detail).toContain("the preload is a stub");
+    expect(reader.snapshot.rules.status).toBe("refused");
+  });
+
+  it("clears the resolving mark and keeps the rejection beside the record", async () => {
+    // The in-flight marker disables that card's two actions. Left set by a rejection
+    // nothing caught, the card was disabled for the life of the pane with nothing
+    // rendered to say why — a control that can neither act nor explain itself.
+    const { reader, clock } = readerOver(bridgeRejecting("approvalResolve"));
+    reader.resolve({ approvalRequestId: "approval-03", decision: "approved" });
+    expect([...reader.snapshot.resolvingApprovalIds]).toStrictEqual(["approval-03"]);
+
+    await vi.waitFor(() => {
+      expect(reader.snapshot.resolvingApprovalIds.size).toBe(0);
+    });
+    expect(reader.snapshot.resolveRefusalByApprovalId.get("approval-03")?.origin).toBe("approvals");
+    await settle(clock, reader);
+  });
+
+  it("negative control: a served call leaves no refusal and no mark", async () => {
+    // Without this the two cases above would pass over a reader that refused
+    // everything, which is the state they exist to tell apart from a stuck one.
+    const { reader, clock } = readerOver(createFixtureBridge({ scenario: APPROVALS_SCENARIO }));
+    reader.requestRead("subscribe");
+    await settle(clock, reader);
+    reader.resolve({ approvalRequestId: "approval-03", decision: "approved" });
+
+    await vi.waitFor(() => {
+      expect(reader.snapshot.resolvingApprovalIds.size).toBe(0);
+    });
+    expect(reader.snapshot.approvals.status).toBe("answered");
+    expect(reader.snapshot.resolveRefusalByApprovalId.size).toBe(0);
+    await settle(clock, reader);
+  });
+});
+
 describe("teardown", () => {
   it("leaves no timer armed, and a later request arms none", async () => {
     const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });

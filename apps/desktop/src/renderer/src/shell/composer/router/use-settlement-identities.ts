@@ -41,6 +41,7 @@ import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { useSubjectScopedState } from "../../../console/store/index.js";
 import {
   addressedOperationKey,
+  attemptIdsAtAddress,
   isSettlementCurrent,
   type ComposerSendOperation,
   type ComposerSettlementIdentity,
@@ -78,6 +79,13 @@ export function useSettlementIdentities(
   useLayoutEffect(() => {
     currentDraftKeyRef.current = draftKey;
     currentVisitRef.current = visit;
+    // AND THE REGISTER IS NARROWED IN THE SAME ACT THAT RETIRES ITS KEYS. This effect
+    // runs on exactly the commits that move the address, and moving the address is
+    // what makes every other address's entries unreadable — `isCurrent` compares the
+    // key's own pair against these two refs before it consults the register at all.
+    // Narrowing anywhere else would be a second rule about which keys are live; here
+    // it is the same rule, applied where it becomes true.
+    newestAttemptIdRef.current = attemptIdsAtAddress(newestAttemptIdRef.current, draftKey, visit);
   }, [draftKey, visit]);
   const nextAttemptIdRef = useRef(0);
   // Keyed by `addressedOperationKey` and not by operation: two slots for the whole
@@ -85,6 +93,10 @@ export function useSettlementIdentities(
   // refusal the person was looking at was discarded because an unrelated address had
   // dispatched since — the one path where the address check passes and the guard
   // still fires.
+  //
+  // BOUNDED BY THE ADDRESS AND NOT BY THE MOUNT. Keyed that way and never pruned, the
+  // register grew one entry per dispatched act for as long as the composer stayed
+  // mounted; it now holds at most one entry per operation, for the address on screen.
   const newestAttemptIdRef = useRef<Record<string, number>>({});
 
   const issue = useCallback((operation: ComposerSendOperation): ComposerSettlementIdentity => {

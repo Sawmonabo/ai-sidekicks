@@ -24,10 +24,24 @@
 // still minted — a hook may not be called conditionally — and it answers `not-checked`
 // for as long as no agent is addressed, which is the honest reading of a question
 // nobody put rather than an empty roster.
+//
+// AND THE READ IS TOTAL, WHICH IS WHAT THE SCHEDULER'S SWALLOW RESTS ON. `agent.list`
+// can REJECT rather than answer: the fixture throws for a scripted reply it cannot
+// read, and a live transport rejects whenever the call itself fails. A rejection
+// travelled to `RefreshScheduler`'s `onError`, which drops it — so the chip sat on
+// `loading` with nothing said, indefinitely, and the comment beside that `onError`
+// claiming the refusal had already been published was the only thing standing where
+// the publish should have been. The read now catches its own rejection and publishes
+// it as this reading's `refused` phase, which is what makes that claim true and what
+// the console's four other readings already do.
 
 import type { GrowthAgentPendingSwitch } from "../../../console/bridge/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import type { ConsoleClock, ConsoleRefusal } from "../../../console/core/index.js";
+import {
+  normalizeWireRejection,
+  type ConsoleClock,
+  type ConsoleRefusal,
+} from "../../../console/core/index.js";
 import {
   RefreshScheduler,
   type ReadTriggerTarget,
@@ -36,6 +50,15 @@ import {
 
 /** Where the binding read has got to, on the console's four-arm absence rule. */
 export type AgentBindingPhase = "not-checked" | "loading" | "read" | "refused";
+
+/**
+ * The subsystem name a rejection of this reading's own call is refused under.
+ *
+ * This reading's and not the growth port's: a rejection never reached the port's
+ * outcome arms, so wearing `growth-port` would name a refusal the port did not make
+ * and send a reader to the slate row for a wire that is registered.
+ */
+export const AGENT_ROSTER_REFUSAL_ORIGIN = "agent-roster";
 
 /**
  * The roster half, before the account plane's label is joined onto it.
@@ -118,9 +141,10 @@ export class AgentRosterReading implements ReadTriggerTarget {
       perform: async () => {
         await this.#read();
       },
-      // A read that rejects is already published as a refusal on the phase it belongs
-      // to, so re-throwing would surface the same fact again as an unhandled
-      // rejection.
+      // A read that rejects publishes its own refusal — see `#read` — so re-throwing
+      // would surface the same fact again as an unhandled rejection. This arm is
+      // therefore for a defect in the publish itself, and it says nothing about the
+      // wire; the sibling readings all carry it for the same reason.
       onError: () => undefined,
     });
   }
@@ -128,6 +152,19 @@ export class AgentRosterReading implements ReadTriggerTarget {
   /** What the chip reads. Stable between transitions, so `Object.is` works. */
   public get readout(): AgentRosterReadout {
     return this.#readout;
+  }
+
+  /**
+   * Whether {@link dispose} has run. Read by whoever HOLDS this reading.
+   *
+   * `dispose` is one-way — it drops the scheduler and refuses every later
+   * `requestRead` — so a holder that re-commits a disposed reading holds something
+   * that will never answer again, and says nothing about it. That state is invisible
+   * from the outside without this, which is why `store/subject-scoped-resource.ts`
+   * takes a terminal disposal only together with a reading of it.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
   }
 
   /** Watch for a new readout. Returns an idempotent unsubscribe. */
@@ -170,7 +207,26 @@ export class AgentRosterReading implements ReadTriggerTarget {
     }
     this.#readOrdinal += 1;
     const ordinal = this.#readOrdinal;
-    const roster = await this.#bridge.growth.agentList({ sessionId: this.#sessionId });
+    let roster;
+    try {
+      roster = await this.#bridge.growth.agentList({ sessionId: this.#sessionId });
+    } catch (rejection) {
+      if (this.#disposed || ordinal !== this.#readOrdinal) {
+        return;
+      }
+      // THE CALL ITSELF FAILED, WHICH IS NOT ONE OF THE PORT'S ANSWERS. A fixture
+      // whose scripted reply cannot be read throws, and a live transport rejects
+      // whenever the call does not complete — neither arrives as an outcome, so
+      // neither can be carried through the way the unavailable arm below is. The
+      // console's one rejection normalizer turns it into the same refusal shape every
+      // surface renders, under this reading's own name.
+      this.#publish({
+        ...NOTHING_ASKED,
+        phase: "refused",
+        refusal: normalizeWireRejection(AGENT_ROSTER_REFUSAL_ORIGIN, rejection),
+      });
+      return;
+    }
     if (this.#disposed || ordinal !== this.#readOrdinal) {
       return;
     }

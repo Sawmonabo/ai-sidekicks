@@ -26,12 +26,31 @@
 // per `(bridge, sessionId)`: the pass that commits a new session reads the unasked
 // state, and a read still in flight against the previous one settles into nothing
 // rather than into this surface.
+//
+// EVERY WAY THE ASK CAN END REACHES A PHASE, THE REJECTION INCLUDED. The read has a
+// third ending besides the port's two: the call itself can fail — the fixture throws
+// for a scripted reply it cannot read, and a live transport rejects when the call does
+// not complete. With no rejection arm the promise rejected unhandled, no phase was
+// ever published, and the button stayed `aria-busy` for the life of the surface with
+// nothing rendered beside it: a control announcing work in progress that had already
+// stopped. The rejection now becomes a refusal through the console's one normalizer
+// and lands in the same `refused` phase the port's own refusal does.
 
 import { useCallback } from "react";
 import type { ConsoleBridge } from "../../../../console/bridge/index.js";
+import { normalizeWireRejection } from "../../../../console/core/index.js";
 import { useSessionScopedState } from "../../../../console/seats/index.js";
 import { UNASKED, type PickerState } from "./attachment-picker-state.js";
 import { AttachmentPickerAnswer } from "./AttachmentPickerAnswer.js";
+
+/**
+ * The subsystem name a rejected allow-list read is refused under.
+ *
+ * This seat's own, and not the growth port's: a rejection never reached the port's
+ * outcome arms, so wearing that name would attribute the failure to a refusal the
+ * port did not make.
+ */
+const ATTACHMENT_PICKER_REFUSAL_ORIGIN = "attachment-picker";
 
 export interface AttachmentPickerSeatProps {
   readonly bridge: ConsoleBridge;
@@ -48,20 +67,34 @@ export function AttachmentPickerSeat(props: AttachmentPickerSeatProps): React.JS
 
   const readAllowList = useCallback(() => {
     publishState({ phase: "asking" });
-    void bridge.growth.artifactAllowlistRead({ sessionId }).then((outcome) => {
-      // Published through the holder the render that opened this read handed out,
-      // so an answer arriving after the composer moved to another session is
-      // dropped instead of claiming that session accepts what this one does.
-      if (outcome.status === "unavailable") {
-        publishState({ phase: "refused", refusal: outcome });
-        return;
-      }
-      publishState({
-        phase: "offered",
-        contentTypes: outcome.value.contentTypes,
-        maximumByteLength: outcome.value.maximumByteLength,
-      });
-    });
+    void bridge.growth.artifactAllowlistRead({ sessionId }).then(
+      (outcome) => {
+        // Published through the holder the render that opened this read handed out,
+        // so an answer arriving after the composer moved to another session is
+        // dropped instead of claiming that session accepts what this one does.
+        if (outcome.status === "unavailable") {
+          publishState({ phase: "refused", refusal: outcome });
+          return;
+        }
+        publishState({
+          phase: "offered",
+          contentTypes: outcome.value.contentTypes,
+          maximumByteLength: outcome.value.maximumByteLength,
+        });
+      },
+      (rejection: unknown) => {
+        // BESIDE THE HANDLER AND NOT CHAINED AFTER IT. A trailing `.catch` also
+        // catches whatever the handler above threw, which would report this surface's
+        // own defect as the wire refusing — and would do it by calling the same
+        // `publishState` that had just thrown. This arm sees the READ's rejection and
+        // nothing else; it goes through the same holder, so a rejection belonging to a
+        // session the composer has left is dropped exactly as an answer would be.
+        publishState({
+          phase: "refused",
+          refusal: normalizeWireRejection(ATTACHMENT_PICKER_REFUSAL_ORIGIN, rejection),
+        });
+      },
+    );
   }, [bridge, publishState, sessionId]);
 
   return (
