@@ -17,7 +17,7 @@ import {
   type ConsoleBridge,
   type GrowthPort,
 } from "../../../../console/bridge/index.js";
-import { drainMicrotasks } from "../../../../console/core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../../../console/core/macrotask-boundary.test-support.js";
 
 const SESSION_ONE = COMPOSER_SCENARIO.sessionId;
 const SESSION_TWO = "019b7a33-3300-75e5-8520-ada11a5a55b6";
@@ -100,7 +100,7 @@ describe("the picker asks before it offers", () => {
     expect(screen.getByText("Reading what this session accepts.")).not.toBeNull();
     await act(async () => {
       reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(screen.getByText(/text\/markdown/)).not.toBeNull();
   });
@@ -112,7 +112,7 @@ describe("the picker asks before it offers", () => {
     mountSeat(bridge, SESSION_ONE);
     pressAttach();
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(screen.getByText(growthUnavailable("artifactAllowlistRead").code)).not.toBeNull();
   });
@@ -128,7 +128,7 @@ describe("the picker asks before it offers", () => {
     mountSeat(bridge, SESSION_ONE);
     pressAttach();
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(screen.getByRole("button", { name: "Attach files" }).getAttribute("aria-busy")).toBe(
@@ -148,7 +148,7 @@ describe("the picker asks before it offers", () => {
     );
     await act(async () => {
       reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(screen.getByRole("button", { name: "Attach files" }).getAttribute("aria-busy")).toBe(
@@ -168,7 +168,7 @@ describe("the reading belongs to the session it was read for", () => {
     pressAttach();
     await act(async () => {
       reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(screen.getByText(/text\/markdown/)).not.toBeNull();
 
@@ -184,7 +184,7 @@ describe("the reading belongs to the session it was read for", () => {
     seat.rebindTo(SESSION_TWO);
     await act(async () => {
       reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(reads.outstanding[0]?.sessionId).toBe(SESSION_ONE);
     expect(screen.queryByText(/text\/markdown/)).toBeNull();
@@ -199,7 +199,7 @@ describe("the reading belongs to the session it was read for", () => {
     pressAttach();
     await act(async () => {
       reads.outstanding.at(-1)?.answer(SESSION_TWO_ALLOWS);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(reads.outstanding.at(-1)?.sessionId).toBe(SESSION_TWO);
     expect(screen.getByText(/image\/png/)).not.toBeNull();

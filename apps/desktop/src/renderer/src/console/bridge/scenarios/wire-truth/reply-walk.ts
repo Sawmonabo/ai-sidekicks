@@ -25,7 +25,7 @@
 // served set is imported rather than restated, so the two cannot disagree.
 
 import { CONSOLE_DAEMON_METHODS } from "../../daemon/index.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/fixture-growth-port.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/fixture-served-operations.js";
 import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
 import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
 import type { ScenarioWireTruthDefect } from "./defect.js";

@@ -15,7 +15,7 @@ import {
   type ConsoleBridge,
   type ParsedRows,
 } from "../../bridge/index.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { SessionStore } from "../../store/index.js";
@@ -65,7 +65,7 @@ export function boundStore(
 /**
  * Fire the reader's trailing debounce on the fixture's frozen clock, then settle.
  *
- * The settling is the console's one `drainMicrotasks`, in `core/`, and never a
+ * The settling is the console's one `crossMacrotaskBoundary`, in `core/`, and never a
  * counted number of passes. What stood here ran four `await Promise.resolve()` rounds, which
  * is a number tuned against the chain it happened to be written over: a reply that
  * grew one link deeper would stop being waited for, and the case would report the
@@ -76,7 +76,7 @@ export async function settle(bridge: ConsoleBridge): Promise<void> {
     bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
   });
   await act(async () => {
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 

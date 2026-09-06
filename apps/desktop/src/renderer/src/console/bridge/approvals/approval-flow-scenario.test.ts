@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { APPROVAL_FLOW_EVENT_KINDS } from "./approval-flow-projection.js";
 import { APPROVALS_SCENARIO } from "../scenarios/approvals.js";
 import { RUN_LIFECYCLE_EVENT_KINDS } from "../../frame/run-lifecycle-projector.js";
+import { SidebarSectionRegistry } from "../../seats/index.js";
 import { ConsoleEntityProjectorRegistry } from "../../store/index.js";
 import { registerComposerFamily } from "../../../shell/index.js";
 import { storeDrivenByScenario, storeOver } from "./approval-flow-projection.test-support.js";
@@ -63,7 +64,7 @@ describe("the composer family's claim on the board it is handed", () => {
   it("registers exactly the approval kinds, under its own name", () => {
     const projectors = new ConsoleEntityProjectorRegistry();
 
-    registerComposerFamily(projectors);
+    registerComposerFamily(projectors, new SidebarSectionRegistry());
 
     expect(Object.keys(projectors.snapshot()).toSorted()).toStrictEqual(
       [...APPROVAL_FLOW_EVENT_KINDS].toSorted(),
@@ -79,7 +80,7 @@ describe("the composer family's claim on the board it is handed", () => {
     // window. Named here, by kind, instead.
     const projectors = new ConsoleEntityProjectorRegistry();
 
-    registerComposerFamily(projectors);
+    registerComposerFamily(projectors, new SidebarSectionRegistry());
 
     for (const eventKind of RUN_LIFECYCLE_EVENT_KINDS) {
       expect(projectors.ownerOf(eventKind)).toBeUndefined();

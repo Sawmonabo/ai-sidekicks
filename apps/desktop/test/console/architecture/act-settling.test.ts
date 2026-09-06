@@ -8,8 +8,8 @@
 // happens and an absence claim goes quietly green, so the failure mode is silent in
 // exactly the direction that matters.
 //
-// `core/microtask-drain.test-support.ts` states the replacement and why it is a different
-// KIND of wait: `drainMicrotasks` resolves on a macrotask boundary, so every pending
+// `core/macrotask-boundary.test-support.ts` states the replacement and why it is a different
+// KIND of wait: `crossMacrotaskBoundary` resolves on a macrotask boundary, so every pending
 // microtask chain has run whatever its depth. The fix wave adopted it in eighteen
 // files and left ninety-one counted awaits standing in twenty-two others, which is
 // why this is a gate — a fifth settle vocabulary is never written deliberately, it is
@@ -43,7 +43,7 @@ import {
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /** The settle a case must reach for instead. Named so a failure can say it. */
-const BOUNDARY_HELPER = "drainMicrotasks";
+const BOUNDARY_HELPER = "crossMacrotaskBoundary";
 
 /**
  * Whether this call expression is `Promise.resolve()` with no argument.
@@ -152,7 +152,7 @@ describe("act-settling — a settle is a boundary, never a count", () => {
     const clean = readConsoleSourceModule(harness);
     expect(countedSettleLines(harness.displayPath, clean)).toStrictEqual([]);
     const planted = clean.replace(
-      "    await drainMicrotasks();",
+      "    await crossMacrotaskBoundary();",
       "    await Promise.resolve();\n    await Promise.resolve();",
     );
     expect(planted).not.toBe(clean);

@@ -21,7 +21,7 @@ import {
   targetForAgent,
 } from "./provider-command-holder.test-support.js";
 import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../../console/core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../../console/core/macrotask-boundary.test-support.js";
 
 describe("ProviderCommandEnumeration — one reading, two readers", () => {
   it("puts one enumeration on the wire for both zones", async () => {
@@ -48,7 +48,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       }),
     );
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(enumerationCalls(recorded)).toHaveLength(1);
@@ -71,7 +71,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       );
     }
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(enumerationCalls(recorded)).toHaveLength(2);
@@ -94,7 +94,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       }),
     );
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     const published = enumeration.publishedEntryNamed("compact", ADDRESSED);
@@ -120,7 +120,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       { initialProps: true },
     );
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeDefined();
 
@@ -156,7 +156,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
       { initialProps: firstBridge },
     );
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(result.current.phase).toBe("served");
 
@@ -165,7 +165,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     // Discarded the instant the wire changed, exactly as a re-address discards.
     expect(result.current.phase).toBe("not-loaded");
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(enumerationCalls(recorded)).toHaveLength(2);
     expect(result.current.phase).toBe("served");
@@ -191,19 +191,19 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
       { initialProps: firstBridge },
     );
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     rerender(secondBridge);
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeDefined();
 
     // The replaced wire answers only now.
     await act(async () => {
       parkedOnFirstBridge[0]?.(enumerationReplyNaming("only-on-the-replaced-bridge"));
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(
@@ -229,12 +229,12 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
       { initialProps: bridge },
     );
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     rerender(bridge);
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(enumerationCalls(recorded)).toHaveLength(1);

@@ -11,15 +11,16 @@
 // it — its only production reader is the type derived from it, and a door line for a
 // symbol no production module imports is one `barrel-census` fails.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { RAIL_DESTINATIONS } from "../routing/index.js";
 import {
   FRAME_KEY_BINDINGS,
   RAIL_NAVIGATION_DETAILS,
+  consoleKeyBindings,
   type FrameKeyBinding,
 } from "./command-surface.js";
-import { CONSOLE_WHEN_CLAUSE_KEYS } from "./console-commands.js";
+import { CONSOLE_WHEN_CLAUSE_KEYS, consoleCommandSurface } from "./console-commands.js";
 
 /**
  * The compile-time control for the frame's own binding shape.
@@ -61,5 +62,40 @@ describe("command surface — the chords the frame binds", () => {
     // would refuse the install, which is a raise at mount rather than an answer.
     const chords = FRAME_KEY_BINDINGS.map((binding) => binding.chord);
     expect(new Set(chords).size).toBe(chords.length);
+  });
+});
+
+describe("command surface — the window's whole chord table", () => {
+  afterEach(() => {
+    consoleCommandSurface.contribute({
+      owner: "command-surface-test",
+      commands: [],
+      keyBindings: [],
+    });
+  });
+
+  it("is the frame's own chords, then the families', in that order", () => {
+    // The order is the claim, not an artefact. The window table listens in the
+    // capture phase and the first match wins, so a family able to precede the
+    // frame could take `$mod+1` away from the rail without anything reporting it.
+    consoleCommandSurface.contribute({
+      owner: "command-surface-test",
+      commands: [
+        { id: "command-surface-test.act", title: "Act", group: "Test", run: () => undefined },
+      ],
+      keyBindings: [{ chord: "$mod+Shift+7", commandId: "command-surface-test.act" }],
+    });
+
+    expect(consoleKeyBindings()).toStrictEqual([
+      ...FRAME_KEY_BINDINGS,
+      { chord: "$mod+Shift+7", commandId: "command-surface-test.act" },
+    ]);
+  });
+
+  it("negative control: with no family composed it is exactly the frame's own", () => {
+    // Without this the case above would pass over a reader that answered the whole
+    // list from somewhere else entirely, and over one that appended the frame's
+    // chords twice.
+    expect(consoleKeyBindings()).toStrictEqual([...FRAME_KEY_BINDINGS]);
   });
 });

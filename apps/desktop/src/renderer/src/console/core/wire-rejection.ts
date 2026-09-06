@@ -58,6 +58,25 @@ import {
   UNREPRESENTABLE_VALUE_TEXT,
 } from "../../../../shared/wire-errors.js";
 
+// The envelope shape itself, re-published rather than re-declared. `src/shared/` sits
+// on no rung of the console's family DAG, so a view family reaching it directly is the
+// edge `console-view-family-shared-through-core` reports; this module is already the
+// console's reading of that envelope, so it is the layer family that owns the shape
+// for everything above it. Re-export and not a second interface: two declarations of
+// one wire shape is exactly the drift the rule exists to stop.
+//
+// AND IT IS ON `core/index.ts`. It is held off no longer for want of a production
+// reader: `bridge/scenario-runtime/scenario.ts` and `scripted-reply.ts` both read the
+// shape, so the door line has the readers `barrel-census` asks for, and the reading
+// layer beside them takes the same one name from the same door.
+//
+// THE CLAIM IS ABOUT THE SHAPE, NOT ABOUT THE MODULE THAT DECLARES IT. That leaf also
+// declares the envelope's READERS, and a door line for a function reached only by
+// tests would be the census failure this note exists to avoid. A reader is not a
+// second declaration of the shape, so that edge drifts nothing — the rule governs
+// where the console's one reading of the envelope lives, and it lives here.
+export type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
+
 import {
   readRefusalExtensions,
   wireRetryExtension,

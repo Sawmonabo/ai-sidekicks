@@ -44,7 +44,7 @@ import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.js";
 import { useUiStateStore } from "./ui-state-lifecycle.js";
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 interface StoreProbeProps {
   readonly onStore: (store: UiStateStore) => void;
@@ -88,7 +88,7 @@ async function mountProbe(strict: boolean): Promise<{
   let mounted: ReturnType<typeof render> | undefined;
   await act(async () => {
     mounted = render(strict ? <StrictMode>{tree}</StrictMode> : tree);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
   if (mounted === undefined) {
     throw new Error("the probe never mounted");
@@ -104,7 +104,7 @@ async function mountProbe(strict: boolean): Promise<{
 
 async function settle(): Promise<void> {
   await act(async () => {
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -224,7 +224,7 @@ function mountSwappable(bridge: ConsoleBridge): {
     renderAgainst: async (next: ConsoleBridge): Promise<void> => {
       await act(async () => {
         mounted.rerender(hostFor(next));
-        await drainMicrotasks();
+        await crossMacrotaskBoundary();
       });
     },
     unmount: (): void => {

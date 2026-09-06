@@ -11,7 +11,7 @@ import { ApprovalsPane } from "./ApprovalsPane.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   approvalsPaneContext,
   boundStore,
@@ -58,7 +58,7 @@ describe("the session goal", () => {
     const goal = screen.getByRole("region", { name: "Session goal" });
     expect(within(goal).queryByRole("button")).toBeNull();
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
   });
 

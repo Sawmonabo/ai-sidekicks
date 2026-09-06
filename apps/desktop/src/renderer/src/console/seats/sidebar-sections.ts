@@ -34,6 +34,7 @@ import { type ConsoleBridge } from "../bridge/index.js";
 import { type SessionStore } from "../store/index.js";
 import { type ConsolePaneOpener } from "./pane-registry.js";
 
+// Consumed by T-023p-1C-3
 /**
  * Every sidebar section, in render order.
  *
@@ -57,6 +58,7 @@ export const SIDEBAR_SECTION_IDS = [
   "members",
 ] as const;
 
+// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
@@ -76,6 +78,7 @@ export const SIDEBAR_SECTION_ATTENTIONS = ["red", "amber", "calm"] as const;
 /** One attention level. Derived from the enumeration, never restated. */
 export type SidebarSectionAttention = (typeof SIDEBAR_SECTION_ATTENTIONS)[number];
 
+// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** Everything a section body is handed. */
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
@@ -130,6 +133,7 @@ export interface SidebarSectionContext {
   readonly reportAttention?: (attention: SidebarSectionAttention) => void;
 }
 
+// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 export interface SidebarSectionDescriptor {
   readonly id: SidebarSectionId;
   /** The task or family that owns it, so an unfilled section names someone. */
@@ -170,11 +174,7 @@ export class SidebarSectionRegistry {
 /** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 
-/** The call a family makes to fill one sidebar section. */
-export function registerSidebarSection(descriptor: SidebarSectionDescriptor): void {
-  sidebarSectionRegistry.register(descriptor);
-}
-
+// Consumed by T-023p-1C-3
 /** One section's body, or `undefined` while nobody has filled it. */
 export function sidebarSectionRenderer(
   id: SidebarSectionId,

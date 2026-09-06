@@ -120,8 +120,6 @@ export {
 export {
   ConsolePaneRegistry,
   consolePaneRegistry,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   type ConsolePaneContext,
@@ -146,8 +144,9 @@ export {
 export {
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,
-  registerSidebarSection,
   sidebarSectionRegistry,
+  /** @consumedBy T-023p-1C-3 */
+  sidebarSectionRenderer,
   type SidebarSectionAttention,
   type SidebarSectionContext,
   type SidebarSectionDescriptor,
@@ -174,14 +173,10 @@ export {
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
-  /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
   /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-5 */
-  registerInlineCardBody,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type ArtifactInlineCardProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
@@ -200,11 +195,9 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. The chrome's three
-// lines carry no marker: the runs, approvals, and inspector bodies import all three,
-// so a surviving tag would fail the run under `--treat-tag-hints-as-errors`.
-// `PaneControls` and its context are still named by the one task that builds the
-// deck, which is the only host that provides them.
+// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
+// named by all six pane-body tasks; `PaneControls` and its context are named by the one
+// that builds the deck, which is the only host that provides them.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {
@@ -230,6 +223,8 @@ export {
   useSessionScopedState,
 } from "./session-subject.js";
 export type {
+  /** @consumedBy T-023p-1C-3 */
+  SessionScopedKey,
   /** @consumedBy T-023p-1C-4 */
   SessionSubject,
 } from "./session-subject.js";

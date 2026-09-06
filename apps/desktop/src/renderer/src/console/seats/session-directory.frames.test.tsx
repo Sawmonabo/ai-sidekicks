@@ -24,51 +24,43 @@ import { act, cleanup, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  createFixtureBridge,
-  growthUnavailableFromRejection,
-  type GrowthPort,
-} from "../bridge/index.js";
+import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
+import { settleGrowthRead } from "../bridge/readings/read-settlement.js";
 import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { useSessionDirectory, type SessionDirectoryState } from "./session-directory.js";
 
 /**
  * The shape this hook replaced: a `useState` cell reset from inside the effect.
  *
- * Not a stand-in for the holder — it is the OLD code, kept only so the frame claim
- * above it is shown to discriminate. The reset is the first statement of the effect
- * body, so it cannot run before the commit of the render that installed the new port,
- * and the mounted latch is the boolean the holder's publisher replaced.
+ * Not a stand-in for the holder — it is the OLD code on the one axis this suite
+ * measures, kept only so the frame claim above it is shown to discriminate. The reset
+ * is the first statement of the effect body, so it cannot run before the commit of the
+ * render that installed the new port, and the mounted latch is the boolean the
+ * holder's publisher replaced.
+ *
+ * IT SETTLES THE SAME WAY THE SHIPPED HOOK DOES, and that is what makes it a control
+ * rather than a second experiment: `settleGrowthRead` is the seam both take, so the
+ * only thing that differs between the two surfaces below is WHEN the state is reset —
+ * which is the whole of what a frame recorder can see.
  */
 function useSessionDirectoryWithEffectTimeReset(growth: GrowthPort): SessionDirectoryState {
   const [state, setState] = useState<SessionDirectoryState>({ status: "reading" });
   useEffect(() => {
     setState({ status: "reading" });
     let isMounted = true;
-    void growth.sessionList({}).then(
-      (outcome) => {
-        if (!isMounted) {
-          return;
-        }
-        setState(
-          outcome.status === "served"
-            ? { status: "served", sessions: outcome.value }
-            : { status: "unavailable", refusal: outcome },
-        );
-      },
-      (rejection: unknown) => {
-        if (!isMounted) {
-          return;
-        }
-        setState({
-          status: "unavailable",
-          refusal: growthUnavailableFromRejection("sessionList", rejection),
-        });
-      },
-    );
+    void settleGrowthRead(growth.sessionList({})).then((settlement) => {
+      if (!isMounted) {
+        return;
+      }
+      setState(
+        settlement.status === "served"
+          ? { status: "served", sessions: settlement.value }
+          : { status: "unavailable", refusal: settlement },
+      );
+    });
     return () => {
       isMounted = false;
     };
@@ -107,7 +99,7 @@ function EffectTimeResetFrame(props: { readonly growth: GrowthPort }): React.JSX
 /** Let the directory read settle, so an assertion is about the answer. */
 async function settle(): Promise<void> {
   await act(async () => {
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 

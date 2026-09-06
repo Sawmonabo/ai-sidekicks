@@ -26,7 +26,7 @@ import {
 } from "../../seats/index.js";
 import { SIDEBAR_MIN_WIDTH_PX } from "./sidebar-constants.js";
 import { Sidebar } from "./Sidebar.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 const SECTION_OWNER = "sidebar-frame-test";
 
@@ -258,7 +258,7 @@ describe("Sidebar — the width separator", () => {
     // width the person chose has to survive it landing.
     await act(async () => {
       fireEvent.keyDown(separator, { key: "Home" });
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     await vi.waitFor(() => {
       expect(separator.getAttribute("aria-valuenow")).toBe(String(SIDEBAR_MIN_WIDTH_PX));

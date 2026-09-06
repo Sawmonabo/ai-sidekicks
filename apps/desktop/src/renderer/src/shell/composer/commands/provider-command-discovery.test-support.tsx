@@ -22,7 +22,7 @@ import {
   bridgeAnswering,
   type RecordedDaemonCall,
 } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../../console/core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../../console/core/macrotask-boundary.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import { consoleCommands } from "../../../console/palette/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../console/frame/run-lifecycle-projector.js";
@@ -235,7 +235,7 @@ export async function mountComposer(options: {
         focusedPane={options.focusedPane}
       />,
     );
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
   if (rendered === undefined) {
     throw new Error("the composer did not mount");
@@ -262,7 +262,7 @@ export async function mountComposer(options: {
             focusedPane={pane}
           />,
         );
-        await drainMicrotasks();
+        await crossMacrotaskBoundary();
       });
     },
   };
@@ -271,7 +271,7 @@ export async function mountComposer(options: {
 export async function typeIntoLine(line: HTMLTextAreaElement, text: string): Promise<void> {
   await act(async () => {
     fireEvent.input(line, { target: { value: text } });
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -290,7 +290,7 @@ export function optionNames(container: HTMLElement): readonly string[] {
 export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElement> {
   await act(async () => {
     fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
   const list = mounted.container.querySelector('[role="listbox"]');
   if (!(list instanceof HTMLElement)) {
@@ -303,7 +303,7 @@ export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElemen
 export async function pressOnList(list: HTMLElement, key: string): Promise<void> {
   await act(async () => {
     fireEvent.keyDown(list, { key });
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 

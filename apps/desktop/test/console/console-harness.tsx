@@ -18,7 +18,7 @@ import { cdp, userEvent } from "vitest/browser";
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
-import { drainMicrotasks } from "../../src/renderer/src/console/core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { type ConsoleScheme } from "../../src/renderer/src/console/tokens/index.js";
 
 /**
@@ -82,7 +82,7 @@ export interface ConsoleMount {
  * whose continuation schedules another (open the database, then read the partition
  * back), so a counted pair was tuned against exactly that depth — and the chain that
  * grows one link deeper stops being waited for, silently, in the direction where the
- * case then reports the ABSENCE of an answer still in flight. `drainMicrotasks`
+ * case then reports the ABSENCE of an answer still in flight. `crossMacrotaskBoundary`
  * resolves on a macrotask boundary, so every pending chain has run whatever its
  * depth; `test/console/architecture/act-settling.test.ts` is the gate that holds
  * this file and every other to it.
@@ -102,7 +102,7 @@ export async function renderSettled(element: ReactElement): Promise<ConsoleMount
 
   await act(async () => {
     render(element, { container });
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
   return { container };
 }

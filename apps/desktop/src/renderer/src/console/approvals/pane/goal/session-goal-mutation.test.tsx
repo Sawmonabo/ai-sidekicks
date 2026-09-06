@@ -7,11 +7,12 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import {
-  type ConsoleBridge,
-  type GrowthOutcome,
-  type GrowthUnavailable,
-} from "../../../bridge/index.js";
+import { type ConsoleBridge, type GrowthOutcome } from "../../../bridge/index.js";
+// `GrowthUnavailable` reads from the module that DECLARES it: the bridge door
+// publishes the union a surface narrows (`GrowthOutcome`) and not the refusal arm on
+// its own, because no production module takes that arm by name — and a door line
+// whose only reader is a suite is the dead export `barrel-census.test.ts` reports.
+import type { GrowthUnavailable } from "../../../bridge/growth-port/growth-outcome.js";
 import {
   createRefusingGrowthPort,
   growthUnavailable,
@@ -19,7 +20,7 @@ import {
 import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { useSessionGoalMutation } from "../approvals-hooks.js";
 import { SECOND_SESSION_ID, SESSION_ID } from "../approvals-hooks.test-support.js";
-import { drainMicrotasks } from "../../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 
 describe("the goal mutation is keyed to the session it mutates", () => {
   /**
@@ -140,7 +141,7 @@ describe("the goal mutation is keyed to the session it mutates", () => {
 
     await act(async () => {
       refuseFor(SESSION_ID, growthUnavailable("sessionGoalUpdate"));
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     // The refusal belongs to a session this card is no longer addressed to, so
     // rendering it here would put one session's refusal beside another's goal.

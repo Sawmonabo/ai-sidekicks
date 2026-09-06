@@ -33,14 +33,14 @@ import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.j
 import { SessionStoreRegistry } from "../store/index.js";
 import { consoleCommands } from "../palette/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 const BRIDGE_COMMAND_IDS = ["bridge.copyBuildDetails", "bridge.checkForUpdates"] as const;
 
 async function dispatchWindowEvent(type: "focus" | "blur"): Promise<void> {
   await act(async () => {
     window.dispatchEvent(new Event(type));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -58,7 +58,7 @@ async function pressPaletteChord(): Promise<void> {
   await act(async () => {
     fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true });
     fireEvent.keyDown(window, { key: "k", code: "KeyK", metaKey: true });
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -213,7 +213,7 @@ describe("ConsoleRoot — the window's durable store is closed with the window",
 
     await act(async () => {
       mounted.unmount();
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     // Asserted through a write rather than through the flag: a store that said it

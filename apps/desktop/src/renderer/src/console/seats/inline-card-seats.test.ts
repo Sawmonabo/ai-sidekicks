@@ -15,7 +15,6 @@ import {
   InlineCardSeatRegistry,
   inlineCardBody,
   inlineCardSeatRegistry,
-  registerInlineCardBody,
   type ArtifactEntityRef,
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
@@ -198,7 +197,7 @@ describe("inline card seats — an artifact card names an artifact", () => {
 
 describe("inline card seats — the module-scope door", () => {
   it("claims a kind on the process-wide registry", () => {
-    registerInlineCardBody("attachment", {
+    inlineCardSeatRegistry.register("attachment", {
       owner: "inline-card-seats-test",
       render: (props) => props.attachment.attachmentId,
     });

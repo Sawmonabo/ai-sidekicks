@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { withDaemonCall } from "../../../bridge/fixture/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 import { StepIn } from "./StepIn.js";
 
@@ -190,7 +190,7 @@ describe("StepIn — a pause a retired transport answers reaches no live render"
     expect(trigger.getAttribute("aria-busy")).toBe("false");
 
     answerPause();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(container.querySelector(".meridian-step-in__receipt")).toBeNull();
     expect(container.querySelector(".meridian-refusal--inline")).toBeNull();

@@ -26,7 +26,7 @@ import {
   mountRailSettled,
   railBridgeAnswering,
 } from "../rail.test-support.js";
-import { drainMicrotasks } from "../../../../console/core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../../../console/core/macrotask-boundary.test-support.js";
 
 const CAPABILITY_READ_METHOD = "driver.listCapabilities";
 const COMPACTION_METHOD = "driver.compactContext";
@@ -158,7 +158,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
 
     await act(async () => {
       releaseCompaction?.();
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(compact.disabled).toBe(false);
   });

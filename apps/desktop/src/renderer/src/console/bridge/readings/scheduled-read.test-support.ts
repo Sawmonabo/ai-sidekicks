@@ -25,7 +25,7 @@
 import { act } from "@testing-library/react";
 
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 
 /**
@@ -54,6 +54,6 @@ export function frozenClockOf(bridge: ConsoleBridge): ManualClock {
 export async function settleScheduledRead(bridge: ConsoleBridge): Promise<void> {
   await act(async () => {
     frozenClockOf(bridge).advance(REFRESH_MAX_WAIT_MS);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }

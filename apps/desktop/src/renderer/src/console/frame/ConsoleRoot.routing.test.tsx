@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { formatRoute, type ConsoleRoute } from "../routing/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /** An auxiliary window's address: a route the sessions list is not. */
 const AUXILIARY_HASH = "#/window/timeline/session-alpha";
@@ -40,7 +40,7 @@ async function clickRailDestination(mounted: RenderResult, label: string): Promi
   const button = mounted.getByLabelText(label);
   await act(async () => {
     fireEvent.click(button);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 

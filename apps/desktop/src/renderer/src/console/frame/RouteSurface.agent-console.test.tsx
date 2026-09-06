@@ -20,7 +20,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import {
   FrameStore,
@@ -111,7 +111,7 @@ async function clickChoice(value: string): Promise<void> {
   const choice = screen.getByRole("button", { name: value });
   await act(async () => {
     fireEvent.click(choice);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -123,7 +123,7 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
     // it out of the next case's flush — `hash-route-binding.test.tsx` records the
     // same reason for the same shape.
     window.location.hash = "";
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 
   it("writes no hash when a session is chosen, because the target is not complete yet", async () => {

@@ -19,13 +19,13 @@ import {
   readingAt,
   usageWindow,
 } from "./provider-quota-feed.test-support.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 describe("useProviderQuotas — the tail opens before the read, so it is buffered across it", () => {
   /** Let every microtask the read's continuation chain queues actually run. */
   async function settleMicrotasks(): Promise<void> {
     await act(async () => {
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
   }
 

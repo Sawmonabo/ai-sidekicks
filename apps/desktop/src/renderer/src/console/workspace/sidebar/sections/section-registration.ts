@@ -22,7 +22,10 @@
 
 import { createElement } from "react";
 
-import { registerSidebarSection, type SidebarSectionDescriptor } from "../../../seats/index.js";
+import {
+  type SidebarSectionDescriptor,
+  type SidebarSectionRegistry,
+} from "../../../seats/index.js";
 import { RunsSection } from "./RunsSection.js";
 
 /**
@@ -44,9 +47,17 @@ const COMPOSER_SIDEBAR_SECTIONS: readonly SidebarSectionDescriptor[] = [
   },
 ];
 
-/** Fill this family's sidebar sections in the process-wide registry. */
-export function registerComposerSidebarSections(): void {
+/**
+ * Fill this family's sidebar sections on the board a composition hands it.
+ *
+ * THE BOARD IS A PARAMETER, never the module-scope registry. `registerConsoleFamilies`
+ * takes all five boards so a composition owns what it composes into; a family reaching
+ * past that for the process-wide one writes into the running console whatever its
+ * caller assembled, which is how two compositions leak registrations into each other
+ * and how an auxiliary window loses the ability to compose a subset.
+ */
+export function registerComposerSidebarSections(registry: SidebarSectionRegistry): void {
   for (const descriptor of COMPOSER_SIDEBAR_SECTIONS) {
-    registerSidebarSection(descriptor);
+    registry.register(descriptor);
   }
 }

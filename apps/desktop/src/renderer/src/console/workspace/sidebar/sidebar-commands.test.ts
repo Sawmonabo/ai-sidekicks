@@ -15,9 +15,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  FRAME_KEY_BINDINGS,
   KeyBindingTable,
   RAIL_NAVIGATION_DETAILS,
+  consoleKeyBindings,
   type KeyBinding,
 } from "../../palette/index.js";
 import { SIDEBAR_SECTION_IDS, type ConsolePaneAddress } from "../../seats/index.js";
@@ -170,11 +170,15 @@ describe("sidebar chords — a held key is one act", () => {
   });
 });
 
-// The window's chord table, named once so this claim moves with it. Today the frame
-// installs `FRAME_KEY_BINDINGS` on `window`; when the console's composed base lands
-// this is `consoleKeyBindings()` — frame plus every family's contribution — and the
-// claim below widens with no other edit.
-const WINDOW_KEY_BINDINGS: readonly KeyBinding[] = FRAME_KEY_BINDINGS;
+// The window's chord table, read the way the frame reads it: `consoleKeyBindings()`
+// is what `frame-commands.ts` installs on `window`, and it is the frame's own chords
+// followed by every family's contribution.
+//
+// CALLED, NOT HOISTED INTO A CONSTANT, for that function's own reason: the families'
+// half is not known when a module is evaluated, so a constant read here would pin
+// whatever had been composed by the time this file was imported — an ordering nobody
+// declared and nothing reports, and one that would make this claim quietly narrower
+// than the table the window actually installs.
 
 /**
  * Which of `sidebarBindings` the window's table would eat, as one line each.
@@ -190,7 +194,7 @@ const WINDOW_KEY_BINDINGS: readonly KeyBinding[] = FRAME_KEY_BINDINGS;
  */
 function windowCollisionsWith(sidebarBindings: readonly KeyBinding[]): readonly string[] {
   const sidebarCommandIds = new Set(sidebarBindings.map((binding) => binding.commandId));
-  return KeyBindingTable.conflictsIn([...WINDOW_KEY_BINDINGS, ...sidebarBindings])
+  return KeyBindingTable.conflictsIn([...consoleKeyBindings(), ...sidebarBindings])
     .filter(
       (conflict) =>
         conflict.commandIds.some((commandId) => sidebarCommandIds.has(commandId)) &&

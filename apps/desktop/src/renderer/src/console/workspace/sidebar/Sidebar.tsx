@@ -22,10 +22,10 @@
 // renders from it, and the cursor it serves is the model's.
 //
 // THE REGISTRY IS AN INJECTABLE PROP OVER A PROCESS-WIDE DEFAULT. Three families
-// fill this sidebar by calling `registerSidebarSection`, which writes into the
-// process-wide registry, so a mount that named no registry would have to read
-// that one or render eight empty seats — the default is what the seat contract
-// already means. It stays overridable for the two cases where the process-wide
+// fill this sidebar, each on the board `registerConsoleFamilies` hands it — which is
+// the process-wide one under the production composition, so a mount that named no
+// registry would have to read that one or render eight empty seats, and the default
+// is what the seat contract already means. It stays overridable for the two cases where the process-wide
 // one is the wrong answer: a test composes sections into a registry it owns
 // rather than leaking into a shared one, and an auxiliary window composes a
 // different subset without a second code path.

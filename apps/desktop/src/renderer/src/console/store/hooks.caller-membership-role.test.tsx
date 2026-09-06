@@ -19,7 +19,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import {
   CALLER_IDENTITY_READ_FAILED,
   useCallerMembershipRole,
@@ -221,7 +221,7 @@ describe("useCallerMembershipRole — a reader that rejects rather than refusing
       await body();
       // An unhandled rejection is reported a macrotask after the microtask queue
       // drains, so a body that only awaited microtasks would report clean either way.
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     } finally {
       runnerHost.process.off("unhandledRejection", record);
     }

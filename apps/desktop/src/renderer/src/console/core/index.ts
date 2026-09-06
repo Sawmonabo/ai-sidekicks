@@ -99,8 +99,8 @@ export {
   normalizeWireRejection,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type RejectionFallback,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type WireRefusal,
+  type WireErrorEnvelope,
 } from "./wire-rejection.js";
 // The three predicates a reading of an untyped wire value starts from, each written
 // separately by the families that needed one. They ship through this door rather than

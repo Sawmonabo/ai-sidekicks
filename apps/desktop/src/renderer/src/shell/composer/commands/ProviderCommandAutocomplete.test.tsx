@@ -25,7 +25,7 @@ import {
 import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
 import { ProviderCommandEnumeration } from "./provider-command-holder.js";
-import { drainMicrotasks } from "../../../console/core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../../console/core/macrotask-boundary.test-support.js";
 
 describe("ProviderCommandAutocomplete", () => {
   it("stays closed until a leading slash is typed", async () => {
@@ -227,7 +227,7 @@ describe("ProviderCommandAutocomplete", () => {
     }
     await act(async () => {
       fireEvent.click(runButton);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(ranCount).toBe(1);
@@ -267,13 +267,13 @@ describe("ProviderCommandAutocomplete", () => {
 
     await act(async () => {
       fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
     expect(document.activeElement).toBe(list);
 
     await act(async () => {
       fireEvent.keyDown(list, { key: "ArrowDown" });
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(list.getAttribute("aria-activedescendant")).not.toBe(firstActive);
@@ -303,12 +303,12 @@ describe("ProviderCommandAutocomplete", () => {
     }
     await act(async () => {
       fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     await act(async () => {
       fireEvent.keyDown(list, { key: "Escape" });
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();
@@ -324,7 +324,7 @@ describe("ProviderCommandAutocomplete", () => {
 
     await act(async () => {
       fireEvent.keyDown(mounted.line, { key: "Escape" });
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();

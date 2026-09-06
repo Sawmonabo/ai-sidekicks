@@ -33,13 +33,13 @@ import { registerFreePaneKindProbe } from "../seats/pane-probe.test-support.js";
 import { registerConsolePanes } from "./index.js";
 import {
   filledSeatLine,
-  PANE_SEAT_TASK_ORDINALS,
+  PANE_SEAT_BOARD,
   readSeatBoardCensus,
   reservedSeatLine,
   seatBoardSourceFrom,
   type SeatBoardOffence,
   type SeatGroup,
-} from "./seat-census.test-support.js";
+} from "../seat-census.test-support.js";
 
 declare global {
   interface ImportMeta {
@@ -81,7 +81,7 @@ function filled(taskOrdinal: number, lineCount: number): SeatGroup {
  * with itself.
  */
 function boardBody(fills: ReadonlyMap<number, number>): readonly string[] {
-  return PANE_SEAT_TASK_ORDINALS.flatMap((taskOrdinal) => {
+  return PANE_SEAT_BOARD.taskOrdinals.flatMap((taskOrdinal) => {
     const lineCount = fills.get(taskOrdinal);
     return lineCount === undefined
       ? [reservedSeatLine(taskOrdinal, SYNTHETIC_KIND_WORDS)]
@@ -125,7 +125,9 @@ const WELL_FORMED_BOARDS: readonly WellFormedBoardCase[] = [
   {
     name: "every seat filled",
     body: boardBody(
-      new Map(PANE_SEAT_TASK_ORDINALS.map((taskOrdinal): [number, number] => [taskOrdinal, 1])),
+      new Map(
+        PANE_SEAT_BOARD.taskOrdinals.map((taskOrdinal): [number, number] => [taskOrdinal, 1]),
+      ),
     ),
     seats: [filled(2, 1), filled(3, 1), filled(4, 1), filled(5, 1), filled(6, 1), filled(7, 1)],
   },
@@ -200,7 +202,7 @@ const MALFORMED_BOARDS: readonly MalformedBoardCase[] = [
 
 describe("pane seat board — the grammar every branch cuts against", () => {
   it.each(WELL_FORMED_BOARDS)("reads $name", ({ body, seats }) => {
-    const census = readSeatBoardCensus(seatBoardSourceFrom(body));
+    const census = readSeatBoardCensus(seatBoardSourceFrom(PANE_SEAT_BOARD, body), PANE_SEAT_BOARD);
 
     expect(census.offences).toStrictEqual([]);
     expect(census.seats).toStrictEqual(seats);
@@ -210,15 +212,15 @@ describe("pane seat board — the grammar every branch cuts against", () => {
     // The negative controls, one board per malformation. Without them the clean
     // arms above would pass over a census that reported no offence whatever the
     // board said, which is the failure this class of reader is most prone to.
-    const census = readSeatBoardCensus(seatBoardSourceFrom(body));
+    const census = readSeatBoardCensus(seatBoardSourceFrom(PANE_SEAT_BOARD, body), PANE_SEAT_BOARD);
 
     expect(census.offences).toStrictEqual(offences);
   });
 
   it("refuses a source with no seat board in it at all", () => {
-    expect(readSeatBoardCensus("export const seats = [];\n").offences).toStrictEqual([
-      "board-not-found",
-    ]);
+    expect(
+      readSeatBoardCensus("export const seats = [];\n", PANE_SEAT_BOARD).offences,
+    ).toStrictEqual(["board-not-found"]);
   });
 
   it("reads the declaration and not a copy of it in a comment", () => {
@@ -232,13 +234,13 @@ describe("pane seat board — the grammar every branch cuts against", () => {
       `// ${reservedSeatLine(2, SYNTHETIC_KIND_WORDS).trim()}`,
       "// }",
       "",
-      seatBoardSourceFrom(boardBody(new Map())),
+      seatBoardSourceFrom(PANE_SEAT_BOARD, boardBody(new Map())),
     ].join("\n");
 
-    const census = readSeatBoardCensus(quoted);
+    const census = readSeatBoardCensus(quoted, PANE_SEAT_BOARD);
 
     expect(census.offences).toStrictEqual([]);
-    expect(census.seats).toHaveLength(PANE_SEAT_TASK_ORDINALS.length);
+    expect(census.seats).toHaveLength(PANE_SEAT_BOARD.taskOrdinals.length);
   });
 });
 
@@ -252,11 +254,11 @@ describe("pane seat board — the board this branch ships", () => {
   });
 
   it("holds one well-formed seat per reserved task, in task order", () => {
-    const census = readSeatBoardCensus(seatBoardSource);
+    const census = readSeatBoardCensus(seatBoardSource, PANE_SEAT_BOARD);
 
     expect(census.offences).toStrictEqual([]);
     expect(census.seats.map((seat) => seat.taskOrdinal)).toStrictEqual([
-      ...PANE_SEAT_TASK_ORDINALS,
+      ...PANE_SEAT_BOARD.taskOrdinals,
     ]);
   });
 });

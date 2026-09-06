@@ -7,14 +7,21 @@
 // was buried inside a ternary about array length, in a file whose other job is the
 // list, the heading, and the start control.
 //
-// A refused directory with no session open is `not-checked`: the console did not ask
-// the daemon, and must not report "there are none" for a question it never put. A
-// SERVED directory with no rows is `empty`, because that question was put and
-// answered. A read still in flight is `not-loaded`. Collapsing any two of the three
-// is the conflation `Spec-023 §Console Design (Meridian)` rule 8 exists to prevent.
+// A directory refused for an UNBUILT WIRE and no session open is `not-checked`: the
+// console did not ask the daemon, and must not report "there are none" for a question
+// it never put. A directory whose read FAILED is a different fact again and gets the
+// `error` kind with the daemon's own code and sentence — this arm used to be folded
+// into `not-checked` beside a line saying the console had not asked, so a closed
+// bridge channel read as an idle console that had chosen not to look. A SERVED
+// directory with no rows is `empty`, because that question was put and answered. A
+// read still in flight is `not-loaded`. Collapsing any two of the four is the
+// conflation `Spec-023 §Console Design (Meridian)` rule 8 exists to prevent, and
+// which of the two refusals this is is `isUnbuiltWireRefusal`'s to say rather than
+// this surface's — one reading, beside the code it is about.
 
 import { type ReactNode } from "react";
 
+import { isUnbuiltWireRefusal } from "../bridge/index.js";
 import { Nothing } from "../primitives/index.js";
 import { type SessionDirectoryState } from "../seats/index.js";
 
@@ -41,6 +48,21 @@ export function SessionsAbsence(props: SessionsAbsenceProps): React.JSX.Element 
         placement="surface"
         title="There are no sessions on this node yet."
         detail="The node answered, and it has none. Starting one is the way to have the first."
+        action={props.action}
+      />
+    );
+  }
+  if (!isUnbuiltWireRefusal(props.directory.refusal)) {
+    // The read was put and it FAILED. The title is the daemon's code and the detail
+    // its message, both verbatim: rule 9 fixes what reaches the screen from a refusal
+    // at exactly those two, and `Nothing`'s `error` kind is the shape that carries
+    // them where an absence stands in for the surface.
+    return (
+      <Nothing
+        kind="error"
+        placement="surface"
+        title={props.directory.refusal.code}
+        detail={props.directory.refusal.detail}
         action={props.action}
       />
     );

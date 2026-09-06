@@ -7,7 +7,7 @@
 
 import { createElement, useEffect } from "react";
 import { createFixture } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { withRecordedStreamLifecycle } from "../../bridge/daemon/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -80,7 +80,7 @@ export async function mountStateFeed(
   }
   render(createElement(StateFeedProbe));
   await act(async () => {
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
   return () => {
     if (held === undefined) {
