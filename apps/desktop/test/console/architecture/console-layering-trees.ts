@@ -226,10 +226,20 @@ export const TEST_SUPPORT_UPWARD_EDGE_TREE: PlantedTree = {
  * `console/store/subject-scoped-state.js` specifier while three gates reported clean.
  * The door import beside it is the other half of the control: an outside subtree
  * reaching the DOOR is the shape the console offers and must stay legal.
+ *
+ * A HARNESS WRITES THE OFFENDING EDGE TOO, and is exempt for the reason the
+ * intra-console deep-import rule exempts one: a `.test-support` module is part of a
+ * suite rather than something that ships, and neither remedy the rule offers is open
+ * to it — a door cannot publish a fixture helper (`barrel-census` fails a specifier no
+ * production module reads) and there is nowhere below to hoist one to. Three modules,
+ * one edge written twice and the legal shape once: a subtraction widened past
+ * `.test-support` takes the production violation with it and this control reads an
+ * empty list.
  */
 export const OUTSIDE_RENDERER_TREE: PlantedTree = {
   ...CLEAN_TREE,
   "../session-bootstrap/SessionBootstrap.ts": `import type { ActiveSession } from "../console/frame/session-lifecycle.js";\n\nexport type BootstrapSession = ActiveSession;\n`,
+  "../session-bootstrap/seeded.test-support.ts": `import type { ActiveSession } from "../console/frame/session-lifecycle.js";\n\nexport type SeededBootstrap = ActiveSession;\n`,
   "../session-members/SessionMembers.ts": `import type { RepoRefusal } from "../console/repos/index.js";\n\nexport type MemberRefusal = RepoRefusal;\n`,
 };
 

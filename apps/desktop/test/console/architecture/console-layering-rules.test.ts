@@ -263,14 +263,24 @@ describe("console layering rules", () => {
     async () => {
       // The rule every other one here is blind to: they are all `from`-scoped to
       // `console/`, so an importer beside the console matches none of them. The sibling
-      // that imports the DOOR is planted in the same tree and must not be reported.
+      // that imports the DOOR is planted in the same tree and must not be reported, and
+      // neither is a `.test-support` module writing the OFFENDING edge — the
+      // subtraction's own control, on the same shape as the deep-import rule's: the
+      // exact list below is what a widened pattern cannot produce, because exempting one
+      // more module empties it and exempting one fewer lengthens it.
+      //
+      // Proved fail-first by removing the `pathNot` from
+      // `renderer-reaches-console-through-doors`: the harness line joins the list and
+      // this case fails naming `session-bootstrap/seeded.test-support.ts`.
       const outside = join("src", "renderer", "src", "session-bootstrap", "SessionBootstrap.ts");
+      const harness = join("src", "renderer", "src", "session-bootstrap", "seeded.test-support.ts");
       const through = join("src", "renderer", "src", "session-members", "SessionMembers.ts");
       const violations = await cruiseCache.violationsFor(OUTSIDE_RENDERER_TREE);
 
       expect(violations).toEqual([
         `${OUTSIDE_DOOR_RULE}: ${outside} → ${join(CONSOLE_ROOT, "frame/session-lifecycle.ts")}`,
       ]);
+      expect(violations.filter((line) => line.includes(harness))).toEqual([]);
       expect(violations.filter((line) => line.includes(through))).toEqual([]);
     },
     ONE_TREE_MS,
