@@ -40,7 +40,7 @@
 
 import { ProviderAccountSubscribeRequestSchema } from "@ai-sidekicks/contracts";
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   RefreshScheduler,
@@ -51,7 +51,7 @@ import {
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   subscribeNodeDaemon,
 } from "../daemon/daemon-streams.js";
-import { streamRefusalFor, WireReadLifecycle, type WireReadState } from "../readings/index.js";
+import { WireReadLifecycle, type WireReadState } from "../readings/index.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
 import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
 import { ProviderQuotaDeliveries } from "./provider-quota-deliveries.js";
@@ -256,8 +256,11 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
       // scheduler re-opens instead of seeding a read behind a tail that is down.
       // Leaving the reading marked open let a later read serve and publish a
       // `read` phase over a stream nothing was listening on.
+      //
+      // NO FALLBACK PAIR, deliberately: the transport already states why it failed,
+      // and a house sentence about a live tail would displace the one someone acts on.
       this.#settleRefusedOpen(
-        streamRefusalFor(PROVIDER_QUOTA_REFUSAL_ORIGIN, streamRejection),
+        normalizeWireRejection(PROVIDER_QUOTA_REFUSAL_ORIGIN, streamRejection),
         "retryable",
       );
       return;

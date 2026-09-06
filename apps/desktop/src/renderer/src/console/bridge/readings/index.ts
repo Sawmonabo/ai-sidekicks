@@ -24,8 +24,6 @@
 
 export { WireReadLifecycle, type WireReadState } from "./reading-lifecycle.js";
 
-export { streamRefusalFor } from "./stream-refusal.js";
-
 export {
   UnreadableDeliveryLedger,
   type UnreadableDeliveryIssues,
