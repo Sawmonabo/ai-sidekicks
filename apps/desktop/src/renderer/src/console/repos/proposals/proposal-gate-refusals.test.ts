@@ -173,22 +173,24 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
       const reader = await pressAgainstRejectingWire(action);
       const refusal = reader.snapshot.actionRefusals.get(action);
 
-      // THE PORT'S OWN ORIGIN AND CODE, on both of the two paths one act can fail by.
-      // The gate used to read a rejection through the family's DAEMON-read normalizer,
-      // so a rejected `gitActionExecute` published `repos` / `call-rejected` while the
-      // same act's ANSWERED refusal published `growth-port` / `wire-unregistered` — two
-      // subsystem names for one operation, and a code outside the gate's own closed
-      // vocabulary. Both paths now come through `repos/growth-call.ts`.
+      // THE PORT'S OWN ORIGIN ON BOTH PATHS, AND THE CODE THAT SAYS WHICH ONE. The gate
+      // used to read a rejection through the family's DAEMON-read normalizer, so a
+      // rejected `gitActionExecute` published `repos` while the same act's ANSWERED
+      // refusal published `growth-port` — two subsystem names for one operation. Both
+      // paths now go to `bridge/growth-port/growth-port.ts`'s own builder, which stamps
+      // `call-rejected`: the act was SENT and the call threw, where the answered
+      // refusal's `wire-unregistered` says this build carries no such wire at all.
       expect(refusal?.origin).toBe(GROWTH_PORT_REFUSAL_ORIGIN);
-      expect(refusal?.code).toBe("wire-unregistered");
-      // The sentence names the wire that rejected, so a participant can say which
-      // call did not come back rather than only that something did not — and it is
-      // what still separates a rejection from the answered refusal.
-      expect(refusal?.detail).toContain(WIRE_FOR_ACTION[action]);
-      // And it does NOT quote the rejected value. A rejection off the wire can carry
-      // participant content as readily as a schema failure can, which is why the
-      // console's normalizer composes its own sentence from the leg alone.
-      expect(refusal?.detail).not.toContain(DISCONNECTED.message);
+      expect(refusal?.code).toBe("call-rejected");
+      // Which operation did not come back is a structured member rather than a
+      // substring of prose, so a participant's report names the act's own wire and a
+      // fourth act cannot quietly borrow another's.
+      expect(refusal).toMatchObject({ operationId: WIRE_FOR_ACTION[action] });
+      // And the rejection's own sentence travels. Composing a constant from the leg
+      // left a refused control with no reason beside it; `core/wire-rejection.ts` is
+      // what keeps this safe — it renders prose the producing side wrote and refuses
+      // to serialize the rejected value into a sentence.
+      expect(refusal?.detail).toContain(DISCONNECTED.message);
       // The register is given back, which is what re-enables the controls — and the
       // whole defect was that this happened while nothing was written beside them.
       expect(reader.snapshot.inFlightAction).toBeUndefined();

@@ -324,8 +324,10 @@ export class ProposalGateReader {
       this.#publish({ ...this.#reading, state: { kind: "preparing" }, refusal: undefined });
     }
 
-    const answer = await readGrowthAnswer(BRANCH_CONTEXT_READ_CALL, () =>
-      this.#bridge.growth.gitflowBranchContextRead(plan.request),
+    const answer = await readGrowthAnswer(
+      "gitflowBranchContextRead",
+      BRANCH_CONTEXT_READ_CALL,
+      () => this.#bridge.growth.gitflowBranchContextRead(plan.request),
     );
     if (this.#disposed) {
       return;

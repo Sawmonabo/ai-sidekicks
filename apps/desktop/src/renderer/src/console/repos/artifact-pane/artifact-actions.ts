@@ -177,7 +177,7 @@ export class ArtifactPaneActions {
     const readRound = this.#host.scheduledReadClaim();
     this.#holdManifestRead(artifactId);
     try {
-      const answer = await readGrowthAnswer("The manifest re-read", () =>
+      const answer = await readGrowthAnswer("artifactRead", "The manifest re-read", () =>
         this.#bridge.growth.artifactRead({ artifactId }),
       );
       // BOTH QUESTIONS, AND THEY ARE DIFFERENT ONES. This row's round answers "is this
@@ -252,7 +252,7 @@ export class ArtifactPaneActions {
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     const readRound = this.#host.scheduledReadClaim();
-    const answer = await readGrowthAnswer("The delete", () =>
+    const answer = await readGrowthAnswer("artifactDelete", "The delete", () =>
       this.#bridge.growth.artifactDelete({ artifactId }),
     );
     if (answer.status === "refused") {

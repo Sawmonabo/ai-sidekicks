@@ -1,13 +1,22 @@
-// One operation, two failure paths, one subsystem name.
+// One operation, two failure paths, one subsystem name — and deliberately two codes.
 //
 // THE CLAIM THIS SUITE OWNS is the pair, not either half: a growth call fails two
 // ways — the port ANSWERS `unavailable`, or the call THROWS across the process
-// boundary — and both are the same operation failing. Both call sites used to stamp
-// the second with the repos family's daemon-read origin and the daemon-reply code
-// `call-rejected`, so `artifactRead` and `gitActionExecute` alike reported
-// `growth-port` / `wire-unregistered` when the port answered and `repos` /
-// `call-rejected` when the wire dropped, and a person reading the second had no way to
-// know which subsystem had refused.
+// boundary — and both are the same operation failing, so both must name the same
+// subsystem. Both call sites used to stamp the second with the repos family's
+// daemon-read origin, so `artifactRead` and `gitActionExecute` alike reported
+// `growth-port` when the port answered and `repos` when the wire dropped, and a person
+// reading the second had no way to know which subsystem had refused.
+//
+// AND WHAT THEY MUST NOT SHARE IS THE CODE, which is the half the first fix got
+// backwards. This door replaced the family origin with the port's and then minted
+// `wire-unregistered` to go with it — the member that says NOBODY ASKED, stamped on
+// the one path reached only because somebody did.
+// `bridge/growth-port/growth-port.ts` declares `call-rejected` for exactly this case
+// and builds it, so the door hands the rejection to that builder instead of describing
+// it a second time: an unregistered wire and a wire that dropped mid-call are different
+// facts and different next moves, and the answer carries the port's own widening —
+// which operation, which slate row, who owes the wire — on both paths alike.
 //
 // DRIVEN AGAINST THE DOOR rather than through a reader, because the reader's suites
 // own scheduling, joins, and generation stamps and would pass or fail identically on
@@ -49,9 +58,15 @@ const ANSWERED_REFUSAL = growthUnavailable("artifactRead");
 const DISCONNECTED = new Error("the daemon channel closed");
 
 describe("the growth-call door — the two ways one operation fails", () => {
-  it("names the growth port on the answered path and the rejected path alike", async () => {
-    const answered = await readGrowthAnswer(OPERATION, async () => ANSWERED_REFUSAL);
-    const rejected = await readGrowthAnswer(OPERATION, () => Promise.reject(DISCONNECTED));
+  it("names the growth port on both paths and tells an outage from an unasked wire", async () => {
+    const answered = await readGrowthAnswer(
+      "artifactRead",
+      OPERATION,
+      async () => ANSWERED_REFUSAL,
+    );
+    const rejected = await readGrowthAnswer("artifactRead", OPERATION, () =>
+      Promise.reject(DISCONNECTED),
+    );
 
     expect(answered.status).toBe("refused");
     expect(rejected.status).toBe("refused");
@@ -63,52 +78,75 @@ describe("the growth-call door — the two ways one operation fails", () => {
     expect(rejectedRefusal?.origin).toBe(GROWTH_PORT_REFUSAL_ORIGIN);
     expect(rejectedRefusal?.origin).toBe(answeredRefusal?.origin);
 
-    // And one vocabulary. A namespace the live bridge fills in is gone exactly when a
-    // call through it throws, which is what this member of the port's closed set says.
+    // And two codes, both members of the port's own closed set. Sharing one was the
+    // defect: `wire-unregistered` says nobody asked, which is the ordinary V1 answer,
+    // and `call-rejected` says the call was made and threw, which is an outage. A
+    // person acts differently on each, so a door that reported one as the other buried
+    // the only thing that told them apart.
     const wireUnregistered: GrowthPortRefusalCode = "wire-unregistered";
-    expect(rejectedRefusal?.code).toBe(wireUnregistered);
-    expect(rejectedRefusal?.code).toBe(answeredRefusal?.code);
+    const callRejected: GrowthPortRefusalCode = "call-rejected";
+    expect(answeredRefusal?.code).toBe(wireUnregistered);
+    expect(rejectedRefusal?.code).toBe(callRejected);
+    expect(rejectedRefusal?.code).not.toBe(answeredRefusal?.code);
 
-    // What still separates them is the sentence, which is the honest difference: the
-    // answered path says nobody asked, and this one says the call was rejected.
-    expect(rejectedRefusal?.detail).toBe("The artifact read was rejected.");
+    // The port's own widening on the rejected path too, which a refusal this door
+    // minted did not carry: a rejected call says which operation it was, which slate
+    // row that operation serves, and who owes the wire — the members every growth
+    // surface narrows and renders on the answered path.
+    expect(rejectedRefusal).toMatchObject({
+      status: "unavailable",
+      operationId: "artifactRead",
+      slateRow: "artifact-ingest-and-crud",
+      owningDocument: "Plan-014",
+    });
+
+    // And the sentence carries what the rejection said. Suppressing it was this door's
+    // own rule and it left a participant with a refusal and no reason; the port's
+    // builder reads the rejection through `core/wire-rejection.ts`, which already
+    // refuses to serialize a structure into a sentence, so what survives is prose the
+    // producing side wrote rather than a rendering of the value.
+    expect(rejectedRefusal?.detail).toContain(DISCONNECTED.message);
     expect(rejectedRefusal?.detail).not.toBe(answeredRefusal?.detail);
-    // The leg is named and the rejected value is not quoted into it: a rejection off
-    // the wire can carry participant content as readily as a schema failure can.
-    expect(rejectedRefusal?.detail).not.toContain(DISCONNECTED.message);
   });
 
-  it("negative control: a coded rejection keeps the code and origin its sender chose", async () => {
-    // The over-reach a fallback invites. A door that stamped the port's vocabulary
-    // over every rejection would satisfy the case above and discard the two codes
-    // that actually diagnose something — so both typed arms are driven here, and each
-    // one's surviving code is a code the fallback could not have produced.
-    const daemonEnvelope = await readGrowthAnswer(OPERATION, () =>
+  it("negative control: a coded rejection folds to one code and keeps its own sentence", async () => {
+    // Both halves of the fold, because each could be got wrong on its own. A door that
+    // kept the sender's CODE would put `session.not_found` and `reply-abandoned` on a
+    // refusal stamped with the growth port's origin — codes from no vocabulary that
+    // port declares, which is the sprawl one origin per subsystem exists to end. A
+    // door that composed a CONSTANT would satisfy the case above and report two
+    // unrelated outages with one sentence, so the two rejections here are driven for
+    // their details as well as their code.
+    const callRejected: GrowthPortRefusalCode = "call-rejected";
+
+    const daemonEnvelope = await readGrowthAnswer("artifactRead", OPERATION, () =>
       Promise.reject({
         code: -32603,
         message: "the session is gone",
         data: { type: "session.not_found", fields: { retryAfter: 30 } },
       }),
     );
-    expect(daemonEnvelope.status === "refused" ? daemonEnvelope.refusal.code : undefined).toBe(
-      "session.not_found",
-    );
-    expect(
-      daemonEnvelope.status === "refused"
-        ? (daemonEnvelope.refusal as { retry?: { afterSeconds?: number } }).retry?.afterSeconds
-        : undefined,
-    ).toBe(30);
+    const envelopeRefusal =
+      daemonEnvelope.status === "refused" ? daemonEnvelope.refusal : undefined;
+    expect(envelopeRefusal?.code).toBe(callRejected);
+    expect(envelopeRefusal?.detail).toContain("the session is gone");
 
     const carried = refuse("scenario-engine", "reply-abandoned", "The parked reply was dropped.");
-    const thrownRefusal = await readGrowthAnswer(OPERATION, () =>
+    const thrown = await readGrowthAnswer("artifactRead", OPERATION, () =>
       Promise.reject(new ConsoleRefusalError(carried)),
     );
-    expect(thrownRefusal).toStrictEqual({ status: "refused", refusal: carried });
+    const thrownRefusal = thrown.status === "refused" ? thrown.refusal : undefined;
+    expect(thrownRefusal?.code).toBe(callRejected);
+    expect(thrownRefusal?.origin).toBe(GROWTH_PORT_REFUSAL_ORIGIN);
+    expect(thrownRefusal?.detail).toContain(carried.detail);
+    // Two rejections, two sentences: the builder reads each one rather than naming the
+    // leg and stopping, which is what the constant this replaces did.
+    expect(thrownRefusal?.detail).not.toBe(envelopeRefusal?.detail);
   });
 
   it("negative control: a served answer is still read rather than caught", async () => {
     // A `try` wide enough to swallow the success path would pass every case above.
-    const reading = await readGrowthAnswer(OPERATION, async () => ({
+    const reading = await readGrowthAnswer("artifactRead", OPERATION, async () => ({
       status: "served" as const,
       value: { bytes: 4 },
     }));

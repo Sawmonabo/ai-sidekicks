@@ -35,8 +35,8 @@ import {
 import { readGrowthAnswer } from "../growth-call.js";
 
 /** What each leg calls its read, in the sentence a refusal shows. */
-const ARTIFACT_LIST_OPERATION = "The artifact list";
-const ALLOWLIST_OPERATION = "The attachment allow-list read";
+const ARTIFACT_LIST_LEG = "The artifact list";
+const ALLOWLIST_LEG = "The attachment allow-list read";
 
 /**
  * The session's manifests, or the refusal that says why there are none to show.
@@ -56,7 +56,7 @@ export async function readArtifactList(
   bridge: ConsoleBridge,
   sessionId: string,
 ): Promise<ArtifactsPanelState> {
-  const answer = await readGrowthAnswer(ARTIFACT_LIST_OPERATION, () =>
+  const answer = await readGrowthAnswer("artifactList", ARTIFACT_LIST_LEG, () =>
     bridge.growth.artifactList({ sessionId }),
   );
   if (answer.status === "refused") {
@@ -65,7 +65,7 @@ export async function readArtifactList(
   if (!Array.isArray(answer.value)) {
     return {
       kind: "refused",
-      refusal: replyUnreadableRefusal(ARTIFACT_LIST_OPERATION, "something other than a list"),
+      refusal: replyUnreadableRefusal(ARTIFACT_LIST_LEG, "something other than a list"),
     };
   }
   return { kind: "listed", rows: answer.value.map(artifactManifestRowFromSummary) };
@@ -107,7 +107,7 @@ export async function readArtifactAllowlist(
   bridge: ConsoleBridge,
   sessionId: string,
 ): Promise<ArtifactAllowlistReading> {
-  const answer = await readGrowthAnswer(ALLOWLIST_OPERATION, () =>
+  const answer = await readGrowthAnswer("artifactAllowlistRead", ALLOWLIST_LEG, () =>
     bridge.growth.artifactAllowlistRead({ sessionId }),
   );
   if (answer.status === "refused") {
@@ -119,7 +119,7 @@ export async function readArtifactAllowlist(
     // lists they are looking at, and why.
     return {
       ...SHIPPED_DEFAULT_ALLOWLIST,
-      refusal: replyUnreadableRefusal(ALLOWLIST_OPERATION, "no bounds this console can read"),
+      refusal: replyUnreadableRefusal(ALLOWLIST_LEG, "no bounds this console can read"),
     };
   }
   return {

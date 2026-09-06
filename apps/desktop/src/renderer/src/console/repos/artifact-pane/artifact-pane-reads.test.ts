@@ -185,11 +185,16 @@ describe("artifact pane reads — one leg that did not come back", () => {
     // defaults, named as such, carrying why the deployment's own were not read.
     expect(allowlist.source).toBe("shipped-default");
     expect(allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
-    expect(allowlist.refusal?.code).toBe("wire-unregistered");
-    // The leg that did not come back is named; the rejected value is not quoted into
-    // the sentence, because a rejection off the wire can carry participant content.
-    expect(allowlist.refusal?.detail).toContain("The attachment allow-list read");
-    expect(allowlist.refusal?.detail).not.toContain(DISCONNECTED.message);
+    // `call-rejected` and not `wire-unregistered`: the bounds read was MADE and threw,
+    // where the wire this build does not carry is the answered refusal the case above
+    // this one drives. The two are the port's own members and different next moves.
+    expect(allowlist.refusal?.code).toBe("call-rejected");
+    // The leg that did not come back is named by the operation it was on, which is a
+    // structured member rather than a substring of prose, and the reason travels with
+    // it — read through `core/wire-rejection.ts`, so what lands is the sentence the
+    // producing side wrote rather than a rendering of the rejected value.
+    expect(allowlist.refusal).toMatchObject({ operationId: "artifactAllowlistRead" });
+    expect(allowlist.refusal?.detail).toContain(DISCONNECTED.message);
   });
 
   it("keeps the bounds a rejected list read has nothing to say about", async () => {
@@ -199,9 +204,7 @@ describe("artifact pane reads — one leg that did not come back", () => {
     });
 
     expect(artifacts.kind).toBe("refused");
-    expect(artifacts.kind === "refused" ? artifacts.refusal.code : undefined).toBe(
-      "wire-unregistered",
-    );
+    expect(artifacts.kind === "refused" ? artifacts.refusal.code : undefined).toBe("call-rejected");
     expect(allowlist.source).toBe("effective");
     expect(allowlist.mediaTypes).toStrictEqual(["image/svg+xml"]);
   });
@@ -215,10 +218,13 @@ describe("artifact pane reads — one leg that did not come back", () => {
       allowlistAnswer: DISCONNECTED,
     });
 
-    expect(artifacts.kind === "refused" ? artifacts.refusal.detail : "").toContain(
-      "The artifact list",
-    );
-    expect(allowlist.refusal?.detail).toContain("The attachment allow-list read");
+    // Each refusal names its OWN operation. A join caught in one place would carry one
+    // operation id onto both readings, and the two here are different — which is the
+    // claim the sentence used to carry and the structured member now makes exactly.
+    expect(artifacts.kind === "refused" ? artifacts.refusal : undefined).toMatchObject({
+      operationId: "artifactList",
+    });
+    expect(allowlist.refusal).toMatchObject({ operationId: "artifactAllowlistRead" });
   });
 
   it("negative control: two answered legs each carry their own answer, unrefused", async () => {

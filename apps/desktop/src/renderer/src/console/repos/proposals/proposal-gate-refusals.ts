@@ -124,7 +124,7 @@ export function clearActionRefusal(host: ProposalGateActionHost, action: Proposa
  *
  * NOT A REJECTED CALL, and that is the whole reason it is the gate's. The branch-context
  * read goes through `repos/growth-call.ts`, so a rejection is already an answer carrying
- * the growth port's origin and `wire-unregistered` before the scheduler sees anything.
+ * the growth port's origin and its own `call-rejected` before the scheduler sees it.
  * What reaches the scheduler's `onError` is this reader failing afterwards — mapping a
  * served reply, or a sink that threw — and the stamp that stood here named the family's
  * DAEMON reads, a subsystem this leg never asks.

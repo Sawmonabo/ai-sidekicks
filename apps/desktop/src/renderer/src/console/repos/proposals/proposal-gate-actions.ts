@@ -66,18 +66,21 @@
 // written beside the one that was pressed and the binding — which voids this promise —
 // left the rejection unhandled. Both wires reject the same way.
 //
-// SO BOTH GO THROUGH THE FAMILY'S GROWTH DOOR, AND THE STAMP IS THE PORT'S. `request`
-// used to wrap the dispatch and read the rejection through `repoCallRefusal` — the
-// family's DAEMON-read normalizer — so a rejected `gitActionExecute` was published as
-// `repos` / `call-rejected` while the same operation's ANSWERED refusal rendered
-// `growth-port` / `wire-unregistered`: one act, two failure paths, two subsystem names,
-// and a code outside this gate's own closed vocabulary. `readGrowthAnswer`
-// (`repos/growth-call.ts`) is the one reading of a growth answer in this family, and it
-// makes the unreadable reply an answer too. The `catch` below stays as the backstop for
-// everything else `request` awaits, and stamps through the same door so the two cannot
-// disagree. `request` settles and never rejects.
+// SO BOTH GO THROUGH THE PORT'S OWN REFUSAL BUILDER. `request` used to wrap the
+// dispatch and read the rejection through `repoCallRefusal` — the family's DAEMON-read
+// normalizer — so a rejected `gitActionExecute` was published under the `repos` origin
+// while the same operation's ANSWERED refusal rendered `growth-port`: one act, two
+// failure paths, two subsystem names, and a code from a vocabulary the growth port
+// never declared. `readGrowthAnswer` (`repos/growth-call.ts`) is the one reading of a
+// growth answer in this family and hands every rejected call to
+// `growthUnavailableFromRejection`, which stamps the port's origin and its own
+// `call-rejected` — the member that says a call was MADE and threw, where the answered
+// `wire-unregistered` says this build carries no such wire. The `catch` below stays as
+// the backstop for everything else `request` awaits and calls that same builder
+// directly, so the two paths cannot disagree about what a rejection is. `request`
+// settles and never rejects.
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { growthUnavailableFromRejection, type ConsoleBridge } from "../../bridge/index.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
@@ -86,7 +89,7 @@ import {
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { isProposalState, proposalContextKeysMatch } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
-import { growthCallRejectionRefusal, readGrowthAnswer } from "../growth-call.js";
+import { readGrowthAnswer } from "../growth-call.js";
 import {
   PROPOSAL_ACTION_HEAD_EFFECT,
   proposalActionWire,
@@ -198,7 +201,7 @@ export class ProposalGateActions {
         recordActionRefusal(
           this.#host,
           action,
-          growthCallRejectionRefusal(proposalActionWire(action), rejection),
+          growthUnavailableFromRejection(proposalActionWire(action), rejection),
         );
       }
     } finally {
@@ -249,7 +252,8 @@ export class ProposalGateActions {
     context: BranchContextReading,
     round: CurrentGenerationClaim,
   ): Promise<void> {
-    const answer = await readGrowthAnswer(proposalActionWire("prepare-proposal"), () =>
+    const preparationWire = proposalActionWire("prepare-proposal");
+    const answer = await readGrowthAnswer(preparationWire, preparationWire, () =>
       this.#bridge.growth.gitflowPrPrepare({
         branchContextId: context.branchContextId,
         // The context's own base branch, never a selection: there is no parameter on
@@ -322,7 +326,8 @@ export class ProposalGateActions {
       recordActionRefusal(this.#host, action, contextSupersededRefusal(action));
       return;
     }
-    const answer = await readGrowthAnswer(proposalActionWire(action), () =>
+    const gitActionWire = proposalActionWire(action);
+    const answer = await readGrowthAnswer(gitActionWire, gitActionWire, () =>
       this.#bridge.growth.gitActionExecute(
         gitActionExecuteRequest(action, context, {
           repoMountId: this.#repoMountId,

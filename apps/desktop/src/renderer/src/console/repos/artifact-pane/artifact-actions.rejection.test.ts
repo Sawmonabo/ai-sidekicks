@@ -74,19 +74,27 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
     const outcome = await reader.fetchPayload(SERVED_SUMMARY.artifactId);
 
     expect(outcome.status).toBe("refused");
-    expect(reader.snapshot.payload).toStrictEqual({
+    expect(reader.snapshot.payload).toMatchObject({
       status: "refused",
       artifactId: SERVED_SUMMARY.artifactId,
       refusal: {
-        // The port's own vocabulary on both of its failure paths: a namespace the
-        // live bridge fills in is gone exactly when a call through it throws.
-        code: "wire-unregistered",
-        // The leg, and NOT the rejected value: a rejection off the wire can carry
-        // participant content as readily as a schema failure can.
-        detail: "The payload fetch was rejected.",
+        // The port's own origin on both of its failure paths, and the member that says
+        // WHICH one this was: `call-rejected` is a call that was made and threw, where
+        // `wire-unregistered` is the wire this build does not carry and nobody asked.
+        code: "call-rejected",
         origin: "growth-port",
+        // And the port's widening, so a rejected fetch carries the operation it was on
+        // rather than arriving as a bare refusal the pane cannot attribute.
+        operationId: "artifactRead",
       },
     });
+    // The reason travels. The pane used to publish a constant naming the leg, which
+    // left a participant with a refusal and nothing to act on; the sentence now comes
+    // through `core/wire-rejection.ts`, which composes prose the producing side wrote
+    // and refuses to serialize the rejected value into it.
+    expect(
+      reader.snapshot.payload.status === "refused" ? reader.snapshot.payload.refusal.detail : "",
+    ).toContain("the daemon channel closed");
     // The control is held by the `fetching` arm alone, so leaving that arm IS the
     // control coming back — there is no second flag to assert against.
     expect(reader.snapshot.payload.status).not.toBe("fetching");
@@ -97,23 +105,39 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
     expect(artifactRead).toHaveBeenCalledTimes(2);
   });
 
-  it("carries a thrown refusal through with the origin and code it named", async () => {
-    // The normalizer's first arm, which is why this pane does not mint its own: the
-    // fixture bridge throws a `ConsoleRefusalError`, and re-labelling it
-    // `wire-unregistered` would bury the diagnosis the seam already composed.
+  it("keeps a thrown refusal's sentence and folds its code onto the port's", async () => {
+    // The normalizer's carried-refusal arm, read for the half that is this pane's to
+    // render: the fixture bridge throws a `ConsoleRefusalError`, and the diagnosis the
+    // seam composed reaches the pane rather than being replaced.
+    //
+    // ITS CODE AND ORIGIN DO NOT, AND THAT IS THE DELIBERATE HALF. Carried through,
+    // this refusal reached a growth surface stamped `fixture-bridge` /
+    // `reply-unscripted` — a subsystem name that is not the one the call was made to
+    // and a code from a set the growth port does not declare, which is exactly the
+    // sprawl one origin per subsystem exists to end and contradicts this door's own
+    // headline property. `bridge/growth-port/growth-port.ts` closes that: what
+    // happened here is that this port's call threw, which is one fact with one code
+    // however the rejection spelled itself.
     const clock = new ManualClock();
-    const carried = refuse("growth-port", "scripted-reply-missing", "No reply was parked.");
+    const carried = refuse(
+      "fixture-bridge",
+      "reply-unscripted",
+      "artifact.read — no scenario scripts this call",
+    );
     const { reader } = readerWithRejectingBridge(clock, new ConsoleRefusalError(carried));
     reader.start();
     await readThrough(clock);
 
     const outcome = await reader.fetchPayload(SERVED_SUMMARY.artifactId);
 
-    expect(outcome).toStrictEqual({ status: "refused", refusal: carried });
+    const refusal = outcome.status === "refused" ? outcome.refusal : undefined;
+    expect(refusal?.code).toBe("call-rejected");
+    expect(refusal?.origin).toBe("growth-port");
+    expect(refusal?.detail).toContain(carried.detail);
     expect(reader.snapshot.payload).toStrictEqual({
       status: "refused",
       artifactId: SERVED_SUMMARY.artifactId,
-      refusal: carried,
+      refusal,
     });
   });
 
@@ -129,7 +153,7 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
     const reRead = await reader.readManifest(SERVED_SUMMARY.artifactId);
     expect(reRead.status).toBe("refused");
     expect(reader.snapshot.refusalByArtifactId.get(SERVED_SUMMARY.artifactId)?.code).toBe(
-      "wire-unregistered",
+      "call-rejected",
     );
 
     const deletion = await reader.deleteArtifact(SERVED_SUMMARY.artifactId);

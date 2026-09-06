@@ -131,7 +131,7 @@ export class ArtifactPayloadFetches {
     artifactId: string,
     round: CurrentGenerationClaim,
   ): Promise<ArtifactPayloadOutcome> {
-    const answer = await readGrowthAnswer("The payload fetch", () =>
+    const answer = await readGrowthAnswer("artifactRead", "The payload fetch", () =>
       this.#bridge.growth.artifactRead({ artifactId, includePayload: true }),
     );
     if (!round.isCurrent) {

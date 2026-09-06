@@ -22,18 +22,24 @@ import { GATE_SETTLEMENT_COPY, type ProposalGateReading } from "./proposal-gate-
 /**
  * What a refused read says, on the arm its refusal class earns.
  *
- * THE PORT'S TWO REFUSAL CLASSES ARE TWO DIFFERENT FACTS AND GET TWO DIFFERENT ARMS.
- * `wire-unregistered` means the question could not be put at all, which is
- * `not-checked` — and that arm carries no message, so the refusal travels beside it.
- * A scripted reply that never arrived means the question WAS put and the answer did
- * not come, which is a failure the `refused` arm states in the daemon's own words.
+ * THE PORT'S REFUSAL CLASSES ARE TWO DIFFERENT FACTS AND GET TWO DIFFERENT ARMS, and
+ * the split is on whether the question was PUT. `wire-unregistered` says it could not
+ * be — this build carries no such wire — which is `not-checked`, and that arm carries
+ * no message, so the refusal travels beside it. Every other member says the question
+ * was put and no usable answer came: a scripted reply the frozen clock never released,
+ * and a `call-rejected` whose call was made and threw. Those are failures, and the
+ * `refused` arm states each in the words its own producer wrote.
  *
- * TAKES THE CONSOLE'S ONE REFUSAL SHAPE RATHER THAN THE PORT'S WIDENING, because the
- * read now reaches it through `repos/growth-call.ts`: a REJECTED call becomes a refusal
- * carrying the port's origin and `wire-unregistered` without ever having been a
- * `GrowthUnavailable`, and it is the same fact — the namespace the call goes through is
- * gone, so the question could not be put. Narrowed to the widening, that answer could
- * not be handed here at all.
+ * SO THE PREDICATE NAMES THE ONE MEMBER RATHER THAN LISTING THE REST, which is what
+ * keeps a fifth code on the right arm the day the port declares one: an unregistered
+ * wire is the only refusal that is not a failure, and everything else defaults to the
+ * arm that says something went wrong.
+ *
+ * TAKES THE CONSOLE'S ONE REFUSAL SHAPE RATHER THAN THE PORT'S WIDENING, because this
+ * gate renders a `ConsoleRefusal` and reads only `code` and `detail`. Both of the arms
+ * above are reached with a `GrowthUnavailable` today — `repos/growth-call.ts` hands
+ * every rejected call to the port's own builder — and narrowing the parameter to that
+ * widening would buy nothing here and refuse a bare refusal a caller may still hold.
  */
 export function gateReadingForRefusal(
   previous: ProposalGateReading,

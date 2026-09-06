@@ -16,41 +16,48 @@
 // two copies would be two chances to relabel a code the console is not allowed to
 // paraphrase — which is exactly what the second copy did.
 //
-// THROUGH THE CONSOLE'S NORMALIZER RATHER THAN A SECOND ONE. `core/wire-rejection.ts`
-// owns turning a rejection into this console's one refusal shape, and its arm ordering
-// is what matters: a value that already IS a `ConsoleRefusal` — which the fixture
-// bridge throws — passes through with the origin it named, and a JSON-RPC envelope's
-// dotted project code and a flat envelope's code and message are kept verbatim. Only
-// the remainder reaches the fallback below.
+// AND READING A REJECTION IS TOTAL, WHICH IS WHY THE `catch` CAN COMPOSE AT ALL.
+// `core/wire-rejection.ts` answers a refusal for every input and throws for none —
+// a `ConsoleRefusalError` the fixture bridge threw, a wire envelope that crossed the
+// preload boundary as a plain object, a thrown primitive, a revoked Proxy. Without
+// that guarantee the one function a surface calls to say something failed would be
+// the second place it failed.
 //
-// AND THE FALLBACK IS THE PORT'S OWN VOCABULARY, WHICH IT WAS NOT. Both call sites used
-// to reach for `repoCallRefusal`, so a rejected `artifactRead` or `gitActionExecute`
-// rendered `origin: "repos"` with `code: "call-rejected"` — the repos family's
-// daemon-read origin and the DAEMON REPLY vocabulary — while the same operation's
-// ANSWERED refusal rendered `origin: "growth-port"` with `code: "wire-unregistered"`.
-// One operation, two failure paths, two subsystem names, and neither the origin nor
-// the code on the second was a member of the set the growth port declares. Both paths
-// now stamp `GROWTH_PORT_REFUSAL_ORIGIN`, and the code is the port's own
-// `wire-unregistered`: a growth call reaches the port through a namespace the live
-// bridge fills in, so the throw this catches is that namespace being gone, which is
-// what that member means. The DETAIL is what separates the two — an answered refusal
-// says nobody asked, and this one says the call was rejected.
+// AND THE REJECTED PATH IS THE PORT'S OWN BUILDER, NOT A STAMP OF THIS DOOR'S. Both
+// call sites used to reach for `repoCallRefusal`, so a rejected `artifactRead` or
+// `gitActionExecute` rendered `origin: "repos"` with the family's DAEMON-reply
+// vocabulary while the same operation's ANSWERED refusal rendered
+// `origin: "growth-port"` — one operation, two failure paths, two subsystem names. This
+// door then answered that by minting a growth-port refusal of its own, which is the
+// same defect one layer in: `bridge/growth-port/growth-port.ts` publishes
+// `growthUnavailableFromRejection` for exactly this case and its own header says it
+// exists so that a caller does not mint one. The rejection goes to that builder.
+//
+// WHICH SETTLES THREE THINGS THIS DOOR USED TO DECIDE FOR ITSELF, each of them wrongly.
+// The CODE is `call-rejected`, the member of `GROWTH_PORT_REFUSAL_CODES` that says a
+// call was MADE and threw, where the `wire-unregistered` this door stamped says nobody
+// asked at all — one is an outage and the other is the ordinary V1 answer, and they are
+// different next moves. The SHAPE is a `GrowthUnavailable`, so a rejected call carries
+// the operation, its slate row and who owes the wire, exactly as an answered refusal
+// does rather than arriving as a bare refusal a growth surface cannot narrow. And the
+// rejection's own SENTENCE travels, because that builder keeps
+// `normalizeWireRejection`'s `detail`: the normalizer already refuses to serialize a
+// structure into a sentence (`core/wire-rejection.ts` states the rule), so what reaches
+// a person is prose the producing side wrote — and this door's constant suppressed the
+// only reason there was. What the builder discards is the rejection's CODE, and keeping
+// that is what this family had wrong in the other direction: a thrown `ConsoleRefusal`
+// arrived under the port's origin carrying a code from no vocabulary that port declares.
 //
 // THE THUNK RATHER THAN A PROMISE: a bridge whose namespace is gone can throw
 // synchronously, and a promise parameter would have to be built outside the `try` to
 // be passed in — which is exactly the call this exists to catch.
 
 import {
-  GROWTH_PORT_REFUSAL_ORIGIN,
-  type GrowthPortRefusalCode,
+  growthUnavailableFromRejection,
+  type GrowthOperationId,
   type GrowthUnavailable,
 } from "../bridge/index.js";
-import {
-  isConsoleRefusal,
-  normalizeWireRejection,
-  refuse,
-  type ConsoleRefusal,
-} from "../core/index.js";
+import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
 
 /**
  * Which subsystem refused, when the refusal is this door's own and not the port's.
@@ -87,30 +94,15 @@ export type GrowthCallRefusalCode = (typeof GROWTH_CALL_REFUSAL_CODES)[number];
  * on the code should not have to know which of the two saw it first.
  *
  * THE REPLY IS NOT QUOTED INTO THE SENTENCE: what arrived can carry participant
- * content, so the sentence names the operation and what was expected of it and stops
+ * content, so the sentence names the leg and what was expected of it and stops
  * there. `Spec-023 §Console Design (Meridian)` rule 9 is the rule.
  */
-export function replyUnreadableRefusal(operation: string, expected: string): ConsoleRefusal {
+export function replyUnreadableRefusal(legName: string, expected: string): ConsoleRefusal {
   return refuse(
     GROWTH_CALL_REFUSAL_ORIGIN,
     "reply-unreadable" satisfies GrowthCallRefusalCode,
-    `${operation} answered with ${expected}, so nothing was read.`,
+    `${legName} answered with ${expected}, so nothing was read.`,
   );
-}
-
-/**
- * The refusal a growth call that REJECTED becomes.
- *
- * Exported beside the door that uses it because an act can hold a growth call inside a
- * wider `try` — the proposal gate's dispatch also awaits an identity read and builds a
- * request — and a second stamp written at that backstop would be the copy this module
- * exists to have removed.
- */
-export function growthCallRejectionRefusal(operation: string, rejection: unknown): ConsoleRefusal {
-  return normalizeWireRejection(GROWTH_PORT_REFUSAL_ORIGIN, rejection, {
-    code: "wire-unregistered" satisfies GrowthPortRefusalCode,
-    detail: `${operation} was rejected.`,
-  });
 }
 
 /**
@@ -160,10 +152,10 @@ export type GrowthAnswerReading<TValue> =
  *
  * TOTAL, because a reply that is neither is a fact rather than a crash. Rule 8 admits
  * no silent no-op, so the third arm is a refusal a person can read and paste, naming
- * the operation and never the reply — which may be participant content.
+ * the leg and never the reply — which may be participant content.
  */
 export function growthAnswerReading<TValue>(
-  operation: string,
+  legName: string,
   answer: GrowthAnswer<TValue>,
 ): GrowthAnswerReading<TValue> {
   if (isConsoleRefusal(answer)) {
@@ -173,7 +165,7 @@ export function growthAnswerReading<TValue>(
     return {
       status: "refused",
       refusal: replyUnreadableRefusal(
-        operation,
+        legName,
         "a shape that is neither a served value nor a refusal",
       ),
     };
@@ -193,14 +185,28 @@ function carriesServedValue(answer: unknown): answer is { readonly value: unknow
   return typeof answer === "object" && answer !== null && "value" in answer;
 }
 
-/** Put one call to the port and read what came back — including a rejection. */
+/**
+ * Put one call to the port and read what came back — including a rejection.
+ *
+ * TWO NAMES FOR ONE CALL, ANSWERING TO DIFFERENT AUTHORITIES. `operationId` is the
+ * PORT's key: it is what `growthUnavailableFromRejection` looks the slate row up by, so
+ * the wire a rejected call names is derived from the operation the call was actually
+ * made on rather than from a string a caller wrote beside it. `legName` is this
+ * console's own name for the read, and it reaches only the sentence this door mints for
+ * a reply it could not use — where the port has no opinion, because nothing about that
+ * reply is the port's. Neither is derivable from the other: `artifactRead` serves two
+ * legs in this family, the payload fetch and the per-row manifest re-read. The types
+ * keep the pair the right way round, a `GrowthOperationId` being a closed union where a
+ * leg name is any string.
+ */
 export async function readGrowthAnswer<TValue>(
-  operation: string,
+  operationId: GrowthOperationId,
+  legName: string,
   call: () => Promise<GrowthAnswer<TValue>>,
 ): Promise<GrowthAnswerReading<TValue>> {
   try {
-    return growthAnswerReading(operation, await call());
+    return growthAnswerReading(legName, await call());
   } catch (rejection) {
-    return { status: "refused", refusal: growthCallRejectionRefusal(operation, rejection) };
+    return { status: "refused", refusal: growthUnavailableFromRejection(operationId, rejection) };
   }
 }

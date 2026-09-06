@@ -28,6 +28,7 @@
 //     scrapes it. What a REFUSED act says for itself is the reply's `error`, rendered
 //     verbatim beside the control that was pressed.
 
+import type { GrowthOperationId } from "../../bridge/index.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 
 /**
@@ -270,7 +271,15 @@ export const PROPOSAL_NOT_SENDABLE_COPY =
  * second routing could disagree with the first for a fourth act, and the sentence a
  * participant reads would then name a call the console never made. Beside that
  * predicate rather than beside the dispatch, so the two cannot be separated.
+ *
+ * TYPED AS THE PORT'S OWN KEY AND NOT AS A STRING, which is what makes that one
+ * decision checkable rather than spelled. `growthUnavailableFromRejection` and
+ * `readGrowthAnswer` both take a `GrowthOperationId`, so an act routed to an operation
+ * this port does not carry fails to compile here instead of composing a refusal that
+ * names a call nothing can make. It is also the leg NAME this gate's calls read under —
+ * these acts have no product sentence of their own, so the reply-unreadable refusal
+ * names the same operation the port looks its slate row up by, and the two cannot drift.
  */
-export function proposalActionWire(action: ProposalAction): string {
+export function proposalActionWire(action: ProposalAction): GrowthOperationId {
   return reachesGitAction(action) ? "gitActionExecute" : "gitflowPrPrepare";
 }
