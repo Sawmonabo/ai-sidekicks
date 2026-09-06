@@ -65,8 +65,8 @@ export function boundStore(
 /**
  * Fire the reader's trailing debounce on the fixture's frozen clock, then settle.
  *
- * The settling is the bridge family's own `drainMicrotasks` and never a counted
- * number of passes. What stood here ran four `await Promise.resolve()` rounds, which
+ * The settling is the console's one `drainMicrotasks`, in `core/`, and never a
+ * counted number of passes. What stood here ran four `await Promise.resolve()` rounds, which
  * is a number tuned against the chain it happened to be written over: a reply that
  * grew one link deeper would stop being waited for, and the case would report the
  * absence of an answer that was merely still in flight.

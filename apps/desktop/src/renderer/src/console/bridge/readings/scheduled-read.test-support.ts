@@ -8,11 +8,10 @@
 // fires rather than only the debounce, and letting the call's own promise chain
 // settle inside `act` so React has committed what the answer changed.
 //
-// Written once because every suite that mounts a scheduled reading needs it — each of
-// the feeds, the panes that read them, and the composer's own chips. Each hand-rolled
-// copy had its own idea of how far to advance and how many microtasks to drain, which
-// is how one of them came to advance by the debounce and pass only because its case
-// asked exactly once.
+// Written once because every suite that mounts a scheduled reading needs it. Each
+// hand-rolled copy had its own idea of how far to advance and how many microtasks to
+// drain, which is how one of them came to advance by the debounce and pass only
+// because its case asked exactly once.
 //
 // IN `readings/` RATHER THAN AT `bridge/` TOP, where it was first written. The top of
 // this family is the bridge ITSELF — the contract, the shape claim, the live

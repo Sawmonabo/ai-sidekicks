@@ -181,13 +181,13 @@ export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 // would be a surface that could parse a second time, differently.
 export {
   callDaemon,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
+  // Consumed by T-023p-1C-2
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon/daemon-reply.js";
 export type {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
+  // Consumed by T-023p-1C-2
   DaemonReply,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
+  // Consumed by T-023p-1C-2
   DaemonReplyRefusalCode,
 } from "./daemon/daemon-reply.js";
 export type {
