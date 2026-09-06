@@ -1,0 +1,58 @@
+# Changelog
+
+## 1.0.0 (2026-09-06)
+
+
+### Features
+
+* **client-sdk:** add Plan-002 Phase 5 membership client surface ([dff6523](https://github.com/Sawmonabo/ai-sidekicks/commit/dff65231237744179d9339f9291b659455d0f592))
+* **client-sdk:** DriverClient SDK, subscribe module, contract tests (Plan-005 T4.3 T4.4 T4.6 T4.7) ([#396](https://github.com/Sawmonabo/ai-sidekicks/issues/396)) ([0c7bfa2](https://github.com/Sawmonabo/ai-sidekicks/commit/0c7bfa229d18bda835b2fe2f5ddfbb43ce57c551))
+* **contracts:** add PtyHost interface (Plan-024 T-024-2-1) ([#45](https://github.com/Sawmonabo/ai-sidekicks/issues/45)) ([ed71ee1](https://github.com/Sawmonabo/ai-sidekicks/commit/ed71ee16bbe4923b3c30936d7507b77a585c0bb1))
+* **contracts:** add session, event, and error payload schemas ([#8](https://github.com/Sawmonabo/ai-sidekicks/issues/8)) ([6166fa9](https://github.com/Sawmonabo/ai-sidekicks/commit/6166fa9b60ad41764adee819cfb8bd2f769485d8))
+* **contracts:** capability-flag currency + R8 parity operations (Plan-005 T1.7/T1.8) ([ae194e2](https://github.com/Sawmonabo/ai-sidekicks/commit/ae194e2ef1a5b01a777bd6ffad9b1af424b4f4c7))
+* **contracts:** event taxonomy + envelope registry (Plan-006 Phase 1) ([f7d49f3](https://github.com/Sawmonabo/ai-sidekicks/commit/f7d49f34d8fd29514a988b1161657849668cdd63))
+* **contracts:** payload-variant registration (Plan-006 T1.11-T1.12) ([380ac23](https://github.com/Sawmonabo/ai-sidekicks/commit/380ac23db07c329af5234ba6cb5affbf2f7c8608))
+* **contracts:** Plan-002 P1 invite/membership/presence/channel contracts ([#102](https://github.com/Sawmonabo/ai-sidekicks/issues/102)) ([347d62b](https://github.com/Sawmonabo/ai-sidekicks/commit/347d62b1635ed97805294e4ed91d8ea679a36af0))
+* **contracts:** provider-account plane (Plan-029 Phase 1) ([#403](https://github.com/Sawmonabo/ai-sidekicks/issues/403)) ([2a57ab2](https://github.com/Sawmonabo/ai-sidekicks/commit/2a57ab28df2938920a16b4b4949cc188415e9d82))
+* **contracts:** provider-driver contract + capability schema ([#157](https://github.com/Sawmonabo/ai-sidekicks/issues/157)) ([a81821e](https://github.com/Sawmonabo/ai-sidekicks/commit/a81821ea746d3b2fe59a06e801f008245f714cb8))
+* **contracts:** run-control + queue tables (Plan-004 Phase 1) ([#402](https://github.com/Sawmonabo/ai-sidekicks/issues/402)) ([5cbe161](https://github.com/Sawmonabo/ai-sidekicks/commit/5cbe1614769ae75b7f417d1e468dee6baa3c9552))
+* **contracts:** runtime-node schemas, daemon migration + anchor guard ([a08db3c](https://github.com/Sawmonabo/ai-sidekicks/commit/a08db3c7149cb096a1410b281ee516a96c7eb4fb))
+* **contracts:** single-source recovery vocabularies (Plan-005 T4.8) ([#407](https://github.com/Sawmonabo/ai-sidekicks/issues/407)) ([0dfd38f](https://github.com/Sawmonabo/ai-sidekicks/commit/0dfd38f13305f4ca5571957aa0183356c81d5e88))
+* **contracts:** timeline contracts (Plan-013 Phase 1) ([e6c082d](https://github.com/Sawmonabo/ai-sidekicks/commit/e6c082d94a9596dc1d56186843e5f523712c886b))
+* **contracts:** typed usage-limit signal + provider-account identity (Plan-005 T3.16 T3.17) ([#397](https://github.com/Sawmonabo/ai-sidekicks/issues/397)) ([fb4f0be](https://github.com/Sawmonabo/ai-sidekicks/commit/fb4f0beb08d3f1b1e0a519015666dc0edd07caed))
+* **control-plane:** add HTTP/SSE substrate (Plan-008 Phase 1) ([#21](https://github.com/Sawmonabo/ai-sidekicks/issues/21)) ([a362809](https://github.com/Sawmonabo/ai-sidekicks/commit/a36280908bc56e7bca542910ab49b36ee62e3213))
+* **control-plane:** add session directory service (create/read/join) ([#10](https://github.com/Sawmonabo/ai-sidekicks/issues/10)) ([c723b18](https://github.com/Sawmonabo/ai-sidekicks/commit/c723b18b9a6bc7a1dd8d0bbafebce3dc19d2405f))
+* **control-plane:** close Plan-001 P5 residuals + promote to completed ([#87](https://github.com/Sawmonabo/ai-sidekicks/issues/87)) ([bc33f30](https://github.com/Sawmonabo/ai-sidekicks/commit/bc33f30c1f624822156fffafd4283b031f192a59))
+* **control-plane:** Plan-002 P3 presence + ChannelList projection ([#108](https://github.com/Sawmonabo/ai-sidekicks/issues/108)) ([1b8e865](https://github.com/Sawmonabo/ai-sidekicks/commit/1b8e8656241fb0b554531cba1447c6745681d822))
+* **control-plane:** runtime-node attach + heartbeat + version-floor ([#145](https://github.com/Sawmonabo/ai-sidekicks/issues/145)) ([aee347e](https://github.com/Sawmonabo/ai-sidekicks/commit/aee347e8d0c12ede963790397d38c833619bcbcd))
+* **daemon:** add JSON-RPC wire substrate (Plan-007 Phase 2) ([#17](https://github.com/Sawmonabo/ai-sidekicks/issues/17)) ([3d8ef0e](https://github.com/Sawmonabo/ai-sidekicks/commit/3d8ef0e4d12226a86f382c691ad46e1a6f41fef9))
+* **daemon:** add session.* handlers + SDK transport (Plan-007 Phase 3) ([#19](https://github.com/Sawmonabo/ai-sidekicks/issues/19)) ([0e5599d](https://github.com/Sawmonabo/ai-sidekicks/commit/0e5599dc2047ec9ba6a008cd6554b4f73f4f7ea9))
+* **daemon:** canonical transcript contracts + text neutrality (Plan-005 T3.18 T3.19 T3.21) ([#379](https://github.com/Sawmonabo/ai-sidekicks/issues/379)) ([92f6850](https://github.com/Sawmonabo/ai-sidekicks/commit/92f6850cf91fba08f5993093353b5c0a1f3d1751))
+* **daemon:** capability probes + spawn-env suppression (Plan-005 T3.24 T3.25) ([#385](https://github.com/Sawmonabo/ai-sidekicks/issues/385)) ([dc6fc0a](https://github.com/Sawmonabo/ai-sidekicks/commit/dc6fc0a7b3aca6e4fd82f7eee7dc90f3102b4ed5))
+* **daemon:** console-parity driver verbs (Plan-005 T4.8 T4.9) ([#401](https://github.com/Sawmonabo/ai-sidekicks/issues/401)) ([cbe4279](https://github.com/Sawmonabo/ai-sidekicks/commit/cbe42791f52b216f1cc8281bc720cf285c67eb4a))
+* **daemon:** console-parity ops + capability flags (Plan-005 T3.26) ([#388](https://github.com/Sawmonabo/ai-sidekicks/issues/388)) ([38b59f2](https://github.com/Sawmonabo/ai-sidekicks/commit/38b59f22b15a6fe691c3cb7c53147a430f0e34c9))
+* **daemon:** content-payload encrypted home (Plan-006 Phase 3B) ([#386](https://github.com/Sawmonabo/ai-sidekicks/issues/386)) ([787d75f](https://github.com/Sawmonabo/ai-sidekicks/commit/787d75f388627a475a8aa0ea51918d13a010f6de))
+* **daemon:** driver IPC handlers, SDK schemas, capability cache (Plan-005 T4.1 T4.2 T4.5) ([#395](https://github.com/Sawmonabo/ai-sidekicks/issues/395)) ([dcb3494](https://github.com/Sawmonabo/ai-sidekicks/commit/dcb34944b52e28efb91fb91757a7ad57d276bc87))
+* **daemon:** event crypto protocol core (Plan-006 Phase 2) ([faff8cc](https://github.com/Sawmonabo/ai-sidekicks/commit/faff8cc323dc85381ead5870928c5a9cdc3b52a0))
+* **daemon:** event persistence + maintenance (Plan-006 Phase 3) ([1ed7e1b](https://github.com/Sawmonabo/ai-sidekicks/commit/1ed7e1b2f40e8916f13ed788573a69b807858152))
+* **daemon:** model catalog + callback binding (Plan-005 T3.12 T3.15) ([#387](https://github.com/Sawmonabo/ai-sidekicks/issues/387)) ([5c16205](https://github.com/Sawmonabo/ai-sidekicks/commit/5c162055cc3275cf6e7273d08ad7e67599ec03b9))
+* **daemon:** provider registry + runtime-binding store + SQLite ([#159](https://github.com/Sawmonabo/ai-sidekicks/issues/159)) ([9b93b55](https://github.com/Sawmonabo/ai-sidekicks/commit/9b93b55a40be1321e1ed350cad4f03860fffd78b))
+* **daemon:** repo contracts + root resolution (Plan-009 Phase 1) ([0ed3c7f](https://github.com/Sawmonabo/ai-sidekicks/commit/0ed3c7f91a702a70b2f90341b1fb25b265e23596))
+* **daemon:** runtime-node registry, capability service + contracts ([da95c62](https://github.com/Sawmonabo/ai-sidekicks/commit/da95c62cc2df69bf8cd6448bab0ad4593c1a82fd))
+* **daemon:** RustSidecarPtyHost + AIS_PTY_BACKEND opt-in (Plan-024 P3) ([#56](https://github.com/Sawmonabo/ai-sidekicks/issues/56)) ([be58baa](https://github.com/Sawmonabo/ai-sidekicks/commit/be58baaf4086771a6bbfc24eebecdc77fd9846fc))
+* **daemon:** worktree contracts + migration (Plan-010 Phase 1) ([f3c9947](https://github.com/Sawmonabo/ai-sidekicks/commit/f3c9947520f321edb9c87f732845982333dd54da))
+* **daemon:** worktree lifecycle services (plan-010 phase 2) ([3e98412](https://github.com/Sawmonabo/ai-sidekicks/commit/3e984120e68ecf73a098816828089d910ff4bb49))
+* **desktop:** renderer load substrate (Plan-023 Phase 1B) ([0ae9166](https://github.com/Sawmonabo/ai-sidekicks/commit/0ae91660dffeb1d94bf38a9a455a06ada2665278))
+* **desktop:** runtime-node roster read + attach renderer views ([#150](https://github.com/Sawmonabo/ai-sidekicks/issues/150)) ([8eb2a74](https://github.com/Sawmonabo/ai-sidekicks/commit/8eb2a7475dfeb9108b52512ffb1ccedeb9fff2ac))
+* **desktop:** scaffold Plan-023 Phase 1 workspace substrate ([#70](https://github.com/Sawmonabo/ai-sidekicks/issues/70)) ([dcb9644](https://github.com/Sawmonabo/ai-sidekicks/commit/dcb9644246760443f671befb1a229babb6a644c1))
+* **repo:** close BL-102/103/105 (protocolVersion + errors + events) ([b7041e3](https://github.com/Sawmonabo/ai-sidekicks/commit/b7041e3f20cbdb0ab1e27d1335caea11eb5651c1))
+* **repo:** durable citations — deny raw line-pins into volatile code ([#188](https://github.com/Sawmonabo/ai-sidekicks/issues/188)) ([f26c9ef](https://github.com/Sawmonabo/ai-sidekicks/commit/f26c9ef31b81e55537d11f90aad414ae0caf90f5))
+* **repo:** scaffold V1 monorepo + engineering CI surface ([#6](https://github.com/Sawmonabo/ai-sidekicks/issues/6)) ([ca22530](https://github.com/Sawmonabo/ai-sidekicks/commit/ca2253032366e4500b72f10750b5dc9142bf7182))
+* **sidecar-rust-pty:** bootstrap crate + protocol + framing (Plan-024 P1) ([#42](https://github.com/Sawmonabo/ai-sidekicks/issues/42)) ([4b0a37e](https://github.com/Sawmonabo/ai-sidekicks/commit/4b0a37ed19b36d1ea037d2d95aab72601600c563))
+
+
+### Bug Fixes
+
+* **contracts:** admit a camelCase namespace root in METHOD_NAME_FORMAT ([#436](https://github.com/Sawmonabo/ai-sidekicks/issues/436)) ([24cbb77](https://github.com/Sawmonabo/ai-sidekicks/commit/24cbb77df932a7a587ec50fbdfe4bed3d5c9a252))
+* **daemon:** anchor-claim preimage + canonical ceilings (Plan-006) ([29addfc](https://github.com/Sawmonabo/ai-sidekicks/commit/29addfc370ca642feecc0dc27cc81296cebb0baf))
+* **daemon:** conform method-name regex + add domain-error seam ([#166](https://github.com/Sawmonabo/ai-sidekicks/issues/166)) ([57260d4](https://github.com/Sawmonabo/ai-sidekicks/commit/57260d4dbad1a75f9161b3aeb6c1a7cab225af1f))
