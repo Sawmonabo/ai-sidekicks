@@ -5,7 +5,7 @@
 // one remove: the kind this pane opens is read twice — once by the guard that admits
 // an address and once by the sentence that refuses one — and a component spelling it
 // at both sites is a component whose guard and whose message can come apart. The
-// refusal itself is composed by `workflows/pane-addressing.ts`, which the builder
+// refusal itself is composed by `workflows/pane/pane-addressing.ts`, which the builder
 // pane raises the same way about the kind IT opens.
 //
 // A SEPARATE ORIGIN FROM THE RUN CONTROLS, DELIBERATELY. `run-controls.ts` refuses

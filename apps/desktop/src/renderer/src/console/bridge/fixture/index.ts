@@ -19,6 +19,14 @@
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
 // rule. `bridge/index.ts` publishes `createFixtureBridge` from the module that
 // DECLARES it, because `console-no-barrel-chain` fails a forward through here.
+//
+// AND ONE NAME IS HELD OFF THIS DOOR ON PURPOSE. `scenarios/workflow-fixture-replies.ts`
+// takes `workflowSubjectNotFound` by its own specifier, `../fixture/fixture-workflow-scope.js`,
+// because reading it through here would close a real cycle: this door reaches
+// `fixture-growth-port.ts`, which reads `fixture-workflow-reads.ts`, which reads
+// `scenarios/workflows.ts`, which is composed from that very module. The deep edge is
+// the remedy, exactly as `scenario-runtime/index.ts` records for its own; a wider door
+// would turn `no-circular` red rather than tidy anything.
 
 export { createFixtureBridge } from "./fixture-bridge.js";
 

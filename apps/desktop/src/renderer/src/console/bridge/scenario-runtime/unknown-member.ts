@@ -4,8 +4,8 @@
 // deliberately `unknown` so a scenario can carry any registered reply, and the REQUEST
 // a computed reply is handed, which is `unknown` for the same reason at the other end
 // of the seam. Both are read the same way — narrow the container, then narrow the
-// member — and both were being read by a private copy of that narrowing: one in
-// `fixture/fixture-workflow-scope.ts` and one in `fixture/fixture-session-directory.ts`, differing only
+// member — and both were being read by a private copy of that narrowing, one in each
+// of the two `fixture/` modules that derive from a scenario's `result`, differing only
 // in whether the string check was fused into the member read.
 //
 // A CAST WOULD BE THE ALTERNATIVE AND IS NOT ONE. Asserting the shape of a scenario's
@@ -15,16 +15,21 @@
 // every value that is not what was asked for, which is what every reader here already
 // has an arm for.
 //
-// It lives beside the scripted-reply seam rather than inside either reader because its
-// two callers sit on opposite sides of that seam — one derives what a scenario
-// declares, the other answers a request — and a helper owned by one of them would be
-// reached by the other across a boundary that is not there. The seam is this
-// directory's, so the pair leaves through this directory's door.
+// It lives beside the scripted-reply seam rather than inside any one reader because its
+// three importers straddle that seam. `fixture/fixture-workflow-scope.ts` and
+// `fixture/fixture-session-directory.ts` derive what a scenario DECLARES;
+// `scenarios/workflow-fixture-replies.ts` reads the REQUEST a computed reply is handed.
+// A helper owned by either side would be reached from the other across a boundary that
+// is not there. The seam is this directory's, so the pair leaves through its door.
 //
-// THE CONTAINER CHECK IS `core`'s. `isWireRecord` is the console's one reading of
-// "this untyped value is a record", array clause included, and restating it here
-// would be a second copy of a predicate whose whole point is that everyone reads it
-// the same way.
+// THE CONTAINER CHECK IS `core`'s, AND IT NARROWS. `isWireRecord` is the console's one
+// reading of "this untyped value is a record" and it answers `false` for an array,
+// which the private `typeof value === "object" && value !== null` copies it replaced
+// did not — so an array now answers `undefined` for EVERY member, where before it
+// answered through the index for the names an array does carry (`length`, `"0"`). No
+// caller asks for one of those, so nothing moves on screen. The narrowing is what a
+// shared predicate is for, and the suite beside this module pins the array arm so it
+// stays a decision rather than a side effect of the hoist.
 
 import { isWireRecord } from "../../core/index.js";
 

@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
+import type { WireErrorEnvelope } from "../../core/index.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import { growthUnavailable } from "../growth-port/index.js";

@@ -33,7 +33,7 @@ import { OperatorControls } from "./pane/run/OperatorControls.js";
 import { IDLE_RUN_CONTROL_OUTCOME } from "./pane/run/run-controls.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { refusedWorkflowStrip, unaskedWorkflowStrip } from "./strip-state.js";
-import { PROBE_SESSION_ID } from "./WorkflowsBrowser.test-support.js";
+import { PROBE_SESSION_ID } from "./workflows-probe.test-support.js";
 
 vi.mock(import("./ChatStartSlot.js"), { spy: true });
 

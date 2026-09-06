@@ -26,7 +26,7 @@ import {
   type ComposedWindow,
   type SurfaceContextOptions,
 } from "./WorkflowsPaneHost.test-support.js";
-import { settle } from "./WorkflowsBrowser.test-support.js";
+import { settle } from "./workflows-probe.test-support.js";
 
 /** The window the cases about mounting assume: in the fixture's session, nothing open. */
 const DEFAULT_WINDOW: SurfaceContextOptions = { retainedSessionId: WORKFLOWS_SESSION_ID };

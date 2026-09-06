@@ -21,7 +21,7 @@
 import type { MembershipRole } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
-import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
+import type { WireErrorEnvelope } from "../../core/index.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {

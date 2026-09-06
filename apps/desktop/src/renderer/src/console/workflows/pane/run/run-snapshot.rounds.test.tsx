@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
 import { FIRST_ROUND, countingRunReadPort, observeRounds } from "./run-snapshot.test-support.js";
-import { settle } from "../../WorkflowsBrowser.test-support.js";
+import { settle } from "../../workflows-probe.test-support.js";
 
 const PARKED_RUN_ID = WORKFLOWS_PARKED_RUN.workflowRunId;
 

@@ -75,7 +75,7 @@
 // away with it, because a pane address is also PARSED — out of a persisted layout an
 // older build wrote, and out of a route — and a parsed value is data rather than a
 // proof. The builder pane holds the same guard for the kind it authors, and both
-// refuse through one sentence (`workflows/pane-addressing.ts`).
+// refuse through one sentence (`workflows/pane/pane-addressing.ts`).
 //
 // PARK IS READ FROM THE PARK MEMBERS AND NEVER FROM A PHASE'S STATE. The phase state
 // union carries no suspended arm on purpose, and the park members are live-scoped —

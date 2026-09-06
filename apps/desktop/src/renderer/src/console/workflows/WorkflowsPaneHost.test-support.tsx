@@ -27,7 +27,7 @@ import { ConsolePaneRegistry } from "../seats/index.js";
 // layering gate rejects.
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { registerWorkflowPanes } from "./index.js";
-import { settle } from "./WorkflowsBrowser.test-support.js";
+import { settle } from "./workflows-probe.test-support.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /** What a case varies about the window the slot is mounted in. */

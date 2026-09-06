@@ -38,25 +38,17 @@ import "./workflows.css";
 
 import { createElement } from "react";
 
-// Deep, and it has to be. The frame's barrel also exports `ConsoleRoot`, which
-// composes the families — so a family reaching the surface seat THROUGH that barrel
-// closes a cycle the layering gate rejects (`families.ts → workflows/index.ts →
-// frame/index.ts → ConsoleRoot.tsx → families.ts`). `families.ts` deep-imports this
-// same module for the same reason. The seat is a registry type and nothing else; the
-// family reaches no other part of the frame.
-//
-// THREE PRODUCTION MODULES HERE CARRY THIS IMPORT, and they are named because the
-// claim is a census of a deliberately-exempted edge class rather than a note about
-// this line: this module, `WorkflowsPaneHost.tsx` and `OpenPaneBody.tsx`. All three
-// are green because `.dependency-cruiser.mjs` subtracts the surface registry at the
-// `to` end, so nothing reports the count either way — and that config says the
-// exemption goes away "at which point this rule covers the whole console", which
-// makes this the list whoever performs that deletion comes here to find.
-import type { ConsoleSurfaceRegistry } from "../seats/index.js";
+// BOTH SEATS ARE ONE ORDINARY DOOR NOW. Both boards were authored in `frame/`, which
+// a view family cannot import at all — that door re-exports `ConsoleRoot`, which
+// composes `families.ts`, which composes this family — so the registrations were taken
+// by a deep specifier the layering config subtracted at the `to` end by name. The
+// substrate hoisted both boards down to `seats/`, which sits below every view family,
+// so this is one edge through one door and the config carries no exemption for it.
 import {
   paneBodyForKind,
   type ConsolePaneDescriptor,
   type ConsolePaneRegistry,
+  type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { WorkflowBuilderPane } from "./pane/builder/index.js";
 import { WorkflowRunPane } from "./pane/run/index.js";

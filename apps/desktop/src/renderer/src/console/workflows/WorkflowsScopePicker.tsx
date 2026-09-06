@@ -16,11 +16,15 @@
 // written a second time here.
 //
 // THE ABSENCES ARE THE READ'S, NOT THIS SURFACE'S GUESS AT IT. A directory read in
-// flight is `not-loaded`; an answer with no rows is `empty`; a refusal with nothing
-// open in this window is `not-checked` — the console did not ask the node, and says
-// so rather than reporting a node with no sessions. Collapsing any two of them is the
-// conflation `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to
-// prevent.
+// flight is `not-loaded`; an answer with no rows is `empty`; a refusal splits, because
+// "the console did not ask" and "the console asked and the asking failed" are two facts
+// about the node and only one of them is ever true. A build with no wire registered for
+// the read is `not-checked` — the sentence is true there and nowhere else. Any other
+// refusal is `error`, carrying the daemon's own code and message, because a closed
+// channel reported as an idle console is a claim about the node that nothing checked.
+// `bridge/growth-port/growth-outcome.ts` answers which is which, once, beside the code
+// it reads. Collapsing any two of these is the conflation
+// `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to prevent.
 //
 // A DIRECTORY THAT HAS NOT ANSWERED IS A PARTIAL READ, AND IT SAYS SO — WHICHEVER WAY
 // IT HAS NOT ANSWERED. The two sources are a union, so a directory that refused, or
@@ -54,7 +58,7 @@
 
 import { useId } from "react";
 
-import type { GrowthPort } from "../bridge/index.js";
+import { isUnbuiltWireRefusal, type GrowthPort } from "../bridge/index.js";
 import { offeredSessionIds, useSessionDirectory } from "../seats/index.js";
 import { InlineRefusal, Nothing, PartialRead, WireChoiceList } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStoreRegistry } from "../store/index.js";
@@ -111,6 +115,19 @@ export function WorkflowsScopePicker(props: WorkflowsScopePickerProps): React.JS
           kind="empty"
           title="There are no sessions on this node yet."
           detail="Workflow definitions resolve from a session outwards, so this destination shows what one session can see. Opening a session is what gives it something to resolve from."
+        />
+      );
+    }
+    if (!isUnbuiltWireRefusal(directory.refusal)) {
+      // The read was put and it FAILED, so what a person acts on is what the daemon
+      // said — verbatim, both halves. The sentence below would assert the opposite of
+      // the refusal printed under it.
+      return (
+        <Nothing
+          kind="error"
+          placement="surface"
+          title={directory.refusal.code}
+          detail={directory.refusal.detail}
         />
       );
     }

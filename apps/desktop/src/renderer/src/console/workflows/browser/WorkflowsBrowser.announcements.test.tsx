@@ -16,16 +16,15 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { LiveAnnouncer } from "../../primitives/live-announcer.js";
 import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
+import { browserUnderAnnouncer, renderBrowser } from "./WorkflowsBrowser.test-support.js";
 import {
   PROBE_SESSION_ID,
   SECOND_PAGE_CURSOR,
   definition,
-  browserUnderAnnouncer,
   portAnswering,
-  renderBrowser,
   settle,
   type SettledDefinitionPage,
-} from "../WorkflowsBrowser.test-support.js";
+} from "../workflows-probe.test-support.js";
 
 /** A second definition, so a continuation that lands moves the count it reports. */
 const SECOND_PAGE_DEFINITION: WorkflowDefinitionRow = {

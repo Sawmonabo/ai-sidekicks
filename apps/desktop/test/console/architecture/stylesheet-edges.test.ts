@@ -9,19 +9,22 @@
 // reach first. That is not a formatting preference. Cascade order decides which rule
 // paints, so a second edge makes the paint depend on the module graph.
 //
-// THREE CLAIMS, AND THEY CATCH DIFFERENT DEFECTS. One: only an owning barrel imports
+// FOUR CLAIMS, AND THEY CATCH DIFFERENT DEFECTS. One: only an owning barrel imports
 // a stylesheet. Two: every stylesheet in the tree is REACHED, from a barrel directly
 // or through an `@import` chain. Three: it is reached ONCE — one inbound edge, from
-// one barrel. The first alone would pass over a sheet nobody imports at all, which is
-// rules that were written and never paint; the second alone would pass over a sheet
-// reached twice.
+// one barrel. Four: that edge comes from the barrel of the directory that OWNS the
+// sheet. The first alone would pass over a sheet nobody imports at all, which is rules
+// that were written and never paint; the second alone would pass over a sheet reached
+// twice; and the first three together were all true of a sheet a family pulled out of
+// a sub-directory holding a door of its own — reached, once, from one barrel, and from
+// the wrong one, which is precisely the shape `apps/desktop/AGENTS.md` forbids.
 //
 // THE WALK IS NEXT DOOR, AND SO ARE ITS CONTROLS. `stylesheet-edge-graph.ts` owns the
-// model — the tree it reads, the edges it keeps, and the three ways a tree can offend
-// — because proving that a duplicate edge is really counted needs a tree with a
-// planted duplicate in it, and planting one here would mean a test writing into the
+// model — the tree it reads, the edges it keeps, and the four ways a tree can offend —
+// because proving that a duplicate or a misowned edge is really counted needs a tree
+// with one planted in it, and planting one here would mean a test writing into the
 // console's source. This file makes the claims; that file's test makes them worth
-// their green.
+// their green, and the pair that drives the fourth verdict sits there with the rest.
 //
 // THERE IS NO EXEMPTION LIST, AND THAT IS THE POINT OF THE RULE'S SHAPE. A lazily
 // loaded chunk owns sheets that must NOT ride the initial document — the graph
@@ -109,6 +112,17 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     expect(offences.duplicateBarrels).toStrictEqual([]);
   });
 
+  it("and from the barrel of the directory that owns it, never a neighbour's", () => {
+    // The fourth claim, over the real console. A family door pulling in the sheets of
+    // its own doorless sub-directories is the intended shape and passes; a family
+    // sheet reaching into a directory that carries a door does not.
+    const offences = stylesheetEdgeOffences(
+      CONSOLE_STYLESHEET_TREE,
+      collectStylesheetEdges(CONSOLE_STYLESHEET_TREE),
+    );
+    expect(offences.misowned).toStrictEqual([]);
+  });
+
   it("negative control: the checker matches the edges that are really there", () => {
     // Without this a typo in either pattern would make both clean results above
     // meaningless against THIS tree — the walk's own controls drive literal sources,
@@ -126,6 +140,14 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
         readConsoleFile(join("workflows", "workflows.css")),
       ).length,
     ).toBeGreaterThan(1);
+    // And the door this family's destination now enters on, so the pattern is shown to
+    // match a module edge one directory down as well as the family's own.
+    expect(
+      moduleStylesheetImports(
+        join("workflows", "destination", "index.ts"),
+        readConsoleFile(join("workflows", "destination", "index.ts")),
+      ),
+    ).toStrictEqual(["./workflows-destination.css"]);
   });
 
   it("negative control: a direct import in a component is flagged, a barrel's is not", () => {

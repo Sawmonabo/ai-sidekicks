@@ -12,7 +12,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { definition } from "../WorkflowsBrowser.test-support.js";
+import { definition } from "../workflows-probe.test-support.js";
 import { DefinitionsBrowser } from "./DefinitionsBrowser.js";
 
 /** One row, so a case can hold one scope's group open while the other two are empty. */

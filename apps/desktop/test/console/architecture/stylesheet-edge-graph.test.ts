@@ -36,7 +36,69 @@ describe("the stylesheet edge walk", () => {
       unreached: [],
       duplicatePaths: [],
       duplicateBarrels: [],
+      misowned: [],
     });
+  });
+
+  it("counts a sheet reached from a neighbour's barrel rather than from its owner's", () => {
+    // The console's own pre-fix shape, in miniature, and the defect the first three
+    // verdicts cannot see: `doored.css` is reached, once, from one barrel — every
+    // earlier claim passes — and the barrel that reaches it belongs to the directory
+    // ABOVE the one that owns the sheet. Ownership is what separates them, so the walk
+    // has to compute it rather than treat any `index.ts` as an owner.
+    const misownedTree = syntheticStylesheetTree(
+      new Map([
+        [join("family", "index.ts"), 'import "./family.css";\n'],
+        [join("family", "family.css"), '@import "./doored/doored.css";\n'],
+        [join("family", "doored", "index.ts"), "export const doored = 1;\n"],
+        [join("family", "doored", "doored.css"), ".doored {\n  color: red;\n}\n"],
+      ]),
+    );
+
+    const offences = stylesheetEdgeOffences(misownedTree, collectStylesheetEdges(misownedTree));
+
+    expect(offences.unreached).toStrictEqual([]);
+    expect(offences.duplicatePaths).toStrictEqual([]);
+    expect(offences.duplicateBarrels).toStrictEqual([]);
+    expect(offences.misowned).toHaveLength(1);
+    expect(offences.misowned[0]).toContain(join("family", "doored", "doored.css"));
+  });
+
+  it("counts nothing once the door owns its own sheet, one edge moved and nothing else", () => {
+    // The repair, driven — without it the verdict above would be satisfied by a walk
+    // that reported every sheet under a doored directory, which would forbid the shape
+    // the rule actually prescribes.
+    const repairedTree = syntheticStylesheetTree(
+      new Map([
+        [join("family", "index.ts"), 'import "./family.css";\n'],
+        [join("family", "family.css"), ".family {\n  color: blue;\n}\n"],
+        [join("family", "doored", "index.ts"), 'import "./doored.css";\n'],
+        [join("family", "doored", "doored.css"), ".doored {\n  color: red;\n}\n"],
+      ]),
+    );
+
+    const offences = stylesheetEdgeOffences(repairedTree, collectStylesheetEdges(repairedTree));
+
+    expect(offences.misowned).toStrictEqual([]);
+    expect(offences.unreached).toStrictEqual([]);
+  });
+
+  it("counts nothing for a doorless sub-directory, which its family owns", () => {
+    // The other side of ownership, and the reason the rule keys on the OWNER rather
+    // than on depth: a sub-directory with no door of its own is the family's, so the
+    // family door pulling in its sheet is the family importing its own rules.
+    const doorlessTree = syntheticStylesheetTree(
+      new Map([
+        [join("family", "index.ts"), 'import "./family.css";\n'],
+        [join("family", "family.css"), '@import "./parts/part.css";\n'],
+        [join("family", "parts", "part.css"), ".part {\n  color: red;\n}\n"],
+      ]),
+    );
+
+    const offences = stylesheetEdgeOffences(doorlessTree, collectStylesheetEdges(doorlessTree));
+
+    expect(offences.misowned).toStrictEqual([]);
+    expect(offences.unreached).toStrictEqual([]);
   });
 
   it("counts a sheet imported from two barrels, where a reached-set collapsed it", () => {

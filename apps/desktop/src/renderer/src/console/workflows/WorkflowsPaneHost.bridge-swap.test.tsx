@@ -23,7 +23,7 @@ import {
   chooseSessionInPicker,
   withReplacedBridge,
 } from "./WorkflowsPaneHost.test-support.js";
-import { settle } from "./WorkflowsBrowser.test-support.js";
+import { settle } from "./workflows-probe.test-support.js";
 
 /**
  * A window that has opened one session and RETAINED none.

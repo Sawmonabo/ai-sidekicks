@@ -8,6 +8,13 @@
 // THE REFUSING PORT IS THE RELEASE BUILD, not a corner. `createRefusingGrowthPort`
 // refuses `sessionList` by name because no wire answers it yet, so the refused arm
 // below is what an operator meets today on every build that is not the fixture.
+//
+// AND A REFUSED DIRECTORY IS TWO ARMS, NOT ONE. A build with no wire is one fact about
+// the node; a read that was put and FAILED is another, and the surface's header claims
+// the daemon's own code and message reach the screen verbatim on the second. That claim
+// is pinned rather than asserted: the rejecting port below wraps the release build's and
+// replaces exactly the method under test, so what the cases read is what the seam
+// composes — and the control drives the shape that used to render one arm for both.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,7 +25,7 @@ import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
 import { SessionStoreRegistry } from "../store/index.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
-import { settle } from "./WorkflowsBrowser.test-support.js";
+import { settle } from "./workflows-probe.test-support.js";
 
 const OPEN_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
@@ -57,6 +64,25 @@ function readingNotices(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(".meridian-nothing--not-loaded")].map(
     (notice) => notice.textContent ?? "",
   );
+}
+
+/** The dotted code a daemon envelope carries, which has to reach the screen. */
+const DAEMON_REFUSAL_CODE = "session.list_unavailable";
+
+/** What the daemon's own envelope says, which is what a person reads. */
+const DAEMON_REFUSAL_MESSAGE = "The node is not accepting session reads right now.";
+
+/** A real port whose directory read REJECTS, carrying a daemon envelope. */
+function rejectingDirectoryPort(): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    sessionList: () =>
+      Promise.reject({
+        code: -32603,
+        message: DAEMON_REFUSAL_MESSAGE,
+        data: { type: DAEMON_REFUSAL_CODE },
+      }),
+  };
 }
 
 function refusalCodes(container: HTMLElement): readonly string[] {
@@ -146,5 +172,47 @@ describe("the workflows scope picker — a refused directory beside a usable cho
 
     expect(offeredSessionIds(container)).toStrictEqual([]);
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+  });
+
+  it("puts the daemon's own code and message beside the choices, both verbatim", async () => {
+    // The header's rule-9 claim, driven. The refusal the surface renders is composed by
+    // the reading layer from a rejected read, so the code is the daemon's dotted one and
+    // the message is the daemon's sentence — neither restated by the console, and both
+    // standing BESIDE this surface's own note about its own list rather than replacing it.
+    const container = renderPicker(rejectingDirectoryPort(), registryHolding(OPEN_SESSION_ID));
+
+    await settle();
+
+    expect(offeredSessionIds(container)).toStrictEqual([OPEN_SESSION_ID]);
+    expect(refusalCodes(container)).toStrictEqual([DAEMON_REFUSAL_CODE]);
+    expect(container.textContent).toContain(DAEMON_REFUSAL_MESSAGE);
+    expect(container.textContent).toContain("The node's own list was not read");
+  });
+
+  it("negative control: the console never stamps its own code over the daemon's", async () => {
+    // The shape this replaces. The directory read once settled through the growth
+    // port's own builder, which fixes `call-rejected` and composes a sentence around
+    // whatever the other side said — so this surface rendered one code for every daemon
+    // failure while its siblings rendered the daemon's, one navigation later.
+    const container = renderPicker(rejectingDirectoryPort(), registryHolding(OPEN_SESSION_ID));
+
+    await settle();
+
+    expect(refusalCodes(container)).not.toContain("call-rejected");
+    expect(container.textContent).not.toContain("did not answer");
+  });
+
+  it("renders a FAILED read as the daemon's failure, not as a console that never asked", async () => {
+    // The zero-length arm splits with the same rule. "The console has not asked the
+    // node" is true of a build with no wire and false of a read that was put and
+    // failed — and the old arm asserted it while printing the refusal that disproves it.
+    const container = renderPicker(rejectingDirectoryPort(), emptyRegistry());
+
+    await settle();
+
+    expect(container.querySelector(".meridian-nothing--error")).not.toBeNull();
+    expect(container.textContent).toContain(DAEMON_REFUSAL_CODE);
+    expect(container.textContent).toContain(DAEMON_REFUSAL_MESSAGE);
+    expect(container.textContent).not.toContain("has not asked the node");
   });
 });

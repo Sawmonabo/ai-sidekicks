@@ -21,7 +21,7 @@
 // exports, so the refusal a caller meets is the same one either way. Which of the two
 // mechanisms is in play is a property of the REPLY SHAPE and never of the call.
 
-import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
+import type { WireErrorEnvelope } from "../../core/index.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { readUnknownStringMember } from "../scenario-runtime/index.js";
 

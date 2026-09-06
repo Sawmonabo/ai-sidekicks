@@ -7,13 +7,13 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { renderBrowser } from "./WorkflowsBrowser.test-support.js";
 import {
   SECOND_PAGE_CURSOR,
   definition,
   portAnswering,
-  renderBrowser,
   settle,
-} from "../WorkflowsBrowser.test-support.js";
+} from "../workflows-probe.test-support.js";
 
 describe("the workflows browser — the handle to the next page", () => {
   afterEach(() => {

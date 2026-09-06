@@ -23,7 +23,7 @@ import { FrameStore, SessionStoreRegistry } from "../../store/index.js";
 import type { ConsolePaneAddress } from "../../seats/index.js";
 import { FOLLOWING_WINDOW_RETENTION, type WorkflowsScopeState } from "./destination-scope.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
-import { settle } from "../WorkflowsBrowser.test-support.js";
+import { settle } from "../workflows-probe.test-support.js";
 
 /**
  * The first definition the browser lists, which is the first name a person can press.

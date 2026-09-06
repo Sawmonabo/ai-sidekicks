@@ -15,13 +15,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario-runtime/scenario.js";
-import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
+import type { WireErrorEnvelope } from "../../core/index.js";
 import {
   PROBE_PARTICIPANT_ID,
   PROBE_SESSION_ID,
   SECOND_PROBE_SESSION_ID,
   settle,
-} from "../WorkflowsBrowser.test-support.js";
+} from "../workflows-probe.test-support.js";
 import type {
   WorkflowDefinitionDirectory,
   WorkflowDefinitionDirectoryState,

@@ -81,7 +81,7 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  *     handed an entity of a kind it does not author, so it refuses BEFORE composing
  *     a read rather than passing a run id off as a definition id and asking about
  *     something that does not exist. Both panes in this family raise it, so the code
- *     itself is declared in `workflows/pane-addressing.ts` and this set names it from
+ *     itself is declared in `workflows/pane/pane-addressing.ts` and this set names it from
  *     there rather than spelling a second literal.
  */
 export const WORKFLOW_BUILDER_REFUSAL_CODES: readonly [
@@ -142,7 +142,7 @@ export const WORKFLOW_BUILDER_SUBJECT_KIND: ConsoleEntityRef["kind"] = "workflow
  * replaces — the pane would compose a read for a definition that does not exist and
  * present whatever came back as the definition a person asked to edit.
  *
- * The sentence is `workflows/pane-addressing.ts`'s, bound here to this surface's
+ * The sentence is `workflows/pane/pane-addressing.ts`'s, bound here to this surface's
  * origin and to the one kind it authors: the run view raises the same refusal about
  * its own kind, and two copies of one sentence are two sentences the day either is
  * reworded.

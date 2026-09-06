@@ -20,7 +20,7 @@ import { render } from "@testing-library/react";
 
 import { type GrowthPort } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { definition, SECOND_PAGE_CURSOR } from "../WorkflowsBrowser.test-support.js";
+import { SECOND_PAGE_CURSOR, definition } from "../workflows-probe.test-support.js";
 import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
@@ -34,7 +34,7 @@ type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionLi
 /**
  * One row per id, which is what these cases read back: the id is the only member that
  * says WHICH read committed. Everything else is the family's row, built once at
- * `../WorkflowsBrowser.test-support.tsx` — including `scopeRef`, whose default is this
+ * `../workflows-probe.test-support.ts` — including `scopeRef`, whose default is this
  * same probe session.
  */
 export function definitionWithId(id: string): WorkflowDefinitionRow {

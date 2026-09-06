@@ -20,7 +20,7 @@ import {
   observeSubjectRead,
   type ObservedSubjectRead,
 } from "../../store/subject-read-commits.test-support.js";
-import { PROBE_SESSION_ID, settle } from "../WorkflowsBrowser.test-support.js";
+import { PROBE_SESSION_ID, settle } from "../workflows-probe.test-support.js";
 import { definitionWithId } from "./definition-directory.test-support.js";
 import {
   useWorkflowDefinitionDirectory,

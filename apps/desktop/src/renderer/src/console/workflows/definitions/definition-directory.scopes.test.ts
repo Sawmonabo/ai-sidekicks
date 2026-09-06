@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import { growthUnavailable, WORKFLOW_DEFINITION_SCOPES } from "../../bridge/index.js";
-import { SECOND_PAGE_CURSOR } from "../WorkflowsBrowser.test-support.js";
+import { SECOND_PAGE_CURSOR } from "../workflows-probe.test-support.js";
 import {
   scopeResolutionOf,
   type WorkflowDefinitionContinuation,

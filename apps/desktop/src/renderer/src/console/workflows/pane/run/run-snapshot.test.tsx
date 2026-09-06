@@ -19,7 +19,7 @@ import {
   WORKFLOWS_PARKED_RUN,
   WORKFLOWS_SCENARIO_RUNS,
 } from "../../../bridge/scenarios/workflow-fixture-runs.js";
-import type { WireErrorEnvelope } from "../../../../../../shared/wire-errors.js";
+import type { WireErrorEnvelope } from "../../../core/index.js";
 import {
   latestCommitted,
   observeSubjectRead,
@@ -30,7 +30,7 @@ import {
   PROBE_PARTICIPANT_ID,
   PROBE_SESSION_ID,
   settle,
-} from "../../WorkflowsBrowser.test-support.js";
+} from "../../workflows-probe.test-support.js";
 
 /** The refusal the scenarios below script, in the envelope a daemon sends. */
 const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {

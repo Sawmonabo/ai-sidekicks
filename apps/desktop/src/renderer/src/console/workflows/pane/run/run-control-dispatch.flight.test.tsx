@@ -29,7 +29,7 @@ import {
   heldCancelPort,
   observeControls,
 } from "./run-control-dispatch.test-support.js";
-import { settle } from "../../WorkflowsBrowser.test-support.js";
+import { settle } from "../../workflows-probe.test-support.js";
 
 afterEach(() => {
   cleanup();

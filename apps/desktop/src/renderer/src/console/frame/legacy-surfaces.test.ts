@@ -80,9 +80,10 @@ describe("legacy surfaces — which family holds which slot", () => {
     // case above would read the same over a registrar that claimed all six.
     //
     // `workflows` is here for a second reason: the rail's middle destination is
-    // reachable now and the family that fills it (T-023p-1C-6) ships on its own
-    // branch, so the slot has to be declared and unclaimed rather than declared
-    // and quietly held by whoever registered nearest to it.
+    // reachable now, and this is not the registrar that fills it — the family claims
+    // its slot through its own `registerWorkflowSurfaces`, so the slot has to be
+    // declared and left unclaimed by THIS registrar rather than declared and quietly
+    // held by whoever registered nearest to it.
     const registry = registeredLegacySurfaces();
     expect(registry.descriptorFor("workflows")).toBeUndefined();
     expect(registry.descriptorFor("settings")).toBeUndefined();

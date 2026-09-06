@@ -28,7 +28,7 @@ import {
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { READ_SETTLEMENT_REFUSAL_ORIGIN } from "../../bridge/readings/read-settlement.js";
-import { settle } from "../WorkflowsBrowser.test-support.js";
+import { settle } from "../workflows-probe.test-support.js";
 import { WorkflowRuns } from "./WorkflowRuns.js";
 
 /** The fixture port for one scenario, which is what a fixture console runs on. */

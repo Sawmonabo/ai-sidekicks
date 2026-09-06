@@ -53,8 +53,7 @@
 
 import { useCallback } from "react";
 
-import type { ConsolePaneAddress } from "../seats/index.js";
-import type { ConsoleSurfaceContext } from "../seats/index.js";
+import type { ConsolePaneAddress, ConsoleSurfaceContext } from "../seats/index.js";
 import { useFrameStore, useSubjectScopedState } from "../store/index.js";
 import { OpenPaneBody } from "./OpenPaneBody.js";
 import {

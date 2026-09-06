@@ -27,7 +27,7 @@ import {
   PROBE_SESSION_ID,
   SECOND_PROBE_SESSION_ID,
   settle,
-} from "../WorkflowsBrowser.test-support.js";
+} from "../workflows-probe.test-support.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
 
 /** One enumeration entry per session, so a row can be traced back to what was asked. */

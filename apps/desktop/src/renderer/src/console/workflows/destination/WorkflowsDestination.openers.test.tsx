@@ -22,7 +22,7 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { FrameStore, type SessionStoreRegistry } from "../../store/index.js";
 import type { ConsolePaneAddress, ConsolePaneOpener } from "../../seats/index.js";
 import { chosenScope } from "./destination-scope.js";
-import { definition, PROBE_SESSION_ID } from "../WorkflowsBrowser.test-support.js";
+import { PROBE_SESSION_ID, definition } from "../workflows-probe.test-support.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
 
 /**

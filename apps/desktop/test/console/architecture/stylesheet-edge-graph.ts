@@ -7,6 +7,14 @@
 // duplicate edge to prove the counter bites would otherwise mean a test writing into
 // the console's source.
 //
+// AND OWNERSHIP IS COMPUTED, NOT ASSUMED. An earlier revision asked only whether a
+// sheet was reached from A barrel, which is true of a sheet pulled into a family sheet
+// from a sub-directory that has a door of its own — the one shape `apps/desktop/
+// AGENTS.md` names as forbidden, and the one a family had actually grown. So the walk
+// resolves each sheet's OWNER by climbing to the nearest `index.ts` at or above it and
+// holds every inbound edge to that, which needs no list of exceptions and follows a
+// directory the day it grows a door.
+//
 // COUNTED, NOT COLLAPSED, and that is this module's whole reason for existing in the
 // shape it has. An earlier revision gathered the walk into a `Set` of reached sheets
 // and asked only whether each sheet was in it, so a sheet imported from two barrels,
@@ -63,11 +71,13 @@ export interface StylesheetEdge {
 /** Every inbound edge into every stylesheet the barrels reach, by sheet. */
 export type StylesheetEdgeGraph = ReadonlyMap<string, readonly StylesheetEdge[]>;
 
-/** The three ways a tree's stylesheet edges can be wrong, each with its edges. */
+/** The four ways a tree's stylesheet edges can be wrong, each with its edges. */
 export interface StylesheetEdgeOffences {
   readonly unreached: readonly string[];
   readonly duplicatePaths: readonly string[];
   readonly duplicateBarrels: readonly string[];
+  /** Sheets reached from a barrel that is not the one owning their directory. */
+  readonly misowned: readonly string[];
 }
 
 /**
@@ -167,6 +177,31 @@ export function isOwningBarrel(modulePath: string): boolean {
 }
 
 /**
+ * Which barrel OWNS a file: the nearest one at or above its own directory.
+ *
+ * `apps/desktop/AGENTS.md` states the rule this answers — "a stylesheet enters through
+ * the barrel of the directory that OWNS it", where "a directory owns its own
+ * sub-directories that carry no `index.ts` of their own" and "a directory that carries
+ * a door … has an owner of its own". So ownership is a walk upward to the first door,
+ * and it is computed rather than configured: a sub-directory that grows a door becomes
+ * its own owner the moment the file exists, with no list here to keep in step.
+ *
+ * `undefined` where no ancestor carries one, which the caller reports rather than
+ * passes over: a sheet under no barrel at all is reached by nothing the rule admits.
+ */
+export function owningBarrelOf(tree: StylesheetTree, filePath: string): string | undefined {
+  const barrels = new Set(tree.modulePaths.filter(isOwningBarrel));
+  const segments = filePath.split(sep);
+  for (let depth = segments.length - 1; depth > 0; depth -= 1) {
+    const candidate = [...segments.slice(0, depth), "index.ts"].join(sep);
+    if (barrels.has(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+/**
  * A specifier resolved against the file that wrote it, back to a tree-relative path —
  * or `undefined` where it names a package rather than a file in this tree.
  *
@@ -249,6 +284,25 @@ export function collectStylesheetEdges(tree: StylesheetTree): StylesheetEdgeGrap
   return edges;
 }
 
+/**
+ * Whether one inbound edge is admissible for the sheet it reaches.
+ *
+ * TWO SHAPES AND NOT ONE, because a family's own sheet legitimately pulls in the
+ * sheets of the sub-directories that family owns. A module edge is admissible when the
+ * importer IS the sheet's owning barrel; an `@import` edge is admissible when the
+ * importing sheet answers to the SAME owner, which is what makes
+ * `workflows/workflows.css → definitions/definitions-browser.css` right and
+ * `workflows/workflows.css → destination/workflows-destination.css` wrong the moment
+ * `destination/` grows a door.
+ */
+function isOwnedEdge(tree: StylesheetTree, sheet: string, edge: StylesheetEdge): boolean {
+  const owner = owningBarrelOf(tree, sheet);
+  if (owner === undefined) {
+    return false;
+  }
+  return edge.importer === owner || owningBarrelOf(tree, edge.importer) === owner;
+}
+
 /** The offending sheets, each reported with the edges that made it one. */
 export function stylesheetEdgeOffences(
   tree: StylesheetTree,
@@ -257,6 +311,7 @@ export function stylesheetEdgeOffences(
   const unreached: string[] = [];
   const duplicatePaths: string[] = [];
   const duplicateBarrels: string[] = [];
+  const misowned: string[] = [];
   for (const sheet of tree.stylesheetPaths) {
     const inbound = edges.get(sheet) ?? [];
     if (inbound.length === 0) {
@@ -271,8 +326,17 @@ export function stylesheetEdgeOffences(
     if (owningBarrels.length > 1) {
       duplicateBarrels.push(`${sheet}: reached from ${owningBarrels.join(", ")}`);
     }
+    // THE CLAIM THE OTHER THREE CANNOT MAKE. Reached, reached once, and reached from
+    // one barrel are all true of a sheet whose owner is a different directory
+    // entirely — which is the shape that puts one surface's rules on the initial
+    // document for every session that never opens it.
+    for (const edge of inbound.filter((candidate) => !isOwnedEdge(tree, sheet, candidate))) {
+      misowned.push(
+        `${sheet}: owned by ${owningBarrelOf(tree, sheet) ?? "no barrel"}, reached from ${edge.importer}`,
+      );
+    }
   }
-  return { unreached, duplicatePaths, duplicateBarrels };
+  return { unreached, duplicatePaths, duplicateBarrels, misowned };
 }
 
 /**

@@ -8,8 +8,15 @@
 //
 // THE DOOR EXISTS BECAUSE A SIBLING TAKES FROM IT. `WorkflowsPaneHost.tsx` mounts the
 // destination and holds its scope, so the component and the three scope names it
-// composes leave through here. The stylesheet does not: it enters through
-// `workflows.css`, which is the family's one entry point for the sheets it owns.
+// composes leave through here.
+//
+// AND THE STYLESHEET ENTERS HERE, because this directory has a door and therefore an
+// owner of its own. `workflows.css` used to `@import` it, which is a sheet in one
+// directory made the reason another is styled at all — the shape the family sheet's
+// own header calls forbidden, and which its three sibling doors (`pane/builder/`,
+// `pane/run/`, `pane/run/phase-graph/`) already avoid by importing theirs.
+import "./workflows-destination.css";
+
 export { WorkflowsDestination } from "./WorkflowsDestination.js";
 export {
   FOLLOWING_WINDOW_RETENTION,

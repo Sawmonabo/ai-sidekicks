@@ -6,7 +6,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { definition } from "../WorkflowsBrowser.test-support.js";
+import { definition } from "../workflows-probe.test-support.js";
 import { DefinitionsBrowser } from "./DefinitionsBrowser.js";
 import {
   groupFor,

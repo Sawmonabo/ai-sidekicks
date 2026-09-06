@@ -11,8 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
-import { ConsoleRefusalError, refuse } from "../../core/index.js";
+import { ConsoleRefusalError, refuse, type WireErrorEnvelope } from "../../core/index.js";
 import { answerFromScriptedReply } from "../fixture/fixture-scripted-answer.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import { growthUnavailable } from "../growth-port/index.js";

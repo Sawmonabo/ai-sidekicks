@@ -15,8 +15,10 @@
  * belonging to a directory that has an OWNER of its own — another family, a sub-module
  * door, a lazily-loaded chunk — is the shape that is forbidden, because it puts that
  * surface's rules on the initial document for every session that never opens it and
- * makes one directory the reason another is styled at all. The three doors below this
- * one are exactly that case, and their sheets are exactly what is not here.
+ * makes one directory the reason another is styled at all. Every directory below this
+ * one that carries a door is exactly that case, and their sheets are exactly what is
+ * not here — a count of them is deliberately not written, because it moved the moment
+ * a sub-module door was added and nothing reported that it had.
  *
  * WHAT IS BELOW IS WHAT THIS DIRECTORY OWNS. The two pane sheets used to be — an
  * `@import` reaching `../panes/workflow-run/` and another reaching
@@ -27,9 +29,12 @@
  * pane recorded. Both bodies live in this family now and each carries its own barrel,
  * so each pane sheet enters on the barrel of the surface that owns it.
  *
- * THREE SHEETS IN THIS FAMILY ARE DELIBERATELY NOT BELOW, and naming them here is what
- * keeps the list a claim rather than a coincidence. Two are the pane sheets above.
- * The third is `pane/run/phase-graph/phase-graph.css`, which
+ * THE SHEETS OF THIS FAMILY'S DOORED DIRECTORIES ARE DELIBERATELY NOT BELOW, and
+ * naming them here is what keeps the list a claim rather than a coincidence. Two are
+ * the pane sheets above. A third is `destination/workflows-destination.css`, which
+ * entered here until that directory grew a door of its own and now enters on it, as
+ * the rule above has always required. The last is
+ * `pane/run/phase-graph/phase-graph.css`, which
  * rides the lazy graph chunk: it is imported beside the graph library's own `base.css`
  * from that chunk's own door, `pane/run/phase-graph/index.ts`, which is
  * reached through `import()` and nothing else, and it has to load AFTER that sheet to
@@ -66,7 +71,6 @@
  */
 
 /* The per-surface sheets, in the order a person meets the surfaces. */
-@import "./destination/workflows-destination.css";
 @import "./definitions/definitions-browser.css";
 @import "./runs/run-list.css";
 @import "./parks/park-badge.css";

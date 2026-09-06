@@ -6,9 +6,9 @@
 // one edit here rather than a search across the suites.
 //
 // THE ROW ITSELF IS NOT HERE. `WorkflowDefinitionRow` is the family's fixture, not this
-// directory's — the browser suites one level up build the same row — so the factory
-// lives at `../WorkflowsBrowser.test-support.tsx` and these suites import it. What is
-// here is what only a `DefinitionsBrowser` render can answer.
+// directory's — the browser's own suites, one directory over, build the same row — so
+// the factory lives at `../workflows-probe.test-support.ts` and these suites import it.
+// What is here is what only a `DefinitionsBrowser` render can answer.
 //
 // The two render helpers answer different questions and both are needed. Most cases
 // read the SCOPE LIST, because that is where the groups and their rows are. The

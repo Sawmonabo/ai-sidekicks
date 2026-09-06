@@ -16,7 +16,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GrowthPort } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { ChatStartSlot } from "../ChatStartSlot.js";
-import { PROBE_SESSION_ID, renderBrowser, settle } from "../WorkflowsBrowser.test-support.js";
+import { renderBrowser } from "./WorkflowsBrowser.test-support.js";
+import { PROBE_SESSION_ID, settle } from "../workflows-probe.test-support.js";
 
 vi.mock(import("../ChatStartSlot.js"), { spy: true });
 

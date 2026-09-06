@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ChatStartSlot, type ChatStartMount } from "./ChatStartSlot.js";
 import { WORKFLOW_CHAT_START_SLOT } from "./owner-slots.js";
-import { PROBE_SESSION_ID } from "./WorkflowsBrowser.test-support.js";
+import { PROBE_SESSION_ID } from "./workflows-probe.test-support.js";
 
 describe("the conversational start is reserved, not stubbed", () => {
   it("stands in its own mount with an empty absence", () => {
