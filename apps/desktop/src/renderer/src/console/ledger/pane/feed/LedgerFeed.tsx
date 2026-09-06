@@ -93,7 +93,7 @@ import {
   useVisibleLedgerWindow,
 } from "../window/index.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
-import { type SessionStore } from "../../../store/index.js";
+import { usePeerInvocationProjection, type SessionStore } from "../../../store/index.js";
 import { type TimelineRowRenderer } from "../../../seats/index.js";
 import { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
 import { useLedgerStructureActs } from "./ledger-feed-acts.js";
@@ -135,6 +135,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // say something about the window as a whole. Every sentence either of them can
   // print names a subject, and the subject is this.
   const scope: LedgerScope = props.channelId === undefined ? "session" : "channel";
+  // WHY THE GRANT IS READ HERE. A session whose sidekicks may not reach each other
+  // produces no handoff row at all — every peer invocation is adjudicated per call
+  // against this projected member and answers denied — so an empty log in such a
+  // session is not the absence of activity it reads as. The empty window says so,
+  // and this is the mount that holds the store to read it from. Subscribed rather
+  // than read once: the grant is a durable session fact anybody in the session can
+  // change, and a value latched at mount would keep saying so after it was turned on.
+  const peerInvocation = usePeerInvocationProjection(props.sessionStore);
   // The fold is this MOUNT's, not the log's: which finished chapters a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
@@ -302,6 +310,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
               renderRow={renderRow}
               feedLabel={props.feedLabel}
               scope={scope}
+              peerInvocationEnabled={peerInvocation.enabled}
               hasActiveTurn={ledgerWindow.hasActiveTurn}
             />
           </LedgerRowRevealProvider>

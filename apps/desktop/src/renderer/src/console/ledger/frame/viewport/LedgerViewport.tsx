@@ -38,41 +38,13 @@
 // two-hue rule, never by motion." A lane taking catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
-import { Nothing, WindowAbsences } from "../../../primitives/index.js";
+import { WindowAbsences } from "../../../primitives/index.js";
+import { EmptyLedgerWindow } from "./EmptyLedgerWindow.js";
+import { type LedgerScope } from "./empty-window-words.js";
 import { LedgerErrorSlot, type LedgerErrorEntry } from "../ErrorSlot.js";
 import { LedgerRowMount, type LedgerRowRenderer } from "../LedgerRowMount.js";
 import { LedgerTailAffordance } from "../LedgerTailAffordance.js";
 import { type LedgerViewportBinding } from "./viewport-binding.js";
-
-/**
- * What a ledger is a log OF — the one thing an empty window's sentence turns on.
- *
- * DECLARED HERE BECAUSE THIS IS THE LOWEST CONSUMER, and every surface above
- * derives from this union rather than re-spelling the two words: the feed's
- * absences say the same thing about the same two subjects, and two unions would
- * drift the day a third scope exists.
- */
-export type LedgerScope = "session" | "channel";
-
-/**
- * What an empty window says, per scope.
- *
- * "Nothing has happened in this session yet" over a CHANNEL pane is false about the
- * session and says so with the session's own name: the pane is a log of one channel
- * and the session it belongs to may be busy. Total over the scope by `satisfies`,
- * the `LedgerWindowAbsences.tsx` shape, so a third scope is a compile error here rather
- * than a pane that borrows one of these two sentences.
- */
-const EMPTY_LEDGER_WORDS = {
-  session: {
-    title: "Nothing has happened in this session yet.",
-    detail: "Entries appear here as people and agents work.",
-  },
-  channel: {
-    title: "Nothing has happened in this channel yet.",
-    detail: "Entries appear here as people and agents work in it.",
-  },
-} as const satisfies Readonly<Record<LedgerScope, { title: string; detail: string }>>;
 
 export interface LedgerViewportProps {
   /**
@@ -97,6 +69,15 @@ export interface LedgerViewportProps {
    * it to the session is how a channel pane came to say the session was empty.
    */
   readonly scope: LedgerScope;
+  /**
+   * The session's projected peer-invocation grant, where the read reported one.
+   *
+   * Read by the empty window and by nothing else here: a session that cannot let its
+   * sidekicks reach each other cannot hold a handoff row, and an empty log that does
+   * not say so reads as an absence of activity. `undefined` is the reply not carrying
+   * the member, which is not the same as off and renders the ordinary sentence.
+   */
+  readonly peerInvocationEnabled?: boolean | undefined;
   /** A turn is mid-flight — the same value the caller reconciled the binding with. */
   readonly hasActiveTurn?: boolean;
   readonly errorEntries?: readonly LedgerErrorEntry[];
@@ -153,11 +134,9 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
           })}
         </div>
         {snapshot.rows.length === 0 ? (
-          <Nothing
-            kind="empty"
-            placement="surface"
-            title={EMPTY_LEDGER_WORDS[props.scope].title}
-            detail={EMPTY_LEDGER_WORDS[props.scope].detail}
+          <EmptyLedgerWindow
+            scope={props.scope}
+            peerInvocationEnabled={props.peerInvocationEnabled}
           />
         ) : null}
         {/*

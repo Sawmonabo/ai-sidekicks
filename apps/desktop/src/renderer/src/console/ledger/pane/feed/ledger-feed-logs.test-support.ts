@@ -59,6 +59,31 @@ export const EARLY_JOINER = "participant-alba";
 /** The second of that pair — the one whose preferred step is already taken. */
 export const LATE_JOINER = "participant-enzo";
 
+/**
+ * A real store with a base state, no events, and one projected session row.
+ *
+ * The session row is the point: an empty window's sentence turns on the grant
+ * projected there, and a store initialised with no entities at all carries the
+ * ABSENT arm rather than either answer. `undefined` seeds exactly that — a session
+ * whose read never reported the member, which is a responder that predates it and
+ * not a session with the grant switched off.
+ */
+export function openEmptySessionStore(peerInvocationEnabled?: boolean): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({
+    cursor: -1,
+    entities: [
+      {
+        kind: "session",
+        id: SESSION_ID,
+        body: peerInvocationEnabled === undefined ? {} : { peerInvocationEnabled },
+      },
+    ],
+    participantJoinLog: [],
+  });
+  return sessionStore;
+}
+
 /** A real store holding a log of `count` run events, oldest first. */
 export function openSessionStoreWithFeedLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });

@@ -4,6 +4,12 @@
 // cap took, a row the replay position has not reached, and a sequence that never
 // arrived — and the failure this file guards is one being reported as another. The
 // seam is `LedgerFeed.test.tsx`'; the scaffolding is `LedgerFeedFixtures.test-support.tsx`'.
+//
+// AND THE WINDOW THAT HOLDS NOTHING AT ALL, which is a fifth thing and reads as an
+// absence of activity unless the session says otherwise. The rule that picks its
+// sentence has its own cases beside the module; what the last describe here asserts
+// is the WIRING — that the feed subscribes to the projected grant and hands it down,
+// which no assertion over a pure function can reach.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,7 +19,11 @@ import {
   renderFeed,
   withLaidOutViewport,
 } from "./LedgerFeedFixtures.test-support.js";
-import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.test-support.js";
+import {
+  SESSION_ID,
+  openEmptySessionStore,
+  openSessionStoreWithGeneralLog,
+} from "./ledger-feed-logs.test-support.js";
 import { SessionStore } from "../../../store/index.js";
 import { LedgerRowsAdmittedDuringReplayNotice } from "./LedgerRowsAdmittedDuringReplayNotice.js";
 
@@ -107,5 +117,39 @@ describe("the ledger feed — a session that moved on during a replay", () => {
       <LedgerRowsAdmittedDuringReplayNotice count={0} onEndReplay={() => undefined} />,
     );
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("the ledger feed — a window holding nothing", () => {
+  const CONTROL_NAME = "Sidekicks reaching each other";
+
+  it("names the peer-invocation control when the session reported the grant off", () => {
+    // A session that cannot let its sidekicks reach each other cannot hold a handoff
+    // row: every invocation is adjudicated per call against this projected member and
+    // answers denied, so the log staying empty is partly a setting rather than only a
+    // quiet session — and the window says which.
+    withLaidOutViewport();
+    const feed = renderFeed(openEmptySessionStore(false));
+    expect(feed.textContent).toContain("Nothing has happened in this session yet.");
+    expect(feed.textContent).toContain(CONTROL_NAME);
+  });
+
+  it("negative control: an enabled session's empty window names no control", () => {
+    // Without this the case above would pass over a feed that named the control on
+    // every empty session — telling a reader whose capability is on that it is off.
+    withLaidOutViewport();
+    const feed = renderFeed(openEmptySessionStore(true));
+    expect(feed.textContent).toContain("Nothing has happened in this session yet.");
+    expect(feed.textContent).not.toContain(CONTROL_NAME);
+  });
+
+  it("says nothing about the grant where the read never reported it", () => {
+    // The absent member is a responder that predates it and looks identical to an
+    // enabled session, so rendering it as off would tell somebody a capability they
+    // have is switched off.
+    withLaidOutViewport();
+    const feed = renderFeed(openEmptySessionStore());
+    expect(feed.textContent).toContain("Nothing has happened in this session yet.");
+    expect(feed.textContent).not.toContain(CONTROL_NAME);
   });
 });

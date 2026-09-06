@@ -1,5 +1,9 @@
-// The re-read that actually re-reads, and the fold that never turns absence into
-// "off".
+// The re-read that actually re-reads.
+//
+// The FOLD it reads back through is `store/peer-invocation-projection.ts`' and is
+// held to its own cases beside that module. What is asserted here is the act this
+// family owns — that pressing the offered recovery asks the daemon and lands the
+// reply — and the fold is the instrument the cases read the store back with.
 //
 // The property under test is the one a counter could not give: pressing the offered
 // recovery has to ask the daemon and land its reply in the store. So every case
@@ -16,10 +20,21 @@ import {
   SETTLE_ADVANCE_MS,
   bridgeReadingProjection as bridgeReading,
   drainScheduledReads,
-  sessionEntity,
   snapshotEnabling,
 } from "./agent-console.test-support.js";
-import { SessionProjectionReRead, peerInvocationEnabledIn } from "./session-projection.js";
+import { SessionProjectionReRead } from "./session-projection.js";
+
+/**
+ * What the store's session row says about the grant, read straight off the partition.
+ *
+ * The projected ROW rather than the fold over it, because what these cases are about
+ * is the re-read: whether the reply landed in the store at all. The fold's own rule —
+ * that an absent member is never `false` — is `store/peer-invocation-projection.ts`'s
+ * to state and its own co-located test's to check.
+ */
+function projectedGrantIn(sessionStore: SessionStore): unknown {
+  return sessionStore.snapshot().partitions.session[SESSION_ID]?.body?.["peerInvocationEnabled"];
+}
 
 describe("session projection — the settle window", () => {
   it("clears the trailing debounce without reaching the absolute deadline", () => {
@@ -32,52 +47,20 @@ describe("session projection — the settle window", () => {
   });
 });
 
-describe("session projection — the peer-invocation fold", () => {
-  it("reads a projected boolean through", () => {
-    const partition = { [SESSION_ID]: sessionEntity({ peerInvocationEnabled: true }) };
-    expect(peerInvocationEnabledIn(partition, SESSION_ID)).toBe(true);
-  });
-
-  it("negative control: a projected FALSE is false and never unknown", () => {
-    // Without this, the absence cases below would pass over a fold that answered
-    // `undefined` for everything — which would hide a session that reported off.
-    const partition = { [SESSION_ID]: sessionEntity({ peerInvocationEnabled: false }) };
-    expect(peerInvocationEnabledIn(partition, SESSION_ID)).toBe(false);
-  });
-
-  it("answers unknown for an absent member, an absent row, and a wrong type", () => {
-    // None of the three says the grant is off, and rendering `false` for any of
-    // them would present an enabled session as safe.
-    expect(
-      peerInvocationEnabledIn({ [SESSION_ID]: sessionEntity({}) }, SESSION_ID),
-    ).toBeUndefined();
-    expect(peerInvocationEnabledIn({}, SESSION_ID)).toBeUndefined();
-    expect(
-      peerInvocationEnabledIn(
-        { [SESSION_ID]: sessionEntity({ peerInvocationEnabled: "true" }) },
-        SESSION_ID,
-      ),
-    ).toBeUndefined();
-  });
-});
-
 describe("session projection — the re-read", () => {
   it("asks the daemon and lands the reply in the store", async () => {
     const bridge = bridgeReading(growthServing(snapshotEnabling(true)));
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const reRead = new SessionProjectionReRead({ bridge, sessionStore });
 
-    expect(peerInvocationEnabledIn(sessionStore.snapshot().partitions.session, SESSION_ID)) //
-      .toBeUndefined();
+    expect(projectedGrantIn(sessionStore)).toBeUndefined();
 
     reRead.request();
     await drainScheduledReads(bridge);
 
     expect(reRead.readCount).toBe(1);
     expect(reRead.refusal).toBeUndefined();
-    expect(peerInvocationEnabledIn(sessionStore.snapshot().partitions.session, SESSION_ID)).toBe(
-      true,
-    );
+    expect(projectedGrantIn(sessionStore)).toBe(true);
   });
 
   it("negative control: without the request nothing is read and nothing lands", async () => {
@@ -104,9 +87,7 @@ describe("session projection — the re-read", () => {
     await drainScheduledReads(bridge);
 
     expect(reRead.readCount).toBe(1);
-    expect(peerInvocationEnabledIn(sessionStore.snapshot().partitions.session, SESSION_ID)).toBe(
-      false,
-    );
+    expect(projectedGrantIn(sessionStore)).toBe(false);
   });
 
   it("renders the port's own refusal and leaves the projection untouched", async () => {

@@ -20,7 +20,13 @@
 // buffered, and clears the sticky degraded flag — and it refuses a snapshot behind
 // the cursor, so a re-read racing the window's own cannot undo newer events. A
 // surface that held the reply itself would be a second copy of the projection, and
-// the whole point of subscribing to the partition below is that there is one.
+// the whole point of subscribing to the store's own partition is that there is one.
+//
+// AND THE READING ITSELF IS NOT HERE. `usePeerInvocationProjection` and the fold it
+// runs live in `store/peer-invocation-projection.ts`, because a second view family —
+// the ledger's empty window — reads the same member and siblings may not import each
+// other. What stays in this module is the act this family can perform and that one
+// cannot: a bridge call.
 //
 // The reason carried is `"subscribe"`: this read is what a surface performs when it
 // needs the projection it is rendering from, which is the closest thing the closed
@@ -31,18 +37,12 @@
 // participant-request arm is registered there is `"participant-request"`, and the
 // change is this one argument and nothing else.
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
-import {
-  RefreshScheduler,
-  useSessionPartition,
-  useSubjectScopedState,
-  type ConsoleEntity,
-  type SessionStore,
-} from "../../store/index.js";
+import { RefreshScheduler, useSubjectScopedState, type SessionStore } from "../../store/index.js";
 
 /** Named in a refusal, so a failed re-read says which read failed. */
 export const SESSION_PROJECTION_ORIGIN = "session-projection";
@@ -70,56 +70,6 @@ const NO_SESSION_TO_READ: ConsoleRefusal = refuse(
   "no-session",
   "This console was not handed a session to read the projection from, so nothing was asked of the daemon.",
 );
-
-/**
- * Whether one session's projection reports the peer-invocation grant.
- *
- * `undefined` for BOTH an absent member and a member of the wrong type, which is
- * the honest fold: neither says the grant is off, and rendering `false` for either
- * would present an enabled session as safe.
- */
-export function peerInvocationEnabledIn(
-  sessionPartition: Readonly<Record<string, ConsoleEntity>>,
-  sessionId: string,
-): boolean | undefined {
-  const projected = sessionPartition[sessionId]?.body?.["peerInvocationEnabled"];
-  return typeof projected === "boolean" ? projected : undefined;
-}
-
-/**
- * One reading of the grant, and the projected row it was read from.
- *
- * The row travels beside the value because a surface holding a local settlement
- * has to know when the projection MOVED, and the value alone cannot say: a grant
- * that goes off and back on again reads identical at both ends, and a re-read that
- * answers the same way is still the daemon speaking more recently than any reply
- * this pane is remembering. The row is compared by identity and never read — the
- * store replaces it on every mutation of the session partition and on every
- * initialising read, which is exactly the set of moments that supersede a reply.
- */
-export interface PeerInvocationProjection {
-  readonly enabled: boolean | undefined;
-  readonly source: ConsoleEntity | undefined;
-}
-
-/** What a mount with no store to subscribe to reads. Nothing was projected. */
-export const NOTHING_PROJECTED: PeerInvocationProjection = {
-  enabled: undefined,
-  source: undefined,
-};
-
-/** One session's projected peer-invocation grant, as a subscription. */
-export function usePeerInvocationProjection(sessionStore: SessionStore): PeerInvocationProjection {
-  const sessionPartition = useSessionPartition(sessionStore, "session");
-  const { sessionId } = sessionStore;
-  return useMemo(
-    () => ({
-      enabled: peerInvocationEnabledIn(sessionPartition, sessionId),
-      source: sessionPartition[sessionId],
-    }),
-    [sessionPartition, sessionId],
-  );
-}
 
 /** A re-read of one session's projection, coalesced through the refresh chokepoint. */
 export class SessionProjectionReRead {

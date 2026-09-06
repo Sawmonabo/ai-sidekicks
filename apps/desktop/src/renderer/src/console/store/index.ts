@@ -116,6 +116,18 @@ export {
   useSessionProjectionRevision,
 } from "./hooks.js";
 
+// The peer-invocation grant, read off the session partition. Through this door
+// because its two readers are VIEW families and siblings cannot reach each other:
+// the agent console draws the control the grant belongs to, and the ledger's empty
+// window says why a session with the grant off holds no handoff rows. The fold is
+// one implementation for both — a second copy that answered `false` for an absent
+// member would present an enabled session as safe.
+// `peerInvocationEnabledIn` itself stays off this door: the hook is what both
+// surfaces read, the fold is the hook's own, and a door line whose only importer is
+// a test is a re-export with no production reader.
+export { NOTHING_PROJECTED, usePeerInvocationProjection } from "./peer-invocation-projection.js";
+export type { PeerInvocationProjection } from "./peer-invocation-projection.js";
+
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is
 // a scheduling decision — the console's other one, `scheduling.ts`, is its neighbour
 // — and because what it publishes is state a surface renders against rather than

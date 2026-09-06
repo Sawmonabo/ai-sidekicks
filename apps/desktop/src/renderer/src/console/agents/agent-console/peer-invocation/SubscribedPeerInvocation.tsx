@@ -1,7 +1,6 @@
 import { type AgentConsoleModels } from "../../run-console/agent-console-model.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { type SessionStore } from "../../../store/index.js";
-import { usePeerInvocationProjection } from "../session-projection.js";
+import { usePeerInvocationProjection, type SessionStore } from "../../../store/index.js";
 import { PeerInvocationControl } from "./PeerInvocationControl.js";
 
 /** The mounted arm, where a store exists and its partition subscription may run. */

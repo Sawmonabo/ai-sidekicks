@@ -71,7 +71,11 @@ export { LedgerRowGroup } from "./LedgerRowGroup.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
 export { LedgerRowRevealProvider, useLedgerRowReveal } from "./reveal/RowRevealProvider.js";
 export { useLedgerReveal } from "./reveal/reveal-binding.js";
-export { LedgerViewport, type LedgerScope } from "./viewport/LedgerViewport.js";
+export { LedgerViewport } from "./viewport/LedgerViewport.js";
+// From the module that DECLARES it rather than through the component that renders
+// it: the scope is what an empty window's sentence turns on, and the rule that
+// picks the sentence is the lowest consumer of the union.
+export { type LedgerScope } from "./viewport/empty-window-words.js";
 export { type LedgerRowRenderer } from "./LedgerRowMount.js";
 export { useLedgerViewport } from "./viewport/viewport-binding.js";
 export { type LedgerViewportRow } from "./viewport/viewport-snapshot.js";
