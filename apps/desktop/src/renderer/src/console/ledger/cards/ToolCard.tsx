@@ -17,7 +17,9 @@
 // WHAT IT DOES NOT DO. It does not read a tool FAMILY out of the tool's name — see
 // `card-family.ts` for why that would be the console asserting a fact the wire never
 // sent — so every tool renders through this one card, and the name renders wire-verbatim
-// in mono beside it.
+// in mono beside it. The same refusal decides how the BODY is drawn: the wire declares
+// no shape for a tool result, so it is drawn as prose rather than as terminal output
+// guessed at from the tool that produced it.
 
 import { readWireString } from "../../core/index.js";
 import { Chip, Glyph, LedgerRow, formatDuration, type ChipTone } from "../../primitives/index.js";
@@ -108,7 +110,16 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
           <MachineBody
             content={props.content}
             {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-            kind="command-output"
+            // PROSE, BECAUSE NOTHING SAYS OTHERWISE. The tool payload carries a name,
+            // a call id, a duration and the body's own descriptors, and no member at
+            // all that says what SHAPE the body is — no sub-family, no content type.
+            // A card that answered "ANSI" for every result was reading terminal output
+            // into an MCP reply, a web-search answer, and every other ordinary textual
+            // result, which then rendered in a raw block with its markdown showing.
+            // Prose is `MachineBody`'s own stated default for text whose shape the wire
+            // does not declare, and deriving one from the tool's NAME is the invention
+            // `card-family.ts` refuses.
+            kind="prose"
             sourceId={props.row.id}
             footnotes={props.footnotes}
             label={`Output of ${toolName ?? "an unnamed tool"}`}
