@@ -11,9 +11,11 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import {
+  ATTACHED_WORKSPACE_ID,
   DRIFTED_WORKSPACE_ID,
   GIT_WORKSPACE_ID,
 } from "../../bridge/scenarios/repos-fixture-data.js";
+import { ATTACHED_CANONICAL_ROOT } from "../../bridge/scenarios/repos-mutation-replies.js";
 import { SessionStore } from "../../store/index.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
 import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";
@@ -31,13 +33,16 @@ interface DisclosureUnderTest {
   readonly advanceUntil: (assert: () => void) => Promise<void>;
 }
 
-function renderDisclosure(workspaceId: string): DisclosureUnderTest {
+function renderDisclosure(
+  workspaceId: string,
+  mountCanonicalRoot: string = MOUNT_ROOT,
+): DisclosureUnderTest {
   const bridge: ConsoleBridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
   const { container } = render(
     <ExecutionContextDisclosure
       bridge={bridge}
       workspaceId={workspaceId}
-      mountCanonicalRoot={MOUNT_ROOT}
+      mountCanonicalRoot={mountCanonicalRoot}
       sessionStore={new SessionStore({ sessionId: REPOS_SCENARIO.sessionId })}
     />,
   );
@@ -60,6 +65,27 @@ describe("ExecutionContextDisclosure — the three roots", () => {
 
   it("says the roots differ in its summary, so the disclosure need not be opened", async () => {
     const disclosure = renderDisclosure(GIT_WORKSPACE_ID);
+    await disclosure.advanceUntil(() => {
+      expect(within(disclosure.container).getByText("the roots differ")).toBeDefined();
+    });
+  });
+
+  it("says all three agree where they do, so the disclosure need not be opened for that either", async () => {
+    // The attached mount's workspace is bound in the mount's own checkout, and the
+    // snapshot service normalizes to the root it was bound at — the one served reading
+    // in which the three rows really are one path.
+    const disclosure = renderDisclosure(ATTACHED_WORKSPACE_ID, ATTACHED_CANONICAL_ROOT);
+    await disclosure.advanceUntil(() => {
+      expect(within(disclosure.container).getByText("all three roots agree")).toBeDefined();
+    });
+  });
+
+  it("claims no agreement where the bound root and the checkout root agree with each other alone", async () => {
+    // The `worktree`-mode shape, which is what this disclosure is for: the execution
+    // root sits outside the mount it was attached as, and its normalized checkout root
+    // is that same root. The summary reads the mount root it was handed, so two roots
+    // agreeing is not three.
+    const disclosure = renderDisclosure(ATTACHED_WORKSPACE_ID, MOUNT_ROOT);
     await disclosure.advanceUntil(() => {
       expect(within(disclosure.container).getByText("the roots differ")).toBeDefined();
     });

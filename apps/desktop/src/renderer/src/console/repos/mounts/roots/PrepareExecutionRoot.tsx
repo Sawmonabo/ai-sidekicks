@@ -37,6 +37,7 @@ import type { PrepareReading } from "./prepare-controller.js";
 import {
   EMPTY_PREPARE_FORM,
   prepareFormVerdict,
+  prepareAcknowledgement,
   reuseConsentRequired,
   REUSE_VERDICT_COPY,
   type PrepareFormState,
@@ -103,8 +104,8 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       prepareClone(form.branchName);
       return;
     }
-    prepare(form.branchName, form.acknowledgeDirtyCandidate);
-  }, [form, formVerdict, isClone, prepare, prepareClone]);
+    prepare(form.branchName, prepareAcknowledgement(form, verdict));
+  }, [form, formVerdict, isClone, prepare, prepareClone, verdict]);
 
   if (props.executionMode === READ_ONLY_EXECUTION_MODE) {
     // NOTHING AT ALL, AND NOT A CLOSED CONTROL. A read-only workspace materialises no

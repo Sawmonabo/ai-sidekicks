@@ -11,6 +11,7 @@ import {
   CHECKOUT_ROOT_LABEL,
   MOUNT_ROOT_LABEL,
   executionPathRows,
+  executionRootsSummaryLine,
   fallbackBadgeFor,
   type WorkspaceExecutionContext,
 } from "./execution-context-model.js";
@@ -63,6 +64,68 @@ describe("executionPathRows — all three roots, in reading order", () => {
   it("negative control: a present checkout root carries no absence sentence", () => {
     const rows = executionPathRows(MOUNT_ROOT, context({ checkoutRoot: "/a/checkout" }));
     expect(rows[2]?.absence).toBeUndefined();
+  });
+});
+
+describe("executionRootsSummaryLine — the one line the summary has room for", () => {
+  it("claims agreement only when all three roots are byte-equal", () => {
+    const line = executionRootsSummaryLine(
+      { status: "read", context: context({ checkoutRoot: MOUNT_ROOT }) },
+      MOUNT_ROOT,
+    );
+    expect(line).toBe("all three roots agree");
+  });
+
+  it("reports a worktree-mode binding as disagreeing, though two of its roots agree", () => {
+    // The case the disclosure exists for: the execution root sits outside the mount it
+    // was attached as, and its normalized checkout root is that same root — so a
+    // summary reading the bound root against the checkout root ALONE would call three
+    // differing paths agreement, on the one binding whose roots most need reading.
+    const worktreeRoot = `${MOUNT_ROOT}-worktrees/implementer`;
+    const line = executionRootsSummaryLine(
+      {
+        status: "read",
+        context: context({ boundRoot: worktreeRoot, checkoutRoot: worktreeRoot }),
+      },
+      MOUNT_ROOT,
+    );
+    expect(line).toBe("the roots differ");
+  });
+
+  it("negative control: a mount root that differs from a bound root alone also differs", () => {
+    const line = executionRootsSummaryLine(
+      {
+        status: "read",
+        context: context({ boundRoot: "/a/bound", checkoutRoot: "/a/checkout" }),
+      },
+      MOUNT_ROOT,
+    );
+    expect(line).toBe("the roots differ");
+  });
+
+  it("says the checkout root is uncaptured rather than reading its absence as agreement", () => {
+    const line = executionRootsSummaryLine({ status: "read", context: context() }, MOUNT_ROOT);
+    expect(line).toBe("no captured checkout root");
+  });
+
+  it("keeps the three unserved readings apart from each other", () => {
+    // Rule 8's separation, at the one place a person reads before opening anything: a
+    // question never put, one in flight, and one the wire said no to are three lines.
+    expect(executionRootsSummaryLine({ status: "not-read" }, MOUNT_ROOT)).toBe("not read");
+    expect(executionRootsSummaryLine({ status: "reading" }, MOUNT_ROOT)).toBe("reading");
+    expect(
+      executionRootsSummaryLine(
+        {
+          status: "refused",
+          refusal: {
+            code: "workspace.not_found",
+            detail: "No workspace with that id is bound on this node.",
+            origin: "growth-port",
+          },
+        },
+        MOUNT_ROOT,
+      ),
+    ).toContain("workspace.not_found");
   });
 });
 

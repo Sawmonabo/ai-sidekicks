@@ -144,6 +144,59 @@ export function executionPathRows(
   ];
 }
 
+/**
+ * One honest line per reading, for a summary that has room for exactly one.
+ *
+ * TOTAL OVER THE FOUR ARMS, so a fifth would fail to compile here rather than falling
+ * through to a line about some other state. The served arm's line reports what the
+ * disclosure would show — whether the three roots agree — because that is the one
+ * question a person opens it to answer, and a summary that answered it saves the open.
+ *
+ * IT COMPARES ALL THREE AND NOT TWO OF THEM. The agreement claim is about the rows
+ * `executionPathRows` builds, and there are three of those: a summary that read the
+ * bound root against the checkout root alone would report agreement for every
+ * `worktree`-mode binding, whose execution root sits outside the mount it was attached
+ * as — which is the exact case this disclosure exists for. So the mount root is a
+ * parameter rather than a value this module could reach: it is the caller's, and a
+ * summary that had to guess at it would be guessing at the row that never moves.
+ */
+export function executionRootsSummaryLine(
+  reading: ExecutionContextReading,
+  mountCanonicalRoot: string,
+): string {
+  switch (reading.status) {
+    case "not-read":
+      return "not read";
+    case "reading":
+      return "reading";
+    case "refused":
+      return `not available — ${reading.refusal.code}`;
+    case "read":
+      return summaryLineForContext(reading.context, mountCanonicalRoot);
+  }
+}
+
+/**
+ * The served arm's line, which is a reading of the three rows rather than of two paths.
+ *
+ * Reads `executionPathRows`' own verdicts rather than re-comparing the strings here,
+ * so the summary and the table it summarises cannot disagree: a row that says it
+ * matches the one above it is the only evidence this line has, and there is one place
+ * that decides it.
+ */
+function summaryLineForContext(
+  context: WorkspaceExecutionContext,
+  mountCanonicalRoot: string,
+): string {
+  if (context.checkoutRoot === undefined) {
+    return "no captured checkout root";
+  }
+  const rows = executionPathRows(mountCanonicalRoot, context);
+  return rows.every((row, index) => index === 0 || row.matchesPrevious)
+    ? "all three roots agree"
+    : "the roots differ";
+}
+
 /** The badge a substituted execution mode wears, and the sentence beside it. */
 export interface FallbackBadge {
   /** What the chip says. Names the mode that was ASKED FOR, which is the surprising half. */

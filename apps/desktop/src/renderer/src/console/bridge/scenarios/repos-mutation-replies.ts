@@ -64,6 +64,16 @@ export const REPOS_EXECUTION_CONTEXT_CALL = "growth:workspaceExecutionContextRea
 /** The root the scenario's healthy git mount resolves to. */
 const GIT_CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
 
+/**
+ * The root the mount `repo.attach` mints resolves to.
+ *
+ * One constant because three replies state it — the attach that mints the mount, the
+ * read-only bind that answers with its `fsRoot`, and the execution context that runs
+ * there — and a fixture whose three views of one root were three literals would drift
+ * in exactly the direction the disclosure under test reads.
+ */
+export const ATTACHED_CANONICAL_ROOT = "/Users/dev/code/telemetry-agent";
+
 /** Where this scenario's worktrees live, one directory up from the checkout. */
 const WORKTREE_PARENT = "/Users/dev/code/ai-sidekicks-worktrees";
 
@@ -123,7 +133,7 @@ function attachResultFor(request: unknown): unknown {
     repoMountId: ATTACHED_MOUNT_ID,
     state: "attached",
     vcsType: "git",
-    canonicalRoot: "/Users/dev/code/telemetry-agent",
+    canonicalRoot: ATTACHED_CANONICAL_ROOT,
     defaultWorkspaceId: ATTACHED_WORKSPACE_ID,
   };
 }
@@ -158,7 +168,7 @@ function bindResultFor(request: unknown): unknown {
   if (executionMode === "read-only") {
     return {
       workspaceId: ATTACHED_WORKSPACE_ID,
-      fsRoot: "/Users/dev/code/telemetry-agent",
+      fsRoot: ATTACHED_CANONICAL_ROOT,
       executionMode,
       state: "ready",
     };
@@ -290,6 +300,13 @@ function disposeResultFor(request: unknown): unknown {
  * normal worktree mode, and a scenario in which nothing was ever substituted cannot draw
  * that badge at all.
  *
+ * THE ATTACHED WORKSPACE IS THE OTHER HALF OF THE COMPARISON, and it is the only
+ * binding whose three roots agree: it is bound in the mount's own checkout, so the
+ * snapshot service normalizes to the root it was bound at. Without it the summary's
+ * agreement arm is unreachable from any workspace this scenario holds, and a surface
+ * whose only served reading is a disagreement cannot show that it can tell the two
+ * apart.
+ *
  * The DRIFTED workspace is deliberately absent from this table: a mount whose binds are
  * already refusing has no execution context to report, and the disclosure draws that as
  * the unanswered question it is rather than as an absence of roots.
@@ -305,7 +322,11 @@ function executionContextResultFor(request: unknown): unknown {
     };
   }
   if (workspaceId === ATTACHED_WORKSPACE_ID) {
-    return { workspaceId, boundRoot: "/Users/dev/code/telemetry-agent" };
+    return {
+      workspaceId,
+      boundRoot: ATTACHED_CANONICAL_ROOT,
+      checkoutRoot: ATTACHED_CANONICAL_ROOT,
+    };
   }
   return undefined;
 }

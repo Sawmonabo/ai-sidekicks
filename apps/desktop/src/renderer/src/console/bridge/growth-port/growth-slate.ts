@@ -54,7 +54,6 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
-  // lane: cov-repos-a
   | "workspace-execution-context";
 
 export interface GrowthSlateRow {
@@ -385,7 +384,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
     wireRegistered: false,
   },
-  // lane: cov-repos-a
   "workspace-execution-context": {
     id: "workspace-execution-context",
     wire: "a workspace's own execution context — the normalized checkout root a turn-boundary snapshot operates on, and the marker that says a run is executing under a FALLBACK execution mode rather than the mode that was selected. Neither reaches a client: the checkout root is a column on run_execution_contexts and is carried by no reply, and no registered field anywhere carries the fallback marker, so the three roots a branch-mode workspace can hold cannot be shown together and a substituted mode cannot be told apart from a chosen one",
