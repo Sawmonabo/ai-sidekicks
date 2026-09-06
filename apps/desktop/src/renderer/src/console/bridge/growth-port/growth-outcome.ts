@@ -81,6 +81,36 @@ export interface GrowthServed<TValue> {
 
 export type GrowthOutcome<TValue> = GrowthServed<TValue> | GrowthUnavailable;
 
+/**
+ * What a surface holds for ONE growth-port read: the port's answer, or why there is none.
+ *
+ * TWO ARMS BECAUSE THE OUTCOME HAS ONE TOO FEW. `answered` is a call that RESOLVED —
+ * served, or `unavailable` with the reason already on it — so an ordinary refusal
+ * travels inside the outcome and needs no arm of its own here. `unreadable` is the
+ * other fact entirely: the call produced no outcome AT ALL. A rejected promise, a
+ * bridge torn down under a read still in flight, a delivery nothing could narrow —
+ * none of them is expressible as a {@link GrowthUnavailable}, whose `code` is a closed
+ * vocabulary this port owns and a caller does not, so an unreadable read carries the
+ * console's own {@link ConsoleRefusal} instead.
+ *
+ * THE MISSING ARM IS THE ONE THAT MATTERS MOST, because leaving it out is silent: a
+ * `.then` with no rejection handler leaves the cell untouched, so the surface goes on
+ * rendering its not-loaded absence for the life of the window while an unhandled
+ * rejection reaches it. That is a read which FAILED reported as a read still IN
+ * FLIGHT, which is exactly the conflation the console's five kinds of nothing exist to
+ * prevent.
+ *
+ * GENERIC IN THE OUTCOME, AND DECLARED ONCE HERE. Every view family is a sibling of
+ * every other, so a family that wrote these two arms for itself could not share them
+ * with the next one that needs them — and two copies are two vocabularies for one
+ * fact. It sits beside {@link GrowthOutcome} because that is what its answered arm
+ * carries, and because this module is already the half of the port a caller writes
+ * code against.
+ */
+export type GrowthReading<TOutcome> =
+  | { readonly kind: "answered"; readonly outcome: TOutcome }
+  | { readonly kind: "unreadable"; readonly refusal: ConsoleRefusal };
+
 /** A subscription's served form: an async iterable the caller drains and closes. */
 export interface GrowthStream<TEvent> {
   readonly events: AsyncIterable<TEvent>;

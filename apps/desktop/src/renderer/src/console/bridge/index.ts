@@ -90,6 +90,23 @@ export { growthUnavailable } from "./growth-port/growth-port.js";
 export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
+// The two-arm reading a surface holds for one such call — the port's answer, or the
+// refusal a call that produced none was read as. Through this door and deliberately
+// not through `growth-port/index.js`: no sibling inside `bridge/` takes it, and an
+// inner barrel line no sibling reaches is a dead export `structure:dead-code` reports,
+// which is how two speculative lines came off that door already.
+//
+// The claim is the line-comment spelling and not a `@consumedBy` JSDoc tag, measured
+// rather than chosen: knip does not report a specifier on THIS door at all — a planted
+// dead type re-exported here raised nothing, where the same type re-exported through
+// `seats/index.ts` was reported at both its declaration and its specifier — so a JSDoc
+// tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on it.
+// `barrel-census.test.ts` is the gate that does report it, and it reads either
+// spelling, so the line comment satisfies the instrument that has the claim.
+export type {
+  // Consumed by T-023p-1C-4
+  GrowthReading,
+} from "./growth-port/growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
