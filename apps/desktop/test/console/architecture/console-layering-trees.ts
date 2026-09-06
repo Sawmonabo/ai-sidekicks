@@ -203,9 +203,10 @@ export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
  * family ORDERING has no such subtraction, because a harness reaching upward is the
  * same inversion an ordinary module's edge is — the symbol it wants lives above the
  * family that needs it, and the remedy is to hoist the symbol rather than to exempt
- * the reader. `store/microtask-drain.test-support.ts` was exactly this shape in
- * production: a timing helper parked in `bridge/fixture/` that `store/` and `frame/`
- * suites both waited on.
+ * the reader. `drainMicrotasks` was exactly this shape in production: a timing helper
+ * parked in `bridge/fixture/fixture-bridge.test-support.ts` that `store/` and `frame/`
+ * suites both waited on, hoisted by this branch to
+ * `core/microtask-drain.test-support.ts`.
  *
  * WHY A `.test-support.*` MODULE RATHER THAN THE SUITE THAT FOUND THE DEFECT. The
  * suite is a `.test.tsx`, and `options.exclude` in `.dependency-cruiser.mjs` removes
@@ -270,12 +271,37 @@ export const CONSOLE_ROOT_TREE: PlantedTree = {
 };
 
 /**
- * Every tree that carries a rule control — the clean shape and the eleven that offend.
+ * A module that SHIPS importing a `.test-support` sibling, beside a harness doing it.
+ *
+ * WHAT MAKES THE TEST-SUPPORT SUBTRACTIONS SAFE, planted rather than argued. Two rules
+ * subtract `.test-support.*` from their source side, so a production module that
+ * imported one would reach whatever that harness reaches with neither of them
+ * reporting anything. What closes that is a rule on the edge itself, and this is its
+ * control.
+ *
+ * TWO MODULES WRITE THE SAME EDGE, on the discriminating shape the two trees above
+ * take: the ordinary module is reported and the harness beside it is not, so a source
+ * subtraction dropped from the rule empties the harness expectation and a subtraction
+ * widened to every importer empties the ordinary one.
+ *
+ * BOTH EDGES ARE INTRA-FAMILY, so this tree offends exactly one rule: a cross-family
+ * specifier would trip the door rule as well, on the ordinary module only, and a
+ * control that fires two rules asymmetrically cannot say which of them bit.
+ */
+export const SHIPPING_TEST_SUPPORT_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "store/settle.test-support.ts": `export interface SettledDirectory {\n  readonly settled: boolean;\n}\n`,
+  "store/session-directory-store.ts": `import type { SettledDirectory } from "./settle.test-support.js";\n\nexport type StoredDirectory = SettledDirectory;\n`,
+  "store/seeded.test-support.ts": `import type { SettledDirectory } from "./settle.test-support.js";\n\nexport type SeededDirectory = SettledDirectory;\n`,
+};
+
+/**
+ * Every tree that carries a rule control — the clean shape and the ones that offend.
  *
  * The aggregate case below reads this rather than naming three of them, so a control
- * added for a fifth rule joins that case's quantifier by construction. `PROOF_TREE` is
- * deliberately not here: the cleanup case that plants it is the one case whose claim
- * is that no earlier case named it.
+ * added for a further rule joins that case's quantifier by construction. `PROOF_TREE`
+ * is deliberately not here: the cleanup case that plants it is the one case whose
+ * claim is that no earlier case named it.
  */
 export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   CLEAN_TREE,
@@ -288,6 +314,7 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   DEEP_SOURCE_TREE,
   TEST_SUPPORT_SUBTRACTION_TREE,
   TEST_SUPPORT_UPWARD_EDGE_TREE,
+  SHIPPING_TEST_SUPPORT_TREE,
   OUTSIDE_RENDERER_TREE,
   CONSOLE_ROOT_TREE,
 ];
