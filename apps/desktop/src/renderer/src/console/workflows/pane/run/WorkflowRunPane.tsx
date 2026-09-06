@@ -57,11 +57,12 @@
 //
 // WHY THE CONTROLS RENDER BESIDE AN UNREAD RUN AND THE PLAN-017 BODIES DO NOT MAKE
 // THAT ODD. "Can I stop this run?" is the first question an operator opening this
-// pane has, and it needs no read to answer: the controls are a projection of what
-// the daemon admitted, and on this build nothing admits them because no workflow
-// operation is on the bridge. Rendering that as a typed refusal is the same honesty
-// the growth port gives every other surface; hiding it would leave an operator
-// waiting for a button that is never going to appear.
+// pane has, and it needs no read to answer: both controls are addressed by the run id
+// this pane was handed, and the snapshot is not an input to either call. So they are
+// OFFERED on this arm whatever the read is doing, and the press puts the question —
+// `run-control-dispatch.ts` owns the call, the single flight and the settlement.
+// Hiding a control until a read lands would leave an operator waiting for a button
+// while the act it performs was reachable the whole time.
 //
 // AN ADDRESS IS CHECKED BEFORE IT IS USED, AND THE CHECK STAYS WHEN THE TYPE SAYS IT
 // CANNOT FAIL. The pane used to read `entity.id` on any kind at all, so a
@@ -81,13 +82,15 @@
 // the Plan-017 body this pane mounts as much as it binds the cards beside it, which
 // is why it is stated on the body that composes both rather than only on one of them.
 //
-// WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so every one
-// of these operations lives on the growth port behind the workflow slate row rather
-// than on a bridge namespace. The READ is reachable there and this pane puts it: the
-// fixture answers it from the running scenario, and a build with no answer gets the
-// port's own typed refusal naming who owes the wire. The controls, the gate
-// resolution and the phase-output read are not: no scenario settles a workflow
-// mutation, so those still render a refusal and call nothing.
+// WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so every one of
+// these operations lives on the growth port behind the workflow slate row rather than
+// on a bridge namespace. All three this pane reaches — the run read and the two
+// controls — are registered THERE, so all three are put and none is refused here: the
+// fixture answers the read from the running scenario and deliberately settles no
+// mutation, so under it a press gets the port's own typed refusal naming the wire and
+// who owes it. That refusal is the port's, never composed at this mount site; a mount
+// that built its own would be asserting a wire fact nobody checked, which is exactly
+// what these two controls used to do while the operations sat on the ledger.
 
 import { Nothing } from "../../../primitives/index.js";
 import { ChatStartSlot } from "../../ChatStartSlot.js";
@@ -96,8 +99,9 @@ import { refusedWorkflowStrip } from "../../strip-state.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../../seats/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import { OperatorControls } from "./OperatorControls.js";
+import type { WorkflowVersionChoice } from "./run-controls.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
-import { unregisteredRunControl } from "./run-controls.js";
+import { useRunControlDispatch } from "./run-control-dispatch.js";
 import { RunReadState } from "./RunReadState.js";
 import { useWorkflowRunSnapshot } from "./run-snapshot.js";
 import { useHumanFormSelection } from "./human-form-selection.js";
@@ -106,6 +110,19 @@ import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 
 /** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "One run's state, its phases, and why anything is parked.";
+
+/**
+ * The version chain a resume may re-pin onto, which this pane can read nowhere.
+ *
+ * EMPTY IS A READING AND NOT A PLACEHOLDER. `workflow.runRead` answers one
+ * `workflowVersionId` — the pin the run is on — and no registered read maps a version
+ * id back to the chain it belongs to; `workflow.versionRead` addresses by
+ * `(definitionId, versionNumber)`, and this pane holds neither. So no target can be
+ * NAMED, which is exactly what the control's empty chain means: the picker is absent
+ * rather than empty, and the resume travels with no re-pin. Synthesising a chain from
+ * the one id in hand would offer the operator a target nobody read.
+ */
+const NO_VERSION_CHAIN: readonly WorkflowVersionChoice[] = [];
 
 export interface WorkflowRunPaneProps {
   readonly context: PaneContextOf<"workflow-run">;
@@ -125,10 +142,20 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // of another kind supplies nothing, so the read below is `unasked` on exactly the
   // arm that refuses — rather than in flight against an id that names no run.
   const addressedRunId = entity?.kind === WORKFLOW_RUN_PANE_SUBJECT_KIND ? entity.id : undefined;
-  // Called before the two absent arms return, because a hook may not sit behind a
-  // branch. With no run named the read is `unasked`, which is the honest state and
-  // the one those arms never render.
-  const snapshot = useWorkflowRunSnapshot(bridge.growth, addressedRunId);
+  // Both are called before the two absent arms return, because a hook may not sit
+  // behind a branch. With no run named the controls compose nothing and the read is
+  // `unasked`, which is the honest state and the one those arms never render.
+  //
+  // THE CONTROLS COME FIRST BECAUSE THE READ'S ROUND COMES OUT OF THEM. A control whose
+  // act the daemon served has changed the run this pane is showing, so the read is put
+  // again rather than the reply's own state being spliced into the snapshot on screen —
+  // one further read per served act, driven by the settlement and by no timer.
+  const runControls = useRunControlDispatch(bridge.growth, addressedRunId, NO_VERSION_CHAIN);
+  const snapshot = useWorkflowRunSnapshot(
+    bridge.growth,
+    addressedRunId,
+    runControls.servedActCount,
+  );
   // Called before the absent arms return, for the same reason the read is: a hook may
   // not sit behind a branch. With no snapshot served there is no wait to select and the
   // selection resolves to nothing, which is what the arms below already render.
@@ -193,8 +220,11 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
           // retargeted in place must not carry either into the next one.
           growth={bridge.growth}
           workflowRunId={entity.id}
-          cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-          resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+          // Straight from the dispatcher, which composed the calls against the growth
+          // port. Nothing is decided here: this mount site adjudicates no eligibility
+          // and states no wire fact, which is the whole of what it got wrong before.
+          cancel={runControls.cancel}
+          resume={runControls.resume}
         />
         <RunDetailSlot
           workflowRunId={entity.id}

@@ -19,11 +19,20 @@
 // door, which is where it lives: it settles a promise the growth port returned and
 // knows nothing about a run.
 //
-// ONE READ PER MOUNT, AND NO POLLING. `Spec-017`'s run lifecycle is evented, and the
-// event types that would carry it are registered nowhere yet, so this hook reads
-// once and says so rather than re-reading on a timer — which would be a console
-// inventing a refresh cadence for a stream it will later subscribe to, and holding
-// two answers to one question in the meantime.
+// ONE READ PER ROUND, AND NO POLLING. `Spec-017`'s run lifecycle is evented, and
+// `packages/contracts` registers none of those event types — so there is no stream to
+// subscribe to and no seam that re-reads on one. This hook therefore never re-reads on
+// a timer, which would be a console inventing a refresh cadence for a stream it will
+// later subscribe to and holding two answers to one question in the meantime.
+//
+// WHAT IT DOES DO is re-read once per ROUND, and a round advances for one reason: an
+// operator's own act came back served, so the run this window is showing has changed
+// and the caller says so by handing the next round. That is a re-arm and not a
+// cadence — bounded by acts a person performed, zero of them if nobody presses
+// anything — and it is why the round joins the SUBJECT KEY rather than sitting beside
+// it: the seed rule then re-states the read as `reading` for the new round during the
+// render that brings it, exactly as it does for a new run, so no frame shows the
+// previous round's snapshot as though it were the answer to the new question.
 
 import {
   useSettledGrowthRead,
@@ -68,11 +77,12 @@ export type WorkflowRunSnapshotState = SubjectRead<SettledRunSnapshot>;
 export function useWorkflowRunSnapshot(
   growth: GrowthPort,
   workflowRunId: string | undefined,
+  readRound: number,
 ): WorkflowRunSnapshotState {
   return useSettledGrowthRead<
     Awaited<ReturnType<GrowthPort["workflowRunRead"]>>,
     WorkflowRunSnapshotState
-  >(growth, workflowRunId, (subject) => readRun(growth, subject), {
+  >(growth, readSubjectKey(workflowRunId, readRound), () => readRun(growth, workflowRunId), {
     unsettled: subjectReadStart,
     settled: (settlement) =>
       settlement.status === "served"
@@ -82,10 +92,29 @@ export function useWorkflowRunSnapshot(
 }
 
 /**
+ * The subject this read is held at: the run, and which round of it is being asked.
+ *
+ * A DERIVED KEY, which is the shape `subject-scoped-state.ts` names for a subject
+ * compared by value rather than by identity — the comparison happens in one place, on
+ * a string, and which facts make up the subject is the caller's to decide. Both facts
+ * belong: a new run is a different question, and a new round is the same question put
+ * again because the run moved under the answer in hand.
+ *
+ * `undefined` where no run is named, so the seed rule still answers `unasked` rather
+ * than `reading` — a round number alone is not a question anyone can put.
+ */
+function readSubjectKey(workflowRunId: string | undefined, readRound: number): string | undefined {
+  return workflowRunId === undefined ? undefined : `${workflowRunId}#${String(readRound)}`;
+}
+
+/**
  * The run read, or no question at all.
  *
  * The request carries a required run id, so a pane naming none has nothing to ask —
  * the `unasked` state — and the absence is answered here, where the request is built.
+ * Taken from the caller's own argument rather than off the subject key, because that
+ * key carries the round as well and a request built from it would address a run id
+ * that does not exist.
  */
 function readRun(
   growth: GrowthPort,

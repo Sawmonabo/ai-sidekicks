@@ -1,16 +1,21 @@
-// What the controls must never do, asserted as things they cannot do.
+// What the FORMS must never do, asserted as things they cannot do.
 //
-// Four rules, four groups. Each one is checked on the shape rather than on the copy
+// Three rules, three groups. Each one is checked on the shape rather than on the copy
 // — a `disabled` attribute, an option list, the argument a call received — because
 // the copy is this family's to reword and the shape is the rule.
+//
+// What the component does with an OUTCOME is a different subject and lives next door
+// in `OperatorControls.outcome.test.tsx`: these cases are about what an operator can
+// compose and submit, those are about what comes back. What the CHAIN does when it
+// moves under a held selection is a third, in `OperatorControls.chain-move.test.tsx`.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../../bridge/index.js";
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../constants.js";
-import { OperatorControls, type OperatorControlsProps } from "./OperatorControls.js";
-import { unregisteredRunControl, type WorkflowVersionChoice } from "./run-controls.js";
+import { OperatorControls } from "./OperatorControls.js";
+import { IDLE_RUN_CONTROL_OUTCOME, type WorkflowVersionChoice } from "./run-controls.js";
 
 /**
  * The address the controls hold their two fields against.
@@ -33,45 +38,10 @@ const RUN_A_ADDRESS = { growth: {} as GrowthPort, workflowRunId: "run-a" } as co
  */
 const NO_REPIN_VALUE = "";
 
-/** Both controls refused, which is every arm this build can actually reach. */
-const BOTH_REFUSED: OperatorControlsProps = {
-  ...RUN_A_ADDRESS,
-  cancel: { kind: "refused", refusal: unregisteredRunControl("cancel") },
-  resume: { kind: "refused", refusal: unregisteredRunControl("resume") },
-};
-
 const VERSION_CHAIN: readonly WorkflowVersionChoice[] = [
   { workflowVersionId: "wfv-03", label: "Version 3", isCurrentPin: true },
   { workflowVersionId: "wfv-02", label: "Version 2", isCurrentPin: false },
 ];
-
-describe("a refused control renders its refusal and offers no press", () => {
-  it("draws no button on either refused arm", () => {
-    render(<OperatorControls {...BOTH_REFUSED} />);
-    // Not "a disabled button": a control that leads nowhere is ABSENT, and the
-    // refusal stands where it would have been. A disabled button is a promise that
-    // something could enable it, and on this build nothing can.
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-  });
-
-  it("renders both refusal codes verbatim", () => {
-    render(<OperatorControls {...BOTH_REFUSED} />);
-    expect(screen.getAllByText("wire-unregistered")).toHaveLength(2);
-  });
-
-  it("negative control: an admitted pair draws two buttons", () => {
-    // Without this, the first case would pass over a component that rendered no
-    // button on any arm at all.
-    render(
-      <OperatorControls
-        {...RUN_A_ADDRESS}
-        cancel={{ kind: "admitted", cancel: vi.fn() }}
-        resume={{ kind: "admitted", resume: vi.fn(), versionChain: [] }}
-      />,
-    );
-    expect(screen.queryAllByRole("button")).toHaveLength(2);
-  });
-});
 
 describe("cancel is never gated, queued or disabled", () => {
   it("submits with no reason when the operator gave none", () => {
@@ -79,8 +49,8 @@ describe("cancel is never gated, queued or disabled", () => {
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "admitted", cancel }}
-        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+        cancel={{ cancel, outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /cancel this run/iu }));
@@ -92,8 +62,8 @@ describe("cancel is never gated, queued or disabled", () => {
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "admitted", cancel }}
-        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+        cancel={{ cancel, outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "superseded" } });
@@ -106,8 +76,8 @@ describe("cancel is never gated, queued or disabled", () => {
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "admitted", cancel }}
-        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+        cancel={{ cancel, outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     fireEvent.change(screen.getByLabelText("Reason"), {
@@ -131,8 +101,8 @@ describe("cancel is never gated, queued or disabled", () => {
     const { container } = render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "admitted", cancel }}
-        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+        cancel={{ cancel, outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     const disclosure = container.querySelector("details");
@@ -165,8 +135,8 @@ describe("cancel is never gated, queued or disabled", () => {
     const { container } = render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "admitted", cancel }}
-        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+        cancel={{ cancel, outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     const disclosure = container.querySelector("details");
@@ -186,8 +156,8 @@ describe("cancel is never gated, queued or disabled", () => {
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "admitted", cancel }}
-        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+        cancel={{ cancel, outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     fireEvent.change(screen.getByLabelText("Reason"), { target: { value: atBound } });
@@ -202,8 +172,8 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-        resume={{ kind: "admitted", resume: vi.fn(), versionChain: [] }}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     expect(screen.queryByRole("combobox")).toBeNull();
@@ -214,8 +184,8 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-        resume={{ kind: "admitted", resume, versionChain: VERSION_CHAIN }}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume, versionChain: VERSION_CHAIN, outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /resume this run/iu }));
@@ -227,8 +197,8 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-        resume={{ kind: "admitted", resume, versionChain: VERSION_CHAIN }}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume, versionChain: VERSION_CHAIN, outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "wfv-02" } });
@@ -240,8 +210,8 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-        resume={{ kind: "admitted", resume: vi.fn(), versionChain: VERSION_CHAIN }}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: VERSION_CHAIN, outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     // The value list is the assertion, not the labels: a "latest" option would have
@@ -258,8 +228,8 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
-        cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-        resume={{ kind: "admitted", resume: vi.fn(), versionChain: [] }}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
     expect(screen.queryAllByRole("option")).toHaveLength(0);
@@ -292,8 +262,12 @@ describe("the two fields are answers about one run", () => {
       <OperatorControls
         growth={RUN_A_ADDRESS.growth}
         workflowRunId={props.workflowRunId}
-        cancel={{ kind: "admitted", cancel: vi.fn() }}
-        resume={{ kind: "admitted", resume: props.resume, versionChain: props.versionChain }}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{
+          resume: props.resume,
+          versionChain: props.versionChain,
+          outcome: IDLE_RUN_CONTROL_OUTCOME,
+        }}
       />
     );
   }

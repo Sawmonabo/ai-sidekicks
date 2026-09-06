@@ -30,6 +30,7 @@ import { refuse } from "../core/index.js";
 import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
 import { OperatorControls } from "./pane/run/OperatorControls.js";
+import { IDLE_RUN_CONTROL_OUTCOME } from "./pane/run/run-controls.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { refusedWorkflowStrip, unaskedWorkflowStrip } from "./strip-state.js";
 import { PROBE_SESSION_ID } from "./WorkflowsBrowser.test-support.js";
@@ -120,8 +121,12 @@ describe("definitions browser — how the surface names itself", () => {
       <OperatorControls
         growth={{} as GrowthPort}
         workflowRunId="run-scale"
-        cancel={{ kind: "admitted", cancel: () => undefined }}
-        resume={{ kind: "admitted", resume: () => undefined, versionChain: [] }}
+        cancel={{ cancel: () => undefined, outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{
+          resume: () => undefined,
+          versionChain: [],
+          outcome: IDLE_RUN_CONTROL_OUTCOME,
+        }}
       />,
     );
     const drawn = [
@@ -130,7 +135,7 @@ describe("definitions browser — how the surface names itself", () => {
     ];
     const scale = `${String(GLYPH_SIZE_CHROME)}x${String(GLYPH_SIZE_CHROME)}`;
     // A floor first: an assertion over no glyphs at all would be satisfied by a header
-    // that drew none and controls that were refused into prose.
+    // that drew none and controls that rendered no action button.
     expect(drawn.length).toBeGreaterThanOrEqual(3);
     expect(new Set(drawn)).toStrictEqual(new Set([scale]));
   });

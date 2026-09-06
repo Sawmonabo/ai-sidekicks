@@ -35,15 +35,6 @@
   border-radius: var(--meridian-radius-md);
 }
 
-/* The control's name where the control itself is refused and so is not drawn. */
-.meridian-run-controls__label {
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--meridian-text-muted);
-}
-
 .meridian-run-controls__head {
   display: flex;
   flex-direction: column;
@@ -124,7 +115,13 @@
   outline-offset: 2px;
 }
 
+/*
+ * What the port answered the last press, beside the button that asked. Set at the
+ * quiet size the budget and the re-pin target line use: it reports on an act that has
+ * already happened, and it must not out-shout the control it stands under.
+ */
 .meridian-run-controls__budget,
+.meridian-run-controls__outcome,
 .meridian-run-controls__repin-target {
   display: flex;
   gap: var(--meridian-space-1);

@@ -131,12 +131,7 @@ export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 // hook the four growth reads on this seam now share — names both in its signature.
 export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
-export {
-  /** @consumedBy T-023p-1C-8 */
-  GenerationLatch,
-  /** @consumedBy T-023p-1C-8 */
-  useGenerationLatch,
-} from "./generation-latch.js";
+export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
 export type {
   /** @consumedBy T-023p-1C-8 */
   CurrentGenerationClaim,

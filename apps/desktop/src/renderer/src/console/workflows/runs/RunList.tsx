@@ -11,13 +11,19 @@
 // until the rule was given an instrument, and the row was the component a reader
 // looking for it could only find by opening the list.
 //
-// NO WIRE FEEDS THIS YET. `packages/contracts` registers no `workflow.*` method and
-// no `workflow.*` event type, and the thirteen-operation workflow registry has no
-// run enumeration at all — `runStart`, `runRead`, `runCancel`, and `runResume`
-// address one run by an id the caller must already hold. So the snapshots reach this
-// component from its caller, and a caller with no answer renders the surface's
-// `not-checked` absence rather than an empty list, because "nobody asked" and "there
-// are none" are different facts.
+// WHERE THE ROWS COME FROM, AND WHAT STILL HAS NO WIRE. `packages/contracts` registers
+// no `workflow.*` method and no `workflow.*` event type — true when this was written
+// and true now — but the enumeration is no longer unreachable: it rides the growth
+// port's `workflowRunList` on the `workflow-run-enumeration` slate row, which
+// `runs/run-directory.ts` puts and the workflows scenario answers. That row exists
+// BECAUSE the thirteen-operation workflow registry carries no run enumeration at all —
+// `runStart`, `runRead`, `runCancel`, and `runResume` each address one run by an id
+// the caller must already hold — so the slate names a wire the corpus still owes
+// rather than a method it already has.
+//
+// Either way the projection reaches this component from its caller, and a caller with
+// no answer renders the surface's `not-checked` absence rather than an empty list,
+// because "nobody asked" and "there are none" are different facts.
 
 import { DerivedFigure, Nothing, formatCount } from "../../primitives/index.js";
 import { RunListItem } from "./RunListItem.js";

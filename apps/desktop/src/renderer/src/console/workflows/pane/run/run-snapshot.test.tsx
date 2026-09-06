@@ -3,6 +3,11 @@
 // Every case drives a REAL growth port — the fixture's over a scenario that scripts
 // what the case is about, or the refusing one — rather than a promise shaped like one.
 // A stand-in port would agree with whatever the hook did with it.
+//
+// The two subjects this file does NOT carry are next door, each because it varies a
+// different input: `run-snapshot.rounds.test.tsx` holds the answer and the address
+// still and varies the ROUND, and the scaffolding all three suites mount through is
+// `run-snapshot.test-support.tsx`.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,6 +28,12 @@ import {
   observeSubjectRead,
 } from "../../../store/subject-read-commits.test-support.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
+import {
+  FIRST_ROUND,
+  SnapshotProbe,
+  runReadingGrowthPort,
+  settle,
+} from "./run-snapshot.test-support.js";
 import { PROBE_SESSION_ID } from "../../WorkflowsBrowser.test-support.js";
 
 const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
@@ -52,19 +63,19 @@ function scenarioAnsweringTheRunRead(replies: readonly ScenarioReply[]): Console
   };
 }
 
-function SnapshotProbe(props: {
-  readonly growth: GrowthPort;
-  readonly workflowRunId: string | undefined;
-  readonly onObserve: (state: WorkflowRunSnapshotState) => void;
-}): React.JSX.Element {
-  props.onObserve(useWorkflowRunSnapshot(props.growth, props.workflowRunId));
-  return <></>;
-}
-
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
+/**
+ * The hook at the first round, for the shared commit observer.
+ *
+ * `observeSubjectRead` drives a `(source, subject)` hook and is the substrate's own —
+ * widening it for one caller's third argument would put this read's re-arm rule into a
+ * helper four families share. The round is bound here instead, which is exactly what
+ * those cases mean: the port and the run move, the round does not.
+ */
+function useSnapshotAtFirstRound(
+  growth: GrowthPort,
+  workflowRunId: string | undefined,
+): WorkflowRunSnapshotState {
+  return useWorkflowRunSnapshot(growth, workflowRunId, FIRST_ROUND);
 }
 
 function observeSnapshot(
@@ -98,22 +109,6 @@ function retargetableSnapshot(
     observed,
     retarget: (next) => {
       view.rerender(<SnapshotProbe growth={growth} workflowRunId={next} onObserve={collect} />);
-    },
-  };
-}
-
-/** The real port answering the run read from the fixture's own runs, by id. */
-function runReadingGrowthPort(): GrowthPort {
-  return {
-    ...createRefusingGrowthPort(),
-    workflowRunRead: async ({ workflowRunId }) => {
-      const run = WORKFLOWS_SCENARIO_RUNS.find(
-        (candidate) => candidate.workflowRunId === workflowRunId,
-      );
-      if (run === undefined) {
-        throw new Error(`no fixture run with id ${workflowRunId}`);
-      }
-      return { status: "served", value: run };
     },
   };
 }
@@ -275,7 +270,7 @@ describe("useWorkflowRunSnapshot — the port is half of what the read is about"
     // committed the previous scenario's phases and park cards under the new one and only
     // the passive effect afterwards took them down. The cases here read what each COMMIT
     // carried, which is the only vantage that can tell the two hooks apart.
-    const probe = observeSubjectRead(useWorkflowRunSnapshot, {
+    const probe = observeSubjectRead(useSnapshotAtFirstRound, {
       source: phaseTruncatingGrowthPort(2),
       subject: WORKFLOWS_PARKED_RUN.workflowRunId,
     });
@@ -302,7 +297,7 @@ describe("useWorkflowRunSnapshot — the port is half of what the read is about"
     // Without this, the case above passes for a hook that reset on every render, which
     // would re-read the run forever and never show a snapshot at all.
     const growth = phaseTruncatingGrowthPort(2);
-    const probe = observeSubjectRead(useWorkflowRunSnapshot, {
+    const probe = observeSubjectRead(useSnapshotAtFirstRound, {
       source: growth,
       subject: WORKFLOWS_PARKED_RUN.workflowRunId,
     });
