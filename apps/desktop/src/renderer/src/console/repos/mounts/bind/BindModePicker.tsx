@@ -14,14 +14,14 @@
 // with its reason rather than disappearing.
 
 import { WireFigure } from "../../../primitives/index.js";
-import type { BindModeOption } from "./bind-model.js";
+import type { ModeRow } from "../mode-row.js";
 
 export interface BindModePickerProps {
-  readonly options: readonly BindModeOption[];
+  readonly options: readonly ModeRow[];
   readonly selectedMode: string | undefined;
   /** Every radio in one group needs one name; the caller's dialog supplies it. */
   readonly groupName: string;
-  readonly onSelect: (mode: BindModeOption["mode"]) => void;
+  readonly onSelect: (mode: ModeRow["mode"]) => void;
 }
 
 export function BindModePicker(props: BindModePickerProps): React.JSX.Element {
@@ -48,10 +48,16 @@ export function BindModePicker(props: BindModePickerProps): React.JSX.Element {
             }}
           />
           <WireFigure value={option.mode} title={option.mode} />
-          {option.available ? null : (
-            <span className="meridian-bind__mode-reason">
-              {option.restrictionReason ?? "This mount gave no reason for excluding this mode."}
-            </span>
+          {/* THE REASON IS RENDERED WHENEVER THE REPLY CARRIED ONE, available arm
+              included, exactly as `ModeRowView.tsx` renders it. A mount that names a
+              mode in BOTH halves of its reply is malformed, and `mode-row.ts` offers
+              the row — the reply is the authority on what is admitted — while keeping
+              what the daemon said about it; a picker that drew the reason only on the
+              excluded arm would hide that half, which is the drift the second copy of
+              that derivation carried. The row with no reason on file says nothing
+              rather than composing a sentence the daemon did not send. */}
+          {option.restrictionReason === undefined ? null : (
+            <span className="meridian-bind__mode-reason">{option.restrictionReason}</span>
           )}
         </label>
       ))}

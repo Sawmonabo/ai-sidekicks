@@ -5,19 +5,19 @@
 // and a prepare publish; this module collaborates with React's rendering lifecycle and
 // owns when a controller is opened, armed, and ended. They meet at one object.
 //
-// THE SEAM IS `useSubjectScopedResource` AND NOT `useMemo`, which is that module's own
-// distinction: a memo opened during a pass React discards really constructs the
+// THE SEAM IS `store/use-act-controller.ts` AND NOT `useMemo`, which is that module's
+// own distinction: a memo opened during a pass React discards really constructs the
 // controller and really arms its triggers, and no effect ever commits to end it. The
-// resource seam closes one inside the render that drops it.
+// resource seam that hook is built on closes one inside the render that drops it.
+//
+// WHAT IS LEFT HERE IS THE ARMING. The three sibling controllers all bind through that
+// one hook; this one is the only one that also has to `start()` the triggers in an
+// effect, because its question arrives late and the hook takes no first read for it.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
-import {
-  useSubjectScopedResource,
-  type SessionStore,
-  type SubjectScopedDisposal,
-} from "../../../store/index.js";
+import { useActController, type SessionStore } from "../../../store/index.js";
 import {
   ExecutionRootPrepareController,
   type PrepareReading,
@@ -51,21 +51,14 @@ export function usePrepareController(
   // one time base. Memoised because the real arm mints a fresh clock per call and a
   // new object every render would re-mint the controller beneath it.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { value: controller } = useSubjectScopedResource(
+  const { controller, reading } = useActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,
     () => new ExecutionRootPrepareController({ bridge, subject, sessionStore, clock }),
-    PREPARE_CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
     controller.start();
   }, [controller]);
-  const subscribe = useCallback(
-    (onReadingChange: () => void) => controller.subscribe(onReadingChange),
-    [controller],
-  );
-  const read = useCallback(() => controller.snapshot, [controller]);
-  const reading = useSyncExternalStore(subscribe, read, read);
   const checkReuse = useCallback(
     (branchName: string) => {
       controller.checkReuse(branchName);
@@ -89,11 +82,3 @@ export function usePrepareController(
   }, [controller]);
   return { reading, checkReuse, prepare, prepareClone, clearAct };
 }
-
-/** How one controller ends, and how one already ended is recognised. */
-const PREPARE_CONTROLLER_DISPOSAL: SubjectScopedDisposal<ExecutionRootPrepareController> = {
-  dispose: (controller) => {
-    controller.dispose();
-  },
-  isClosed: (controller) => controller.isDisposed,
-};

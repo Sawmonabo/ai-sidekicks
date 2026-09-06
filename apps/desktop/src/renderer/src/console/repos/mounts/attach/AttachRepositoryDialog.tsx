@@ -179,7 +179,7 @@ function renderRoster(
   onSelect: (nodeId: string) => void,
   onRetry: () => void,
 ): React.JSX.Element {
-  switch (reading.roster.status) {
+  switch (reading.prerequisite.status) {
     case "not-read":
       return <Nothing kind="not-checked" title="The session's nodes have not been read." />;
     case "reading":
@@ -188,8 +188,8 @@ function renderRoster(
       return (
         <div className="meridian-repo-attach__roster-refusal">
           <InlineRefusal
-            code={reading.roster.refusal.code}
-            detail={reading.roster.refusal.detail}
+            code={reading.prerequisite.refusal.code}
+            detail={reading.prerequisite.refusal.detail}
           />
           <button type="button" className="meridian-repo-attach__retry" onClick={onRetry}>
             Read the nodes again
@@ -197,7 +197,7 @@ function renderRoster(
         </div>
       );
     case "read":
-      return reading.roster.options.length === 0 ? (
+      return reading.prerequisite.value.length === 0 ? (
         <Nothing
           kind="empty"
           title="No node is attached to this session."
@@ -205,11 +205,11 @@ function renderRoster(
         />
       ) : (
         <NodePicker
-          options={reading.roster.options}
+          options={reading.prerequisite.value}
           // The sole node is pre-selected because there is no decision to make; two or
           // more and the console states none, because the path is on one of them and
           // only the participant knows which.
-          selectedNodeId={selectedNodeId ?? soleNodeIdOf(reading.roster.options)}
+          selectedNodeId={selectedNodeId ?? soleNodeIdOf(reading.prerequisite.value)}
           groupName={NODE_GROUP_NAME}
           onSelect={onSelect}
         />

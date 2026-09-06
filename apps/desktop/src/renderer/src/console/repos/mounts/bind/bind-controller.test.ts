@@ -41,7 +41,7 @@ async function settleCapabilities(
     await Promise.resolve();
   }
   clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && controller.snapshot.capabilities.status !== "read"; turn += 1) {
+  for (let turn = 0; turn < 50 && controller.snapshot.prerequisite.status !== "read"; turn += 1) {
     await Promise.resolve();
   }
 }
@@ -59,30 +59,33 @@ describe("BindWorkspaceController — the pre-bind read", () => {
     const { controller, clock } = open(GIT_MOUNT_ID);
     controller.requestRead("reconnect");
     await settleCapabilities(controller, clock);
-    expect(controller.snapshot.capabilities.status).toBe("not-read");
+    expect(controller.snapshot.prerequisite.status).toBe("not-read");
   });
 
   it("reads what THIS MOUNT admits once the dialog opens", async () => {
     const { controller, clock } = open(GIT_MOUNT_ID);
     controller.requestCapabilities();
     await settleCapabilities(controller, clock);
-    const { capabilities } = controller.snapshot;
-    expect(capabilities.status).toBe("read");
-    expect(
-      capabilities.status === "read" && capabilities.capabilities.availableModes,
-    ).toStrictEqual(["read-only", "branch", "worktree", "ephemeral clone"]);
+    const { prerequisite } = controller.snapshot;
+    expect(prerequisite.status).toBe("read");
+    expect(prerequisite.status === "read" && prerequisite.value.availableModes).toStrictEqual([
+      "read-only",
+      "branch",
+      "worktree",
+      "ephemeral clone",
+    ]);
   });
 
   it("carries the mount's own restriction reasons on a plain directory", async () => {
     const { controller, clock } = open(PLAIN_MOUNT_ID);
     controller.requestCapabilities();
     await settleCapabilities(controller, clock);
-    const { capabilities } = controller.snapshot;
+    const { prerequisite } = controller.snapshot;
+    expect(prerequisite.status === "read" && prerequisite.value.availableModes).toStrictEqual([
+      "read-only",
+    ]);
     expect(
-      capabilities.status === "read" && capabilities.capabilities.availableModes,
-    ).toStrictEqual(["read-only"]);
-    expect(
-      capabilities.status === "read" && capabilities.capabilities.restrictions?.["worktree"],
+      prerequisite.status === "read" && prerequisite.value.restrictions?.["worktree"],
     ).toContain("not a git repository");
   });
 
@@ -129,7 +132,7 @@ describe("BindWorkspaceController — the bind itself", () => {
   it("refuses to put a second bind on the wire for one intent", async () => {
     const { controller } = open(GIT_MOUNT_ID);
     const first = controller.bind("read-only", undefined);
-    // The guard reads the published `sending` arm, so the second call returns without
+    // The single-flight key is already taken, so the second call returns without
     // reaching the wire — where it would have bound a second workspace.
     await controller.bind("worktree", undefined);
     await first;
@@ -145,7 +148,7 @@ describe("BindWorkspaceController — the bind itself", () => {
     controller.clearAct();
     expect(controller.snapshot.act.status).toBe("idle");
     // Reopening the dialog must not re-read an answer that has not changed.
-    expect(controller.snapshot.capabilities.status).toBe("read");
+    expect(controller.snapshot.prerequisite.status).toBe("read");
   });
 
   it("negative control: a disposed controller publishes nothing more", async () => {

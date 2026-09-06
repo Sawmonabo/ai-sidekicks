@@ -3,7 +3,7 @@
 //
 // TWO WIRES AND ONE SURFACE. Attaching needs the session's runtime-node roster before
 // it can name a node, and `runtimenode.roster` is a different call from `repo.attach`
-// with a different failure. So this controller holds two readings rather than one: a
+// with a different failure. So this controller holds two halves rather than one: a
 // roster read that can be refused while the form is still perfectly fillable, and an
 // attach that can be refused while the roster is fine. Collapsing them would report a
 // roster outage as an attach failure.
@@ -12,77 +12,65 @@
 // person who never attaches never asks the question, and a read on section mount would
 // put a call on the wire for every session that merely looked at its repositories.
 //
-// AND ONCE IT HAS BEEN MADE IT GOES THROUGH THE CONSOLE'S ONE SCHEDULER. `Spec-023
-// §Rules every console surface obeys` admits four reasons to read again and forbids
-// interval polling, so this class hands itself to a `SessionRefreshTriggers` exactly as
-// `repo-mounts-reader.ts` does. A dialog left open across a reconnect would otherwise
-// be offering a node list read before the connection dropped — which is the one state
-// where a person picks a machine that is no longer there.
-//
 // ITS TRIGGERING KINDS ARE THE RUNTIME-NODE ONES AND NOT THIS FAMILY'S. What changes a
 // roster is a node attaching, detaching, or going offline, and none of those is a repo
 // frame — so this reading declares the node census and the mounts reader declares the
 // repo one, which is what `ReadTriggerTarget` means by making the set a property of the
 // QUESTION rather than of the surface.
 //
-// THE SETTLEMENT IS PUBLISHED, NEVER SWALLOWED, ON BOTH ARMS. `Spec-023 §Rules every
-// console surface obeys` admits no silent no-op: an attach that succeeded says which
-// mount it minted, and one that was refused renders the daemon's own code with the
-// recovery this family has for it. A dialog that closed on both would leave the second
-// case looking like the first.
+// EVERYTHING ELSE IS `store/act-controller.ts`'S. The scheduler, the trigger wiring,
+// the four read arms, the four act arms, the single-flight guard, and the disposed
+// latch were written here, in `bind/bind-controller.ts`, and in
+// `roots/prepare-controller.ts` three times over; what is left in this module is what
+// is genuinely attach's — which two calls it makes, and how each reply reads.
 //
-// THE HOOK LIVES HERE BESIDE THE CLASS, on `attachments/attachment-carrier.ts`'s
-// precedent: the binding is nine lines of lifecycle over one constructor, and the
-// split `proposal-gate-binding.ts` makes is a split this module's size does not earn.
+// THE FOUR LIFECYCLE MEMBERS ARE FORWARDED RATHER THAN INHERITED. `SessionRefreshTriggers`
+// and `test/console/architecture/read-triggers.test.ts` both read `triggeringEventKinds`
+// and `requestRead` off the READING, so a controller that hid them behind a field would
+// be unwireable by the one refresh policy and invisible to the gate that holds it.
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo } from "react";
 
-import type { NodeId, RepoAttachResponse, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
+import type { NodeId, RepoAttachResponse } from "@ai-sidekicks/contracts";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
+import type { ConsoleClock, Unsubscribe } from "../../../core/index.js";
 import {
-  Emitter,
-  normalizeWireRejection,
-  type ConsoleClock,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../../core/index.js";
-import {
-  RefreshScheduler,
-  SessionRefreshTriggers,
-  useSubjectScopedResource,
+  ActController,
+  useActController,
+  type ActOutcome,
+  type ActPrerequisiteReading,
+  type ActReading,
+  type ActSettlementReading,
   type ReadTriggerTarget,
   type RefreshReason,
   type SessionStore,
-  type SubjectScopedDisposal,
 } from "../../../store/index.js";
-import { RUNTIME_NODE_ROSTER_EVENT_KINDS } from "./attach-model.js";
 import {
   attachRepository,
   forwardedSessionId,
   REPO_READS_REFUSAL_ORIGIN,
 } from "../../repo-reads.js";
-import { attachNodeOptions, type AttachNodeOption } from "./attach-model.js";
+import {
+  attachNodeOptions,
+  RUNTIME_NODE_ROSTER_EVENT_KINDS,
+  type AttachNodeOption,
+} from "./attach-model.js";
+
+/** What a finished attach carries: the mount the daemon minted for it. */
+export interface AttachSettlement {
+  readonly status: "attached";
+  readonly response: RepoAttachResponse;
+}
 
 /** Where the roster read stands, in the four states rule 8 keeps apart. */
-export type AttachRosterReading =
-  | { readonly status: "not-read" }
-  | { readonly status: "reading" }
-  | { readonly status: "read"; readonly options: readonly AttachNodeOption[] }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+export type AttachRosterReading = ActPrerequisiteReading<readonly AttachNodeOption[]>;
 
 /** Where the attach itself stands. */
-export type AttachActReading =
-  | { readonly status: "idle" }
-  | { readonly status: "sending" }
-  | { readonly status: "attached"; readonly response: RepoAttachResponse }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+export type AttachActReading = ActSettlementReading<AttachSettlement>;
 
-/** Both readings, published together so a surface renders one consistent frame. */
-export interface AttachReading {
-  readonly roster: AttachRosterReading;
-  readonly act: AttachActReading;
-}
+/** Both halves, published together so a surface renders one consistent frame. */
+export type AttachReading = ActReading<readonly AttachNodeOption[], AttachSettlement>;
 
 /** What one attach controller is scoped to: a session, and the window's clock. */
 export interface AttachControllerOptions {
@@ -93,11 +81,15 @@ export interface AttachControllerOptions {
   readonly clock: ConsoleClock;
 }
 
-/** Nothing asked and nothing sent. */
-export const ATTACH_NOT_STARTED: AttachReading = {
-  roster: { status: "not-read" },
-  act: { status: "idle" },
-};
+/**
+ * The roster question, named once.
+ *
+ * A CONSTANT AND NOT A VALUE READ OFF THE SESSION, because there is exactly one roster
+ * question per controller and the controller is already scoped to the session. What
+ * makes the string matter is only that it is STABLE: re-asking the same question is
+ * the no-op that keeps a reopened dialog off the wire.
+ */
+const ROSTER_QUESTION = "roster";
 
 /**
  * Reads the roster and sends the attach for one session.
@@ -111,43 +103,35 @@ export class AttachController implements ReadTriggerTarget {
   public readonly triggeringEventKinds: ReadonlySet<string> = RUNTIME_NODE_ROSTER_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string;
-  readonly #scheduler: RefreshScheduler;
-  readonly #triggers: SessionRefreshTriggers;
-  readonly #changes = new Emitter<AttachReading>("repository attach reading");
-  #reading: AttachReading = ATTACH_NOT_STARTED;
-  #rosterRequested = false;
-  #disposed = false;
+  readonly #acts: ActController<readonly AttachNodeOption[], AttachSettlement>;
 
   public constructor(options: AttachControllerOptions) {
     this.#bridge = options.bridge;
     this.#sessionId = options.sessionStore.sessionId;
-    this.#scheduler = new RefreshScheduler({
+    this.#acts = new ActController({
+      label: "repository attach reading",
       clock: options.clock,
-      perform: async () => {
-        await this.#performRosterRead();
-      },
-      // A read that threw past its own handling reaches nobody from a scheduler
-      // callback, so it lands in the reading as a refusal the dialog renders.
-      onError: (error: unknown) => {
-        this.#publishRosterRejection(error);
-      },
-    });
-    this.#triggers = new SessionRefreshTriggers({
-      target: this,
       sessionStore: options.sessionStore,
+      triggeringEventKinds: this.triggeringEventKinds,
+      refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
+      readPrerequisite: async () => await this.#readRoster(),
+      readRejection: {
+        code: "call-rejected",
+        detail: "The runtime-node roster read did not complete.",
+      },
     });
   }
 
   public get snapshot(): AttachReading {
-    return this.#reading;
+    return this.#acts.snapshot;
   }
 
   public get isDisposed(): boolean {
-    return this.#disposed;
+    return this.#acts.isDisposed;
   }
 
   public subscribe(sink: (reading: AttachReading) => void): Unsubscribe {
-    return this.#changes.subscribe(sink);
+    return this.#acts.subscribe(sink);
   }
 
   /**
@@ -159,12 +143,7 @@ export class AttachController implements ReadTriggerTarget {
    * which is why it is a control and not a timer.
    */
   public requestRoster(): void {
-    if (this.#rosterRequested || this.#disposed) {
-      return;
-    }
-    this.#rosterRequested = true;
-    this.#triggers.start();
-    this.requestRead("subscribe");
+    this.#acts.ask(ROSTER_QUESTION, "subscribe");
   }
 
   /**
@@ -176,18 +155,12 @@ export class AttachController implements ReadTriggerTarget {
    * nothing that is on screen and puts no call on the wire.
    */
   public requestRead(reason: RefreshReason): void {
-    if (this.#disposed || !this.#rosterRequested) {
-      return;
-    }
-    if (this.#reading.roster.status === "not-read") {
-      this.#publish({ ...this.#reading, roster: { status: "reading" } });
-    }
-    this.#scheduler.request(reason);
+    this.#acts.requestRead(reason);
   }
 
   /** Ask again after a refused roster read. The participant-driven one of the four. */
   public retryRoster(): void {
-    this.requestRead("participant-request");
+    this.#acts.retryRead();
   }
 
   /**
@@ -199,101 +172,43 @@ export class AttachController implements ReadTriggerTarget {
    * which reads, on screen, as the attach having failed.
    */
   public async attach(localPath: string, nodeId: string): Promise<void> {
-    if (this.#reading.act.status === "sending" || this.#disposed) {
-      return;
-    }
-    this.#publish({ ...this.#reading, act: { status: "sending" } });
-    const reply = await attachRepository(
-      this.#bridge,
-      this.#sessionId,
-      localPath,
-      nodeId as NodeId,
+    await this.#acts.act(
+      async () =>
+        await attachRepository(this.#bridge, this.#sessionId, localPath, nodeId as NodeId),
+      (response: RepoAttachResponse) => ({ status: "attached" as const, response }),
     );
-    if (this.#disposed) {
-      return;
-    }
-    this.#publish({
-      ...this.#reading,
-      act:
-        reply.status === "refused"
-          ? { status: "refused", refusal: reply.refusal }
-          : { status: "attached", response: reply.value },
-    });
   }
 
   /**
    * Put the act half back to idle.
    *
-   * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING, because the two are different
-   * moments: a settlement is read after the call settles and the dialog is still open,
-   * and a participant who reopens the dialog to attach a second repository must not
-   * meet the first one's success sentence. The roster half is deliberately untouched.
+   * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING: a participant who reopens the
+   * dialog to attach a second repository must not meet the first one's success
+   * sentence. The roster half is deliberately untouched.
    */
   public clearAct(): void {
-    if (this.#reading.act.status === "idle") {
-      return;
-    }
-    this.#publish({ ...this.#reading, act: { status: "idle" } });
+    this.#acts.clearAct();
   }
 
   public dispose(): void {
-    this.#disposed = true;
-    this.#scheduler.dispose();
-    this.#triggers.dispose();
-    this.#changes.clear();
+    this.#acts.dispose();
   }
 
-  async #performRosterRead(): Promise<void> {
-    let entries: readonly RuntimeNodeRosterEntry[];
-    try {
-      const outcome = await this.#bridge.runtimeNodeRosterRead({
-        sessionId: forwardedSessionId(this.#sessionId),
-      });
-      if (this.#disposed) {
-        return;
-      }
-      if (outcome.status === "refused") {
-        this.#publish({ ...this.#reading, roster: { status: "refused", refusal: outcome } });
-        return;
-      }
-      entries = outcome.value.nodes;
-    } catch (rejection) {
-      if (this.#disposed) {
-        return;
-      }
-      // A REJECTION IS AN ANSWER TOO. The live bridge crosses a process boundary, so a
-      // disconnected namespace throws where the fixture answers a refusal; without this
-      // arm the dialog would sit on `reading` with no roster and no reason for it.
-      this.#publishRosterRejection(rejection);
-      return;
-    }
-    this.#publish({
-      ...this.#reading,
-      roster: { status: "read", options: attachNodeOptions(entries) },
+  /** The roster call, and the mapping from wire entries to the rows a picker draws. */
+  async #readRoster(): Promise<ActOutcome<readonly AttachNodeOption[]>> {
+    const outcome = await this.#bridge.runtimeNodeRosterRead({
+      sessionId: forwardedSessionId(this.#sessionId),
     });
-  }
-
-  /** One rejection reading, for the two paths that can produce one. */
-  #publishRosterRejection(rejection: unknown): void {
-    this.#publish({
-      ...this.#reading,
-      roster: {
-        status: "refused",
-        refusal: normalizeWireRejection(REPO_READS_REFUSAL_ORIGIN, rejection, {
-          code: "call-rejected",
-          detail: "The runtime-node roster read did not complete.",
-        }),
-      },
-    });
-  }
-
-  #publish(reading: AttachReading): void {
-    this.#reading = reading;
-    this.#changes.emit(reading);
+    // THE ROSTER PORT ANSWERS WITH THE REFUSAL ITSELF where the call wrappers in
+    // `repo-reads.ts` answer with one wrapped in an outcome, so this is the one call
+    // in the family that has to say which arm it is holding.
+    return outcome.status === "refused"
+      ? { status: "refused", refusal: outcome }
+      : { status: "served", value: attachNodeOptions(outcome.value.nodes) };
   }
 }
 
-/** What the hook hands a dialog: the reading, and the three things it can ask for. */
+/** What the hook hands a dialog: the reading, and the four things it can ask for. */
 export interface AttachBinding {
   readonly reading: AttachReading;
   readonly requestRoster: () => void;
@@ -302,30 +217,17 @@ export interface AttachBinding {
   readonly clearAct: () => void;
 }
 
-/**
- * Bind one session's attach controller to a surface.
- *
- * Held by `useSubjectScopedResource` rather than `useMemo`, for the reason that seam
- * exists: a controller constructed during a render React then discards is a real
- * object with a real read on the wire that no effect ever commits to end.
- */
+/** Bind one session's attach controller to a surface. */
 export function useAttachController(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
 ): AttachBinding {
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { value: controller } = useSubjectScopedResource(
+  const { controller, reading } = useActController(
     bridge,
     sessionStore.sessionId,
     () => new AttachController({ bridge, sessionStore, clock }),
-    ATTACH_CONTROLLER_DISPOSAL,
   );
-  const subscribe = useCallback(
-    (onReadingChange: () => void) => controller.subscribe(onReadingChange),
-    [controller],
-  );
-  const read = useCallback(() => controller.snapshot, [controller]);
-  const reading = useSyncExternalStore(subscribe, read, read);
   const requestRoster = useCallback(() => {
     controller.requestRoster();
   }, [controller]);
@@ -343,11 +245,3 @@ export function useAttachController(
   }, [controller]);
   return { reading, requestRoster, retryRoster, attach, clearAct };
 }
-
-/** How one controller ends, and how one already ended is recognised. See the gate's. */
-const ATTACH_CONTROLLER_DISPOSAL: SubjectScopedDisposal<AttachController> = {
-  dispose: (controller) => {
-    controller.dispose();
-  },
-  isClosed: (controller) => controller.isDisposed,
-};

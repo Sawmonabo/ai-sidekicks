@@ -57,6 +57,19 @@ import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 /** The member names this console gives to "what a surface reads off me". */
 const READING_MEMBER_NAMES: ReadonlySet<string> = new Set(["snapshot", "readout"]);
 
+/**
+ * What constructing a scheduler LOOKS like, in the two shapes this console has.
+ *
+ * A reading either holds a `RefreshScheduler` itself or composes `store/act-controller.ts`,
+ * which holds one for it — the primitive the repos family's attach, bind, and prepare
+ * controllers were collapsed into, after three copies of one scheduler-plus-triggers
+ * wiring had been written in one directory. What this gate is about is that a reading
+ * is REFRESHABLE, and a reading that delegates its scheduler is refreshable in exactly
+ * the sense the rule means: it still declares the trigger contract below, and the
+ * assertion beside this one still holds it to that.
+ */
+const SCHEDULER_HOLDERS: readonly string[] = ["RefreshScheduler", "ActController"];
+
 /** The two members `ReadTriggerTarget` requires. Declared once, asserted as a pair. */
 const TRIGGER_CONTRACT_MEMBERS: readonly string[] = ["triggeringEventKinds", "requestRead"];
 
@@ -173,7 +186,7 @@ export function censusClasses(displayPath: string, source: string): readonly Rea
       className: node.name.text,
       publishesReading: node.members.some(publishesReading),
       holdsBridge: holdsBridge(node),
-      holdsScheduler: constructsNamed(node, "RefreshScheduler"),
+      holdsScheduler: SCHEDULER_HOLDERS.some((constructor) => constructsNamed(node, constructor)),
       declaresTriggerContract: TRIGGER_CONTRACT_MEMBERS.every((member) =>
         declaresMember(node, member),
       ),

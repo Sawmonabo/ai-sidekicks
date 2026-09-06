@@ -8,28 +8,12 @@ import { REPO_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  bindFormVerdict,
-  bindModeOptions,
-  defaultBindMode,
-  EMPTY_BIND_FORM,
-} from "./bind-model.js";
+import { bindFormVerdict, defaultBindMode, EMPTY_BIND_FORM } from "./bind-model.js";
 
 /** A git mount's answer: every mode, nothing restricted. */
 const GIT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
   availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
   defaultMode: "worktree",
-};
-
-/** A plain directory's answer: one mode, three excluded with reasons. */
-const PLAIN_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["read-only"],
-  defaultMode: "read-only",
-  restrictions: {
-    branch: "This mount is not a git repository, so there is no branch to create.",
-    worktree: "This mount is not a git repository, so no worktree can be added.",
-    "ephemeral clone": "This mount is not a git repository, so there is nothing to clone.",
-  },
 };
 
 describe("bindFormVerdict", () => {
@@ -85,48 +69,6 @@ describe("bindFormVerdict", () => {
     const overCap = "a".repeat(REPO_PATH_MAX_LEN + 1);
     const verdict = bindFormVerdict({ directory: overCap, executionMode: undefined });
     expect(verdict.status === "incomplete" && verdict.because).toContain("characters");
-  });
-});
-
-describe("bindModeOptions", () => {
-  it("offers every available mode in the reply's own order", () => {
-    const options = bindModeOptions(GIT_CAPABILITIES);
-    expect(options.map((option) => option.mode)).toStrictEqual([
-      "read-only",
-      "branch",
-      "worktree",
-      "ephemeral clone",
-    ]);
-    expect(options.every((option) => option.available)).toBe(true);
-  });
-
-  it("renders an excluded mode with the mount's own reason rather than dropping it", () => {
-    const options = bindModeOptions(PLAIN_CAPABILITIES);
-    const excluded = options.filter((option) => !option.available);
-    expect(excluded.map((option) => option.mode)).toStrictEqual([
-      "branch",
-      "worktree",
-      "ephemeral clone",
-    ]);
-    expect(excluded[0]?.restrictionReason).toContain("not a git repository");
-  });
-
-  it("negative control: a restriction naming an AVAILABLE mode adds no row", () => {
-    // The reply is the authority on what is admitted; a stale restriction entry must
-    // not turn an offered mode into a disabled one.
-    const options = bindModeOptions({
-      availableModes: ["read-only", "branch"],
-      defaultMode: "branch",
-      restrictions: { branch: "stale" },
-    });
-    expect(options).toHaveLength(2);
-    expect(options.every((option) => option.available)).toBe(true);
-  });
-
-  it("negative control: no restrictions map at all yields only the available rows", () => {
-    expect(bindModeOptions(GIT_CAPABILITIES).filter((option) => !option.available)).toStrictEqual(
-      [],
-    );
   });
 });
 
