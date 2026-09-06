@@ -652,6 +652,29 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 // The daemon's tested obligation is that a refusal raised by one of the four
 // guards always populates it and every other refusal family never does; the
 // obligation is asserted by the composite's settlement tests (Plan-004 T3.17).
+//
+// REPLAY-DURABLE, AND NOT DERIVABLE FROM ITS SIBLING. A `rejected` response
+// carries no `result` (the state-split arm below declares `result?: never`), so
+// an idempotent replay of the same `clientIdempotencyKey` reconstructs the whole
+// response from the durable intervention row — which is why `rejectionReason`
+// has a column of its own. The guard literal cannot be recovered from that
+// sibling: it is a free-form human sentence, and reading a literal back out of
+// it would be the phrase-match this member exists to abolish. The daemon
+// therefore persists the literal beside the sentence (`interventions`
+// `rejection_guard`, additive nullable, its column-attached CHECK closing the
+// same four literals and binding them to the rollback `rejected` arm this member
+// is scoped to), and a replay returns a value EQUAL to the recorded one across a
+// daemon restart — never omitted, and never re-derived by re-evaluating the
+// guards against a run that has since moved on.
+//
+// ADDITIVE-OPTIONAL UNDER THE EXISTING PROTOCOL VERSION. The arm shipped before
+// this member, so the additive-only rule for already-published shapes binds — and
+// a new optional member is inside what that rule admits and outside everything it
+// forbids (no rename, no type change, no semantic change, no new required field,
+// no new required semantic invariant). It rides `2026-05-01` and mints no
+// revision, as every additive member added to this file since that ratification
+// has; see `docs/architecture/contracts/api-payload-contracts.md` §Plan-004 —
+// Queue Steer Pause Resume for the rule and the precedent list.
 
 export type RollbackCompositeRejectionGuard =
   | "no-active-turn"
