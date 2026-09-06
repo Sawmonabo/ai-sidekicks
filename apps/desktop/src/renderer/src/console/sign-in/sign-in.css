@@ -1,0 +1,113 @@
+/* The sign-in family's own styles: one card, one action, and the browser hand-off.
+ *
+ * Enters through this family's door, which is the directory that owns it. The card
+ * is a dialog rather than a surface, so it carries its own backdrop and popup here
+ * instead of borrowing the workspace's card chrome.
+ */
+
+.meridian-sign-in__backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklch, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-sign-in__popup {
+  position: fixed;
+  inset-block-start: 18vh;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  inline-size: min(30rem, calc(100vw - var(--meridian-space-8)));
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-sign-in {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-sign-in__title {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 500;
+}
+
+.meridian-sign-in__note {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-sign-in__note--degraded {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-sign-in__act {
+  align-self: flex-start;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-accent);
+  color: var(--meridian-accent-ink);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-sign-in__act:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.meridian-sign-in__act:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-sign-in__act--secondary {
+  background: transparent;
+  border-color: var(--meridian-edge-strong);
+  color: var(--meridian-text);
+}
+
+.meridian-device-grant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+  min-width: 0;
+}
+
+.meridian-device-grant__figures {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+}
+
+.meridian-device-grant__label {
+  font-size: var(--meridian-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-device-grant__value {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-device-grant__waiting {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}

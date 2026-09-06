@@ -66,6 +66,8 @@ import {
   PresenceReadResponseSchema,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
+  ProviderAccountProbeRequestSchema,
+  ProviderAccountProbeResponseSchema,
   QueueItemCancelRequestSchema,
   QueueItemCancelResponseSchema,
   QueueItemCreateRequestSchema,
@@ -197,6 +199,10 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
     ProviderAccountListResponseSchema,
+  ),
+  "providerAccount.probe": bindDaemonMethod(
+    ProviderAccountProbeRequestSchema,
+    ProviderAccountProbeResponseSchema,
   ),
 });
 

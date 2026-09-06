@@ -85,6 +85,7 @@ export {
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
   readChannelId,
+  readProviderAccountId,
   readQueueItemId,
   readRunId,
   readRunState,
@@ -454,3 +455,25 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // out — and the terminal's host-presence fold is the production reader that makes the
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
+
+// The WebAuthn ceremony seam. Through the door because the sign-in family is the
+// reader and this family is where the seam has to live: the fixture WRITES an
+// outcome and the sign-in family READS one, so the union sits below both — the
+// "two sides of one seam share a module" rule, applied across a bridge. The
+// encoder is deliberately absent: a renderer that could compose an `authenticated`
+// arm could assert an identity nothing established, so the writer is published to
+// the fixture through that directory's own door and to nobody else.
+//
+// THE THREE VALUE TUPLES ARE DELIBERATELY NOT HERE. They are the reader's own
+// vocabulary, narrowed against inside the declaring module and driven by its suite
+// from there; the sign-in family reads the TYPES, whose totality is what makes its
+// copy tables complete. Publishing the tuples would put three names on this door
+// whose only reader is a test.
+export {
+  readCeremonyOutcome,
+  type DeviceGrantHandoff,
+  type WebAuthnCeremonyOutcome,
+  type WebAuthnCustody,
+  type WebAuthnProbeResult,
+  type WebAuthnRefusalReason,
+} from "./web-authn/ceremony-outcome.js";
