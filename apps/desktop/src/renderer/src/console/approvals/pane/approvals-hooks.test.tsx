@@ -9,7 +9,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
+import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
 import {

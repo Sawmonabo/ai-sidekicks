@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../../console/bridge/index.js";
-import { settleScheduledRead } from "../../../../console/bridge/scheduled-read.test-support.js";
+import { settleScheduledRead } from "../../../../console/bridge/readings/scheduled-read.test-support.js";
 import {
   AGENT,
   ON_THE_AGENT,

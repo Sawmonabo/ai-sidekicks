@@ -109,7 +109,7 @@ export function registerConsoleFamilies(
   // claim is a fold — the approval-flow kinds the approvals pane reads entities from
   // — so it takes the projector board this function was handed and no other registry,
   // because those are the only claims it makes.
-  registerComposerFamily(projectorRegistry);
+  registerComposerFamily(projectorRegistry); // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows

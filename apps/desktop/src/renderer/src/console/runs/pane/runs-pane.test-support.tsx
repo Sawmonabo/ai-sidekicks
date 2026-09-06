@@ -12,7 +12,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { createFixture, withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { withReplayedStream } from "../../bridge/daemon/daemon-streams.test-support.js";
 import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon/daemon-streams.js";
-import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
+import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { RunsPane } from "./RunsPane.js";
 

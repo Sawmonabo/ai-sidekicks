@@ -52,7 +52,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/scheduled-read.test-support.js";
+import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/readings/scheduled-read.test-support.js";
 // Deep-imported rather than taken off the frame barrel, which does not publish it:
 // it is the registry the window's own composition root registers, and a test that
 // built its own would be projecting the run partition a second way.

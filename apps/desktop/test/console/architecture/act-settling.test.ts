@@ -8,7 +8,7 @@
 // happens and an absence claim goes quietly green, so the failure mode is silent in
 // exactly the direction that matters.
 //
-// `fixture-bridge.test-support.ts` states the replacement and why it is a different
+// `core/microtask-drain.test-support.ts` states the replacement and why it is a different
 // KIND of wait: `drainMicrotasks` resolves on a macrotask boundary, so every pending
 // microtask chain has run whatever its depth. The fix wave adopted it in eighteen
 // files and left ninety-one counted awaits standing in twenty-two others, which is

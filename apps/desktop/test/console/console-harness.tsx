@@ -89,7 +89,7 @@ export interface ConsoleMount {
  *
  * It waits on the CLOCK for nothing, which is the other half of settling and is not
  * this function's: a surface built over a fixture scenario schedules its reads on
- * that scenario's frozen clock, and `bridge/scheduled-read.test-support.ts` is what
+ * that scenario's frozen clock, and `bridge/readings/scheduled-read.test-support.ts` is what
  * advances one. A caller holding a bridge settles both (`surfaces/composer.tsx`);
  * a caller mounting `ConsoleRoot`, which builds its own bridge, has only this.
  */

@@ -6,7 +6,9 @@
 // dropping it. Both were duplicated in `queue/` and in `quotas/` before they had a
 // home — two folds of two different wires that had independently arrived at the same
 // lifecycle — which is what makes this a directory rather than a pair of helpers
-// parked beside one of its readers.
+// parked beside one of its readers. The harness that settles a scheduled read sits
+// here for the same reason and is published by nobody: it is about when a reading has
+// finished, which is this subject and no one wire's.
 //
 // WHY THE FEEDS ARE NOT HERE. `queue/`, `quotas/` and `driver-capabilities/` each fold
 // ONE wire; this folds none. A directory that held the mechanism and one of its

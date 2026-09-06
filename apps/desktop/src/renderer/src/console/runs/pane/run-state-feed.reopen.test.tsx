@@ -15,7 +15,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
+import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
 
 import { RUN_STATE_SUBSCRIBE_STREAM, type ConsoleBridge } from "../../bridge/index.js";
 import {

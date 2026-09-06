@@ -189,13 +189,19 @@ describe("console families — the pane board a composition writes into", () => 
 });
 
 /**
- * Every seat reserved at the foot of the composition, as the task each names.
+ * Every seat at the foot of the composition, as the task each names.
  *
- * The list a branch replaces one line of, read off the board's own source: a seat is
- * a comment until its family lands, so nothing in the compiler counts them and the
- * header's count was kept in step by hand until this case.
+ * The list a branch replaces one line of, read off the board's own source: nothing in
+ * the compiler counts them, so the header's count was kept in step by hand until this
+ * case.
+ *
+ * BOTH STATES OF A SEAT MATCH, which is what makes the count stable as families land.
+ * A seat is the task marker, whether it stands alone as the reserved comment or rides
+ * the registration that replaced it — the shape `panes/index.ts` already uses. Reading
+ * only the reserved form would count seats DOWN as the board fills, so the first
+ * family to land would have had to edit the header it was supposed to be held to.
  */
-const RESERVED_SEAT_LINE = /^\s*\/\/ T-023p-1C-\d+ [a-z-]+$/gmu;
+const SEAT_LINE = /^\s*(?:\/\/|[^\n]*;\s*\/\/) T-023p-1C-\d+ [a-z-]+(?: [a-z-]+)*$/gmu;
 
 /**
  * Spelled cardinals, indexed by the number each spells.
@@ -251,9 +257,10 @@ describe("console families — the header states the seat count, once", () => {
     // no compiler holds.
     //
     // So the rule is one count in one place, and this is what makes it one: the seat
-    // count is DERIVED by counting the lines, the header has to spell that number,
-    // and any cardinal in the header naming a DIFFERENT number is an offence.
-    const seatCount = [...seatBoardSource.matchAll(RESERVED_SEAT_LINE)].length;
+    // count is DERIVED by counting the lines — reserved and filled alike — the header
+    // has to spell that number, and any cardinal in the header naming a DIFFERENT
+    // number is an offence.
+    const seatCount = [...seatBoardSource.matchAll(SEAT_LINE)].length;
     expect(seatCount).toBe(7);
     const header = seatBoardHeader();
     const spelled = SPELLED_CARDINALS[seatCount];
@@ -289,10 +296,7 @@ describe("console families — the header states the seat count, once", () => {
       ),
     ).toStrictEqual([]);
     expect(
-      straySpelledCardinals(
-        seatBoardHeader(),
-        [...seatBoardSource.matchAll(RESERVED_SEAT_LINE)].length,
-      ),
+      straySpelledCardinals(seatBoardHeader(), [...seatBoardSource.matchAll(SEAT_LINE)].length),
     ).toStrictEqual([]);
   });
 });

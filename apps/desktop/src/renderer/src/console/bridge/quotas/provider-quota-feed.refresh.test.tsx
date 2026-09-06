@@ -14,7 +14,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { settleScheduledRead } from "../scheduled-read.test-support.js";
+import { settleScheduledRead } from "../readings/scheduled-read.test-support.js";
 
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM } from "../daemon/daemon-streams.js";

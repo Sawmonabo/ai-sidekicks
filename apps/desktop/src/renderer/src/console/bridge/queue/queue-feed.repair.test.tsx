@@ -14,7 +14,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { settleScheduledRead } from "../scheduled-read.test-support.js";
+import { settleScheduledRead } from "../readings/scheduled-read.test-support.js";
 
 import { SessionStore } from "../../store/index.js";
 import { bridgeAnswering, type BridgeUnderTest } from "../fixture/fixture-bridge.test-support.js";

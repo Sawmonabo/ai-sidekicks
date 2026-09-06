@@ -10,7 +10,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { settleScheduledRead } from "../scheduled-read.test-support.js";
+import { settleScheduledRead } from "../readings/scheduled-read.test-support.js";
 import type { QueueFeed } from "./queue-reading.js";
 import {
   QUEUE_ITEM_A,

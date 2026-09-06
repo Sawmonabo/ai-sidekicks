@@ -10,7 +10,7 @@ import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, readQueueItemId, type ConsoleBridge } from "../../../bridge/index.js";
-import { settleScheduledRead } from "../../../bridge/scheduled-read.test-support.js";
+import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 import type { QueueFeed } from "../../../bridge/index.js";

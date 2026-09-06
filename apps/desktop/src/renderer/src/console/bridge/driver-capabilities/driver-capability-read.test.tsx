@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import { act, render } from "@testing-library/react";
 
 import { bridgeAnswering } from "../fixture/fixture-bridge.test-support.js";
-import { settleScheduledRead } from "../scheduled-read.test-support.js";
+import { settleScheduledRead } from "../readings/scheduled-read.test-support.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import {
   CapabilityProbe,
