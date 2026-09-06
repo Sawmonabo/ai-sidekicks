@@ -10,7 +10,6 @@ import { refuse } from "../../core/index.js";
 import type { ArtifactManifestRow, ArtifactsPanelState } from "../artifacts/artifact-model.js";
 import {
   NOTHING_READ_YET,
-  growthAnswerReading,
   withReplacedRow,
   withRowRefusal,
   withoutRow,
@@ -106,69 +105,5 @@ describe("artifact pane reading — removing a row a delete answered for", () =>
 
   it("leaves an arm that holds no rows exactly as it found it", () => {
     expect(withoutRow({ kind: "loading" }, "first")).toStrictEqual({ kind: "loading" });
-  });
-});
-
-describe("artifact pane reading — reading one port answer", () => {
-  it("reads the port's own refusal, keeping the code and the sentence it carries", () => {
-    const answer = growthAnswerReading("The allow-list read", {
-      ...REFUSAL,
-      status: "unavailable",
-      code: "wire-unregistered",
-      operationId: "artifactAllowlistRead",
-      slateRow: "artifact-crud",
-      owningDocument: "attachments",
-    } as never);
-    expect(answer.status).toBe("refused");
-    expect(answer.status === "refused" ? answer.refusal : undefined).toMatchObject({
-      code: "wire-unregistered",
-      origin: "growth-port",
-    });
-  });
-
-  it("reads a refusal that carries no served discriminant", () => {
-    // THE CASE THE OLD NARROWING GOT WRONG, and the reason this function exists. A
-    // refusal built by `core`'s `refuse(...)` has the console's three refusal fields
-    // and no `status` at all — which is the value `growthUnavailable` spreads to build
-    // its own. Read as "not unavailable, therefore served", it was dereferenced for a
-    // `value` it does not carry and the pane published a `TypeError` in place of the
-    // refusal that had just told it why.
-    const answer = growthAnswerReading("The allow-list read", REFUSAL as never);
-    expect(answer.status).toBe("refused");
-    expect(answer.status === "refused" ? answer.refusal : undefined).toBe(REFUSAL);
-  });
-
-  it("reads a served answer's value through untouched", () => {
-    const served = { contentTypes: ["text/plain"], maximumByteLength: 42 };
-    const answer = growthAnswerReading("The allow-list read", {
-      status: "served",
-      value: served,
-    });
-    expect(answer.status).toBe("read");
-    expect(answer.status === "read" ? answer.value : undefined).toBe(served);
-  });
-
-  it("negative control: a served answer whose VALUE looks like a refusal is still read", () => {
-    // Without this, recognising a refusal by its fields could be written to look
-    // anywhere in the reply and would refuse a perfectly good read whose payload
-    // happened to carry a code, a detail, and an origin. The shape test is about the
-    // ANSWER and never about what the answer is carrying.
-    const answer = growthAnswerReading("The manifest re-read", {
-      status: "served",
-      value: REFUSAL,
-    });
-    expect(answer.status).toBe("read");
-    expect(answer.status === "read" ? answer.value : undefined).toBe(REFUSAL);
-  });
-
-  it("refuses a reply that is neither, naming the operation and not the reply", () => {
-    // Total rather than throwing: a reply of an unexpected shape is a fact a person
-    // can act on, and an exception three frames from where the answer arrived is not.
-    const answer = growthAnswerReading("The delete", { status: "served" } as never);
-    expect(answer.status).toBe("refused");
-    const refusal = answer.status === "refused" ? answer.refusal : undefined;
-    expect(refusal?.code).toBe("reply-unreadable");
-    expect(refusal?.origin).toBe("artifact-pane-reader");
-    expect(refusal?.detail).toContain("The delete");
   });
 });

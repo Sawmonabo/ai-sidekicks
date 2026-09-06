@@ -13,7 +13,6 @@ import {
   payloadFetchInFlightRefusal,
   readFailureRefusal,
 } from "./artifact-pane-refusals.js";
-import { growthAnswerReading } from "./artifact-pane-reading.js";
 
 describe("artifact pane refusals — a read that threw", () => {
   it("names this reader as the origin and never quotes the rejected value", () => {
@@ -69,26 +68,26 @@ describe("artifact pane refusals — the closed vocabulary", () => {
   it("is exactly the codes the module's own constructors mint, each named once", () => {
     // The claim the prose that stood here could not make. It said "the three codes
     // this pane mints" beside four constants, and a sentence is not something a
-    // fifth code can fail against. Every constructor in this module is driven and
+    // fourth code can fail against. Every constructor in this module is driven and
     // its code checked into the set, so a code minted without being enumerated —
     // and a member enumerated that nothing mints — both fail here.
-    const unreadableReply = growthAnswerReading("The delete", { status: "served" } as never);
     const minted = [
       readFailureRefusal(new Error("boom")).code,
       payloadFetchInFlightRefusal("artifact-1").code,
       manifestReadInFlightRefusal("artifact-1").code,
-      unreadableReply.status === "refused" ? unreadableReply.refusal.code : "nothing-was-refused",
     ];
 
     expect([...ARTIFACT_PANE_REFUSAL_CODES].toSorted()).toStrictEqual(minted.toSorted());
     expect(new Set(ARTIFACT_PANE_REFUSAL_CODES).size).toBe(ARTIFACT_PANE_REFUSAL_CODES.length);
   });
 
-  it("negative control: a code the port owns is not a member of this pane's set", () => {
+  it("negative control: a code another author owns is not a member of this pane's set", () => {
     // `growth-port`'s own vocabulary reaches this pane on every refused read and is
-    // rendered unchanged. A set that admitted one would be claiming authorship of a
+    // rendered unchanged, and the family-root growth-call door mints the unreadable
+    // reply. A set that admitted any of the three would be claiming authorship of a
     // refusal this module never mints.
     expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("wire-unregistered");
     expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("reply-abandoned");
+    expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("reply-unreadable");
   });
 });

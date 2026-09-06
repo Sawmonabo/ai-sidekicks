@@ -13,7 +13,7 @@
 // before it — which is the defect the `refusal: undefined` on each served arm exists
 // to prevent, stated once here instead of at each call site.
 
-import type { GrowthUnavailable } from "../../bridge/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 
 import type { PreparedProposal } from "./prepared-proposal.js";
@@ -27,10 +27,17 @@ import { GATE_SETTLEMENT_COPY, type ProposalGateReading } from "./proposal-gate-
  * `not-checked` — and that arm carries no message, so the refusal travels beside it.
  * A scripted reply that never arrived means the question WAS put and the answer did
  * not come, which is a failure the `refused` arm states in the daemon's own words.
+ *
+ * TAKES THE CONSOLE'S ONE REFUSAL SHAPE RATHER THAN THE PORT'S WIDENING, because the
+ * read now reaches it through `repos/growth-call.ts`: a REJECTED call becomes a refusal
+ * carrying the port's origin and `wire-unregistered` without ever having been a
+ * `GrowthUnavailable`, and it is the same fact — the namespace the call goes through is
+ * gone, so the question could not be put. Narrowed to the widening, that answer could
+ * not be handed here at all.
  */
 export function gateReadingForRefusal(
   previous: ProposalGateReading,
-  refusal: GrowthUnavailable,
+  refusal: ConsoleRefusal,
 ): ProposalGateReading {
   if (refusal.code === "wire-unregistered") {
     return {

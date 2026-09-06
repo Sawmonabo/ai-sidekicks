@@ -87,3 +87,10 @@ export {
 // because view families are siblings: a helper two of them share has no home above
 // the DAG that both may reach.
 export { readWireString } from "./wire-strings.js";
+// The total stringifier, re-published rather than re-declared. It is DECLARED in
+// `src/shared/wire-errors.ts`, which both processes compile, and `core/wire-rejection.ts`
+// already states that this layer — not that one — is the console's home for turning an
+// unknown into displayable text. Until this line existed the door published nothing for
+// it, so two view families reached five directories up past `core/` to the declaration
+// and the layering hole was invisible to every rule.
+export { lossyStringify } from "../../../../shared/wire-errors.js";

@@ -9,7 +9,7 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
+import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 
 function workspace(overrides: Partial<RepoWorkspaceRow> = {}): RepoWorkspaceRow {

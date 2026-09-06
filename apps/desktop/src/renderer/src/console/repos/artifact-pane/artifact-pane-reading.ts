@@ -6,19 +6,12 @@
 // can be driven directly in a test with no bridge, no clock, and no reader at all.
 //
 // Nothing here CALLS the port or the wire. `repos/artifacts/artifact-model.ts` owns what a
-// served manifest IS; this module owns how one reading becomes the next — and, since
-// `growthAnswerReading` below, what one port ANSWER becomes before it gets there.
-// Reading an answer is the same kind of total reduction as the rest of this file and
-// belongs beside them, which is why the one port type it names travels through the
-// bridge barrel rather than the two callers each carrying their own narrowing.
+// served manifest IS; this module owns how one reading becomes the next. What one port
+// ANSWER becomes before it gets here is `repos/growth-call.ts`, at the family root: the
+// proposal gate is a second caller of that reading, and a reduction two sub-modules
+// share has no home inside either one.
 
-import type { GrowthUnavailable } from "../../bridge/index.js";
-import {
-  ATTACHMENT_BYTE_CAP_DEFAULT,
-  isConsoleRefusal,
-  type ConsoleRefusal,
-} from "../../core/index.js";
-import { replyUnreadableRefusal } from "./artifact-pane-refusals.js";
+import { ATTACHMENT_BYTE_CAP_DEFAULT, type ConsoleRefusal } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import type {
   ArtifactDeleteReceipt,
@@ -150,90 +143,6 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
   manifestReadInFlightArtifactIds: NO_MANIFEST_READS_IN_FLIGHT,
   refusalByArtifactId: NO_ROW_REFUSALS,
 };
-
-/**
- * One growth-port answer, in the two arms the port produces.
- *
- * The served arm is written out rather than imported because `GrowthOutcome` does not
- * leave the bridge barrel, and a view family reaching past that barrel is the deep
- * import the structure rules exist to prevent. `GrowthUnavailable` does leave it, so
- * the arm that carries a vocabulary is the port's own value and only the two-member
- * served arm is restated — and a served arm that lost `value` would fail to assign at
- * every call site rather than drifting quietly.
- *
- * Exported because the ACT half holds one of these across a `try`: a call that
- * REJECTS never produces an answer at all, and the module that turns the rejection
- * into a refusal has to name the type of the value it would otherwise have had.
- */
-export type GrowthAnswer<TValue> =
-  | { readonly status: "served"; readonly value: TValue }
-  | GrowthUnavailable;
-
-/**
- * What one growth-port answer said, or why nothing was read.
- *
- * `repos/repo-reads.ts`'s read-or-refusal shape, because it is the same question asked
- * of a different port: a second vocabulary for it would make a surface rendering both
- * translate between two shapes to reach one renderer, which is exactly what
- * `core/refusal.ts` exists to have stopped.
- */
-export type GrowthAnswerReading<TValue> =
-  | { readonly status: "read"; readonly value: TValue }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/**
- * Read one growth-port answer, by the shape the reply actually has.
- *
- * NARROWED ON THE REFUSAL, NOT ON ONE DISCRIMINANT VALUE'S ABSENCE. Every call site
- * in this pane used to ask `status === "unavailable"` and treat everything else as
- * served. That is not the same claim, and the difference is reachable: `core`'s bare
- * `refuse(...)` is a refusal WITHOUT the port's discriminant — `growthUnavailable`
- * builds its own by spreading exactly that value — so such a reply passed the test as
- * served and was then dereferenced for a `value` it does not carry. The pane published
- * `read-threw` carrying a `TypeError` sentence, which made a wire that is simply not
- * registered read as the console breaking, and buried the refusal that said so.
- *
- * MOST SPECIFIC FIRST, which is `core/wire-rejection.ts`'s own arm ordering: a reply
- * that already IS the console's one refusal shape is one, and
- * `GrowthUnavailable` extends that shape, so the port's own refusal and a bare
- * `refuse(...)` are recognised by the same test and neither reaches the value branch.
- * A served answer carries no `code`, `detail`, or `origin`, so it cannot be mistaken
- * for one in the other direction.
- *
- * TOTAL, because a reply that is neither is a fact rather than a crash. Rule 8 admits
- * no silent no-op, so the third arm is a refusal a person can read and paste, naming
- * the operation and never the reply — which may be participant content.
- */
-export function growthAnswerReading<TValue>(
-  operation: string,
-  answer: GrowthAnswer<TValue>,
-): GrowthAnswerReading<TValue> {
-  if (isConsoleRefusal(answer)) {
-    return { status: "refused", refusal: answer };
-  }
-  if (!carriesServedValue(answer)) {
-    return {
-      status: "refused",
-      refusal: replyUnreadableRefusal(
-        operation,
-        "a shape that is neither a served value nor a refusal",
-      ),
-    };
-  }
-  return { status: "read", value: answer.value };
-}
-
-/**
- * Whether an answer the types call served actually carries the member.
- *
- * The check the declared type cannot make: the fixture bridge is assembled behind a
- * cast, and the live port is one process boundary away, so what arrives is whatever
- * was sent. Presence rather than definedness — no operation on this pane serves an
- * absent value, and testing for `undefined` would refuse one that legitimately did.
- */
-function carriesServedValue(answer: unknown): answer is { readonly value: unknown } {
-  return typeof answer === "object" && answer !== null && "value" in answer;
-}
 
 /**
  * The listed rows with one replaced by a fresher read of the same artifact.

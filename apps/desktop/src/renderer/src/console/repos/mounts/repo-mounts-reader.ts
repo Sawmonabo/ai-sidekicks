@@ -79,17 +79,6 @@ import {
 } from "../repo-reads.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
 
-/**
- * Re-exported from the module that declares it, because every importer names it here.
- *
- * The declaration sits in `repo-mounts-model.ts` so the reader and the selections can
- * both publish one without importing each other; this line is what keeps that move
- * invisible to the cards, which read the section's value through the class that
- * produces it. `proposal-gate-reader.ts` re-exports `ProposalGateReading` for the same
- * reason and in the same words.
- */
-export type { RepoMountsReading, RepoWorkspaceRow } from "./repo-mounts-model.js";
-
 export interface RepoMountsReaderOptions {
   readonly bridge: ConsoleBridge;
   /**

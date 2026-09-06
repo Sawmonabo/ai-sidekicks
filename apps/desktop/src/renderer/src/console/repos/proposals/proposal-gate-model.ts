@@ -71,8 +71,16 @@ export const PROPOSAL_GATE_REFUSAL_ORIGIN = "proposal-gate";
  * pressed with no served context behind it, an act the daemon answered without
  * accepting, an act pressed while another one is still unanswered, a root the
  * registered request has no arm this console can fill for, an act whose context the
- * gate read again while that act was still waiting to go on the wire, and a served
- * preparation whose state is not a word the wire's own vocabulary carries.
+ * gate read again while that act was still waiting to go on the wire, a served
+ * preparation whose state is not a word the wire's own vocabulary carries, and a read
+ * that failed past its own refusal handling.
+ *
+ * THE LAST ONE IS NOT A REJECTED CALL, which is why it is the gate's and not the
+ * port's. Every growth call this family makes goes through `repos/growth-call.ts`, so a
+ * rejection is already an answer carrying the PORT's origin and vocabulary by the time
+ * the scheduler sees anything. What reaches the scheduler's `onError` is the reader
+ * failing after that — and stamping it with the daemon-read origin, as it was, named a
+ * subsystem that had not been asked.
  */
 export const PROPOSAL_GATE_REFUSAL_CODES = [
   "no-served-context",
@@ -81,6 +89,7 @@ export const PROPOSAL_GATE_REFUSAL_CODES = [
   "subject-not-addressable",
   "context-superseded",
   "prepared-state-unreadable",
+  "read-threw",
 ] as const;
 
 /** One reader-side refusal code. Derived, so the vocabulary is declared exactly once. */

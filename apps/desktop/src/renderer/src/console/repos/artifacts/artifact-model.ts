@@ -48,8 +48,6 @@
 //   • No nulling of a derivative's `subject`. `subject` is read and rendered; the
 //     remedy on a blocked delete is the daemon's own, and the console states it.
 
-import { lossyStringify } from "../../../../../shared/wire-errors.js";
-
 import type {
   GrowthArtifactPayloadDisposition,
   GrowthArtifactReplicationStatus,
@@ -58,7 +56,7 @@ import type {
   GrowthArtifactType,
   GrowthArtifactVisibility,
 } from "../../bridge/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
+import { lossyStringify, type ConsoleRefusal } from "../../core/index.js";
 
 /**
  * One artifact state, named in this family's vocabulary and declared in the wire's.
@@ -203,12 +201,20 @@ export function artifactTypeCounts(
  * mapping this comment used to forbid is the only member-for-member reading there is,
  * and every field a row renders comes from one the reply carried.
  *
- * ONE MEMBER IS SPELLED DIFFERENTLY AND ONE IS NARROWED. `artifactId` becomes `id`,
- * the name this view model has always used. And `metadata` is freeform daemon-side
- * provenance typed `unknown` on the wire while the row renders strings, so a
+ * ONE MEMBER IS SPELLED DIFFERENTLY AND TWO ARE READ RATHER THAN COPIED. `artifactId`
+ * becomes `id`, the name this view model has always used. And the two free-form maps —
+ * `annotations` and `metadata` — both go through the total reader below, so a
  * non-string value is rendered in its own JSON form rather than dropped: a row that
  * silently showed fewer entries than the daemon sent would misreport the provenance
  * it exists to show.
+ *
+ * BOTH MAPS, BECAUSE THE WIRE PROVES NEITHER. `metadata` is typed `unknown` per value
+ * and `annotations` is typed `Readonly<Record<string, string>>`, and the difference is
+ * a declaration rather than a check: nothing parses either at the port boundary, so a
+ * summary is whatever crossed the process boundary. Copied through, an absent
+ * `annotations` map threw inside `ArtifactRow`'s `Object.entries` and an object-valued
+ * entry threw as a React child — one row taking the whole panel down, which is the
+ * exact failure the reader was written against on the sibling map.
  */
 export function artifactManifestRowFromSummary(
   summary: GrowthArtifactSummary,
@@ -221,22 +227,25 @@ export function artifactManifestRowFromSummary(
     artifactType: summary.artifactType,
     digest: summary.digest,
     size: summary.size,
-    annotations: summary.annotations,
+    annotations: renderableStringMap(summary.annotations),
     subject: summary.subject,
     visibility: summary.visibility,
     state: summary.state,
     replicationStatus: summary.replicationStatus,
-    metadata: renderableMetadata(summary.metadata),
+    metadata: renderableStringMap(summary.metadata),
     createdAt: summary.createdAt,
   };
 }
 
 /**
- * Every metadata entry, as the string a row draws for it.
+ * Every entry of one free-form wire map, as the string a row draws for it.
  *
- * `JSON.stringify` IS NOT TOTAL, AND BOTH OF ITS FAILURES REACH THIS ROW. `metadata`
- * is freeform daemon-side provenance typed `unknown` on the wire, so nothing upstream
- * of here constrains what a value is:
+ * ONE READER FOR BOTH MAPS. `annotations` and `metadata` are the same kind of thing —
+ * free-form daemon-side provenance a row renders as pairs — and a second copy of this
+ * reading would be a second chance for one of the two to lose its guard.
+ *
+ * `JSON.stringify` IS NOT TOTAL, AND BOTH OF ITS FAILURES REACH THIS ROW. Nothing
+ * upstream of here constrains what a value is:
  *
  *   • IT THROWS on a `BigInt`, on a structure that refers to itself, and on a hostile
  *     `toJSON`. Thrown from here it escapes the row builder, the reader's fold, and
@@ -246,32 +255,32 @@ export function artifactManifestRowFromSummary(
  *     unchecked, so the row carried a hole the compiler had been told was a string
  *     and a surface reading `.length` on it threw one layer further out.
  *
- * Both land on `lossyStringify`, `src/shared/wire-errors.ts`'s total stringifier —
- * the same one `core/wire-rejection.ts` reaches for, and total by construction rather
- * than by one more layer of `try`. A value is RENDERED IN SOME FORM either way,
+ * Both land on `lossyStringify`, the console's total stringifier — reached through
+ * `core/`, which declares itself the home for turning an unknown into displayable
+ * text, and total by construction rather than by one more layer of `try`. A value is RENDERED IN SOME FORM either way,
  * because a row that silently showed fewer entries than the daemon sent would
  * misreport the provenance it exists to show.
  */
-function renderableMetadata(
-  metadata: Readonly<Record<string, unknown>>,
+function renderableStringMap(
+  entries: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, string>> {
   const rendered: Record<string, string> = {};
   // `Object.entries` THROWS on `null` and on `undefined`, and the member is typed
   // present rather than proven present: a summary is whatever crossed the process
   // boundary. A row missing its provenance draws no entries, which is what a row
-  // whose metadata is empty draws too — and is the only reading available, where the
+  // whose map is empty draws too — and is the only reading available, where the
   // alternative is the whole list read rejecting over one row.
-  if (typeof metadata !== "object" || metadata === null) {
+  if (typeof entries !== "object" || entries === null) {
     return rendered;
   }
-  for (const [key, value] of Object.entries(metadata)) {
-    rendered[key] = typeof value === "string" ? value : renderableMetadataValue(value);
+  for (const [key, value] of Object.entries(entries)) {
+    rendered[key] = typeof value === "string" ? value : renderableMapValue(value);
   }
   return rendered;
 }
 
-/** One non-string metadata value, as a string, whatever it is. */
-function renderableMetadataValue(value: unknown): string {
+/** One non-string map value, as a string, whatever it is. */
+function renderableMapValue(value: unknown): string {
   let serialized: string | undefined;
   try {
     serialized = JSON.stringify(value);

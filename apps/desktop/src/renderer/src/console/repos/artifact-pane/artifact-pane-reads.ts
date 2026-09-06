@@ -7,7 +7,7 @@
 // caller comparing the list arm against the bounds arm reads them side by side.
 //
 // NEITHER LEG CAN REJECT, which is what lets the reader join them rather than fuse
-// them. Each goes through `readGrowthAnswer` (`growth-call.ts`), so a bridge that
+// them. Each goes through `readGrowthAnswer` (`repos/growth-call.ts`), so a bridge that
 // dropped one call produces THAT leg's refusal instead of a rejection the join would
 // have to catch — and a bounds outage costs exactly the bounds.
 //
@@ -27,12 +27,12 @@ import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
 } from "../artifacts/artifact-model.js";
-import { replyUnreadableRefusal } from "./artifact-pane-refusals.js";
+import { replyUnreadableRefusal } from "../growth-call.js";
 import {
   SHIPPED_DEFAULT_ALLOWLIST,
   type ArtifactAllowlistReading,
 } from "./artifact-pane-reading.js";
-import { readGrowthAnswer } from "./growth-call.js";
+import { readGrowthAnswer } from "../growth-call.js";
 
 /** What each leg calls its read, in the sentence a refusal shows. */
 const ARTIFACT_LIST_OPERATION = "The artifact list";

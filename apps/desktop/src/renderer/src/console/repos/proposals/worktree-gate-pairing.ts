@@ -29,7 +29,7 @@
 // says out loud — and a gate is not the surface to resolve it on.
 
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
-import type { RepoWorkspaceRow } from "../mounts/repo-mounts-reader.js";
+import type { RepoWorkspaceRow } from "../mounts/repo-mounts-model.js";
 import type { WorktreeStatusRecord } from "../mounts/worktree-model.js";
 
 /**

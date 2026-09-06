@@ -17,7 +17,7 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
 import { MountCard } from "./MountCard.js";
 import { NO_WORKSPACE_REFUSALS } from "./repo-mounts-model.js";
-import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
+import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
 import { CANONICAL_ROOT, ENTERED_PATH, mount } from "./repo-mounts.test-support.js";
 

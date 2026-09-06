@@ -49,9 +49,8 @@
 // console that retried a 429 on its own would hide the capacity problem it exists to
 // report.
 
-import { lossyStringify } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { reportTripwire, type ConsoleClock } from "../../core/index.js";
+import { lossyStringify, reportTripwire, type ConsoleClock } from "../../core/index.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import { answerOrRefusal, type PortAnswer } from "./attachment-ingest-answer.js";
 import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";

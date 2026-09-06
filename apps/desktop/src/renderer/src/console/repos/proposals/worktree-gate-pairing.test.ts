@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { RepoWorkspaceRow } from "../mounts/repo-mounts-reader.js";
+import type { RepoWorkspaceRow } from "../mounts/repo-mounts-model.js";
 import type { WorktreeStatusRecord } from "../mounts/worktree-model.js";
 import {
   MOUNTLESS_WORKTREE_COPY,

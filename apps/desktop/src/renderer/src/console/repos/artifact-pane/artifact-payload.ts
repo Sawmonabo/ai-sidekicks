@@ -103,9 +103,46 @@ export function artifactPayloadReadingFrom(
     status: "text",
     artifactId,
     encoding,
-    text: truncated ? decoded.text.slice(0, ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP) : decoded.text,
+    text: previewBoundedText(decoded.text),
     truncated,
   };
+}
+
+/** The UTF-16 code units a surrogate PAIR opens with. A lone one is not a character. */
+const HIGH_SURROGATE_FIRST_CODE_UNIT = 0xd800;
+const HIGH_SURROGATE_LAST_CODE_UNIT = 0xdbff;
+
+/**
+ * The decoded text cut to the preview cap, never through half of a code point.
+ *
+ * THE CAP COUNTS UTF-16 CODE UNITS AND A CODE POINT IS ONE OR TWO OF THEM, so a plain
+ * `slice` can end on the HIGH half of a surrogate pair — and a lone surrogate is what
+ * the DOM paints as the replacement character, the one glyph this module's header and
+ * the `text` arm both promise a preview never draws. It is the same hazard the decode
+ * bound above already answers one layer down, seen again at the character bound: a
+ * prefix that ends inside a multi-byte sequence there, inside a pair here.
+ *
+ * BACKING OFF ONE CODE UNIT DROPS THE PAIR WHOLE, which is the honest cut: the preview
+ * is bounded and says so, and a character that could not fit is absent rather than
+ * half-drawn. The test is on the last KEPT unit rather than on the pair, so the result
+ * can never END on a high surrogate whatever followed it — the base64 arm's fatal
+ * decoder cannot emit an unpaired one at all, and a `utf8` payload that already carried
+ * one brought it across the process boundary rather than getting it from this cut.
+ */
+function previewBoundedText(text: string): string {
+  if (text.length <= ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP) {
+    return text;
+  }
+  const lastKeptCodeUnit = text.charCodeAt(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP - 1);
+  const splitsAPair =
+    lastKeptCodeUnit >= HIGH_SURROGATE_FIRST_CODE_UNIT &&
+    lastKeptCodeUnit <= HIGH_SURROGATE_LAST_CODE_UNIT;
+  return text.slice(
+    0,
+    splitsAPair
+      ? ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP - 1
+      : ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
+  );
 }
 
 /** Base64 carries three bytes in every four characters, and pads to a whole group. */

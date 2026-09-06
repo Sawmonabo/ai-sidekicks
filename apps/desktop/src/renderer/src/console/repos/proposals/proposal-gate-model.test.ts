@@ -80,7 +80,7 @@ describe("the gate's own vocabularies", () => {
     expect(ANNOUNCED_GATE_SETTLEMENTS).not.toContain("not-checked");
   });
 
-  it("owns six refusal codes and none collides with the port's own", () => {
+  it("owns the codes the gate authors, and none collides with another author's", () => {
     expect([...PROPOSAL_GATE_REFUSAL_CODES]).toStrictEqual([
       "no-served-context",
       "action-not-accepted",
@@ -88,8 +88,14 @@ describe("the gate's own vocabularies", () => {
       "subject-not-addressable",
       "context-superseded",
       "prepared-state-unreadable",
+      "read-threw",
     ]);
+    // The growth port's own vocabulary reaches this gate on every refused call and on
+    // every REJECTED one — both come through `repos/growth-call.ts` — and the family's
+    // daemon reads have a third. A set that admitted either would claim authorship of a
+    // refusal this sub-module never mints.
     expect(PROPOSAL_GATE_REFUSAL_CODES).not.toContain("wire-unregistered");
+    expect(PROPOSAL_GATE_REFUSAL_CODES).not.toContain("call-rejected");
   });
 });
 

@@ -9,13 +9,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  REPOS_IMPLEMENTER_RUN_ID,
-  REPOS_SESSION_ID,
-  REPOS_VIEWING_PARTICIPANT_ID,
-} from "../../bridge/scenarios/repos.js";
+import { REPOS_VIEWING_PARTICIPANT_ID } from "../../bridge/scenarios/repos.js";
 import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
-import { artifactRow } from "./artifacts.test-support.js";
+import { artifactRow, artifactSummary } from "./artifacts.test-support.js";
 import * as artifactModel from "./artifact-model.js";
 import {
   ARTIFACT_TYPE_FILTER_ALL,
@@ -228,31 +224,15 @@ describe("artifact-copy — the delete disclosure states only what is known", ()
   });
 });
 
-describe("artifact manifest row — metadata a daemon can send and JSON cannot hold", () => {
-  /**
-   * One summary whose metadata is whatever the case is about. Every other member is fixed.
-   *
-   * TAKES `unknown` AND NOT THE MEMBER'S OWN TYPE, because half of what this suite
-   * drives is a reply the member's type forbids: the summary is whatever crossed the
-   * process boundary, and a helper that could only express a conforming value could
-   * not reach the guards that read a non-conforming one.
-   */
+describe("artifact manifest row — free-form maps a daemon can send and JSON cannot hold", () => {
+  /** One row read from a summary whose metadata is whatever the case is about. */
   function rowWithMetadata(metadata: unknown): ArtifactManifestRow {
-    return artifactManifestRowFromSummary({
-      artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
-      sessionId: REPOS_SESSION_ID,
-      runId: REPOS_IMPLEMENTER_RUN_ID,
-      createdBy: REPOS_VIEWING_PARTICIPANT_ID,
-      artifactType: "diff",
-      digest: "sha256:2b4c",
-      size: 4096,
-      annotations: {},
-      visibility: "shared",
-      state: "published",
-      replicationStatus: "pinned",
-      metadata,
-      createdAt: "2026-09-02T07:00:00.000Z",
-    } as unknown as Parameters<typeof artifactManifestRowFromSummary>[0]);
+    return artifactManifestRowFromSummary(artifactSummary({ metadata }));
+  }
+
+  /** The same, on the sibling map — the one that was copied through unread. */
+  function rowWithAnnotations(annotations: unknown): ArtifactManifestRow {
+    return artifactManifestRowFromSummary(artifactSummary({ annotations }));
   }
 
   it("renders a value JSON refuses to serialize rather than taking the pane down", () => {
@@ -320,7 +300,7 @@ describe("artifact manifest row — metadata a daemon can send and JSON cannot h
     expect(rowWithMetadata(null).metadata).toStrictEqual({});
     expect(rowWithMetadata(undefined).metadata).toStrictEqual({});
     // The row itself is still a row: the members that DID arrive are read.
-    expect(rowWithMetadata(null).digest).toBe("sha256:2b4c");
+    expect(rowWithMetadata(null).digest).toBe("sha256:3b1f0c");
   });
 
   it("negative control: a member that IS there is still read", () => {
@@ -328,6 +308,28 @@ describe("artifact manifest row — metadata a daemon can send and JSON cannot h
     // the rows a deployment does send provenance for would draw none of it.
     expect(rowWithMetadata({ producer: "claude-driver" }).metadata).toStrictEqual({
       producer: "claude-driver",
+    });
+  });
+
+  it("reads `annotations` by the same rule as its sibling map", () => {
+    // The defect: `annotations` was COPIED through while `metadata` five lines down was
+    // read. Its wire type says `Record<string, string>`, and nothing parses it at the
+    // port boundary — so an absent map threw inside the row's `Object.entries` and an
+    // object value reached React as a child object, one row taking the whole panel
+    // down. Three shapes the declared type forbids, each read rather than trusted.
+    expect(rowWithAnnotations(undefined).annotations).toStrictEqual({});
+    expect(rowWithAnnotations(null).annotations).toStrictEqual({});
+    expect(rowWithAnnotations({ title: { nested: true } }).annotations).toStrictEqual({
+      title: '{"nested":true}',
+    });
+    expect(rowWithAnnotations({ retries: 3 }).annotations).toStrictEqual({ retries: "3" });
+  });
+
+  it("negative control: an annotation that IS a string is still verbatim", () => {
+    // Without this the reader could stringify every value, and an ordinary annotation
+    // would render quoted — the wire's own text replaced by its JSON form.
+    expect(rowWithAnnotations({ title: "Rebind the repos family" }).annotations).toStrictEqual({
+      title: "Rebind the repos family",
     });
   });
 });

@@ -35,7 +35,7 @@ import type { ProposalState } from "./prepared-proposal.js";
 import { ProposalGate } from "./ProposalGate.js";
 import { useProposalGate } from "./proposal-gate-binding.js";
 import { SUBJECT_NOT_ADDRESSABLE, type ProposalGateSubject } from "./proposal-gate-model.js";
-import type { ProposalGateReading } from "./proposal-gate-reader.js";
+import type { ProposalGateReading } from "./proposal-gate-model.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 
 export interface ProposalGateDisclosureProps {
