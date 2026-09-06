@@ -49,8 +49,8 @@ describe("the run pane's published module surfaces", () => {
   });
 
   it("publishes the run controls' actions and refusals, and not the code tuple", () => {
-    // `WORKFLOW_CANCEL_REASON_BYTE_CAP` is deliberately absent: the bound moved to the
-    // family's caps home, so this module SPENDS it and no longer publishes it.
+    // `WORKFLOW_CANCEL_REASON_BYTE_CAP` is deliberately absent: the bound lives in
+    // the console's one caps home, so this module SPENDS it and never publishes it.
     // `unregisteredRunControl` is absent for a different reason — it was DELETED. Both
     // controls now reach the growth port, which composes its own refusal for a wire a
     // build cannot serve, so a second one raised here would be a mount site asserting

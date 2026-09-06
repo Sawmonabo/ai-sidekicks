@@ -4,10 +4,11 @@
 // WHY A MODULE RATHER THAN PROPS ON THE COMPONENT. Three of the four things below
 // are CLOSED SETS — the actions, the refusal codes, the states a served reply may
 // answer with — and a closed set spelled inside a component is a set the next
-// surface re-spells. The fourth, the reason bound, is a number with a rationale,
-// which belongs beside the code that spends it (`console/core/constants.ts` says so
-// in its own header: a view family adds its own module rather than widening that
-// one).
+// surface re-spells. The fourth, the reason bound, is NOT here at all: a number with
+// a rationale has one home for the whole console, and `cap-constant-home.test.ts`
+// fails a view family that declares one of its own — so this module spends
+// `WORKFLOW_CANCEL_REASON_BYTE_CAP` through the core family's door and declares
+// nothing about it.
 //
 // ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS WHY THERE IS NO REFUSED CONTROL.
 // Whether a run may be cancelled or resumed is a daemon adjudication reaching the
@@ -48,7 +49,7 @@ import type { GrowthPort } from "../../../bridge/index.js";
 // second one here agreed on ASCII and would have drifted on the first rule either
 // grew.
 import { measureUtf8ByteLength } from "../../../persistence/index.js";
-import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../constants.js";
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../../core/index.js";
 
 /**
  * The two run controls, and exactly two.

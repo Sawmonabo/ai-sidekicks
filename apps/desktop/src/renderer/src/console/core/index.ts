@@ -23,6 +23,8 @@ export {
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
+  PHASE_GRAPH_MAX_ZOOM,
+  PHASE_GRAPH_MIN_ZOOM,
   POSITION_SIBLING_OBSERVER_CAP,
   PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
@@ -33,6 +35,7 @@ export {
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
+  WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so

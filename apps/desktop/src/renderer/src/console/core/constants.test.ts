@@ -24,6 +24,8 @@ import {
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
+  PHASE_GRAPH_MAX_ZOOM,
+  PHASE_GRAPH_MIN_ZOOM,
   PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
@@ -31,6 +33,7 @@ import {
   SCENARIO_TICK_MS,
   TRIPWIRE_REPORT_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
+  WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "./constants.js";
 
 /** Every bound that counts whole things. A fractional or zero cap counts nothing. */
@@ -46,6 +49,7 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["PRE_INITIALISATION_BUFFER_CAP", PRE_INITIALISATION_BUFFER_CAP],
   ["MAX_REPAIRABLE_SEQUENCE_GAP", MAX_REPAIRABLE_SEQUENCE_GAP],
   ["LIVE_ANNOUNCEMENT_QUEUE_CAP", LIVE_ANNOUNCEMENT_QUEUE_CAP],
+  ["WORKFLOW_CANCEL_REASON_BYTE_CAP", WORKFLOW_CANCEL_REASON_BYTE_CAP],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -142,5 +146,24 @@ describe("console bounds — the storage pressure gauge", () => {
     // operator learns to ignore it.
     expect(PERSISTENCE_QUOTA_PRESSURE_RATIO).toBeGreaterThan(0);
     expect(PERSISTENCE_QUOTA_PRESSURE_RATIO).toBeLessThan(1);
+  });
+});
+
+describe("console bounds — the phase graph's zoom range", () => {
+  it("leaves a range to zoom through", () => {
+    // Strictly, not `<=`: an equal pair is a viewport with exactly one scale, which
+    // is a graph that answers a zoom gesture by doing nothing. `@xyflow/react` takes
+    // both as props and clamps against them, so an inverted pair leaves the graph
+    // pinned at one scale with nothing on screen or in a log saying why.
+    expect(PHASE_GRAPH_MIN_ZOOM).toBeLessThan(PHASE_GRAPH_MAX_ZOOM);
+  });
+
+  it("zooms out from the fitted view and in past it", () => {
+    // The fitted view is 1x, and the range is written around it: a floor above 1
+    // could not show a long run whole and a ceiling below it could not show a label
+    // at reading size. Both halves, because a range entirely on one side of the fit
+    // is a range the surface never actually offers.
+    expect(PHASE_GRAPH_MIN_ZOOM).toBeLessThan(1);
+    expect(PHASE_GRAPH_MAX_ZOOM).toBeGreaterThan(1);
   });
 });

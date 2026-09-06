@@ -13,7 +13,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../../bridge/index.js";
-import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../constants.js";
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../../core/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { IDLE_RUN_CONTROL_OUTCOME, type WorkflowVersionChoice } from "./run-controls.js";
 

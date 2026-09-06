@@ -48,11 +48,11 @@
 // sub-surface's rules is one edge away from being the second way into them. So the
 // fourth claim asks which door OWNS each sheet rather than which family it sits in.
 
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   consoleRelativePaths,
@@ -70,6 +70,27 @@ import {
   stylesheetEdgeOffences,
   CONSOLE_STYLESHEET_TREE,
 } from "./stylesheet-edge-graph.js";
+
+/**
+ * The budget this file states rather than inherits.
+ *
+ * Its claim is a parse pass over every console module, so what it costs is a
+ * property of the TREE and grows with it. Measured on the authoring machine with a
+ * warm transform cache and this file's neighbours for company, the pass is 2242 ms
+ * — and on a cold cache, or under the aggregate gate's five-project concurrency, the
+ * same pass crossed vitest's 5 s default with no change to the code it reads. That is
+ * how it was found: two view families landed, the tree grew, and four whole-tree
+ * gates that had never stated a budget began timing out on the load rather than on a
+ * defect.
+ *
+ * Set well above the loaded measurement on purpose, and to the figure
+ * `source-walk-chokepoint.test.ts` already states for the same reason: what a budget
+ * guards is a pass that never settles, not a slow one, and a budget tightened to the
+ * last measurement fails on the next machine rather than on the next defect.
+ */
+const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
+
+vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -175,6 +196,22 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     // pass over the empty set.
     expect(stylesheets.length).toBeGreaterThan(4);
     expect(modules.length).toBeGreaterThan(100);
+  });
+
+  it("counts edges over the same sheets this file found", () => {
+    // TWO RESOLVERS ANSWER "WHICH STYLESHEETS EXIST" HERE — Vite's module graph
+    // above, and the tier's shared walk inside `CONSOLE_STYLESHEET_TREE`, which the
+    // two reachability claims below quantify over. While they agree nothing reports
+    // it, and the failure is silent in one direction only: a model tree holding
+    // FEWER sheets leaves "every sheet is reached" clean about the sheets it happened
+    // to hold rather than about the console, and the floor above would not notice
+    // because it counts the other list. An empty MODULE list fails loudly instead —
+    // no edges are collected, so every sheet reports unreached — which is why this
+    // control is about the sheets. So the two lists are compared rather than trusted.
+    const walked = CONSOLE_STYLESHEET_TREE.stylesheetPaths.map((sheetPath) =>
+      sheetPath.split(sep).join("/"),
+    );
+    expect([...walked].sort()).toStrictEqual([...stylesheets].sort());
   });
 
   it("is imported by no module but a family door", () => {

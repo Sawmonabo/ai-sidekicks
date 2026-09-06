@@ -48,7 +48,7 @@
 import { ReactFlow, type FitViewOptions, type NodeTypes } from "@xyflow/react";
 
 import { tokenReference } from "../../../../tokens/index.js";
-import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "../../../constants.js";
+import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "../../../../core/index.js";
 import { PHASE_NODE_TYPE, usePhaseGraphElements } from "./phase-graph-elements.js";
 import { PhaseNode } from "./PhaseNode.js";
 import type { DrawnPhaseSequence } from "./phase-sequence-layout.js";
