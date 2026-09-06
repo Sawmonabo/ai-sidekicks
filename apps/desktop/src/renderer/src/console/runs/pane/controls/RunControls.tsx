@@ -32,13 +32,14 @@
 import { useCallback, useMemo, useState } from "react";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../../bridge/index.js";
 import { Glyph, InlineRefusal } from "../../../primitives/index.js";
+import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
 import { isControlOffered } from "./run-control-gating.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
 import { type RunProjection } from "../run-state-projection.js";
 import { isLiveRunState } from "../run-status.js";
-import { CONTROL_GLYPH_SIZE, ControlButton } from "./ControlButton.js";
+import { ControlButton } from "./ControlButton.js";
 import { StepIn } from "./StepIn.js";
 
 /**
@@ -156,7 +157,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
               setOverflowOpen((open) => !open);
             }}
           >
-            <Glyph name="more" size={CONTROL_GLYPH_SIZE} />
+            <Glyph name="more" size={GLYPH_SIZE_ROW} />
           </button>
         )}
       </div>

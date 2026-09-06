@@ -14,7 +14,7 @@
 // be imported. The line is whether the corpus has a runtime shape to check against.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
-// rule. `bridge/fixture/index.ts` re-exports from the declaring module, never through here.
+// rule. `bridge/index.ts` re-exports from the declaring module, never through here.
 
 export type {
   AttentionItem,

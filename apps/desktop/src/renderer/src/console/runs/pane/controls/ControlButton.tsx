@@ -12,6 +12,7 @@
 // handed and derives none of its own.
 
 import { Glyph, type GlyphName } from "../../../primitives/index.js";
+import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
 
 /** What each control is called on screen, and the mark it wears. Total over the six. */
@@ -23,12 +24,6 @@ const CONTROL_PRESENTATION: Readonly<Record<RunControl, { label: string; glyph: 
   cancel: { label: "Cancel", glyph: "close" },
   rollback: { label: "Rewind", glyph: "external" },
 };
-
-/**
- * The glyph size every run control draws at, including the overflow button the
- * group itself renders — one number, so the row cannot end up with two heights.
- */
-export const CONTROL_GLYPH_SIZE = 12;
 
 /** One control. Named, focusable, and busy while its dispatch is in flight. */
 export function ControlButton(props: {
@@ -44,7 +39,7 @@ export function ControlButton(props: {
       aria-busy={props.isBusy}
       onClick={props.onPress}
     >
-      <Glyph name={presentation.glyph} size={CONTROL_GLYPH_SIZE} />
+      <Glyph name={presentation.glyph} size={GLYPH_SIZE_ROW} />
       {presentation.label}
     </button>
   );

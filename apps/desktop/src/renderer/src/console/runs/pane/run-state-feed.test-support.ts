@@ -10,7 +10,7 @@ import {
   createFixture,
   drainMicrotasks,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { withRecordedStreamLifecycle } from "../../bridge/daemon-streams.test-support.js";
+import { withRecordedStreamLifecycle } from "../../bridge/daemon/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";

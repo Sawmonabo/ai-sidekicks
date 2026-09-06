@@ -31,7 +31,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.js";
 import { SessionStoreRegistry } from "../store/index.js";
-import { consoleCommands } from "./command-surface.js";
+import { consoleCommands } from "../palette/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
 import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 

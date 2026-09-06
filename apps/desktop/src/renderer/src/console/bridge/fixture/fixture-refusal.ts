@@ -19,7 +19,7 @@ import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import {
   SCRIPT_ABSENT_REFUSAL_CODE,
   SCRIPTED_REPLY_REFUSAL_CODES,
-} from "../scenario-runtime/scripted-reply.js";
+} from "../scenario-runtime/index.js";
 
 /**
  * Why the fixture could not answer. Rendered verbatim; never swallowed.

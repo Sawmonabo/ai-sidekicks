@@ -12,7 +12,7 @@
 // merge conflict in every family branch at once.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
-// rule. `bridge/fixture/index.ts` re-exports from the declaring module, never through here.
+// rule. `bridge/index.ts` re-exports from the declaring module, never through here.
 //
 // AND THE MANIFEST AND THE SELECTION ARE DELIBERATELY NOT PUBLISHED HERE. A door is
 // an edge to every module it re-exports from, so publishing `scenario-manifest.ts`
@@ -21,7 +21,7 @@
 // four cycles `no-circular` fails. Both are reached by their own deep specifier, the
 // same remedy `fixture-refusal.ts` records for the same shape.
 
-export type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
+export type { ConsoleScenario, ScenarioBeat, ScenarioReply } from "./scenario.js";
 
 export { ScenarioEngine } from "./scenario-engine.js";
 
@@ -29,6 +29,7 @@ export { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 
 export {
   SCRIPTED_REPLY_REFUSAL_CODES,
+  SCRIPT_ABSENT_REFUSAL_CODE,
   settleScriptedReply,
   type ScriptedReplyRefusalCode,
 } from "./scripted-reply.js";

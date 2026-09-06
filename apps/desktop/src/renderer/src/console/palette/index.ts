@@ -21,6 +21,26 @@
 import "./palette.css";
 
 export { CommandRegistry } from "./command-registry.js";
+
+// This window's one registry, the plural call a family contributes through, and the
+// `when` vocabulary the console evaluates clauses against. On this door rather than
+// the frame's because the frame is a consumer of them and this family declares what
+// they are made of — and because the console's other consumer, the composer's shell
+// half, stands above the frame and cannot import its door without closing a cycle.
+//
+// `registerConsoleCommand`, the singular, is deliberately absent, and so is the
+// `CONSOLE_WHEN_CLAUSE_KEYS` tuple the context type is derived FROM: every family
+// that contributes contributes a set, and every family that writes a clause writes
+// it against the type. Their only readers are this family and the suites, so a door
+// line for either would be a specifier no production module reaches — which the
+// barrel census reports rather than tolerates.
+export {
+  CONSOLE_CHORD_PLATFORM,
+  consoleCommands,
+  registerConsoleCommands,
+  type ConsoleWhenClauseContext,
+  type ConsoleWhenClauseKey,
+} from "./console-commands.js";
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the

@@ -82,7 +82,6 @@ export {
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   paneEntityScopeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,

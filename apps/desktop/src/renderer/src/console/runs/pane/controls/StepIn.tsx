@@ -36,6 +36,7 @@ import { useCallback } from "react";
 import { refuse } from "../../../core/index.js";
 import { callDaemon, readRunId, type ConsoleBridge } from "../../../bridge/index.js";
 import { Glyph } from "../../../primitives/index.js";
+import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
 import { STEP_IN_REFUSAL_ORIGIN, type StepInState } from "./step-in-state.js";
@@ -58,8 +59,6 @@ export interface StepInProps {
    */
   readonly onTakeTheFloor: () => void;
 }
-
-const STEP_IN_GLYPH_SIZE = 12;
 
 const IDLE: StepInState = { phase: "idle" };
 
@@ -140,7 +139,7 @@ export function StepIn(props: StepInProps): React.JSX.Element {
         aria-busy={state.phase === "pausing"}
         onClick={stepIn}
       >
-        <Glyph name="pause" size={STEP_IN_GLYPH_SIZE} />
+        <Glyph name="pause" size={GLYPH_SIZE_ROW} />
         Step in
       </button>
       <StepInReceipt agentLabel={props.agentLabel} state={state} />

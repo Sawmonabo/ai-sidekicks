@@ -22,7 +22,7 @@ import {
   createFixture,
   withCapturedStream,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { withRecordedStreamLifecycle } from "../../bridge/daemon-streams.test-support.js";
+import { withRecordedStreamLifecycle } from "../../bridge/daemon/daemon-streams.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { useRunFeed, type RunStateFeed } from "./run-state-feed.js";
 import { SESSION_ID, STATE_CHANGE_DELIVERY } from "./run-state-feed.test-support.js";

@@ -18,8 +18,7 @@ import {
 } from "../../../../console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 import type { ConsoleRefusal } from "../../../../console/core/index.js";
-
-const CANCEL_GLYPH_SIZE = 12;
+import { GLYPH_SIZE_ROW } from "../../../../console/tokens/index.js";
 
 interface QueueShelfRowProps {
   readonly item: QueueItemSummary;
@@ -50,7 +49,7 @@ export function QueueShelfRow(props: QueueShelfRowProps): React.JSX.Element {
           props.onCancel(item.id);
         }}
       >
-        <Glyph name="close" size={CANCEL_GLYPH_SIZE} />
+        <Glyph name="close" size={GLYPH_SIZE_ROW} />
         <span className="meridian-visually-hidden">
           Cancel the message queued at {formatClockTime(item.createdAt)}
         </span>

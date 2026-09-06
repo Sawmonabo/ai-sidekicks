@@ -193,19 +193,20 @@ import {
   readRememberedRuleList,
   type ParsedRows,
 } from "../approvals/approval-records.js";
-import { readAgentRoster } from "../fixture-agent-roster.js";
+import { readAgentRoster } from "./fixture-agent-roster.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
-import { mapGrowthServed, type GrowthOutcome } from "../growth-port/growth-outcome.js";
 import {
   createRefusingGrowthPort,
   growthUnavailable,
   growthUnscriptedReply,
+  mapGrowthServed,
+  type GrowthOutcome,
   type GrowthPort,
-} from "../growth-port/growth-port.js";
-import type { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
+} from "../growth-port/index.js";
+import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
  * The operations the fixture answers rather than refuses.

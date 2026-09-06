@@ -8,7 +8,7 @@
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import type { ScenarioReply } from "../scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../scenario-runtime/index.js";
 import {
   AGENT_IMPLEMENTER,
   QUEUE_ITEM_ADMITTED,

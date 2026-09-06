@@ -21,7 +21,7 @@
 import { useCallback, useId, useMemo } from "react";
 
 import { Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
-import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
+import { GLYPH_SIZE_CHROME, GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { type SessionStore } from "../../store/index.js";
 import {
@@ -85,8 +85,6 @@ const ATTENTION_LABEL: Readonly<Record<SidebarSectionAttention, string | undefin
  * home exists to prevent.
  */
 const SECTION_GLYPH_SIZE = GLYPH_SIZE_CHROME;
-const DISCLOSURE_GLYPH_SIZE = 12;
-
 export interface SidebarSectionProps {
   readonly id: SidebarSectionId;
   readonly model: SidebarModel;
@@ -163,10 +161,7 @@ export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
             props.model.toggleSection(props.id);
           }}
         >
-          <Glyph
-            name={props.isOpen ? "chevron-down" : "chevron-right"}
-            size={DISCLOSURE_GLYPH_SIZE}
-          />
+          <Glyph name={props.isOpen ? "chevron-down" : "chevron-right"} size={GLYPH_SIZE_ROW} />
           <Glyph name={GLYPH_BY_SECTION_ID[props.id]} size={SECTION_GLYPH_SIZE} />
           <span className="meridian-sidebar__label">{label}</span>
           {attentionLabel === undefined ? null : (

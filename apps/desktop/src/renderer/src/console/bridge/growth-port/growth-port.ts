@@ -43,7 +43,7 @@ import { growthSlateRow } from "./growth-slate.js";
 import {
   SCRIPT_ABSENT_REFUSAL_CODE,
   type ScriptedReplyRefusalCode,
-} from "../scenario-runtime/scripted-reply.js";
+} from "../scenario-runtime/index.js";
 
 /**
  * The port. One method per operation, derived from the signature table so the

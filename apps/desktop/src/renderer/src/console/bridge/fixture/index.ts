@@ -12,7 +12,7 @@
 // instances. This directory holds only the side that answers.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
-// rule. `bridge/fixture/index.ts` publishes `createFixtureBridge` from the module that
+// rule. `bridge/index.ts` publishes `createFixtureBridge` from the module that
 // DECLARES it, because `console-no-barrel-chain` fails a forward through here.
 
 export { createFixtureBridge } from "./fixture-bridge.js";

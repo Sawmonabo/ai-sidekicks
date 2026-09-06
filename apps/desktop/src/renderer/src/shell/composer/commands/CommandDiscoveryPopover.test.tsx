@@ -8,7 +8,7 @@
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
-import { consoleCommands } from "../../../console/frame/command-surface.js";
+import { consoleCommands } from "../../../console/palette/index.js";
 import {
   type MountedComposer,
   NOT_RUNNABLE_FRAGMENT,

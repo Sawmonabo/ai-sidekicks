@@ -48,8 +48,9 @@ import {
   useFrameStore,
   useLocationHash,
 } from "../store/index.js";
+import { CONSOLE_CHORD_PLATFORM, consoleCommands } from "../palette/index.js";
 import { AppFrame } from "./AppFrame.js";
-import { CONSOLE_CHORD_PLATFORM, consoleCommands } from "./command-surface.js";
+
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";

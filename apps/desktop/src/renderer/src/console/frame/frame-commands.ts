@@ -32,12 +32,14 @@ import {
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import {
-  FRAME_KEY_BINDINGS,
-  RAIL_NAVIGATION_DETAILS,
   consoleCommands,
   registerConsoleCommands,
+  type ConsoleWhenClauseContext,
+} from "../palette/index.js";
+import {
+  FRAME_KEY_BINDINGS,
+  RAIL_NAVIGATION_DETAILS,
   type FrameCommand,
-  type FrameWhenClauseContext,
 } from "./command-surface.js";
 import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
 import { routeForDestination } from "./rail-navigation.js";
@@ -58,7 +60,7 @@ export interface FrameCommandSurfaceInput {
 
 /** Everything the palette overlay is rendered with, and nothing else. */
 export interface FrameCommandSurface {
-  readonly whenContext: FrameWhenClauseContext;
+  readonly whenContext: ConsoleWhenClauseContext;
   readonly keyBindings: KeyBindingTable;
   readonly commandRevision: number;
   readonly paletteOpen: boolean;
@@ -71,7 +73,7 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   // What a command's `when` clause is evaluated against. Derived from the route
   // rather than stored, so there is one answer to "where am I" and the palette
   // cannot disagree with the rail about it.
-  const whenContext: FrameWhenClauseContext = useMemo(
+  const whenContext: ConsoleWhenClauseContext = useMemo(
     () => ({
       sessionActive: lastOpenedSessionId !== undefined,
       onSessions: route.kind === "sessions",

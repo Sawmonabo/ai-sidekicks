@@ -19,7 +19,7 @@ import type { GrowthSlateRowId } from "./growth-slate.js";
 import {
   SCRIPT_ABSENT_REFUSAL_CODE,
   SCRIPTED_REPLY_REFUSAL_CODES,
-} from "../scenario-runtime/scripted-reply.js";
+} from "../scenario-runtime/index.js";
 
 /**
  * Why the port refused. A closed set, and each member is a decision:

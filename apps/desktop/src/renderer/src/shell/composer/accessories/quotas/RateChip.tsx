@@ -18,6 +18,7 @@ import {
   formatRelativeTime,
 } from "../../../../console/primitives/index.js";
 import { type ProviderQuotaReading } from "../../../../console/bridge/index.js";
+import { GLYPH_SIZE_ROW } from "../../../../console/tokens/index.js";
 import type { RateChipTone } from "./rate-chip-tone.js";
 
 interface RateChipProps {
@@ -25,8 +26,6 @@ interface RateChipProps {
   readonly tone: RateChipTone;
   readonly nowMilliseconds: number;
 }
-
-const STALE_GLYPH_SIZE = 12;
 
 export function RateChip(props: RateChipProps): React.JSX.Element {
   const { reading } = props;
@@ -48,7 +47,7 @@ export function RateChip(props: RateChipProps): React.JSX.Element {
       {reading.isStale ? (
         <Glyph
           name="alert"
-          size={STALE_GLYPH_SIZE}
+          size={GLYPH_SIZE_ROW}
           title="Read under an older credential generation than this account has since reported."
         />
       ) : null}

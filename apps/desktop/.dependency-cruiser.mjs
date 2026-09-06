@@ -169,9 +169,20 @@ export default {
         "Import the family door instead (`console/store/index.js` publishes the subject-scoped " +
         "holder for exactly this reason). A symbol no door publishes is a symbol the console has " +
         "not offered, and reaching around the door inverts that decision rather than respecting " +
-        "it.",
+        "it. A `.test-support` module is subtracted from the SOURCE side for the reason " +
+        "`console-cross-family-deep-import` subtracts it: it is part of a suite rather than " +
+        "something that ships, and the two remedies this rule offers are both closed to it. " +
+        "The door cannot publish what it needs — `barrel-census` fails a door specifier no " +
+        "PRODUCTION module reads, and a fixture helper has no production reader by " +
+        "construction — and hoisting is no answer either, because the symbol has no home " +
+        "outside the family whose fixture it drives. Measured on this tree: six shell " +
+        "`.test-support` modules, five door lines, seven census findings. The rule was written " +
+        "against a production defect (a Tier-1 subtree holding `subject-scoped-state.js`) and " +
+        "its silence about test support was an omission rather than a decision; production " +
+        "modules outside the console are still held to the door, which is the claim that " +
+        "matters.",
       severity: "error",
-      from: { path: "^src/renderer/src/(?!console/)" },
+      from: { path: "^src/renderer/src/(?!console/)", pathNot: [TEST_SUPPORT_MODULES] },
       to: { path: `${CONSOLE}/`, pathNot: CONSOLE_FAMILY_DOORS },
     },
     upwardEdge("core", CORE, ABOVE_CORE),

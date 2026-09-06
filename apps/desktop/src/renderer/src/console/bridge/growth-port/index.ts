@@ -15,7 +15,7 @@
 // is edited by nobody once it works.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
-// rule. `bridge/fixture/index.ts` re-exports the port's public face from the module that
+// rule. `bridge/index.ts` re-exports the port's public face from the module that
 // DECLARES each name, because `console-no-barrel-chain` fails a forward through here.
 
 export type {
@@ -24,12 +24,13 @@ export type {
   GrowthPrerequisiteEntry,
 } from "./growth-entry.js";
 
-export type { GrowthOutcome } from "./growth-outcome.js";
+export { mapGrowthServed, type GrowthOutcome } from "./growth-outcome.js";
 
 export {
   createRefusingGrowthPort,
   growthScriptedReplyUnavailable,
   growthUnavailable,
+  growthUnscriptedReply,
   type GrowthPort,
 } from "./growth-port.js";
 

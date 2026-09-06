@@ -24,7 +24,7 @@
 // its refusal on every provider-bound surface while the script sat unread. The
 // served set is imported rather than restated, so the two cannot disagree.
 
-import { CONSOLE_DAEMON_METHODS } from "../../daemon/daemon-reply-registry.js";
+import { CONSOLE_DAEMON_METHODS } from "../../daemon/index.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/fixture-growth-port.js";
 import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
 import type { GrowthOperationId } from "../../growth-port/growth-entry.js";

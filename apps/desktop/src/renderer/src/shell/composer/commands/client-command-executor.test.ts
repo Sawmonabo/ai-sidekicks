@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { consoleCommands } from "../../../console/frame/command-surface.js";
+import { consoleCommands } from "../../../console/palette/index.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { composerCommandSurface } from "./console-command-surface.js";

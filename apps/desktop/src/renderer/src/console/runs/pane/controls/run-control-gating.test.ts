@@ -16,8 +16,8 @@ import {
 } from "../../../bridge/index.js";
 // The declaring modules rather than the door: both names are read only from this
 // suite, and a door line no production module imports is a dead export.
-import { foldRunDriverBindings } from "../../../bridge/run-driver-binding.js";
-import type { DeclaredDriverFlags } from "../../../bridge/driver-capability-read.js";
+import { foldRunDriverBindings } from "../../../bridge/driver-capabilities/run-driver-binding.js";
+import type { DeclaredDriverFlags } from "../../../bridge/driver-capabilities/driver-capability-read.js";
 import type { ConsoleEntity, ConsoleSessionEvent } from "../../../store/index.js";
 import { isControlOffered } from "./run-control-gating.js";
 

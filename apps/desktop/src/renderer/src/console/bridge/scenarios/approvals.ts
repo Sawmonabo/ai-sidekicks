@@ -40,7 +40,7 @@
 // declares it a bounded string and nothing narrows it to a UUID, so the node below
 // is spelled the way an operator would actually name a machine.
 
-import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   SESSION_ID,
   PARTICIPANT_YOU,

@@ -8,7 +8,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { consoleCommands } from "../../../console/frame/command-surface.js";
+import { consoleCommands } from "../../../console/palette/index.js";
 import {
   type MountedComposer,
   QUEUE_CREATED,
