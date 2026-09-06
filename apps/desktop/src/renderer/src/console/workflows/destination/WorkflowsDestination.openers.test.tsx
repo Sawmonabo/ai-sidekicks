@@ -17,12 +17,12 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { GrowthPort } from "../bridge/index.js";
-import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { FrameStore, type SessionStoreRegistry } from "../store/index.js";
-import type { ConsolePaneAddress, ConsolePaneOpener } from "../seats/index.js";
+import type { GrowthPort } from "../../bridge/index.js";
+import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import { FrameStore, type SessionStoreRegistry } from "../../store/index.js";
+import type { ConsolePaneAddress, ConsolePaneOpener } from "../../seats/index.js";
 import { chosenScope } from "./destination-scope.js";
-import { definition, PROBE_SESSION_ID } from "./WorkflowsBrowser.test-support.js";
+import { definition, PROBE_SESSION_ID } from "../WorkflowsBrowser.test-support.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
 
 /**
@@ -36,14 +36,14 @@ const handedDown = vi.hoisted(() => ({
   runOpeners: [] as unknown[],
 }));
 
-vi.mock("./WorkflowsBrowser.js", () => ({
+vi.mock("../browser/WorkflowsBrowser.js", () => ({
   WorkflowsBrowser: (props: { readonly onOpenDefinition?: unknown }) => {
     handedDown.definitionOpeners.push(props.onOpenDefinition);
     return null;
   },
 }));
 
-vi.mock("./runs/WorkflowRuns.js", () => ({
+vi.mock("../runs/WorkflowRuns.js", () => ({
   WorkflowRuns: (props: { readonly onOpenRun?: unknown }) => {
     handedDown.runOpeners.push(props.onOpenRun);
     return null;

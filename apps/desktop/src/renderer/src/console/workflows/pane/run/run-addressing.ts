@@ -16,7 +16,7 @@
 
 import type { ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
-import { misaddressedPane } from "../../pane-addressing.js";
+import { misaddressedPane } from "../pane-addressing.js";
 
 /** The subsystem name every refusal raised in this file carries. */
 const WORKFLOW_RUN_PANE_ORIGIN = "workflow-run";

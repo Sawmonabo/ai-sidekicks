@@ -32,7 +32,7 @@ import { WIRE_UNREGISTERED_REFUSAL_CODE } from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import type { WorkflowStripState } from "../../strip-state.js";
-import { PANE_ADDRESS_INVALID_CODE, misaddressedPane } from "../../pane-addressing.js";
+import { PANE_ADDRESS_INVALID_CODE, misaddressedPane } from "../pane-addressing.js";
 
 /**
  * Every act that writes a definition, and exactly five.

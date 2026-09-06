@@ -13,14 +13,14 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import {
   SECOND_PAGE_CURSOR,
   definition,
   portAnswering,
   renderBrowser,
   settle,
-} from "./WorkflowsBrowser.test-support.js";
+} from "../WorkflowsBrowser.test-support.js";
 
 function scopeHeadings(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(".meridian-workflow__scope-heading")].map(

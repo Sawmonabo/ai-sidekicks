@@ -64,6 +64,11 @@ import {
 // console's reading of that envelope, so it is the layer family that owns the shape
 // for everything above it. Re-export and not a second interface: two declarations of
 // one wire shape is exactly the drift the rule exists to stop.
+//
+// DELIBERATELY OFF `core/index.ts`. Its one reader today is a harness, and
+// `barrel-census` fails a door specifier reached only by a test — measured, as
+// `WireErrorEnvelope — reached only by …run-control-dispatch.test-support.tsx`. The
+// door line lands in the same diff as the first production reader.
 export type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
 import {

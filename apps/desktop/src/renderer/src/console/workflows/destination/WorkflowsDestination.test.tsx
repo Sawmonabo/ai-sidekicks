@@ -11,19 +11,19 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
-import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
-import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../bridge/scenarios/workflow-fixture-definitions.js";
-import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_PARKED_RUN } from "../bridge/scenarios/workflow-fixture-runs.js";
-import type { GrowthPort } from "../bridge/index.js";
-import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { FrameStore, SessionStoreRegistry } from "../store/index.js";
-import type { ConsolePaneAddress } from "../seats/index.js";
+import { createFixtureBridge } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
+import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../bridge/scenarios/workflow-fixture-definitions.js";
+import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-ids.js";
+import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
+import type { GrowthPort } from "../../bridge/index.js";
+import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import { FrameStore, SessionStoreRegistry } from "../../store/index.js";
+import type { ConsolePaneAddress } from "../../seats/index.js";
 import { FOLLOWING_WINDOW_RETENTION, type WorkflowsScopeState } from "./destination-scope.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
-import { settle } from "./WorkflowsBrowser.test-support.js";
+import { settle } from "../WorkflowsBrowser.test-support.js";
 
 /**
  * The first definition the browser lists, which is the first name a person can press.

@@ -60,9 +60,9 @@ import { OpenPaneBody } from "./OpenPaneBody.js";
 import {
   FOLLOWING_WINDOW_RETENTION,
   scopeSessionIdFor,
+  WorkflowsDestination,
   type WorkflowsScopeState,
-} from "./destination-scope.js";
-import { WorkflowsDestination } from "./WorkflowsDestination.js";
+} from "./destination/index.js";
 
 export interface WorkflowsPaneHostProps {
   /**

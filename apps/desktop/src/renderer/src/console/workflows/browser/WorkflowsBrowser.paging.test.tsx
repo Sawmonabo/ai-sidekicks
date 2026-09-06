@@ -13,7 +13,7 @@ import {
   portAnswering,
   renderBrowser,
   settle,
-} from "./WorkflowsBrowser.test-support.js";
+} from "../WorkflowsBrowser.test-support.js";
 
 describe("the workflows browser — the handle to the next page", () => {
   afterEach(() => {

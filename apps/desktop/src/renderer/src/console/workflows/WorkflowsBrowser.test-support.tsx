@@ -49,7 +49,7 @@ import { type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
-import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
+import { WorkflowsBrowser } from "./browser/WorkflowsBrowser.js";
 
 /** The session every workflows suite addresses. One id, so every suite probes one. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";

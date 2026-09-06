@@ -107,7 +107,7 @@ export function registerConsoleFamilies(
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
-  registerWorkflowSurfaces(registry);
+  registerWorkflowSurfaces(registry); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery
 }

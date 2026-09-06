@@ -15,16 +15,22 @@
 // every value that is not what was asked for, which is what every reader here already
 // has an arm for.
 //
-// It lives at the bridge's own level rather than inside either reader because its two
-// callers sit on opposite sides of the scripted-reply seam — one derives what a
-// scenario declares, the other answers a request — and a helper owned by one of them
-// would be reached by the other across a boundary that is not there.
+// It lives beside the scripted-reply seam rather than inside either reader because its
+// two callers sit on opposite sides of that seam — one derives what a scenario
+// declares, the other answers a request — and a helper owned by one of them would be
+// reached by the other across a boundary that is not there. The seam is this
+// directory's, so the pair leaves through this directory's door.
+//
+// THE CONTAINER CHECK IS `core`'s. `isWireRecord` is the console's one reading of
+// "this untyped value is a record", array clause included, and restating it here
+// would be a second copy of a predicate whose whole point is that everyone reads it
+// the same way.
+
+import { isWireRecord } from "../../core/index.js";
 
 /** One member of a value that may not be an object at all. */
 export function readUnknownMember(value: unknown, member: string): unknown {
-  return typeof value === "object" && value !== null
-    ? (value as Readonly<Record<string, unknown>>)[member]
-    : undefined;
+  return isWireRecord(value) ? value[member] : undefined;
 }
 
 /**

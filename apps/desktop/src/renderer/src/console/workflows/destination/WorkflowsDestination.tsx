@@ -85,22 +85,22 @@
 
 import { useCallback } from "react";
 
-import type { GrowthPort } from "../bridge/index.js";
-import { WireFigure } from "../primitives/index.js";
-import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
-import type { ConsolePaneOpener } from "../seats/index.js";
+import type { GrowthPort } from "../../bridge/index.js";
+import { WireFigure } from "../../primitives/index.js";
+import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../../store/index.js";
+import type { ConsolePaneOpener } from "../../seats/index.js";
 import {
   AWAITING_SESSION_CHOICE,
   chosenScope,
   scopeSessionIdFor,
   type WorkflowsScopeState,
 } from "./destination-scope.js";
-import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
-import { useReadSettlementAnnouncement } from "./read-announcement.js";
-import type { WorkflowRunListRow } from "./runs/run-list-projection.js";
-import { WorkflowRuns } from "./runs/WorkflowRuns.js";
-import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
-import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
+import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
+import { useReadSettlementAnnouncement } from "../read-announcement.js";
+import type { WorkflowRunListRow } from "../runs/run-list-projection.js";
+import { WorkflowRuns } from "../runs/WorkflowRuns.js";
+import { WorkflowsBrowser } from "../browser/index.js";
+import { WorkflowsScopePicker } from "../WorkflowsScopePicker.js";
 
 export interface WorkflowsDestinationProps {
   readonly growth: GrowthPort;

@@ -24,8 +24,8 @@
 // than a boolean so the two panes render one grammar — rule 9's code in mono and the
 // sentence verbatim — instead of each writing its own words for the same state.
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
-import type { ConsoleEntityRef } from "../store/index.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleEntityRef } from "../../store/index.js";
 
 /**
  * The code a pane raises when its address names a kind it does not open.

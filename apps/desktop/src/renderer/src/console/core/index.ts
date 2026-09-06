@@ -91,7 +91,6 @@ export {
   normalizeWireRejection,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-7 */
   type RejectionFallback,
-  type WireErrorEnvelope,
   type WireRefusal,
 } from "./wire-rejection.js";
 // The two predicates a reading of an untyped wire value starts from, each written

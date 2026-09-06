@@ -9,12 +9,12 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { growthUnavailable, type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
-import { ManualClock } from "../core/index.js";
-import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { LiveAnnouncer } from "../primitives/live-announcer.js";
-import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
+import { growthUnavailable, type GrowthPort } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
+import { ManualClock } from "../../core/index.js";
+import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import { LiveAnnouncer } from "../../primitives/live-announcer.js";
+import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import {
   PROBE_SESSION_ID,
@@ -25,7 +25,7 @@ import {
   renderBrowser,
   settle,
   type SettledDefinitionPage,
-} from "./WorkflowsBrowser.test-support.js";
+} from "../WorkflowsBrowser.test-support.js";
 
 /** A second definition, so a continuation that lands moves the count it reports. */
 const SECOND_PAGE_DEFINITION: WorkflowDefinitionRow = {

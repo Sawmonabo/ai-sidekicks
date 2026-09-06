@@ -47,16 +47,16 @@
 // console can raise is a seam that reads as coverage and has no producer, so the
 // browser passes none and the surface below declares none.
 
-import type { GrowthPort } from "../bridge/index.js";
-import type { ReadingState } from "../primitives/index.js";
-import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
-import { WorkflowsSurface } from "./WorkflowsSurface.js";
-import { useReadSettlementAnnouncement } from "./read-announcement.js";
-import { refusedWorkflowStrip, type WorkflowStripState } from "./strip-state.js";
+import type { GrowthPort } from "../../bridge/index.js";
+import type { ReadingState } from "../../primitives/index.js";
+import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
+import { WorkflowsSurface } from "../WorkflowsSurface.js";
+import { useReadSettlementAnnouncement } from "../read-announcement.js";
+import { refusedWorkflowStrip, type WorkflowStripState } from "../strip-state.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectoryState,
-} from "./definitions/definition-directory.js";
+} from "../definitions/definition-directory.js";
 
 /**
  * Which state the surface's strip is in, given one read state.
