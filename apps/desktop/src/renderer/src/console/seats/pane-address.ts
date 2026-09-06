@@ -15,11 +15,19 @@
 // `inline-card-seats.ts` uses for its own three card kinds, at the eleven pane
 // kinds. Both halves come off it: the static `ConsolePaneAddress` union that
 // makes a mismatch a compile error at a typed call site, and the runtime table
-// {@link parseConsolePaneAddress} applies at the boundaries where an address
-// arrives untyped — a persisted layout snapshot read back off disk, and a route
-// a person can type into the address bar. A union written beside a hand-kept
-// table is two closed sets that agree until someone widens one, which is the
-// failure `pane-kinds.ts` and `store/entities.ts` each state about their own sets.
+// `pane-address-parse.ts` applies at the boundaries where an address arrives
+// untyped — a persisted layout snapshot read back off disk, and a route a person
+// can type into the address bar. A union written beside a hand-kept table is two
+// closed sets that agree until someone widens one, which is the failure
+// `pane-kinds.ts` and `store/entities.ts` each state about their own sets.
+//
+// THE SECOND HALF IS A SIBLING MODULE and not a second declaration. This file is
+// the rows and everything the compiler derives from them; the parse beside it is
+// what one untyped boundary is held to, with its own refusal vocabulary and its own
+// identifier grammar. It imports the table and the two predicates below and declares
+// no row of its own — which is what keeps "two halves of one declaration" true after
+// the split, and is why `isEntityOptionalPaneKind` is exported rather than inlined
+// there: the narrowing it performs is a fact about the table, and the table is here.
 //
 // WHERE EACH ROW COMES FROM
 //
@@ -74,22 +82,8 @@
 // two read identically at a call site, and only the first makes "this pane takes
 // no entity" a fact the compiler holds.
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "../persistence/index.js";
 import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "../store/index.js";
-import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
-
-/** The subsystem a pane-address refusal names as its author. */
-const PANE_ADDRESS_ORIGIN = "pane-address";
-
-/**
- * The ceiling the entity-id grammar enforces, named for the refusal sentence.
- *
- * Read off the grammar rather than restated, so the number a person is told is the
- * number the predicate applied. It is `persistence/`'s constant because the grammar
- * is `persistence/`'s — this module applies it, it does not own it.
- */
-const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
+import { type PaneKind } from "./pane-kinds.js";
 
 /**
  * One console entity kind, read off the reference the store family exports.
@@ -312,125 +306,18 @@ export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
  * Derived from the one declaration rather than listed, so a kind whose scope changes
  * moves between the two sides of this predicate without anybody editing a list.
  */
-type EntityOptionalPaneKind = {
+export type EntityOptionalPaneKind = {
   [K in PaneKind]: EntityRequired<K> extends true ? never : K;
 }[PaneKind];
 
 /**
  * Whether this kind's address may be written with no entity.
  *
- * A narrowing predicate rather than a bare boolean read, because it is what lets the
- * parse RETURN the bare address without a cast: the table's `entityRequired` column is
+ * A narrowing predicate rather than a bare boolean read, because it is what lets
+ * `pane-address-parse.ts` RETURN the bare address without a cast: the table's `entityRequired` column is
  * annotated `EntityRequired<K>`, so the runtime value and the type it narrows to are
  * the same fact, checked by the compiler at the table rather than asserted here.
  */
-function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKind {
+export function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKind {
   return !PANE_ENTITY_SCOPES[kind].entityRequired;
-}
-
-/**
- * The entity reference an untyped boundary supplied, or `undefined` when it supplied none.
- *
- * The id is held to the console's ONE identifier grammar rather than to `id.length`.
- * A non-empty check admits whitespace, a NUL, a path, and a string of any length, and
- * the parse then answered with a valid pane address whose body would query a store key
- * that can never exist — `Spec-023 §Console Design (Meridian)` §The surface set's "an
- * entity id that fails validation is rejected", unenforced.
- *
- * The grammar is `persistence/identifier-grammar.ts`'s, imported rather than restated:
- * the layout snapshot this parse reads back is written through that family's value
- * walk, so the durable boundary already holds this exact string to this exact
- * predicate. A second grammar here would let route resolution admit an id the layout
- * path refuses, which is one value with two answers.
- *
- * `packages/contracts` settles nothing broader for it. Its id schemas are per-entity
- * branded UUIDs (`SessionIdSchema` and its siblings), and `ConsoleEntityRef.id` is
- * deliberately kind-agnostic and wire-verbatim, so no contracts schema covers the
- * value this boundary holds — and none disagrees with the grammar that does.
- */
-function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefined {
-  if (typeof candidate !== "object" || candidate === null) {
-    return undefined;
-  }
-  const { kind, id } = candidate as { readonly kind?: unknown; readonly id?: unknown };
-  return typeof kind === "string" && typeof id === "string" && isSingleNameIdentifierShaped(id)
-    ? ({ kind, id } as ConsoleEntityRef)
-    : undefined;
-}
-
-/**
- * Admit one address that arrived untyped, or refuse it by name.
- *
- * The two callers are the boundaries where the compiler has no claim to make: a
- * layout snapshot read back off disk, which may predate or postdate this build,
- * and a route a person can type. `Spec-023 §Console Design (Meridian)` §The
- * surface set requires that "an unknown pane kind is dropped and reported, and
- * an entity id that fails validation is rejected"; this is the predicate both
- * drops are made against, so neither boundary decides for itself.
- *
- * A refusal rather than a throw, per `core/refusal.ts`: a restored layout with
- * one bad row drops that row and keeps the rest, and a caller that needs the
- * exception shape wraps it in `ConsoleRefusalError` at its own seam.
- */
-export function parseConsolePaneAddress(
-  candidateKind: unknown,
-  candidateEntity: unknown,
-): ConsolePaneAddress | ConsoleRefusal {
-  if (!isPaneKind(candidateKind)) {
-    return refuse(
-      PANE_ADDRESS_ORIGIN,
-      "pane-kind-unknown",
-      `"${String(candidateKind)}" is not one of the ${String(PANE_KINDS.length)} pane kinds this build renders`,
-    );
-  }
-
-  const scope = paneEntityScopeFor(candidateKind);
-
-  if (candidateEntity === undefined) {
-    if (!isEntityOptionalPaneKind(candidateKind)) {
-      return refuse(
-        PANE_ADDRESS_ORIGIN,
-        "pane-entity-required",
-        `a "${candidateKind}" pane is a view of one ${scope.entityKinds.join(" or ")} and was opened with none`,
-      );
-    }
-    // No cast. The predicate narrowed `candidateKind` to the kinds whose arm has no
-    // `entity` member or an optional one, and the bare object satisfies both — which
-    // is the whole point of the optional arm: what the parse returns is now a value a
-    // typed caller could have written by hand.
-    return { kind: candidateKind };
-  }
-
-  const entity = readEntityRefCandidate(candidateEntity);
-  if (entity === undefined) {
-    return refuse(
-      PANE_ADDRESS_ORIGIN,
-      "pane-entity-malformed",
-      // The length is named and the value is not, on the persistence grammar's own
-      // discipline: a refusal that quoted the string it refused would carry that
-      // string one layer past the boundary that stopped it.
-      `a "${candidateKind}" pane was opened over a value that is not an entity reference — an entity reference is a kind and an identifier-shaped id (no whitespace, no path separator, at most ${String(PANE_ENTITY_ID_MAX_LENGTH)} characters)`,
-    );
-  }
-
-  if (scope.entityKinds.length === 0) {
-    return refuse(
-      PANE_ADDRESS_ORIGIN,
-      "pane-entity-unexpected",
-      `a "${candidateKind}" pane is session-scoped and takes no entity, and was opened over a "${entity.kind}"`,
-    );
-  }
-
-  if (!scope.entityKinds.includes(entity.kind)) {
-    return refuse(
-      PANE_ADDRESS_ORIGIN,
-      "pane-entity-kind-mismatch",
-      `a "${candidateKind}" pane is a view of one ${scope.entityKinds.join(" or ")} and was opened over a "${entity.kind}"`,
-    );
-  }
-
-  // Sound on the same terms as the arm above, plus the admission just made:
-  // `entity.kind` is now known to be one this pane kind's row lists, which is
-  // exactly the union the arm's `entity` member is narrowed to.
-  return { kind: candidateKind, entity } as ConsolePaneAddress;
 }

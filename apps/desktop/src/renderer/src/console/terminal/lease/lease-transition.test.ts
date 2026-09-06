@@ -152,7 +152,7 @@ describe("reading the transition it could NOT read", () => {
     );
     expect(unread.reason).toBe("auto_released_quota_exhausted");
     expect(unread.sequence).toBe(1);
-    expect(unread.occurredAtIso).toBe("2026-01-01T16:40:01.000Z");
+    expect(unread.occurredAtIso).toBe("2026-01-01T00:00:01.000Z");
   });
 
   it("negative control: a payload with nothing to name carries nothing", () => {

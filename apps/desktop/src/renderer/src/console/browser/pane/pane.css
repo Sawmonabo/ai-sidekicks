@@ -23,19 +23,6 @@
 /* --------------------------------------------------------------- pane shell */
 
 /*
- * The chord claim, which is an event boundary and not a box.
- *
- * `display: contents` because the element exists only to carry a capture handler over
- * the whole pane — the chrome's head included, which the body does not contain — and
- * a wrapper that generated a box would put an unsized element between the deck's slot
- * and the section the deck sizes. It has no children of its own to lose: the one child
- * is the chrome's `<section>`, which takes the deck's box directly.
- */
-.meridian-browser-pane-claim {
-  display: contents;
-}
-
-/*
  * The pane's BODY of chapter 12.2, in three bands: a chrome bar that cannot grow, a
  * viewport that takes whatever is left, and the resource ceiling of 12.10 folded
  * away behind a disclosure (rule 7 — one click, never on the surface).

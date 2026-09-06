@@ -7,10 +7,8 @@
 
 import type { BrowserBoundMeasure } from "./browser-bounds.js";
 import { Glyph, Nothing } from "../../primitives/index.js";
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { exactFigureTitle, scaleScalarFigure } from "./bound-figures.js";
-
-/** The alert glyph's size, in the row it is drawn in. */
-const ALERT_GLYPH_SIZE = 12;
 
 export function BoundReading(props: {
   readonly measure: BrowserBoundMeasure;
@@ -32,7 +30,7 @@ export function BoundReading(props: {
     : "meridian-browser-bounds__reading";
   return (
     <span className={className} title={exactFigureTitle(props.reading, props.measure.unit)}>
-      {isTripped ? <Glyph name="alert" size={ALERT_GLYPH_SIZE} /> : null}
+      {isTripped ? <Glyph name="alert" size={GLYPH_SIZE_ROW} /> : null}
       {scaleScalarFigure(props.reading, props.measure.unit)}
       {isTripped ? <span>at the ceiling</span> : null}
     </span>
