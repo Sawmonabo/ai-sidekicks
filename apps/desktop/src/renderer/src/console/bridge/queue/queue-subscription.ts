@@ -224,6 +224,7 @@ export class SessionQueueSubscription {
       // repair, a focus, or a fresh mount asks again, so the scheduler's `perform`
       // re-opens. Leaving the reading marked open was what made every one of those
       // triggers a guaranteed no-op for the life of the window.
+      //
       // NO FALLBACK PAIR, deliberately. The fallback exists for a seam that knows its
       // failure better than the thrown value does, and a stream open does not: it
       // failed for a transport reason the transport already states — "the preload is a
