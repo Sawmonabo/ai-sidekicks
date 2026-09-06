@@ -63,8 +63,9 @@ import { registerWorkflowSurfaces } from "./workflows/index.js";
 /**
  * Register every shipped view family against the six boards a composition owns.
  *
- * ALL SIX ARE PARAMETERS, and each one after the first is this signature's history. The surface registry was passed in from the start so a test could compose
- * into a registry it owns and an auxiliary window could compose a subset; the pane
+ * ALL SIX ARE PARAMETERS, and each one after the first is this signature's history.
+ * The surface registry was passed in from the start so a test could compose into a
+ * registry it owns and an auxiliary window could compose a subset; the pane
  * board beside it reached for the module-scope singleton, so a caller composing its
  * own family set still registered panes into the production one. That is inert only
  * while every pane seat is still reserved — the moment the first family registers a

@@ -277,8 +277,9 @@ function inviteShelfReaderFor(
  * own `sessionIdOf` states: a mount-lifetime cell naming a session is the shape the
  * console holds through its one subject-keyed holder, so a callback capturing a
  * session id is the shape a reader — and
- * `test/console/architecture/subject-state-chokepoint.test.ts` — has to stop and check. Nothing here needs a stable identity either: both consumers
- * are rendered by this surface on every pass regardless.
+ * `test/console/architecture/subject-state-chokepoint.test.ts` — has to stop and
+ * check. Nothing here needs a stable identity either: both consumers are rendered by
+ * this surface on every pass regardless.
  */
 function sessionOpenerFor(
   frameStore: ConsoleSurfaceContext["frameStore"],
