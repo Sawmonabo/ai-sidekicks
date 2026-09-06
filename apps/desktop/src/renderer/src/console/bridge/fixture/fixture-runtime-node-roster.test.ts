@@ -157,10 +157,11 @@ describe("the frame current at a tick", () => {
    * for the same identifier.
    */
   function frameAt(atMs: number, nodeId: string): ScenarioRuntimeNodeRosterFrame {
-    const [template] = SETTINGS_SCENARIO.runtimeNodeRoster ?? [];
-    const [node] = template?.nodes ?? [];
+    // The first POPULATED frame, not the first: that scenario opens on an empty roster,
+    // which is a reading in its own right and carries no row to widen.
+    const node = (SETTINGS_SCENARIO.runtimeNodeRoster ?? []).flatMap((frame) => frame.nodes)[0];
     if (node === undefined) {
-      throw new Error("the settings scenario carries no roster frame to build from");
+      throw new Error("the settings scenario carries no populated roster frame to build from");
     }
     return { atMs, nodes: [{ ...node, nodeId: nodeId as NodeId }] };
   }
