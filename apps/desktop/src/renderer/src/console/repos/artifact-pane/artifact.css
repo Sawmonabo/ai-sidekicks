@@ -1,9 +1,11 @@
 /* The artifact pane's own sheet.
 
    A sibling stylesheet rather than a block appended to `repos/repos.css`, which is
-   the repos family's sheet and is edited by that family. The pane's chrome, rows,
-   and bounds disclosure keep drawing from there — this file holds only what belongs
-   to the pane and to no panel that renders inside it.
+   the repos family's sheet and holds only what two of its sub-modules share. Every
+   rule this directory draws alone lives here — the pane's own inset, the artifact and
+   attachment cards, and the ingest-bounds disclosure — because a sheet in `repos/`
+   may not claim rules for a directory it does not own. The chrome around the pane is
+   still `seats/pane-chrome.css`, which every pane kind wears.
 
    Meridian tokens only. A raw colour here would be a second palette. */
 
@@ -102,4 +104,110 @@
   line-height: 1.45;
   white-space: pre;
   tab-size: 2;
+}
+
+/* --- The cards this pane draws, and the bounds it discloses ------------------
+   Moved here verbatim from `repos/repos.css`, whose header says why. */
+
+/* The ledger seat's wrapper. It owns the card's outer spacing so the attachment
+   surface and the timeline row can space it differently without two cards. */
+.meridian-attachment-card {
+  display: block;
+  margin-block-start: var(--meridian-space-2);
+}
+
+.meridian-artifact-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-artifact-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-artifact-card__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-artifact-card__id {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-artifact-card__body {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
+
+.meridian-artifact-card__face {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+/* Progressive disclosure: the rules are one click away and never in the way. */
+.meridian-ingest-bounds {
+  margin-block-start: var(--meridian-space-3);
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-2);
+}
+
+.meridian-ingest-bounds__summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-ingest-bounds__source,
+.meridian-ingest-bounds__refusal {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-ingest-bounds__types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  margin: var(--meridian-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-ingest-bounds__caps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-3) 0 0;
+}
+
+.meridian-ingest-bounds__cap dt {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-ingest-bounds__cap dd {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
 }

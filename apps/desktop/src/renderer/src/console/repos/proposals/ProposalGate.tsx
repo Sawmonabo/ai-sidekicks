@@ -25,7 +25,7 @@ export interface ProposalGateProps {
   /**
    * The blocking choice an incompatible checkout raises.
    *
-   * A SEPARATE prop rather than a seventh state arm, because it blocks a context that
+   * A SEPARATE prop rather than a sixth state arm, because it blocks a context that
    * is otherwise fully readable: the summary stays on screen underneath while the
    * choice is put, which is what makes the choice answerable.
    */
@@ -73,7 +73,7 @@ export function ProposalGate(props: ProposalGateProps): React.JSX.Element {
   );
 }
 
-/** The gate's six arms. Each absence is its own kind; none stands in for another. */
+/** The gate's five arms. Each absence is its own kind; none stands in for another. */
 function renderGateBody(props: ProposalGateProps): React.JSX.Element {
   const { state } = props;
   const offeredActions = offeredProposalActions(state);

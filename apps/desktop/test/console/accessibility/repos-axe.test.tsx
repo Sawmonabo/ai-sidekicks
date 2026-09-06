@@ -1,4 +1,4 @@
-// The accessibility tier over the repos family's five surfaces.
+// The accessibility tier over the repos family's seven surfaces.
 //
 // `frame-axe.test.tsx` runs the frame; this file runs what the family mounts INTO
 // it, and it runs each surface scoped to itself rather than scanning the document,
@@ -18,8 +18,9 @@
 //
 // THE GATE'S OFFERS ARE ASSERTED AND NOT ONLY WALKED. Axe reports what is wrong with
 // the nodes it is handed and says nothing about the nodes that are missing, so this
-// file's eight clean walks would have gone on passing over a gate drawing two offers
-// instead of three and no refusal at all — which is exactly what it drew, because the
+// file's fourteen clean walks — the seven surfaces below, each in both schemes — would
+// have gone on passing over a gate drawing two offers instead of three and no refusal
+// at all — which is exactly what it drew, because the
 // pinned proposal was `draft` and the remote act is withheld on any state but `ready`.
 // One assertion over the drawn rows is what makes the fixture's props reach the DOM a
 // checked claim rather than an assumption every image quietly inherited.
@@ -113,7 +114,7 @@ describe("accessibility — the repos, diff, artifact, and proposal surfaces", (
   });
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: the eight cases above expect an
+    // Negative control for this file's own runs: the fourteen walks above expect an
     // empty list, and a misconfigured run returns exactly the same empty list.
     const planted = plantAxeViolation();
     try {

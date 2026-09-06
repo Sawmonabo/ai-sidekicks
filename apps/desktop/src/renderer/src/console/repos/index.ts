@@ -102,8 +102,11 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
 // `// Consumed by` form `apps/desktop/AGENTS.md` gives the declaration side of it, and
 // it is deleted by the cross-family pass that adds the import.
 //
-// Consumed by `panes/runs/InterventionHistory.tsx`, the runs pane's intervention
-// history, in the cross-family task that composes it.
+// Consumed by T-023p-1C-3, which builds the runs family and composes its intervention
+// history. The consumer is named by TASK rather than by path: a pane body lives in its
+// own family's `pane/` directory, and `panes/` is flat composition only, so a path
+// written here ahead of that family would name a module `console-panes-hold-no-body`
+// forbids and no file on the tree has.
 export {
   // Consumed by T-023p-1C-3, the runs pane's intervention history, in the
   // cross-family task that composes it.

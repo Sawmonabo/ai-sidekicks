@@ -86,18 +86,9 @@ import {
   type ProposalContextKey,
 } from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
-import { repoCallRefusal } from "../repo-reads.js";
+import { readGrowthAnswer } from "../growth-call.js";
+import { gateReadFailureRefusal } from "./proposal-gate-refusals.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
-
-/**
- * Re-exported from the module that declares it, because every importer names it here.
- *
- * The declaration sits in `proposal-gate-model.ts` so the reader and the acts can both
- * publish one without importing each other; this line is what keeps that move invisible
- * to `proposal-gate-binding.ts` and `ProposalGateDisclosure.tsx`, which read the gate's
- * value through the object that produces it.
- */
-export type { ProposalGateReading };
 
 /** The wire this reader asks on, named once so a refusal can say which call failed. */
 const BRANCH_CONTEXT_READ_CALL = "gitflow.branchContextRead";
@@ -162,16 +153,18 @@ export class ProposalGateReader {
       // A read that threw past its own refusal handling lands in the reading as the
       // `refused` arm. Re-throwing into a timer callback reaches nobody, and
       // swallowing would leave a gate showing the wait it never came out of.
-      // The daemon's own refusal, normalized rather than stringified. A scripted or
-      // live rejection arrives as the wire's `{code, message}` envelope, which is not
-      // an `Error` — so a bare `String(error)` printed `[object Object]` on exactly
-      // the path that now carries "this workspace has no branch context".
+      //
+      // THE BACKSTOP AND NOT THE REJECTION HANDLER. The read itself goes through
+      // `readGrowthAnswer`, so a rejected call is already an answer carrying the growth
+      // port's own origin and code by the time it returns; what reaches here is this
+      // reader failing after that. The stamp is therefore the GATE's, where it used to
+      // be the family's daemon-read normalizer — a subsystem this leg never asks.
       onError: (error: unknown) => {
         this.#publish({
           ...this.#reading,
           state: {
             kind: "refused",
-            message: repoCallRefusal(BRANCH_CONTEXT_READ_CALL, error).detail,
+            message: gateReadFailureRefusal(BRANCH_CONTEXT_READ_CALL, error).detail,
           },
           refusal: undefined,
           settlement: GATE_SETTLEMENT_COPY.refused,
@@ -293,7 +286,7 @@ export class ProposalGateReader {
    * AN ADAPTER RATHER THAN A PUBLIC `implements` CLAUSE, because every member writes
    * state this class owns — `publish` alone would let any caller put an arbitrary
    * reading on the gate — and implementing the port on the class would have to make
-   * all six public to do it. The port stays one declaration, the acts stay unable to
+   * all seven public to do it. The port stays one declaration, the acts stay unable to
    * reach anything it does not name, and this class's public surface is what it was.
    */
   #actionHost(): ProposalGateActionHost {
@@ -331,15 +324,17 @@ export class ProposalGateReader {
       this.#publish({ ...this.#reading, state: { kind: "preparing" }, refusal: undefined });
     }
 
-    const outcome = await this.#bridge.growth.gitflowBranchContextRead(plan.request);
+    const answer = await readGrowthAnswer(BRANCH_CONTEXT_READ_CALL, () =>
+      this.#bridge.growth.gitflowBranchContextRead(plan.request),
+    );
     if (this.#disposed) {
       return;
     }
 
-    if (outcome.status === "unavailable") {
+    if (answer.status === "refused") {
       this.#context = undefined;
       this.#discardProposal();
-      this.#publish(gateReadingForRefusal(this.#reading, outcome));
+      this.#publish(gateReadingForRefusal(this.#reading, answer.refusal));
       return;
     }
 
@@ -349,7 +344,7 @@ export class ProposalGateReader {
     // daemon's own sentence. So there is nothing to test for here, and the arm this
     // reader used to publish for an absent envelope member — which a contract-shaped
     // reply produced on every read — is gone with the envelope.
-    const context = branchContextReadingFrom(outcome.value, this.#subject.executionMode);
+    const context = branchContextReadingFrom(answer.value, this.#subject.executionMode);
     this.#context = context;
     // A REFRESHED CONTEXT NEVER CARRIES A PROPOSAL PREPARED FOR A DIFFERENT ONE. An
     // external checkout or a repair can move the base or the head between reads, and a

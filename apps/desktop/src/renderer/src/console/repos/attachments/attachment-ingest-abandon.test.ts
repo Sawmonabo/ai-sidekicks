@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import { INGEST_ABORT_SITE } from "./attachment-ingest-abort.js";
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import {
   SMALL_SOURCE,
   ScriptedGrowthPort,
@@ -33,10 +34,10 @@ describe("ingest client — abandonment, including mid-call", () => {
     const client = clientOver(port);
     port.refuseChunksWith("wire-unregistered");
     client.attach(SMALL_SOURCE);
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     client.abandon("attachment-1");
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
     expect(client.snapshot[0]?.state).toBe("abandoned");
     expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
   });
@@ -45,7 +46,7 @@ describe("ingest client — abandonment, including mid-call", () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     client.abandon("attachment-1");
     expect(client.snapshot[0]?.state).toBe("complete");
@@ -57,13 +58,13 @@ describe("ingest client — abandonment, including mid-call", () => {
     const client = clientOver(port);
     const gate = port.holdBegin();
     client.attach(SMALL_SOURCE);
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     // Abandoned before the daemon answered: nothing in the ledger names a stream yet.
     client.abandon("attachment-1");
     expect(port.abortedIngestIds).toStrictEqual([]);
     gate.open();
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     // The continuation neither resumed the abandoned entry nor sent a chunk, and it
     // asked for the spool of the stream the daemon opened underneath it — the one call
@@ -78,12 +79,12 @@ describe("ingest client — abandonment, including mid-call", () => {
     const client = clientOver(port);
     const gate = port.holdChunks();
     client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
     expect(port.chunkCalls).toHaveLength(1);
 
     client.abandon("attachment-three");
     gate.open();
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     // One chunk in flight, one abandonment, and no second chunk. The abort rode the
     // abandonment itself, because the stream identity was in the ledger by then.
@@ -99,10 +100,10 @@ describe("ingest client — abandonment, including mid-call", () => {
     const client = clientOver(port);
     const gate = port.holdChunks();
     client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     gate.open();
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     expect(port.chunkCalls).toHaveLength(2);
     expect(client.snapshot[0]?.state).toBe("complete");
@@ -116,10 +117,10 @@ describe("ingest client — a refused abort is recorded rather than swallowed", 
     const client = clientOver(port);
     port.refuseChunksWith("wire-unregistered");
     client.attach(SMALL_SOURCE);
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     client.abandon("attachment-1");
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
   }
 
   it("names the ingest id and the code when the daemon will not release the spool", async () => {
@@ -193,13 +194,13 @@ describe("ingest client — disposal gives every open spool back", () => {
     // The completed one first, so its stream identity is `ingest-1` and the two the
     // case is about are the ones a per-stream abort has to name.
     client.attach(SMALL_SOURCE);
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
     expect(client.snapshot[0]?.state).toBe("complete");
 
     port.holdChunks();
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
     client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
     return { port, client };
   }
 
@@ -224,7 +225,7 @@ describe("ingest client — disposal gives every open spool back", () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
 
     client.dispose();
 
@@ -238,9 +239,9 @@ describe("ingest client — disposal gives every open spool back", () => {
     const client = clientOver(port);
     port.refuseChunksWith("wire-unregistered");
     client.attach(SMALL_SOURCE);
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
     client.abandon("attachment-1");
-    await new Promise((settle) => setTimeout(settle, 0));
+    await drainMicrotasks();
     expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
 
     client.dispose();

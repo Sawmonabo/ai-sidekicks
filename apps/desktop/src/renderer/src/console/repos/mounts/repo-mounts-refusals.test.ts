@@ -23,7 +23,9 @@ import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
+import { ParkedCalls } from "../held-calls.test-support.js";
+import { SessionStore } from "../../store/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
 import { workspaceRefusalFor } from "./repo-mounts-model.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import { drain, settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
@@ -58,7 +60,7 @@ interface PortBehaviour {
   readonly dropFromRosterAfterFirstRead?: boolean;
 }
 
-function interceptingBridge(behaviour: PortBehaviour, parked: (() => void)[]): ConsoleBridge {
+function interceptingBridge(behaviour: PortBehaviour, parked: ParkedCalls): ConsoleBridge {
   let rosterReads = 0;
   const held = withDaemonCall(
     createFixtureBridge({ scenario: REPOS_SCENARIO }),
@@ -81,7 +83,7 @@ function interceptingBridge(behaviour: PortBehaviour, parked: (() => void)[]): C
         throw { code: "workspace.busy", message: "This workspace is provisioning." };
       }
       if (call.method === MODE_SELECT_CALL && behaviour.parkModeSelects === true) {
-        await new Promise<void>((letThrough) => parked.push(letThrough));
+        await parked.park();
       }
       return await passThrough();
     },
@@ -91,7 +93,7 @@ function interceptingBridge(behaviour: PortBehaviour, parked: (() => void)[]): C
 
 /** A section that has read once, with the port bent however the case needs. */
 async function openSection(behaviour: PortBehaviour = {}): Promise<ReadUnderTest> {
-  const parked: (() => void)[] = [];
+  const parked = new ParkedCalls();
   const clock = new ManualClock();
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
   // A base state is what makes a later frame a frame rather than history.
@@ -107,19 +109,10 @@ async function openSection(behaviour: PortBehaviour = {}): Promise<ReadUnderTest
     clock,
     deliverLifecycleFrame: (kind) => {
       sequence += 1;
-      const frame: ConsoleSessionEvent = {
-        id: `event-${String(sequence)}`,
-        sessionId: REPOS_SCENARIO.sessionId,
-        sequence,
-        kind,
-        occurredAt: "2026-01-01T09:05:01.900Z",
-      };
-      sessionStore.applyBatch([frame]);
+      sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, kind, sequence)]);
     },
     releaseSelects: () => {
-      for (const letThrough of parked.splice(0)) {
-        letThrough();
-      }
+      parked.releaseAll();
     },
   };
 }

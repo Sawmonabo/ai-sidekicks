@@ -66,7 +66,7 @@ import {
 } from "./mount-health.js";
 import { ProposalGateDisclosure } from "../proposals/ProposalGateDisclosure.js";
 import { branchRootGateSubject } from "../proposals/proposal-gate-model.js";
-import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
+import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import { workspaceRefusalFor, type WorkspaceRefusals } from "./repo-mounts-model.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { WorktreeGateRow } from "../proposals/WorktreeGateRow.js";

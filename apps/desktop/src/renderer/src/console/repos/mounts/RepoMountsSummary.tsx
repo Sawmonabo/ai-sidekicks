@@ -1,5 +1,5 @@
 import { Nothing } from "../../primitives/index.js";
-import { type RepoMountsReading } from "./repo-mounts-reader.js";
+import { type RepoMountsReading } from "./repo-mounts-model.js";
 import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 
 /**

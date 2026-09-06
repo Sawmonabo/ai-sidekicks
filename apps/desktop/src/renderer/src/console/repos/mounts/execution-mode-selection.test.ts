@@ -22,6 +22,7 @@ import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { GIT_WORKSPACE_ID, PLAIN_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { ParkedCalls } from "../held-calls.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import { drain, settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
@@ -56,7 +57,7 @@ type ReleasedSelect = "served" | "rejected";
 type ReleasedSelects = ReleasedSelect | readonly ReleasedSelect[];
 
 function bridgeHoldingModeSelect(released: ReleasedSelects = "served"): HeldModeSelect {
-  const parked: (() => void)[] = [];
+  const parked = new ParkedCalls();
   let calls = 0;
   const answerFor = (callNumber: number): ReleasedSelect =>
     typeof released === "string"
@@ -70,7 +71,7 @@ function bridgeHoldingModeSelect(released: ReleasedSelects = "served"): HeldMode
       }
       calls += 1;
       const answer = answerFor(calls);
-      await new Promise<void>((letThrough) => parked.push(letThrough));
+      await parked.park();
       if (answer === "rejected") {
         // A typed daemon refusal, in the envelope shape the wire sends. The refusal
         // path is what a settle-after-unmount would WRITE, which is why the case that
@@ -84,9 +85,7 @@ function bridgeHoldingModeSelect(released: ReleasedSelects = "served"): HeldMode
     bridge: held.bridge,
     selectCallCount: () => calls,
     release: () => {
-      for (const letThrough of parked.splice(0)) {
-        letThrough();
-      }
+      parked.releaseAll();
     },
   };
 }

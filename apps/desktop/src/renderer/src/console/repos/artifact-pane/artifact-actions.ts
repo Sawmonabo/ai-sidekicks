@@ -75,7 +75,7 @@
 // reading stayed on `{ status: "fetching" }`, which is the arm the pane holds its
 // control by and the arm a scheduled list read deliberately carries forward. The
 // pane was then stuck until it was remounted. Every act goes through
-// `readGrowthAnswer` (`growth-call.ts`), which reads a rejection as the refusal it is
+// `readGrowthAnswer` (`repos/growth-call.ts`), which reads a rejection as the refusal it is
 // through the console's one rejection normalizer and the growth port's own
 // vocabulary, so a disconnect lands on the same refused arm a typed wire refusal does,
 // under the same subsystem name, and the control comes back. It is a
@@ -87,7 +87,7 @@ import { artifactManifestRowFromSummary } from "../artifacts/artifact-model.js";
 import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-host.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
-import { readGrowthAnswer } from "./growth-call.js";
+import { readGrowthAnswer } from "../growth-call.js";
 import {
   withManifestReadInFlight,
   withReplacedRow,

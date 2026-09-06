@@ -4,7 +4,7 @@
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
 // accessibility tier both need the same surfaces this family ships, and a per-tier copy
 // of the mount would be two chances to compose them differently and then read the
-// results as if they were comparable. Four modules divide that job: `console-harness.tsx`
+// results as if they were comparable. Five modules divide that job: `console-harness.tsx`
 // owns HOW the console is mounted, `repos-mount-harness.ts` owns what SETTLED means and
 // how a tier waits for it, `repos-fixtures.ts` owns what the surfaces are drawn against,
 // and the mounts themselves are split between this module and `repos-artifact.tsx` —
@@ -71,10 +71,8 @@ import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primiti
 import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";
 import { registerRepos } from "../../../src/renderer/src/console/repos/index.js";
 import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
-import {
-  sidebarSectionRegistry,
-  type SidebarSectionContext,
-} from "../../../src/renderer/src/console/seats/index.js";
+import { sectionContext } from "../../../src/renderer/src/console/repos/pane-contexts.test-support.js";
+import { sidebarSectionRegistry } from "../../../src/renderer/src/console/seats/index.js";
 
 /**
  * The repos sidebar section, open, with its two mounts read.
@@ -90,12 +88,7 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
     throw new Error("the repos family registered no sidebar section");
   }
   const { bridge, sessionStore } = scenarioCollaborators();
-  const context: SidebarSectionContext = {
-    isOpen: true,
-    bridge,
-    sessionStore,
-    openPane: () => undefined,
-  };
+  const context = sectionContext({ isOpen: true, bridge, sessionStore });
   const { container } = await renderSettled(
     // The announcer is the section's environment: each root's gate announces its own
     // settlement, and `useAnnounce` throws outside the provider on purpose.
@@ -164,9 +157,8 @@ export async function mountRepoSectionWithOpenGate(): Promise<MountedFamilySurfa
 /** The diff pane over a parsed change set: attribution, compared states, rows. */
 export async function mountDiffPane(): Promise<MountedFamilySurface> {
   const { bridge, sessionStore } = scenarioCollaborators();
-  const DiffPaneBody = DiffPane;
   const { container } = await renderSettled(
-    <DiffPaneBody
+    <DiffPane
       context={{
         kind: "diff",
         // The scenario's own git workspace, which is what a diff over this session's

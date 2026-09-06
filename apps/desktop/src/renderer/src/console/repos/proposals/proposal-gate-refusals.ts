@@ -1,5 +1,5 @@
-// What a refused act leaves beside the control that produced it — the four sentences,
-// and the two writes that put one on the gate or take it off.
+// What a refused act leaves beside the control that produced it — the sentences the
+// gate authors, and the two writes that put one on the gate or take it off.
 //
 // A MODULE OF ITS OWN BECAUSE BOTH LEGS AND THE ADMISSION PATH ALL WRITE THE SAME WAY.
 // `proposal-gate-actions.ts` refuses before it sends (a second act in flight, a gate
@@ -20,7 +20,7 @@
 // daemon's own `error` is carried verbatim and the console's sentence is only the
 // fallback for a reply that failed and named no reason.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
 import { PROPOSAL_ACTION_PRESENTATION, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateActionHost } from "./proposal-gate-action-host.js";
 import {
@@ -117,4 +117,27 @@ export function clearActionRefusal(host: ProposalGateActionHost, action: Proposa
   const actionRefusals = new Map(reading.actionRefusals);
   actionRefusals.delete(action);
   host.publish({ ...reading, actionRefusals });
+}
+
+/**
+ * A read that failed PAST its own refusal handling, in the gate's own words.
+ *
+ * NOT A REJECTED CALL, and that is the whole reason it is the gate's. The branch-context
+ * read goes through `repos/growth-call.ts`, so a rejection is already an answer carrying
+ * the growth port's origin and `wire-unregistered` before the scheduler sees anything.
+ * What reaches the scheduler's `onError` is this reader failing afterwards — mapping a
+ * served reply, or a sink that threw — and the stamp that stood here named the family's
+ * DAEMON reads, a subsystem this leg never asks.
+ *
+ * NORMALIZED RATHER THAN STRINGIFIED, on `repos/repo-reads.ts`'s reason: a scripted or
+ * live rejection arrives as the wire's `{ code, message }` envelope, which is not an
+ * `Error`, so a bare `String(error)` printed `[object Object]` on exactly the path that
+ * carries "this workspace has no branch context". The rejected value is never quoted
+ * into the console's own fallback sentence.
+ */
+export function gateReadFailureRefusal(leg: string, error: unknown): ConsoleRefusal {
+  return normalizeWireRejection(PROPOSAL_GATE_REFUSAL_ORIGIN, error, {
+    code: "read-threw" satisfies ProposalGateRefusalCode,
+    detail: `${leg} failed before it could answer.`,
+  });
 }

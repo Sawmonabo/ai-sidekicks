@@ -41,7 +41,7 @@ import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-hos
 import { withReplacedRow, withoutRowRefusal } from "./artifact-pane-reading.js";
 import { payloadFetchInFlightRefusal } from "./artifact-pane-refusals.js";
 import { artifactPayloadReadingFrom, type ArtifactPayloadOutcome } from "./artifact-payload.js";
-import { readGrowthAnswer } from "./growth-call.js";
+import { readGrowthAnswer } from "../growth-call.js";
 
 /**
  * The one key this pane's payload fetch takes.

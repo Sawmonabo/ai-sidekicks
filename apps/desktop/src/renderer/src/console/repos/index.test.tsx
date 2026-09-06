@@ -22,9 +22,11 @@ import {
   ConsolePaneRegistry,
   isDetachablePaneKind,
   sidebarSectionRegistry,
+  type ConsolePaneAddress,
   type ConsolePaneContext,
   type SidebarSectionContext,
 } from "../seats/index.js";
+import { paneContext, sectionContext } from "./pane-contexts.test-support.js";
 import * as reposDoorModule from "./index.js";
 import { registerRepos, registerReposPanes } from "./index.js";
 
@@ -49,55 +51,53 @@ const PANE_REGION_NAME_BY_KIND: Readonly<Record<(typeof REPOS_PANE_KINDS)[number
 };
 
 /**
- * A section context with real collaborators.
+ * This file's section context: the family's own scenario, on the shared builder.
  *
- * The section READS now — it holds the `repo.workspaceList` / `repo.mountRead` pair
- * the mount cards are drawn from — so a context whose `bridge` and `sessionStore`
- * were never reached would have this file asserting against a body that throws on
- * its first hook. The fixture bridge and a bare store are the cheapest honest
- * collaborators: both are the real classes, and the scenario is the family's own.
+ * The fixture bridge and a bare store are the cheapest honest collaborators — both
+ * are the real classes — and the section READS, holding the `repo.workspaceList` /
+ * `repo.mountRead` pair the mount cards are drawn from.
  */
-function sectionContext(isOpen: boolean): SidebarSectionContext {
-  return {
+function contextForSection(isOpen: boolean): SidebarSectionContext {
+  return sectionContext({
     isOpen,
     bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
     sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
-    openPane: () => undefined,
-  } as unknown as SidebarSectionContext;
+  });
 }
 
 /**
- * The subject each kind's pane is opened over.
+ * The address each kind's pane is opened at.
  *
- * Both addresses REQUIRE one — `seats/pane-address.ts` narrows the entity with the
- * kind — so this table is what lets one loop mount both bodies without either arm
- * being handed a reference the other's body would read out of the wrong partition.
+ * Both REQUIRE a subject — `seats/pane-address.ts` narrows the entity with the kind
+ * — so this table is what lets one loop mount both bodies without either arm being
+ * handed a reference the other's body would read out of the wrong partition. Typed
+ * as the seat's own union, so a wrong pairing fails here rather than at the mount.
  */
-const PANE_SUBJECT_BY_KIND: Readonly<
-  Record<(typeof REPOS_PANE_KINDS)[number], { readonly kind: string; readonly id: string }>
-> = {
-  diff: { kind: "workspace", id: "workspace-sidekicks" },
-  artifact: { kind: "artifact", id: "artifact-diff-01" },
+const PANE_ADDRESS_BY_KIND: {
+  readonly [Kind in (typeof REPOS_PANE_KINDS)[number]]: Extract<
+    ConsolePaneAddress,
+    { readonly kind: Kind }
+  >;
+} = {
+  diff: { kind: "diff", entity: { kind: "workspace", id: "workspace-sidekicks" } },
+  artifact: { kind: "artifact", entity: { kind: "artifact", id: "artifact-diff-01" } },
 };
 
 /**
- * A pane context with real collaborators, on `sectionContext`'s reason.
+ * This file's pane context, on `contextForSection`'s reason.
  *
- * THE BRIDGE IS REACHED NOW, and this context used to supply none. The artifact
- * pane resolves the window's clock off it — `consoleClockFor(bridge)`, so that a pane
- * under the fixture schedules on the scenario's frozen time rather than on wall time
- * — which made an absent bridge a throw on the pane's first hook rather than a
- * collaborator nobody asked for. The fixture bridge and a bare store are the cheapest
- * honest ones: both are the real classes, and the scenario is the family's own.
+ * THE BRIDGE IS REACHED, and this context used to supply none. The artifact pane
+ * resolves the window's clock off it — `consoleClockFor(bridge)`, so a pane under
+ * the fixture schedules on the scenario's frozen time rather than on wall time —
+ * which made an absent bridge a throw on the pane's first hook.
  */
-function paneContext(kind: (typeof REPOS_PANE_KINDS)[number]): ConsolePaneContext {
-  return {
-    kind,
-    entity: PANE_SUBJECT_BY_KIND[kind],
+function contextForPane(kind: (typeof REPOS_PANE_KINDS)[number]): ConsolePaneContext {
+  return paneContext({
+    address: PANE_ADDRESS_BY_KIND[kind],
     paneId: `pane-${kind}`,
     bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
     sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
-  } as unknown as ConsolePaneContext;
+  });
 }
 
 afterEach(() => {
@@ -138,9 +138,9 @@ describe("repos family — the sidebar section", () => {
     registerRepos();
     const descriptor = sidebarSectionRegistry.descriptorFor("repos");
     expect(descriptor).toBeDefined();
-    const open = render(<>{descriptor?.render(sectionContext(true))}</>);
+    const open = render(<>{descriptor?.render(contextForSection(true))}</>);
     expect(open.container.querySelector(".meridian-repo-section__mounts")).not.toBeNull();
-    const collapsed = render(<>{descriptor?.render(sectionContext(false))}</>);
+    const collapsed = render(<>{descriptor?.render(contextForSection(false))}</>);
     expect(collapsed.container.querySelector(".meridian-repo-section__summary")).not.toBeNull();
     // The two are different shapes, which is the whole reason `isOpen` is on the
     // context: a collapsed section that rendered the open body would be the
@@ -168,9 +168,9 @@ describe("repos family — the artifacts section", () => {
     registerRepos();
     const descriptor = sidebarSectionRegistry.descriptorFor("artifacts");
     expect(descriptor).toBeDefined();
-    const open = render(<>{descriptor?.render(sectionContext(true))}</>);
+    const open = render(<>{descriptor?.render(contextForSection(true))}</>);
     expect(within(open.container).getByLabelText("Attach a file")).toBeDefined();
-    const collapsed = render(<>{descriptor?.render(sectionContext(false))}</>);
+    const collapsed = render(<>{descriptor?.render(contextForSection(false))}</>);
     expect(within(collapsed.container).queryByLabelText("Attach a file")).toBeNull();
   });
 });
@@ -230,7 +230,7 @@ describe("repos family — the deck's pane kinds", () => {
       // so nothing this mount announces clears on a timer mid-case.
       const { container } = render(
         <LiveAnnouncerProvider clock={new ManualClock()}>
-          {descriptor?.render(paneContext(kind))}
+          {descriptor?.render(contextForPane(kind))}
         </LiveAnnouncerProvider>,
       );
       const region = within(container).getByRole("region", {
@@ -239,7 +239,7 @@ describe("repos family — the deck's pane kinds", () => {
       // And the trail really is a trail: the subject the descriptor was handed is in
       // the name, so a body that stopped passing its address to the chrome fails here
       // rather than passing on the kind noun alone.
-      expect(region.textContent).toContain(PANE_SUBJECT_BY_KIND[kind].id);
+      expect(region.textContent).toContain(PANE_ADDRESS_BY_KIND[kind].entity.id);
     }
   });
 });

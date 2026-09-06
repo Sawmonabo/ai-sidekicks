@@ -23,19 +23,11 @@ import {
   ephemeralCloneGateSubject,
 } from "./proposal-gate-model.js";
 import type { EphemeralCloneStatusRecord } from "../mounts/worktree-model.js";
+import { cloneRecord } from "../mounts/repo-mounts.test-support.js";
 
 const NOW = Date.UTC(2026, 0, 1, 9, 30, 0);
 
-const CLONE: EphemeralCloneStatusRecord = {
-  cloneId: "clone-01",
-  workspaceId: "workspace-sidekicks",
-  cloneRoot: "/Users/dev/.sidekicks/clones/clone-01",
-  branchName: "run-9f2c1a",
-  state: "ready",
-  cleanupPolicy: "on_run_complete",
-  expiresAt: "2026-01-01T12:00:00.000Z",
-  createdAt: "2026-01-01T09:00:00.000Z",
-} as EphemeralCloneStatusRecord;
+const CLONE: EphemeralCloneStatusRecord = cloneRecord();
 
 /**
  * A bridge that would serve a context if anything asked it for one.

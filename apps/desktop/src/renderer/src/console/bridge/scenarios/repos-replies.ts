@@ -34,6 +34,7 @@ import {
 
 import type { ConsoleScenario } from "../scenario.js";
 
+import { scenarioInstant } from "./repos-beats.js";
 import {
   EPHEMERAL_CLONE_ID,
   RECLAIMED_CLONE_ID,
@@ -48,6 +49,28 @@ import {
   REVIEWER_WORKTREE_ID,
   SESSION_ID,
 } from "./repos-fixture-data.js";
+
+/**
+ * A stamp for something the session ALREADY HAD when the scenario opens.
+ *
+ * DERIVED FROM THE ONE START AND NEGATIVE ON PURPOSE. Every record below states a fact
+ * the fixture wants already true at the first read — a mount attached, a root created,
+ * a probe taken, a clone reclaimed — and each was transcribed as a literal a fraction
+ * of a second AFTER `REPOS_SCENARIO_STARTED_AT_ISO`. The section's read lands one
+ * debounce interval after that start, `repo-mounts-reader.ts` stamps the instant onto
+ * the reading, and `WorktreeCard.tsx` draws `formatRelativeTime(record.createdAt,
+ * nowMilliseconds)` — so a root created 0.70 s after the start rendered "Created in
+ * 1 second", a future-tense age on something that had to exist before the session
+ * could run in it.
+ *
+ * Derived rather than re-transcribed, so the ordering is a property of this module and
+ * a later record cannot land ahead of the start by a typo. `expiresAt` is the one member
+ * NOT written through this — a disposal deadline is a future instant by definition, and
+ * `repos-replies.test.ts` asserts that split.
+ */
+function secondsBeforeStart(seconds: number): string {
+  return scenarioInstant(-seconds * 1_000);
+}
 
 /**
  * What `repo.mountRead` answers, per mount.
@@ -72,8 +95,8 @@ const MOUNT_READS_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
     canonicalRoot: "/Users/dev/code/ai-sidekicks",
     vcsType: "git",
     state: "attached",
-    health: { status: "healthy", checkedAt: "2026-01-01T09:05:01.000Z" },
-    attachedAt: "2026-01-01T09:05:00.200Z",
+    health: { status: "healthy", checkedAt: secondsBeforeStart(9) },
+    attachedAt: secondsBeforeStart(53 * 60 + 11),
   },
   [PLAIN_MOUNT_ID]: {
     id: PLAIN_MOUNT_ID,
@@ -85,10 +108,14 @@ const MOUNT_READS_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
     // third "unknown" verdict: the resolver either found a repository or did not.
     vcsType: "none",
     state: "attached",
-    health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
-    // The instant the `repo.attached` beat states for this mount. Two spellings of
-    // one attachment is how a fixture stops representing a session.
-    attachedAt: "2026-01-01T09:05:00.420Z",
+    health: { status: "unreachable", checkedAt: secondsBeforeStart(9) },
+    // BEHIND THE SCENARIO'S OWN START, like every stamp in this file, and therefore
+    // NOT the instant the `repo.attached` beat carries. The two are not one instant:
+    // a beat's `occurredAt` is where the line sits in a replay window two seconds
+    // wide, and this is the durable row's own field, which is what a card measures an
+    // age against. Spelled as the beat's position, as it was, every card drew an age
+    // in the future.
+    attachedAt: secondsBeforeStart(23 * 60 + 4),
   },
 };
 
@@ -222,8 +249,8 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
         fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/rate-limit-wiring",
         state: "dirty",
         createdBySessionId: SESSION_ID,
-        createdAt: "2026-01-01T09:05:00.700Z",
-        updatedAt: "2026-01-01T09:05:01.200Z",
+        createdAt: secondsBeforeStart(51 * 60 + 26),
+        updatedAt: secondsBeforeStart(3 * 60 + 40),
       },
       {
         worktreeId: REVIEWER_WORKTREE_ID,
@@ -232,8 +259,8 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
         fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/review-rate-limit-wiring",
         state: "ready",
         createdBySessionId: SESSION_ID,
-        createdAt: "2026-01-01T09:05:00.840Z",
-        updatedAt: "2026-01-01T09:05:00.840Z",
+        createdAt: secondsBeforeStart(28 * 60 + 2),
+        updatedAt: secondsBeforeStart(28 * 60 + 2),
       },
     ],
     ephemeralClones: [
@@ -247,8 +274,10 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
         branchName: "audit/rate-limit-wiring",
         state: "ready",
         cleanupPolicy: "on_run_complete",
-        expiresAt: "2026-01-01T09:05:01.500Z",
-        createdAt: "2026-01-01T09:05:00.960Z",
+        // AHEAD of the scenario's instant, which is what puts this clone on the
+        // `scheduled` arm: the disposal is coming and the card draws the countdown.
+        expiresAt: scenarioInstant(12 * 60_000),
+        createdAt: secondsBeforeStart(17 * 60 + 15),
       },
       {
         cloneId: RECLAIMED_CLONE_ID,
@@ -257,12 +286,12 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
         branchName: "probe/rate-limit-wiring",
         state: "ready",
         cleanupPolicy: "on_run_complete",
-        // Ahead of the scenario's own instant where the row above is behind it, so
-        // the two clones differ in the one field a countdown is derived from and the
-        // stamp below is what separates their dispositions.
-        expiresAt: "2026-01-01T09:35:00.000Z",
-        createdAt: "2026-01-01T09:05:00.980Z",
-        cleanedAt: "2026-01-01T09:05:01.100Z",
+        // Ahead of the start like the row above, so what separates the two clones is
+        // NOT the deadline but the `cleanedAt` below: this one was reclaimed while its
+        // deadline is still coming, the only way to reach the reclaimed disposition.
+        expiresAt: scenarioInstant(30 * 60_000),
+        createdAt: secondsBeforeStart(25 * 60 + 48),
+        cleanedAt: secondsBeforeStart(9 * 60 + 12),
       },
     ],
   });
@@ -332,13 +361,12 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     //
     // `ephemeralClones` carries TWO rows, and this read is the only way this scenario
     // can reach that list at all: clone transitions are not separately evented, so no
-    // beat can state a clone and this read is the whole surface. The first is past its
-    // disposal time on purpose — the elapsed reading is the one state on the
-    // execution-root surface that arrives with nobody acting, and a fixture whose clone
-    // was merely scheduled could not reach it. The second carries `cleanedAt`, which is
-    // read AHEAD of the deadline and is the only way to reach the reclaimed disposition;
-    // its deadline is deliberately still ahead, so a card that derived disposition from
-    // `expiresAt` alone would draw it as awaiting a disposal that has already happened.
+    // beat can state a clone and this read is the whole surface. The first is on the
+    // SCHEDULED arm, which is the reading the countdown is drawn from and the one the
+    // section's own clock case pins; the second carries `cleanedAt` while its deadline
+    // is likewise still ahead, which is what the reclaimed disposition is read from. A
+    // card deriving either from `expiresAt` alone would draw the reclaimed one as
+    // awaiting a disposal that has already happened.
     //
     // The IMPLEMENTER's root is `dirty`, agreeing with the beat above it: the reclaim
     // controls have to be unavailable somewhere, and a fixture whose every root is

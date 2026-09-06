@@ -64,9 +64,18 @@
 // rather than answer a refusal, and a thrown act used to escape `request` entirely: the
 // `finally` gave the register back, so every control re-enabled, while nothing was
 // written beside the one that was pressed and the binding — which voids this promise —
-// left the rejection unhandled. Both wires reject the same way. So the dispatch is
-// wrapped, the rejection is read through the repos family's ONE normalizer, and it is
-// recorded BEFORE the register is released. `request` settles and never rejects.
+// left the rejection unhandled. Both wires reject the same way.
+//
+// SO BOTH GO THROUGH THE FAMILY'S GROWTH DOOR, AND THE STAMP IS THE PORT'S. `request`
+// used to wrap the dispatch and read the rejection through `repoCallRefusal` — the
+// family's DAEMON-read normalizer — so a rejected `gitActionExecute` was published as
+// `repos` / `call-rejected` while the same operation's ANSWERED refusal rendered
+// `growth-port` / `wire-unregistered`: one act, two failure paths, two subsystem names,
+// and a code outside this gate's own closed vocabulary. `readGrowthAnswer`
+// (`repos/growth-call.ts`) is the one reading of a growth answer in this family, and it
+// makes the unreadable reply an answer too. The `catch` below stays as the backstop for
+// everything else `request` awaits, and stamps through the same door so the two cannot
+// disagree. `request` settles and never rejects.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import {
@@ -77,7 +86,7 @@ import {
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { isProposalState, proposalContextKeysMatch } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
-import { repoCallRefusal } from "../repo-reads.js";
+import { growthCallRejectionRefusal, readGrowthAnswer } from "../growth-call.js";
 import {
   PROPOSAL_ACTION_HEAD_EFFECT,
   proposalActionWire,
@@ -189,7 +198,7 @@ export class ProposalGateActions {
         recordActionRefusal(
           this.#host,
           action,
-          repoCallRefusal(proposalActionWire(action), rejection),
+          growthCallRejectionRefusal(proposalActionWire(action), rejection),
         );
       }
     } finally {
@@ -240,17 +249,19 @@ export class ProposalGateActions {
     context: BranchContextReading,
     round: CurrentGenerationClaim,
   ): Promise<void> {
-    const outcome = await this.#bridge.growth.gitflowPrPrepare({
-      branchContextId: context.branchContextId,
-      // The context's own base branch, never a selection: there is no parameter on
-      // this class through which one could arrive.
-      targetBranch: context.baseBranch,
-    });
+    const answer = await readGrowthAnswer(proposalActionWire("prepare-proposal"), () =>
+      this.#bridge.growth.gitflowPrPrepare({
+        branchContextId: context.branchContextId,
+        // The context's own base branch, never a selection: there is no parameter on
+        // this class through which one could arrive.
+        targetBranch: context.baseBranch,
+      }),
+    );
     if (!round.isCurrent) {
       return;
     }
-    if (outcome.status === "unavailable") {
-      recordActionRefusal(this.#host, "prepare-proposal", outcome);
+    if (answer.status === "refused") {
+      recordActionRefusal(this.#host, "prepare-proposal", answer.refusal);
       return;
     }
     // THE REPLY IS TYPED AND THE PORT IS A PROCESS BOUNDARY. The signature table says
@@ -259,7 +270,7 @@ export class ProposalGateActions {
     // remote act's `=== "ready"` as a silent `false` — the act withheld, no sentence
     // saying why, and nothing failing. Refused at the boundary instead, which is what
     // makes the state vocabulary one home rather than one home and an assumption.
-    const servedState: unknown = outcome.value.state;
+    const servedState: unknown = answer.value.state;
     if (!isProposalState(servedState)) {
       recordActionRefusal(
         this.#host,
@@ -273,7 +284,7 @@ export class ProposalGateActions {
         baseBranch: context.baseBranch,
         headBranch: context.headBranch,
         state: servedState,
-        blob: outcome.value.proposalBlob,
+        blob: answer.value.proposalBlob,
       },
       context,
     );
@@ -311,30 +322,28 @@ export class ProposalGateActions {
       recordActionRefusal(this.#host, action, contextSupersededRefusal(action));
       return;
     }
-    const outcome = await this.#bridge.growth.gitActionExecute(
-      gitActionExecuteRequest(action, context, {
-        repoMountId: this.#repoMountId,
-        causationParticipantId,
-      }),
+    const answer = await readGrowthAnswer(proposalActionWire(action), () =>
+      this.#bridge.growth.gitActionExecute(
+        gitActionExecuteRequest(action, context, {
+          repoMountId: this.#repoMountId,
+          causationParticipantId,
+        }),
+      ),
     );
     if (!round.isCurrent) {
       return;
     }
-    if (outcome.status === "unavailable") {
-      recordActionRefusal(this.#host, action, outcome);
+    if (answer.status === "refused") {
+      recordActionRefusal(this.#host, action, answer.refusal);
       return;
     }
-    if (!outcome.value.success) {
+    if (!answer.value.success) {
       // A served answer that did not take the act. Rendered rather than treated as a
       // success — and the reply's OWN `error` is what stands there when it carries one,
       // verbatim, because rule 9 forbids paraphrasing a refusal the console did not
       // author. The console's sentence is the fallback for a reply that failed and said
       // why nowhere, and it claims nothing about the reason.
-      recordActionRefusal(
-        this.#host,
-        action,
-        actionNotAcceptedRefusal(action, outcome.value.error),
-      );
+      recordActionRefusal(this.#host, action, actionNotAcceptedRefusal(action, answer.value.error));
       return;
     }
     if (PROPOSAL_ACTION_HEAD_EFFECT[action] === "moves-head") {

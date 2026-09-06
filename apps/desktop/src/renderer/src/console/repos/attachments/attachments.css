@@ -5,9 +5,9 @@
  * why, and for the import rule every sheet in this family obeys.
  *
  * The card is drawn by this directory AND by `repos/artifact-pane/InlineAttachmentCard.tsx`,
- * which is the family's other directory and reached through the same door, so both
- * draw it styled. What the pane owns alone — `.meridian-attachment-card` — stays in
- * `repos.css` with the rest of the pane's chrome.
+ * one of the family's six other directories, reached through the same door, so both
+ * draw it styled. What the pane owns alone — `.meridian-attachment-card`, the card's
+ * outer wrapper — lives in that pane's own `artifact.css`.
  */
 
 .meridian-attachment {

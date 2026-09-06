@@ -17,12 +17,13 @@
 //    carry — the manifest re-read is "Read manifest" because that is what comes
 //    back.
 //
-// 2. THE PAYLOAD IS NEVER RENDERED. Not as markup, not as text, not behind a
-//    toggle. Payloads are explicit-fetch downloads with no in-product execution
-//    surface, and `image/svg+xml` is absent from the default allow-list precisely
-//    because it is the one image type that is also a scriptable document. This is a
-//    hard renderer rule, so the affordance is a control that ASKS for the payload
-//    and there is no element in this file that could ever hold one.
+// 2. THIS PANEL NEVER RENDERS A PAYLOAD. Not as markup, not as text, not behind a
+//    toggle: it lists manifests, and every act it offers is a manifest act. The
+//    payload has one home in this family — `repos/artifact-pane/`, which asks for it
+//    through `artifactRead`'s `includePayload` and draws the bytes as text in a
+//    `<pre>` — and this panel is deliberately not a second one. Nothing here is ever
+//    rendered as markup: `image/svg+xml` is absent from the default allow-list
+//    precisely because it is the one image type that is also a scriptable document.
 //
 // 3. NOTHING HERE DECIDES WHO MAY ACT. `artifact.delete_forbidden` is a 403 the
 //    daemon returns against the session roles — an owner may delete any session
@@ -94,12 +95,11 @@ export interface ArtifactsPanelProps {
   /**
    * Re-read one row's manifest.
    *
-   * NAMED FOR WHAT THE READ SERVES. `bridge/growth-signatures/artifacts.ts` registers
-   * `artifactRead` as answering one manifest summary, with no request member that
-   * asks for a payload and no reply member that carries one — the wire's own
-   * `payloadHandle` / `payload` pair is on no console port. A control called "fetch
-   * payload" over that read is a promise the participant only finds out about by
-   * pressing it.
+   * NAMED FOR WHAT THIS PANEL ASKS FOR. The port's `artifactRead` does carry a
+   * payload — `includePayload` on the request, `payload` / `payloadHandle` on the
+   * reply — and the artifact pane asks for one. This panel does not: it sends the
+   * manifest-only shape, so a control called "fetch payload" here would be a promise
+   * the participant only finds out about by pressing it.
    */
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
   /**

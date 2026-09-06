@@ -33,7 +33,10 @@
 // `diff-fixture-patch.test-support.ts`'s.
 
 import { buildPatchText } from "./diff-fixture-patch.test-support.js";
-import { RUN_ATTRIBUTION, type DiffFixtureShape } from "./diff-fixture-shapes.test-support.js";
+import {
+  RUN_ATTRIBUTED_ATTRIBUTION,
+  type DiffFixtureShape,
+} from "./diff-fixture-shapes.test-support.js";
 import type { ConsoleDiffModel, DiffAttribution, DiffLine } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 import { parseUnifiedPatch } from "./patch-parse.js";
@@ -50,7 +53,7 @@ const FIXTURE_COMPARED_STATES = { baseRef: "main", headRef: "feat/rate-limit-wir
  */
 export function buildDiffFixture(
   shape: DiffFixtureShape,
-  attribution: DiffAttribution = RUN_ATTRIBUTION,
+  attribution: DiffAttribution = RUN_ATTRIBUTED_ATTRIBUTION,
 ): ConsoleDiffModel {
   const parsed = parseUnifiedPatch(buildPatchText(shape), attribution, FIXTURE_COMPARED_STATES);
   return {

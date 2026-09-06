@@ -35,7 +35,7 @@ import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { Chip, Glyph, Nothing, WireFigure, type ChipTone } from "../../primitives/index.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
-import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
+import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a sixth

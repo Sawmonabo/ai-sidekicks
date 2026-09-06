@@ -36,6 +36,7 @@ import { growthUnavailable } from "../../bridge/index.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import type { ConsoleClock } from "../../core/index.js";
+import { manualGate } from "../held-calls.test-support.js";
 import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { attachmentSourceFrom, type AttachmentSource } from "./attachment-shapes.js";
@@ -53,22 +54,6 @@ export function patternedBytes(byteLength: number): Uint8Array<ArrayBuffer> {
     bytes[index] = (index * 7 + 13) % 251;
   }
   return bytes;
-}
-
-/** A promise the case opens by hand, so a call can be caught mid-flight. */
-function manualGate(): { readonly promise: Promise<void>; readonly open: () => void } {
-  let release = (): void => {};
-  const promise = new Promise<void>((settle) => {
-    release = (): void => {
-      settle();
-    };
-  });
-  return {
-    promise,
-    open: (): void => {
-      release();
-    },
-  };
 }
 
 /**

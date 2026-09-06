@@ -17,6 +17,7 @@ import { growthUnavailable } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import { handAnsweredCall } from "../held-calls.test-support.js";
 import { ArtifactPane } from "./ArtifactPane.js";
 import {
   LISTED_ONE_ROW,
@@ -185,13 +186,8 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     // settles is a second download of the same bytes — and the reader refuses it. The
     // control is held so a participant never meets that refusal by pressing something
     // the pane was offering, and the arm the reading is on is what holds it.
-    let releaseRead: (answer: GrowthPortAnswer<"artifactRead">) => void = () => undefined;
-    const artifactRead = vi.fn(
-      () =>
-        new Promise<GrowthPortAnswer<"artifactRead">>((resolve) => {
-          releaseRead = resolve;
-        }),
-    );
+    const readCall = handAnsweredCall<GrowthPortAnswer<"artifactRead">>();
+    const artifactRead = vi.fn(readCall.invoke);
     const { paneClock, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, artifactRead }),
@@ -208,7 +204,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     await settleAct();
     expect(artifactRead).toHaveBeenCalledTimes(1);
 
-    releaseRead(readAnswering("published"));
+    readCall.open(readAnswering("published"));
     await settleAct();
     expect(control).toHaveProperty("disabled", false);
   });

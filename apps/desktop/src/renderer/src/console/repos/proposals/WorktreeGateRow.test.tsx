@@ -22,6 +22,7 @@ import { WIRE_UNREGISTERED } from "./proposal-gate-scripted-port.test-support.js
 import { WorktreeGateRow } from "./WorktreeGateRow.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { WorktreeStatusRecord } from "../mounts/worktree-model.js";
+import { worktreeRecord } from "../mounts/repo-mounts.test-support.js";
 
 const SUBJECT = {
   kind: "worktree",
@@ -31,16 +32,15 @@ const SUBJECT = {
   executionMode: "worktree",
 } as const satisfies ProposalGateSubject;
 
-const ROOT: WorktreeStatusRecord = {
+const ROOT: WorktreeStatusRecord = worktreeRecord({
   worktreeId: SUBJECT.worktreeId,
-  repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
+  repoMountId: SUBJECT.repoMountId,
   branchName: "feat/rate-limit-wiring",
   fsRoot: "/Users/dev/roots/rate-limit-wiring",
-  state: "ready",
   createdBySessionId: "019b7b30-0280-7c11-8420-b1a5c0de2001",
   createdAt: "2026-01-01T09:05:00.700Z",
   updatedAt: "2026-01-01T09:05:00.700Z",
-} as WorktreeStatusRecord;
+});
 
 const NOW = Date.UTC(2026, 0, 1, 9, 6, 0);
 

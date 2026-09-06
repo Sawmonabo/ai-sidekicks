@@ -9,7 +9,25 @@
 import { fireEvent, render } from "@testing-library/react";
 
 import { DiffFileList } from "./DiffFileList.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
+
+/**
+ * A repository-wide patch: five thousand files, one changed line each.
+ *
+ * Built once for both suites, because a change set this size is the only subject a
+ * windowing claim can be made against at all and generating it twice generates it
+ * twice — in two files whose shapes could then differ without anything failing.
+ */
+export const REPOSITORY_WIDE_DIFF: ConsoleDiffModel = buildDiffFixture({
+  fileCount: 5_000,
+  hunksPerFile: 1,
+  linesPerHunk: 1,
+  precedingContextPerHunk: 0,
+  agentAttributionEveryNthLine: 0,
+  extendedHeaderFiles: false,
+  terminalNewlineFile: false,
+});
 
 /** Mount the list over one change set, with the selection the case is about. */
 export function renderFileList(diff: ConsoleDiffModel, selectedFilePath?: string): HTMLElement {
@@ -47,4 +65,25 @@ export function filterTo(container: HTMLElement, filterText: string): void {
     throw new Error("the list drew no filter input");
   }
   fireEvent.change(filter, { target: { value: filterText } });
+}
+
+/**
+ * The list's first mounted entry.
+ *
+ * Thrown for rather than answered as optional, on `fixtureFileAt`'s rule: a list that
+ * drew no entry is a broken case and not a state to assert about.
+ */
+export function firstEntry(container: HTMLElement): HTMLElement {
+  const entry = container.querySelector<HTMLElement>(".meridian-diff-files__entry");
+  if (entry === null) {
+    throw new Error("the list drew no entry");
+  }
+  return entry;
+}
+
+/** The mounted entries the page can tab to, which is at most one of them. */
+export function tabbableEntryCount(container: HTMLElement): number {
+  return [...container.querySelectorAll(".meridian-diff-files__entry")].filter(
+    (entry) => entry.getAttribute("tabindex") === "0",
+  ).length;
 }

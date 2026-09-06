@@ -68,9 +68,9 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
 /**
  * The surfaces this tier pins, each with the reference name it is committed under.
  *
- * A table rather than four near-identical suites: the cases differ only in which
- * surface is mounted, and four copies of the same six lines is four places for the
- * scheme emulation or the skip guard to be forgotten in one of them.
+ * A table rather than one near-identical suite per row: the cases differ only in which
+ * surface is mounted, and a copy of the same six lines per surface is one more place
+ * for the scheme emulation or the skip guard to be forgotten in exactly one of them.
  */
 const PINNED_SURFACES: readonly {
   readonly referenceName: string;

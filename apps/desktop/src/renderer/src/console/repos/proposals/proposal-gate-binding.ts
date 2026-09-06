@@ -22,7 +22,8 @@ import {
   type SessionStore,
   type SubjectScopedDisposal,
 } from "../../store/index.js";
-import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
+import type { ProposalGateReading } from "./proposal-gate-model.js";
+import { ProposalGateReader } from "./proposal-gate-reader.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 

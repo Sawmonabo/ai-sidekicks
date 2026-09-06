@@ -1,7 +1,7 @@
 // What a refused act leaves standing, and which sentence a participant reads.
 //
-// THE MODULE THIS DRIVES IS `proposal-gate-refusals.ts` — the four sentences and the
-// two writes that put one on a control or take it off. Every case reaches them
+// THE MODULE THIS DRIVES IS `proposal-gate-refusals.ts` — the sentences the gate
+// authors and the two writes that put one on a control or take it off. Every case reaches them
 // through a real act, because a refusal that is never recorded against the control
 // pressed is a sentence nobody sees.
 //
@@ -13,6 +13,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { GROWTH_PORT_REFUSAL_ORIGIN } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { PROPOSAL_ACTIONS, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";
@@ -172,9 +173,17 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
       const reader = await pressAgainstRejectingWire(action);
       const refusal = reader.snapshot.actionRefusals.get(action);
 
-      expect(refusal?.code).toBe("call-rejected");
+      // THE PORT'S OWN ORIGIN AND CODE, on both of the two paths one act can fail by.
+      // The gate used to read a rejection through the family's DAEMON-read normalizer,
+      // so a rejected `gitActionExecute` published `repos` / `call-rejected` while the
+      // same act's ANSWERED refusal published `growth-port` / `wire-unregistered` — two
+      // subsystem names for one operation, and a code outside the gate's own closed
+      // vocabulary. Both paths now come through `repos/growth-call.ts`.
+      expect(refusal?.origin).toBe(GROWTH_PORT_REFUSAL_ORIGIN);
+      expect(refusal?.code).toBe("wire-unregistered");
       // The sentence names the wire that rejected, so a participant can say which
-      // call did not come back rather than only that something did not.
+      // call did not come back rather than only that something did not — and it is
+      // what still separates a rejection from the answered refusal.
       expect(refusal?.detail).toContain(WIRE_FOR_ACTION[action]);
       // And it does NOT quote the rejected value. A rejection off the wire can carry
       // participant content as readily as a schema failure can, which is why the

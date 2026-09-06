@@ -15,7 +15,7 @@ import { GROWTH_PR_PREPARATION_STATES } from "../../bridge/index.js";
 import { type ProposalState } from "./prepared-proposal.js";
 import { gateSummaryLine } from "./ProposalGateDisclosure.js";
 import { SUBJECT_NOT_ADDRESSABLE } from "./proposal-gate-model.js";
-import type { ProposalGateReading } from "./proposal-gate-reader.js";
+import type { ProposalGateReading } from "./proposal-gate-model.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 

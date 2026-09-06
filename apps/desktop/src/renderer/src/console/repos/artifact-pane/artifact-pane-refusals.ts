@@ -3,9 +3,14 @@
 // `persistence/refusals.ts`'s arrangement, one family over: the closed refusal
 // vocabulary is declared in a module of its own, below every module that raises one.
 // Three of this pane's modules construct a refusal — the reader on a rejected call,
-// the acts on a second manifest read, the payload fetch on a second fetch — and the
-// reading they are recorded on is a fourth. A vocabulary that lived beside any one of
-// those would make a producer import its sibling to name a code.
+// the acts on a second manifest read, the payload fetch on a second fetch. A vocabulary
+// that lived beside any one of those would make a producer import its sibling to name a
+// code.
+//
+// THE UNREADABLE-REPLY CODE IS NOT HERE AND IS NOT THIS PANE'S. It is the console's own
+// reading of a growth answer it could not use, raised by the family-root door two
+// sub-modules now call through (`repos/growth-call.ts`), so a proposal-gate reply that
+// arrives unreadable does not report this pane as its author.
 //
 // ONE DECLARATION OF THE CLOSED SET, `as const`, with the union derived from it. The
 // prose this replaces said "the three codes this pane mints" with four constants under
@@ -29,6 +34,9 @@ import {
  * The suites that assert an `artifact-pane-reader` origin spell the string rather than
  * importing this, which is what an assertion about a value has to do: a test that
  * imported the constant it asserts would pass whatever that constant became.
+ *
+ * Read by this module alone now: the unreadable-reply arm it also stamped moved to the
+ * family-root growth-call door with the reading that raises it.
  */
 export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
 
@@ -46,7 +54,7 @@ export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
  * acts would be two closed sets for one pane, and a caller narrowing on a code would
  * have to know which half minted it.
  *
- * The four one-constant-per-code bindings this replaces were all exported and imported
+ * The one-constant-per-code bindings this replaces were all exported and imported
  * nowhere. `knip`'s `ignoreExportsUsedInFile` makes an export whose only reader is its
  * own file invisible to the dead-code gate, so the four sat on unread surface with no
  * gate able to say so. Each literal is written at the single site that mints it now,
@@ -58,7 +66,6 @@ export const ARTIFACT_PANE_REFUSAL_CODES = [
   "read-threw",
   "payload-fetch-in-flight",
   "manifest-read-in-flight",
-  "reply-unreadable",
 ] as const;
 
 /** One code this pane mints. Derived, so the vocabulary is declared exactly once. */
@@ -99,28 +106,6 @@ export function readFailureRefusal(error: unknown): WireRefusal {
     code: "read-threw" satisfies ArtifactPaneRefusalCode,
     detail: "The artifact read failed before it could answer.",
   });
-}
-
-/**
- * The refusal a reply the pane cannot read becomes.
- *
- * TWO SITES RAISE IT AND SO IT IS DECLARED ONCE. `artifact-pane-reading.ts` raises it
- * for an answer that is neither a served value nor a refusal, and `artifact-pane-reads.ts`
- * for a served `value` whose SHAPE the leg cannot use — an `artifactList` that is not
- * an array, a bounds reply with no content types. Both are the same fact about the
- * same wire and neither is a rejection, so a caller narrowing on the code should not
- * have to know which of the two saw it first.
- *
- * THE REPLY IS NOT QUOTED INTO THE SENTENCE, on `readFailureRefusal`'s rule: what
- * arrived can carry participant content, so the sentence names the operation and what
- * was expected of it and stops there.
- */
-export function replyUnreadableRefusal(operation: string, expected: string): ConsoleRefusal {
-  return refuse(
-    ARTIFACT_READER_REFUSAL_ORIGIN,
-    "reply-unreadable" satisfies ArtifactPaneRefusalCode,
-    `${operation} answered with ${expected}, so nothing was read.`,
-  );
 }
 
 /**

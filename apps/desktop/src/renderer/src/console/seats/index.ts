@@ -84,7 +84,6 @@ export {
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   paneEntityScopeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
@@ -98,12 +97,12 @@ export {
 export {
   ConsolePaneRegistry,
   consolePaneRegistry,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   type ConsolePaneContext,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
@@ -136,9 +135,9 @@ export {
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type SidebarSectionDescriptor,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -159,6 +158,11 @@ export {
   type TimelineRowSlotProps,
 } from "./timeline-row-slot.js";
 
+// The inline-card body descriptor left this door with its tag. `T-023p-1C-5` was the
+// only task that had ever claimed it, that task shipped importing the registrar and the
+// three per-kind prop types and not the descriptor, and nothing else in the tree names
+// it outside `inline-card-seats.ts` — so the line was an export with no reader, which
+// `apps/desktop/AGENTS.md` deletes rather than tags.
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
@@ -173,13 +177,11 @@ export {
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-2 */
   type InlineCardAttachmentRef,
-  /** @consumedBy T-023p-1C-5 */
-  type InlineCardBodyDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-2 */
   type InlineCardKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-2 */
   type InlineCardPropsByKind,
   /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,

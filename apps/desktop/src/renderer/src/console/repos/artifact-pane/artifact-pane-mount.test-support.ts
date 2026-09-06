@@ -18,19 +18,13 @@ import { fireEvent, render } from "@testing-library/react";
 import { StrictMode, createElement, type ReactElement } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import type { GrowthPortAnswer } from "../../bridge/growth-port.js";
-
-// Re-exported so a suite scripting this pane's port names one import rather than two.
-// A type alias, so this is not the barrel chain `console-no-barrel-chain` forbids —
-// that rule is about a DOOR forwarding another door's symbols, and this module is a
-// leaf the suites beside it read.
-export type { GrowthPortAnswer };
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
 import { scenarioManualClock } from "../scenario-clock.test-support.js";
 import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
 import { artifactBridgeAnswering } from "./artifact-pane.test-support.js";
+import { paneContext } from "../pane-contexts.test-support.js";
 
 /**
  * What a mount hands back: everything `render` returns, plus the clock the pane is on.
@@ -81,9 +75,8 @@ export function contextFor(
     readonly sessionStore?: SessionStore;
   } = {},
 ): ArtifactPaneContext {
-  return {
-    kind: "artifact",
-    entity,
+  return paneContext({
+    address: { kind: "artifact", entity },
     paneId: "pane-artifact-1",
     bridge: reached.bridge ?? artifactBridgeAnswering({}),
     // A REAL store rather than a stub carrying an id: the reader now subscribes to it
@@ -94,7 +87,7 @@ export function contextFor(
       (reached.sessionId === undefined
         ? undefined
         : new SessionStore({ sessionId: reached.sessionId })),
-  } as unknown as ArtifactPaneContext;
+  });
 }
 
 /** The delete confirm is two steps in place; both are pressed here. */

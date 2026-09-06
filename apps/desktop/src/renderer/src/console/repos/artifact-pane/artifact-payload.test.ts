@@ -157,6 +157,44 @@ describe("artifact payload reading — the served union has two arms and each sp
     expect(reading.status === "text" ? reading.text.includes("\uFFFD") : true).toBe(false);
   });
 
+  it("cuts on a code-point boundary rather than through a surrogate pair", () => {
+    // The cap counts UTF-16 CODE UNITS and an astral code point is two of them, so a
+    // cut landing at an odd offset into a run of them used to end on a lone HIGH
+    // surrogate — which the DOM paints as the replacement character, the one glyph
+    // this module says a preview never draws. One ASCII character ahead of the run
+    // puts the cut exactly one code unit inside a pair.
+    const payload = `a${"\u{1F600}".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP)}`;
+
+    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
+      manifest: MANIFEST,
+      payload,
+      payloadEncoding: "utf8",
+    });
+
+    const text = reading.status === "text" ? reading.text : "";
+    // The pair is dropped WHOLE: one code unit short of the cap, and the last unit
+    // kept is not the opening half of anything.
+    expect(text.length).toBe(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP - 1);
+    const lastCodeUnit = text.charCodeAt(text.length - 1);
+    expect(lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff).toBe(false);
+    expect(text).toBe(`a${"\u{1F600}".repeat((ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP - 2) / 2)}`);
+    expect(reading.status === "text" ? reading.truncated : false).toBe(true);
+  });
+
+  it("negative control: a cut that lands on a boundary keeps the whole cap", () => {
+    // Without this a preview that always backed off one unit would satisfy the case
+    // above while shortening every truncated payload by a character it could draw.
+    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
+      manifest: MANIFEST,
+      payload: "\u{1F600}".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP),
+      payloadEncoding: "utf8",
+    });
+
+    expect(reading.status === "text" ? reading.text.length : 0).toBe(
+      ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
+    );
+  });
+
   it("negative control: a payload inside the bound is still held to being text", () => {
     // Without this the two cases above would pass against a decode that had simply
     // stopped checking. A short reply that is not UTF-8 still says so.

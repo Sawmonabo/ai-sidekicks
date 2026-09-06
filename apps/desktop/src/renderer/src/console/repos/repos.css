@@ -8,14 +8,15 @@
  * `repos/artifact-pane/`. Every one of them is imported from that door and from
  * nowhere else, which is what the stylesheet-edges gate asserts.
  *
- * WHAT STAYED HERE, AND WHY IT IS NOT AN EIGHTH SUB-MODULE SHEET. Two kinds of rule:
- *   • the cards `repos/artifact-pane/` draws alone, since a sheet in `repos/` may not
- *     claim rules for a directory it does not own;
- *   • rules whose selector list spans two sub-modules — a pair grid shared by a
- *     root card and an artifact row, a focus ring shared by the gate and the restore
- *     disclosure. Splitting one of those would duplicate a declaration into two files
- *     and make the pair drift; keeping it here keeps it stated once, in the sheet both
- *     halves are loaded beside.
+ * WHAT STAYED HERE, AND WHY IT IS NOT AN EIGHTH SUB-MODULE SHEET. One kind of rule:
+ * those whose selector list spans two sub-modules — a pair grid shared by a root card
+ * and an artifact row, a focus ring shared by the gate and the restore disclosure, a
+ * path link shared by the proposal and the restore disclosure. Splitting one of those
+ * would duplicate a declaration into two files and make the pair drift; keeping it
+ * here keeps it stated once, in the sheet both halves are loaded beside. A rule ONE
+ * sub-module draws does not qualify and never did: a sheet in `repos/` may not claim
+ * rules for a directory it does not own, which is why the artifact and attachment
+ * cards and the ingest-bounds disclosure now live in `repos/artifact-pane/`.
  *
  * WHAT LEFT, AND WHERE IT WENT. Both panes used to be read inside a frame this sheet
  * drew (`.meridian-repos-pane*`): a section, a header, a heading, a subject line, a
@@ -66,112 +67,6 @@
 .meridian-artifacts :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
-}
-
-/* --- Attachments and the artifact pane's cards -------------------------------
-   Appended, never reordered: this sheet is one family's and six lanes grow it. */
-
-/* The ledger seat's wrapper. It owns the card's outer spacing so the attachment
-   surface and the timeline row can space it differently without two cards. */
-.meridian-attachment-card {
-  display: block;
-  margin-block-start: var(--meridian-space-2);
-}
-
-.meridian-artifact-card {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-artifact-card__header {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border-block-end: 1px solid var(--meridian-edge);
-}
-
-.meridian-artifact-card__heading {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-1);
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  font-weight: 600;
-  color: var(--meridian-text);
-}
-
-.meridian-artifact-card__id {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-artifact-card__body {
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-}
-
-.meridian-artifact-card__face {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  font-size: var(--meridian-text-xs);
-}
-
-/* Progressive disclosure: the rules are one click away and never in the way. */
-.meridian-ingest-bounds {
-  margin-block-start: var(--meridian-space-3);
-  border-block-start: 1px solid var(--meridian-edge);
-  padding-block-start: var(--meridian-space-2);
-}
-
-.meridian-ingest-bounds__summary {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-  cursor: pointer;
-}
-
-.meridian-ingest-bounds__source,
-.meridian-ingest-bounds__refusal {
-  margin: var(--meridian-space-2) 0 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-ingest-bounds__types {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-1);
-  margin: var(--meridian-space-2) 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.meridian-ingest-bounds__caps {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: var(--meridian-space-2);
-  margin: var(--meridian-space-3) 0 0;
-}
-
-.meridian-ingest-bounds__cap dt {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
-}
-
-.meridian-ingest-bounds__cap dd {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text);
 }
 
 /*

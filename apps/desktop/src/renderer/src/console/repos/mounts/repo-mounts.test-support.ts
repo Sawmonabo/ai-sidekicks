@@ -20,6 +20,7 @@ import type { ConsoleScenario } from "../../bridge/scenario.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
+import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import type { EphemeralCloneStatusRecord, WorktreeStatusRecord } from "./worktree-model.js";
 
 const trackedReaders: RepoMountsReader[] = [];
@@ -88,12 +89,23 @@ export async function drain(): Promise<void> {
   }
 }
 
+/**
+ * Overrides as a case writes them.
+ *
+ * The wire's ids are branded and nothing in a test mints one, so a builder demanding
+ * them could only ever be handed its own defaults back. Each builder closes its record
+ * with one `as`; this is the half of that cast the caller sees, and it loosens the
+ * branded ids alone — every union member and nested shape stays exact.
+ */
+type Unbranded<TValue> = TValue extends { readonly __brand: string } ? string : TValue;
+type WireOverrides<TRecord> = { readonly [Member in keyof TRecord]?: Unbranded<TRecord[Member]> };
+
 /** The root a mount resolves to, and the deeper path a participant entered. */
 export const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
 export const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
 
 /** One mount as the wire reads it, healthy and attached unless a case says otherwise. */
-export function mount(overrides: Partial<RepoMountReadResponse> = {}): RepoMountReadResponse {
+export function mount(overrides: WireOverrides<RepoMountReadResponse> = {}): RepoMountReadResponse {
   return {
     id: "mount-sidekicks",
     sessionId: "session-repos",
@@ -108,9 +120,26 @@ export function mount(overrides: Partial<RepoMountReadResponse> = {}): RepoMount
   } as RepoMountReadResponse;
 }
 
+/**
+ * One workspace row as the roster reads it, in the mode most cases want.
+ *
+ * `executionMode` is the member the gate suites vary, so it is stated here rather than
+ * left to a default a reader would have to go and look up.
+ */
+export function workspaceRow(overrides: WireOverrides<RepoWorkspaceRow> = {}): RepoWorkspaceRow {
+  return {
+    id: "workspace-sidekicks",
+    repoMountId: "mount-sidekicks",
+    executionMode: "read-only",
+    state: "ready",
+    fsRoot: CANONICAL_ROOT,
+    ...overrides,
+  } as RepoWorkspaceRow;
+}
+
 /** One worktree root as the wire reads it. */
 export function worktreeRecord(
-  overrides: Partial<WorktreeStatusRecord> = {},
+  overrides: WireOverrides<WorktreeStatusRecord> = {},
 ): WorktreeStatusRecord {
   return {
     worktreeId: "worktree-01",
@@ -134,7 +163,7 @@ export function worktreeRecord(
  * read it from a shared constant would put every case on one deadline.
  */
 export function cloneRecord(
-  overrides: Partial<EphemeralCloneStatusRecord> = {},
+  overrides: WireOverrides<EphemeralCloneStatusRecord> = {},
 ): EphemeralCloneStatusRecord {
   return {
     cloneId: "clone-01",

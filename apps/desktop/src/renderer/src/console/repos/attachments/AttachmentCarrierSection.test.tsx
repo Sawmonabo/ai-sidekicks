@@ -9,9 +9,9 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { SidebarSectionContext } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";
 import { AttachmentCarrierSection } from "./AttachmentCarrierSection.js";
+import { sectionContext } from "../pane-contexts.test-support.js";
 import {
   ScriptedGrowthPort,
   patternedBytes,
@@ -33,12 +33,11 @@ function pickedFile(): File {
 
 /** The section, open, over a port the case scripts. */
 function renderSection(port: ScriptedGrowthPort): HTMLElement {
-  const context: SidebarSectionContext = {
+  const context = sectionContext({
     isOpen: true,
     bridge: port.asBridge(),
     sessionStore: new SessionStore({ sessionId: "session-1" }),
-    openPane: () => undefined,
-  };
+  });
   const { container } = render(<AttachmentCarrierSection context={context} />);
   return container;
 }
@@ -119,12 +118,11 @@ describe("AttachmentCarrierSection — a refusal renders where the progress woul
 describe("AttachmentCarrierSection — the collapsed line", () => {
   it("reports what the carrier holds rather than the section's name", async () => {
     const port = new ScriptedGrowthPort();
-    const context: SidebarSectionContext = {
+    const context = sectionContext({
       isOpen: false,
       bridge: port.asBridge(),
       sessionStore: new SessionStore({ sessionId: "session-1" }),
-      openPane: () => undefined,
-    };
+    });
     const { container } = render(<AttachmentCarrierSection context={context} />);
     // Collapsed, so there is no picker to reach — which is the whole difference
     // between the two shapes, and the reason the summary is asserted separately.
