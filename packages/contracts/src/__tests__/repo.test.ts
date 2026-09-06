@@ -19,8 +19,9 @@
 //     smoke test.
 //   • Branded ids reject a non-UUID, and the brand is nominal at compile
 //     time (a raw string is not a `RepoMountId`).
-//   • `RepoMountHealth` rejects a `status` outside its two values, a missing
-//     `checkedAt`, a non-ISO `checkedAt`, and an unknown key.
+//   • `RepoMountHealth` accepts all three ratified verdicts, rejects a
+//     `status` outside them, and rejects a missing `checkedAt`, a non-ISO
+//     `checkedAt`, and an unknown key.
 //   • The lifecycle payload matches
 //     `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`
 //     field-for-field: `sessionId` required, the three subject ids optional
@@ -240,13 +241,23 @@ describe("RepoMountHealthSchema (D-009-2 — derived projection, never persisted
   it.each([
     ["healthy", true],
     ["unreachable", true],
-    // Outside the two-value union. `unknown` is the shape D-009-2 explicitly
+    // The third ratified verdict (`Spec-009 §Repo Mount Health (V1 Definition)`,
+    // I-009-17): a reachable root whose re-derived common directory no longer
+    // equals the attach-persisted anchor. Its accept case is pinned here rather
+    // than left implied, because the whole point of the member is that a mount
+    // whose binds are already refusing must not still project `healthy`.
+    ["identity_mismatch", true],
+    // Outside the three-value union. `unknown` is the shape D-009-2 explicitly
     // rejects (the on-read probe floor means every read carries a fresh
     // verdict), and `stale` is the WORKSPACE-state overload D-009-2 chose
     // `unreachable` to avoid.
     ["unknown", false],
     ["stale", false],
     ["degraded", false],
+    // Near-misses on the third member's own spelling. A wire value that differs
+    // only in separator is the failure a `z.enum` exists to catch.
+    ["identity-mismatch", false],
+    ["identityMismatch", false],
   ])("status %s -> %s", (status, shouldPass) => {
     expect(RepoMountHealthSchema.safeParse({ ...buildValidHealth(), status }).success).toBe(
       shouldPass,
