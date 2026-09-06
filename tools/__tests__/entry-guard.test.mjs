@@ -208,6 +208,13 @@ const CLI_SCRIPTS = [
     nodeOptions: ["--experimental-strip-types"],
     args: () => ["--no-such-flag"],
   },
+  // The repository-wide pre-commit mutex, invoked from `tools/lefthook-rc.sh`
+  // inside lefthook's generated hook. A silent no-op here exits 0 having taken
+  // no lock, and the hook proceeds into lefthook's shared unstaged-changes
+  // backup window unprotected — the concurrent-worktree data loss the script
+  // exists to prevent, restored by the guard that was supposed to enable it.
+  // An unknown command is what makes a RUNNING script exit non-zero.
+  { relativePath: "tools/lefthook-worktree-lock.mjs", args: () => ["no-such-command"] },
 ];
 
 // Node prints an ExperimentalWarning to stderr for `--experimental-strip-types`

@@ -1,0 +1,566 @@
+/*
+ * The diff surfaces' own sheet — the pane chrome, the changed-file list, the rows,
+ * and the inline timeline card.
+ *
+ * A sibling stylesheet rather than a block inside `repos/repos.css`, on the
+ * `repos/artifact-pane/artifact.css` precedent: `repos/diff-pane/` is the diff half of the
+ * repos family's seven sub-modules, and this file holds everything that belongs to it and
+ * to no surface outside it. It is imported by `repos/diff-pane/index.ts` — this
+ * directory's own door, which is what owns it — and by nothing else. A second importer
+ * would land these rules twice and their cascade order would depend on which door the
+ * bundler reached first.
+ *
+ * NO LITERAL VALUES. Every length is on the space scale, every size on the type
+ * scale, and every colour is read back out of a custom property.
+ *
+ * PAST THE 400-LINE BOUND AND DELIBERATELY NOT SPLIT, because the seam the size rule
+ * asks for does not exist here. `apps/desktop/AGENTS.md`'s rule splits a sheet BY
+ * DIRECTORY, and `repos/diff-pane/` is one directory; a second sheet beside this one
+ * would put two files in the cascade whose order is decided by the order of two
+ * adjacent lines in `repos/diff-pane/index.ts`, which is a coupling this file's own
+ * single-importer rule exists to prevent. The reading cost the bound protects is
+ * already paid by the section banners below — a reader looking for the changed-file
+ * list or the rows finds them by heading, not by scrolling. THE TRIGGER THAT SPLITS
+ * IT: if `repos/diff-pane/` ever gains real sub-directories, this sheet splits with
+ * them, one per directory, and the rule above is unchanged.
+ */
+
+/*
+ * THE TWO-HUE RULE, APPLIED TO THE ONE SURFACE THAT IS TRADITIONALLY PAINTED RED
+ * AND GREEN. `Spec-023 §Meridian, the design language` rule 3 spends amber on "a
+ * person is needed" and red on "something failed", and a deleted line is neither. So the
+ * insert / delete distinction is carried by three signals that are not hue: the
+ * sign in the marker column, the weight of the cell's ground, and the style of the
+ * rule on the marker column. The two grounds are mixed from `--meridian-text` so
+ * the pair tracks the scheme instead of being two greys chosen by hand, and the
+ * two locals below are the only place either mix is written.
+ *
+ * Both are declared on `:root` rather than on the diff's own container, because
+ * `color-mix()` resolves against the element it is declared on and the assets
+ * tier reads defined names out of stylesheets — a property defined inside a
+ * component selector would still be defined, but would resolve differently
+ * wherever a theme override landed between the two.
+ */
+
+:root {
+  --meridian-diff-insert-ground: color-mix(in oklch, var(--meridian-text) 5%, transparent);
+  --meridian-diff-delete-ground: color-mix(in oklch, var(--meridian-text) 11%, transparent);
+  --meridian-diff-changed-ground: color-mix(in oklch, var(--meridian-text) 16%, transparent);
+}
+
+.meridian-diff-pane__subject-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-diff-pane__attribution-subject,
+.meridian-diff-pane__refs {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+.meridian-diff-pane__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+/*
+ * Quiet chrome: a toggle carries no ground until it is pressed or pointed at, so
+ * a toolbar of four reads as one strip rather than four boxes. The accent is the
+ * one desaturated cyan and it appears only here, on something interactive.
+ */
+.meridian-diff-pane__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-diff-pane__toggle:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-diff-pane__toggle[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-diff-pane__toggle:focus-visible,
+.meridian-diff-files__entry:focus-visible,
+.meridian-diff-files__filter-input:focus-visible,
+.meridian-diff-card__control:focus-visible,
+.meridian-diff:focus-visible,
+.meridian-diff__gap-button:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The three bands inside the chrome's body box: the attribution strip, the toolbar,
+   and the list-and-rows pair that takes the rest of the height. The chrome's `__body`
+   carries no padding and no direction of its own, so both are stated here. */
+.meridian-diff-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+/* The arm with no diff in it. It is prose rather than a grid, so it takes the inset
+   the bands above deliberately do not. */
+.meridian-diff-pane__absence {
+  padding: var(--meridian-space-4);
+}
+
+.meridian-diff-pane__content {
+  display: flex;
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+/* ------------------------------------------------------- changed-file list */
+
+.meridian-diff-files {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  inline-size: 15rem;
+  min-inline-size: 0;
+  border-inline-end: 1px solid var(--meridian-edge);
+}
+
+/*
+ * The box the window is computed against: the file list's viewport.
+ *
+ * Past the file-count threshold it scrolls on its own rather than pushing the rows
+ * off the pane; below it, the list inside is as tall as its content and there is
+ * nothing to scroll. The list itself holds the whole height, so the scrollbar reports
+ * every entry rather than the handful the window mounted.
+ */
+.meridian-diff-files__scroller {
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+.meridian-diff-files--scrolling .meridian-diff-files__scroller {
+  overflow-y: auto;
+}
+
+.meridian-diff-files__filter {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-diff-files__filter-input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-diff-files__list {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * One windowed entry, placed at the offset the window computed for it.
+ *
+ * PLACED RATHER THAN SPACED, which the rows renderer does the other way round: its
+ * rows are generic boxes carrying table roles, so a leading spacer keeps them in the
+ * document's own flow, and these are `<li>` elements of a real `<ul>`, whose list
+ * semantics an intervening `<div>` would break and a placement does not.
+ *
+ * The height is fixed rather than intrinsic because the window ESTIMATES with it: one
+ * value under one owner (`diff-bounds.ts`) means the offsets and the painted rows
+ * cannot drift, and nothing has to be measured.
+ */
+.meridian-diff-files__row {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--meridian-diff-file-row-height);
+}
+
+/*
+ * The minimum block size is WCAG 2.2's 2.5.8 target size (24 CSS pixels), which the
+ * padding alone did not reach at this text size — the accessibility tier measured it.
+ * A row in a dense list is still a pointer target, and this list is the diff pane's
+ * only way to move between files.
+ */
+.meridian-diff-files__entry {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 1.5rem;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-diff-files__entry:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-diff-files__entry[aria-current="true"] {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+/* The path is what a reader scans, so it takes the measure and truncates from
+   the START — a change set's files differ in their tails, not their roots. */
+.meridian-diff-files__path {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  direction: rtl;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+}
+
+/* What the extended headers said, where a file's change is not in any hunk.
+   Sans rather than mono, so it reads as the console's sentence about the file
+   rather than as another path; it never takes the measure from the path, which is
+   what a reader scans. */
+.meridian-diff-files__change {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-diff-files__counts {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-diff-files__no-match,
+.meridian-diff-files__hidden-selection {
+  margin: 0;
+  padding: var(--meridian-space-3);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --------------------------------------------------------------- diff rows */
+
+.meridian-diff {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: 0;
+  /* Explicit on both axes. A long line overflows horizontally and is never
+     clipped into a hidden-overflow container (`DiffRenderer.tsx`'s one Never). */
+  overflow: auto;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  line-height: var(--meridian-diff-row-height);
+}
+
+.meridian-diff--empty {
+  overflow: hidden;
+  padding: var(--meridian-space-4);
+}
+
+.meridian-diff__content {
+  position: relative;
+}
+
+.meridian-diff__row {
+  display: flex;
+  align-items: stretch;
+  block-size: var(--meridian-diff-row-height);
+  white-space: pre;
+}
+
+/* The wrap toggle's other answer: rows grow instead of overflowing, and the
+   fixed row height is released for exactly as long as it is on. */
+.meridian-diff--wrap .meridian-diff__row {
+  block-size: auto;
+  min-block-size: var(--meridian-diff-row-height);
+  white-space: pre-wrap;
+}
+
+.meridian-diff__row--file {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  gap: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-weight: 600;
+}
+
+.meridian-diff__file-path {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-diff__file-change {
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+}
+
+.meridian-diff__row--hunk,
+.meridian-diff__row--gap {
+  padding-inline: var(--meridian-space-3);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-diff__gap-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* The kind modifier rides the CELL and not the row, because a split row pairs a
+   deletion with its insertion and would otherwise have to paint one width in one
+   of two kinds. A unified row has one cell that fills it, so its ground is
+   unmoved. */
+.meridian-diff__side--insert {
+  background: var(--meridian-diff-insert-ground);
+}
+
+.meridian-diff__side--delete {
+  background: var(--meridian-diff-delete-ground);
+}
+
+.meridian-diff__side {
+  display: flex;
+  flex: 1 1 50%;
+  min-inline-size: 0;
+}
+
+.meridian-diff__side--unified {
+  flex-basis: 100%;
+}
+
+.meridian-diff--split .meridian-diff__side--base {
+  border-inline-end: 1px solid var(--meridian-edge);
+}
+
+/*
+ * The gutter carries the line numbers, which are content a reader reads and not
+ * decoration: a person following a review comment arrives by number. `text-faint`
+ * is the console's quietest text and it clears the 4.5:1 floor on the palette's own
+ * grounds, but an insert or delete row is drawn on this family's own tint — a ground
+ * the palette contrast test does not cover — and the accessibility tier measured it
+ * failing there. `text-muted` is the next step up and is what secondary text a reader
+ * actually reads uses everywhere else in the console.
+ */
+.meridian-diff__gutter {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--meridian-space-1);
+  inline-size: 4rem;
+  padding-inline-end: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  user-select: none;
+}
+
+.meridian-diff__attribution-mark {
+  display: inline-flex;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-diff__text {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+/*
+ * The marker column and its rule. The rule's STYLE is the greyscale-safe half of
+ * the insert / delete signal: solid for an insertion, dashed for a deletion, and
+ * absent on context.
+ */
+.meridian-diff__marker {
+  display: inline-block;
+  flex: 0 0 auto;
+  inline-size: var(--meridian-space-4);
+  border-inline-start: 2px solid transparent;
+  padding-inline-start: var(--meridian-space-1);
+  color: var(--meridian-text);
+  font-weight: 600;
+}
+
+.meridian-diff__side--insert .meridian-diff__marker {
+  border-inline-start-style: solid;
+  border-inline-start-color: var(--meridian-edge-strong);
+}
+
+.meridian-diff__side--delete .meridian-diff__marker {
+  border-inline-start-style: dashed;
+  border-inline-start-color: var(--meridian-edge-strong);
+}
+
+.meridian-diff__code {
+  min-inline-size: 0;
+  font-family: var(--meridian-font-mono);
+}
+
+/*
+ * The badge on a line whose word-level comparison was declined for size. It sits
+ * after the code rather than inside it, so the line's own characters and their column
+ * positions are untouched, and it does not grow the row: an unwrapped row keeps its
+ * fixed block size and the badge rides the same scroller the long line does.
+ */
+.meridian-diff__intraline-skipped {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-inline-start: var(--meridian-space-2);
+}
+
+/*
+ * The patch's terminator annotation, beside the line it is about.
+ *
+ * After the code and never inside it, on the badge above's rule: the line's own
+ * characters and their column positions are untouched, and an unwrapped row keeps its
+ * fixed block size. Sans and faint, so it reads as the console saying something ABOUT
+ * the line rather than as characters the file contains — which, on a newline-only
+ * change, is the whole distinction the row exists to draw.
+ */
+.meridian-diff__no-newline {
+  flex: 0 0 auto;
+  margin-inline-start: var(--meridian-space-2);
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* Intraline: a heavier ground on the run that changed, never a hue. */
+.meridian-diff__segment--changed {
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-diff-changed-ground);
+}
+
+/* ---------------------------------------------------- inline timeline card */
+
+.meridian-diff-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  overflow: hidden;
+}
+
+.meridian-diff-card__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-diff-card__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-diff-card__change-set {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-diff-card__body {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+.meridian-diff-card__footer {
+  display: flex;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-diff-card__control {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* The focus target jump-to-end moves to. It occupies no space and takes no
+   outline of its own — the caret landing here is the whole effect. */
+.meridian-diff-card__end {
+  display: block;
+  block-size: 0;
+  outline: none;
+}

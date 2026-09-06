@@ -1,0 +1,213 @@
+/* The artifact pane's own sheet.
+
+   A sibling stylesheet rather than a block appended to `repos/repos.css`, which is
+   the repos family's sheet and holds only what two of its sub-modules share. Every
+   rule this directory draws alone lives here — the pane's own inset, the artifact and
+   attachment cards, and the ingest-bounds disclosure — because a sheet in `repos/`
+   may not claim rules for a directory it does not own. The chrome around the pane is
+   still `seats/pane-chrome.css`, which every pane kind wears.
+
+   Meridian tokens only. A raw colour here would be a second palette. */
+
+/* The body inside the chrome's box.
+
+   The chrome's `__body` deliberately carries no padding — a feed pane wants none and
+   a form pane wants some — so this pane's own inset is stated here, which is where
+   the family that wants it lives. */
+.meridian-artifact-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-4);
+}
+
+/* The two acts, side by side in the chrome's `actions` slot.
+
+   Their own group inside that strip: a control with a neighbour has to be at least a
+   24px target and separated from it, which a lone text button never had to be. The
+   size is given here rather than on the chrome's own control class, because every
+   other pane draws icon controls at the chrome's size and would gain the padding for
+   nothing. */
+.meridian-artifact-pane__acts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* Quiet chrome at text weight — one primary action per surface is the panel's fetch,
+   so these read as words rather than as two filled buttons. */
+.meridian-artifact-pane__act {
+  min-block-size: 24px;
+  min-inline-size: 24px;
+  padding: 0 var(--meridian-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-artifact-pane__act:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* What the two acts ask for, stated at the top of the body.
+
+   Not beside them: the chrome's control strip is one line of controls and takes no
+   prose. The first act is named for what its read serves and the second for the bytes
+   it asks for; this line says which reply arm a payload of either size comes back on,
+   so a handle is met as an answer rather than as a failure. */
+.meridian-artifact-pane__read-scope-note {
+  max-inline-size: 44ch;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* What a payload fetch established, above the list it was fetched from.
+
+   Above rather than below: the fetch is the act the participant just performed, and
+   its answer belongs where their attention already is. It is present only after a
+   fetch — there is no empty frame holding a place for one. */
+.meridian-artifact-payload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin-block-end: var(--meridian-space-3);
+}
+
+/* The one line that says which arm came back, and what it means. */
+.meridian-artifact-payload__note {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The bounded text preview.
+
+   A `pre` because a payload's own line breaks and indentation are part of what it
+   is, and `overflow` rather than wrapping because a diff or a log read wrapped is a
+   different document. The block scrolls; the page never does. */
+.meridian-artifact-payload__preview {
+  max-block-size: 18rem;
+  margin: 0;
+  padding: var(--meridian-space-2);
+  overflow: auto;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.45;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* --- The cards this pane draws, and the bounds it discloses ------------------
+   Moved here verbatim from `repos/repos.css`, whose header says why. */
+
+/* The ledger seat's wrapper. It owns the card's outer spacing so the attachment
+   surface and the timeline row can space it differently without two cards. */
+.meridian-attachment-card {
+  display: block;
+  margin-block-start: var(--meridian-space-2);
+}
+
+.meridian-artifact-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-artifact-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-artifact-card__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-artifact-card__id {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-artifact-card__body {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
+
+.meridian-artifact-card__face {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+/* Progressive disclosure: the rules are one click away and never in the way. */
+.meridian-ingest-bounds {
+  margin-block-start: var(--meridian-space-3);
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-2);
+}
+
+.meridian-ingest-bounds__summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-ingest-bounds__source,
+.meridian-ingest-bounds__refusal {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-ingest-bounds__types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  margin: var(--meridian-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-ingest-bounds__caps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-3) 0 0;
+}
+
+.meridian-ingest-bounds__cap dt {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-ingest-bounds__cap dd {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}

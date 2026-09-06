@@ -120,28 +120,32 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * SIX, and PINNED rather than left as a floor. It was zero while no surface called
+ * SEVEN, and PINNED rather than left as a floor. It was zero while no surface called
  * the daemon at all, and zero made the two reach claims above vacuous: a scan reports
  * an unrebound tree compliant for the same reason it reports a fully rebound one, and
  * only a number tells them apart.
  *
- * The six, counted off the tree rather than added up from the lanes that landed
+ * The seven, counted off the tree rather than added up from the lanes that landed
  * them: `agents/run-console/agent-console-reads.ts`,
  * `collaboration/channels/channel-model.ts`,
  * `collaboration/members/presence-model.ts`, `collaboration/mutation-coordinator.ts`,
- * `settings/pages/mounts/mount-inventory.ts`, and
+ * `repos/repo-reads.ts`, `settings/pages/mounts/mount-inventory.ts`, and
  * `workspace/new-session/new-session-draft.ts` — every surface that reaches a method
- * the registry binds. Two more modules NAME the door in prose and are deliberately
- * not among them: `workspace/new-session/NewSessionControl.tsx` and that draft's own
- * test both describe what `callDaemon` answers, and the needle below separates an
- * import clause from a sentence.
+ * the registry binds. The repos read is the one worth naming twice: it used to reach
+ * `daemon.call` itself and hold its own parser and its own two refusal codes beside
+ * it, and it now names five registry keys and holds none of the three.
+ *
+ * Two more modules NAME the door in prose and are deliberately not among them:
+ * `workspace/new-session/NewSessionControl.tsx` and that draft's own test both
+ * describe what `callDaemon` answers, and the needle below separates an import clause
+ * from a sentence.
  *
  * The count fails the moment it moves in either direction, so the next family lane
  * that binds a surface moves this constant in its own PR and a reader learns from
  * that diff which surfaces joined; and a surface QUIETLY LEAVING the door, which is
  * the regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 6;
+const CALL_DOOR_CONSUMER_COUNT = 7;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

@@ -24,8 +24,7 @@ import { createFixtureBridge } from "./fixture-bridge.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import type { GrowthServed, GrowthUnavailable } from "../growth-port/growth-outcome.js";
 import { growthUnavailable, type GrowthPort } from "../growth-port/growth-port.js";
-import type { ScenarioEngine } from "../scenario-runtime/index.js";
-import type { ConsoleScenario, ScenarioBeat } from "../scenario-runtime/index.js";
+import type { ConsoleScenario, ScenarioBeat, ScenarioEngine } from "../scenario-runtime/index.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
@@ -249,7 +248,24 @@ export function bridgeAnswering(
  * Folded in from a second support module rather than kept beside it: both files
  * answered one question — how a suite gets a real `ConsoleBridge` it can steer — and
  * a reader had to know which of the two held the arm they wanted. What follows is
- * the growth half of that answer.
+ * the growth half of that answer, and `withDaemonCall` above is the same shape for
+ * the daemon's call arm; the two compose, so a suite needing both spreads one over
+ * the other's bridge.
+ *
+ * WHAT THE HAND-BUILT PORT COST. Families were writing
+ * `{ growth: { …four methods… } } as unknown as ConsoleBridge` from nothing, at
+ * twenty sites in one family alone. Three defects follow from that shape and none of
+ * them is visible in the suite that has it:
+ *
+ *   • Every namespace but `growth` is `undefined`, so a surface that started reaching
+ *     the daemon door THROWS in the case rather than being caught by an assertion —
+ *     and a screenshot tier pinning such a composition is pinning images no bridge
+ *     produces.
+ *   • An operation the script did not name answers `undefined`, which a caller
+ *     narrowing on `status` reads as neither served nor refused. The port's whole
+ *     contract is that every arm answers a typed outcome.
+ *   • The cast erases the port type, so a script whose member name has drifted from
+ *     the signature table still compiles.
  *
  * WHY THE REFUSAL IS BUILT AND NOT WRITTEN DOWN. Three suites once carried their own
  * `CARRIER_UNAVAILABLE` literal — four fields, hand-typed, checked against nothing.
@@ -267,6 +283,11 @@ export function bridgeAnswering(
 /**
  * The real fixture bridge for one scenario, with the named growth operations
  * replaced.
+ *
+ * Takes the scenario rather than a bridge because that is what every call site has:
+ * a family scripting its own operations is choosing which session the fixture plays,
+ * and the port it is overriding is that scenario's. A suite that also needs the
+ * daemon arm wraps the result in {@link withDaemonCall}.
  *
  * `Partial<GrowthPort>` rather than a per-operation parameter: a caller replaces the
  * operations its surface reads and inherits the fixture's answer for every other one,

@@ -69,6 +69,13 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // `apps/desktop/AGENTS.md` puts every refresh through `store/scheduling.ts`, and a
 // chokepoint reachable only by deep-importing past this barrel is one a family
 // would route around rather than through.
+//
+// Open for the surfaces that perform their OWN reads as well as for the stores.
+// `SessionStoreRegistry` owns one scheduler per open session for the session
+// snapshot; a family reading a wire the snapshot does not carry — the repos
+// section's `repo.mountRead`, for one — still owes rule "no interval polling", and
+// this is the only implementation of it, so it is reachable through the door rather
+// than deep-imported around.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
 // The signal half of a push-driven read, beside the scheduler that coalesces it.
@@ -86,6 +93,12 @@ export { subscribeToSessionEventKinds } from "./session-event-signal.js";
 // ships through the door beside the store it reads.
 export type { SessionStoreState } from "./session-store.js";
 export { useSessionStore } from "./hooks.js";
+
+// The three reasons a self-reading surface re-reads, beside the scheduler they are
+// requested against. Here rather than in a view family because the observations —
+// window focus, the store's repair edge, and a named frame — are the same three
+// whichever surface reads; only the kinds differ, and those are the one parameter.
+export { SessionRefreshTriggers } from "./refresh-triggers.js";
 
 // The partition and initialisation reads leave the family with their first
 // surface caller: the auxiliary window's agent step reads a session's agents,
@@ -108,11 +121,7 @@ export {
 // — and because what it publishes is state a surface renders against rather than
 // anything it draws. It arms the only timer in the console outside those two
 // schedulers and the live announcer's hold.
-export {
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
-  earliestFutureDeadline,
-  useDeadlineWake,
-} from "./deadline-wake.js";
+export { earliestFutureDeadline, useDeadlineWake } from "./deadline-wake.js";
 
 // THE TWO SUBJECT PRIMITIVES, and why they ship through this door rather than being
 // re-implemented per family. State that outlives its subject was the recurring defect

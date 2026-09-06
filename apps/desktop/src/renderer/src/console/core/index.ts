@@ -8,6 +8,7 @@
 // above it. No store, no bridge, no React, no DOM beyond what the clock needs. If
 // a symbol here ever needs a type from `store/` or `bridge/`, it is not core.
 
+export { encodeBase64 } from "./base64.js";
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 // The clock seam's third implementation: one identity over a clock the window
 // replaces underneath a live mount.
@@ -15,6 +16,10 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 export {
   ANSI_SPAN_RENDER_CAP,
   APPLY_COALESCE_MS,
+  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
+  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
+  ATTACHMENT_BYTE_CAP_DEFAULT,
+  ATTACHMENT_CHUNK_BYTE_CAP,
   BOUNDED_ENUMERATION_MAX_ROWS,
   CAST_BAR_CHIP_CAP,
   CHAPTER_VISIBLE_ROW_CAP,
@@ -24,10 +29,17 @@ export {
   COMPOSING_NAMED_CAP,
   COMPOSING_RECEIVED_STALE_MS,
   DECK_RESTORED_PANE_CAP,
+  DIFF_FILE_LIST_SCROLL_THRESHOLD,
+  DIFF_INTRALINE_CACHE_ENTRY_CAP,
+  DIFF_INTRALINE_LINE_CHARACTER_CAP,
+  DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
   FIND_MATCH_CAP,
   FOOTNOTE_DEFINITION_CAP,
   HIDDEN_INVITE_CAP,
   IDENTIFIER_MAX_LENGTH,
+  INGEST_STALL_DISCLOSURE_MS,
+  INGEST_STREAM_LIFETIME_CEILING_MS,
+  INLINE_DIFF_CARD_HEIGHT_CAP_PX,
   LEDGER_MAX_ELEMENT_HEIGHT_PX,
   LEDGER_PARKED_LEASE_CAP,
   LEDGER_WINDOW_ROW_CAP,
@@ -50,6 +62,9 @@ export {
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
   RESOLVED_PROSE_INLINE_CAP,
+  RESTORE_PATH_ROW_HEIGHT_PX,
+  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
+  RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
   REVEAL_CHECKPOINT_TAIL_CAP,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
@@ -98,15 +113,15 @@ export {
   MILLISECONDS_PER_HOUR,
   MILLISECONDS_PER_MINUTE,
   parseInstant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type Instant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type InstantOffsetPolicy,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type InstantOrder,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type InstantReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type MalformedInstant,
 } from "./instant.js";
 // The registry classes leave through this door; the two symbols only their own
@@ -130,11 +145,11 @@ export {
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
 export {
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type ConsoleRefusalExtensions,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type ExtendedConsoleRefusal,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   type WireRetryHint,
 } from "./refusal-extensions.js";
 export { reportTripwire } from "./tripwires.js";
@@ -152,12 +167,17 @@ export {
 export { isWireRecord } from "./wire-record.js";
 export { readWireString } from "./wire-strings.js";
 
-// The cross-process leaf's lossy renderer for a value that has no honest string.
+// The cross-process leaf's lossy renderer for a value that has no honest string,
+// re-published here rather than re-declared.
 //
 // `src/shared/` sits under no rung of the console DAG, so a VIEW family may not read
 // it and the console reaches it through the layer family that owns the concern. Three
 // modules in this family already read that leaf for its guarded property reads and its
 // rejection vocabulary, which makes the floor that family: a diagnostic string is the
 // same concern one step along, and a second reading of it above here would be the
-// drift the one-home rule exists to stop.
+// drift the one-home rule exists to stop. `core/wire-rejection.ts` already states that
+// this layer — not that one — is the console's home for turning an unknown into
+// displayable text. Until this line existed the door published nothing for it, so two
+// view families reached five directories up past `core/` to the declaration and the
+// layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";

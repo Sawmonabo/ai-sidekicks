@@ -49,6 +49,7 @@ import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
+import { registerRepos } from "./repos/index.js";
 import { NewSessionControl, Workspace } from "./workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
@@ -99,9 +100,6 @@ export function registerConsoleFamilies(
   panes: ConsolePaneRegistry,
   projectors: ConsoleEntityProjectorRegistry,
   sidebarSections: SidebarSectionRegistry,
-  /* eslint-disable-next-line @typescript-eslint/no-unused-vars --
-     Unused until the first family that fills an inline card lands, on the reason
-     stated for the board above it. */
   inlineCardSeats: InlineCardSeatRegistry,
 ): void {
   // The three shipped Tier-1 families come first, because they were mounted
@@ -167,7 +165,7 @@ export function registerConsoleFamilies(
   registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   registerCollaborationFamily(surfaces, sidebarSections, sessionsComposition); // T-023p-1C-4 collaboration
-  // T-023p-1C-5 repos
+  registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery

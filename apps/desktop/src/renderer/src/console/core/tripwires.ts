@@ -9,7 +9,7 @@
 // unreachable from a release entry). Those are proved by reading source and
 // live under `test/console/architecture/`.
 //
-// This module owns the five tripwires that can only be proved at RUNTIME,
+// This module owns the six tripwires that can only be proved at RUNTIME,
 // because their violation is a value rather than a token:
 //
 //   • `bridge-shape-drift`   — the live and fixture bridges stopped being
@@ -29,6 +29,16 @@
 //                              store invariant as broken every time a pane hit a
 //                              rendering bug — the one reading an operator must be
 //                              able to trust.
+//   • `cleanup-refused`      — the daemon was asked to release something this
+//                              console had already stopped rendering and answered
+//                              without doing it. A refused cleanup leaves daemon
+//                              spools and their byte reservations alive until the
+//                              reaper claims them, and the surface that would have
+//                              said so is gone — so this record is the only way an
+//                              operator can see it. The one kind here that is not a
+//                              console invariant breach, and it is here because the
+//                              console has one diagnostic band and a refusal nobody
+//                              can render is exactly what it is for.
 //
 // **Loud in development, reported in production.** A tripwire is a defect
 // detector, and a defect detector that crashes an operator's session turns one
@@ -56,6 +66,12 @@ export const TRIPWIRE_KINDS = [
   "apply-chokepoint-bypass",
   "wire-figure-formatting",
   "surface-render-failure",
+  // Not an invariant breach like the five above: the console did nothing wrong and
+  // the daemon answered honestly. It is here because a refused cleanup releases
+  // nothing, its caller is terminal for the entry, and no surface survives to report
+  // it — so an unrecorded one is invisible until the resources it left run something
+  // else out of room.
+  "cleanup-refused",
 ] as const;
 
 /** One runtime tripwire, derived from the tuple above. */

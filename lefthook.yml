@@ -28,6 +28,18 @@
 
 min_version: "2.1.6"
 
+# Sourced by every generated git hook, immediately before lefthook is called
+# (`internal/templates/hook.tmpl` emits `[ -f <rc> ] && . <rc>`). For `pre-commit`
+# it takes a repository-wide mutex so two linked worktrees never sit inside
+# lefthook's unstaged-changes backup window at once — that backup lives in the
+# COMMON git dir (`--git-path info` resolves there for a linked worktree) plus the
+# shared `refs/stash`, so concurrent runs overwrite and drop each other's. The rc
+# file is the only repo-owned code that can wrap it: the backup opens before the
+# first job below runs and closes after the last one, so nothing declared in this
+# file is inside it. See `tools/lefthook-worktree-lock.mjs` for the primary sources
+# and `CONTRIBUTING.md` §Pre-Commit Hooks for the operator-facing description.
+rc: tools/lefthook-rc.sh
+
 pre-commit:
   # Sequential at the top level so the screens observe lint-staged's re-staged output.
   parallel: false
