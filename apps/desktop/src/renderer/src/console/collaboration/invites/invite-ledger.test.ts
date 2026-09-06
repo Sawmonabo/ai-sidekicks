@@ -2,19 +2,15 @@
 //
 // The two properties worth pinning here are the ones a rendered assertion cannot
 // see: that a settlement naming a row this ledger never held changes nothing, and
-// that "changes nothing" means the SAME outcome object, so a surface holding it in
+// that "changes nothing" means the SAME reading object, so a surface holding it in
 // state does not re-render over a reply it had no row for.
 
 import { describe, expect, it } from "vitest";
 
 import type { InviteId, InviteRevokeResponse } from "@ai-sidekicks/contracts";
 
-import {
-  growthUnavailable,
-  type InvitesListOutcome,
-  type ServedInvite,
-} from "../../bridge/index.js";
-import { partitionInvites, withSettledInvite } from "./invite-ledger.js";
+import { growthUnavailable, type ServedInvite } from "../../bridge/index.js";
+import { partitionInvites, withSettledInvite, type LedgerReading } from "./invite-ledger.js";
 
 function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
   return {
@@ -25,8 +21,26 @@ function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
   };
 }
 
-function served(invites: readonly ServedInvite[]): InvitesListOutcome {
-  return { status: "served", value: invites };
+/** A reading holding a served answer — what the fold is asked to write into. */
+function served(invites: readonly ServedInvite[]): LedgerReading {
+  return { kind: "answered", outcome: { status: "served", value: invites } };
+}
+
+/** A reading holding the port's own refusal, which the fold must leave alone. */
+function refusedByThePort(): LedgerReading {
+  return { kind: "answered", outcome: growthUnavailable("invitesList") };
+}
+
+/** A reading of a call that produced no outcome at all — the fold's other identity case. */
+function unreadable(): LedgerReading {
+  return {
+    kind: "unreadable",
+    refusal: {
+      code: "read-failed",
+      origin: "sent-invites",
+      detail: "the invites read never reached the daemon",
+    },
+  };
 }
 
 /**
@@ -62,26 +76,35 @@ describe("consuming one settled revocation", () => {
       served([invite(), invite({ inviteId: "invite-2" })]),
       revokedReply("invite-1"),
     );
-    expect(next?.status).toBe("served");
-    const rows = next?.status === "served" ? next.value : [];
+    expect(next?.kind).toBe("answered");
+    const rows =
+      next?.kind === "answered" && next.outcome.status === "served" ? next.outcome.value : [];
     expect(rows.map((row) => [row.inviteId, row.state])).toStrictEqual([
       ["invite-1", "revoked"],
       ["invite-2", "pending"],
     ]);
   });
 
-  it("answers with the very same outcome when it held no such row", () => {
+  it("answers with the very same reading when it held no such row", () => {
     const held = served([invite()]);
     expect(withSettledInvite(held, revokedReply("invite-absent"))).toBe(held);
   });
 
   it("leaves a refused read refused rather than inventing a ledger to write into", () => {
-    const refused = growthUnavailable("invitesList");
+    const refused = refusedByThePort();
     expect(withSettledInvite(refused, revokedReply("invite-1"))).toBe(refused);
     expect(withSettledInvite(undefined, revokedReply("invite-1"))).toBeUndefined();
   });
 
-  it("negative control: the matching case above really does produce a new outcome", () => {
+  it("does the same for a call that produced no outcome at all", () => {
+    // The arm the outcome union has no member for: a rejection. A settlement cannot
+    // write a row into a read that never answered, and folding one in would report
+    // a failed read as a ledger with exactly one row in it.
+    const failed = unreadable();
+    expect(withSettledInvite(failed, revokedReply("invite-1"))).toBe(failed);
+  });
+
+  it("negative control: the matching case above really does produce a new reading", () => {
     // Without this, the identity cases would pass over a fold that returned its
     // argument unconditionally.
     const held = served([invite()]);

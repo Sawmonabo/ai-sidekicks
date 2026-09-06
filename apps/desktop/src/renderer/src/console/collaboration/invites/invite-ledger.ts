@@ -21,7 +21,34 @@
 
 import type { InviteRevokeResponse } from "@ai-sidekicks/contracts";
 
+import type { ConsoleRefusal } from "../../core/index.js";
 import type { InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
+
+/**
+ * What this surface holds for one `invitesList` call: the port's answer, or why
+ * there is none.
+ *
+ * The port's contract is that it RESOLVES with a `GrowthOutcome` — served, or
+ * `unavailable` with the reason on it — so the ordinary refusal already travels
+ * inside the outcome. A REJECTION is a different fact: the call produced no outcome
+ * at all, and the outcome union has no member for it, because its refusal arm
+ * carries a closed code vocabulary the growth port owns and this console does not.
+ *
+ * A cell holding only the outcome therefore had one arm too few, and the missing arm
+ * is the one that matters most: a `.then` with no rejection handler leaves the cell
+ * untouched, so the ledger goes on saying "Reading this session's invitations" for
+ * the life of the window while an unhandled rejection reaches it — a read that
+ * FAILED reported as a read still IN FLIGHT, which is the conflation the console's
+ * kinds of nothing exist to prevent.
+ *
+ * Concrete rather than generic, and family-local: every view family is a sibling of
+ * every other, so the shape cannot be shared from here. The settings family holds
+ * the same two arms for its own one-shot reads, and the home both could share is
+ * `bridge/`, beside `GrowthOutcome` itself.
+ */
+export type LedgerReading =
+  | { readonly kind: "answered"; readonly outcome: InvitesListOutcome }
+  | { readonly kind: "unreadable"; readonly refusal: ConsoleRefusal };
 
 /** Pending first, then everything that has already settled. */
 export interface InviteLedger {
@@ -39,17 +66,21 @@ export function partitionInvites(invites: readonly ServedInvite[]): InviteLedger
 /**
  * The ledger this outcome becomes once the daemon has settled one invitation.
  *
- * Returns the outcome it was given, by identity, when there is nothing to change —
- * a refused read, a read still in flight, or a settlement naming a row this ledger
- * never held. Identity rather than a fresh equal object so a surface holding it in
- * state re-renders only when the ledger actually moved.
+ * Returns the reading it was given, by identity, when there is nothing to change —
+ * a read that produced no outcome, a refused read, a read still in flight, or a
+ * settlement naming a row this ledger never held. Identity rather than a fresh equal
+ * object so a surface holding it in state re-renders only when the ledger moved.
  */
 export function withSettledInvite(
-  outcome: InvitesListOutcome | undefined,
+  reading: LedgerReading | undefined,
   settlement: InviteRevokeResponse,
-): InvitesListOutcome | undefined {
-  if (outcome === undefined || outcome.status !== "served") {
-    return outcome;
+): LedgerReading | undefined {
+  if (reading === undefined || reading.kind !== "answered") {
+    return reading;
+  }
+  const { outcome } = reading;
+  if (outcome.status !== "served") {
+    return reading;
   }
   let didNameAHeldRow = false;
   const settledRows = outcome.value.map((invite) => {
@@ -59,5 +90,7 @@ export function withSettledInvite(
     didNameAHeldRow = true;
     return { ...invite, state: settlement.state };
   });
-  return didNameAHeldRow ? { ...outcome, value: settledRows } : outcome;
+  return didNameAHeldRow
+    ? { kind: "answered", outcome: { ...outcome, value: settledRows } }
+    : reading;
 }

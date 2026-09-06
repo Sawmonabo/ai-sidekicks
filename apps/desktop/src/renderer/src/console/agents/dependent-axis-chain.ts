@@ -30,6 +30,7 @@
 // Membership is the test rather than presence, because a catalog read can move under
 // a form nobody touched.
 
+import { PROVIDER_AXES, type ProviderAxis } from "./agent-wire.js";
 import {
   catalogCarriesEffortLevel,
   catalogCarriesModel,
@@ -38,15 +39,25 @@ import {
 } from "./driver-catalog.js";
 
 /**
- * The chain, parent first.
+ * The chain, parent first — the wire's own axis set less the two that have no parent.
+ *
+ * A SUBTRACTION from {@link PROVIDER_AXES} rather than a list beside it: a sixth
+ * provider axis reaches every consumer of this chain through the filter, and the two
+ * exclusions are the two axes nothing publishes a vocabulary for. `providerAccountId`
+ * has no parent — no read tells this console which provider an account belongs to —
+ * and `outputSpeed` is set against the driver's own declared level vocabulary rather
+ * than against a value another axis carries.
  *
  * Order is load-bearing twice over: it is the order a vocabulary is published in —
  * the catalog names drivers, a driver names models, a model names effort levels — and
  * it is the order a form lists what is still needed, so a person reads the cause
- * before the consequence.
+ * before the consequence. Inherited from `PROVIDER_AXES` and pinned by a case there,
+ * so a reordering of that set is a red test rather than a silently reordered form.
  */
-export const DEPENDENT_AXES = ["driverName", "modelId", "effort"] as const;
-export type DependentAxis = (typeof DEPENDENT_AXES)[number];
+export type DependentAxis = Exclude<ProviderAxis, "providerAccountId" | "outputSpeed">;
+export const DEPENDENT_AXES: readonly DependentAxis[] = PROVIDER_AXES.filter(
+  (axis): axis is DependentAxis => axis !== "providerAccountId" && axis !== "outputSpeed",
+);
 
 /**
  * One resolved reading of the chain: what the agent would run under once submitted.

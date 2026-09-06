@@ -55,7 +55,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import { GenerationLatch, type CurrentGenerationClaim } from "../store/index.js";
+import { GenerationLatch } from "../store/index.js";
 import {
   callDaemon,
   type ConsoleBridge,
@@ -156,6 +156,20 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     return this.#snapshot;
   }
 
+  /**
+   * Round keys this coordinator still holds. The release assertion, counted.
+   *
+   * A settled round gives its key back, and a reader that never gave one back would
+   * hold it for this coordinator's whole life — which refuses every later act on the
+   * key the moment anything else claims one. That is a property of the latch rather
+   * than of anything on screen, so it is counted here in the shape
+   * `seats/push-driven-read.ts` counts its reads: an instrument on the object that
+   * owns the fact, never a second copy of it.
+   */
+  public get heldRoundCount(): number {
+    return this.#rounds.heldKeyCount(this);
+  }
+
   public subscribe(sink: () => void): Unsubscribe {
     return this.#changes.subscribe(sink);
   }
@@ -204,23 +218,34 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     // as a value and never as a throw, so both arms below are the same settlement
     // read two ways rather than one path and one accident.
     const reply = await this.#perform(request);
-    if (!this.#isStillWanted(round)) {
-      return undefined;
-    }
+    // THROUGH the round on both arms rather than beside it. `currentClaim` mints a
+    // round on a free key, and a minted round releases that key inside `settle`'s own
+    // `finally` and nowhere else — so reading `isCurrent` and publishing outside it
+    // held `MUTATION_ROUND_KEY` under this coordinator for the coordinator's whole
+    // life. That is benign only while nothing else claims on this latch, and it is
+    // exactly the reader-holds-a-key failure `store/generation-latch.ts` names. Going
+    // through `settle` installs and releases in one act, and answers whether the
+    // install happened, so the superseded arm needs no second predicate.
     if (reply.status === "refused") {
-      this.#publish({
-        pendingKey: undefined,
-        refusalByKey: { ...this.#snapshot.refusalByKey, [key]: reply.refusal },
-        revision: this.#snapshot.revision + 1,
+      round.settle(() => {
+        this.#publish({
+          pendingKey: undefined,
+          refusalByKey: { ...this.#snapshot.refusalByKey, [key]: reply.refusal },
+          revision: this.#snapshot.revision + 1,
+        });
       });
       return undefined;
     }
-    this.#publish({
-      pendingKey: undefined,
-      refusalByKey: this.#snapshot.refusalByKey,
-      revision: this.#snapshot.revision + 1,
+    const wasInstalled = round.settle(() => {
+      this.#publish({
+        pendingKey: undefined,
+        refusalByKey: this.#snapshot.refusalByKey,
+        revision: this.#snapshot.revision + 1,
+      });
     });
-    return reply.value;
+    // A superseded round resolves `undefined` for the same reason it publishes
+    // nothing: the caller has no subject left to install the response into.
+    return wasInstalled ? reply.value : undefined;
   }
 
   /**
@@ -258,11 +283,6 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   #publish(next: WireMutationSnapshot): void {
     this.#snapshot = next;
     this.#changes.emit(next);
-  }
-
-  /** Whether the round this reply belongs to is still the one the holder wants. */
-  #isStillWanted(round: CurrentGenerationClaim): boolean {
-    return round.isCurrent;
   }
 
   /**

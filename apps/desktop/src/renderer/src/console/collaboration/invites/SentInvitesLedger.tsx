@@ -12,13 +12,12 @@
 
 import { InlineRefusal, Nothing, formatCount } from "../../primitives/index.js";
 import { SETTLED_INVITE_VISIBLE_CAP } from "../../core/index.js";
-import type { InvitesListOutcome } from "../../bridge/index.js";
-import { type InviteLedger } from "./invite-ledger.js";
+import { type InviteLedger, type LedgerReading } from "./invite-ledger.js";
 import { InviteLedgerRow } from "./InviteLedgerRow.js";
 
 export function SentInvitesLedger(props: {
   readonly sessionId: string | undefined;
-  readonly outcome: InvitesListOutcome | undefined;
+  readonly reading: LedgerReading | undefined;
   readonly ledger: InviteLedger | undefined;
   readonly pendingRevokeKey: string | undefined;
   readonly refusalByInviteId: Readonly<
@@ -37,13 +36,21 @@ export function SentInvitesLedger(props: {
       />
     );
   }
-  if (props.outcome === undefined) {
+  if (props.reading === undefined) {
     return (
       <Nothing kind="not-loaded" placement="surface" title="Reading this session's invitations." />
     );
   }
-  if (props.outcome.status === "unavailable") {
-    return <InlineRefusal code={props.outcome.code} detail={props.outcome.detail} />;
+  // A call that produced NO outcome and one that produced a refusing outcome render
+  // the same way, and deliberately so: both are the port declining to answer, and
+  // the only fact a person needs from either is the code and the sentence.
+  if (props.reading.kind === "unreadable") {
+    return <InlineRefusal {...props.reading.refusal} />;
+  }
+  if (props.reading.outcome.status === "unavailable") {
+    return (
+      <InlineRefusal code={props.reading.outcome.code} detail={props.reading.outcome.detail} />
+    );
   }
   const ledger = props.ledger ?? { pending: [], settled: [] };
   if (ledger.pending.length === 0 && ledger.settled.length === 0) {

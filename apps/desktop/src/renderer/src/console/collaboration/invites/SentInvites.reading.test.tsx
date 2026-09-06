@@ -13,6 +13,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { SentInvites } from "./SentInvites.js";
 import {
@@ -224,5 +225,48 @@ describe("sent invites — what a person reads", () => {
     );
     await settle();
     expect(container.textContent ?? "").not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
+  });
+});
+
+describe("sent invites — a read that produced no outcome at all", () => {
+  /** The fixture bridge with the ledger's one read REJECTING rather than refusing. */
+  function bridgeRejectingInvites(message: string): ConsoleBridge {
+    return fixtureBridgeWithGrowth(EMPTY_SCENARIO, {
+      invitesList: async () => {
+        await Promise.resolve();
+        throw new Error(message);
+      },
+    });
+  }
+
+  it("renders the rejection as a refusal rather than as a read still in flight", async () => {
+    // The port's contract is that it RESOLVES with an outcome, so a rejection has no
+    // arm in its vocabulary — its refusal arm carries a closed code set the port owns.
+    // Left unhandled it published nothing and the ledger went on saying "Reading this
+    // session's invitations" for the life of the window over a call that had failed.
+    const { container } = render(
+      <SentInvites
+        bridge={bridgeRejectingInvites("the invites read never reached the daemon")}
+        sessionId={SESSION_ID}
+      />,
+    );
+    await settle();
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("the invites read never reached the daemon");
+    expect(text).not.toContain("Reading this session's invitations.");
+    expect(text).not.toContain("Nobody has been invited to this session.");
+  });
+
+  it("negative control: a served read still reaches the rows and shows no refusal", async () => {
+    // Without this, the case above would hold for a ledger that rendered a refusal
+    // whatever the read answered.
+    const { container } = render(
+      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+    );
+    await settle();
+
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+    expect(container.querySelector(".meridian-invites__row-action")).not.toBeNull();
   });
 });

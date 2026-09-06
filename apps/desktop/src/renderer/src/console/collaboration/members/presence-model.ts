@@ -125,9 +125,28 @@ export type PresenceRoster = PushDrivenRead<PresenceReading>;
  * The instants at which a row's rendered age changes, for every row.
  *
  * `formatRelativeTime` rounds within four bands — seconds under a minute, minutes
- * under an hour, hours under a day, then days — so the text changes at half-unit
- * offsets from the stamp, and each of those instants is a wake-up a surface must
- * arm or else render a figure that is only correct at the moment it was painted.
+ * under an hour, hours under a day, then days — and this enumerates the instants at
+ * which the phrase it composes actually changes, because each of those is a wake-up
+ * a surface must arm or else render a figure that is only correct at the moment it
+ * was painted.
+ *
+ * THE SECOND BAND IS DELIBERATELY NOT ENUMERATED. It changes once a second, so a row
+ * whose stamp is recent contributed sixty deadlines inside the next minute: twenty
+ * people online made the section wake about twenty times a second on a console
+ * nobody was touching, each wake re-rendering every row and building a fresh
+ * `Intl.RelativeTimeFormat` for each. A single-shot chain re-armed at 1 Hz per row is
+ * an interval poll with a different implementation, which is exactly what
+ * `Spec-023 §Console Design (Meridian)` forbids and what its idle-CPU budget is
+ * measured against. So the first deadline a stamp earns is the one at which "now"
+ * becomes "1 minute ago", and the figure under a minute old is left reading as of the
+ * read that stamped it — which the read itself re-stamps on every presence signal.
+ *
+ * EACH BAND STARTS WHERE THE PREVIOUS ONE ENDED. A band's rounding flips at half-unit
+ * offsets, and the flip at step 0 of every band but the first sits INSIDE the band
+ * below it — half a minute, half an hour, half a day — so enumerating it armed a
+ * wake-up that crossed no threshold the format renders. The steps therefore run from
+ * one, and the instant the band itself takes over is enumerated once, as the band's
+ * own unit.
  *
  * Derived from `lastSeen` ALONE and never from the current instant, which is what
  * makes it a stable list `useDeadlineWake` can step through one deadline at a time:
@@ -149,8 +168,13 @@ export function ageBoundariesOf(
       continue;
     }
     for (const { unitMilliseconds, steps } of AGE_BANDS) {
-      for (let step = 0; step < steps; step += 1) {
-        boundaries.push(seen.epochMilliseconds + unitMilliseconds * (step + 0.5));
+      boundaries.push(seen.epochMilliseconds + unitMilliseconds);
+      for (let step = 1; step < steps; step += 1) {
+        boundaries.push(
+          seen.epochMilliseconds +
+            unitMilliseconds * (step + 0.5) +
+            AGE_BOUNDARY_TIE_BREAK_MILLISECONDS,
+        );
       }
     }
   }
@@ -166,13 +190,25 @@ const HOUR_MILLISECONDS = 60 * MINUTE_MILLISECONDS;
 const DAY_MILLISECONDS = 24 * HOUR_MILLISECONDS;
 
 /**
- * The four bands `formatRelativeTime` rounds in, and how many steps each spans.
+ * Why a half-unit deadline is armed one millisecond late.
  *
- * One band's steps end where the next begins, so the enumeration crosses each band
- * edge exactly once and never emits two deadlines for one rendered change.
+ * The rounding flips AT the half-unit, and `Math.round` breaks a tie toward positive
+ * infinity — the delta these figures are composed from is negative, so waking at
+ * exactly `1.5` units renders the value for `1` and the row stays one step behind
+ * until the next deadline. One millisecond past it renders the step the crossing
+ * produced, which is what makes "one deadline per rendered change" true rather than
+ * approximately true.
+ */
+const AGE_BOUNDARY_TIE_BREAK_MILLISECONDS = 1;
+
+/**
+ * The bands whose changes are armed, and how many steps each spans.
+ *
+ * The second band `formatRelativeTime` rounds in is absent by the decision above, so
+ * the minute band's own lower edge — one minute past the stamp — is the first
+ * deadline any row earns.
  */
 const AGE_BANDS: readonly { readonly unitMilliseconds: number; readonly steps: number }[] = [
-  { unitMilliseconds: SECOND_MILLISECONDS, steps: 60 },
   { unitMilliseconds: MINUTE_MILLISECONDS, steps: 60 },
   { unitMilliseconds: HOUR_MILLISECONDS, steps: 24 },
   { unitMilliseconds: DAY_MILLISECONDS, steps: AGE_BOUNDARY_HORIZON_DAYS },

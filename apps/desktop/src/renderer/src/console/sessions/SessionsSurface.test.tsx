@@ -22,7 +22,6 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionsSurface } from "./SessionsSurface.js";
 import {
   contextWith,
   listAbsenceKinds,
@@ -33,7 +32,7 @@ import {
 
 describe("which kind of nothing an empty list is", () => {
   it("says nobody asked when the directory read is refused", async () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     await settle();
     const text = container.textContent ?? "";
     expect(text).toContain("This console is not holding any sessions.");
@@ -47,15 +46,13 @@ describe("which kind of nothing an empty list is", () => {
   });
 
   it("carries the port's own refusal sentence rather than inventing one", async () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     await settle();
     expect(container.textContent ?? "").toContain("the sessionList read is not registered yet");
   });
 
   it("says the node has none when the directory answered with no rows", async () => {
-    const { container } = renderSurface(
-      <SessionsSurface context={contextWith({ directorySessionIds: [] })} />,
-    );
+    const { container } = renderSurface(contextWith({ directorySessionIds: [] }));
     await settle();
     const text = container.textContent ?? "";
     expect(text).toContain("There are no sessions on this node yet.");
@@ -72,9 +69,7 @@ describe("which kind of nothing an empty list is", () => {
     // Rendered WITHOUT settling on purpose: this is the one state that exists only
     // between the mount and the first microtask, and a test that settled first
     // could not observe it.
-    const { container } = renderSurface(
-      <SessionsSurface context={contextWith({ directorySessionIds: [] })} />,
-    );
+    const { container } = renderSurface(contextWith({ directorySessionIds: [] }));
     expect(listAbsenceKinds(container)).toStrictEqual([
       "meridian-nothing--block",
       "meridian-nothing--not-loaded",
@@ -86,9 +81,7 @@ describe("what the destination lists", () => {
   it("lists the node's sessions on an address that names none of them", async () => {
     // The regression this arm exists for: before the directory read, a window that
     // had opened nothing reported an empty NODE, which is a different claim.
-    const { container } = renderSurface(
-      <SessionsSurface context={contextWith({ directorySessionIds: ["session-node"] })} />,
-    );
+    const { container } = renderSurface(contextWith({ directorySessionIds: ["session-node"] }));
     await settle();
     const text = container.textContent ?? "";
     expect(text).toContain("One session is on this node.");
@@ -97,12 +90,10 @@ describe("what the destination lists", () => {
 
   it("names a session once when the node and this window both hold it", async () => {
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-a"],
-          openStores: [storeHolding({ sessionId: "session-a" })],
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-a"],
+        openStores: [storeHolding({ sessionId: "session-a" })],
+      }),
     );
     await settle();
     expect(container.textContent ?? "").toContain("One session is on this node.");
@@ -110,12 +101,10 @@ describe("what the destination lists", () => {
 
   it("appends what only this window knows to what the node reported", async () => {
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-node"],
-          openStores: [storeHolding({ sessionId: "session-local" })],
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-node"],
+        openStores: [storeHolding({ sessionId: "session-local" })],
+      }),
     );
     await settle();
     expect(container.textContent ?? "").toContain("2 sessions are on this node.");
@@ -123,14 +112,12 @@ describe("what the destination lists", () => {
 
   it("counts this window's own sessions in this console's words when the node refused", async () => {
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          openStores: [
-            storeHolding({ sessionId: "session-a" }),
-            storeHolding({ sessionId: "session-b" }),
-          ],
-        })}
-      />,
+      contextWith({
+        openStores: [
+          storeHolding({ sessionId: "session-a" }),
+          storeHolding({ sessionId: "session-b" }),
+        ],
+      }),
     );
     await settle();
     const text = container.textContent ?? "";
@@ -142,9 +129,7 @@ describe("what the destination lists", () => {
 
   it("reads one session as one rather than as a quantity", async () => {
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({ openStores: [storeHolding({ sessionId: "session-a" })] })}
-      />,
+      contextWith({ openStores: [storeHolding({ sessionId: "session-a" })] }),
     );
     await settle();
     expect(container.textContent ?? "").toContain("One session is open in this console.");
@@ -167,14 +152,12 @@ describe("what an open session contributes to its row", () => {
 
   it("orders two open sessions by the touched time their own stores project", async () => {
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          openStores: [
-            storeHolding({ sessionId: "session-older", touchedAtIso: "2026-01-01T09:00:00.000Z" }),
-            storeHolding({ sessionId: "session-newer", touchedAtIso: "2026-01-01T11:00:00.000Z" }),
-          ],
-        })}
-      />,
+      contextWith({
+        openStores: [
+          storeHolding({ sessionId: "session-older", touchedAtIso: "2026-01-01T09:00:00.000Z" }),
+          storeHolding({ sessionId: "session-newer", touchedAtIso: "2026-01-01T11:00:00.000Z" }),
+        ],
+      }),
     );
     await settle();
 
@@ -185,16 +168,14 @@ describe("what an open session contributes to its row", () => {
 
   it("carries an open session's participants onto its row", async () => {
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          openStores: [
-            storeHolding({
-              sessionId: "session-a",
-              participantIds: ["participant-mira", "participant-tomas"],
-            }),
-          ],
-        })}
-      />,
+      contextWith({
+        openStores: [
+          storeHolding({
+            sessionId: "session-a",
+            participantIds: ["participant-mira", "participant-tomas"],
+          }),
+        ],
+      }),
     );
     await settle();
 
@@ -207,14 +188,12 @@ describe("what an open session contributes to its row", () => {
     // The other side of the same merge: a session on the node that this window has
     // not opened has no projection, and must not borrow the open session's people.
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-elsewhere"],
-          openStores: [
-            storeHolding({ sessionId: "session-a", participantIds: ["participant-mira"] }),
-          ],
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-elsewhere"],
+        openStores: [
+          storeHolding({ sessionId: "session-a", participantIds: ["participant-mira"] }),
+        ],
+      }),
     );
     await settle();
 
@@ -227,15 +206,13 @@ describe("what an open session contributes to its row", () => {
     // `undefined` forever. Supplying one and finding none of it on screen is what
     // proves the source moved to the registry rather than merely being widened.
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: [],
-          sessionStore: storeHolding({
-            sessionId: "session-route",
-            participantIds: ["participant-route"],
-          }),
-        })}
-      />,
+      contextWith({
+        directorySessionIds: [],
+        sessionStore: storeHolding({
+          sessionId: "session-route",
+          participantIds: ["participant-route"],
+        }),
+      }),
     );
     await settle();
 
@@ -247,14 +224,12 @@ describe("what an open session contributes to its row", () => {
     // Without this, the case above would pass over a list that had stopped reading
     // any store at all.
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: [],
-          openStores: [
-            storeHolding({ sessionId: "session-route", participantIds: ["participant-route"] }),
-          ],
-        })}
-      />,
+      contextWith({
+        directorySessionIds: [],
+        openStores: [
+          storeHolding({ sessionId: "session-route", participantIds: ["participant-route"] }),
+        ],
+      }),
     );
     await settle();
 
@@ -265,12 +240,12 @@ describe("what an open session contributes to its row", () => {
 
 describe("starting a session is an act", () => {
   it("mounts nothing that could create a session until the control is pressed", () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     expect(container.querySelector(".meridian-sessions__started")).toBeNull();
   });
 
   it("offers exactly one start control, and it is reachable", async () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     await settle();
     const controls = container.querySelectorAll(".meridian-sessions__start");
     expect(controls).toHaveLength(1);
@@ -278,7 +253,7 @@ describe("starting a session is an act", () => {
   });
 
   it("mounts the probe on the press, and remounts it on the next one", async () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     await settle();
     const start = container.querySelector<HTMLButtonElement>(".meridian-sessions__start");
     act(() => {
@@ -298,7 +273,7 @@ describe("starting a session is an act", () => {
   });
 
   it("declines to ask on the probe's behalf while the console runs on the fixture", async () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     await settle();
     act(() => {
       container.querySelector<HTMLButtonElement>(".meridian-sessions__start")?.click();

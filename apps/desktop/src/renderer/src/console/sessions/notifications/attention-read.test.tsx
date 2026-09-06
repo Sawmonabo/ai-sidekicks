@@ -11,10 +11,15 @@
 // so a case that did not advance a clock would be asserting about a read that has not
 // happened yet rather than about one that never will.
 
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  SidekicksBridgeProvider,
+  createFixtureBridge,
+  growthUnavailable,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStoreRegistry } from "../../store/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
@@ -106,8 +111,28 @@ function AttentionProbe(props: {
   readonly bridge: ConsoleBridge;
   readonly registry: SessionStoreRegistry;
 }): React.JSX.Element {
-  const reading = useAttentionProjection(props.read, props.bridge, props.registry);
-  return <NotificationCenter reading={reading} />;
+  const { reading, retry } = useAttentionProjection(props.read, props.bridge, props.registry);
+  return <NotificationCenter reading={reading} onReopen={retry} />;
+}
+
+/**
+ * Mount the probe under the bridge provider, which is where a console surface runs.
+ *
+ * The read takes the window's clock from `useConsoleClock`, and that hook resolves
+ * through the provider — so the provider is part of the shape under test rather than
+ * harness decoration. Supplied with the same bridge the probe is handed, so a case
+ * still drives exactly one transport.
+ */
+function renderProbe(
+  read: AttentionProjectionReader,
+  bridge: ConsoleBridge,
+  registry: SessionStoreRegistry,
+): ReturnType<typeof render> {
+  return render(
+    <SidekicksBridgeProvider bridge={bridge}>
+      <AttentionProbe read={read} bridge={bridge} registry={registry} />
+    </SidekicksBridgeProvider>,
+  );
 }
 
 /** Let the read's promise settle after the frozen clock released it. */
@@ -130,9 +155,7 @@ describe("the attention read — a session change is what re-reads it", () => {
     let servedItems: readonly unknown[] = [];
     const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead(servedItems)));
 
-    const { container } = render(
-      <AttentionProbe read={read} bridge={bridge} registry={registry} />,
-    );
+    const { container } = renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
     expect(container.textContent ?? "").toContain("Nothing needs you.");
@@ -152,7 +175,7 @@ describe("the attention read — a session change is what re-reads it", () => {
     const registry = registryHolding(clock);
     const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
-    render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
+    renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
 
@@ -172,7 +195,7 @@ describe("the attention read — a session change is what re-reads it", () => {
     const registry = registryHolding(clock);
     const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
-    render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
+    renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
 
     act(() => {
@@ -192,7 +215,7 @@ describe("the attention read — a session change is what re-reads it", () => {
     const registry = registryHolding(clock);
     const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
-    const view = render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
+    const view = renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
     view.unmount();
 
@@ -216,9 +239,7 @@ describe("the attention read — a reader that fails is not a reader nobody aske
       Promise.reject(new Error("the projection reader gave out")),
     );
 
-    const { container } = render(
-      <AttentionProbe read={read} bridge={bridge} registry={registry} />,
-    );
+    const { container } = renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
 
     const text = container.textContent ?? "";
@@ -228,14 +249,55 @@ describe("the attention read — a reader that fails is not a reader nobody aske
     expect(text).not.toContain("Nothing needs you.");
   });
 
+  it("offers a way back, and taking it puts the read again", async () => {
+    // A refused projection read is otherwise terminal for the destination: the effect
+    // that opened it runs once per read, and a person who landed on the panel while a
+    // cap was tripped had one line of error text and nothing to press.
+    const { bridge, clock } = bridgeOnFrozenTime();
+    const registry = registryHolding(clock);
+    let refusalsLeft = 1;
+    const read = vi.fn<AttentionProjectionReader>(() => {
+      if (refusalsLeft > 0) {
+        refusalsLeft -= 1;
+        return Promise.reject(new Error("the projection reader gave out"));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { container } = renderProbe(read, bridge, registry);
+    await releaseCoalescedRead(clock);
+    const retry = container.querySelector(".meridian-refusal__action button");
+    expect(retry?.textContent).toBe("Try again");
+
+    await act(async () => {
+      fireEvent.click(retry as HTMLButtonElement);
+    });
+    await releaseCoalescedRead(clock);
+
+    expect(read.mock.calls.length).toBeGreaterThan(1);
+    expect(container.textContent ?? "").toContain("has not been read");
+  });
+
+  it("negative control: a served read offers no way back", async () => {
+    // Without this, the case above would pass over a panel that carried the control on
+    // every phase — a retry beside an answer, which reads as a refresh this surface
+    // does not have.
+    const { bridge, clock } = bridgeOnFrozenTime();
+    const registry = registryHolding(clock);
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(undefined));
+
+    const { container } = renderProbe(read, bridge, registry);
+    await releaseCoalescedRead(clock);
+
+    expect(container.querySelector(".meridian-refusal__action")).toBeNull();
+  });
+
   it("negative control: a reader answering 'nothing was read' still says exactly that", async () => {
     const { bridge, clock } = bridgeOnFrozenTime();
     const registry = registryHolding(clock);
     const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(undefined));
 
-    const { container } = render(
-      <AttentionProbe read={read} bridge={bridge} registry={registry} />,
-    );
+    const { container } = renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
 
     expect(container.textContent ?? "").toContain("has not been read");
@@ -251,9 +313,7 @@ describe("the attention read — an event settling is a session change", () => {
     let servedItems: readonly unknown[] = [];
     const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead(servedItems)));
 
-    const { container } = render(
-      <AttentionProbe read={read} bridge={bridge} registry={registry} />,
-    );
+    const { container } = renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
 
@@ -272,7 +332,7 @@ describe("the attention read — an event settling is a session change", () => {
     const registry = registryHolding(clock);
     const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
-    render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
+    renderProbe(read, bridge, registry);
     await releaseCoalescedRead(clock);
 
     act(() => {

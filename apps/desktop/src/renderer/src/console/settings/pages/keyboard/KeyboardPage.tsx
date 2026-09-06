@@ -52,7 +52,6 @@ import {
   type StaleKeybindingOverrideRow,
 } from "./keybinding-map.js";
 import type { SettingsPageRegistry } from "../../settings-page-registry.js";
-import "./keyboard.css";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-keyboard";

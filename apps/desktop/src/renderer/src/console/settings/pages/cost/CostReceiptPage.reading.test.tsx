@@ -149,3 +149,36 @@ describe("the cost page — a served receipt", () => {
     expect(container.querySelector(".meridian-cost-receipt__table")).toBeNull();
   });
 });
+
+describe("the cost page — a read that produced no outcome at all", () => {
+  it("renders the rejection as a refusal rather than as a read still in flight", async () => {
+    // The port's contract is that it RESOLVES with an outcome, so a rejection has no
+    // arm in its vocabulary. Left unhandled the page kept rendering "Reading this
+    // session's receipt" for the life of the window — a read that failed reported as
+    // one still running — while an unhandled rejection reached the window.
+    const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
+    const bridge = {
+      ...fixture,
+      growth: {
+        ...fixture.growth,
+        orchestrationCostReceiptRead: async () => {
+          await Promise.resolve();
+          throw new Error("the receipt read never reached the accountant");
+        },
+      },
+    };
+    const container = await renderSettledPage(bridge, SESSION_ID);
+
+    expect(container.textContent ?? "").toContain("the receipt read never reached the accountant");
+    expect(container.textContent ?? "").not.toContain("Reading this session's receipt");
+  });
+
+  it("negative control: a served read still renders the figure and no refusal", async () => {
+    // Without this, the case above would hold for a page that rendered a refusal
+    // whatever the read answered.
+    const container = await renderSettledPage(bridgeServing(balancedReceipt()), SESSION_ID);
+
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+    expect(container.textContent ?? "").toContain("run-alpha");
+  });
+});

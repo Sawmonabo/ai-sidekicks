@@ -31,7 +31,7 @@
 import { reservedChordReason } from "../../../frame/keybinding-audit.js";
 import type { KeybindingOverrideMap } from "../../../frame/keybinding-overrides.js";
 import type { ConsoleCommand, KeyBinding } from "../../../palette/index.js";
-import { scoreSubsequence } from "../../../palette/subsequence-score.js";
+import { scoreSubsequence } from "../../../palette/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../../../primitives/index.js";
 
 /** One row of the keyboard map. */

@@ -29,6 +29,13 @@ export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 // without a React tree, which is its own family's business and not a caller's.
 export { useBridgeCommands } from "./bridge-commands.js";
 
+// The console's ONE matcher, published because two settings surfaces rank against
+// it. `Spec-023 §Console Libraries` requires the palette, settings search, the
+// sidebar filter, and find to score "identically in both places", which is a rule
+// about one implementation rather than one algorithm — so the sharing is declared
+// here rather than performed by a deep import that no layering rule can see.
+export { scoreSubsequence } from "./subsequence-score.js";
+
 export { KeyBindingTable } from "./keybindings.js";
 
 export type { WhenClauseContext } from "./when-clause.js";

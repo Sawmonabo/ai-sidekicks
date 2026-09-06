@@ -8,7 +8,7 @@
 // can see the screen and total for everyone who cannot.
 //
 // The fourth — deleting on one press, the one act here with no undo — is
-// `DefinitionsPage.acts.test.tsx`, with the editor seat and the pending-delete state.
+// `SidekickDefinitionsPage.acts.test.tsx`, with the editor seat and the pending-delete state.
 //
 // The registry, the announcer and the presses live in the support module beside this
 // one; the bridge behind them is the shipped fixture bridge with the two operations
@@ -30,7 +30,7 @@ import {
   savedRegionOf,
   served,
   settle,
-} from "./definitions-page.test-support.js";
+} from "./sidekick-definitions-page.test-support.js";
 
 describe("the sidekicks page — the read", () => {
   it("says a read is in flight before the registry answers", () => {

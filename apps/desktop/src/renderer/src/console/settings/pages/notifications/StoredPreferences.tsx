@@ -20,26 +20,39 @@ export function StoredPreferences(props: {
       />
     );
   }
-  if (binding.participantOutcome === undefined) {
+  if (binding.participantReading === undefined) {
     return <Nothing kind="not-loaded" placement="surface" title="Finding out who you are." />;
   }
-  if (binding.participantOutcome.status === "unavailable") {
-    // The chain's own refusal, rendered where the set would have been: nothing was
-    // asked of the preference store, and no participant was guessed to ask with.
+  // Two refusals, one shape. A port that answered `unavailable` and a call that
+  // produced no answer at all are the same thing to a person reading the page —
+  // nothing was asked of the preference store and no participant was guessed to ask
+  // with — and they stay apart in the value because only one is the port speaking.
+  if (binding.participantReading.kind === "unreadable") {
+    return <InlineRefusal {...binding.participantReading.refusal} />;
+  }
+  if (binding.participantReading.outcome.status === "unavailable") {
     return (
       <InlineRefusal
-        code={binding.participantOutcome.code}
-        detail={binding.participantOutcome.detail}
+        code={binding.participantReading.outcome.code}
+        detail={binding.participantReading.outcome.detail}
       />
     );
   }
-  if (binding.readOutcome === undefined) {
+  if (binding.preferenceReading === undefined) {
     return <Nothing kind="not-loaded" placement="surface" title="Reading your preferences." />;
   }
-  if (binding.readOutcome.status === "unavailable") {
-    return <InlineRefusal code={binding.readOutcome.code} detail={binding.readOutcome.detail} />;
+  if (binding.preferenceReading.kind === "unreadable") {
+    return <InlineRefusal {...binding.preferenceReading.refusal} />;
   }
-  const rows = projectPreferenceRows(binding.readOutcome.value.preferences);
+  if (binding.preferenceReading.outcome.status === "unavailable") {
+    return (
+      <InlineRefusal
+        code={binding.preferenceReading.outcome.code}
+        detail={binding.preferenceReading.outcome.detail}
+      />
+    );
+  }
+  const rows = projectPreferenceRows(binding.preferenceReading.outcome.value.preferences);
   if (rows.length === 0) {
     return (
       <Nothing

@@ -36,18 +36,21 @@
 // recomputed "for consistency" — so they are stated on the page with a test holding
 // them, which is what keeps the body inside a frame that forbids it.
 
-import { useEffect, useState, type ReactNode } from "react";
-
-import "./cost-receipt.css";
+import { useEffect, type ReactNode } from "react";
 
 import { Chip, useAnnounce } from "../../../primitives/index.js";
-import { announcementFor, type CostReceiptOutcome } from "./cost-receipt-model.js";
+import { consoleRefusalFrom } from "../../../seats/index.js";
+import { useSubjectScopedState } from "../../../store/index.js";
+import { announcementFor, type CostReceiptReading } from "./cost-receipt-model.js";
 import { DefinitionGrid } from "../../shared/DefinitionGrid.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 import { ReceiptBody } from "./ReceiptBody.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-cost";
+
+/** Names a read that produced no outcome at all, where the thrown value named none. */
+const COST_RECEIPT_ORIGIN = "cost-receipt";
 
 /** The three ways the one figure is split. Each accounts for the whole of it. */
 const RECEIPT_PARTITIONS: readonly { readonly title: string; readonly detail: string }[] = [
@@ -81,31 +84,51 @@ const RECEIPT_RULES: readonly string[] = [
 export function CostReceiptPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge, retainedSessionId } = props.context;
   const announce = useAnnounce();
-  const [outcome, setOutcome] = useState<CostReceiptOutcome | undefined>(undefined);
+  // HELD FOR THE SESSION IT WAS READ FOR, through the family's one holder. The
+  // previous shape was a `useState` cell cleared at the top of the effect, and
+  // "cleared first" was first WITHIN THE EFFECT — one committed frame after the
+  // render that renamed the subject. That frame painted the previous session's money
+  // figures, its per-run rows, and its per-paying-account rows under the new
+  // session's name. The holder is addressed during the render, so the pass that
+  // first sees a new session already reads that session's own seed.
+  const { value: reading, publish: publishReading } = useSubjectScopedState<
+    CostReceiptReading | undefined
+  >(bridge, retainedSessionId, () => undefined);
 
   useEffect(() => {
     if (retainedSessionId === undefined) {
       return undefined;
     }
+    // The publisher guards the VALUE — captured during this render, it names the
+    // session that asked, so a settlement arriving after a re-address publishes
+    // nowhere. This flag guards the ANNOUNCEMENT, which the publisher cannot: the
+    // announcer is the window's, addressed by nothing, and speaking a figure for a
+    // session nobody is looking at is exactly what it must not do.
     let isAttached = true;
-    // Cleared first, so a session change never leaves one session's figure standing
-    // under another's name. Not the re-entry a refresh is forbidden: the standing
-    // answer was to a question nobody is asking any more.
-    setOutcome(undefined);
-    void bridge.growth
-      .orchestrationCostReceiptRead({ sessionId: retainedSessionId })
-      .then((result) => {
-        if (!isAttached) {
-          return;
+    void bridge.growth.orchestrationCostReceiptRead({ sessionId: retainedSessionId }).then(
+      (outcome) => {
+        publishReading({ kind: "answered", outcome });
+        if (isAttached) {
+          // Once per settled read, politely: nothing the room can do has moved.
+          announce(announcementFor(outcome));
         }
-        setOutcome(result);
-        // Once per settled read, politely: nothing the room can do has moved.
-        announce(announcementFor(result));
-      });
+      },
+      // The port's contract is that it resolves, and a rejection is off it — which is
+      // why this arm exists rather than being left to the window's unhandled handler.
+      // Without it the page renders "Reading this session's receipt" for the life of
+      // the window, reporting a read that failed as one still in flight.
+      (rejection: unknown) => {
+        const refusal = consoleRefusalFrom(rejection, COST_RECEIPT_ORIGIN);
+        publishReading({ kind: "unreadable", refusal });
+        if (isAttached) {
+          announce(refusal.detail);
+        }
+      },
+    );
     return () => {
       isAttached = false;
     };
-  }, [bridge, retainedSessionId, announce]);
+  }, [bridge, retainedSessionId, announce, publishReading]);
 
   return (
     <div className="meridian-settings-page">
@@ -121,7 +144,7 @@ export function CostReceiptPage(props: { readonly context: SettingsPageContext }
         <Chip tone="neutral" label="One session" glyph="sessions" />
       </div>
 
-      <ReceiptBody sessionId={retainedSessionId} outcome={outcome} />
+      <ReceiptBody sessionId={retainedSessionId} reading={reading} />
 
       <section className="meridian-settings-page__block" aria-label="How the figure is split">
         <h3 className="meridian-settings-page__block-title">How the figure is split</h3>

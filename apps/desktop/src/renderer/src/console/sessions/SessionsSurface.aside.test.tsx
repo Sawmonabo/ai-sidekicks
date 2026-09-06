@@ -15,18 +15,17 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SessionsSurface } from "./SessionsSurface.js";
 import { contextWith, renderSurface, settle } from "./session-surface.test-support.js";
 
 describe("what the destination puts beside the list", () => {
   it("mounts the invitations shelf and the attention panel", () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     expect(container.querySelector(".meridian-invite-shelf")).not.toBeNull();
     expect(container.querySelector(".meridian-attention")).not.toBeNull();
   });
 
   it("says the attention projection was not read, rather than that nothing needs anybody", async () => {
-    const { container } = renderSurface(<SessionsSurface context={contextWith({})} />);
+    const { container } = renderSurface(contextWith({}));
     await settle();
     const text = container.textContent ?? "";
     expect(text).toContain("The attention projection has not been read.");
@@ -39,24 +38,22 @@ describe("what the destination puts beside the list", () => {
     // reaches the panel. Before the fan-out the surface read for the active session
     // and the address names none, so this panel could never populate at all.
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-node"],
-          attentionBySessionId: {
-            "session-node": [
-              {
-                id: "attention-1",
-                sessionId: "session-node",
-                trigger: "pending_approval",
-                severity: "actionable",
-                summary: "A tool call is waiting on you.",
-                sourceEventId: "event-1",
-                createdAt: "2026-01-01T10:00:00.000Z",
-              },
-            ],
-          },
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-node"],
+        attentionBySessionId: {
+          "session-node": [
+            {
+              id: "attention-1",
+              sessionId: "session-node",
+              trigger: "pending_approval",
+              severity: "actionable",
+              summary: "A tool call is waiting on you.",
+              sourceEventId: "event-1",
+              createdAt: "2026-01-01T10:00:00.000Z",
+            },
+          ],
+        },
+      }),
     );
     await settle();
     const text = container.textContent ?? "";
@@ -72,24 +69,22 @@ describe("what the destination puts beside the list", () => {
     // settles silently is the same silent failure as a panel that renders an
     // all-clear it did not earn.
     const { container, politeText } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-node", "session-quiet"],
-          attentionBySessionId: {
-            "session-node": [
-              {
-                id: "attention-1",
-                sessionId: "session-node",
-                trigger: "pending_approval",
-                severity: "actionable",
-                summary: "A tool call is waiting on you.",
-                sourceEventId: "event-1",
-                createdAt: "2026-01-01T10:00:00.000Z",
-              },
-            ],
-          },
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-node", "session-quiet"],
+        attentionBySessionId: {
+          "session-node": [
+            {
+              id: "attention-1",
+              sessionId: "session-node",
+              trigger: "pending_approval",
+              severity: "actionable",
+              summary: "A tool call is waiting on you.",
+              sourceEventId: "event-1",
+              createdAt: "2026-01-01T10:00:00.000Z",
+            },
+          ],
+        },
+      }),
     );
     await settle();
 
@@ -121,12 +116,10 @@ describe("the invitations the destination reads for", () => {
     // was therefore empty forever. Under that reader this array stays `[]`.
     const invitesListCalls: string[] = [];
     renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-a", "session-b"],
-          invitesListCalls,
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-a", "session-b"],
+        invitesListCalls,
+      }),
     );
     await settle();
     expect(invitesListCalls).toStrictEqual(["session-a", "session-b"]);
@@ -134,12 +127,10 @@ describe("the invitations the destination reads for", () => {
 
   it("lists an invitation for a session this address does not name", async () => {
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-a"],
-          invitesBySessionId: { "session-a": [pendingInvite("invite-1")] },
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-a"],
+        invitesBySessionId: { "session-a": [pendingInvite("invite-1")] },
+      }),
     );
     await settle();
     const text = container.textContent ?? "";
@@ -154,12 +145,10 @@ describe("the invitations the destination reads for", () => {
     // would hide a session the console never got an answer from, so both are on
     // screen and neither stands for the other.
     const { container } = renderSurface(
-      <SessionsSurface
-        context={contextWith({
-          directorySessionIds: ["session-refused", "session-served"],
-          invitesBySessionId: { "session-served": [pendingInvite("invite-2")] },
-        })}
-      />,
+      contextWith({
+        directorySessionIds: ["session-refused", "session-served"],
+        invitesBySessionId: { "session-served": [pendingInvite("invite-2")] },
+      }),
     );
     await settle();
     const text = container.textContent ?? "";
@@ -172,9 +161,7 @@ describe("the invitations the destination reads for", () => {
     // A console holding none has nothing to ask about, and the shelf says exactly
     // that rather than reporting an empty inbox.
     const invitesListCalls: string[] = [];
-    const { container } = renderSurface(
-      <SessionsSurface context={contextWith({ invitesListCalls })} />,
-    );
+    const { container } = renderSurface(contextWith({ invitesListCalls }));
     await settle();
     expect(invitesListCalls).toStrictEqual([]);
     expect(container.textContent ?? "").toContain("No invitations have been read.");

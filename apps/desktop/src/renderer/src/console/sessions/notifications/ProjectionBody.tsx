@@ -9,6 +9,14 @@ import { SessionGroup } from "./SessionGroup.js";
 export function ProjectionBody(props: {
   readonly reading: AttentionReading;
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
+  /**
+   * Re-open the projection read. Rendered on the refused phase and nowhere else.
+   *
+   * Optional for `onOpen`'s reason: this body is mounted in harnesses that hold no
+   * read, and a control that cannot act is worse than none. The destination that owns
+   * the read supplies it.
+   */
+  readonly onReopen: (() => void) | undefined;
 }): React.JSX.Element {
   if (props.reading.phase === "reading") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading what needs you." />;
@@ -26,7 +34,19 @@ export function ProjectionBody(props: {
   if (props.reading.phase === "refused") {
     // The read was put and it failed, which is neither an all-clear nor a question
     // nobody asked. The refusal renders with its own code, verbatim.
-    return <RefusalCard code={props.reading.refusal.code} detail={props.reading.refusal.detail} />;
+    return (
+      <RefusalCard
+        code={props.reading.refusal.code}
+        detail={props.reading.refusal.detail}
+        action={
+          props.onReopen === undefined ? undefined : (
+            <button type="button" onClick={props.onReopen}>
+              Try again
+            </button>
+          )
+        }
+      />
+    );
   }
   const { plane, droppedCount, refusedSessions } = props.reading;
   if (plane.groups.length === 0) {

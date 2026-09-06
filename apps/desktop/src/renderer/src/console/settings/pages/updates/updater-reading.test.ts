@@ -148,6 +148,8 @@ describe("the updater reading — which source wins", () => {
 
 describe("the updater reading — a feed that was not reached", () => {
   it("settles unreachable in the words the failure arrived in, and asks for no state", () => {
+    // The code is this seam's own, because a thrown `Error` carries none: the two
+    // legs fail for different reasons and the line has to say which.
     const holder = new UpdaterReadingHolder({
       getState: () => Promise.reject(new Error("update.getState is not implemented")),
       subscribe: () => {
@@ -160,11 +162,15 @@ describe("the updater reading — a feed that was not reached", () => {
 
     expect(holder.snapshot().reading).toStrictEqual({
       kind: "unreachable",
-      detail: "update.subscribe is not implemented",
+      refusal: {
+        code: "updater-subscribe-failed",
+        origin: "updates",
+        detail: "update.subscribe is not implemented",
+      },
     });
   });
 
-  it("renders a refused read's own message rather than a class name", async () => {
+  it("keeps a refused read's own code and message rather than a class name", async () => {
     const updater = controllableUpdater();
     const holder = new UpdaterReadingHolder(updater.updater);
     holder.open();
@@ -172,10 +178,34 @@ describe("the updater reading — a feed that was not reached", () => {
     updater.refuseRead({ code: "update.unavailable", message: "no feed is configured" });
     await drain();
 
+    // The registered code reaches the reading untouched. It used to be discarded:
+    // `wireRejectionToError` puts it on `Error.name` and this seam read only
+    // `.message`, so every refusal the updater namespace can raise arrived on screen
+    // with the one part rule 9 requires verbatim missing.
     expect(holder.snapshot().reading).toStrictEqual({
       kind: "unreachable",
-      detail: "no feed is configured",
+      refusal: {
+        code: "update.unavailable",
+        origin: "updates",
+        detail: "no feed is configured",
+      },
     });
+  });
+
+  it("negative control: this leg's own fallback code never displaces a registered one", async () => {
+    // Without this, the case above would hold for a seam that labelled every read
+    // failure `updater-read-failed` and happened to keep the message.
+    const updater = controllableUpdater();
+    const holder = new UpdaterReadingHolder(updater.updater);
+    holder.open();
+
+    updater.refuseRead({ code: "update.unavailable", message: "no feed is configured" });
+    await drain();
+
+    const reading = holder.snapshot().reading;
+    expect(reading.kind === "unreachable" ? reading.refusal.code : undefined).not.toBe(
+      "updater-read-failed",
+    );
   });
 });
 

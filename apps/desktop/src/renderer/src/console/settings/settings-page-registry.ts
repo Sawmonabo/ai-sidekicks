@@ -26,7 +26,7 @@ import { createElement, type ReactNode } from "react";
 
 import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { scoreSubsequence } from "../palette/subsequence-score.js";
+import { scoreSubsequence } from "../palette/index.js";
 import { Nothing } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
 import type { OwnerSlotProps } from "../seats/index.js";

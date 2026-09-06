@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { consoleClockFor } from "../../../bridge/index.js";
+import { useConsoleClock } from "../../../bridge/index.js";
 import { Nothing, formatCount, useSettlementAnnouncement } from "../../../primitives/index.js";
 import { usePushDrivenRead } from "../../../seats/index.js";
 import { createMountInventoryRead } from "./mount-inventory.js";
@@ -23,19 +23,27 @@ export function MountInventoryList(props: {
   readonly sessionStore: SettingsPageContext["retainedSessionStore"];
 }): ReactNode {
   const { bridge, sessionId, sessionStore } = props;
-  // The scenario's frozen clock under the fixture, the real one otherwise, through
-  // the bridge family's own door — the same resolution eleven other sites make, so a
-  // story advances this read's coalescing window exactly when it advances everything
-  // else's, and a third arm on that resolution reaches here with them.
+  // The scenario's frozen clock under the fixture, the real one otherwise, so a story
+  // advances this read's coalescing window exactly when it advances everything else's.
+  //
+  // From the window's own clock hook rather than resolved inside the memo below. The
+  // live arm of `consoleClockFor` MINTS, so its result is identity-unstable by
+  // construction, and a memo is a hint React is free to discard — resolving there
+  // could rebuild this `dispose()`-bearing read around a new clock on a pass nothing
+  // moved on. The hook pins the resolution in state, which is where a resource
+  // identity belongs.
+  const clock = useConsoleClock();
+  // The openings made for this list. Its only job is to be a dependency the read's
+  // construction can be moved by: a subscription that could not be opened at all is
+  // terminal without one, because the read seam skips the snapshot in that arm and
+  // the effect below re-runs only when the session or the transport moves.
+  const [openingOrdinal, setOpeningOrdinal] = useState(0);
   const inventoryRead = useMemo(
-    () =>
-      createMountInventoryRead({
-        bridge,
-        sessionId,
-        clock: consoleClockFor(bridge),
-        sessionStore,
-      }),
-    [bridge, sessionId, sessionStore],
+    () => createMountInventoryRead({ bridge, sessionId, clock, sessionStore }),
+    // `openingOrdinal` is the re-open. Moving it builds a fresh read, and the effect
+    // below disposes the previous one before starting it, so the release and the
+    // re-subscribe are one act rather than two paths to keep in step.
+    [bridge, sessionId, clock, sessionStore, openingOrdinal],
   );
   useEffect(() => {
     inventoryRead.start();
@@ -70,12 +78,28 @@ export function MountInventoryList(props: {
     return <Nothing kind="not-loaded" placement="surface" title="Reading this session's mounts." />;
   }
   if (state.kind === "failed") {
+    // The control is the way back. A failed READ recovers on its own — the session's
+    // event stream pushes again and the next refresh publishes the inventory — but a
+    // subscription that could not be OPENED leaves nothing to push, and the read seam
+    // deliberately asks for no snapshot in that arm rather than rendering an
+    // inventory behind a channel that has stopped listening.
     return (
       <Nothing
         kind="error"
         placement="surface"
         title={state.refusal.code}
         detail={state.refusal.detail}
+        action={
+          <button
+            type="button"
+            className="meridian-settings-page__action"
+            onClick={() => {
+              setOpeningOrdinal((held) => held + 1);
+            }}
+          >
+            Try again
+          </button>
+        }
       />
     );
   }
@@ -109,18 +133,18 @@ export function MountInventoryList(props: {
   );
 }
 
-export /**
+/**
  * The row's key: the mount id on both arms.
  *
  * The refused arm has no reply to take an id from, which is exactly why the read
  * carries the requested id on it — so a mount that refuses on one read and answers
  * on the next keeps its row rather than remounting as a different one.
  */
-function mountKeyOf(reading: MountReading): string {
+export function mountKeyOf(reading: MountReading): string {
   return reading.kind === "read" ? reading.mount.id : reading.repoMountId;
 }
 
-export /**
+/**
  * The one sentence this list announces, or `undefined` while the read is in flight.
  *
  * The counts are what a person cannot get any other way: on screen the rows ARE the
@@ -132,7 +156,9 @@ export /**
  * own: the card on screen renders those words, and the announcement is the spoken half
  * of the same fact rather than a second, friendlier account of it.
  */
-function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): string | undefined {
+export function mountSettlementSentence(
+  state: PushDrivenReadState<MountInventory>,
+): string | undefined {
   if (state.kind === "not-loaded") {
     return undefined;
   }

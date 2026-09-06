@@ -5,6 +5,7 @@
 // reader stub, the same frozen clock, and the same durable store. A second copy of
 // the reader is two files disagreeing about what a served read looks like.
 
+import { Profiler } from "react";
 import { render } from "@testing-library/react";
 
 import { ManualClock } from "../../core/index.js";
@@ -55,6 +56,61 @@ export async function settle(): Promise<void> {
 
 /** The gap between the frozen start and the fixture invitation's own expiry. */
 export const DAY_MILLISECONDS: number = 24 * 60 * 60 * 1000;
+
+/** One hour, for the case that leaves a window open with nothing armed. */
+export const HOUR_MILLISECONDS: number = 60 * 60 * 1000;
+
+/**
+ * An expiry that has already passed by the time a delayed read lands.
+ *
+ * The fixture invitation expires a day after the frozen start; this one expires
+ * twenty minutes after it, so a shelf whose clock has moved an hour is looking at an
+ * invitation nobody can accept any more.
+ */
+export const LAPSED_EXPIRY = "2026-01-01T10:20:00.000Z";
+
+/**
+ * Record the rendered text of every COMMITTED frame of what it wraps.
+ *
+ * A `Profiler` and not a sibling layout effect: the frames this instrument exists to
+ * see are driven by state inside the shelf, so a sibling only runs when the sibling
+ * itself re-renders and would record nothing at all. `document.body` rather than a
+ * container captured outside, because the container is not initialised yet on the
+ * first commit.
+ */
+export function CommittedFrameRecorder(props: {
+  readonly onFrame: (text: string) => void;
+  readonly children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <Profiler
+      id="invite-shelf"
+      onRender={() => {
+        props.onFrame(document.body.textContent ?? "");
+      }}
+    >
+      {props.children}
+    </Profiler>
+  );
+}
+
+/**
+ * A reader whose fan-out the case settles, so the clock can move first.
+ *
+ * The defect this exists for is only reachable in an ORDER — a mount, an hour with
+ * nothing armed, and then an answer — and a reader that resolved on the next
+ * microtask could not put the advance between the last two.
+ */
+export function createDeferredOutcomes(): {
+  readonly read: InviteShelfReader;
+  readonly settle: (outcomes: readonly ShelfOutcome[]) => void;
+} {
+  let settle!: (outcomes: readonly ShelfOutcome[]) => void;
+  const answered = new Promise<readonly ShelfOutcome[]>((resolveOutcomes) => {
+    settle = resolveOutcomes;
+  });
+  return { read: () => answered, settle };
+}
 
 /**
  * The clock the shelf arms its expiry wake-up on.

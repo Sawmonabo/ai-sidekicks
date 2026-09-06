@@ -19,15 +19,33 @@ import { describe, expect, it } from "vitest";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { SettingsSurface } from "./SettingsSurface.js";
-import { registerSettingsPages } from "./index.js";
+import { registerSettingsSurface } from "./index.js";
 import { SETTINGS_SECTION_IDS, SettingsPageRegistry } from "./settings-page-registry.js";
-import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import {
+  ConsoleSurfaceRegistry,
+  type ConsoleSurfaceContext,
+  type ConsoleSurfaceDescriptor,
+} from "../frame/surface-registry.js";
 
-/** The pages the shipped registrar composes — the same ones a window renders. */
-function shippedPages(): SettingsPageRegistry {
-  const pages = new SettingsPageRegistry();
-  registerSettingsPages(pages);
-  return pages;
+/**
+ * The render a window mounts, taken from the shipped registrar itself.
+ *
+ * Driven THROUGH `registerSettingsSurface` rather than around it. The page set that
+ * function composes is closed over and is not a value this file may reach for, and
+ * composing a second one here would be a copy that agrees with the shipped list until
+ * someone adds a page to one of them — so claiming the slot and calling back the render
+ * it registered is the only reading of "the pages a window renders" that cannot drift.
+ * It also makes the slot claim itself a covered fact: a registrar that claimed nothing
+ * fails here rather than rendering an empty rail.
+ */
+function shippedSurfaceRender(): ConsoleSurfaceDescriptor["render"] {
+  const surfaces = new ConsoleSurfaceRegistry();
+  registerSettingsSurface(surfaces);
+  const descriptor = surfaces.descriptorFor("settings");
+  if (descriptor === undefined) {
+    throw new Error("the settings registrar claimed no surface slot");
+  }
+  return descriptor.render;
 }
 
 /**
@@ -110,14 +128,22 @@ function contextFor(page: string | undefined): ConsoleSurfaceContext {
  * and `useAnnounce` throws outside the provider deliberately — so a harness that
  * omitted it would fail inside a page and report a missing live region as a broken
  * settings pane.
+ *
+ * Omitting `pages` renders the shipped composition; passing one renders over the page
+ * set the case chose. The two arms are the same surface — the shipped arm reaches it
+ * through the registrar, which is the only way the closed-over set is reachable at all.
  */
 function renderSurface(
   context: ConsoleSurfaceContext,
-  pages: SettingsPageRegistry = shippedPages(),
+  pages?: SettingsPageRegistry,
 ): ReturnType<typeof render> {
   return render(
     <LiveAnnouncerProvider>
-      <SettingsSurface context={context} pages={pages} />
+      {pages === undefined ? (
+        shippedSurfaceRender()(context)
+      ) : (
+        <SettingsSurface context={context} pages={pages} />
+      )}
     </LiveAnnouncerProvider>,
   );
 }

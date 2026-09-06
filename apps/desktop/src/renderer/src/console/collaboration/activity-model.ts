@@ -106,6 +106,7 @@ export class ActivityIndicatorRegistry {
   readonly #composingByParticipantId = new Map<string, ComposingEntry>();
   readonly #agentRunsByRunId = new Map<string, AgentActivityIndicator>();
   readonly #activityByChannelId = new Map<string, ChannelActivity>();
+  #composingLookup: ComposingLookup | undefined;
   #disposed = false;
 
   public constructor(clock: ConsoleClock) {
@@ -217,6 +218,26 @@ export class ActivityIndicatorRegistry {
     return this.#composingByParticipantId.get(participantId)?.indicator.channelId;
   }
 
+  /**
+   * The roster's composing question, as a value whose identity is the reading.
+   *
+   * Remembered until the next change for {@link activityIn}'s reason, and consumed
+   * for one more: the roster is memoized, so its marks move when this identity moves
+   * and at no other time. A bound method handed down instead would keep ONE identity
+   * for the life of the registry, and a mark would then refresh only when some
+   * unrelated prop happened to move — which is a pencil that is right by accident and
+   * wrong as soon as the accident stops arriving.
+   */
+  public composingLookup(): ComposingLookup {
+    const remembered = this.#composingLookup;
+    if (remembered !== undefined) {
+      return remembered;
+    }
+    const lookup: ComposingLookup = (participantId) => this.composingChannelFor(participantId);
+    this.#composingLookup = lookup;
+    return lookup;
+  }
+
   /** Drop everything and release every timer. Terminal. */
   public dispose(): void {
     this.#disposed = true;
@@ -235,6 +256,7 @@ export class ActivityIndicatorRegistry {
    */
   #publish(): void {
     this.#activityByChannelId.clear();
+    this.#composingLookup = undefined;
     this.#changes.emit();
   }
 
@@ -248,6 +270,27 @@ export class ActivityIndicatorRegistry {
     this.#composingByParticipantId.delete(participantId);
     return true;
   }
+}
+
+/** Whether one participant is composing anywhere, asked of a settled reading. */
+export type ComposingLookup = (participantId: string) => string | undefined;
+
+/**
+ * Read who is composing where from React.
+ *
+ * `useSyncExternalStore` over the same emitter {@link useChannelActivity} uses, for
+ * the same reason and one more. The roster SAMPLED this registry during render and
+ * subscribed to nothing, so a pencil appeared only when something else re-rendered the
+ * section — which was the age wake-up, at a cadence that has since been cut to the
+ * minute it renders. Subscribed, the mark moves when the indicator moves.
+ */
+export function useComposingLookup(registry: ActivityIndicatorRegistry): ComposingLookup {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => registry.onChange(onStoreChange),
+    [registry],
+  );
+  const read = useCallback(() => registry.composingLookup(), [registry]);
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /**

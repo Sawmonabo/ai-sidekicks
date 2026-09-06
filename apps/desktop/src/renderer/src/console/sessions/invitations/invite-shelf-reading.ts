@@ -10,7 +10,7 @@
 // "another would not say" are two facts, and a fold that kept only the first would
 // let a served empty answer beside a refused one render as a definitive nothing.
 
-import { parseInstant } from "../../core/index.js";
+import { parseInstant, type ConsoleRefusal } from "../../core/index.js";
 import type { ReadingState } from "../../primitives/index.js";
 import type { InvitesListOutcome, InvitesListRefusal, ServedInvite } from "../../bridge/index.js";
 
@@ -54,6 +54,18 @@ export interface ShelfReading {
    * as silence would report another session's refusal as the whole shelf.
    */
   readonly servedCount: number;
+  /**
+   * When this fan-out was read, on the shelf's own clock.
+   *
+   * The floor the expiry is measured against, and the reason `useDeadlineWake`'s own
+   * rule — "a caller with a read stamp of its own takes the later of the two, so a
+   * fresh read always wins" — can be obeyed here at all. Without it the shelf
+   * measured against the instant the wake chain was last at, and a window open for
+   * an hour with no pending invitations arms nothing: the held instant stays at the
+   * mount reading, and an invitation that lapsed forty minutes ago tests as still
+   * waiting and is offered with a control on it.
+   */
+  readonly readAtMilliseconds: number;
 }
 
 /**
@@ -68,7 +80,10 @@ export interface ShelfReading {
  * rule hold in the case that breaks it: one session answering with nothing beside
  * another that refused.
  */
-export function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading {
+export function readShelf(
+  outcomes: readonly InvitesListOutcome[],
+  readAtMilliseconds: number,
+): ShelfReading {
   const byInviteId = new Map<string, ServedInvite>();
   let refusal: InvitesListRefusal | undefined;
   let servedCount = 0;
@@ -98,6 +113,39 @@ export function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading
           ],
     askedCount: outcomes.length,
     servedCount,
+    readAtMilliseconds,
+  };
+}
+
+/**
+ * The reading a fan-out that produced no outcomes at all is read as.
+ *
+ * The reader's contract is that it RESOLVES with one outcome per session, so a
+ * rejection has no member in that vocabulary — and a `.then` with no rejection arm
+ * left the shelf holding nothing, which it renders as "Reading your invitations" for
+ * the life of the window. A read that failed reported as a read still in flight is
+ * the conflation the completeness vocabulary exists to prevent, so the rejection
+ * takes the state it actually is: refused, and refused as the WHOLE answer, because
+ * no session answered.
+ *
+ * `askedCount` is ONE rather than zero, and the difference is the shelf's own
+ * sentence: zero is what a console holding no sessions reads as, and it renders as
+ * "the invites read is scoped to a session and this console is holding none — so it
+ * has not asked", which is exactly false of a question that WAS put and failed. The
+ * count is the questions this reading can account for, and a rejection accounts for
+ * the one the shelf put. It stays above `servedCount`, so the read is incomplete and
+ * the hide set prunes against nothing.
+ */
+export function shelfReadingFromRejection(
+  refusal: ConsoleRefusal,
+  readAtMilliseconds: number,
+): ShelfReading {
+  return {
+    pending: [],
+    states: [{ kind: "refused", scope: "whole-answer", refusal }],
+    askedCount: 1,
+    servedCount: 0,
+    readAtMilliseconds,
   };
 }
 

@@ -22,6 +22,8 @@
 // inputs and reach no caller at all.
 
 import { useId } from "react";
+import { type ConsoleRefusal } from "../core/index.js";
+import { InlineRefusal } from "../primitives/index.js";
 import { type AgentRosterEntry } from "../bridge/index.js";
 import { ResolvedConfigurationEcho } from "./ResolvedConfigurationEcho.js";
 import { BindingAxis } from "./BindingAxis.js";
@@ -48,6 +50,16 @@ export interface AgentCardProps {
    * unaffected.
    */
   readonly isMutating?: boolean | undefined;
+  /**
+   * Why the last move on THIS agent's binding did not happen.
+   *
+   * On the card rather than beside the switch form, because the card is the only
+   * surface that exists in every address shape the console can be opened at: a bare
+   * auxiliary address in a session with two or more agents shows the whole roster and
+   * no switch form at all, and a detach refused there reached no pixel. The caller
+   * hands it to the row the round was submitted for and to no other.
+   */
+  readonly bindingRefusal?: ConsoleRefusal | undefined;
 }
 
 export function AgentCard(props: AgentCardProps): React.JSX.Element {
@@ -143,6 +155,9 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
           </span>
         ) : null}
       </div>
+
+      {/* Inline, because nothing changed and the controls above are all still there. */}
+      {props.bindingRefusal === undefined ? null : <InlineRefusal {...props.bindingRefusal} />}
     </article>
   );
 }

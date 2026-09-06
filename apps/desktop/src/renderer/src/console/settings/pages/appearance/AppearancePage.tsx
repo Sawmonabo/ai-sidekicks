@@ -52,7 +52,6 @@ import {
   type SchemePreference,
 } from "../../../tokens/index.js";
 import type { SettingsPageRegistry } from "../../settings-page-registry.js";
-import "./appearance.css";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-appearance";

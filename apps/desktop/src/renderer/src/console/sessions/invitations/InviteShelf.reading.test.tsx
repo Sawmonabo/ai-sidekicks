@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 import { openStore } from "../sessions.test-support.js";
 import { InviteShelf } from "./InviteShelf.js";
 import {
+  CommittedFrameRecorder,
   DAY_MILLISECONDS,
+  HOUR_MILLISECONDS,
+  LAPSED_EXPIRY,
+  createDeferredOutcomes,
   REFUSED,
   frozenClock,
   invite,
@@ -185,5 +189,118 @@ describe("an invitation that lapses while the console holds it", () => {
       served([invite({ inviteId: "unreadable-expiry", expiresAt: "whenever" })]),
     ]);
     expect(container.textContent ?? "").toContain("unreadable-expiry");
+  });
+});
+
+describe("a fan-out that produced no outcome at all", () => {
+  /** Render the shelf over a reader that rejects, and let the rejection land. */
+  async function renderRejectingShelf(message: string): Promise<HTMLElement> {
+    const view = render(
+      <InviteShelf
+        read={async () => {
+          await Promise.resolve();
+          throw new Error(message);
+        }}
+        uiStateStore={openStore()}
+        clock={frozenClock()}
+      />,
+    );
+    await settle();
+    return view.container;
+  }
+
+  it("renders the rejection as a refusal rather than as a read still in flight", async () => {
+    // The reader's contract is that it RESOLVES with one outcome per session, so a
+    // rejection has no member in that vocabulary. Left unhandled it published
+    // nothing and the shelf went on saying "Reading your invitations" for the life
+    // of the window over a fan-out that had already failed.
+    const container = await renderRejectingShelf("the invites fan-out never reached a session");
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("the invites fan-out never reached a session");
+    expect(text).not.toContain("Reading your invitations.");
+  });
+
+  it("does not read the failure as a console holding no sessions", async () => {
+    // The count a rejection is recorded with decides which sentence the body picks:
+    // zero renders "the invites read is scoped to a session and this console is
+    // holding none — so it has not asked", which is exactly false of a question
+    // that was put and failed.
+    const container = await renderRejectingShelf("the growth port is gone");
+
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("No invitations have been read.");
+    expect(text).not.toContain("Nothing is waiting for you to join.");
+  });
+
+  it("negative control: a served read still reaches the rows and shows no refusal", async () => {
+    // Without this, both cases above would hold for a shelf that rendered a refusal
+    // whatever the fan-out answered.
+    const { container } = await renderShelf([served([invite()])]);
+
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+    expect(container.textContent ?? "").toContain("invite-1");
+  });
+});
+
+describe("an invitation that lapsed before the read that found it", () => {
+  it("does not offer it, on the first committed frame or any later one", async () => {
+    // A window open for an hour with no pending invitations arms nothing, so the held
+    // instant stays at the mount reading. A read that then returns an invitation which
+    // expired forty minutes ago used to test as still waiting against THAT instant —
+    // and the row was offered, with a **Not now** control on it, until the wake chain's
+    // next pass corrected it. One frame, which is why a `Profiler` is the instrument:
+    // an assertion after the effects have run reads the correction rather than the
+    // defect.
+    const clock = frozenClock();
+    const heldRead = createDeferredOutcomes();
+    const frames: string[] = [];
+    render(
+      <CommittedFrameRecorder onFrame={(text) => frames.push(text)}>
+        <InviteShelf read={heldRead.read} uiStateStore={openStore()} clock={clock} />
+      </CommittedFrameRecorder>,
+    );
+    await settle();
+
+    await act(async () => {
+      clock.advance(HOUR_MILLISECONDS);
+      await Promise.resolve();
+    });
+    frames.length = 0;
+
+    await act(async () => {
+      heldRead.settle([
+        served([invite({ inviteId: "lapsed-while-away", expiresAt: LAPSED_EXPIRY })]),
+      ]);
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.filter((frame) => frame.includes("lapsed-while-away"))).toStrictEqual([]);
+  });
+
+  it("negative control: the recorder sees the frames an offered invitation renders in", async () => {
+    // Without this, the case above would hold for a recorder that recorded nothing —
+    // which is exactly what a naive one does here, since the frames are driven by
+    // state inside the shelf rather than by anything the case re-renders.
+    const clock = frozenClock();
+    const heldRead = createDeferredOutcomes();
+    const frames: string[] = [];
+    render(
+      <CommittedFrameRecorder onFrame={(text) => frames.push(text)}>
+        <InviteShelf read={heldRead.read} uiStateStore={openStore()} clock={clock} />
+      </CommittedFrameRecorder>,
+    );
+    await settle();
+    frames.length = 0;
+
+    await act(async () => {
+      heldRead.settle([served([invite({ inviteId: "still-waiting" })])]);
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(frames.filter((frame) => frame.includes("still-waiting")).length).toBeGreaterThan(0);
   });
 });

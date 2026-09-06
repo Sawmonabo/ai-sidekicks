@@ -41,16 +41,16 @@ export function MountRow(props: { readonly reading: MountReading }): ReactNode {
   );
 }
 
-export /**
+/**
  * How the lifecycle axis is toned. A PRESENTATION of the daemon's own value and
  * never a verdict: the value renders verbatim beside the tone, so a reader is never
  * shown a colour in place of a state name.
  */
-function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
+export function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
   return mount.state === "attached" ? "neutral" : "attention";
 }
 
-export /** The same, for the reachability axis. The two are toned independently. */
-function reachabilityTone(mount: RepoMountReadResponse): "neutral" | "failure" {
+/** The same, for the reachability axis. The two are toned independently. */
+export function reachabilityTone(mount: RepoMountReadResponse): "neutral" | "failure" {
   return mount.health.status === "healthy" ? "neutral" : "failure";
 }

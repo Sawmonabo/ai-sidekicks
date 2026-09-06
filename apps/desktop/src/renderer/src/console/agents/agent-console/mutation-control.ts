@@ -154,6 +154,33 @@ export class AgentMutationControl<TSettlement> {
   }
 
   /**
+   * Retire what a moved subject makes stale, and keep a refusal, which it does not.
+   *
+   * A settlement and a round in flight are both claims about the projection they
+   * were read against, so a projection that has moved retires them: the daemon has
+   * spoken more recently than either. A REFUSAL is a different kind of fact. It is
+   * about the participant's own act — this press did not happen and here is why —
+   * and nothing in a projection move is evidence about whether that write was
+   * refused. Retiring it takes the reason off the screen with no act of the
+   * participant's, possibly before it was read, on an event they did not cause and
+   * cannot see.
+   *
+   * @returns whether anything was retired. `false` means a refusal was kept, which
+   * is what a caller holding "was this control pressed here" needs to know: clearing
+   * that flag beside a kept refusal hides the refusal just as surely as clearing the
+   * refusal would.
+   */
+  public supersedeUnlessRefused(): boolean {
+    if (this.#state.status === "refused") {
+      // The round behind a refusal has already settled and given its key back, so
+      // there is nothing in flight for a supersede to abandon either.
+      return false;
+    }
+    this.supersede();
+    return true;
+  }
+
+  /**
    * Install a settlement, or discard it because its round was superseded.
    *
    * The key is given back either way. Where the round is still live that is what

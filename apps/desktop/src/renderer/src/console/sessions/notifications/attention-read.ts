@@ -30,11 +30,11 @@
 // for a question it could not put. That mapping is written here, in one function, so
 // no surface narrows on both vocabularies at once.
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { useConsoleClock, type ConsoleBridge } from "../../bridge/index.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import type { SessionStoreRegistry } from "../../store/index.js";
@@ -156,6 +156,20 @@ function attentionReadingFrom(
 }
 
 /**
+ * What this destination holds: the reading, and the way back into a read that refused.
+ *
+ * A pair rather than a phase on {@link AttentionReading}, because the plane's phases
+ * are what the READ settled on and the re-open is what the caller may DO about it —
+ * folding the second into the first would make every consumer of a phase carry a
+ * control it has no use for.
+ */
+export interface AttentionProjectionReading {
+  readonly reading: AttentionReading;
+  /** Re-open or re-read the projection. Offered on the refused phase and nowhere else. */
+  readonly retry: () => void;
+}
+
+/**
  * Perform the projection read and keep it current.
  *
  * ONE read for the whole destination. The notification center renders it and the
@@ -173,22 +187,22 @@ export function useAttentionProjection(
   read: AttentionProjectionReader,
   bridge: ConsoleBridge,
   sessionStoreRegistry: SessionStoreRegistry,
-): AttentionReading {
+): AttentionProjectionReading {
+  // The scenario's frozen clock under the fixture and the real one otherwise, from
+  // the window's own clock hook rather than resolved inside the memo below: the live
+  // arm of `consoleClockFor` MINTS, and a memo is a hint React may discard, so a pass
+  // nothing moved on could rebuild this `dispose()`-bearing read around a new clock.
+  const clock = useConsoleClock();
   const projectionRead = useMemo(
     () =>
       new PushDrivenRead<AttentionProjectionRead | undefined>({
-        // The scenario's frozen clock under the fixture and the real one otherwise,
-        // resolved inside the construction the bridge already keys — the shape
-        // `settings/pages/mounts/WorkspaceMountsPage.tsx` takes for the same reason: this
-        // read's coalescing window has to advance when a story advances everything
-        // else's.
-        clock: consoleClockFor(bridge),
+        clock,
         origin: ATTENTION_READ_ORIGIN,
         read,
         subscribe: (onChangeSignal) =>
           subscribeToSessionProjections(sessionStoreRegistry, onChangeSignal),
       }),
-    [bridge, read, sessionStoreRegistry],
+    [clock, read, sessionStoreRegistry],
   );
   useEffect(() => {
     projectionRead.start();
@@ -197,8 +211,21 @@ export function useAttentionProjection(
     };
   }, [projectionRead]);
 
+  // THE STREAM FIRST, THE READ SECOND, AND NEVER BOTH. A read whose stream never
+  // opened is behind a dead channel, and refreshing that one paints a current-looking
+  // panel over a subscription nobody holds; a read whose stream IS live failed at the
+  // read alone, and a fresh read is the whole recovery.
+  const retry = useCallback(() => {
+    if (projectionRead.isSubscribed) {
+      projectionRead.refresh("participant-request");
+      return;
+    }
+    projectionRead.start();
+  }, [projectionRead]);
+
   const state = usePushDrivenRead(projectionRead);
-  return useMemo(() => attentionReadingFrom(state), [state]);
+  const reading = useMemo(() => attentionReadingFrom(state), [state]);
+  return useMemo(() => ({ reading, retry }), [reading, retry]);
 }
 
 /**

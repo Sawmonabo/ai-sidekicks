@@ -60,6 +60,19 @@ import {
 /** Names a mutation's failure where the thrown value carried no refusal of its own. */
 const AGENT_MUTATION_ORIGIN = "agent-mutation";
 
+/**
+ * One submitted binding move: which agent it is about, and through which control.
+ *
+ * The control is held because it decides WHERE the settlement renders, and the two
+ * moves are pressed in two places — detach on the agent's card, a switch in the form
+ * below it. Recorded at submission rather than derived at render, because by the time
+ * a refusal lands the roster may have moved and the pressed control may be gone.
+ */
+interface BindingMove {
+  readonly agentId: string;
+  readonly control: "detach" | "switch";
+}
+
 export interface AgentBindingColumnProps {
   readonly models: AgentConsoleModels;
   /** The agent this console is about. `undefined` shows the whole roster. */
@@ -104,11 +117,11 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // never compared here at all: the render that first sees a new session already
   // reads that session's own seed, which is "nothing was submitted here". What is
   // left on the value is the part the session does not settle — whether an attach was
-  // submitted, and which agent a binding move was about.
+  // submitted, and which agent a binding move was about THROUGH WHICH CONTROL.
   const { value: wasAttachSubmittedHere, publish: publishAttachSubmitted } =
     useSubjectScopedState<boolean>(models, sessionId, () => false);
-  const { value: bindingAgentId, publish: publishBindingAgentId } = useSubjectScopedState<
-    string | undefined
+  const { value: bindingMove, publish: publishBindingMove } = useSubjectScopedState<
+    BindingMove | undefined
   >(models, sessionId, () => undefined);
 
   useEffect(() => attachForm.onChange(noteFormEdited), [attachForm, noteFormEdited]);
@@ -128,8 +141,8 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // refresh would be a mutation dropped for no act of the participant's.
   useEffect(() => {
     bindingAttempt.supersede();
-    publishBindingAgentId(undefined);
-  }, [bindingAttempt, models, agentId, publishBindingAgentId]);
+    publishBindingMove(undefined);
+  }, [bindingAttempt, models, agentId, publishBindingMove]);
 
   // A press while one attach is outstanding reaches the latch and stops there —
   // `submit` admits nothing in flight, so a double click costs one request and the
@@ -163,12 +176,12 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // The settlement published is the SETTLED reply's, never whichever landed last: one
   // request per intended action means there is no second reply to race.
   const submitBindingMove = useCallback(
-    (targetAgentId: string, move: () => Promise<AgentSwitchSettlement | undefined>): void => {
+    (submitted: BindingMove, move: () => Promise<AgentSwitchSettlement | undefined>): void => {
       if (bindingAttempt.submit(move)) {
-        publishBindingAgentId(targetAgentId);
+        publishBindingMove(submitted);
       }
     },
-    [bindingAttempt, publishBindingAgentId],
+    [bindingAttempt, publishBindingMove],
   );
 
   const applySwitch = useCallback(
@@ -177,7 +190,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       axes: Partial<Record<ProviderAxis, string>>,
       interruptAndSwitch: boolean,
     ): void => {
-      submitBindingMove(targetAgentId, async () => {
+      submitBindingMove({ agentId: targetAgentId, control: "switch" }, async () => {
         const reply = await models.updateConfig(targetAgentId, axes, interruptAndSwitch);
         return reply.switch;
       });
@@ -186,11 +199,11 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   );
 
   // Detach shares the switch's latch and settles with nothing to show: a detach
-  // publishes no switch settlement, and a refusal reaches the same line a refused
-  // switch does, because both are this agent's binding refusing to move.
+  // publishes no switch settlement, and a refusal reaches a line of its own, because
+  // both are this agent's binding refusing to move.
   const detachAgent = useCallback(
     (targetAgentId: string): void => {
-      submitBindingMove(targetAgentId, async () => {
+      submitBindingMove({ agentId: targetAgentId, control: "detach" }, async () => {
         await models.detach(targetAgentId);
         return undefined;
       });
@@ -198,30 +211,81 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     [models, submitBindingMove],
   );
 
+  // The roster read's OWN re-open. A refused subscribe is terminal — nothing re-runs
+  // the effect that opened it — so without this the column says one line of error text
+  // for the life of the window, and a cap that clears in thirty seconds is
+  // indistinguishable from a refusal that never will.
+  const reopenRoster = useCallback(() => {
+    // THE STREAM FIRST, THE READ SECOND, AND NEVER BOTH. A read whose stream never
+    // opened is behind a dead channel, and refreshing that one paints a current-looking
+    // surface over a subscription nobody holds; a read whose stream IS live failed at
+    // the read alone, and a fresh read is the whole recovery. `isSubscribed` is the
+    // seam's own answer to which of the two this is.
+    if (models.roster.isSubscribed) {
+      models.roster.refresh("participant-request");
+      return;
+    }
+    models.roster.start();
+  }, [models]);
+
   const agents = rosterState.kind === "loaded" ? rosterState.value.agents : [];
   const shownAgents = useMemo(
     () => (agentId === undefined ? agents : agents.filter((row) => row.agentId === agentId)),
     [agents, agentId],
   );
   const soleAgent = shownAgents.length === 1 ? shownAgents[0] : undefined;
+  // WHICH SHOWN ROW THE OUTSTANDING ROUND IS ABOUT, and never "the sole agent".
   // Only the agent is compared, because the session is what both values are HELD
   // under: a value published for another session is not read here at all. The
   // `undefined` arm is explicit rather than implied — a binding nothing has moved and
-  // a column showing no sole agent are both `undefined`, and comparing them would
-  // show one agent's settlement on a column that is not about it.
-  const shownBinding =
-    bindingAgentId !== undefined && bindingAgentId === soleAgent?.agentId
-      ? bindingState
-      : IDLE_MUTATION_ATTEMPT;
+  // a column showing no such row are both `undefined`, and comparing them would show
+  // one agent's settlement on a column that is not about it.
+  //
+  // Scoped to the SOLE agent this admitted a detach that reached the wire and
+  // rendered nothing. A bare auxiliary address in a session with two or more agents
+  // shows the whole roster, so there is no sole agent: the round read as idle, every
+  // card rendered enabled with no `aria-busy`, and the daemon's refusal reached no
+  // pixel, because the switch form was the only element here that carried one and it
+  // is not rendered in that shape. Membership of the shown roster is the real
+  // question and it is the same question in every shape the console is addressed at.
+  const movingAgentId =
+    bindingMove !== undefined && shownAgents.some((row) => row.agentId === bindingMove.agentId)
+      ? bindingMove.agentId
+      : undefined;
+  const shownBinding = movingAgentId === undefined ? IDLE_MUTATION_ATTEMPT : bindingState;
   const shownAttach = wasAttachSubmittedHere ? attachState : IDLE_MUTATION_ATTEMPT;
   const isBindingMutating = shownBinding.status === "in-flight";
+  // WHERE THAT ROUND'S REFUSAL RENDERS. Beside the control that was pressed while
+  // that control is on screen, and on the agent's own card otherwise — rule 9 puts an
+  // inline refusal on the control that produced it, and for a switch that control is
+  // the form. But the form is rendered only where the console shows exactly one
+  // agent, and a roster that gained a second one while the round was in flight takes
+  // it away. So the card is a FALLBACK and not a second home: the two arms are
+  // disjoint by construction, and every refusal lands on exactly one of them.
+  const bindingRefusal = shownBinding.status === "refused" ? shownBinding.refusal : undefined;
+  const isSwitchFormShowingTheMovedAgent =
+    soleAgent !== undefined && soleAgent.agentId === movingAgentId;
+  const switchRefusal =
+    bindingMove?.control === "switch" && isSwitchFormShowingTheMovedAgent
+      ? bindingRefusal
+      : undefined;
+  const cardRefusal = switchRefusal === undefined ? bindingRefusal : undefined;
 
   return (
     <>
       {rosterState.kind === "not-loaded" ? (
         <Nothing kind="not-loaded" title="Reading this session's agents" />
       ) : null}
-      {rosterState.kind === "failed" ? <RefusalCard {...rosterState.refusal} /> : null}
+      {rosterState.kind === "failed" ? (
+        <RefusalCard
+          {...rosterState.refusal}
+          action={
+            <button type="button" onClick={reopenRoster}>
+              Try again
+            </button>
+          }
+        />
+      ) : null}
       {rosterState.kind === "loaded" && shownAgents.length === 0 ? (
         <AgentRosterEmpty onAttach={() => setAttachOpen(true)} />
       ) : null}
@@ -231,7 +295,8 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
           key={agent.agentId}
           agent={agent}
           onDetach={detachAgent}
-          isMutating={isBindingMutating}
+          isMutating={isBindingMutating && agent.agentId === movingAgentId}
+          bindingRefusal={agent.agentId === movingAgentId ? cardRefusal : undefined}
         />
       ))}
 
@@ -248,7 +313,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
           }}
           isSubmitting={isBindingMutating}
           settlement={shownBinding.status === "settled" ? shownBinding.settlement : undefined}
-          refusal={shownBinding.status === "refused" ? shownBinding.refusal : undefined}
+          refusal={switchRefusal}
         />
       )}
 

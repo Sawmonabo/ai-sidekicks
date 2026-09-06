@@ -63,7 +63,8 @@
 // render.
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
-import type { SidekickDefinitionSummary } from "../agent-wire.js";
+import type { AgentAttachRequest } from "../../bridge/index.js";
+import { PROVIDER_AXES, type ProviderAxis, type SidekickDefinitionSummary } from "../agent-wire.js";
 import {
   unvouchedAxesOf,
   DEPENDENT_AXES,
@@ -76,9 +77,20 @@ import type { DriverCatalogReading } from "../driver-catalog.js";
 export const ATTACH_ARMS = ["definition", "inline"] as const;
 export type AttachArm = (typeof ATTACH_ARMS)[number];
 
-/** The four fields either arm may carry. `outputSpeed` is deliberately not one. */
-export const ATTACH_FIELDS = ["driverName", "modelId", "providerAccountId", "effort"] as const;
-export type AttachField = (typeof ATTACH_FIELDS)[number];
+/**
+ * The fields either arm may carry — the wire's own axis set less the one it cannot.
+ *
+ * A SUBTRACTION from {@link PROVIDER_AXES} rather than a list beside it, so a sixth
+ * provider axis reaches this form's entered map, its per-field accessors, and the
+ * request it composes through the filter and not through an edit here. `outputSpeed`
+ * is the one exclusion because the attach request's configuration half is
+ * `AgentResolvedConfiguration`, which carries no member for it — an attach stamps the
+ * four snapshot axes and the speed axis is moved by `agent.configUpdate`.
+ */
+export type AttachField = Exclude<ProviderAxis, "outputSpeed">;
+export const ATTACH_FIELDS: readonly AttachField[] = PROVIDER_AXES.filter(
+  (axis): axis is AttachField => axis !== "outputSpeed",
+);
 
 /**
  * What each chain axis is called where the form says what is still needed.
@@ -95,23 +107,20 @@ const UNVOUCHED_AXIS_WORDS: Record<DependentAxis, string> = {
 };
 
 /**
- * What the form would send, once it is complete.
+ * What the form would send, once it is complete: the wire's request, name required.
  *
- * `sessionId` and `name` are required on BOTH arms because the registered request
- * base requires them, and a request missing either is refused by any conforming
- * daemon whatever else it carries. The session is not the form's to know — it is
- * bound by the caller at {@link AttachSidekickForm.readiness} — and the name is the
- * AGENT's rather than the definition's, which is why no arm ever fills it in.
+ * DERIVED FROM THE REGISTERED REQUEST RATHER THAN RESTATED, for the reason
+ * {@link AgentAttachRequest} gives on its own declaration: written out a second time,
+ * the two drifted the first time an axis landed on one and not the other, and because
+ * a hand-written copy is a structural SUBSET the compiler had nothing to say when the
+ * form stopped being able to send an axis the wire had grown. What this adds is the
+ * form's one narrowing — `name` is required here while the wire leaves it optional,
+ * because a request missing it is refused by any conforming daemon whatever else it
+ * carries. The session is not the form's to know: it is bound by the caller at
+ * {@link AttachSidekickForm.readiness}, and the name is the AGENT's rather than the
+ * definition's, which is why no arm ever fills it in.
  */
-export interface AttachRequest {
-  readonly sessionId: string;
-  readonly name: string;
-  readonly definitionId?: string | undefined;
-  readonly driverName?: string | undefined;
-  readonly modelId?: string | undefined;
-  readonly providerAccountId?: string | undefined;
-  readonly effort?: string | undefined;
-}
+export type AttachRequest = AgentAttachRequest & { readonly name: string };
 
 export type AttachReadiness =
   | { readonly status: "ready"; readonly request: AttachRequest }
@@ -276,15 +285,7 @@ export class AttachSidekickForm {
       }
       return {
         status: "ready",
-        request: {
-          sessionId,
-          name,
-          definitionId,
-          driverName: this.#entered.get("driverName"),
-          modelId: this.#entered.get("modelId"),
-          providerAccountId: this.#entered.get("providerAccountId"),
-          effort: this.#entered.get("effort"),
-        },
+        request: { sessionId, name, definitionId, ...this.#enteredConfiguration() },
       };
     }
     const driverName = this.#entered.get("driverName");
@@ -301,15 +302,31 @@ export class AttachSidekickForm {
     }
     return {
       status: "ready",
-      request: {
-        sessionId,
-        name,
-        driverName,
-        modelId,
-        providerAccountId: this.#entered.get("providerAccountId"),
-        effort: this.#entered.get("effort"),
-      },
+      // The driver and model this arm requires are entered values, so the walk below
+      // already carries them; naming them again here would be a second copy of the
+      // same two members that could disagree with the first.
+      request: { sessionId, name, ...this.#enteredConfiguration() },
     };
+  }
+
+  /**
+   * The entered half of the request, keyed by the field set itself.
+   *
+   * Composed by walking {@link ATTACH_FIELDS} rather than by naming four members:
+   * both arms merge per field at the daemon, so the members this returns are exactly
+   * the ones a caller explicitly said, and a provider axis added to the wire's set
+   * reaches the request here without an edit. An unentered field is OMITTED rather
+   * than sent as `undefined`, which is what makes presence the merge signal.
+   */
+  #enteredConfiguration(): Partial<Record<AttachField, string>> {
+    const configuration: Partial<Record<AttachField, string>> = {};
+    for (const field of ATTACH_FIELDS) {
+      const entered = this.#entered.get(field);
+      if (entered !== undefined) {
+        configuration[field] = entered;
+      }
+    }
+    return configuration;
   }
 
   /**

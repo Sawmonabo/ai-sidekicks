@@ -31,6 +31,7 @@
 // is one implementation per job.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
+import type { GrowthReading } from "../../shared/growth-reading.js";
 import { formatCount, formatMoney } from "../../../primitives/index.js";
 
 /**
@@ -44,6 +45,9 @@ import { formatCount, formatMoney } from "../../../primitives/index.js";
 export type CostReceiptOutcome = Awaited<
   ReturnType<ConsoleBridge["growth"]["orchestrationCostReceiptRead"]>
 >;
+
+/** What the page holds for one read. See {@link GrowthReading} for the second arm. */
+export type CostReceiptReading = GrowthReading<CostReceiptOutcome>;
 
 /** The receipt itself: one session figure, decomposed three ways. */
 export type CostReceipt = Extract<CostReceiptOutcome, { readonly status: "served" }>["value"];

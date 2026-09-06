@@ -332,3 +332,62 @@ describe("wire mutation coordinator — the subject moving out from under a call
     expect(sink).not.toHaveBeenCalled();
   });
 });
+
+describe("wire mutation coordinator — the round it takes is a round it gives back", () => {
+  it("holds no round key once a settled call has landed", async () => {
+    // `currentClaim` MINTS a round on a free key, and a minted round releases that
+    // key inside `settle`'s own `finally` and nowhere else. Reading `isCurrent` and
+    // publishing beside it therefore held this coordinator's one key for the
+    // coordinator's whole life — which is the reader-holds-a-key failure the latch's
+    // own header names, and it refuses every later act on that key the moment
+    // anything else claims one.
+    const pending = settleable();
+    const coordinator = coordinatorOver(async () => await pending.promise);
+    const run = coordinator.run("membership-1", "request");
+    expect(coordinator.heldRoundCount).toBe(1);
+
+    pending.settle(served("applied"));
+    await run;
+
+    expect(coordinator.heldRoundCount).toBe(0);
+  });
+
+  it("gives it back on the refused arm too", async () => {
+    // The arm a fix applied to the served path alone would leave holding the key —
+    // and the arm a person reaches more often, because it is the one with a reason
+    // on screen inviting a second press.
+    const coordinator = coordinatorOver(
+      async () => await Promise.resolve(refusedWith("membership.last_owner", "refused")),
+    );
+    await coordinator.run("membership-1", "request");
+
+    expect(coordinator.heldRoundCount).toBe(0);
+  });
+
+  it("gives it back when the round was superseded mid-flight", async () => {
+    // Nothing installs here, but the key still has to come back: a superseded round
+    // that kept it would strand it exactly as an unsettled one does.
+    const pending = settleable();
+    const coordinator = coordinatorOver(async () => await pending.promise);
+    const run = coordinator.run("membership-1", "request");
+
+    coordinator.supersede();
+    pending.settle(served("applied"));
+    await run;
+
+    expect(coordinator.heldRoundCount).toBe(0);
+  });
+
+  it("negative control: the count is one while the call is genuinely unsettled", async () => {
+    // Without this, the three cases above would hold for a coordinator that took no
+    // round at all — a count of zero throughout says nothing about giving one back.
+    const pending = settleable();
+    const coordinator = coordinatorOver(async () => await pending.promise);
+    const run = coordinator.run("membership-1", "request");
+
+    expect(coordinator.heldRoundCount).toBe(1);
+
+    pending.settle(served("applied"));
+    await run;
+  });
+});

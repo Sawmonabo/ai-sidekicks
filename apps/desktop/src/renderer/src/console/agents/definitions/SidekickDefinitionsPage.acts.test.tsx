@@ -9,7 +9,7 @@
 // The editor seat is here for the same reason: what a press opens, and on which
 // record, is an act and not a reading.
 //
-// What the page reads, shows, and announces is `DefinitionsPage.read.test.tsx`.
+// What the page reads, shows, and announces is `SidekickDefinitionsPage.read.test.tsx`.
 //
 // The registry, the announcer and the presses live in the support module beside this
 // one; the bridge behind them is the shipped fixture bridge with the two operations
@@ -30,7 +30,7 @@ import {
   savedRegionOf,
   served,
   settle,
-} from "./definitions-page.test-support.js";
+} from "./sidekick-definitions-page.test-support.js";
 
 describe("the sidekicks page — the editor's seat", () => {
   it("opens the seat on the record whose edit was pressed", async () => {

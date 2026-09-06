@@ -1,8 +1,8 @@
 // The definition editor's seat on the sidekicks page: chrome here, body elsewhere.
 //
-// WHY THIS IS A SECOND SEAT AND NOT THE ONE IN `index.ts`
+// WHY THIS IS A SECOND SEAT AND NOT THE ONE IN `sidekick-definition-editor-slot.ts`
 //
-// The family door already declares a seat called the sidekick-definition editor,
+// This family already declares a seat called the sidekick-definition editor,
 // and it is a different editor. That one is scoped to an ATTACHED AGENT: it shows
 // the configuration one running sidekick was attached under, which is a snapshot
 // taken at attach time and never changes afterwards. This one is scoped to a STORED

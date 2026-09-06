@@ -1,7 +1,7 @@
 // What the sidekicks page HOLDS: the registry read, the delete in flight, and which
 // record the editor's seat is open on.
 //
-// It is a module of its own rather than a class at the top of `DefinitionsPage.tsx`
+// It is a module of its own rather than a class at the top of `SidekickDefinitionsPage.tsx`
 // because the two are different jobs — one owns a state machine over the growth
 // port, the other renders whatever that machine settled on — and `apps/desktop`
 // AGENTS.md's length rule is where that shows up first. The page imports the hook
