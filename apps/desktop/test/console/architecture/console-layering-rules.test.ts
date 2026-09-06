@@ -1,4 +1,4 @@
-// The five layering rules that had no failing control until now.
+// The layering rules that had no failing control until now.
 //
 // `structure:layering` is a command, not a suite: it reports on THIS tree, and a
 // tree that happens not to contain a violation reports clean whether the rule

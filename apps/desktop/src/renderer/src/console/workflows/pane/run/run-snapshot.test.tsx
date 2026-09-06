@@ -28,15 +28,12 @@ import {
   observeSubjectRead,
 } from "../../../store/subject-read-commits.test-support.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
+import { FIRST_ROUND, SnapshotProbe, runReadingGrowthPort } from "./run-snapshot.test-support.js";
 import {
-  FIRST_ROUND,
-  SnapshotProbe,
-  runReadingGrowthPort,
+  PROBE_PARTICIPANT_ID,
+  PROBE_SESSION_ID,
   settle,
-} from "./run-snapshot.test-support.js";
-import { PROBE_SESSION_ID } from "../../WorkflowsBrowser.test-support.js";
-
-const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
+} from "../../WorkflowsBrowser.test-support.js";
 
 /** The refusal the scenarios below script, in the envelope a daemon sends. */
 const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {

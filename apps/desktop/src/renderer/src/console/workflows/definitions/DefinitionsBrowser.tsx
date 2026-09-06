@@ -50,9 +50,9 @@
 // it appears while a cursor is held and not otherwise.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method and none of
-// these shapes; `WorkflowDefinitionRow` below IS the substrate's own
-// `WorkflowDefinitionSummary`, which is where the console declares what the
-// enumeration answers with against
+// these shapes; `WorkflowDefinitionRow` — declared next door in `definition-rows.ts`,
+// which is its one home — IS the substrate's own `WorkflowDefinitionSummary`, which is
+// where the console declares what the enumeration answers with against
 // `docs/architecture/contracts/api-payload-contracts.md`, on the growth port's
 // precedent. Rows reach this component from its caller and are fixture-fed until the
 // wire registers.

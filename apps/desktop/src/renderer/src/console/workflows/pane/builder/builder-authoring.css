@@ -1,8 +1,10 @@
 /*
  * The builder's authoring act, in the pane chrome's control strip.
  *
- * Owned by `WorkflowBuilderPane.tsx`, beside it, and reached through the family's one
- * stylesheet edge in `workflows/workflows.css`.
+ * Owned by `WorkflowBuilderPane.tsx`, beside it, and imported from this pane's own
+ * door, `pane/builder/index.ts`, which is its one edge — the run pane sheet's shape,
+ * for the run pane sheet's reasons, and named in `workflows/workflows.css` among the
+ * sheets that family deliberately does not pull in.
  */
 
 /*

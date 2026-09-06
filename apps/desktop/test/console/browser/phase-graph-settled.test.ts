@@ -22,10 +22,38 @@
 // browser tier is where "geometry a DOM shim cannot answer" already lives — the run
 // pane's own graph-box case is its neighbour — and it is on the aggregate.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { mountWorkflowBuilderPane, mountWorkflowParkedRunPane } from "../surfaces/workflows.js";
 import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
+
+/**
+ * Take the canvas's stated block size away, which is what collapsed the graph.
+ *
+ * THE CANVAS AND NOT THE LIBRARY'S ROOT, because the root's height is an INLINE
+ * `height: 100%` the library writes itself and no stylesheet can outrank. What decided
+ * whether that percentage resolved to anything was always the box above it: with the
+ * canvas back on `auto` its block size depends on its content, the percentage resolves
+ * to nothing, and the root paints at zero inside a box still holding its 20rem floor —
+ * the exact state a committed reference recorded.
+ *
+ * A STYLESHEET RATHER THAN A REWRITTEN ELEMENT, so the collapse is reached the way the
+ * real one was: through the cascade, over the shipped rule, at equal specificity and
+ * later in the sheet order. Marked so the file's teardown finds it however a case
+ * ended.
+ */
+function collapseEveryGraphCanvas(): void {
+  const collapsingRule = document.createElement("style");
+  collapsingRule.dataset["collapsedGraph"] = "";
+  collapsingRule.textContent = ".meridian-phase-graph__canvas { block-size: auto }";
+  document.head.append(collapsingRule);
+}
+
+afterEach(() => {
+  for (const injected of document.head.querySelectorAll("style[data-collapsed-graph]")) {
+    injected.remove();
+  }
+});
 
 describe("the capture's phase-graph readiness", () => {
   it("is not satisfied by the mount helper's own wait, and is after the fit", async () => {
@@ -46,6 +74,24 @@ describe("the capture's phase-graph readiness", () => {
       requestAnimationFrame(() => resolve());
     });
     expect(viewport?.style.transform).toBe(fitted);
+  });
+
+  it("negative control: a fitted graph whose root paints nothing is not settled", async () => {
+    // Without this the predicate is satisfied by the style attribute alone, which the
+    // library writes at any container size — including none. That is the state a
+    // committed reference recorded: a fitted transform over a root of zero height, a
+    // 20rem sunken box with no phase in it, and every tier green.
+    const mounted = await mountWorkflowParkedRunPane();
+    await awaitPhaseGraphSettled(mounted.element);
+    expect(isPhaseGraphSettled(mounted.element)).toBe(true);
+
+    collapseEveryGraphCanvas();
+    // The fit is untouched — the transform the predicate used to read is still on the
+    // viewport — and the picture is gone, which is exactly the pair that used to pass.
+    expect(
+      mounted.element.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform,
+    ).not.toBe("");
+    expect(isPhaseGraphSettled(mounted.element)).toBe(false);
   });
 
   it("returns at once for a surface that draws no graph", async () => {

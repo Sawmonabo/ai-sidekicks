@@ -161,13 +161,31 @@ describe("workflow run pane — the arms and what each offers", () => {
     });
   });
 
-  it("states that neither run control is reachable, rather than hiding the question", async () => {
-    // "Can I stop this run?" needs no read to answer, and no workflow mutation is
-    // settled by any scenario — so both controls render a typed refusal rather than
-    // disappearing and leaving an operator waiting for a button.
+  it("offers both run controls idle, with no answer standing in for a press", async () => {
+    // "Can I stop this run?" needs no read to answer, so both controls are OFFERED
+    // whatever the read is doing. What they are not is pre-answered: the pane used to
+    // compose its own `wire-unregistered` refusal beside each button before anybody
+    // pressed anything, which reported on a question nobody had put and made a
+    // reachable act look broken. The press reaches the growth port now, and the
+    // refusal — if there is one — is the port's, after the press.
     const section = renderPane(paneContext(PARKED, answeringBridge()));
     await waitFor(() => {
       expect(section.querySelectorAll(".meridian-run-controls__control")).toHaveLength(2);
     });
+    const controls = section.querySelector(".meridian-run-controls");
+    if (controls === null) {
+      throw new Error("the run pane rendered no run controls");
+    }
+    // The discriminating half, and the one a count of two could never carry: nothing
+    // in the cluster is a refusal, and both buttons can be pressed.
+    expect(controls.querySelector(".meridian-refusal")).toBeNull();
+    const actions = [
+      ...controls.querySelectorAll<HTMLButtonElement>(".meridian-run-controls__action"),
+    ];
+    expect(actions.map((action) => action.textContent)).toStrictEqual([
+      "Cancel this run",
+      "Resume this run",
+    ]);
+    expect(actions.every((action) => !action.disabled)).toBe(true);
   });
 });

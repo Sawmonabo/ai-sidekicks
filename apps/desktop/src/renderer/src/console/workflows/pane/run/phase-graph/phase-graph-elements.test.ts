@@ -90,7 +90,7 @@ describe("the renderer's node array", () => {
 });
 
 describe("the renderer's edge array", () => {
-  it("draws one directed edge per adjacent pair", () => {
+  it("draws one directed edge per declared dependency", () => {
     const { edges } = toPhaseGraphElements(drawnSequence());
     expect(edges.map((edge) => [edge.source, edge.target])).toStrictEqual([["plan", "build"]]);
     // The arrowhead is what makes the picture directed for a reader who is looking

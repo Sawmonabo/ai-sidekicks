@@ -17,7 +17,8 @@
 //
 // ABSENT, NOT DISABLED. A row carries an open control only when the caller supplies
 // the action. A list rendered without one is a list of facts, not a wall of dead
-// buttons — and it is the honest shape while the deck cannot yet address a run.
+// buttons — which is the honest shape for a caller that offers no way to open a run,
+// as against the destination, which supplies one for every row.
 //
 // THE ROW DERIVES NOTHING. Every reading it draws — the park discriminator, the
 // schedule classification, the frozen-pin inequality, the reading of the start — is

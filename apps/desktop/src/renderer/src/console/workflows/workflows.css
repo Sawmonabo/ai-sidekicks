@@ -54,7 +54,7 @@
  * the first stacked a heading over a summary that no longer share a box, and the
  * second boxed an action that now sits in the pane chrome's own control strip.
  *
- * `Spec-023 §Console Design (Meridian)` governs every rule in all six files:
+ * `Spec-023 §Console Design (Meridian)` governs every rule this entry point pulls in:
  *   • rule 7  — density: one primary action in the header, nothing beside it; the
  *               version chain, the hashes and the schema marker are one click away
  *               and so appear in no rule below.

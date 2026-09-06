@@ -12,7 +12,7 @@ import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { growthUnavailable } from "../../bridge/index.js";
-import { PROBE_SESSION_ID } from "../WorkflowsBrowser.test-support.js";
+import { PROBE_SESSION_ID, SECOND_PAGE_CURSOR, settle } from "../WorkflowsBrowser.test-support.js";
 import type { WorkflowDefinitionDirectory } from "./definition-directory.js";
 import {
   definitionIds,
@@ -21,9 +21,7 @@ import {
   lastState,
   observeDirectory,
   pagedGrowthPort,
-  settle,
   twoPagePort,
-  SECOND_PAGE_CURSOR,
 } from "./definition-directory.test-support.js";
 
 /** Press the continuation the surface would offer, and let its page settle. */

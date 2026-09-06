@@ -52,6 +52,8 @@
 // one that follows — that a session came into scope — and `WorkflowsDestination.tsx`
 // owns it.
 
+import { useId } from "react";
+
 import { offeredSessionIds, useSessionDirectory, type GrowthPort } from "../bridge/index.js";
 import { InlineRefusal, Nothing, PartialRead, WireChoiceList } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStoreRegistry } from "../store/index.js";
@@ -91,6 +93,12 @@ export function WorkflowsScopePicker(props: WorkflowsScopePickerProps): React.JS
   const directory = useSessionDirectory(props.growth);
   const openSessionIds = useOpenSessionIds(props.registry);
   const sessionIds = offeredSessionIds(directory, openSessionIds);
+  // Minted per mount rather than written as a literal, for the reason
+  // `WorkflowsSurface.tsx` states about its own: two of these rendered into one tree —
+  // which the tiers do — would carry the same id twice, and both `aria-labelledby`
+  // references would then resolve to whichever heading came first. Called before the
+  // absent arms below return, because a hook may not sit behind a branch.
+  const headingId = useId();
 
   if (sessionIds.length === 0) {
     if (directory.status === "reading") {
@@ -115,14 +123,8 @@ export function WorkflowsScopePicker(props: WorkflowsScopePickerProps): React.JS
   }
 
   return (
-    <section
-      className="meridian-workflows-scope-picker"
-      aria-labelledby="meridian-workflows-scope-heading"
-    >
-      <h2
-        className="meridian-workflows-scope-picker__heading"
-        id="meridian-workflows-scope-heading"
-      >
+    <section className="meridian-workflows-scope-picker" aria-labelledby={headingId}>
+      <h2 className="meridian-workflows-scope-picker__heading" id={headingId}>
         {SCOPE_QUESTION}
       </h2>
       <p className="meridian-workflows-scope-picker__reason">

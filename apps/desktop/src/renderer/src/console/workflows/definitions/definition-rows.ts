@@ -4,8 +4,9 @@
 // `DefinitionScopeGroup.tsx` holds one scope's, and `DefinitionListItem.tsx` draws
 // one — and declaring the shape in any of the three would make the other two import
 // from a component module and, for the browser, close a cycle the layering gate
-// rejects. Consumers outside this family keep importing `WorkflowDefinitionRow` from
-// the browser, which re-exports it: that is where a reader of this surface looks.
+// rejects. This module is the ONE home: every reader of `WorkflowDefinitionRow`
+// imports it from here, and the family door publishes it from here too — no component
+// module re-exports it, which is what keeps one shape from having two apparent homes.
 
 import type { WorkflowDefinitionSummary } from "../../bridge/index.js";
 

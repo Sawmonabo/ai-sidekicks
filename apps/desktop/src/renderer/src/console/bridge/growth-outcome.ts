@@ -19,6 +19,16 @@ import type { GrowthSlateRowId } from "./growth-slate.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES } from "./scripted-reply.js";
 
 /**
+ * The code a build with no wire for an operation refuses under.
+ *
+ * ITS ONE HOME, and named rather than left as a literal inside the tuple below,
+ * because it is raised outside this family too: a pane whose whole authoring surface
+ * has no registered wire refuses locally under the same code, and a second literal
+ * there is a second place for one wire string to be edited.
+ */
+export const WIRE_UNREGISTERED_REFUSAL_CODE = "wire-unregistered" as const;
+
+/**
  * Why the port refused. A closed set, and each member is a decision:
  *
  *   • `wire-unregistered` — nobody asked, because the wire this operation needs is
@@ -40,9 +50,9 @@ import { SCRIPTED_REPLY_REFUSAL_CODES } from "./scripted-reply.js";
  * `unavailable` arm and render through the same `RefusalCard` the first one does.
  */
 export const GROWTH_PORT_REFUSAL_CODES: readonly [
-  "wire-unregistered",
+  typeof WIRE_UNREGISTERED_REFUSAL_CODE,
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
-] = ["wire-unregistered", ...SCRIPTED_REPLY_REFUSAL_CODES];
+] = [WIRE_UNREGISTERED_REFUSAL_CODE, ...SCRIPTED_REPLY_REFUSAL_CODES];
 
 /** One growth-port refusal code. Derived, so the vocabulary is declared once. */
 export type GrowthPortRefusalCode = (typeof GROWTH_PORT_REFUSAL_CODES)[number];

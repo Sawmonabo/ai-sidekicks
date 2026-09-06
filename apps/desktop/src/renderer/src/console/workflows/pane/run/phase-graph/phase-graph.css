@@ -56,12 +56,11 @@
   /* Mark stroke, for the outline of a shape rather than the length of a line. */
   --meridian-phase-graph-mark-stroke: 2;
 
-  /* A floor so a parent that states no height still shows a graph: two ranks and
-     most of a third at 1×, rather than a collapsed hairline. Declared once and
-     applied to the canvas, which is the box that draws; this wrapper derives its
-     own minimum from that child rather than restating the length, because two
-     copies of one number are two numbers as soon as one of them is edited. */
-  --meridian-phase-graph-min-block-size: 20rem;
+  /* What the canvas is tall when nothing above it says otherwise: two ranks and most of a third at
+     1×, rather than a collapsed hairline. Declared once and spent twice on the canvas below — as
+     the size it STATES and as the minimum a shorter seat may flex it to. The wrapper derives its
+     own minimum from that child: two copies of one number are two numbers once one is edited. */
+  --meridian-phase-graph-canvas-block-size: 20rem;
 
   display: flex;
   flex: 1;
@@ -108,8 +107,24 @@
 }
 
 .meridian-phase-graph__canvas {
-  flex: 1;
-  min-block-size: var(--meridian-phase-graph-min-block-size);
+  /*
+   * THE BLOCK SIZE IS STATED AND NOT ONLY FLOORED, and that is what makes a graph
+   * appear at all. The library's root writes `height: 100%` INLINE, and a percentage
+   * resolves only against a containing block whose block size is DEFINITE — so a
+   * canvas carrying nothing but a `min-block-size` gave it nothing to resolve against
+   * wherever an ancestor was content-sized: the root took zero height, the fit put the
+   * whole picture inside it, `overflow: hidden` clipped every phase, and this box's
+   * sunken ground stood alone under a caption saying the phases were shown. And
+   * content-sized is not the exotic case: `seats/pane-chrome.css` states no block size,
+   * so a pane is as tall as its body wherever nothing bounds it — mounted for a
+   * capture, in a window of its own, or before a deck has laid it out. `flex: 1 1 auto`
+   * keeps the growth this box always had: the basis is the declaration below, so a
+   * BOUNDED seat still stretches the canvas past that size, and the floor keeps a seat
+   * too short for it from shrinking it under the height it paints at.
+   */
+  flex: 1 1 auto;
+  block-size: var(--meridian-phase-graph-canvas-block-size);
+  min-block-size: var(--meridian-phase-graph-canvas-block-size);
   background: var(--meridian-surface-sunken);
   border: var(--meridian-phase-graph-hairline) solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);

@@ -9,7 +9,7 @@
 // refuses `sessionList` by name because no wire answers it yet, so the refused arm
 // below is what an operator meets today on every build that is not the fixture.
 
-import { act, cleanup, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, createRefusingGrowthPort, type GrowthPort } from "../bridge/index.js";
@@ -17,6 +17,7 @@ import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
 import { SessionStoreRegistry } from "../store/index.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
+import { settle } from "./WorkflowsBrowser.test-support.js";
 
 const OPEN_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
@@ -42,13 +43,6 @@ function renderPicker(growth: GrowthPort, registry: SessionStoreRegistry): HTMLE
   return render(
     <WorkflowsScopePicker growth={growth} registry={registry} onChoose={() => undefined} />,
   ).container;
-}
-
-/** Let the directory read settle, so an assertion is about an answer and not a wait. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
 function offeredSessionIds(container: HTMLElement): readonly string[] {

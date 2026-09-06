@@ -1,9 +1,9 @@
 /*
  * The run list: its header counts, its rows, and what a row says about one run.
  *
- * Owned by `RunList.tsx`, and reached through `workflows.css`, which is the family's
- * one stylesheet edge. The park badges a row stacks are next door in
- * `park-badge.css` — they are shown by the run pane too, and a rule shared by two
+ * Owned by `RunList.tsx`, and reached through `workflows.css`, which is the entry
+ * point for the sheets this directory owns. The park badges a row stacks are next door
+ * in `park-badge.css` — they are shown by the run pane too, and a rule shared by two
  * surfaces belongs to neither of them alone.
  */
 

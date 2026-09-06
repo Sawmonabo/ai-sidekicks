@@ -36,11 +36,11 @@
 // primitive is deliberately silent about, and `definitions/DefinitionsBrowser.tsx`,
 // whose continuation refusal is already announced through the hook below by
 // `WorkflowsBrowser.tsx`'s own sentence — so binding it would say that refusal twice.
-// The disposition this leaves is the primitive's door line, which names this family
-// among the consumers of `useReadingAnnouncement`: either the primitive grows a
-// caller-supplied dedup key and this adapter is deleted in that same change, or the
-// door line stops naming this family. Both edits are `primitives/`', which is why
-// neither is here; what is here is the reason a reader can check.
+// The door line in `primitives/index.ts` has already stopped naming this family, which
+// settles the bookkeeping half and leaves one live edit: the primitive growing a
+// caller-supplied dedup key, in the same change that deletes this adapter. That edit
+// belongs to `primitives/`, which is why it is not here; what is here is the reason a
+// reader can check.
 //
 // POLITE, ALWAYS. `frame/banner-announcements.ts` reserves the assertive lane for a
 // refusal that changed what the whole room can do; a list that could not be read is its

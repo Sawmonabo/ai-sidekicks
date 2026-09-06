@@ -16,19 +16,16 @@
 // session, the first-render reader, and the continuation press each have one reader
 // and stay beside it.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/index.js";
-import { definition } from "../WorkflowsBrowser.test-support.js";
+import { definition, SECOND_PAGE_CURSOR } from "../WorkflowsBrowser.test-support.js";
 import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectoryState,
 } from "./definition-directory.js";
-
-/** The continuation token the first page below hands back. */
-export const SECOND_PAGE_CURSOR = "definitions-page-2";
 
 /** One settled page, derived from the port's own answer rather than restated. */
 type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
@@ -81,12 +78,6 @@ function DirectoryProbe(props: {
 }): React.JSX.Element {
   props.onObserve(useWorkflowDefinitionDirectory(props.growth, props.sessionId));
   return <></>;
-}
-
-export async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
 export function observeDirectory(

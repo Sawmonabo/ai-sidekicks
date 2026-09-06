@@ -13,7 +13,7 @@
 // that it mounts what the DECK would mount, and a table assembled here would prove only
 // that it mounts what this file wrote.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 
 import { createFixtureBridge } from "../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
@@ -27,6 +27,7 @@ import { ConsolePaneRegistry } from "../seats/index.js";
 // layering gate rejects.
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import { registerWorkflowPanes } from "./index.js";
+import { settle } from "./WorkflowsBrowser.test-support.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /** What a case varies about the window the slot is mounted in. */
@@ -153,14 +154,6 @@ export async function chooseSessionInPicker(container: HTMLElement): Promise<voi
   }
   pressFirst(container, ".meridian-choice-list__choice");
   await settle();
-}
-
-/** Let every read this surface put reach its own settlement. */
-export async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
 }
 
 /** Press the first element matching `selector`, refusing rather than silently passing. */

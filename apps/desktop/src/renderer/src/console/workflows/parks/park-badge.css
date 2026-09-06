@@ -1,9 +1,10 @@
 /*
  * The park badge, and the stack the surfaces that show more than one arrange them in.
  *
- * Owned by `ParkBadge.tsx`, and reached through `workflows.css`, which is the family's
- * one stylesheet edge. The stack rule travels with the badge rather than with the run
- * pane that places it, because a stack of badges is only ever a stack of these.
+ * Owned by `ParkBadge.tsx`, and reached through `workflows.css`, which is the entry
+ * point for the sheets this directory owns. The stack rule travels with the badge
+ * rather than with the run pane that places it, because a stack of badges is only ever
+ * a stack of these.
  */
 
 /*

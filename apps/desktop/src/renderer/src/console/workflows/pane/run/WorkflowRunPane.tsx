@@ -37,8 +37,9 @@
 //     and on no other. A run view with no run offers the start affordance; a run
 //     view that already has a run in front of the operator does not compete with it.
 //   • A run this window has not read is NOT-CHECKED: nobody asked. It is not
-//     "there is nothing" and not "we do not know" — no run read is reachable from
-//     this build at all, so the honest answer is that no question was put.
+//     "there is nothing" and not "we do not know" — the read below is composed only
+//     where the address names a run, so a pane holding an address of another kind
+//     never put the question and says exactly that.
 //   • A body that has not been authored is a RESERVED slot, which the slot's own
 //     shell says in its own words.
 //
@@ -68,13 +69,13 @@
 // CANNOT FAIL. The pane used to read `entity.id` on any kind at all, so a
 // `workflow-definition` addressed here had its id carried into the run read and
 // whatever came back — the port's refusal, or a snapshot — was shown under an address
-// that never named a run. `ConsolePaneAddress` is becoming a kind-scoped union, which
-// makes that address unconstructible by code in this process; the guard below is the
-// FAIL-CLOSED PROJECTION of that type and does not go away with it, because a pane
-// address is also PARSED — out of a persisted layout an older build wrote, and out of
-// a route — and a parsed value is data rather than a proof. The builder pane holds
-// the same guard for the kind it authors, and both refuse through one sentence
-// (`workflows/pane-addressing.ts`).
+// that never named a run. `ConsolePaneAddress` is a kind-scoped union now
+// (`seats/pane-address.ts`), which makes that address unconstructible by code in this
+// process; the guard below is the FAIL-CLOSED PROJECTION of that type and does not go
+// away with it, because a pane address is also PARSED — out of a persisted layout an
+// older build wrote, and out of a route — and a parsed value is data rather than a
+// proof. The builder pane holds the same guard for the kind it authors, and both
+// refuse through one sentence (`workflows/pane-addressing.ts`).
 //
 // PARK IS READ FROM THE PARK MEMBERS AND NEVER FROM A PHASE'S STATE. The phase state
 // union carries no suspended arm on purpose, and the park members are live-scoped —

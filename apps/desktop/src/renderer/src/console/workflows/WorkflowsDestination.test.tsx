@@ -7,7 +7,7 @@
 // and the session-store registry are the real classes for the same reason: the
 // retained session is a fact one of them owns.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
@@ -22,6 +22,7 @@ import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import type { ConsolePaneAddress } from "../seats/index.js";
 import { FOLLOWING_WINDOW_RETENTION, type WorkflowsScopeState } from "./destination-scope.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
+import { settle } from "./WorkflowsBrowser.test-support.js";
 
 /**
  * The first definition the browser lists, which is the first name a person can press.
@@ -114,14 +115,6 @@ function renderDestination(
       rerender(element);
     },
   };
-}
-
-/** Let the directory and enumeration reads settle, so an assertion is about answers. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
 }
 
 function politeAnnouncement(container: HTMLElement): string {

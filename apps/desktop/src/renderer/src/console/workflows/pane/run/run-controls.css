@@ -1,9 +1,13 @@
 /*
  * The run pane's operator controls: cancel, resume, and the repair a resume may carry.
  *
- * Owned by `OperatorControls.tsx`, beside it, and reached through the family's one
- * stylesheet edge in `workflows/workflows.css` — a pane sheet imported by its own
- * module would be a second edge into rules the family already loads.
+ * Owned by `OperatorControls.tsx`, beside it, and IMPORTED FROM THIS PANE'S OWN DOOR,
+ * `pane/run/index.ts`, which is its one edge. `workflows/workflows.css` names this
+ * sheet among the three it deliberately does not pull in, and that is the arrangement
+ * rather than an exception to it: `apps/desktop/AGENTS.md` admits a sheet through the
+ * barrel of the directory that OWNS it, this directory carries a door of its own, and
+ * a family sheet reaching in would put the run pane's rules on the initial document
+ * for every session that never opens one.
  */
 
 /* -------------------------------------------------------------- run controls */
@@ -42,9 +46,10 @@
 }
 
 /*
- * Shares the chrome's action treatment rather than restating it: a run control and
- * the browser's "New definition" are the same kind of thing and a second set of
- * paddings here would drift from that one at the first tweak.
+ * Shares the family's own action treatment (`.meridian-workflow__action` in
+ * `workflows.css`) rather than restating it: a run control and every other act this
+ * family offers are the same kind of thing, and a second set of paddings here would
+ * drift from that one at the first tweak.
  */
 .meridian-run-controls__action {
   display: inline-flex;
