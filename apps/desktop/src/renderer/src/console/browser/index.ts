@@ -30,7 +30,9 @@
 //     door below registers (`pane/browser-pane-body.ts`, loaded as its own chunk).
 //   • `geometry/` — the rect the main-process view host is positioned by, and every
 //     reading that makes it honest: the publisher, the motion and animation samplers,
-//     the ancestry watch, the occlusion registry, and the host resolution. It renders
+//     the ancestry watch, the overlay observation this pane registers as airspace,
+//     and the host resolution. The registry those observations land in is `core/`'s,
+//     because every overlay primitive registers into the same one. It renders
 //     nothing, which is why it carries no sheet.
 //   • `settings/` — chapter 13.16's page: the policy rows and their switches, the
 //     partition table with its rows, and the clear control with its arming rounds.
@@ -65,16 +67,23 @@ import "./cards/cards.css";
 import "./pane/pane.css";
 import "./bounds/bounds.css";
 
-import type { ConsolePaneRegistry } from "../seats/index.js";
+import { registerComposerAttachMenuEntry, type ConsolePaneRegistry } from "../seats/index.js";
+import { browserAttachMenuEntry } from "./pane/attach-entry.js";
 
 /**
- * Claim the browser family's pane kinds.
+ * Claim the browser family's seats.
  *
  * Takes the registry rather than reaching for the module-scope singleton, for
  * `registerConsolePanes`' reason: a test composes into a registry it owns, and an
  * auxiliary window composes a different subset without a second code path.
+ *
+ * THE ATTACH ENTRY IS CLAIMED HERE TOO, and deliberately in the same call rather than
+ * in a second exported function: a family that had two registration entry points would
+ * make "is this family composed in?" a question with two answers, and a composition
+ * root that called one of them would compose a family missing half its seats.
  */
 export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
+  registerComposerAttachMenuEntry(browserAttachMenuEntry);
   registry.register({
     kind: "browser",
     owner: "browser",

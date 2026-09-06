@@ -46,6 +46,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     // Hand-listed against the table, so a member added or removed is a deliberate edit
     // to a closed set rather than a silent change to what survives a rebuild.
     expect([...CONSOLE_REFUSAL_EXTENSION_MEMBERS].sort()).toStrictEqual([
+      "holderParticipantId",
       "operationId",
       "owningDocument",
       "retry",

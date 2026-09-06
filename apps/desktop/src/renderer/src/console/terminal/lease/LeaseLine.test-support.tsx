@@ -238,6 +238,7 @@ export function renderLease(
   bridge: ConsoleBridge = refusingBridge(),
   viewerIdentity: TerminalViewerIdentity = VIEWER_IDENTITY_READ,
   callerRole: CallerMembershipRoleResult = CALLER_ROLE_COLLABORATOR,
+  hasSteppableRun = true,
 ): RenderResult {
   return render(
     <LeaseLine
@@ -247,6 +248,7 @@ export function renderLease(
       markFor={markFor}
       viewerIdentity={viewerIdentity}
       callerRole={callerRole}
+      hasSteppableRun={hasSteppableRun}
     />,
   );
 }

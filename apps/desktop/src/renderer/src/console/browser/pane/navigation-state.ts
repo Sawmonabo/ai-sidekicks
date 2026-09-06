@@ -62,8 +62,6 @@ type NavigationStream = Extract<NavigationOutcome, { readonly status: "served" }
 type NavigationState = NavigationStream extends { readonly events: AsyncIterable<infer Event> }
   ? Event
   : never;
-/** What any one navigation act answers with. Every chrome control dispatches one. */
-export type NavigationActOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserGoBack"]>>;
 
 /**
  * What the pane knows about the page right now.

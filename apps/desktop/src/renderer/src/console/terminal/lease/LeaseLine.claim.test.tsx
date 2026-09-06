@@ -229,6 +229,7 @@ describe("the claim control — one affordance, and three things it never does",
         markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
         callerRole={CALLER_ROLE_COLLABORATOR}
+        hasSteppableRun
       />,
     );
     fireEvent.click(claimControl(view.container));
@@ -242,6 +243,7 @@ describe("the claim control — one affordance, and three things it never does",
         markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
         callerRole={CALLER_ROLE_COLLABORATOR}
+        hasSteppableRun
       />,
     );
 
@@ -309,5 +311,22 @@ describe("stepping in is not this control (8.9)", () => {
     expect(container.textContent).toContain("It never moves the keyboard");
     // Two buttons: the claim and the disclosure. Step in belongs to the composer.
     expect(container.querySelectorAll("button")).toHaveLength(2);
+  });
+
+  it("says nothing about stepping in where no run could be stepped into", () => {
+    // The clarification is about a control, and a control nobody can reach is not
+    // worth a paragraph on every idle terminal — 8.9 renders it where it clarifies
+    // something, which is the visible-steppable-run condition and nothing else.
+    const { container } = renderLease(
+      UNREAD_TERMINAL_LEASE,
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      CALLER_ROLE_COLLABORATOR,
+      false,
+    );
+    expect(container.textContent).not.toContain("It never moves the keyboard");
+    // Negative control on the gate itself: the rest of the line still renders, so
+    // this is the aside being withheld rather than the surface having failed.
+    expect(container.querySelector(".meridian-lease-line__claim")).not.toBeNull();
   });
 });

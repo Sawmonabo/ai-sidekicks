@@ -2,21 +2,21 @@
 //
 // `Spec-023 §Console Design (Meridian)` 12.10 asks for "one place to audit" the
 // ceiling and for "every bound a named constant in one module". The MODULE is
-// `console/core/constants.ts`, which `apps/desktop/AGENTS.md` §Config
-// single-sourcing makes the console's one home for a cap; this file is the surface
-// that renders what is declared there.
+// `browser-bounds.ts` beside this file, which is where `core/constants.ts`'s own
+// header sends a view family's caps — "each view family adds its own module beside
+// its subtree rather than widening this one, so a bound always sits next to the code
+// that spends it". This file is the surface that renders what is declared there.
 //
-// The block used to live here, beside the table that displays it, on the reading
-// that a constants file nobody displays is audited by whoever opens the file. That
-// put the browser's twenty runtime ceilings in a component while the terminal's
-// three sat in a third module, so the console's cap inventory was in three places
-// and an audit had to know all of them. The rendering is what belongs here; the
-// numbers and their derivations belong where every other cap is.
+// The two files are deliberately not one. A table of twenty ceilings and their prose
+// derivations inside a component is a block nobody can audit without reading a render
+// tree around it, and the enforcement points that admit against those numbers have no
+// business importing a `.tsx`. The rendering is what belongs here; the numbers, their
+// units, and their derivations belong beside the admissions that spend them.
 //
 // Nothing below decides how a figure is formatted, and nothing below scales one. The
 // unit a bound DECLARES says which of the console's two figure chokepoints it goes
 // through — `formatCount` for a counted ceiling, `formatByteQuantity` for a
-// byte-valued one — and `core/constants.ts` carries that answer as a map total over
+// byte-valued one — and `browser-bounds.ts` carries that answer as a map total over
 // its own unit set. A byte ceiling sent through `formatCount` renders raw decimal
 // bytes, which is a figure that disagrees with every other byte quantity the console
 // shows, and reads in powers of a thousand where the rest of the product reads in

@@ -89,19 +89,41 @@ describe("browser pane chrome", () => {
     const { region } = await renderBrowserPane();
     expect(region.querySelector(".meridian-nothing--empty")).toBeNull();
     expect(region.textContent).not.toContain("No pages");
-    // The badge carries its second sentence as a tooltip rather than as text, which
-    // is what `inline` placement means — so the claim is read off the attribute.
-    const badgeLabel = region.querySelector(".meridian-nothing__badge-label");
-    expect(badgeLabel?.getAttribute("title")).toContain(
-      "Nothing here says this session owns no pages",
-    );
+    // Scoped to the STRIP, because the pane now mounts more than one badge and the
+    // claim is about the page list. On this build the page subscription is refused,
+    // so the strip renders the port's refusal verbatim rather than an absence — the
+    // shape differs and the rule does not: neither says the session owns no pages.
+    // What the unread badge's tooltip denies is asserted in the strip's own suite,
+    // which can drive that arm; from here only the refused arm is reachable.
+    const strip = region.querySelector(".meridian-browser-tabs");
+    expect(strip?.querySelector(".meridian-nothing--empty")).toBeNull();
+    expect(strip?.querySelector(".meridian-refusal--inline")).not.toBeNull();
   });
 
   it("carries the resource ceiling one click away rather than on the surface", async () => {
     const { region } = await renderBrowserPane();
-    const disclosure = region.querySelector("details");
-    expect(disclosure?.open).toBe(false);
+    // Named rather than "the pane's only disclosure": the overflow control is a
+    // second one, and a bare `details` selector reads whichever the density rule put
+    // first — which would pass over a pane that had lost the ceiling entirely.
+    const disclosure = region.querySelector(".meridian-browser-pane__ceiling");
+    expect(disclosure instanceof HTMLDetailsElement && disclosure.open).toBe(false);
     expect(disclosure?.textContent).toContain("Resource ceiling");
+  });
+
+  it("keeps the unprompted handback out of the banner the acts answer through", async () => {
+    // Both halves of 12.4 run without anyone asking, and the growth port refuses both
+    // on this build — so a pane that routed them to the banner opened every browser
+    // pane with a dismissible error, and displaced the answer to whatever a person
+    // pressed next. The degradation is still said, one click away and in the shape
+    // that stays put.
+    const { region } = await renderBrowserPane();
+    expect(queryRefusalBanner()).toBeNull();
+    const handbackRegion = [...region.querySelectorAll(".meridian-browser-region")].find(
+      (candidate) =>
+        candidate.querySelector(".meridian-browser-region__head")?.textContent ===
+        "Keyboard handback",
+    );
+    expect(handbackRegion?.querySelector(".meridian-refusal--inline")).not.toBeNull();
   });
 
   it("reports no figure for a ceiling nothing in this window meters", async () => {

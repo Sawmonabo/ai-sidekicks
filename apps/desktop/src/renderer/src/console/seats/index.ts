@@ -111,12 +111,41 @@ export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
+  EPHEMERAL_PANE_KINDS,
+  /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
   isDetachablePaneKind,
+  /** @consumedBy T-023p-1C-2 */
+  isEphemeralPaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
   type PaneKind,
 } from "./pane-kinds.js";
+
+export {
+  /** @consumedBy T-023p-1C-3 */
+  clearComposerAttachMenu,
+  /** @consumedBy T-023p-1C-3 */
+  composerAttachMenuEntries,
+  registerComposerAttachMenuEntry,
+  /** @consumedBy T-023p-1C-3 */
+  type ComposerAttachMenuContext,
+  type ComposerAttachMenuEntry,
+  type ComposerAttachOutcome,
+} from "./composer-attach-menu.js";
+
+export {
+  /** @consumedBy T-023p-1C-2 */
+  panesForLayoutSnapshot,
+  /** @consumedBy T-023p-1C-2 */
+  panesFromLayoutSnapshot,
+  /** @consumedBy T-023p-1C-2 */
+  type LayoutPaneDrop,
+  /** @consumedBy T-023p-1C-2 */
+  type LayoutPaneDropReason,
+  /** @consumedBy T-023p-1C-2 */
+  type LayoutRestoreReading,
+} from "./layout-snapshot.js";
 
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */

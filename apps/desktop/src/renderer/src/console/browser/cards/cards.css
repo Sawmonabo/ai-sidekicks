@@ -128,3 +128,15 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
 }
+
+/* --------------------------------------------------- identity-only shelf row */
+
+/* What a produced object looks like when the console has read no manifest for it.
+   It is deliberately quieter than a card — a dashed edge rather than a solid one —
+   so a shelf mixing the two reads as "these are the ones we know about" at a glance
+   rather than as two card styles competing for the same weight. */
+
+.meridian-browser-card--identity {
+  border-style: dashed;
+  background: none;
+}

@@ -55,6 +55,7 @@ import type { TerminalParticipantMark } from "../lease/participant-mark.js";
 import { XtermHost } from "../emulator/XtermHost.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../lease/lease-model.js";
 import { projectNodePresence, resolveSoleHoldingNode } from "./node-presence-model.js";
+import { hasSteppableRun } from "./steppable-run-model.js";
 import { useTerminalOutputStream } from "./output-stream.js";
 import { useTerminalViewerIdentity } from "../lease/viewer-identity.js";
 
@@ -136,6 +137,11 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
     [timeline, holdingNode, viewerParticipantId],
   );
 
+  // 8.9's aside is a sentence about the step-in control, so it renders where that
+  // control has something to act on. The fold is memoised on the same timeline
+  // reference every other derivation here keys on, so it runs when the log moves.
+  const isStepInReachable = useMemo(() => hasSteppableRun(timeline), [timeline]);
+
   const markFor = useMemo(() => {
     const allocator = sessionStore.hueAllocator;
     return (participantId: string): TerminalParticipantMark | undefined => {
@@ -161,6 +167,7 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
         markFor={markFor}
         viewerIdentity={viewerIdentity}
         callerRole={callerRole}
+        hasSteppableRun={isStepInReachable}
       />
       {outputReading.status === "refused" ? (
         // A REJECTED subscribe is the bridge itself failing, and a bridge that
