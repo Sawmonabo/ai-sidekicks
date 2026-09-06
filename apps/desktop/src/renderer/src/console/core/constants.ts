@@ -190,3 +190,94 @@ export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
  * reported.
  */
 export const PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP = 64;
+
+// ── The terminal family's bounds ──────────────────────────────────────────────
+//
+// Spent by three different modules under `console/terminal/`, and two of them are
+// also read by a test tier that must not construct an emulator to learn a number.
+// One of them is spent by that tier ALONE — the width a terminal is measured at —
+// and it lives here rather than beside the harness because the budget row's meaning
+// depends on it exactly as it depends on the scrollback depth below, and the two
+// files that price the row's two halves have to read one number, not two.
+
+/**
+ * Lines of scrollback one terminal keeps.
+ *
+ * `Spec-023 §Console Libraries` records that a buffer line eagerly allocates twelve
+ * bytes per cell regardless of content, and §Budgets bounds one pane's retained
+ * memory. Ten thousand lines at a working width is the figure that budget was
+ * measured at, so moving this moves what the budget means.
+ */
+export const TERMINAL_DEFAULT_SCROLLBACK_LINES = 10_000;
+
+/**
+ * Columns a terminal is driven at when this budget's halves are measured.
+ *
+ * A buffer line allocates twelve bytes per cell eagerly, so the width is a
+ * multiplier on everything the `terminal-instance-memory` row bounds — changing it
+ * changes the figure without changing a line of the code being measured. A working
+ * width rather than a wide one: the row bounds a terminal someone is using, and a
+ * width chosen to make the number small would be measuring a different pane.
+ */
+export const TERMINAL_BUDGET_MEASUREMENT_COLUMNS = 120;
+
+/**
+ * How many terminals may hold a WebGL renderer at once.
+ *
+ * Chromium keeps sixteen contexts per page and drops the oldest past that, and a
+ * disposed addon does not give its context back — so the ceiling is not "how many
+ * terminals are open" but "how many contexts this page has ever created". Twelve
+ * leaves four for the rest of the page and still covers every layout V1 ships,
+ * since 8.8 gives a session exactly one shared shell.
+ */
+export const TERMINAL_WEBGL_POOL_CAP = 12;
+
+/**
+ * How many lease transitions the ledger keeps.
+ *
+ * The lease changes hands a handful of times in a working session, and the
+ * disclosure that renders them is read to answer "who had it, and why did it
+ * move" — a question the recent past answers. Bounded rather than unbounded
+ * because this list is rebuilt on every fold, and an unbounded one would grow
+ * with the session's whole log for a panel that shows the last few lines.
+ */
+export const TERMINAL_LEASE_LEDGER_CAP = 32;
+
+// ── The embedded browser's position observer ─────────────────────────────────
+
+/**
+ * Boxes beside the pane's ancestry whose intrinsic size the position observer
+ * watches.
+ *
+ * The observer covers content-driven layout by watching each SIBLING of the pane and
+ * of its ancestors: an auto-sized sibling that grows on a text-node update or a
+ * nested insertion moves the pane while no watched box changes shape, no watched
+ * attribute changes, and no ancestor's direct child list moves. Nothing else in the
+ * module can see that.
+ *
+ * Bounded because the sibling count is a property of the DOCUMENT, not of the pane. A
+ * pane nested inside a live feed has as many siblings as the feed has rows, and an
+ * observer per row is the per-row layout cost the attribute observer's own width rule
+ * already refuses. Sixty-four covers every layout the console composes with room to
+ * spare; past it the NEAREST siblings are the ones observed, because a box beside the
+ * pane moves it further than a box beside the document body does, and the remainder
+ * stays covered by the five sources that do not depend on this one.
+ */
+export const POSITION_SIBLING_OBSERVER_CAP = 64;
+
+// ── The embedded browser's settings page ─────────────────────────────────────
+
+/**
+ * Partitions the site-data table renders before the rest fold behind a disclosure.
+ *
+ * `Spec-023 §Console Design (Meridian)` 13.16 fixes the number — "the table folds
+ * past ten partitions" — and ten is the point past which a table stops being read
+ * and starts being scanned: a node holding more sessions than that has a list, not
+ * a table.
+ *
+ * It lives here rather than beside the page that spends it because a bound declared
+ * in a view family is a ceiling nobody audits. `apps/desktop/AGENTS.md` §Config
+ * single-sourcing states the rule and `cap-constant-home.test.ts` enforces it, over
+ * `_THRESHOLD` as well as `_CAP` and `_MAX`.
+ */
+export const PARTITION_FOLD_THRESHOLD = 10;

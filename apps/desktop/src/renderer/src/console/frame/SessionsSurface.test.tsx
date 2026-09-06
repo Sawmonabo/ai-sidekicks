@@ -17,9 +17,10 @@ import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import type { ConsoleBridgeSource } from "../bridge/console-bridge.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
+import { settleReactWork } from "../core/act-settlement.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
-import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /**
  * The one bridge member the shipped probe touches.
@@ -76,13 +77,6 @@ function fixtureGrowthPort(): GrowthPort {
   return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }).growth;
 }
 
-/** Let the directory read settle, so an assertion is about the answer. */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
-}
-
 /**
  * Press a control and let React finish reacting.
  *
@@ -123,7 +117,7 @@ describe("the sessions destination — a session is created by an act, not by a 
     // The surface reads its session directory on mount and shows a skeleton while
     // it is in flight — which carries no control, by the primitive's own rule — so
     // the act this case is about is only reachable once the read has settled.
-    await settle();
+    await settleReactWork();
     await press("Start a session");
 
     expect(daemonCall).toHaveBeenCalledTimes(1);
@@ -136,7 +130,7 @@ describe("the sessions destination — a session is created by an act, not by a 
     const daemonCall = installBridgeSpy();
 
     render(sessionsSurfaceFor("live").element);
-    await settle();
+    await settleReactWork();
     await press("Start a session");
     await press("Start a session");
 
@@ -149,7 +143,7 @@ describe("the sessions destination — a session is created by an act, not by a 
     const daemonCall = installBridgeSpy();
 
     const { container } = render(sessionsSurfaceFor("fixture").element);
-    await settle();
+    await settleReactWork();
     await press("Start a session");
 
     expect(daemonCall).not.toHaveBeenCalled();
@@ -169,7 +163,7 @@ describe("the sessions destination — what it can honestly list", () => {
     sessionStoreRegistry.open("session-alpha");
 
     render(element);
-    await settle();
+    await settleReactWork();
     await press("session-alpha");
 
     expect(frameStore.getState().route).toStrictEqual({
@@ -186,7 +180,7 @@ describe("the sessions destination — what it can honestly list", () => {
     installBridgeSpy();
 
     const { container } = render(sessionsSurfaceFor("fixture", fixtureGrowthPort()).element);
-    await settle();
+    await settleReactWork();
 
     expect(screen.getByRole("button", { name: FLAGSHIP_SCENARIO.sessionId })).toBeDefined();
     // The heading follows the source: a list of the node's sessions must not still
@@ -200,7 +194,7 @@ describe("the sessions destination — what it can honestly list", () => {
     installBridgeSpy();
 
     const { container } = render(sessionsSurfaceFor("live").element);
-    await settle();
+    await settleReactWork();
 
     expect(container.textContent).toContain("No session is open in this window.");
     expect(container.textContent).toContain("it has not asked the daemon for the rest");

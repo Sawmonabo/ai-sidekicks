@@ -112,10 +112,7 @@ export {
   type PaneEntityScopeDeclaration,
 } from "./pane-address.js";
 
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
-  parseConsolePaneAddress,
-} from "./pane-address-parse.js";
+export { parseConsolePaneAddress } from "./pane-address-parse.js";
 
 export {
   ConsolePaneRegistry,
@@ -123,7 +120,6 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   type ConsolePaneContext,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
@@ -195,8 +191,9 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
-// named by all six pane-body tasks; `PaneControls` and its context are named by the one
+// The pane chrome and the seam its two host controls travel on. The chrome's three
+// lines carry no claim any more — a shipped pane body imports all three, which is the
+// event the claims named; `PaneControls` and its context are still claimed by the task
 // that builds the deck, which is the only host that provides them.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 

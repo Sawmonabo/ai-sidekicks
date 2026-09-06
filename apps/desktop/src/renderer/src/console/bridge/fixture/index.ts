@@ -10,7 +10,16 @@
 // a diff that never reads this header. `fixture-refusal.ts` is separate from the
 // bridge on purpose and must not be folded back in: both doors raise it and the
 // bridge composes them, so a vocabulary declared in the bridge would close an import
-// cycle.
+// cycle. The scripted pane view host is here on the same reading: what it decides is
+// what the fixture can honestly say about a pane, which is an answer and not a shape
+// the wire carries.
+//
+// ONE EDGE INTO THIS DIRECTORY STAYS DEEP, and this is where it says so.
+// `console-bridge.ts` names `ScriptedPaneViewHost` on the contract and reaches it by
+// its own specifier: a door is an edge to every module it re-exports, `fixture-bridge.ts`
+// imports that contract, and taking this door from the contract would close the cycle
+// `no-circular` fails. The deep specifier is the remedy for that one edge, never a
+// shim and never a wider door.
 //
 // WHAT IS NOT HERE: the scenario itself. `scenario-runtime/` holds the vocabulary a
 // scenario is written in and the engine that plays one, and `scenarios/` holds the

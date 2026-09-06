@@ -19,15 +19,20 @@ export {
   MAX_REPAIRABLE_SEQUENCE_GAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
+  PARTITION_FOLD_THRESHOLD,
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
+  POSITION_SIBLING_OBSERVER_CAP,
   PRE_INITIALISATION_BUFFER_CAP,
   PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
+  TERMINAL_DEFAULT_SCROLLBACK_LINES,
+  TERMINAL_LEASE_LEDGER_CAP,
+  TERMINAL_WEBGL_POOL_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
@@ -87,17 +92,16 @@ export {
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
 export {
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type ConsoleRefusalExtensions,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type ExtendedConsoleRefusal,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type WireRetryHint,
 } from "./refusal-extensions.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type RejectionFallback,
   type WireRefusal,
   type WireErrorEnvelope,

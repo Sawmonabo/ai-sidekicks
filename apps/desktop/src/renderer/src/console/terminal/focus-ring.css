@@ -1,0 +1,29 @@
+/*
+ * The focus ring three of this family's surfaces share.
+ *
+ * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal colour,
+ * every value read back out of a custom property.
+ *
+ * One of the terminal family's four sheets, flat beside the modules it dresses:
+ * one sheet per sub-module directory, named for that directory, and one at the
+ * family root for the shapes more than one directory reaches for. Every one is
+ * imported from `console/terminal/index.ts` and from nowhere else, so the bundler
+ * sees exactly one edge into each — which is what keeps this family out of the
+ * document the operator waits for, per `Spec-023 §Console Design (Meridian)`
+ * §Budgets.
+ *
+ * A SHEET OF ITS OWN for `browser/controls.css`'s reason, and it is the whole reason
+ * that placement exists: the claim control and the disclosure are the lease line's
+ * and the terminal surface is the emulator host's, so the ring belongs to two
+ * sub-module directories at once. Written in either of their sheets it would have
+ * been copied into the other, and two copies of one outline drift — which on a focus
+ * ring means one surface quietly stops meeting the visible-focus floor
+ * `Spec-023 §Console Design (Meridian)` holds every interactive shape to.
+ */
+
+.meridian-lease-line__claim:focus-visible,
+.meridian-lease-line__disclosure:focus-visible,
+.meridian-terminal-host__surface:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

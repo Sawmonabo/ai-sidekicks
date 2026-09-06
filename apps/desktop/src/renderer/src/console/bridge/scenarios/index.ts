@@ -18,10 +18,12 @@
 // that make sense with no family loaded; family scenarios follow in task order.
 
 import { APPROVALS_SCENARIO } from "./approvals.js";
+import { BROWSER_SCENARIO } from "./browser.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { RUNS_SCENARIO } from "./runs.js";
+import { TERMINAL_SCENARIO } from "./terminal.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
@@ -39,6 +41,7 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
-  // T-023p-1C-7 browser-terminal
+  BROWSER_SCENARIO,
+  TERMINAL_SCENARIO,
   // T-023p-1C-8 gallery
 ];

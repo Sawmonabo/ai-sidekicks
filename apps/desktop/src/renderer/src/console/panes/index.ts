@@ -26,6 +26,11 @@
 // hands out five, which is why the grammar admits a list rather than the single
 // parameter this file happens to have.
 //
+// ONE LINE PER FAMILY, WHICH IS NOT ALWAYS ONE LINE PER SEAT. A task that ships two
+// families ships two doors and therefore two calls, each carrying that task's marker
+// and the kind it is claiming — the one-line-per-position property the branches
+// depend on is about the line, and two families were never going to share one.
+//
 // THE FAMILY IS A SIBLING OF THIS FILE, NOT A SUBDIRECTORY OF IT
 //
 // A pane body lives at `console/<family>/pane/`, behind that family's own door at
@@ -63,9 +68,11 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerApprovalsPane } from "../approvals/index.js";
+import { registerBrowserPanes } from "../browser/index.js";
 import { registerInspectorPane } from "../inspector/index.js";
 import { registerRunsPane } from "../runs/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
+import { registerTerminalPanes } from "../terminal/index.js";
 
 /**
  * Register every shipped pane body against a registry.
@@ -83,5 +90,6 @@ export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
   // T-023p-1C-6 workflow-run workflow-builder
-  // T-023p-1C-7 browser terminal
+  registerBrowserPanes(registry); // T-023p-1C-7 browser
+  registerTerminalPanes(registry); // T-023p-1C-7 terminal
 }

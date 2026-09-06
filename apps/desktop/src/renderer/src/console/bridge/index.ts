@@ -17,6 +17,21 @@
 // branches each add one line to, and it is reached through `scenario-manifest.js`
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
+//
+// Nor is the scripted pane view host — not its type, not its factory, not its
+// transport marker. `console-bridge.ts` names the type on the contract and reaches
+// it by its own specifier; the browser family reads the script structurally off
+// `ConsoleBridge.paneViewHostScript` and names the type nowhere; and the modules
+// that assert on the marker take it from the module that declares it. A door line
+// for any of them would be a published name with no importer, which is the class
+// `test/console/architecture/barrel-census.test.ts` fails.
+//
+// Nor is `createLiveBridge`. Its one production reader is `BridgeProvider.tsx`
+// beside it, which imports the declaring module, and the harnesses that build a
+// live bridge over the fixture's own preload namespace do the same — a door line
+// would be a second path to a symbol no cross-family production module takes, and
+// `.dependency-cruiser.families.mjs` names this symbol where it records why a
+// `.test-support` module is subtracted from the door rule at all.
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
@@ -195,7 +210,6 @@ export type {
   DaemonRequestOf,
   DaemonResponseOf,
 } from "./daemon/daemon-reply-registry.js";
-
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and every surface that offers sessions reads the directory through
 // `seats/`, so the port type, the one summary shape those surfaces render, the
@@ -281,15 +295,24 @@ export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 // wire's own shapes are read here and nowhere above.
 export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 
-// The two body reads that narrow a wire shape, both through the door because both
-// have production readers above this family. `membershipRoleOf` is the injected
+// The three body reads that narrow a wire shape, all through the door because each
+// has a production reader above this family. `membershipRoleOf` is the injected
 // lookup `useCallerMembershipRole` takes: the store's roster holds the role and
 // deliberately names no wire member, so the read that narrows one lives here and
-// travels to the surfaces that gate a control on the caller's role (the approvals
-// goal editor first). `stampedExecutionPostureOf` is the composer's posture chip's:
-// it parses the candidate against the registered `RunStateChangeEvent` shape, which
-// is the whole point — a surface checking two members loosely and asserting the
-// type admitted a body with no `networkAccess`, and the chip then rendered an empty
-// label beside two full ones. This door line waited on a production consumer and
-// now has one.
+// travels to the surfaces that gate a control on the caller's role — the approvals
+// goal editor and `terminal/pane/BoundTerminalPane.tsx`, which takes it through
+// `useCallerMembershipRole` to decide whether this viewer may hold the write lease.
+// `stampedExecutionPostureOf` is the composer's posture chip's: it parses the
+// candidate against the registered `RunStateChangeEvent` shape, which is the whole
+// point — a surface checking two members loosely and asserting the type admitted a
+// body with no `networkAccess`, and the chip then rendered an empty label beside two
+// full ones. This door line waited on a production consumer and now has one, in
+// `shell/composer/chips/chip-models.ts`.
 export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
+
+// The reported node state a payload member carries. Through the door for the reason
+// the line above is: the narrowing runs against the contract's own schema, which this
+// family admits and no view family may import, so the read belongs here and travels
+// out — and the terminal's host-presence fold is the production reader that makes the
+// line a door line rather than a claim.
+export { readNodeState } from "./daemon/node-state-read.js";

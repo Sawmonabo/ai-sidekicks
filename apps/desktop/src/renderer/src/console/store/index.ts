@@ -110,7 +110,8 @@ export {
 // through this door would reach for `useSyncExternalStore` and become the second
 // subscription path with its own equality rule. `SessionStoreState` travels with
 // it because a caller hoisting a selector to module scope has to name the state
-// it selects from.
+// it selects from — and until T-023p-1C-7 every caller of that second act lived
+// inside this family, so the one path now serves a view family too.
 //
 // `useSessionInitialised` and `useSessionDegradedCause` are the two absences a
 // partition read cannot express: a map with no rows means one thing before the
@@ -133,20 +134,6 @@ export {
   useSessionPartition,
   useSessionStore,
 } from "./hooks.js";
-// The caller-role chain leaves the family with its first consumer: the approvals
-// pane, which gates the goal controls on it. The reader type travels with it
-// because the read itself lives on the growth port in `bridge/` — a family this one
-// may not reach up to — so the composition site above adapts that outcome into this
-// shape, and it has to be able to NAME the shape to do so. The result type travels
-// for the same reason: a caller mapping three arms onto what a control may offer
-// writes that mapping over the union rather than over a boolean it inferred.
-export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
-// The degradation cause itself, beside the hook that answers it. Without this line
-// a consumer could reach the closed set only by reflecting on the hook's return
-// type — which derives the set from a CONSUMER of it, so widening the hook's
-// annotation widens the consumer's exhaustiveness silently and narrowing it to a
-// wrapper collapses that exhaustiveness outright.
-export type { SessionDegradedCause } from "./session-store.js";
 
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is
 // a scheduling decision — the console's other one, `scheduling.ts`, is its neighbour
@@ -193,14 +180,25 @@ export { useSubjectScopedResource } from "./subject-scoped-resource.js";
 export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
-export {
-  /** @consumedBy T-023p-1C-8 */
-  GenerationLatch,
-  useGenerationLatch,
-} from "./generation-latch.js";
+export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
 export type {
   /** @consumedBy T-023p-1C-8 */
   CurrentGenerationClaim,
-  /** @consumedBy T-023p-1C-8 */
   GenerationClaim,
 } from "./generation-latch.js";
+// The caller's own membership role, forwarded with the hook that answers it. Two
+// surfaces gate a control on it: the approvals pane's goal editor, and the terminal
+// lease line, where taking the shell is owner/collaborator-only so a control offered
+// on identity alone offered viewers and runtime contributors a mutation that can only
+// be refused. The reader is a PARAMETER because this family sits below `bridge/` and
+// may not reach a port, so the view family that can passes one in — which is also why
+// the two types travel: a caller adapting that outcome has to be able to NAME the
+// shape, and one mapping three arms onto what a control may offer writes that mapping
+// over the union rather than over a boolean it inferred.
+export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
+// The degradation cause itself, beside the hook that answers it. Without this line
+// a consumer could reach the closed set only by reflecting on the hook's return
+// type — which derives the set from a CONSUMER of it, so widening the hook's
+// annotation widens the consumer's exhaustiveness silently and narrowing it to a
+// wrapper collapses that exhaustiveness outright.
+export type { SessionDegradedCause } from "./session-store.js";
