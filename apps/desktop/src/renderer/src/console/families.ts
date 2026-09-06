@@ -10,11 +10,11 @@
 // branch touches, and none of them conflicts.
 //
 // SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
-// lines at the foot of the composition — asserted by `families.test.ts` rather than
-// kept in step by hand. It was not: this header spelled the count twice and the
-// spellings disagreed, because 1C-8 was read as an audit task when it lands a family
-// of its own. A second spelling of one count is a second thing to edit, and the one
-// that goes stale is the one nothing reads.
+// lines at the foot of the composition — asserted by `families.seat-board.test.ts`
+// rather than kept in step by hand. It was not: this header spelled the count twice
+// and the spellings disagreed, because 1C-8 was read as an audit task when it lands a
+// family of its own. A second spelling of one count is a second thing to edit, and the
+// one that goes stale is the one nothing reads.
 //
 // WHAT A FAMILY DOES
 //
@@ -135,8 +135,8 @@ export function registerConsoleFamilies(
   //
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
-  // seven one-line diffs at seven distinct positions; `families.test.ts` reads the
-  // block as a census and refuses anything that is not a seat.
+  // seven one-line diffs at seven distinct positions; `families.seat-board.test.ts`
+  // reads the block as a census and refuses anything that is not a seat.
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
