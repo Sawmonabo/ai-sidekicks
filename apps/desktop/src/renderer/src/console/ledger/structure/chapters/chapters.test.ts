@@ -64,6 +64,59 @@ describe("chapters — what makes a chapter terminal", () => {
     expect(chapterFor(fold.chapters, "run-a").lifecycle).toBe("live");
   });
 
+  it("reopens a chapter the run came back from", () => {
+    // A rollback accepted from a finished run appends a pause and a rewind for that
+    // same run before it can resume. An accumulator that only ever SET the terminal
+    // kept the completion forever: the chapter stayed folded by default, its header
+    // went on reading "Completed", and every row appended after the rewind was
+    // hidden behind a receipt for an ending that had been undone.
+    const fold = foldChapters([
+      runRow({ id: "a1", sequence: 1, type: "run.queued", runId: "run-a", position: 1 }),
+      runRow({ id: "a2", sequence: 2, type: "run.completed", runId: "run-a", position: 2 }),
+      runRow({ id: "a3", sequence: 3, type: "run.paused", runId: "run-a", position: 3 }),
+      runRow({ id: "a4", sequence: 4, type: "run.rolled_back", runId: "run-a", position: 4 }),
+      runRow({ id: "a5", sequence: 5, type: "run.running", runId: "run-a", position: 5 }),
+    ]);
+
+    const chapter = chapterFor(fold.chapters, "run-a");
+    expect(chapter.lifecycle).toBe("live");
+    expect(chapter.terminalEventType).toBeUndefined();
+    // And the receipt goes with it: a folded chapter renders its header and the row
+    // that ended it, and that row no longer ends anything.
+    expect(chapter.terminalRowId).toBeUndefined();
+  });
+
+  it("seals a reopened chapter again at its next ending", () => {
+    // The clearing is not a one-way door either. A run that came back and then
+    // failed is a finished run, and its header says which ending it reached — the
+    // second one.
+    const fold = foldChapters([
+      runRow({ id: "a1", sequence: 1, type: "run.completed", runId: "run-a", position: 1 }),
+      runRow({ id: "a2", sequence: 2, type: "run.rolled_back", runId: "run-a", position: 2 }),
+      runRow({ id: "a3", sequence: 3, type: "run.failed", runId: "run-a", position: 3 }),
+    ]);
+
+    const chapter = chapterFor(fold.chapters, "run-a");
+    expect(chapter.lifecycle).toBe("terminal");
+    expect(chapter.terminalEventType).toBe("run.failed");
+    expect(chapter.terminalRowId).toBe("a3");
+  });
+
+  it("negative control: an ordinary teardown after an ending reopens nothing", () => {
+    // Without this the two cases above would pass over a fold that cleared the
+    // terminal on any later run row at all — and a worker shutting down after a
+    // completion says nothing about the run's state, so a chapter that went live
+    // again there would unfold every finished run in the session.
+    const fold = foldChapters([
+      runRow({ id: "a1", sequence: 1, type: "run.completed", runId: "run-a", position: 1 }),
+      runRow({ id: "a2", sequence: 2, type: "run.worker_shutdown", runId: "run-a", position: 2 }),
+    ]);
+
+    const chapter = chapterFor(fold.chapters, "run-a");
+    expect(chapter.lifecycle).toBe("terminal");
+    expect(chapter.terminalEventType).toBe("run.completed");
+  });
+
   it("marks a chapter whose child expand is incomplete", () => {
     const fold = foldChapters([
       runRow({
