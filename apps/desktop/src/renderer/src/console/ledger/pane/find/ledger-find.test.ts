@@ -14,7 +14,6 @@ import {
   ProvenanceRailModel,
   type LedgerFilter,
 } from "../../structure/index.js";
-import { type ConsoleSessionEvent } from "../../../store/index.js";
 import { useLedgerFind, type LedgerFindState } from "./ledger-find.js";
 import { NO_ROWS_REMOVED, type LedgerWindowModel } from "../window/ledger-window.js";
 import { useFilteredLedgerWindow } from "./ledger-narrowing.js";
@@ -22,24 +21,12 @@ import {
   useVisibleLedgerWindow,
   type VisibleLedgerWindow,
 } from "../window/ledger-visible-window.js";
-import { ledgerFixtureStampAt } from "../feed/ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow } from "../window/ledger-window.js";
-
-const SESSION_ID = "session-visible-window";
-const LOG_EVENT_COUNT = 10;
-const EVERY_ROW_QUERY = "user.message";
-
-/** A log whose every row matches `EVERY_ROW_QUERY`, oldest first. */
-function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
-  return Array.from({ length: count }, (_unused, index) => ({
-    id: `event-${String(index)}`,
-    sessionId: SESSION_ID,
-    sequence: index,
-    kind: EVERY_ROW_QUERY,
-    occurredAt: ledgerFixtureStampAt(index),
-    payload: {},
-  }));
-}
+import {
+  EVERY_ROW_QUERY,
+  LOG_EVENT_COUNT,
+  syntheticEventLog,
+} from "../window/ledger-visible-window.test-support.js";
 
 describe("the walk when the result moves under it", () => {
   /** A visible window over exactly these rows, with nothing outside it. */
@@ -74,7 +61,7 @@ describe("the walk when the result moves under it", () => {
     );
   }
 
-  const wholeLog = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
+  const wholeLog = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false).rows;
 
   /**
    * The find state over three stages of one pipeline, each a prefix of the last.
@@ -91,7 +78,7 @@ describe("the walk when the result moves under it", () => {
     readonly folded: number;
   }): RenderHookResult<LedgerFindState, unknown> {
     const modelOf = (count: number): LedgerWindowModel =>
-      deriveLedgerWindow(syntheticLog(count), false);
+      deriveLedgerWindow(syntheticEventLog(count), false);
     const foldedWindow = modelOf(stages.folded);
     return renderHook(() =>
       useLedgerFind({
@@ -202,7 +189,7 @@ describe("the walk when the result moves under it", () => {
   });
 });
 
-/** A narrowing that admits a family {@link syntheticLog} has no row of. */
+/** A narrowing that admits a family {@link syntheticEventLog} has no row of. */
 const ADMITS_NO_SYNTHETIC_ROW: LedgerFilter = {
   participantIds: [],
   categories: ["tool_activity"],
@@ -259,7 +246,7 @@ describe("what an appended row costs the counts beside the field", () => {
   ): RenderHookResult<NarrowingReading, { readonly eventCount: number }> {
     return renderHook(
       ({ eventCount }) => {
-        const projection = deriveLedgerWindow(syntheticLog(eventCount), false);
+        const projection = deriveLedgerWindow(syntheticEventLog(eventCount), false);
         const narrowing = useFilteredLedgerWindow(tallyingWindow(projection, tally), filter);
         const find = useLedgerFind({
           visible: NOTHING_ON_SCREEN,
@@ -318,7 +305,7 @@ describe("what an appended row costs the counts beside the field", () => {
 describe("the find field's own open act", () => {
   /** The find state over one whole window, with nothing pruned. */
   function findOverWholeLog(): RenderHookResult<LedgerFindState, void> {
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
       useLedgerFind({
         visible: useVisibleLedgerWindow(

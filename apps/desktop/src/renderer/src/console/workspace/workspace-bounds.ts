@@ -93,9 +93,37 @@ export const DECK_MINIMUM_PANE_WIDTH_PX: Readonly<Record<DeckDensity, number>> =
  */
 export const NATIVE_VIEW_MINIMUM_VISIBLE_PX = 1;
 
-/** The narrowest and widest the sidebar may be kept at, in percent. */
+/**
+ * The narrowest the sidebar may be kept at, in percent.
+ *
+ * Below this the section headers wrap and the column stops being readable at the type
+ * scale, which is the same floor the collapsed rail exists to get back from — a
+ * sidebar narrower than this is one a person would have collapsed on purpose.
+ */
 export const SIDEBAR_MINIMUM_WIDTH_PERCENT = 12;
+
+/**
+ * The widest the sidebar may be kept at, in percent.
+ *
+ * DERIVED FROM THE DECK, not chosen for the sidebar: the deck is the side whose own
+ * density floor is measured in pixels, and forty percent is the share that still
+ * leaves a two-pane deck above its preset's minimum on the narrowest window the
+ * presets are drawn for. So it is written here as the sidebar's ceiling and read from
+ * here as the deck's floor, rather than declared twice at two ends of one band and
+ * left to agree by inspection.
+ */
 export const SIDEBAR_MAXIMUM_WIDTH_PERCENT = 40;
+
+/**
+ * The narrowest the deck may be squeezed to by a sidebar drag, in percent.
+ *
+ * THE COMPLEMENT OF {@link SIDEBAR_MAXIMUM_WIDTH_PERCENT}, NOT A SECOND CHOICE. The
+ * workspace held its own `DECK_MINIMUM_WIDTH_PERCENT = 40` beside the split, and the
+ * two readings did not agree: a forty-percent deck floor admits a sixty-percent
+ * sidebar, while the clamp on the sidebar's record caps it at forty. One band, one
+ * home, and the deck's end computed from the sidebar's so the pair cannot drift.
+ */
+export const DECK_MINIMUM_WIDTH_PERCENT: number = 100 - SIDEBAR_MAXIMUM_WIDTH_PERCENT;
 
 /**
  * How wide the sidebar opens the first time, as a share of the workspace.

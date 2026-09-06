@@ -19,11 +19,22 @@ export const RETAINED_ROW_COUNT = 4;
 /** A query every row of the log below matches, so a walk is over the whole window. */
 export const EVERY_ROW_QUERY = "user.message";
 
-/** A log whose every row matches `EVERY_ROW_QUERY`, oldest first. */
-export function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
+/**
+ * A log whose every row matches {@link EVERY_ROW_QUERY}, oldest first.
+ *
+ * ONE HOME FOR THIS ROLE. Three suites held this builder verbatim, differing only in
+ * the session id, and two of them called it `syntheticLog` beside a `syntheticLog` in
+ * `frame/viewport/` that answers with window ROWS — so which one an import resolved to
+ * was a question about the specifier rather than about the name. Named for the log it
+ * opens, and the one axis the copies differed on is a parameter.
+ */
+export function syntheticEventLog(
+  count: number,
+  sessionId: string = VISIBLE_WINDOW_SESSION_ID,
+): readonly ConsoleSessionEvent[] {
   return Array.from({ length: count }, (_unused, index) => ({
     id: `event-${String(index)}`,
-    sessionId: VISIBLE_WINDOW_SESSION_ID,
+    sessionId,
     sequence: index,
     kind: EVERY_ROW_QUERY,
     occurredAt: ledgerFixtureStampAt(index),

@@ -74,7 +74,6 @@ export interface DeckProps {
   /** Where pane bodies come from. Passed rather than reached for: an auxiliary
    * window composes a different subset without a second code path. */
   readonly registry: ConsolePaneRegistry;
-  /** What each pane body is handed. The surface that owns the stores builds it. */
   /** What each pane's body is handed, or why its address cannot be served. */
   readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext | ConsoleRefusal;
   /** Supplied where a host can move a pane into a window of its own

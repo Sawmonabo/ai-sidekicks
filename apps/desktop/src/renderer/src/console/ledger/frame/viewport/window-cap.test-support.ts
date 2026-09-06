@@ -22,7 +22,7 @@ export const TOP_LEVEL_ROW_COUNT = 10_000;
 export const CHILDREN_PER_CHAPTER = 3;
 
 /** A log of chapters, each with children, oldest first. */
-export function syntheticLog(topLevelCount: number): readonly LedgerWindowRow[] {
+export function syntheticWindowRows(topLevelCount: number): readonly LedgerWindowRow[] {
   const rows: LedgerWindowRow[] = [];
   for (let index = 0; index < topLevelCount; index += 1) {
     const key = `chapter-${String(index)}`;
@@ -82,6 +82,6 @@ export const PRUNABLE: PruneConditions = {
 /** A window holding the whole synthetic log, well over its own cap. */
 export function loadedWindow(): LedgerWindow {
   const window = new LedgerWindow();
-  window.ingest(syntheticLog(TOP_LEVEL_ROW_COUNT));
+  window.ingest(syntheticWindowRows(TOP_LEVEL_ROW_COUNT));
   return window;
 }

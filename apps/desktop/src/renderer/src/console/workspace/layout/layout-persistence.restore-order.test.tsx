@@ -15,8 +15,8 @@ import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../workspace-bounds.js";
-import { UiStateStore } from "../../persistence/index.js";
-import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
+import { type UiStateStore } from "../../persistence/index.js";
+import { memoryStore } from "../Workspace.test-support.js";
 import { DeckLayout } from "../deck/deck-layout.js";
 import { DECK_LAYOUT_RECORD_KEY, useDeckPersistence } from "./layout-persistence.js";
 
@@ -24,10 +24,6 @@ const RESTORE_SESSION = "session-restore";
 
 function deckLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
-}
-
-function uiStateStore(): UiStateStore {
-  return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
 }
 
 /** A saved arrangement, written through the grammar that reads it back. */
@@ -113,7 +109,7 @@ async function savedPaneCount(store: UiStateStore): Promise<number> {
 
 describe("useDeckPersistence — an arrangement made while the record was being read", () => {
   it("writes nothing while the read is still in flight", async () => {
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
@@ -129,7 +125,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   });
 
   it("keeps both the saved arrangement and the pane opened during the read", async () => {
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline"]);
     const layout = deckLayout();
 
@@ -143,7 +139,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   });
 
   it("writes the reconciled arrangement once, after the restore settles", async () => {
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline"]);
     const layout = deckLayout();
 
@@ -157,7 +153,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   });
 
   it("does not duplicate a pane the record already held", async () => {
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
@@ -175,7 +171,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // snapshot — the pane is simply gone — so a reconciliation that diffs the deck
     // cannot see it, and the record puts the pane straight back. The person watches a
     // pane they just closed return, and the write that follows files it as theirs.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
@@ -200,7 +196,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // The arriving pane takes the equal share a three-pane deck gives it and the two
     // live panes keep their seventy-thirty ratio across what is left — 467 to 200,
     // which is 700 and 300 rescaled into the 667 the deck still holds.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["approvals"]);
     const layout = deckLayout();
 
@@ -224,7 +220,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // during the read reaches the merge with the deck focusing nothing. Panes then
     // arrived from the record with no focus among them, and the composer read that as
     // having nowhere to send — recoverable only by a click or an arrow key.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["approvals"]);
     const layout = deckLayout();
 
@@ -245,7 +241,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // Without this the case above would pass over a merge that focused the record's
     // panes unconditionally, which is the same window-undoing-work-under-their-hands
     // defect the width rule exists for, one axis over.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["approvals"]);
     const layout = deckLayout();
 
@@ -265,7 +261,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     // Same two panes in both the record and the deck, in opposite orders. A wholesale
     // restore has no way to prefer one, so it takes the record's and the reorder the
     // person just performed is undone under their hands.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline", "runs"]);
     const layout = deckLayout();
 
@@ -283,7 +279,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   it("negative control: an untouched read restores the record and writes nothing back", async () => {
     // Without this, a hook that wrote on every settle would pass the cases above while
     // spending a durable write on every session a person opens.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline", "runs"]);
     const before = await store.read(RESTORE_SESSION, DECK_LAYOUT_RECORD_KEY);
     const layout = deckLayout();
@@ -299,7 +295,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   it("negative control: with nothing saved the fallback ledger is opened and written", async () => {
     // The gate must not swallow the first run's own record, which is the arrangement
     // the person finds the next time they open the session.
-    const store = uiStateStore();
+    const store = memoryStore();
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -312,7 +308,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   it("negative control: a change made after the restore settled is written", async () => {
     // The gate opens; it does not stay shut. Without this every case above would pass
     // over a hook that had simply stopped writing.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline"]);
     const layout = deckLayout();
 
@@ -334,7 +330,7 @@ describe("useDeckPersistence — the writer across a double-mount", () => {
     // rearranging their deck all session with nothing kept and no refusal raised.
     // React's own double-mount is the trigger, and it arrives with a wrapper nobody
     // re-audits this call site for.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline"]);
     const layout = deckLayout();
 
@@ -351,7 +347,7 @@ describe("useDeckPersistence — the writer across a double-mount", () => {
   it("negative control: the same arrangement lands under an ordinary single mount", async () => {
     // Without this the case above would pass over a fixture whose deck reached the
     // store on some path other than the writer being tested.
-    const store = uiStateStore();
+    const store = memoryStore();
     await saveDeck(store, ["timeline"]);
     const layout = deckLayout();
 

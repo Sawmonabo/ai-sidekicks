@@ -16,7 +16,7 @@ import {
   withLaidOutViewport,
   withdrawLedgerCommands,
 } from "./LedgerFeedFixtures.test-support.js";
-import { openSessionStoreWithLog } from "./ledger-feed-logs.test-support.js";
+import { openSessionStoreWithFeedLog } from "./ledger-feed-logs.test-support.js";
 
 afterEach(() => {
   withdrawLedgerCommands();
@@ -28,7 +28,7 @@ const SCRUB_TO_FIFTH_ROW_MS = 4000;
 describe("the ledger feed — replay reveals", () => {
   it("shows the rows the position has reached and no more", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
       REPLAY_LOG_EVENT_COUNT,
     );
@@ -55,7 +55,7 @@ describe("the ledger feed — replay reveals", () => {
 
   it("gives the window back when the scrub reaches the tail", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
     fireEvent.change(scrub as HTMLInputElement, {
       target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
@@ -73,7 +73,7 @@ describe("the ledger feed — replay reveals", () => {
     // position too — which reveals only the rows sharing the window's first instant
     // and would hide almost every session behind a control nobody had touched.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
       REPLAY_LOG_EVENT_COUNT,
     );
@@ -83,7 +83,7 @@ describe("the ledger feed — replay reveals", () => {
 describe("the ledger feed — the dock stays up while focus is still in the rail", () => {
   it("does not conceal when a tab moves focus from the slider into the dock", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     const { dock, railSlider, dockButton } = replayDockHarness(feed);
     fireEvent.focusIn(railSlider);
     expect(dock.hidden).toBe(false);
@@ -97,7 +97,7 @@ describe("the ledger feed — the dock stays up while focus is still in the rail
     // Without this the case above would pass over a wrapper that had stopped
     // concealing at all, which is a dock that never closes.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     const { dock, railSlider } = replayDockHarness(feed);
     fireEvent.focusIn(railSlider);
     expect(dock.hidden).toBe(false);
@@ -111,7 +111,7 @@ describe("the ledger feed — the dock stays up while focus is still in the rail
     // A null related target is focus leaving the window, not an intra-wrapper move.
     // Exempting it would leave the dock open under a window nobody is in.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     const { dock, railSlider } = replayDockHarness(feed);
     fireEvent.focusIn(railSlider);
     fireEvent.focusOut(railSlider, { relatedTarget: null });
@@ -135,7 +135,7 @@ describe("the ledger feed — replay from the row in view", () => {
     // is parked at the head, so the row in view is the window's first — and the
     // engine holding at its instant is what makes the rows behind it withheld.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     const { dock } = replayDockHarness(feed);
     expect(dock.hasAttribute("hidden")).toBe(true);
 
@@ -149,7 +149,7 @@ describe("the ledger feed — replay from the row in view", () => {
 
   it("does the same from the keyboard, through the palette's own row", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     contributeLedgerCommands();
 
     dispatchConsoleCommand("ledger.replayFromRowInView");
@@ -162,7 +162,7 @@ describe("the ledger feed — replay from the row in view", () => {
     // Without this the cases above would pass over a feed that withheld rows for
     // some other reason — a replay nobody started, say.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
       REPLAY_LOG_EVENT_COUNT,
     );

@@ -30,7 +30,7 @@ import {
   EARLY_JOINER,
   LATE_JOINER,
   openSessionStoreWithGeneralLog,
-  openSessionStoreWithLog,
+  openSessionStoreWithFeedLog,
   openStoreWhereJoinOrderIsNotEventOrder,
 } from "./ledger-feed-logs.test-support.js";
 
@@ -41,7 +41,7 @@ afterEach(() => {
 describe("the ledger feed — one binding", () => {
   it("sizes the rail from the rows the box intersects, not the rows it mounts", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(LONG_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(LONG_LOG_EVENT_COUNT));
     const thumb = feed.querySelector<HTMLElement>(".meridian-rail__thumb");
     expect(thumb).not.toBeNull();
     // Both readings come off the DOM, so this discriminates rather than restating a
@@ -64,7 +64,7 @@ describe("the ledger feed — one binding", () => {
     // unmeasured viewport genuinely has no rendered range, and the honest rail for
     // one is the full-height thumb — which is exactly what a rail reading an
     // unattached binding drew on a fully laid-out ledger.
-    const feed = renderFeed(openSessionStoreWithLog(LONG_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(LONG_LOG_EVENT_COUNT));
     const thumb = feed.querySelector<HTMLElement>(".meridian-rail__thumb");
     expect(thumb?.style.height).toBe("100%");
   });

@@ -9,9 +9,13 @@
  * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
  * ceiling, because their sub-modules draw INSIDE the boxes the parent sheet already
  * sizes — a body inside a card, a row inside the frame — and splitting a box from its
- * contents buys no reading. Every sheet is imported from `ledger/index.ts` and nowhere
- * else, parent before children, so they land once per bundle and cascade after the
- * primitives' and the frame's.
+ * contents buys no reading. EACH SHEET IS IMPORTED BY THE DOOR OF THE DIRECTORY THAT
+ * OWNS IT — this one by `ledger/index.ts`, `frame/frame.css` by `frame/index.ts`, and
+ * so on down, with `structure/index.ts` carrying the four its doorless children's
+ * sheets are — because a door reaching into a directory that has one of its own is
+ * the shape `apps/desktop/AGENTS.md` §Module shape forbids. Every one of those doors
+ * is reachable from the family door, so they still land once per bundle, parent
+ * before children, and cascade after the primitives' and the frame's.
  *
  * WHAT IS CROSS-DIRECTORY HERE, and why each one is:
  *
@@ -101,11 +105,12 @@
  *
  * IT IS ALSO THE ONLY `.meridian-pane*` RULE LEFT HERE. The pane itself, its head,
  * kind glyph, breadcrumb, control strip, focus treatments and body box are drawn by
- * `seats/ConsolePaneChrome` and styled by `seats/pane-chrome.css`, which that
- * component imports. One frame for eleven pane kinds across six families means one
- * sheet, and a family keeping a copy of those rules is a second answer to where the
- * focus ring goes that agrees only until one of them is edited. A feed is a body,
- * and a body is what a family draws.
+ * `seats/ConsolePaneChrome` and styled by `seats/pane-chrome.css`, which the SEATS DOOR
+ * imports and the component does not — a component importing a sheet is the one shape
+ * `apps/desktop/AGENTS.md` §Module shape forbids outright. One frame for eleven pane
+ * kinds across six families means one sheet, and a family keeping a copy of those rules
+ * is a second answer to where the focus ring goes that agrees only until one of them is
+ * edited. A feed is a body, and a body is what a family draws.
  */
 .meridian-pane__feed {
   display: flex;

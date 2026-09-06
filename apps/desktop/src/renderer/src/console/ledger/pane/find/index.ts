@@ -9,18 +9,21 @@
 // success nobody can see — and why the readings that count what the cap and the replay
 // position hid are beside the walk that could not reach them.
 //
-// WHAT LEAVES. Everything these five modules export, which is unusual for a door and
-// is the honest reading here: the feed composes all of it — the find state and its
-// walk, the filter and the window it narrows, the jump's reach and the three acts that
-// perform one, the reading a header renders, and the id-entry control. What the door
-// buys is not concealment but a name: a sibling reads one seam instead of five files,
-// and a name added here is a decision rather than a reachable file.
+// WHAT LEAVES. Everything these five modules export that has a reader outside them,
+// which is nearly all of it and is the honest reading here: the feed composes the find
+// state and its walk, the filter and the window it narrows, the jump's reach and the
+// three acts that perform one, the reading a header renders, and the id-entry control. The one name
+// held back is `LedgerFindInputs`, the find hook's own parameter shape: its readers
+// are the hook and the suites that drive it, all of them inside this directory, and a
+// door line for a shape nothing outside composes is a door widened for testing. What
+// the door buys is not concealment but a name: a sibling reads one seam instead of
+// five files, and a name added here is a decision rather than a reachable file.
 
 export { LedgerEventIdJump } from "./LedgerEventIdJump.js";
 export { matchWalkReading } from "./ledger-find-readings.js";
 export { useLedgerFind, type LedgerFindState } from "./ledger-find.js";
 export {
-  chapterRunIdOf,
+  chapterRunIdInWindow,
   jumpOutcomeRowId,
   useDeferredRowJump,
   useEventIdJumpOutcome,

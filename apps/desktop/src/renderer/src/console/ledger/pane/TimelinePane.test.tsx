@@ -38,7 +38,7 @@ import { unregisterTimelineRowRenderer } from "../../seats/timeline-row-slot.js"
 import { TIMELINE_ROW_SLOT, type TimelinePaneContext } from "./TimelinePane.js";
 import {
   TIMELINE_PANE_SESSION_ID,
-  openSessionStoreWithLog,
+  openSessionStoreWithPaneLog,
   paneContext,
   renderTimelinePane as renderPane,
 } from "./TimelinePaneFixtures.test-support.js";
@@ -145,7 +145,7 @@ describe("TimelinePane — the row slot", () => {
     registerTimelineRowRenderer("timeline-pane-test", (rowProps) => (
       <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
     ));
-    const sessionStore = openSessionStoreWithLog();
+    const sessionStore = openSessionStoreWithPaneLog();
     const pane = renderPane({
       context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
     });

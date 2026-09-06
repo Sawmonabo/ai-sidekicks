@@ -72,7 +72,6 @@ import {
   type SessionStore,
 } from "../../../store/index.js";
 
-/** Everything one render of the ledger needs, derived once per store revision. */
 /**
  * What one pipeline stage admitted, and the rows it removed on the way.
  *
@@ -102,6 +101,7 @@ export interface LedgerPipelineStage {
  */
 export const NO_ROWS_REMOVED: readonly TimelineRow[] = [];
 
+/** Everything one render of the ledger needs, derived once per store revision. */
 export interface LedgerWindowModel {
   /** The virtualizer's identity list. Memoized: the viewport keys its reconcile on it. */
   readonly viewportRows: readonly LedgerViewportRow[];

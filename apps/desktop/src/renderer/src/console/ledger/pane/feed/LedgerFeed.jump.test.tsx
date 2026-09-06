@@ -30,7 +30,7 @@ import {
   filterableRowId,
   openSessionStoreWithFilterableLog,
   openSessionStoreWithGeneralLog,
-  openSessionStoreWithLog,
+  openSessionStoreWithFeedLog,
   projectedRowId,
 } from "./ledger-feed-logs.test-support.js";
 import {
@@ -105,7 +105,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
 
   it("names the replay position, and leaving the replay reaches the row", () => {
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
     fireEvent.change(scrub as HTMLInputElement, {
       target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
@@ -143,7 +143,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     // asserted that the held request is ever spent through the real binding: the
     // three cases above pass with the deferred jump a no-op.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
     const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
     fireEvent.change(scrub as HTMLInputElement, {
       target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },

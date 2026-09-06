@@ -11,6 +11,9 @@
 // engine both hold. `SeamRow` and the superseded bands are published by the family door
 // from their own declaring modules, so a symbol's home stays one hop from its reader.
 
+// The sheet this directory owns, imported by its own door.
+import "./seams.css";
+
 export {
   LedgerSeamIndex,
   SEAM_WIRE_BINDINGS,

@@ -60,7 +60,7 @@ export const EARLY_JOINER = "participant-alba";
 export const LATE_JOINER = "participant-enzo";
 
 /** A real store holding a log of `count` run events, oldest first. */
-export function openSessionStoreWithLog(count: number): SessionStore {
+export function openSessionStoreWithFeedLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
   sessionStore.applyBatch(

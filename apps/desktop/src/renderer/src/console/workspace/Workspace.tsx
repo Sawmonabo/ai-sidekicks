@@ -53,6 +53,7 @@ import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 
 import {
+  DECK_MINIMUM_WIDTH_PERCENT,
   DECK_RESTORED_PANE_CAP,
   SIDEBAR_COLLAPSED_WIDTH_PX,
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
@@ -103,16 +104,6 @@ registerSidebarCommands(consoleCommandSurface);
 /** The panel ids the outer split reports its layout under. */
 const DECK_PANEL_ID = "workspace-deck";
 const SIDEBAR_PANEL_ID = "workspace-sidebar";
-
-/**
- * The narrowest the deck may be squeezed to by a sidebar drag, in percent.
- *
- * A floor on the DECK rather than a ceiling on the sidebar, because the two are the
- * same constraint read from opposite ends and the deck is the side whose own density
- * floor is measured in pixels: this keeps the split from handing the sidebar a width
- * that leaves the panes inside the deck below their preset's minimum.
- */
-const DECK_MINIMUM_WIDTH_PERCENT = 40;
 
 export interface WorkspaceProps {
   readonly bridge: ConsoleBridge;

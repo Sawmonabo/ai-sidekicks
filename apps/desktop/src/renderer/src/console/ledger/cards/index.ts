@@ -36,4 +36,8 @@
 // with one reader is a second name for one edge, and a door with none is what
 // `barrel-census` and the dead-code gate both fail.
 
+// The sheet this directory owns, imported by its own door. `markdown/` carries a
+// door of its own and imports its own sheet there.
+import "./cards.css";
+
 export { projectFixtureShellRows } from "./shell/fixture-shell-projection.js";

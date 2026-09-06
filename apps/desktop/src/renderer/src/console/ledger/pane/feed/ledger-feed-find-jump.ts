@@ -26,7 +26,7 @@ import {
   type LedgerJumpOutcome,
 } from "../../structure/index.js";
 import {
-  chapterRunIdOf,
+  chapterRunIdInWindow,
   jumpOutcomeRowId,
   type LedgerFindState,
   type LedgerJumpReach,
@@ -124,7 +124,7 @@ export function useLedgerFindAndJump(inputs: {
   }, [setFilter]);
   const openChapterOfRow = useCallback(
     (row: TimelineRow) => {
-      const chapterRunId = chapterRunIdOf(row, foldedWindow);
+      const chapterRunId = chapterRunIdInWindow(row, foldedWindow);
       const chapter =
         chapterRunId === undefined ? undefined : foldedWindow.chapterByHeaderKey.get(chapterRunId);
       if (chapter !== undefined) {

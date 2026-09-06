@@ -30,6 +30,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import {
   jumpToEventId,
+  runIdOfChapteredRow,
   type LedgerJumpAbsence,
   type LedgerJumpOutcome,
   type LedgerJumpStages,
@@ -198,7 +199,7 @@ const LEDGER_JUMP_ACTS = {
     },
   }),
   "folded-into-chapter": (row, context) => {
-    const chapterRunId = chapterRunIdOf(row, context.foldedWindow);
+    const chapterRunId = chapterRunIdInWindow(row, context.foldedWindow);
     if (chapterRunId === undefined || context.openedTerminalRunIds.has(chapterRunId)) {
       return undefined;
     }
@@ -272,13 +273,22 @@ export function useLedgerJumpReach(inputs: {
   ]);
 }
 
-/** Which chapter of this window holds a row, if one does. */
-export function chapterRunIdOf(
+/**
+ * Which chapter of THIS WINDOW holds a row, if one does.
+ *
+ * Composes `runIdOfChapteredRow` rather than restating its narrowing: which rows carry
+ * a run at all is the chapters module's rule, and what this adds is the membership
+ * test against the window in hand. Two copies of the narrowing would drift silently —
+ * the jump would go on landing correctly while the chapters it opened were decided by
+ * a different reading of the same row.
+ */
+export function chapterRunIdInWindow(
   row: TimelineRow,
   foldedWindow: LedgerWindowModel,
 ): string | undefined {
-  if (row.kind === "general") {
+  const runId = runIdOfChapteredRow(row);
+  if (runId === undefined) {
     return undefined;
   }
-  return foldedWindow.chapterByHeaderKey.has(row.runId) ? row.runId : undefined;
+  return foldedWindow.chapterByHeaderKey.has(runId) ? runId : undefined;
 }
