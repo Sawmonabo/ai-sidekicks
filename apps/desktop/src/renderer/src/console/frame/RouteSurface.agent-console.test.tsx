@@ -20,7 +20,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
-import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import {
   FrameStore,

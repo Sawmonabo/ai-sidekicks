@@ -18,8 +18,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { refuse } from "../core/index.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 import {
   CALLER_IDENTITY_READ_FAILED,
   useCallerMembershipRole,

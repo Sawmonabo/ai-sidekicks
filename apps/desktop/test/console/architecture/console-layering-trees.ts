@@ -8,10 +8,12 @@
 // `stylesheet-edge-graph.ts`: the corpus in a module of its own, the suite that
 // judges it next door.
 //
-// The split is what keeps any of the three readable. Five rules need seven trees
-// between them, each carrying the paragraph that says which rule it is the control
-// for and why it offends the set it does — and a file holding those beside the
-// harness, the budgets and the cases was doing three jobs at ~650 lines.
+// The split is what keeps any of the three readable. Every rule needs a tree and
+// several need more than one, each carrying the paragraph that says which rule it is
+// the control for and why it offends the set it does — and a file holding those
+// beside the harness, the budgets and the cases was doing three jobs at ~650 lines.
+// The counts are deliberately not written down: a branch adds a rule and its tree in
+// one diff, and a cardinal in this header would be the thing it forgot to move.
 //
 // WHY THESE ARE OBJECTS AND NOT FILES ON DISK. A tree is planted into a fresh
 // temporary directory by the harness and removed when the case that read it ends, so
@@ -22,8 +24,8 @@
 export type PlantedTree = Readonly<Record<string, string>>;
 
 /**
- * The shape the console has AFTER this change, reduced to the modules the five rules
- * can see.
+ * The shape the console has AFTER this change, reduced to the modules the rules can
+ * see.
  *
  * Every member is here because a rule could misfire on it: the sub-module door that
  * must stay legal, the family door that must reach past it to the declaring module,
@@ -184,6 +186,39 @@ export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
 };
 
 /**
+ * A harness in a LOW family reaching a family above it, beside an ordinary module
+ * writing the identical edge.
+ *
+ * THE CLASS THE DOOR RULE'S SUBTRACTION MUST NOT REACH. `.test-support.*` is
+ * subtracted from `console-cross-family-deep-import` and from nothing else, and the
+ * tree above proves that subtraction exists. This one proves where it stops: the
+ * family ORDERING has no such subtraction, because a harness reaching upward is the
+ * same inversion an ordinary module's edge is — the symbol it wants lives above the
+ * family that needs it, and the remedy is to hoist the symbol rather than to exempt
+ * the reader. `store/microtask-drain.test-support.ts` was exactly this shape in
+ * production: a timing helper parked in `bridge/fixture/` that `store/` and `frame/`
+ * suites both waited on.
+ *
+ * WHY A `.test-support.*` MODULE RATHER THAN THE SUITE THAT FOUND THE DEFECT. The
+ * suite is a `.test.tsx`, and `options.exclude` in `.dependency-cruiser.mjs` removes
+ * every `.test.(ts|tsx)` from the graph BEFORE any rule runs — deliberately, because
+ * a `console-unit` test legitimately reaches across families to drive the module it
+ * covers. So the importer that surfaced the mis-homing is invisible to this cruise by
+ * design, and the class that is not is the harness beside it, which stays in the
+ * graph and is a subject of every ordering rule.
+ *
+ * THE EDGE IS WRITTEN THROUGH THE DOOR, so this tree offends exactly one rule. A deep
+ * specifier would offend the door rule as well on the ordinary module and not on the
+ * harness, and a control that trips two rules asymmetrically cannot say which of them
+ * bit.
+ */
+export const TEST_SUPPORT_UPWARD_EDGE_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "store/settle.test-support.ts": `import type { SessionDirectoryReply } from "../bridge/index.js";\n\nexport type SettledDirectory = SessionDirectoryReply;\n`,
+  "store/session-directory-store.ts": `import type { SessionDirectoryReply } from "../bridge/index.js";\n\nexport type StoredDirectory = SessionDirectoryReply;\n`,
+};
+
+/**
  * A renderer subtree BESIDE the console reaching past a family door.
  *
  * Every other rule here is `from`-scoped to `console/`, so an importer that lives
@@ -217,7 +252,7 @@ export const CONSOLE_ROOT_TREE: PlantedTree = {
 };
 
 /**
- * Every tree that carries a rule control — the clean shape and the ten that offend.
+ * Every tree that carries a rule control — the clean shape and the eleven that offend.
  *
  * The aggregate case below reads this rather than naming three of them, so a control
  * added for a fifth rule joins that case's quantifier by construction. `PROOF_TREE` is
@@ -234,6 +269,7 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   PANE_BOARD_DEEP_IMPORT_TREE,
   DEEP_SOURCE_TREE,
   TEST_SUPPORT_SUBTRACTION_TREE,
+  TEST_SUPPORT_UPWARD_EDGE_TREE,
   OUTSIDE_RENDERER_TREE,
   CONSOLE_ROOT_TREE,
 ];

@@ -16,7 +16,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
 import { formatRoute } from "../routing/index.js";
 import { FrameStore, useLocationHash } from "../store/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";

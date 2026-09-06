@@ -29,8 +29,8 @@ import {
   SCRIPTED_LATENCY_MS,
   callThroughBridge,
   createFixture,
-  drainMicrotasks,
 } from "./fixture-bridge.test-support.js";
+import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import {

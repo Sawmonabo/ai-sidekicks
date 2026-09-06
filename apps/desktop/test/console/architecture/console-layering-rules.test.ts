@@ -1,4 +1,4 @@
-// The five layering rules that had no failing control until now.
+// The layering rules that had no failing control until now.
 //
 // `structure:layering` is a command, not a suite: it reports on THIS tree, and a
 // tree that happens not to contain a violation reports clean whether the rule
@@ -41,6 +41,7 @@ import {
   OUTSIDE_DOOR_RULE,
   PANE_BODY_RULE,
   PlantedTreeCache,
+  STATE_UPWARD_EDGE_RULE,
   VIEW_FAMILY_ISOLATION_RULE,
   layeringTimeoutFor,
 } from "./console-layering-cruise.js";
@@ -58,6 +59,7 @@ import {
   RULE_CONTROL_TREES,
   SUB_MODULE_DOOR_TREE,
   TEST_SUPPORT_SUBTRACTION_TREE,
+  TEST_SUPPORT_UPWARD_EDGE_TREE,
   VIEW_FAMILY_EDGE_TREE,
 } from "./console-layering-trees.js";
 
@@ -182,7 +184,7 @@ describe("console layering rules", () => {
       // is the one the barrel-chain rule would catch if it matched on the module pair
       // rather than on the `export … from` dependency type, and a rule that reported it
       // would make the pane board unwritable. Quantified over `RULE_CONTROL_TREES` so a
-      // control added for a sixth rule joins this claim by construction.
+      // control added for a further rule joins this claim by construction.
       const violationsPerTree = await Promise.all(
         RULE_CONTROL_TREES.map((tree) => cruiseCache.violationsFor(tree)),
       );
@@ -222,6 +224,36 @@ describe("console layering rules", () => {
 
       expect(violations).toContain(`${DEEP_IMPORT_RULE}: ${ordinary} → ${target}`);
       expect(violations.filter((line) => line.includes(harness))).toEqual([]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a harness that reaches upward across the family DAG",
+    async () => {
+      // WHERE THE HARNESS EXEMPTION STOPS. The case above proves `.test-support.*` is
+      // subtracted from the door rule; this one proves it reaches no further. Both
+      // modules write the same edge and BOTH are reported, because a harness reaching
+      // for a symbol above its own family is the same inversion an ordinary module's
+      // edge is — the remedy is to hoist the symbol, never to exempt the reader.
+      //
+      // The importer that surfaced this in production was a `.test.tsx`, which
+      // `options.exclude` removes from the graph before any rule runs; the harness
+      // beside it stays in, which is why this class is the one a planted tree can
+      // hold at all.
+      //
+      // Perturbed by adding `TEST_SUPPORT_MODULES` to `upwardEdge`'s `from.pathNot`:
+      // the harness line goes and the ordinary one stays, which is the failure this
+      // case exists to produce.
+      const violations = await cruiseCache.violationsFor(TEST_SUPPORT_UPWARD_EDGE_TREE);
+      const target = join(CONSOLE_ROOT, "bridge/index.ts");
+
+      expect([...violations].sort()).toEqual(
+        [
+          `${STATE_UPWARD_EDGE_RULE}: ${join(CONSOLE_ROOT, "store/settle.test-support.ts")} → ${target}`,
+          `${STATE_UPWARD_EDGE_RULE}: ${join(CONSOLE_ROOT, "store/session-directory-store.ts")} → ${target}`,
+        ].sort(),
+      );
     },
     ONE_TREE_MS,
   );
