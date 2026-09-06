@@ -37,8 +37,20 @@ export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // release-absence sweep, which imports the leaf directly — a barrel line no
 // importer reaches is a dead export the structure gate reports.
 export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
+// The millisecond unit factors, beside the reading that makes the millisecond this
+// console's unit. Through the door because a duration is composed and compared above
+// every family: the presence model, the deadline wake and the invite shelf each wrote
+// their own chain of them before this.
 export {
   compareInstants,
+  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  MILLISECONDS_PER_DAY,
+  /** @consumedBy T-023p-1C-4, T-023p-1C-5, T-023p-1C-7 */
+  MILLISECONDS_PER_HOUR,
+  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  MILLISECONDS_PER_MINUTE,
+  /** @consumedBy T-023p-1C-4 */
+  MILLISECONDS_PER_SECOND,
   parseInstant,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type Instant,
