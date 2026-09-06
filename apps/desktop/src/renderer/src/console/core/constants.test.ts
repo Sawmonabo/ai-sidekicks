@@ -12,6 +12,7 @@
 // So this file states each relation once, next to the reason it holds.
 
 import { describe, expect, it } from "vitest";
+
 import {
   APPLY_COALESCE_MS,
   CAST_BAR_CHIP_CAP,

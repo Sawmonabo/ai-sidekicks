@@ -97,8 +97,13 @@ function detectHostChordPlatform(): ChordPlatform {
  * `parseKeybinding` resolves `$mod` against the HOST at import time, while
  * `formatChordForPlatform` must render a chord for a platform that is not the
  * host — that is what makes a fixture screenshot reproducible on any runner.
+ *
+ * Exported for `decodeChordKeyToken`'s reason: a caller that only wants to know
+ * WHICH modifiers a chord names still has to split it the way the parser will, and
+ * a `chord.split("+")` written beside this one answers differently on exactly the
+ * chords the grammar exists for.
  */
-function splitChordTokens(chord: string): { modifiers: readonly string[]; key: string } {
+export function splitChordTokens(chord: string): { modifiers: readonly string[]; key: string } {
   const parts = chord.trim().split(/(?<=\w|\])\+/);
   const key = parts.pop() ?? "";
   return { modifiers: parts, key };
@@ -126,24 +131,75 @@ export interface ChordPressRendering {
   readonly key: ChordKeyRendering;
 }
 
+/**
+ * Every token an authored chord may name as a modifier. Closed, and the tuple is the
+ * declaration: the two rendering tables below are typed as totals over it, so a token
+ * added here does not compile until both platforms say how it is printed and spoken.
+ *
+ * Exported because it is the vocabulary and not merely this printer's input. A caller
+ * asking whether a chord holds a modifier at all — the browser family's page handback,
+ * which may claim only a chord that does — was restating the set with a comment saying
+ * it mirrored this one, which is the second union `apps/desktop/AGENTS.md` bans.
+ */
+export const CHORD_MODIFIER_TOKENS = [
+  "$mod",
+  "Meta",
+  "Control",
+  "Ctrl",
+  "Alt",
+  "Option",
+  "Shift",
+] as const;
+
+/** One modifier token an authored chord names. Derived from the tuple, never restated. */
+export type ChordModifierToken = (typeof CHORD_MODIFIER_TOKENS)[number];
+
+/**
+ * Which modifier `$mod` stands for on each platform — meta on macOS, control
+ * elsewhere.
+ *
+ * THE ONE RESOLUTION, and both readers take it from here. `modifierRendering` below
+ * substitutes through it before either table is consulted, which is why neither table
+ * carries a `$mod` row of its own any more; and the page handback asks which of a
+ * keystroke's two modifiers `$mod` names. tinykeys performs the same resolution
+ * against the HOST at import time, so a surface rendering or deciding for a platform
+ * that is not the host cannot borrow it and has to read this.
+ */
+export const PLATFORM_MODIFIER_TOKEN: Readonly<Record<ChordPlatform, "Meta" | "Control">> = {
+  darwin: "Meta",
+  win32: "Control",
+  linux: "Control",
+};
+
+/** The token an authored chord names for "this platform's own application modifier". */
+export const PLATFORM_MODIFIER_CHORD_TOKEN = "$mod";
+
+/** Every token but `$mod`, which is resolved into one of these before a lookup. */
+type ResolvedModifierToken = Exclude<ChordModifierToken, "$mod">;
+
+// The two tables below are annotated open (a token reaching `modifierRendering` is
+// whatever the author typed, so an unknown key must read `undefined` rather than be
+// typed as present) and CHECKED total by `satisfies`: a token added to the tuple
+// above does not compile until both platforms say how it is printed and spoken.
 const DARWIN_MODIFIERS: Readonly<Record<string, ChordKeyRendering>> = {
-  $mod: { glyph: "⌘", spoken: "Command" },
   Meta: { glyph: "⌘", spoken: "Command" },
   Control: { glyph: "⌃", spoken: "Control" },
   Ctrl: { glyph: "⌃", spoken: "Control" },
   Alt: { glyph: "⌥", spoken: "Option" },
   Option: { glyph: "⌥", spoken: "Option" },
   Shift: { glyph: "⇧", spoken: "Shift" },
-};
+} satisfies Readonly<Record<ResolvedModifierToken, ChordKeyRendering>>;
 
+// `Meta` is deliberately absent: off macOS the key is branded per platform and
+// `modifierRendering` answers for it below rather than the table carrying two rows
+// that would have to agree.
 const NON_DARWIN_MODIFIERS: Readonly<Record<string, ChordKeyRendering>> = {
-  $mod: { glyph: "Ctrl", spoken: "Control" },
   Control: { glyph: "Ctrl", spoken: "Control" },
   Ctrl: { glyph: "Ctrl", spoken: "Control" },
   Alt: { glyph: "Alt", spoken: "Alt" },
   Option: { glyph: "Alt", spoken: "Alt" },
   Shift: { glyph: "Shift", spoken: "Shift" },
-};
+} satisfies Readonly<Record<Exclude<ResolvedModifierToken, "Meta">, ChordKeyRendering>>;
 
 /** Keys whose event name is not what a person reads on a keycap. */
 const DARWIN_KEYS: Readonly<Record<string, ChordKeyRendering>> = {
@@ -197,17 +253,21 @@ const PUNCTUATION_CODES: Readonly<Record<string, ChordKeyRendering>> = {
 };
 
 function modifierRendering(token: string, platform: ChordPlatform): ChordKeyRendering | undefined {
+  // `$mod` is resolved into a real token first, through the one map, so neither table
+  // needs a row for it and the printer cannot come to disagree with the predicate.
+  const resolved: string =
+    token === PLATFORM_MODIFIER_CHORD_TOKEN ? PLATFORM_MODIFIER_TOKEN[platform] : token;
   if (platform === "darwin") {
-    return DARWIN_MODIFIERS[token];
+    return DARWIN_MODIFIERS[resolved];
   }
-  if (token === "Meta") {
+  if (resolved === "Meta") {
     // No glyph off macOS: the key is branded differently per platform, and
     // printing "⌘" on Windows would name a key that is not on the keyboard.
     return platform === "win32"
       ? { glyph: "Win", spoken: "Windows" }
       : { glyph: "Super", spoken: "Super" };
   }
-  return NON_DARWIN_MODIFIERS[token];
+  return NON_DARWIN_MODIFIERS[resolved];
 }
 
 /**

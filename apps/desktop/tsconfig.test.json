@@ -75,19 +75,22 @@
     "test/console/accessibility/**",
     "test/console/e2e/**",
     "test/console/endurance/**",
-    // The launcher the two Electron tiers share, and the module naming the three
-    // fixture globals they read off a built renderer. Both sit beside those tiers
-    // rather than inside either, so both need their own line, and each earns it
-    // differently: `fixture-handles.ts` re-exports renderer constants and so reads
-    // the console's build-time signals for the same reason those tiers do, while
-    // `electron-harness.ts` hands `page.evaluate` callbacks that are browser code
-    // — `document.visibilityState`, `requestAnimationFrame` — which this
-    // Node-lib config has no types for. Both are typechecked with those tiers by
-    // `tsconfig.console-electron-test.json`. The launcher's other siblings here —
-    // `bounded-cleanup.ts`, `launch-deadline.ts`, `frame-witness.ts`,
-    // `launch-budgets.ts`, `fixture-bundle.ts` — import no renderer module and
-    // evaluate nothing in a page, so they stay in this config.
+    // The launcher the two Electron tiers share, the readiness phase it delegates
+    // to, and the module naming the three fixture globals they read off a built
+    // renderer. All three sit beside those tiers rather than inside either, so each
+    // needs its own line, and they earn them differently: `fixture-handles.ts`
+    // re-exports renderer constants and so reads the console's build-time signals
+    // for the same reason those tiers do, `launch-readiness.ts` hands
+    // `page.evaluate` callbacks that are browser code — `document.visibilityState`,
+    // `requestAnimationFrame` — which this Node-lib config has no types for, and
+    // `electron-harness.ts` imports that module, which pulls those callbacks into
+    // whatever program pulls the launcher in. All three are typechecked with those
+    // tiers by `tsconfig.console-electron-test.json`. The launcher's other siblings
+    // here — `bounded-cleanup.ts`, `launch-deadline.ts`, `frame-witness.ts`,
+    // `launch-budgets.ts`, `fixture-bundle.ts`, `launch-trace.ts` — import no
+    // renderer module and evaluate nothing in a page, so they stay in this config.
     "test/console/electron-harness.ts",
+    "test/console/launch-readiness.ts",
     "test/console/fixture-handles.ts"
   ]
 }

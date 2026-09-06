@@ -61,6 +61,16 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./open-session-entry.js";
 
+// The selector hook, and the state its selector reads.
+//
+// `useOpenSessionStore` hands a caller the store; reading it is a second act, and
+// until T-023p-1C-7 every caller of that second act lived inside this family. A
+// view family that reached for `useSyncExternalStore` itself would be the second
+// subscription path this family's header exists to prevent — so the one path
+// ships through the door beside the store it reads.
+export type { SessionStoreState } from "./session-store.js";
+export { useSessionStore } from "./hooks.js";
+
 // The partition and initialisation reads leave the family with their first
 // surface caller: the auxiliary window's agent step reads a session's agents,
 // which is one entity kind's map plus the fact that the store has a base state to
@@ -132,6 +142,13 @@ export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
 export type {
   /** @consumedBy T-023p-1C-8 */
   CurrentGenerationClaim,
-  /** @consumedBy T-023p-1C-8 */
   GenerationClaim,
 } from "./generation-latch.js";
+// The caller's own membership role, forwarded with the two types a caller has to name
+// to use it. Its first surface consumer is the terminal lease line: taking the shell
+// is owner/collaborator-only, so a control offered on identity alone offered viewers
+// and runtime contributors a mutation that can only be refused. The reader is a
+// PARAMETER because this family sits below `bridge/` and may not reach a port, so the
+// view family that can passes one in.
+export { useCallerMembershipRole } from "./hooks.js";
+export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";

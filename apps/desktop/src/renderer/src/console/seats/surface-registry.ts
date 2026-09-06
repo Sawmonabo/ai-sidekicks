@@ -47,6 +47,12 @@ export const CONSOLE_SURFACE_SLOTS = [
   "settings",
   "timeline",
   "agent-console",
+  // Reached only by the fixture-gated `#/pane-harness/…` address, so a release
+  // renderer can name this slot and can never route to it. It is in the tuple
+  // because the tuple is what `registeredSlots` and the composition test walk: a
+  // slot claimed by a registration but absent from the declaration is a slot
+  // neither of them can report on.
+  "pane-harness",
 ] as const;
 
 export type ConsoleSurfaceSlot = (typeof CONSOLE_SURFACE_SLOTS)[number];
@@ -139,6 +145,8 @@ export function surfaceSlotFor(route: ConsoleRoute): ConsoleSurfaceSlot | undefi
       return "workflows";
     case "settings":
       return "settings";
+    case "pane-harness":
+      return "pane-harness";
     case "auxiliary":
       return route.route === "timeline" ? "timeline" : "agent-console";
     case "not-found":

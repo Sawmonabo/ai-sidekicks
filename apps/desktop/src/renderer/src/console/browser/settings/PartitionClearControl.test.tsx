@@ -1,0 +1,382 @@
+// The control that has to be there for the partition that needs it most.
+//
+// The case these cover is the one a status chip alone gets wrong: a partition whose
+// pane is open is exactly the partition an operator came to this page to clear, and a
+// page that swaps the control for a chip there tells them the state and gives them no
+// way out of it. So the first case asserts the control is PRESENT under an open pane,
+// and the rest assert that the act it runs closes first, stops at whichever step
+// refused, and says which step it is waiting on while it waits.
+
+import { render, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import type { ConsoleRefusal } from "../../core/index.js";
+import { PartitionClearRounds } from "./partition-clear-rounds.js";
+import { PartitionClearControl, type PartitionClearControlProps } from "./PartitionClearControl.js";
+import {
+  controlIn,
+  pendingAct,
+  PANE_HELD_OPEN,
+  PROJECTED_FAILURE,
+  servingAct,
+  SESSION_ID,
+} from "./PartitionClearControl.test-support.js";
+
+function controlElement(
+  rounds: PartitionClearRounds,
+  overrides: Partial<PartitionClearControlProps>,
+): React.JSX.Element {
+  return (
+    <PartitionClearControl
+      rounds={rounds}
+      sessionId={SESSION_ID}
+      hasOpenPane={false}
+      lastClearRefusal={undefined}
+      onClosePane={undefined}
+      onClearSiteData={undefined}
+      {...overrides}
+    />
+  );
+}
+
+function renderControl(overrides: Partial<PartitionClearControlProps>): HTMLElement {
+  // A fresh page record per case: what happens when one is SHARED across a remount is
+  // the sibling suite's subject.
+  const { container } = render(controlElement(new PartitionClearRounds(), overrides));
+  return controlIn(container);
+}
+
+/**
+ * A control whose row can be RE-PROJECTED, which is how a listing refresh reaches it.
+ *
+ * The same mounted control throughout — a remount is the sibling suite's subject, and
+ * a case that remounted here would be asserting the round's survival rather than the
+ * ranking's expiry.
+ */
+function renderReprojectableControl(overrides: Partial<PartitionClearControlProps>): {
+  readonly control: () => HTMLElement;
+  readonly reproject: (lastClearRefusal: ConsoleRefusal | undefined) => void;
+} {
+  const rounds = new PartitionClearRounds();
+  const view = render(controlElement(rounds, overrides));
+  return {
+    control: () => controlIn(view.container),
+    reproject: (lastClearRefusal) => {
+      view.rerender(controlElement(rounds, { ...overrides, lastClearRefusal }));
+    },
+  };
+}
+
+function confirmButton(control: HTMLElement): HTMLButtonElement {
+  const button = [...control.querySelectorAll("button")].find((candidate) =>
+    (candidate.textContent ?? "").includes("Clear this session"),
+  );
+  if (button === undefined) {
+    throw new Error("no confirm button is offered");
+  }
+  return button;
+}
+
+describe("PartitionClearControl — an open partition still gets its control", () => {
+  it("keeps the armed control beside the chip that says a pane is open", () => {
+    const control = renderControl({
+      hasOpenPane: true,
+      onClosePane: servingAct([], "close"),
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    expect(control.textContent).toContain("A pane still has this partition open");
+    expect(control.querySelector("details.meridian-browser-arm")).not.toBeNull();
+    expect(confirmButton(control)).toBeInstanceOf(HTMLButtonElement);
+  });
+
+  it("says the confirm will close the pane before it clears", () => {
+    const control = renderControl({
+      hasOpenPane: true,
+      onClosePane: servingAct([], "close"),
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    expect(control.textContent).toContain("closes that pane first");
+  });
+
+  it("negative control: a closed partition is offered no pane sentence and no chip", () => {
+    // Without this, the two cases above would pass over a control that showed the
+    // open-pane wording to every partition on the page.
+    const control = renderControl({ onClearSiteData: servingAct([], "clear") });
+
+    expect(control.textContent).not.toContain("A pane still has this partition open");
+    expect(control.textContent).not.toContain("closes that pane first");
+  });
+});
+
+describe("PartitionClearControl — running the act", () => {
+  it("closes the pane and then clears, in that order", async () => {
+    const callLog: string[] = [];
+    const control = renderControl({
+      hasOpenPane: true,
+      onClosePane: servingAct(callLog, "close"),
+      onClearSiteData: servingAct(callLog, "clear"),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(callLog).toStrictEqual([`close:${SESSION_ID}`, `clear:${SESSION_ID}`]);
+    });
+  });
+
+  it("negative control: a closed partition's confirm never dispatches a close", async () => {
+    // A control that always closed first would tear down a pane that does not exist,
+    // and every ordering assertion above would still be green.
+    const callLog: string[] = [];
+    const control = renderControl({
+      onClosePane: servingAct(callLog, "close"),
+      onClearSiteData: servingAct(callLog, "clear"),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(callLog).toStrictEqual([`clear:${SESSION_ID}`]);
+    });
+  });
+
+  it("renders the close's own refusal and clears nothing", async () => {
+    const callLog: string[] = [];
+    const control = renderControl({
+      hasOpenPane: true,
+      onClosePane: () => Promise.resolve({ status: "refused", refusal: PANE_HELD_OPEN }),
+      onClearSiteData: servingAct(callLog, "clear"),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("browser.pane_busy");
+    });
+    expect(callLog).toStrictEqual([]);
+  });
+
+  it("refuses by name when a pane is open and no close verb is registered", async () => {
+    const callLog: string[] = [];
+    const control = renderControl({
+      hasOpenPane: true,
+      onClearSiteData: servingAct(callLog, "clear"),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("pane-close-unregistered");
+    });
+    expect(callLog).toStrictEqual([]);
+  });
+
+  it("renders a refusal rather than failing silently when a step rejects", async () => {
+    const control = renderControl({
+      onClearSiteData: () => Promise.reject(new Error("the preload went away")),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("site-data-act-failed");
+    });
+  });
+
+  it("keeps the wire's own code when a step rejects with an envelope", async () => {
+    // The control's `site-data-act-failed` sentence is for a rejection that carries
+    // no code. A daemon refusal that travelled as a rejection keeps its code, which
+    // is the half a person can act on.
+    const control = renderControl({
+      onClearSiteData: () =>
+        Promise.reject({ code: "permission_denied", message: "You may not clear this partition." }),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("permission_denied");
+    });
+    expect(control.textContent).toContain("You may not clear this partition.");
+    expect(control.textContent).not.toContain("site-data-act-failed");
+  });
+
+  it("says which step it is waiting on, and refuses a second confirm while it waits", async () => {
+    const close = pendingAct();
+    const closeCalls = vi.fn();
+    const control = renderControl({
+      hasOpenPane: true,
+      onClosePane: () => {
+        closeCalls();
+        return close.promise;
+      },
+      onClearSiteData: () => Promise.resolve({ status: "done" }),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("Closing the pane");
+    });
+    const waiting = [...control.querySelectorAll("button")][0];
+    expect(waiting?.disabled).toBe(true);
+    expect(control.getAttribute("aria-busy")).toBe("true");
+
+    waiting?.click();
+    expect(closeCalls).toHaveBeenCalledTimes(1);
+
+    close.succeed();
+    await waitFor(() => {
+      expect(control.textContent).not.toContain("Closing the pane");
+    });
+  });
+});
+
+describe("PartitionClearControl — which verdict is shown", () => {
+  it("shows the projected refusal until this control has run its own act", () => {
+    const control = renderControl({
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    expect(control.textContent).toContain("browser.partition_stale");
+    expect(control.textContent).not.toContain("Cleared");
+  });
+
+  it("prefers the refusal the operator just took over the projected one", async () => {
+    const control = renderControl({
+      hasOpenPane: true,
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClosePane: () => Promise.resolve({ status: "refused", refusal: PANE_HELD_OPEN }),
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("browser.pane_busy");
+    });
+    expect(control.textContent).not.toContain("browser.partition_stale");
+  });
+
+  it("retires the projected refusal when the operator's own clear succeeds", async () => {
+    // The case the ranking exists for: a served settlement carries no refusal, so a
+    // control that preferred "whichever refusal exists" reported the older failure
+    // again the moment the retry worked.
+    const control = renderControl({
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("Cleared");
+    });
+    expect(control.textContent).not.toContain("browser.partition_stale");
+    expect(control.querySelector(".meridian-refusal--inline")).toBeNull();
+  });
+
+  it("says nothing about an earlier failure while its own act is in flight", async () => {
+    const clear = pendingAct();
+    const control = renderControl({
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClearSiteData: () => clear.promise,
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("Clearing");
+    });
+    expect(control.textContent).not.toContain("browser.partition_stale");
+
+    clear.succeed();
+    await waitFor(() => {
+      expect(control.textContent).toContain("Cleared");
+    });
+  });
+
+  it("stands down for a refusal the row projected after its own act settled", async () => {
+    // The round outlives the row now, and its ranking rule was written when a remount
+    // retired it. Without an expiry a `cleared` verdict suppresses every later
+    // projected refusal until the whole settings page unmounts — the control asserting
+    // a removal the listing has since contradicted, for as long as it stays open.
+    const mounted = renderReprojectableControl({ onClearSiteData: servingAct([], "clear") });
+
+    confirmButton(mounted.control()).click();
+    await waitFor(() => {
+      expect(mounted.control().textContent).toContain("Cleared");
+    });
+
+    mounted.reproject(PROJECTED_FAILURE);
+
+    expect(mounted.control().textContent).toContain("browser.partition_stale");
+    expect(mounted.control().textContent).not.toContain("Cleared");
+  });
+
+  it("stands its own refusal down for a newer one the row projected", async () => {
+    // The other outcome arm of the same rule: a verdict the operator took here is
+    // still about the state of the row it was taken against.
+    const mounted = renderReprojectableControl({
+      hasOpenPane: true,
+      onClosePane: () => Promise.resolve({ status: "refused", refusal: PANE_HELD_OPEN }),
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    confirmButton(mounted.control()).click();
+    await waitFor(() => {
+      expect(mounted.control().textContent).toContain("browser.pane_busy");
+    });
+
+    mounted.reproject(PROJECTED_FAILURE);
+
+    expect(mounted.control().textContent).toContain("browser.partition_stale");
+    expect(mounted.control().textContent).not.toContain("browser.pane_busy");
+  });
+
+  it("negative control: it keeps its receipt while the row's projection has not moved", async () => {
+    // Without this, a control that simply stopped ranking its own settlements would
+    // satisfy both cases above — and would report the stale failure again the moment
+    // a listing refresh re-delivered it, which is the defect the ranking exists for.
+    const mounted = renderReprojectableControl({
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    confirmButton(mounted.control()).click();
+    await waitFor(() => {
+      expect(mounted.control().textContent).toContain("Cleared");
+    });
+
+    mounted.reproject(PROJECTED_FAILURE);
+
+    expect(mounted.control().textContent).toContain("Cleared");
+    expect(mounted.control().textContent).not.toContain("browser.partition_stale");
+  });
+
+  it("negative control: a served clear is reported and not merely left blank", async () => {
+    // Without this, a control that simply stopped rendering anything once it had been
+    // clicked would satisfy the case above while telling the operator nothing about
+    // what its own act did.
+    const control = renderControl({ onClearSiteData: servingAct([], "clear") });
+
+    expect(control.textContent).not.toContain("Cleared");
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.querySelector(".meridian-browser-partitions__reading")).not.toBeNull();
+    });
+    expect(control.textContent).toContain("Cleared");
+  });
+
+  it("negative control: with no verdict anywhere the control renders none", () => {
+    const control = renderControl({ onClearSiteData: servingAct([], "clear") });
+
+    expect(control.querySelector(".meridian-refusal--inline")).toBeNull();
+    expect(control.querySelector(".meridian-browser-partitions__reading")).toBeNull();
+  });
+});
