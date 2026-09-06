@@ -220,6 +220,42 @@ describe("push-driven read — a refused open is not the end of the surface", ()
     expect(harness.model.state).toStrictEqual({ kind: "loaded", value: "roster" });
   });
 
+  it("negative control: a listener answering the refusal synchronously is not swallowed", async () => {
+    // A `#changes` listener runs INSIDE the settlement, and the refusal used to settle
+    // while the open's single-flight guard was still raised — that guard is cleared by a
+    // `finally`, which runs AFTER the `catch` that settles. So a listener answering its
+    // own refusal reached `#open`, returned at the guard, and asked for nothing: the
+    // model stayed `failed` holding no subscription, with no read and nothing scheduled.
+    // The guard exists for a seam that signals from inside its own `subscribe`, which is
+    // a different moment, and it was swallowing this one.
+    //
+    // The state alone cannot see it — a model that did nothing also reports `failed` —
+    // so the subscribe count is what separates "answered" from "ignored".
+    const clock = new ManualClock();
+    const harness = buildRefusingRead({ clock });
+    let answered = false;
+    const stopListening = harness.model.onChange(() => {
+      if (answered || harness.model.state.kind !== "failed") {
+        return;
+      }
+      answered = true;
+      // What a repair or a reconnect does the moment it hears the refusal.
+      harness.admitOpens();
+      harness.model.refresh("terminal-event");
+    });
+
+    harness.model.start();
+    clock.advance(5000);
+    await settle();
+
+    expect(answered).toBe(true);
+    expect(harness.subscribeCount()).toBe(2);
+    expect(harness.model.isSubscribed).toBe(true);
+    expect(harness.model.state).toStrictEqual({ kind: "loaded", value: "roster" });
+    stopListening();
+    harness.model.dispose();
+  });
+
   it("negative control: dispose beats a re-open, and the trigger opens nothing", async () => {
     const clock = new ManualClock();
     const harness = buildRefusingRead({ clock });

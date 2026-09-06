@@ -236,9 +236,10 @@ export class PushDrivenRead<TValue> {
       }
       this.#unsubscribe = release;
     } catch (subscriptionFailure: unknown) {
-      // Nothing to release: the handle is assigned above, AFTER `subscribe` returns,
-      // so a seam that threw handed this object no way to undo what it registered —
-      // the seam's defect, and a release here would only look like a repair.
+      // `#opening` is cleared HERE, ahead of the `finally`, so a listener answering
+      // this refusal with a synchronous `refresh()` reaches `#open` and not the guard.
+      // Nothing is released: the handle is assigned only after `subscribe` returned.
+      this.#opening = false;
       this.#settle({
         kind: "failed",
         refusal: consoleRefusalFrom(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
