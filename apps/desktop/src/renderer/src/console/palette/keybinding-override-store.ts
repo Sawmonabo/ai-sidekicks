@@ -45,7 +45,7 @@ import type { KeyBinding } from "./contributions.js";
 import type { UiStateStore } from "../persistence/index.js";
 import { GenerationLatch } from "../store/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
-import { FRAME_KEY_BINDINGS } from "./command-surface.js";
+import { consoleKeyBindings, subscribeToConsoleKeyBindings } from "./command-surface.js";
 import {
   KEYBINDING_OVERRIDES_KEY,
   type KeybindingBindResult,
@@ -325,7 +325,8 @@ export class KeybindingOverrideStore {
  * contract that deliberately carries none.
  */
 export const consoleKeybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
-  defaults: () => FRAME_KEY_BINDINGS,
+  defaults: consoleKeyBindings,
+  subscribeToDefaults: subscribeToConsoleKeyBindings,
 });
 
 /**

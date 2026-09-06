@@ -2,7 +2,9 @@
 //
 // The sidebar is the composer family's and the section bodies are ours; the seat is
 // what lets both land without either editing the other's file. This module is the
-// only place the collaboration family calls `registerSidebarSection`.
+// only place the collaboration family writes to the sidebar board, and it writes to
+// the board it is HANDED — never to the module-scope singleton beside it, which is
+// the running console's whatever a caller composed.
 //
 // ONE HOLDER, CAPTURED BY BOTH DESCRIPTORS. The channels section and the members
 // section read one session's models, so the holder is built here — once per
@@ -17,7 +19,7 @@
 
 import { createElement } from "react";
 
-import { registerSidebarSection } from "../seats/index.js";
+import type { SidebarSectionRegistry } from "../seats/index.js";
 import { ChannelsSection } from "./channels/ChannelsSection.js";
 import { MembersSection } from "./members/MembersSection.js";
 import { CollaborationSessionModelHolder } from "./session-models.js";
@@ -34,16 +36,16 @@ const COLLABORATION_SECTION_OWNER = "collaboration-sections";
  * that wanted to re-register a running console would have to release the first
  * holder itself, and nothing in the console does.
  */
-export function registerCollaborationSections(): void {
+export function registerCollaborationSections(sections: SidebarSectionRegistry): void {
   const holder = new CollaborationSessionModelHolder();
 
-  registerSidebarSection({
+  sections.register({
     id: "channels",
     owner: COLLABORATION_SECTION_OWNER,
     render: (context) => createElement(ChannelsSection, { context, holder }),
   });
 
-  registerSidebarSection({
+  sections.register({
     id: "members",
     owner: COLLABORATION_SECTION_OWNER,
     render: (context) => createElement(MembersSection, { context, holder }),

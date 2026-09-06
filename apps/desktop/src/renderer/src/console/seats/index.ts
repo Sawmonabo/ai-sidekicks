@@ -68,6 +68,7 @@
 // console surface absorbed it. Four view families reach for one of those mounts, so
 // the mounts sit here for exactly the reason every other seat does.
 //
+//
 // THE `@consumedBy` TAGS BELOW are the dead-code gate's one exemption, on the terms
 // `apps/desktop/AGENTS.md` sets: every seat is reached by a task that has not landed,
 // so each specifier names the task or tasks that will import it. The tag rides the
@@ -129,8 +130,6 @@ export {
 export {
   ConsolePaneRegistry,
   consolePaneRegistry,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -159,17 +158,14 @@ export {
 export {
   /** @consumedBy T-023p-1C-3 */
   SIDEBAR_SECTION_IDS,
-  /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  registerSidebarSection,
-  // Consumed by T-023p-1C-3
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  // Consumed by T-023p-1C-3
+  // Consumed by T-023p-1C-3, T-023p-1C-5
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -193,14 +189,10 @@ export {
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
-  /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
   /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-5 */
-  registerInlineCardBody,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type ArtifactInlineCardProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
@@ -281,6 +273,15 @@ export type {
   SessionSubject,
 } from "./session-subject.js";
 
+// The node's session directory — the read, and the offer a picker draws from it.
+//
+// In this family because its one input is the growth port and `seats/` is the lowest
+// family above `bridge/`. It was authored in `frame/` when the frame was its only
+// reader; it has readers on both sides of the frame now, and neither `frame/` nor its
+// door is reachable from below.
+export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+export type { SessionDirectoryState } from "./session-directory.js";
+
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
 // chokepoint, never a flicker. It sits here rather than in the family that wrote it
@@ -305,15 +306,6 @@ export {
 // file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./wire-access.js";
-
-// The node's session directory — the read, and the offer a picker draws from it.
-//
-// In this family because its one input is the growth port and `seats/` is the lowest
-// family above `bridge/`. It was authored in `frame/` when the frame was its only
-// reader; it has readers on both sides of the frame now, and neither `frame/` nor its
-// door is reachable from below.
-export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
-export type { SessionDirectoryState } from "./session-directory.js";
 
 // The mounts for the four shipped Tier-1 families the console absorbed, three of them
 // carrying the bridge-source guard that decides whether they may be mounted at all.

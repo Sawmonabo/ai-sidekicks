@@ -18,9 +18,9 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonSubscribe } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
-import { sidebarSectionRegistry, type SidebarSectionContext } from "../../seats/index.js";
+import { type SidebarSectionContext } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";
-import { registerCollaborationSections } from "../sections.js";
+import { sectionsRegisteredForTest } from "../sections.test-support.js";
 
 /** Branded UUID, because the call door parses the request before it sends. */
 const SESSION_ID = "019b7910-0006-7000-8000-000000000001";
@@ -88,7 +88,7 @@ async function settleRead(bridge: ConsoleBridge): Promise<void> {
 
 describe("the members section — a presence stream that refused to open", () => {
   it("re-opens on the press and loads the roster behind the new subscription", async () => {
-    registerCollaborationSections();
+    const sections = sectionsRegisteredForTest();
     const seam = bridgeRefusingSubscribe();
     const context: SidebarSectionContext = {
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
@@ -96,7 +96,7 @@ describe("the members section — a presence stream that refused to open", () =>
       openPane: () => undefined,
       isOpen: true,
     };
-    const renderSectionBody = sidebarSectionRegistry.descriptorFor("members")?.render;
+    const renderSectionBody = sections.descriptorFor("members")?.render;
     expect(renderSectionBody).toBeDefined();
     const { container } = render(<>{renderSectionBody?.(context)}</>);
     await settleRead(seam.bridge);
@@ -123,7 +123,7 @@ describe("the members section — a presence stream that refused to open", () =>
   it("negative control: a subscription that opened offers no way back", async () => {
     // Without this the case above would pass over a section that rendered the control
     // on every arm, which reads as a refresh this surface does not have.
-    registerCollaborationSections();
+    const sections = sectionsRegisteredForTest();
     const seam = bridgeRefusingSubscribe();
     seam.admitSubscribe();
     const context: SidebarSectionContext = {
@@ -132,7 +132,7 @@ describe("the members section — a presence stream that refused to open", () =>
       openPane: () => undefined,
       isOpen: true,
     };
-    const renderSectionBody = sidebarSectionRegistry.descriptorFor("members")?.render;
+    const renderSectionBody = sections.descriptorFor("members")?.render;
     const { container } = render(<>{renderSectionBody?.(context)}</>);
     await settleRead(seam.bridge);
 

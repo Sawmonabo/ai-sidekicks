@@ -22,33 +22,45 @@ import "./palette.css";
 
 export { CommandRegistry } from "./command-registry.js";
 
-// This window's one registry, the plural call a family contributes through, the host
-// chord platform the printer formats for, and the `when` vocabulary a clause is
-// written against. On this door rather than the frame's because the frame is a
-// CONSUMER of them and this family declares what they are made of — and because the
-// two other consumers, a view family and the composer's shell half, both close a
-// cycle on `frame/index.ts` and can reach nothing there at all.
+// This window's one registry, the plural call a family contributes through, the seat
+// a family contributes its whole set at composition time, the host chord platform the
+// printer formats for, and the `when` vocabulary a clause is written against. On this
+// door rather than the frame's because the frame is a CONSUMER of them and this family
+// declares what they are made of — and because the two other consumers, a view family
+// and the composer's shell half, both close a cycle on `frame/index.ts` and can reach
+// nothing there at all.
 //
 // `registerConsoleCommand`, the singular, is deliberately absent; so is the
 // `CONSOLE_WHEN_CLAUSE_KEYS` tuple the clause types are derived FROM, and so is
 // `ConsoleWhenClauseKey` itself, which now has no reader outside this family at all —
 // `command-surface.ts` beside it scopes the frame's two shapes to the key and imports
-// it as a sibling. Every family that contributes contributes a SET, and every family
-// that writes a clause writes it against the CONTEXT. A door line for any of the three
-// would be a specifier no production module reaches, which the barrel census reports
-// rather than tolerates.
+// it as a sibling — and so are `consoleFamilyKeyBindings` and
+// `subscribeToConsoleFamilyContributions`, whose one reader is that same sibling.
+// Every family that contributes contributes a SET, and every family that writes a
+// clause writes it against the CONTEXT. A door line for any of the five would be a
+// specifier no production module reaches, which the barrel census reports rather than
+// tolerates.
 export {
   CONSOLE_CHORD_PLATFORM,
+  // Consumed by T-023p-1C-2
+  consoleCommandSurface,
   consoleCommands,
   registerConsoleCommands,
+  /**
+   * The seat's own type, for the composition site that holds one.
+   *
+   * @consumedBy T-023p-1C-2
+   */
+  type ConsoleCommandSurface,
   type ConsoleWhenClauseContext,
 } from "./console-commands.js";
 
-// `KeyBinding` rides beside the command shape because a view family declares a
-// binding table of its own — the workspace sidebar's — and types it by this element.
-// It is on the door for that reader and not for symmetry: the moment no production
-// module outside this family writes the type, the line comes off, which is how it
-// came off once already when the frame's own vocabulary moved into the family.
+// `KeyBinding` rides beside the command shape because modules outside this family
+// declare binding tables of their own and type them by this element: the keyboard
+// settings page's map, which prints a chord per command, and the workspace sidebar's
+// own table. It is on the door for those readers and not for symmetry — the moment no
+// production module outside this family writes the type, the line comes off, which is
+// how it came off once already when the frame's own vocabulary moved into the family.
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
 // The frame's own command vocabulary — the shapes its contributions take, the rail's
@@ -59,10 +71,22 @@ export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 // `frame/index.js` — the first is a cross-family deep import, the second closes a
 // cycle back through `families.ts`.
 //
-// `FrameKeyBinding` is deliberately absent. `FRAME_KEY_BINDINGS` is typed by it and
-// every consumer reads the array, so a door line for the element type would be a
-// specifier no production module writes.
-export { FRAME_KEY_BINDINGS, RAIL_NAVIGATION_DETAILS } from "./command-surface.js";
+// `subscribeToConsoleKeyBindings` is the SIGNAL and not the table. What a window
+// installs is the frame's own chords with the families' behind them, and the override
+// store next door composes a person's rebindings onto exactly that — reading it as a
+// sibling, deeply, which is what an intra-family import is for. The frame takes the
+// signal through this door because it has to bump the revision the palette lists
+// against when a family contributes late.
+//
+// Three names are deliberately absent, each because no module outside this family
+// reaches it and the barrel census fails a line like that. `consoleKeyBindings` is
+// read by the store beside it. `FRAME_KEY_BINDINGS` was on this door for one reader —
+// the keyboard page's stale-override rows — and that reader now takes
+// `surface.shippedBindings`, which is the base the store actually composed over;
+// publishing the half beside the whole would let a caller print one table while the
+// keyboard held the other, and would report a chord a view family contributed as an
+// override of nothing. `FrameKeyBinding` types that half and goes with it.
+export { RAIL_NAVIGATION_DETAILS, subscribeToConsoleKeyBindings } from "./command-surface.js";
 export type { FrameCommand } from "./command-surface.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the

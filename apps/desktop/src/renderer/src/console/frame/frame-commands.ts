@@ -37,6 +37,7 @@ import {
   consoleCommands,
   consoleKeybindingOverrides,
   registerConsoleCommands,
+  subscribeToConsoleKeyBindings,
   useBridgeCommands,
   useKeybindingSurface,
   type ConsoleCommand,
@@ -165,8 +166,22 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
     // is atomic, so a duplicate anywhere in the list adds none of it and the
     // cleanup below cannot unregister a command another mount owns.
     registerConsoleCommands(windowCommands);
+    // AND THE PALETTE IS TOLD WHENEVER THEY CHANGE. Composition is not over when
+    // this effect runs: a family composed later contributes commands this window
+    // would otherwise never list, which is a palette that is missing entries and
+    // reports nothing. The revision moves with the contribution, because the palette
+    // lists what the registry holds.
+    //
+    // The CHORDS behind them are not installed here. The override store reads the
+    // composed table as its own defaults and republishes on this same signal, so a
+    // late family reaches the key-binding table through the effective-table effect
+    // below — one installer, and not a second one racing it on the same table.
+    const stopWatchingContributions = subscribeToConsoleKeyBindings(() => {
+      setCommandRevision((revision) => revision + 1);
+    });
     setCommandRevision((revision) => revision + 1);
     return () => {
+      stopWatchingContributions();
       for (const command of windowCommands) {
         consoleCommands.unregister(command.id);
       }

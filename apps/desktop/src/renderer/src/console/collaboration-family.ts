@@ -27,7 +27,7 @@
 // a second code path.
 
 import { registerCollaborationSections } from "./collaboration/index.js";
-import type { ConsoleSurfaceRegistry } from "./seats/index.js";
+import type { ConsoleSurfaceRegistry, SidebarSectionRegistry } from "./seats/index.js";
 import { registerAgentConsoleSurface } from "./agents/index.js";
 import { registerSessionsSurface } from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
@@ -35,16 +35,22 @@ import { registerSettingsSurface } from "./settings/index.js";
 /**
  * Claim every surface slot this family owns, and fill the sidebar sections it fills.
  *
- * Two registries, because they are two different seats: a surface slot is a whole
+ * Two boards, because they are two different seats: a surface slot is a whole
  * destination the frame mounts, and a sidebar section is a body inside a sidebar
- * another family owns. The sections registrar takes no argument because the sidebar
- * seat carries its own process-wide registry — the one place the console keeps a
- * registry a caller does not supply — so this file passes it nothing rather than
- * inventing a parameter to pass.
+ * another family owns. Both are HANDED to this function rather than reached for.
+ * The sidebar board ships a module-scope singleton and the sections registrar used
+ * to write straight into it, which is the one shape `registerConsoleFamilies` exists
+ * to refuse: an independent composition would mutate the running console's sidebar,
+ * two compositions would leak sections into each other, and an auxiliary window
+ * could not compose a subset however it asked. A board a caller supplies has none of
+ * those failures, and a test composing this family owns what it asserts against.
  */
-export function registerCollaborationFamily(registry: ConsoleSurfaceRegistry): void {
-  registerSessionsSurface(registry);
-  registerSettingsSurface(registry);
-  registerAgentConsoleSurface(registry);
-  registerCollaborationSections();
+export function registerCollaborationFamily(
+  surfaces: ConsoleSurfaceRegistry,
+  sidebarSections: SidebarSectionRegistry,
+): void {
+  registerSessionsSurface(surfaces);
+  registerSettingsSurface(surfaces);
+  registerAgentConsoleSurface(surfaces);
+  registerCollaborationSections(sidebarSections);
 }

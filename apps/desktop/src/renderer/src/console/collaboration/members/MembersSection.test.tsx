@@ -19,12 +19,8 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
-import {
-  sidebarSectionRegistry,
-  type SidebarSectionContext,
-  type SidebarSectionId,
-} from "../../seats/index.js";
-import { registerCollaborationSections } from "../sections.js";
+import { type SidebarSectionContext, type SidebarSectionId } from "../../seats/index.js";
+import { sectionsRegisteredForTest } from "../sections.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 
 /**
@@ -68,7 +64,7 @@ interface MountedSection {
 }
 
 function renderSection(id: SidebarSectionId): MountedSection {
-  registerCollaborationSections();
+  const sections = sectionsRegisteredForTest();
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   const bridge = bridgeForSection();
   const context: SidebarSectionContext = {
@@ -77,7 +73,7 @@ function renderSection(id: SidebarSectionId): MountedSection {
     openPane: () => undefined,
     isOpen: true,
   };
-  const renderSectionBody = sidebarSectionRegistry.descriptorFor(id)?.render;
+  const renderSectionBody = sections.descriptorFor(id)?.render;
   expect(renderSectionBody).toBeDefined();
   return {
     container: render(<>{renderSectionBody?.(context)}</>).container,
@@ -225,7 +221,7 @@ describe("a roster age with nothing else moving", () => {
   }
 
   async function rosterWithOneParticipant(): Promise<MountedSection> {
-    registerCollaborationSections();
+    const sections = sectionsRegisteredForTest();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const bridge = bridgeServingOneParticipant();
     const context: SidebarSectionContext = {
@@ -234,7 +230,7 @@ describe("a roster age with nothing else moving", () => {
       openPane: () => undefined,
       isOpen: true,
     };
-    const renderSectionBody = sidebarSectionRegistry.descriptorFor("members")?.render;
+    const renderSectionBody = sections.descriptorFor("members")?.render;
     const container = render(<>{renderSectionBody?.(context)}</>).container;
     await act(async () => {
       bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);

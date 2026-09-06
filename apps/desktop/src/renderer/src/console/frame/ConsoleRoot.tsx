@@ -18,6 +18,8 @@ import { consoleEntityProjectorRegistry } from "../store/index.js";
 import {
   consolePaneRegistry,
   consoleSurfaceRegistry,
+  inlineCardSeatRegistry,
+  sidebarSectionRegistry,
   type ConsoleSurfaceContext,
 } from "../seats/index.js";
 import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
@@ -38,10 +40,15 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 // registry refuses a second OWNER on one slot, so a hot reload replaces and a
 // collision raises.
 //
-// All three process-wide registries are named HERE rather than reached for inside
-// the composition, which is what makes this the composition site: a test or an
-// auxiliary window calls the same function with registries of its own and touches
-// none of these.
+// All five process-wide boards are named HERE rather than reached for inside the
+// composition, which is what makes this the composition site: a test or an auxiliary
+// window calls the same function with boards of its own and touches none of these.
+//
+// The sidebar and inline-card boards are named even though no family fills either
+// yet, and that is the reason to name them: both ship a module-scope registrar that
+// writes into the singleton, so a family reaching for one would compose into
+// production from inside a composition that was handed something else. Passing them
+// here is what makes that reach unnecessary.
 //
 // The projector board is the third, and its ORDER against the window below is the
 // reason it is composed at module scope with the other two: a family claims the
@@ -53,6 +60,8 @@ registerConsoleFamilies(
   consoleSurfaceRegistry,
   consolePaneRegistry,
   consoleEntityProjectorRegistry,
+  sidebarSectionRegistry,
+  inlineCardSeatRegistry,
 );
 
 export interface ConsoleRootProps {

@@ -13,6 +13,13 @@
 // with exactly that arm removed, kept runnable below so the claim "this used to pin
 // `reading`" is measured rather than remembered.
 //
+// AND THE REJECTING CASE ASSERTS THE DAEMON'S OWN WORDS, which is the second thing it
+// is for. A scenario that scripts a daemon refusal throws it verbatim and the live
+// seam will throw the same shape, so what a person reads has to be the code and the
+// sentence the other side sent — not a growth-port code stamped over them. Both are
+// driven: a rejection carrying a JSON-RPC envelope, and a rejection carrying nothing
+// machine-readable at all, because only the first can prove a code SURVIVED.
+//
 // AND ONE CLAIM IS ABOUT FRAMES RATHER THAN ABOUT STATES, so it is a suite of its
 // own: `session-directory.frames.test.tsx` measures which frames a port swap paints,
 // which no assertion on a settled state can see. Every case here reads states.
@@ -34,11 +41,32 @@ import {
 /** What the rejecting port throws, so the case can read it back out of the sentence. */
 const REJECTION_MESSAGE = "the bridge channel closed before the reply";
 
-/** A real port with exactly one method replaced by a rejection. */
-function rejectingDirectoryPort(): GrowthPort {
+/** The dotted code a daemon envelope carries, which has to survive to the screen. */
+const DAEMON_REFUSAL_CODE = "session.list_unavailable";
+
+/** What the daemon's own envelope says, which is what a person reads. */
+const DAEMON_REFUSAL_MESSAGE = "The node is not accepting session reads right now.";
+
+/**
+ * A real port with exactly one method replaced by a rejection.
+ *
+ * The thrown value is the caller's, so one helper drives both rejection cases: the
+ * envelope one, which proves a daemon code reaches the state, and the bare-`Error`
+ * one, which proves the settlement is total when nothing machine-readable arrives.
+ */
+function rejectingDirectoryPort(rejection: unknown): GrowthPort {
   return {
     ...createRefusingGrowthPort(),
-    sessionList: () => Promise.reject(new Error(REJECTION_MESSAGE)),
+    sessionList: () => Promise.reject(rejection),
+  };
+}
+
+/** The JSON-RPC envelope shape a daemon refusal crosses the preload boundary as. */
+function daemonRejection(): unknown {
+  return {
+    code: -32603,
+    message: DAEMON_REFUSAL_MESSAGE,
+    data: { type: DAEMON_REFUSAL_CODE },
   };
 }
 
@@ -151,28 +179,63 @@ describe("useSessionDirectory — one read, three answers", () => {
     if (settled.status === "unavailable") {
       // The refusal names who owes the wire. A boolean here would leave the surface
       // to invent the sentence, which is how two answers to one question start.
+      // The port's own ledger travels on the registered refusal extensions, so it
+      // survives the settlement rather than being rebuilt away.
+      expect(settled.refusal.code).toBe("wire-unregistered");
       expect(settled.refusal.operationId).toBe("sessionList");
       expect(settled.refusal.slateRow).toBe("session-directory-read");
       expect(settled.refusal.detail).toContain("Not checked");
     }
   });
 
-  it("settles unavailable when the port rejects rather than answering", async () => {
-    const observed = observeDirectory(rejectingDirectoryPort());
+  it("carries the daemon's own code and message when the port rejects with an envelope", async () => {
+    const observed = observeDirectory(rejectingDirectoryPort(daemonRejection()));
 
     await settle();
     const settled = lastState(observed);
     expect(settled.status).toBe("unavailable");
     if (settled.status === "unavailable") {
-      // The refusal is the PORT's, not one this hook invented: its origin names the
-      // port and its code is a member of the port's own closed vocabulary, so a
-      // surface rendering it beside any other growth refusal reads one shape.
-      expect(settled.refusal.origin).toBe("growth-port");
-      expect(settled.refusal.code).toBe("call-rejected");
-      expect(settled.refusal.operationId).toBe("sessionList");
-      expect(settled.refusal.slateRow).toBe("session-directory-read");
-      // What the rejection said reaches the sentence, through the one total reading
-      // of an unestablished value rather than a stringification at this seam.
+      // VERBATIM, BOTH OF THEM. `session.list_unavailable` and a lease conflict are
+      // different next moves for a person, and a refusal that restamped this with the
+      // seam's own code would make every one of them the same one. The sibling reads
+      // one family up settle the identical shape, so a person meets one vocabulary
+      // whichever surface they are on.
+      expect(settled.refusal.code).toBe(DAEMON_REFUSAL_CODE);
+      expect(settled.refusal.detail).toBe(DAEMON_REFUSAL_MESSAGE);
+      // And the origin names the seam the refusal surfaced at, which is what an
+      // origin says everywhere else in the console.
+      expect(settled.refusal.origin).toBe("growth-read");
+    }
+  });
+
+  it("negative control: the port's own refusal code reaches no rejected read", async () => {
+    // Without this the case above would pass over a settlement that carried the
+    // daemon's code AND the port's stamp — the exact shape this read used to produce,
+    // where `call-rejected` was the code and the daemon's was thrown away.
+    const observed = observeDirectory(rejectingDirectoryPort(daemonRejection()));
+
+    await settle();
+    const settled = lastState(observed);
+    expect(settled.status).toBe("unavailable");
+    if (settled.status === "unavailable") {
+      expect(settled.refusal.code).not.toBe("call-rejected");
+      expect(settled.refusal.origin).not.toBe("growth-port");
+      expect(settled.refusal.detail).not.toContain("did not answer");
+    }
+  });
+
+  it("settles unavailable when the rejection carries nothing machine-readable", async () => {
+    // The other side of totality: an ordinary `Error` has no code to keep, so the
+    // settlement synthesizes one from the seam and keeps the message a producer
+    // wrote — a read that failed for an unreadable reason is still distinguishable
+    // from one nobody put.
+    const observed = observeDirectory(rejectingDirectoryPort(new Error(REJECTION_MESSAGE)));
+
+    await settle();
+    const settled = lastState(observed);
+    expect(settled.status).toBe("unavailable");
+    if (settled.status === "unavailable") {
+      expect(settled.refusal.code).toBe("growth-read-call-failed");
       expect(settled.refusal.detail).toContain(REJECTION_MESSAGE);
     }
   });
@@ -185,7 +248,7 @@ describe("useSessionDirectory — one read, three answers", () => {
     const observed: SessionDirectoryState[] = [];
     render(
       <PreChangeDirectoryProbe
-        growth={rejectingDirectoryPort()}
+        growth={rejectingDirectoryPort(new Error(REJECTION_MESSAGE))}
         onObserve={(state) => {
           observed.push(state);
         }}

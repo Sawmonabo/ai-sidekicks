@@ -58,9 +58,11 @@ export const SIDEBAR_SECTION_IDS = [
   "members",
 ] as const;
 
+// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
+// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** Everything a section body is handed. */
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
@@ -90,7 +92,6 @@ export interface SidebarSectionDescriptor {
   readonly render: (context: SidebarSectionContext) => React.ReactNode;
 }
 
-// Consumed by T-023p-1C-3
 export class SidebarSectionRegistry {
   // `"owner-scoped"`, for `surface-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
@@ -123,11 +124,6 @@ export class SidebarSectionRegistry {
 
 /** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
-
-/** The call a family makes to fill one sidebar section. */
-export function registerSidebarSection(descriptor: SidebarSectionDescriptor): void {
-  sidebarSectionRegistry.register(descriptor);
-}
 
 // Consumed by T-023p-1C-3
 /** One section's body, or `undefined` while nobody has filled it. */

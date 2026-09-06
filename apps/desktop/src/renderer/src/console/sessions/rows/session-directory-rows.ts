@@ -18,29 +18,33 @@
 //
 // THE ABSENCE FOLLOWS THE READ, NEVER THE ROW COUNT
 //
-// An empty list has three different causes and they are three different sentences.
+// An empty list has four different causes and they are four different sentences.
 // A read in flight is `not-loaded`. A read that came back with no rows is `empty` —
-// the node was asked and it has none. A read the port refused is `not-checked`, and
-// the console must not report "there are none" for a question it never put. Deciding
-// this from `rows.length === 0` collapses all three, which is exactly the conflation
-// `Spec-023 §Console Design (Meridian)` rule 8's five kinds of nothing exist to
-// prevent — so the decision is a function of the directory state and the row count
-// cannot reach it.
+// the node was asked and it has none. A read refused because its WIRE IS NOT BUILT is
+// `not-checked`, and the console must not report "there are none" for a question it
+// never put. A read that was put and FAILED is `error`, and folding it into
+// `not-checked` beside a line saying nobody asked would report a closed channel as an
+// idle console that chose not to look. Which of the two refusals a refusal is belongs
+// to `isUnbuiltWireRefusal`, beside the code it reads, and not to this table.
+//
+// Deciding any of this from `rows.length === 0` collapses all four, which is exactly
+// the conflation `Spec-023 §Console Design (Meridian)` rule 8's five kinds of nothing
+// exist to prevent — so the decision is a function of the directory state and the row
+// count cannot reach it.
 
 import type { SessionDirectoryState } from "../../seats/index.js";
-import type { AttentionSeverity } from "../../bridge/index.js";
+import { isUnbuiltWireRefusal, type AttentionSeverity } from "../../bridge/index.js";
 import type { SessionListRow } from "./session-rows.js";
 
 /**
  * The kind of nothing the destination renders when it has no row.
  *
  * A subset of the primitive's five kinds, declared as its own closed set because
- * only three of them are reachable here: nothing on this surface errors, and
- * nothing on it is filtered.
+ * only four of them are reachable here: nothing on this surface is filtered.
  */
-export const SESSIONS_ABSENCE_KINDS = ["not-loaded", "empty", "not-checked"] as const;
+export const SESSIONS_ABSENCE_KINDS = ["not-loaded", "empty", "not-checked", "error"] as const;
 
-/** One of the three. Derived from the enumeration, never restated beside it. */
+/** One of the four. Derived from the enumeration, never restated beside it. */
 export type SessionsAbsenceKind = (typeof SESSIONS_ABSENCE_KINDS)[number];
 
 /**
@@ -48,7 +52,9 @@ export type SessionsAbsenceKind = (typeof SESSIONS_ABSENCE_KINDS)[number];
  *
  * Total over the three states rather than defaulting, so a fourth state added to the
  * read would fail to compile here instead of silently landing in whichever arm the
- * `else` happened to be.
+ * `else` happened to be. The refused state carries TWO of the kinds, and which one is
+ * `isUnbuiltWireRefusal`'s answer rather than this table's — one reading of a refusal,
+ * beside the code it is about.
  */
 export function sessionsAbsenceKindFor(directory: SessionDirectoryState): SessionsAbsenceKind {
   switch (directory.status) {
@@ -57,7 +63,7 @@ export function sessionsAbsenceKindFor(directory: SessionDirectoryState): Sessio
     case "served":
       return "empty";
     case "unavailable":
-      return "not-checked";
+      return isUnbuiltWireRefusal(directory.refusal) ? "not-checked" : "error";
   }
 }
 

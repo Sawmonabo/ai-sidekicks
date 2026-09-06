@@ -27,7 +27,7 @@ import {
   createFixture,
   subscribeThroughBridge,
 } from "./fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
@@ -60,7 +60,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
       return result;
     });
 
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     // The whole point of a scripted latency: there is a window in which the
     // surface is loading. A reply that resolved on the calling turn has none.
     expect(settled).toBe(false);
@@ -77,7 +77,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
     const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
 
     void callThroughBridge(fixture, DELAYED_CALL);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // A request is not a tick. A fixture that advanced its own clock to serve a
     // latency delivered every beat that fell inside the latency as a side effect

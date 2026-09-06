@@ -53,7 +53,7 @@
 
 import { useState } from "react";
 
-import type { GrowthPort } from "../bridge/index.js";
+import { isUnbuiltWireRefusal, type GrowthPort } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
 import { Nothing, WireFigure } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStore, type SessionStoreRegistry } from "../store/index.js";
@@ -219,6 +219,15 @@ export function ContextPicker(props: ContextPickerProps): React.JSX.Element {
           title="There are no sessions on this node yet."
           detail={`The ${routeNoun} follows one session at a time. A ${routeNoun} window opened from a session arrives with that session already chosen.`}
         />
+      );
+    }
+    if (!isUnbuiltWireRefusal(directory.refusal)) {
+      // The read was PUT and it failed, which is not the same fact as never having
+      // asked — so the daemon's own code and sentence reach the screen verbatim
+      // rather than a console sentence claiming it did not look. Rule 9 fixes what a
+      // refusal shows at exactly those two.
+      return (
+        <Nothing kind="error" title={directory.refusal.code} detail={directory.refusal.detail} />
       );
     }
     return (

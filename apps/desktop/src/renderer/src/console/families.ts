@@ -10,31 +10,17 @@
 // branch touches, and none of them conflicts.
 //
 // SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
-// lines at the foot of the composition — asserted by `families.test.ts` rather than
-// kept in step by hand. It was not: this header spelled the count twice and the
-// spellings disagreed, because 1C-8 was read as an audit task when it lands a family
-// of its own. A second spelling of one count is a second thing to edit, and the one
-// that goes stale is the one nothing reads.
+// lines at the foot of the composition — asserted by `families.seat-board.test.ts`
+// rather than kept in step by hand. It was not: this header spelled the count twice
+// and the spellings disagreed, because 1C-8 was read as an audit task when it lands a
+// family of its own. A second spelling of one count is a second thing to edit, and the
+// one that goes stale is the one nothing reads.
 //
 // WHAT A FAMILY DOES
 //
-// A family exports a `register<Family>` entry point, claims its slots inside that
-// function, and REPLACES its own reserved line with the call, keeping the task marker
-// on it as a trailing comment. The marker is what makes a seat countable in either
-// state, so the board's own count is stable as families land.
-//
-// IT TAKES THE BOARDS IT CLAIMS INTO, AND NO OTHERS. The signature is the family's
-// own: `registerCollaborationFamily(registry: ConsoleSurfaceRegistry)` takes the
-// surface registry because surface slots are all it claims here. A family that also
-// claimed a pane kind or an event fold would take those boards too — the boards this
-// function is handed are what a composition OWNS, not what every seat receives.
-//
-// ITS HOME IS ITS OWN `index.ts`, OR A COMPOSITION ROOT MODULE. A family that is one
-// directory registers from that directory's door. A family spread across several
-// subtrees — as the collaboration family is, and a view family may name no other —
-// cannot, so its registrar lives in a module at the console root and that module's
-// name joins the enumeration in `.dependency-cruiser.mjs`'s `COMPOSITION_ROOT_FILES`.
-// Those are the admissible homes, and there is no other.
+// A family exports `register<Family>(registry: ConsoleSurfaceRegistry): void` from
+// its own `index.ts`, claims its slots inside that function, and replaces its own
+// placeholder line below with the import and the call. That is the whole contract.
 //
 // WHAT A FAMILY DOES NOT DO
 //
@@ -62,13 +48,17 @@ import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import { registerConsolePanes } from "./panes/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
-import type { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "./seats/index.js";
+import type {
+  ConsolePaneRegistry,
+  ConsoleSurfaceRegistry,
+  InlineCardSeatRegistry,
+  SidebarSectionRegistry,
+} from "./seats/index.js";
 
 /**
- * Register every shipped view family against the three registries a composition owns.
+ * Register every shipped view family against the five boards a composition owns.
  *
- * ALL THREE ARE PARAMETERS, and the second and third are this signature's whole
- * history. The surface registry was passed in from the start so a test could compose
+ * ALL FIVE ARE PARAMETERS, and each one after the first is this signature's history. The surface registry was passed in from the start so a test could compose
  * into a registry it owns and an auxiliary window could compose a subset; the pane
  * board beside it reached for the module-scope singleton, so a caller composing its
  * own family set still registered panes into the production one. That is inert only
@@ -85,15 +75,31 @@ import type { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "./seats/index.
  * a parameter here so a test and an auxiliary window compose their own fold, exactly
  * as they compose their own surfaces and panes.
  *
+ * The sidebar board and the inline-card board are the fourth and fifth, and they are
+ * here BEFORE a family fills either — which is the point. `seats/sidebar-sections.ts`
+ * is filled by three families and `seats/inline-card-seats.ts` by two, and both ship a
+ * module-scope registrar that writes straight into the process-wide board. A family
+ * reaching for one of those bypasses this composition entirely: an independent
+ * composition would then mutate the running console, two compositions would leak into
+ * each other, and an auxiliary window could not select a subset however it asked —
+ * the same three failures the pane board's paragraph above names, on two boards where
+ * they have not happened yet. Taking them as parameters now is what gives the first
+ * family that fills a section or a card something to be handed instead.
+ *
  * Required rather than defaulted to the singletons, because a default is the same
  * hard-coding one parameter along: a caller that forgets it still writes into
- * production. Naming all three at the one composition site is what makes a
- * composition legible as a whole.
+ * production. Naming all five at the one composition site is what makes a composition
+ * legible as a whole.
  */
 export function registerConsoleFamilies(
-  registry: ConsoleSurfaceRegistry,
-  paneRegistry: ConsolePaneRegistry,
-  projectorRegistry: ConsoleEntityProjectorRegistry,
+  surfaces: ConsoleSurfaceRegistry,
+  panes: ConsolePaneRegistry,
+  projectors: ConsoleEntityProjectorRegistry,
+  sidebarSections: SidebarSectionRegistry,
+  /* eslint-disable-next-line @typescript-eslint/no-unused-vars --
+     Unused until the first family that fills an inline card lands, on the reason
+     stated for the board above it. */
+  inlineCardSeats: InlineCardSeatRegistry,
 ): void {
   // The three shipped Tier-1 families come first, because they were mounted
   // before any of the seats below existed. A family filling a seat that one of
@@ -101,26 +107,33 @@ export function registerConsoleFamilies(
   // The registry refuses a second owner on one slot rather than letting import
   // order decide which surface mounts, so a seat added without the deletion is a
   // conflict the composition test names by slot rather than a silent swap.
-  registerLegacySurfaces(registry);
+  registerLegacySurfaces(surfaces);
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
   // whole console, and it takes the pane registry this function was HANDED —
   // the pane table is not the surface table, and it is not the caller's
   // business twice over which of the two a composition is allowed to own.
-  registerConsolePanes(paneRegistry);
+  registerConsolePanes(panes);
   // The frame's own projector claim, on the same terms as any family's. It is a
   // registration and not a constant handed downstream, because the fold a store is
   // opened with is what decides which family can own which partition — and it takes
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
-  registerRunLifecycleProjectors(projectorRegistry);
-  // Each seat below is filled by one `register<Family>` call taking the boards that
-  // family claims into — never by editing a shared spine. A PANE body is not among
-  // them: pane kinds are claimed on the deck's own seat board, so a family's pane
-  // registrar reaches the deck through `panes/index.ts` above and not from here.
+  registerRunLifecycleProjectors(projectors);
+  // Each seat below receives the boards it writes into, out of the five this
+  // composition was handed. A family claims a surface slot, a pane kind, the event
+  // kinds whose fold it owns, a sidebar section, and an inline-card body — through
+  // its own `register<Family>` entry point, never by editing a shared spine and
+  // never through a board's module-scope registrar, which writes into production
+  // whatever the caller composed into.
+  //
+  // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
+  // branch exactly like this one does above them, and only one of the two leaves
+  // seven one-line diffs at seven distinct positions; `families.seat-board.test.ts`
+  // reads the block as a census and refuses anything that is not a seat.
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
-  registerCollaborationFamily(registry); // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections); // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

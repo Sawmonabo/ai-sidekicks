@@ -26,7 +26,6 @@ import type { ReactNode } from "react";
 
 import type { ConsoleRefusal } from "../../../core/index.js";
 import {
-  FRAME_KEY_BINDINGS,
   auditKeybindings,
   consoleCommands,
   consoleKeybindingOverrides,
@@ -96,10 +95,12 @@ export function KeyboardPage(): ReactNode {
   const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
   // The chords this window is holding for commands it cannot find. Composed from the
   // SHIPPED table rather than the effective one, which is that table with these very
-  // entries already appended.
+  // entries already appended — and read off the surface rather than out of the
+  // frame's own half, because a chord a view family contributed is a shipped default
+  // too, and printing only the frame's would report a family's binding as stale.
   const staleOverrideRows = composeStaleOverrideRows({
     commands,
-    shippedBindings: FRAME_KEY_BINDINGS,
+    shippedBindings: keybindingSurface.shippedBindings,
     overrides: consoleKeybindingOverrides.overrides,
   });
   const visibleRows = matchKeybindingRows(rows, query);

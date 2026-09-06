@@ -30,7 +30,7 @@ import {
   callThroughBridge,
   createFixture,
 } from "./fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import {
@@ -118,7 +118,7 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
       throw rejection;
     });
 
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     // A refusal a real transport takes time to deliver is a loading state first. A
     // fixture that refused on the calling turn would make that half unreachable —
     // the same defect the resolving arm's latency exists to close.
