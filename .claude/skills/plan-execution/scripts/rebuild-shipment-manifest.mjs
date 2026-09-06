@@ -117,17 +117,35 @@ function defaultGhRunner(cmd) {
 
 // ---------- pure parsing helpers ----------
 
+// A plan's phase token: digits, optionally carrying ONE uppercase letter.
+// The letter is how the corpus spells an explicit-label supplement — a phase
+// authored after its parent phase merged, which a merged phase cannot absorb
+// in place (`### Phase 1B`, `### Phase 3B`, dispatched as `preflight.mjs
+// <plan> 3B`). Exactly one letter, never a run: `Phase 2ab` matches nothing
+// rather than silently reading as phase 2.
+const PHASE_TOKEN = String.raw`\d+[A-Z]?`;
+
 // Parse phase number from PR title/body. Returns integer >= 1 or null.
-// Checks (title first, body second; first match wins):
-//   "Phase N" / "phase N"
+// Checks (title first, body second; first match wins), most specific first:
+//   "T-023p-1C-1"  (plan-scoped task id — its SECOND segment is the phase it
+//             was authored under, and the id carries the plan inline, so it
+//             cannot be read off another plan's id. Ordered ahead of the prose
+//             forms because it is the only one the plan itself mints.)
+//   "Phase N" / "phase N" / "Phase 1B"
 //   "P5.1"   (Plan-001 phase-number-with-task-suffix style — REQUIRES the
 //             `.M` task suffix; bare `P1`/`P2`/`P5` are intentionally NOT
 //             matched because they collide with Codex review-priority
 //             badges (P1/P2/P3) that can appear in PR bodies. Codex P2
 //             finding on PR #35 round 5.)
 //
+// A supplement label resolves to the NUMBER it extends: `lib/manifest.mjs`
+// validates `phase:` as a positive integer, and the corpus's own rows agree —
+// Plan-023's `T-023p-1B-*` and `T-023p-1C-*` shipments are recorded as
+// `phase: 1`. The letter is not discarded, it lives where it is exact: the
+// `task:` field carries the id verbatim.
+//
 // Cross-plan defense (Codex P2 finding on PR #35 round 6 — mirrors the
-// parseTaskFromPr defense from round 1): neither phase pattern carries the
+// parseTaskFromPr defense from round 1): the two PROSE patterns carry no
 // plan id inline, so a PR body citing "see Plan-001 Phase 5" in a Plan-024
 // PR could leak phase 5 into Plan-024's manifest. When the matched text
 // (title or body) contains a Plan-NNN reference NOT equal to the target
@@ -135,7 +153,11 @@ function defaultGhRunner(cmd) {
 // remain captured (most PR titles are bare "Phase N" with no Plan ref —
 // the script already surfaces ambiguity for unconfirmed phase mappings).
 export function parsePhaseFromPr({ title, body, plan }) {
-  const patterns = [/\bPhase\s+(\d+)\b/i, /\bP(\d+)\.\d+\b/];
+  const patterns = [
+    ...(plan == null ? [] : [new RegExp(String.raw`\bT-${plan}[a-z]?-(${PHASE_TOKEN})-\d+\b`)]),
+    new RegExp(String.raw`\bPhase\s+(${PHASE_TOKEN})\b`, "i"),
+    /\bP(\d+)\.\d+\b/,
+  ];
   const planRefPattern = /\bPlan-(\d{3})\b/g;
   for (const text of [title, body]) {
     if (!text) continue;
@@ -146,7 +168,9 @@ export function parsePhaseFromPr({ title, body, plan }) {
     }
     for (const re of patterns) {
       const m = re.exec(text);
-      if (m) return Number(m[1]);
+      // A supplement capture is "1B"; `parseInt` takes the leading digits and
+      // `Number` would take NaN, so the radix-10 parse is load-bearing here.
+      if (m) return Number.parseInt(m[1], 10);
     }
   }
   return null;
@@ -175,8 +199,11 @@ export function parseTaskFromPr({ title, body, plan }) {
   // The optional series letter covers every corpus id family: T-007p-2-4
   // (primary), T-025d-14-1 (deploy), and future letters — the survey's
   // boundary rule already treats letters as id-extending characters, so the
-  // extractor must parse what the boundary protects (Codex P2 round 4).
-  const planScopedPattern = new RegExp(`\\bT-${plan}[a-z]?-\\d+-\\d+\\b`, "g");
+  // extractor must parse what the boundary protects (Codex P2 round 4). The
+  // phase segment takes the same supplement letter the plan headings use
+  // (T-023p-1B-4, T-023p-1C-1), and the id is captured VERBATIM — the letter
+  // is what distinguishes a supplement's task from its parent phase's.
+  const planScopedPattern = new RegExp(String.raw`\bT-${plan}[a-z]?-${PHASE_TOKEN}-\d+\b`, "g");
   // Multi-segment: Plan-001's TN.M (T5.1) and Plan-022's TN.M.K (T22.4.4)
   // are both live corpus grammars — a two-segment-only pattern silently
   // TRUNCATES T22.4.4 to "T22.4" and writes a wrong manifest task id

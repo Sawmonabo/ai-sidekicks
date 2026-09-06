@@ -218,6 +218,88 @@ test("parseTaskFromPr: still extracts plan-scoped T-NNNp?-N-N even when other pl
   assert.equal(r, "T-007p-3-1");
 });
 
+// ---------- supplement-phase grammar ----------
+//
+// A Tier-1 explicit-label supplement is a phase authored after its parent
+// phase merged, spelled with an uppercase letter (`### Phase 1B`). Its task
+// ids carry that letter in their phase segment (`T-023p-1C-1`). Both
+// extractors were blind to it: `Phase 1B` failed `/\bPhase\s+(\d+)\b/`
+// because there is no word boundary between `1` and `B`, and `T-023p-1C-1`
+// failed the plan-scoped id pattern for the same reason — so sixteen merged
+// Plan-023 PRs synthesized as phase 0 / empty task and validation-failed.
+// `phase:` still carries the NUMBER the supplement extends (the manifest
+// validator takes a positive integer, and the on-disk Plan-023 rows for
+// #416 / #422 read `phase: 1`); the letter survives verbatim in `task:`.
+
+test("parsePhaseFromPr: reads the supplement label Phase 1B as phase 1", () => {
+  assert.equal(
+    parsePhaseFromPr({
+      title: "feat(desktop): Plan-023 Phase 1B — renderer load substrate",
+      body: null,
+      plan: "023",
+    }),
+    1,
+  );
+});
+
+test("parsePhaseFromPr: reads the supplement label Phase 1C as phase 1", () => {
+  assert.equal(
+    parsePhaseFromPr({ title: "feat(desktop): Plan-023 Phase 1C work", body: null, plan: "023" }),
+    1,
+  );
+});
+
+test("parsePhaseFromPr: derives the phase from a plan-scoped supplement task id", () => {
+  // PR #416's real title: no `Phase N` prose anywhere in it.
+  assert.equal(
+    parsePhaseFromPr({
+      title: "feat(desktop): console substrate (Plan-023 T-023p-1C-1)",
+      body: null,
+      plan: "023",
+    }),
+    1,
+  );
+});
+
+// Negative control: the pre-existing forms must parse exactly as before.
+test("parsePhaseFromPr: plain `Phase 2` and `T-023-2-1` still parse as 2", () => {
+  assert.equal(parsePhaseFromPr({ title: "feat: Phase 2 work", body: null, plan: "007" }), 2);
+  assert.equal(
+    parsePhaseFromPr({ title: "feat: x (Plan-023 T-023-2-1)", body: null, plan: "023" }),
+    2,
+  );
+  assert.equal(parsePhaseFromPr({ title: "feat: P5.1 client SDK", body: null }), 5);
+});
+
+// EXACTLY one letter. A run of letters is not a supplement label, and reading
+// `Phase 2ab` as phase 2 would invent a mapping the corpus never spells.
+test("parsePhaseFromPr: a multi-letter suffix matches nothing", () => {
+  assert.equal(parsePhaseFromPr({ title: "feat: Phase 2ab", body: null, plan: "007" }), null);
+});
+
+test("parseTaskFromPr: captures the three supplement id shapes verbatim", () => {
+  assert.equal(
+    parseTaskFromPr({ title: "x (Plan-023 T-023p-1C-1)", body: null, plan: "023" }),
+    "T-023p-1C-1",
+  );
+  assert.equal(
+    parseTaskFromPr({ title: "x (Plan-023 T-023p-1B-4)", body: null, plan: "023" }),
+    "T-023p-1B-4",
+  );
+  // No supplement letter — the shape that already worked, and must keep to.
+  assert.equal(
+    parseTaskFromPr({ title: "x (Plan-023 T-023r-4-5)", body: null, plan: "023" }),
+    "T-023r-4-5",
+  );
+});
+
+test("parseTaskFromPr: a supplement id does not leak across plans", () => {
+  assert.equal(
+    parseTaskFromPr({ title: "feat: see Plan-023 T-023p-1C-1", body: null, plan: "024" }),
+    null,
+  );
+});
+
 // ---------- buildEntryFromPr ----------
 
 const SAMPLE_DETAILS = {

@@ -51,27 +51,37 @@ const MANIFEST_BLOCK = [
 
 const PLAN_SOURCE = `# Plan-001 Fixture\n\n${MANIFEST_BLOCK}\n`;
 
-// Stub builder: responds to the freshness list/view commands and records every
-// command it sees. viewFilesByPr maps PR number -> {files, changedFiles}.
+// Stub builder: responds to the freshness list/view/files commands and records
+// every command it sees. viewFilesByPr maps PR number -> {files, changedFiles}.
+// The gate reads a candidate's files with TWO commands — `gh pr view` for the
+// authoritative count and the paginated REST file endpoint for the list, whose
+// real output is newline-separated raw filenames — so one fixture is split
+// across both, and `changedFiles` defaults to the fixture's own file count.
 function stubGh({ listResult, viewFilesByPr = {}, listThrows = false }) {
   const calls = [];
+  const specFor = (pr) => {
+    const spec = viewFilesByPr[pr];
+    if (!spec) throw new Error(`gh: no stub for pr ${pr}`);
+    if (spec.throws) throw new Error("gh: view unreachable");
+    return spec;
+  };
   setGhImpl((cmd) => {
     calls.push(cmd);
     if (cmd.includes("gh pr list")) {
       if (listThrows) throw new Error("gh: network unreachable");
       return typeof listResult === "string" ? listResult : JSON.stringify(listResult);
     }
+    const filesMatch = cmd.match(/gh api repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)\/files/);
+    if (filesMatch) {
+      const spec = specFor(Number(filesMatch[1]));
+      const paths = spec.walkedFiles ?? spec.files;
+      return paths.length === 0 ? "" : `${paths.join("\n")}\n`;
+    }
     const viewMatch = cmd.match(/gh pr view (\d+)/);
     if (viewMatch) {
-      const pr = Number(viewMatch[1]);
-      const spec = viewFilesByPr[pr];
-      if (!spec) throw new Error(`gh: no stub for pr ${pr}`);
-      if (spec.throws) throw new Error("gh: view unreachable");
+      const spec = specFor(Number(viewMatch[1]));
       if (spec.raw !== undefined) return spec.raw;
-      return JSON.stringify({
-        files: spec.files.map((path) => ({ path })),
-        changedFiles: spec.changedFiles ?? spec.files.length,
-      });
+      return JSON.stringify({ changedFiles: spec.changedFiles ?? spec.files.length });
     }
     throw new Error(`unexpected gh command: ${cmd}`);
   });
@@ -297,7 +307,7 @@ test("fetch saturation halts rather than silently truncating", () => {
   assert.match(r.halt, /MAY be truncated/);
 });
 
-test("truncated file list halts (files.length < changedFiles)", () => {
+test("short file list halts (walk returned fewer than changedFiles)", () => {
   stubGh({
     listResult: [
       { number: 14, title: "feat(x): c (Plan-001 T1.5)", mergedAt: "2026-05-01T00:00:00Z" },
@@ -306,9 +316,76 @@ test("truncated file list halts (files.length < changedFiles)", () => {
   });
   const r = gateManifestFreshness(PLAN_SOURCE, 1);
   assert.equal(r.ok, false);
-  assert.equal(r.kind, "freshness_files_truncated");
+  assert.equal(r.kind, "freshness_files_unreconciled");
   assert.match(r.halt, /1 of/);
   assert.match(r.halt, /150 changed files/);
+  assert.match(r.halt, /at most 3000 files/);
+});
+
+// The defect this pagination fix closes: `gh pr view --json files` compiles to
+// a single `pullRequest.files(first: 100)` GraphQL page, so an ordinary
+// 263-file PR came back as 100 and halted the gate on a truncation the gate
+// created itself. The paginated walk classifies it without halting.
+test("263-file candidate classifies without halting (paginated walk)", () => {
+  const files = Array.from({ length: 263 }, (_, i) => `apps/desktop/src/console/m${i}.ts`);
+  const calls = stubGh({
+    listResult: [
+      { number: 416, title: "feat(x): console (Plan-001 T1.5)", mergedAt: "2026-09-02T00:00:00Z" },
+    ],
+    viewFilesByPr: { 416: { files, changedFiles: 263 } },
+  });
+  const r = gateManifestFreshness(PLAN_SOURCE, 1);
+  assert.equal(r.ok, false);
+  assert.equal(r.kind, "manifest_stale"); // classified material, not halted on the fetch
+  assert.equal(r.stale[0].materialFileCount, 263);
+  assert.ok(
+    calls.some((cmd) =>
+      cmd.includes("gh api repos/{owner}/{repo}/pulls/416/files --paginate --jq"),
+    ),
+  );
+  // The metadata read must not re-request the truncating GraphQL page.
+  assert.ok(calls.some((cmd) => cmd === "gh pr view 416 --json changedFiles"));
+});
+
+// Negative control for the same walk: one path short of the authoritative
+// count is the shape a stopped walk has, and it must halt rather than classify.
+test("262 of 263 walked paths halts (negative control)", () => {
+  const files = Array.from({ length: 263 }, (_, i) => `apps/desktop/src/console/m${i}.ts`);
+  stubGh({
+    listResult: [
+      { number: 416, title: "feat(x): console (Plan-001 T1.5)", mergedAt: "2026-09-02T00:00:00Z" },
+    ],
+    viewFilesByPr: { 416: { files, walkedFiles: files.slice(0, 262), changedFiles: 263 } },
+  });
+  const r = gateManifestFreshness(PLAN_SOURCE, 1);
+  assert.equal(r.ok, false);
+  assert.equal(r.kind, "freshness_files_unreconciled");
+  assert.match(r.halt, /262 of/);
+  assert.match(r.halt, /263 changed files/);
+});
+
+// The other direction and the missing count are the same defect: a list that
+// does not describe the PR. A newline inside a path splits one row into two.
+test("an over-long walk and an absent changedFiles both halt", () => {
+  stubGh({
+    listResult: [
+      { number: 14, title: "feat(x): c (Plan-001 T1.5)", mergedAt: "2026-05-01T00:00:00Z" },
+    ],
+    viewFilesByPr: { 14: { files: ["packages/x/a.ts", "b", "packages/x/c.ts"], changedFiles: 2 } },
+  });
+  const overLong = gateManifestFreshness(PLAN_SOURCE, 1);
+  assert.equal(overLong.kind, "freshness_files_unreconciled");
+  assert.match(overLong.halt, /3 of/);
+
+  stubGh({
+    listResult: [
+      { number: 14, title: "feat(x): c (Plan-001 T1.5)", mergedAt: "2026-05-01T00:00:00Z" },
+    ],
+    viewFilesByPr: { 14: { files: ["packages/x/a.ts"], raw: JSON.stringify({}) } },
+  });
+  const noCount = gateManifestFreshness(PLAN_SOURCE, 1);
+  assert.equal(noCount.kind, "freshness_files_unreconciled");
+  assert.match(noCount.halt, /an absent changedFiles count/);
 });
 
 // ============================================================

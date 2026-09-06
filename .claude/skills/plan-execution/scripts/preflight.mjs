@@ -1707,7 +1707,13 @@ export function gateManifestFreshness(planSource, planNumber) {
   const stale = [];
   for (const pullRequest of candidates) {
     if (manifestPrs.has(pullRequest.number)) continue;
-    const viewRun = runGh(`gh pr view ${pullRequest.number} --json files,changedFiles`);
+    // Two commands, the shape rebuild-shipment-manifest.mjs uses and the
+    // lane-boundary CI step already used: `gh pr view` for the authoritative
+    // count, and the REST file endpoint walked with `--paginate` for the list.
+    // `gh pr view --json files` is NOT asked for it — that compiles to a single
+    // `pullRequest.files(first: 100)` GraphQL page, so every candidate above
+    // 100 files halted this gate on a truncation it created itself.
+    const viewRun = runGh(`gh pr view ${pullRequest.number} --json changedFiles`);
     if (!viewRun.ok) return ghUnreachableHalt(paddedPlan, viewRun.error);
     let details;
     try {
@@ -1718,28 +1724,41 @@ export function gateManifestFreshness(planSource, planNumber) {
         `gh pr view ${pullRequest.number} output is not JSON: ${e.message}`,
       );
     }
-    const files = Array.isArray(details.files) ? details.files : [];
-    if (typeof details.changedFiles === "number" && files.length < details.changedFiles) {
+    // `{owner}`/`{repo}` are gh's own placeholders, filled from the repository
+    // of the current directory.
+    const filesEndpoint = `repos/{owner}/{repo}/pulls/${pullRequest.number}/files`;
+    const filesRun = runGh(`gh api ${filesEndpoint} --paginate --jq '.[].filename'`);
+    if (!filesRun.ok) return ghUnreachableHalt(paddedPlan, filesRun.error);
+    const files = filesRun.out.split(/\r?\n/).filter((line) => line.length > 0);
+    // Fail closed on ANY disagreement and on a missing count. Short means the
+    // walk stopped early — that endpoint returns at most 3000 files and stops
+    // there with no in-band signal — and long means a path carrying a newline
+    // was split by the raw `--jq` stream. Either way the material-path
+    // classification would rest on a list that does not describe the PR.
+    if (typeof details.changedFiles !== "number" || files.length !== details.changedFiles) {
+      const countPhrase =
+        typeof details.changedFiles === "number"
+          ? `${details.changedFiles} changed files`
+          : "an absent changedFiles count";
       return {
         ok: false,
-        kind: "freshness_files_truncated",
+        kind: "freshness_files_unreconciled",
         halt: [
-          "## Preflight halt: manifest-freshness file list truncated (Gate 6)",
+          "## Preflight halt: manifest-freshness file list did not reconcile (Gate 6)",
           "",
-          `gh pr view ${pullRequest.number} returned ${files.length} of`,
-          `${details.changedFiles} changed files — the GraphQL files(first: 100)`,
-          "ceiling truncated the list, so the material-path classification for",
+          `gh api ${filesEndpoint} --paginate returned ${files.length} of`,
+          `${countPhrase}, so the material-path classification for`,
           `PR #${pullRequest.number} cannot be trusted (mirrors`,
-          "rebuild-shipment-manifest.mjs exit-7 discipline). Classify the PR",
-          "manually, reconcile the manifest, and re-run — or bypass explicitly",
-          "with --allow-stale-manifest.",
+          "rebuild-shipment-manifest.mjs exit-7 discipline). That endpoint",
+          "returns at most 3000 files; a PR above that ceiling halts here rather",
+          "than being classified off a partial list. Classify the PR manually,",
+          "reconcile the manifest, and re-run — or bypass explicitly with",
+          "--allow-stale-manifest.",
         ].join("\n"),
       };
     }
-    const materialFileCount = files.filter(
-      (f) =>
-        typeof f.path === "string" &&
-        MATERIAL_PATH_PREFIXES.some((prefix) => f.path.startsWith(prefix)),
+    const materialFileCount = files.filter((path) =>
+      MATERIAL_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)),
     ).length;
     if (materialFileCount > 0) {
       stale.push({
