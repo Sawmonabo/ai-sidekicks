@@ -21,34 +21,16 @@
 
 import type { InviteRevokeResponse } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "../../core/index.js";
-import type { InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
+import type { GrowthReading, InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
 
 /**
- * What this surface holds for one `invitesList` call: the port's answer, or why
- * there is none.
+ * What this surface holds for one `invitesList` call.
  *
- * The port's contract is that it RESOLVES with a `GrowthOutcome` — served, or
- * `unavailable` with the reason on it — so the ordinary refusal already travels
- * inside the outcome. A REJECTION is a different fact: the call produced no outcome
- * at all, and the outcome union has no member for it, because its refusal arm
- * carries a closed code vocabulary the growth port owns and this console does not.
- *
- * A cell holding only the outcome therefore had one arm too few, and the missing arm
- * is the one that matters most: a `.then` with no rejection handler leaves the cell
- * untouched, so the ledger goes on saying "Reading this session's invitations" for
- * the life of the window while an unhandled rejection reaches it — a read that
- * FAILED reported as a read still IN FLIGHT, which is the conflation the console's
- * kinds of nothing exist to prevent.
- *
- * Concrete rather than generic, and family-local: every view family is a sibling of
- * every other, so the shape cannot be shared from here. The settings family holds
- * the same two arms for its own one-shot reads, and the home both could share is
- * `bridge/`, beside `GrowthOutcome` itself.
+ * An instantiation of the console's one reading union rather than a second spelling
+ * of its two arms: the shape is `bridge/`'s, beside the outcome its answered arm
+ * carries, and this name is what this family calls it.
  */
-export type LedgerReading =
-  | { readonly kind: "answered"; readonly outcome: InvitesListOutcome }
-  | { readonly kind: "unreadable"; readonly refusal: ConsoleRefusal };
+export type LedgerReading = GrowthReading<InvitesListOutcome>;
 
 /** Pending first, then everything that has already settled. */
 export interface InviteLedger {

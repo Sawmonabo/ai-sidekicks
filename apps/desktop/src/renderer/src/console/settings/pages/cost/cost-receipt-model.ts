@@ -31,7 +31,7 @@
 // is one implementation per job.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { GrowthReading } from "../../shared/growth-reading.js";
+import type { GrowthReading } from "../../../bridge/index.js";
 import { formatCount, formatMoney } from "../../../primitives/index.js";
 
 /**

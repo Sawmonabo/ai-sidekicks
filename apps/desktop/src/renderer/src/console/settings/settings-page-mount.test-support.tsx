@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
-import { CommittedFrameRecorder } from "./committed-frame.test-support.js";
+import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import type { SettingsPageContext } from "./settings-page-registry.js";
 
 /**
@@ -71,6 +71,7 @@ export function renderMovablePage(
   const tree = (sessionId: string | undefined): ReactNode => (
     <LiveAnnouncerProvider>
       <CommittedFrameRecorder
+        id="settings-page"
         onFrame={(committedText) => {
           frames.push(committedText);
         }}

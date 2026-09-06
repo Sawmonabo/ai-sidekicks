@@ -21,7 +21,48 @@
 import "./palette.css";
 
 export { CommandRegistry } from "./command-registry.js";
+
+// This window's one registry, the plural call a family contributes through, the host
+// chord platform the printer formats for, and the `when` vocabulary a clause is
+// written against. On this door rather than the frame's because the frame is a
+// CONSUMER of them and this family declares what they are made of — and because the
+// two other consumers, a view family and the composer's shell half, both close a
+// cycle on `frame/index.ts` and can reach nothing there at all.
+//
+// `registerConsoleCommand`, the singular, is deliberately absent; so is the
+// `CONSOLE_WHEN_CLAUSE_KEYS` tuple the clause types are derived FROM, and so is
+// `ConsoleWhenClauseKey` itself, which now has no reader outside this family at all —
+// `command-surface.ts` beside it scopes the frame's two shapes to the key and imports
+// it as a sibling. Every family that contributes contributes a SET, and every family
+// that writes a clause writes it against the CONTEXT. A door line for any of the three
+// would be a specifier no production module reaches, which the barrel census reports
+// rather than tolerates.
+export {
+  CONSOLE_CHORD_PLATFORM,
+  consoleCommands,
+  registerConsoleCommands,
+  type ConsoleWhenClauseContext,
+} from "./console-commands.js";
+
+// The two contribution shapes a family outside this one writes against: what a
+// command IS, and what a key binding IS. `KeyBinding` is on this door because the
+// keyboard settings page renders one per row and composes a person's overrides onto
+// it — a view family, which can reach nothing inside this one by any other path.
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
+
+// The frame's own command vocabulary — the shapes its contributions take, the rail's
+// navigation table, and the chords it binds. On this door because a command IS a
+// registry entry and a chord IS a key-binding-table row, both declared next door, and
+// because the frame is no longer the only reader: a settings page renders the bound
+// chords, and a view family can reach neither `frame/command-surface.js` nor
+// `frame/index.js` — the first is a cross-family deep import, the second closes a
+// cycle back through `families.ts`.
+//
+// `FrameKeyBinding` is deliberately absent. `FRAME_KEY_BINDINGS` is typed by it and
+// every consumer reads the array, so a door line for the element type would be a
+// specifier no production module writes.
+export { FRAME_KEY_BINDINGS, RAIL_NAVIGATION_DETAILS } from "./command-surface.js";
+export type { FrameCommand } from "./command-surface.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the
 // frame through this door like every other symbol a family consumes. Only the
@@ -40,30 +81,17 @@ export { KeyBindingTable } from "./keybindings.js";
 
 export type { WhenClauseContext } from "./when-clause.js";
 
+// The open chord is NOT forwarded, and it is no longer this family's to forward. The
+// overlay BINDS it and three surfaces PRINT it, one of them a primitive, so the
+// literal sits in `primitives/chord-format.ts` beside the printer and this family
+// imports it down like every other caller.
 export { PaletteOverlay } from "./PaletteOverlay.js";
 
-// The command surface and the chord surface, which moved here from `frame/`.
-//
-// They were authored beside the frame because the frame is what registers the
-// console's own commands and installs their chords. But the settings pages read
-// both — the keyboard page lists every binding and rebinds one, the appearance
-// page registers a scheme command — and settings is a VIEW family, so those reads
-// were cross-family imports reaching past a door into another family's subtree.
-// The rule's own remedy is to hoist to the lowest family that owns the inputs, and
-// that family is this one: a command IS a `CommandRegistry` entry and a chord IS a
-// `KeyBindingTable` row, both declared next door. The frame keeps what only the
-// frame does — composing the registry into a running window — and imports the
-// vocabulary through this door like every other consumer.
-export {
-  CONSOLE_CHORD_PLATFORM,
-  FRAME_KEY_BINDINGS,
-  RAIL_NAVIGATION_DETAILS,
-  consoleCommands,
-  registerConsoleCommands,
-  type FrameCommand,
-  type FrameWhenClauseContext,
-} from "./command-surface.js";
-
+// The keybinding surface this family added beside the table: what a chord audit
+// answers, how a person's overrides compose onto the shipped bindings, and the store
+// that holds them for a window. Published because the keyboard settings page is the
+// reader of all three, and settings is a view family that may reach nothing inside
+// this one by any other path.
 export { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 
 export { composeEffectiveBindings, type KeybindingOverrideMap } from "./keybinding-overrides.js";

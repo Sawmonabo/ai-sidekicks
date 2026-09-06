@@ -2,39 +2,47 @@
 //
 // WHY THIS FILE EXISTS AT ALL
 //
-// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that
-// run at the same time. Each has to become reachable from the entry point, and
-// there is exactly one way to do that without every branch editing the same
-// registry: give each family a SEAT — one line, reserved in advance, that only
-// that family replaces. Six branches then produce six one-line diffs at six
-// distinct positions and none of them conflicts.
+// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that run
+// at the same time. Each has to become reachable from the entry point, and there is
+// exactly one way to do that without every branch editing the same registry: give
+// each family a SEAT — one line, reserved in advance, that only that family
+// replaces. Each branch then produces one one-line diff at a position no other
+// branch touches, and none of them conflicts.
+//
+// SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
+// lines at the foot of the composition — asserted by `families.test.ts` rather than
+// kept in step by hand. It was not: this header spelled the count twice and the
+// spellings disagreed, because 1C-8 was read as an audit task when it lands a family
+// of its own. A second spelling of one count is a second thing to edit, and the one
+// that goes stale is the one nothing reads.
 //
 // WHAT A FAMILY DOES
 //
 // A family exports a `register<Family>` entry point, claims its slots inside that
-// function, and adds the import plus one call DIRECTLY BENEATH its own reserved line.
-// The reserved line stays, so the seat order is legible whether or not a seat is
-// filled.
+// function, and REPLACES its own reserved line with the call, keeping the task marker
+// on it as a trailing comment. The marker is what makes a seat countable in either
+// state, so the board's own count is stable as families land.
 //
 // IT TAKES THE BOARDS IT CLAIMS INTO, AND NO OTHERS. The signature is the family's
 // own: `registerCollaborationFamily(registry: ConsoleSurfaceRegistry)` takes the
 // surface registry because surface slots are all it claims here. A family that also
-// claimed a pane kind or an event fold would take those boards too — the three this
+// claimed a pane kind or an event fold would take those boards too — the boards this
 // function is handed are what a composition OWNS, not what every seat receives.
 //
 // ITS HOME IS ITS OWN `index.ts`, OR A COMPOSITION ROOT MODULE. A family that is one
-// directory registers from that directory's door. A family that is several — the
-// collaboration family is four subtrees, and a view family may name no other — cannot,
-// so its registrar lives in a module at the console root and that module's name joins
-// the enumeration in `.dependency-cruiser.mjs`'s `COMPOSITION_ROOT_FILES`. Those are
-// the two admissible homes; there is no third.
+// directory registers from that directory's door. A family spread across several
+// subtrees — as the collaboration family is, and a view family may name no other —
+// cannot, so its registrar lives in a module at the console root and that module's
+// name joins the enumeration in `.dependency-cruiser.mjs`'s `COMPOSITION_ROOT_FILES`.
+// Those are the admissible homes, and there is no other.
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `frame/surface-registry.ts`, `bridge/scenario-manifest.ts`,
-// `bridge/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
-// six-way concurrent edit to any of them is a guaranteed conflict, and worse, a
-// merge that resolves cleanly while silently dropping one family's registration.
+// A family never edits `seats/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
+// `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
+// concurrent edit to any of them from every one of those branches at once is a
+// guaranteed conflict, and worse, a merge that resolves cleanly while silently
+// dropping one family's registration.
 // A family registers through its own `index.ts` and its own reserved lines — here,
 // and in `bridge/scenarios/index.ts` for its fixture scenario.
 //
@@ -52,10 +60,9 @@
 import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
-import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
-import type { ConsolePaneRegistry } from "./seats/index.js";
+import type { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "./seats/index.js";
 
 /**
  * Register every shipped view family against the three registries a composition owns.
@@ -113,8 +120,7 @@ export function registerConsoleFamilies(
   // registrar reaches the deck through `panes/index.ts` above and not from here.
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
-  // T-023p-1C-4 collaboration
-  registerCollaborationFamily(registry);
+  registerCollaborationFamily(registry); // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

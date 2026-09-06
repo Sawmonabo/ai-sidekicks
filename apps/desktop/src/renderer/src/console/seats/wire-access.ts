@@ -12,7 +12,7 @@
 // THE CALL SIDE IS NOT HERE, AND ITS ABSENCE IS THE POINT. This module used to cast
 // `daemon.call` the same way, with each caller pinning the request and response
 // types by hand and nothing checking that the pin matched the wire. That is now
-// `bridge/daemon-reply.ts`: a registry keyed by method name, holding the contracts
+// `bridge/daemon/daemon-reply.ts`: a registry keyed by method name, holding the contracts
 // package's own schemas, parsing the request before it goes and the reply when it
 // lands. A second call door here would be a second answer to which methods exist
 // and what they carry — so there is one, and it is next door.
@@ -20,7 +20,7 @@
 // WHY A SUBSCRIPTION STILL CASTS. A subscribe names a STREAM and answers with an
 // unsubscribe handle; it has no reply to parse, so the registry has nothing to bind
 // it to. Which names are streams and what each carries is
-// `bridge/session-event-streams.ts`'s table.
+// `bridge/daemon/session-event-streams.ts`'s table.
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 

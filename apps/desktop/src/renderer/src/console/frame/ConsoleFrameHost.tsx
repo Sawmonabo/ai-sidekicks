@@ -25,7 +25,7 @@ import { useLayoutEffect, type ReactNode } from "react";
 import { useBridgeResolution } from "../bridge/index.js";
 import { Nothing } from "../primitives/index.js";
 import { ConsoleFrame } from "./ConsoleFrame.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { type ConsoleSurfaceContext } from "../seats/index.js";
 import { installMeridianTokens } from "./token-installation.js";
 
 export interface ConsoleFrameHostProps {

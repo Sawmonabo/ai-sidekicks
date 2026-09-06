@@ -9,10 +9,11 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { openStore } from "../sessions.test-support.js";
 import { InviteShelf } from "./InviteShelf.js";
+import { CommittedFrameRecorder } from "../../core/committed-frame.test-support.js";
+// The unit factors from the module that DECLARES them: a suite is not a reader a
+// `core/index.ts` door line can be retired by, which is what the barrel census fails.
+import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_HOUR } from "../../core/instant.js";
 import {
-  CommittedFrameRecorder,
-  DAY_MILLISECONDS,
-  HOUR_MILLISECONDS,
   LAPSED_EXPIRY,
   createDeferredOutcomes,
   REFUSED,
@@ -152,7 +153,7 @@ describe("an invitation that lapses while the console holds it", () => {
     // Past the fixture's expiry, on the clock the shelf armed its wake-up on. No
     // read is performed and none is needed: what changed is what time it is.
     await act(async () => {
-      clock.advance(DAY_MILLISECONDS + 1);
+      clock.advance(MILLISECONDS_PER_DAY + 1);
       await Promise.resolve();
     });
 
@@ -175,7 +176,7 @@ describe("an invitation that lapses while the console holds it", () => {
     await settle();
 
     await act(async () => {
-      clock.advance(DAY_MILLISECONDS - 1);
+      clock.advance(MILLISECONDS_PER_DAY - 1);
       await Promise.resolve();
     });
 
@@ -256,14 +257,14 @@ describe("an invitation that lapsed before the read that found it", () => {
     const heldRead = createDeferredOutcomes();
     const frames: string[] = [];
     render(
-      <CommittedFrameRecorder onFrame={(text) => frames.push(text)}>
+      <CommittedFrameRecorder id="invite-shelf" onFrame={(text) => frames.push(text)}>
         <InviteShelf read={heldRead.read} uiStateStore={openStore()} clock={clock} />
       </CommittedFrameRecorder>,
     );
     await settle();
 
     await act(async () => {
-      clock.advance(HOUR_MILLISECONDS);
+      clock.advance(MILLISECONDS_PER_HOUR);
       await Promise.resolve();
     });
     frames.length = 0;
@@ -288,7 +289,7 @@ describe("an invitation that lapsed before the read that found it", () => {
     const heldRead = createDeferredOutcomes();
     const frames: string[] = [];
     render(
-      <CommittedFrameRecorder onFrame={(text) => frames.push(text)}>
+      <CommittedFrameRecorder id="invite-shelf" onFrame={(text) => frames.push(text)}>
         <InviteShelf read={heldRead.read} uiStateStore={openStore()} clock={clock} />
       </CommittedFrameRecorder>,
     );

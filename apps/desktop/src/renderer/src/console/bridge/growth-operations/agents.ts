@@ -9,7 +9,7 @@
 // beside the roster entry that spawned them, and a child-run link is a fact about an
 // agent's work rather than about a session's spend.
 
-import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
 
 /**

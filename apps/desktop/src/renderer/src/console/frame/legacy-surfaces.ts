@@ -20,8 +20,11 @@
 import type { ReactNode } from "react";
 
 import { routeSessionId } from "../routing/index.js";
-import { renderAbsorbedParticipantRoster } from "../seats/index.js";
-import { type ConsoleSurfaceDescriptor, type ConsoleSurfaceRegistry } from "./surface-registry.js";
+import {
+  renderAbsorbedParticipantRoster,
+  type ConsoleSurfaceDescriptor,
+  type ConsoleSurfaceRegistry,
+} from "../seats/index.js";
 
 /**
  * The shipped family that still holds a slot of its own, and which slot.
@@ -49,9 +52,9 @@ const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
  * Claim a slot for each shipped Tier-1 family.
  *
  * Takes the registry rather than reaching for the module-scope singleton, for the
- * same reason `registerConsoleFamilies` does: composition is the caller's, so a
- * test can compose into a registry it owns and an auxiliary window can compose a
- * subset without a second code path.
+ * same reason `registerConsoleFamilies` does: composition is the caller's, so a test
+ * can compose into a registry it owns and an auxiliary window can compose a subset
+ * without a second code path.
  */
 export function registerLegacySurfaces(registry: ConsoleSurfaceRegistry): void {
   for (const descriptor of LEGACY_SURFACES) {

@@ -19,7 +19,7 @@ import type {
   AgentRosterReading,
   ChildRunLinkReadRequest,
   ChildRunLinkReading,
-} from "../agent-plane.js";
+} from "../wire-shapes/index.js";
 
 export interface AgentGrowthSignatures {
   // agent plane — the four verbs. Their shapes are `agent-plane.ts`'s, declared there

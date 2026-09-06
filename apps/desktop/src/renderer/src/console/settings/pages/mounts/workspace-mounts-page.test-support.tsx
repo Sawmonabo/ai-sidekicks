@@ -12,7 +12,10 @@ import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { unscriptedScenario, withDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
+import {
+  unscriptedScenario,
+  withDaemonCall,
+} from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { ManualClock } from "../../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";

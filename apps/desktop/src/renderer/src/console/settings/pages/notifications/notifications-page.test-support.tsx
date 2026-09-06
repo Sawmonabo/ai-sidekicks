@@ -12,7 +12,7 @@ import { type ConsoleBridge, type GrowthPort } from "../../../bridge/index.js";
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import {
   renderMovablePage,
@@ -27,7 +27,7 @@ import type {
 } from "./attention-preference-model.js";
 import { settle as settlePasses } from "../../../core/settle.test-support.js";
 
-import type { ConsoleScenario } from "../../../bridge/scenario.js";
+import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 
 export const SESSION_ID = "session-notifications";
 export const PARTICIPANT_ID = "participant-ana";

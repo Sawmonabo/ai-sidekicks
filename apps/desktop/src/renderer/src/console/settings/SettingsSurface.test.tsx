@@ -25,7 +25,7 @@ import {
   ConsoleSurfaceRegistry,
   type ConsoleSurfaceContext,
   type ConsoleSurfaceDescriptor,
-} from "../frame/surface-registry.js";
+} from "../seats/index.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar itself.

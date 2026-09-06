@@ -74,7 +74,30 @@ import { lossyStringify } from "../../../../shared/wire-errors.js";
 const RFC_3339_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})([Tt])(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
 
-const MILLISECONDS_PER_MINUTE = 60_000;
+/**
+ * The console's millisecond unit factors, each derived from the one before it.
+ *
+ * HERE BECAUSE THE MILLISECOND IS THIS MODULE'S UNIT. `Instant.epochMilliseconds` is
+ * the only number the console does arithmetic on, so every duration a caller composes
+ * or compares is a multiple of one of these — and the factors were being written out
+ * per caller, three ways in three families: a private constant here, a `SECOND_`-based
+ * chain in a presence model, and `24 * 60 * 60 * 1000` inline in a test harness. Three
+ * spellings of one fact is three places for a zero to go missing, and every one of them
+ * reads correctly on its own.
+ *
+ * DERIVED RATHER THAN WRITTEN OUT, for the same reason. `86_400_000` typed by hand is a
+ * digit count nobody verifies at review; `24 * MILLISECONDS_PER_HOUR` is the sentence a
+ * reader can check. One base literal carries the encoding and the rest are arithmetic
+ * over it, so a wrong factor is a wrong multiplier and never a wrong magnitude.
+ *
+ * NOT IN `core/constants.ts`, which holds the console's CAPS — a bound somebody chose,
+ * each with a rationale for the number. These are not chosen: they are what the units
+ * are, and they belong beside the reading that makes the millisecond the unit.
+ */
+export const MILLISECONDS_PER_SECOND = 1_000;
+export const MILLISECONDS_PER_MINUTE: number = 60 * MILLISECONDS_PER_SECOND;
+export const MILLISECONDS_PER_HOUR: number = 60 * MILLISECONDS_PER_MINUTE;
+export const MILLISECONDS_PER_DAY: number = 24 * MILLISECONDS_PER_HOUR;
 
 /** Days in `month` of `year`, with the Gregorian leap rule stated in full. */
 function daysInMonth(year: number, month: number): number {

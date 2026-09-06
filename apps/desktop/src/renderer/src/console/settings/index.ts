@@ -50,7 +50,7 @@ import "./pages/notifications/notifications.css";
 
 import { createElement } from "react";
 
-import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceRegistry } from "../seats/index.js";
 import { registerAppearancePage } from "./pages/appearance/AppearancePage.js";
 import { registerApplicationPage } from "./pages/application/ApplicationPage.js";
 import { registerCostReceiptPage } from "./pages/cost/CostReceiptPage.js";

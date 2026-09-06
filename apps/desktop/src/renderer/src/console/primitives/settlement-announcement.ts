@@ -16,6 +16,14 @@
 // changes on every push is a new sentence every time and this hook will say all of
 // them. Each caller's own test pins that with a negative control.
 //
+// IN `primitives/` BECAUSE THREE VIEW FAMILIES READ IT, counted rather than assumed:
+// `settings/` from the mount inventory and the updates block, `agents/` from the
+// definition registry view, and `sessions/` from the attention read. View families are
+// siblings, so no one of them can hold a hook the other two call — the family that
+// wrote it would be the family the others deep-import into. That is the same argument
+// `SurfaceAbsence` and `chord-format.ts` beside it are here on, and it is why this is a
+// primitive rather than a settings module that grew readers.
+//
 // WHY IT IS NOT `frame/banner-announcements.ts`. That module diffs a LIST by id and
 // speaks into the assertive lane, because a refusal banner says the whole room's
 // capabilities moved. This one holds a single string and speaks politely, because a

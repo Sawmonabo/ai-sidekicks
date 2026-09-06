@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { growthRefusing, growthServing } from "../../bridge/fixture-bridge.test-support.js";
+import { growthRefusing, growthServing } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import {

@@ -17,7 +17,7 @@ import "./sessions.css";
 
 import { createElement } from "react";
 
-import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceRegistry } from "../seats/index.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 
 /** Claim the sessions surface slot. */

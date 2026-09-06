@@ -66,7 +66,7 @@ import {
   collaborationRuntimeNodeRoster,
   type CollaborationRuntimeNodeScript,
 } from "./collaboration-runtime-nodes.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const COLLABORATION_SCENARIO_ID = "collaboration";
 

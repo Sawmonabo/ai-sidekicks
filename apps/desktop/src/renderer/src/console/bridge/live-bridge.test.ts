@@ -32,7 +32,7 @@ import { createLiveBridge } from "./live-bridge.js";
 import {
   RUNTIME_NODE_PRESENCE_EVENT_NAMES,
   RUNTIME_NODE_ROSTER_PROCEDURE,
-} from "./runtime-node-roster.js";
+} from "./runtime-nodes/runtime-node-roster.js";
 
 /** The session every case here reads. Shape-valid; nothing parses it. */
 const SESSION_ID = "019b7904-8ce0-75e5-8510-ada11a5a33a5" as SessionId;

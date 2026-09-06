@@ -63,7 +63,7 @@ function refuseOverride(
   code: KeybindingOverrideRefusalCode,
   detail: string,
 ): KeybindingOverrideRefusal {
-  return { ...refuse(KEYBINDING_OVERRIDE_REFUSAL_ORIGIN, code, detail), code };
+  return refuse(KEYBINDING_OVERRIDE_REFUSAL_ORIGIN, code, detail);
 }
 
 /**

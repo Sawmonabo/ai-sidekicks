@@ -15,7 +15,7 @@
 // erasure settles it, and the layering gate counts type edges (`tsPreCompilationDeps`)
 // precisely so a cycle cannot hide inside one. Hoisting the shared symbol into a
 // module below both is what that gate's own message prescribes, and it is the same
-// move `bridge/growth-entry.ts` makes for the growth ledger.
+// move `bridge/growth-port/growth-entry.ts` makes for the growth ledger.
 //
 // This module imports nothing from this family, which is the property that makes
 // it a floor rather than one more node in the graph.

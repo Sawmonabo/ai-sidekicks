@@ -9,7 +9,7 @@ import { StrictMode } from "react";
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { consoleTripwires } from "../core/tripwires.js";
-import { SurfaceErrorBoundary } from "../frame/ErrorBoundary.js";
+import { SurfaceErrorBoundary } from "../primitives/index.js";
 import { SessionStore } from "../store/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { CollaborationSessionModelHolder, useSessionModels } from "./session-models.js";

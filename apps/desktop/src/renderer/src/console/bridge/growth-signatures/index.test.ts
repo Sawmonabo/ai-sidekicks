@@ -15,7 +15,7 @@
 
 import { describe, expectTypeOf, it } from "vitest";
 
-import type { GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import type { GrowthOperationSignatures } from "./index.js";
 import type { PaneGrowthSignatures } from "./panes.js";
 

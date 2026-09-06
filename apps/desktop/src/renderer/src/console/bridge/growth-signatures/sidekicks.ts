@@ -5,8 +5,12 @@
 // section and row comments below are the file's own, kept with the rows they
 // explain.
 
-import type { PeerInvocationReading, PeerInvocationSetRequest } from "../agent-plane.js";
-import type { SidekickDefinition, SidekickDefinitionDraft } from "../sidekick-definition.js";
+import type {
+  PeerInvocationReading,
+  PeerInvocationSetRequest,
+  SidekickDefinition,
+  SidekickDefinitionDraft,
+} from "../wire-shapes/index.js";
 
 export interface SidekickGrowthSignatures {
   // sidekick — the registry's four definition pairs in its own order, and the

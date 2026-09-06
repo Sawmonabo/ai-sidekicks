@@ -1,0 +1,55 @@
+/*
+ * The surface error boundary: its remount carrier, and its default failure card.
+ *
+ * In this family with `ErrorBoundary.tsx` beside it, which moved here from `frame/`
+ * when the door rule made the frame unreachable from a view family. The class stems
+ * are unchanged — they never named the frame.
+ */
+
+/* The error boundary's remount carrier. See `ErrorBoundary.tsx` — it holds a React
+   key and must hold no box, or it truncates the surface's percentage-height chain. */
+.meridian-surface-mount {
+  display: contents;
+}
+
+.meridian-surface-failure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  align-items: flex-start;
+  max-width: 46rem;
+  margin: var(--meridian-space-6) auto;
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-red-mark);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-surface-failure__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  color: var(--meridian-red-text);
+}
+
+.meridian-surface-failure__detail {
+  margin: 0;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-surface-failure__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-surface-failure__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

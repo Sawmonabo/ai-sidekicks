@@ -15,9 +15,12 @@ import { type ReactNode } from "react";
 import { SidekicksBridgeProvider } from "../bridge/index.js";
 import { registerConsoleFamilies } from "../families.js";
 import { consoleEntityProjectorRegistry } from "../store/index.js";
-import { consolePaneRegistry } from "../seats/index.js";
+import {
+  consolePaneRegistry,
+  consoleSurfaceRegistry,
+  type ConsoleSurfaceContext,
+} from "../seats/index.js";
 import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
-import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
 // Composition, at module scope, before any window renders.
 //

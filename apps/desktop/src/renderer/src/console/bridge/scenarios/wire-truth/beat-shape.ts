@@ -13,7 +13,7 @@
 //   • `EventEnvelopeSchema` — the version-tolerant carrier. It fixes the canonical
 //     membership for EVERY kind, registered payload variant or not, and it is the
 //     schema the console's own decode boundary parses each delivery with
-//     (`bridge/session-event-payload.ts`). This is the leg that says the fixture can
+//     (`bridge/daemon/session-event-payload.ts`). This is the leg that says the fixture can
 //     deliver this beat at all: a beat that fails here is one the console would
 //     count as an unreadable delivery and drop, which in a fixture reads as a
 //     scenario that plays a beat nothing renders.
@@ -28,12 +28,12 @@
 // declared per EVENT, not per payload — there is no exported payload-only schema to
 // reach for, and the one place the two are paired is inside the discriminated union.
 // So the check presents each beat as the wire event it claims to be. It does not
-// compose that envelope itself: `../scenario-envelope.ts` composes it, and that is
-// the same function `fixture-bridge.ts` delivers through. Two compositions would be
-// two answers to "what does this beat travel as", and this check would then be
-// validating a record no subscriber ever receives — which is the shape of the defect
-// that made the console's decode boundary and the fixture agree with each other and
-// with nothing the daemon sends.
+// compose that envelope itself: `bridge/scenario-runtime/scenario-envelope.ts`
+// composes it, and that is the same function `fixture-bridge.ts` delivers through.
+// Two compositions would be two answers to "what does this beat travel as", and this
+// check would then be validating a record no subscriber ever receives — which is the
+// shape of the defect that made the console's decode boundary and the fixture agree
+// with each other and with nothing the daemon sends.
 //
 // HOW "NO VARIANT REGISTERED" IS TOLD FROM "VARIANT REJECTED THE BEAT". A Zod
 // discriminated union that matches no branch never enters one: it reports a single
@@ -67,8 +67,8 @@ import {
 
 import { describeSchemaIssue } from "./defect.js";
 import { describeRunAndQueueSemanticsDefect } from "./run-and-queue-semantics.js";
-import { composeScenarioEventEnvelope } from "../../scenario-envelope.js";
-import type { ScenarioBeat } from "../../scenario.js";
+import { composeScenarioEventEnvelope } from "../../scenario-runtime/index.js";
+import type { ScenarioBeat } from "../../scenario-runtime/index.js";
 
 /** What is wrong with one beat, or `undefined` when the wire could have emitted it. */
 export function describeBeatDefect(beat: ScenarioBeat): string | undefined {

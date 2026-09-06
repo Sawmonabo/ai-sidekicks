@@ -4,7 +4,7 @@
 //
 // WHY THE RECORD TYPE IS DERIVED AND NOT RESTATED
 //
-// `bridge/sidekick-definition.ts` declares the stored row, and the bridge's door
+// `bridge/wire-shapes/sidekick-definition.ts` declares the stored row, and the bridge's door
 // publishes the bridge rather than the port's vocabulary. So the shape is taken off
 // the operation itself — the `SentInvites` precedent — and a hand-written copy of a
 // wire shape, which is what a view family would otherwise grow, is a second
@@ -119,7 +119,7 @@ export const NO_SAVED_SIDEKICKS = "You have saved no sidekicks on this node";
  * Read one outcome into what the page renders.
  *
  * The refusal travels as the outcome itself, which already IS the console's refusal
- * shape (`bridge/growth-outcome.ts` extends `ConsoleRefusal`), so nothing here
+ * shape (`bridge/growth-port/growth-outcome.ts` extends `ConsoleRefusal`), so nothing here
  * rewrites a code or a sentence the port composed.
  */
 export function readDefinitionOutcome(

@@ -20,7 +20,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { growthRefusing, growthServing } from "../../bridge/fixture-bridge.test-support.js";
+import { growthRefusing, growthServing } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 import {

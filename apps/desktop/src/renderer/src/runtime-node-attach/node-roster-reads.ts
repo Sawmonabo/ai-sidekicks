@@ -9,7 +9,7 @@
 // THE SEAM IS REQUIRED, AND THAT IS THE POINT. This view used to default to
 // `window.sidekicks.controlPlane.call(…)` and `window.sidekicks.daemon.subscribe(…)`
 // with the two wire strings written out here, which made this the SECOND production
-// home for both — the first is `console/bridge/runtime-node-roster.ts`, which is
+// home for both — the first is `console/bridge/runtime-nodes/runtime-node-roster.ts`, which is
 // where the registered procedure name and the presence event set are declared once
 // and where the all-or-nothing subscription policy is argued. The two homes had
 // already diverged: the bridge module subscribes to all five registered

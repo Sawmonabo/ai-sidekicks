@@ -43,6 +43,7 @@
 // halves cannot drift — which they could while the union and the array were two
 // hand-maintained lists that only a reader ever compared.
 
+import { isWireRecord } from "../core/index.js";
 import { SCHEME_PREFERENCES, isSchemePreference } from "../tokens/index.js";
 import { isIdentifierShaped, validatePersistedAddress } from "./identifier-grammar.js";
 import {
@@ -108,10 +109,20 @@ function notIdentifier(where: string, value: string): PersistenceRefusal {
   );
 }
 
+/**
+ * The record rule, re-narrowed over the tree this family walks.
+ *
+ * The decision — an object, not `null`, not an array — is `core/wire-record.ts`'s and
+ * is not restated here. What this adds is the narrowing, and it is load-bearing: both
+ * callers below go straight on to `Object.entries` / `Object.values` and hand each
+ * member back to a `PersistableValue` walk, which `Readonly<Record<string, unknown>>`
+ * cannot feed. A local that only narrows is one line and no second rule; a cast at
+ * each caller would be the same claim made twice with nothing checking either.
+ */
 function isPlainObject(
   value: PersistableValue,
 ): value is { readonly [key: string]: PersistableValue } {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isWireRecord(value);
 }
 
 /**

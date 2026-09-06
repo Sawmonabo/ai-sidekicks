@@ -17,7 +17,7 @@ import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { createFixture } from "../bridge/fixture-bridge.test-support.js";
+import { createFixture } from "../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { SessionStore } from "../store/index.js";
 import { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";

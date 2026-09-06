@@ -27,7 +27,7 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { COLLABORATION_SCENARIO } from "../bridge/scenarios/collaboration.js";
-import { unscriptedScenario } from "../bridge/fixture-bridge.test-support.js";
+import { unscriptedScenario } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { ConsoleRefusalError } from "../core/index.js";
 import { SurfaceAbsence } from "../primitives/index.js";
 import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";

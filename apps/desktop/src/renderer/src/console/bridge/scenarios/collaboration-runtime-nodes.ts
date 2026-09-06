@@ -29,7 +29,7 @@ import type {
   RuntimeNodeRosterEntry,
 } from "@ai-sidekicks/contracts";
 
-import type { ScenarioBeat, ScenarioRuntimeNodeRosterFrame } from "../scenario.js";
+import type { ScenarioBeat, ScenarioRuntimeNodeRosterFrame } from "../scenario-runtime/index.js";
 
 // The node identifiers are NOT UUIDs, unlike every other id in this scenario:
 // `NodeId` is a bounded branded STRING, so a readable machine name is what the wire

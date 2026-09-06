@@ -31,7 +31,13 @@
 
 import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 
-import { parseInstant, type ConsoleClock } from "../../core/index.js";
+import {
+  MILLISECONDS_PER_DAY,
+  MILLISECONDS_PER_HOUR,
+  MILLISECONDS_PER_MINUTE,
+  parseInstant,
+  type ConsoleClock,
+} from "../../core/index.js";
 import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
 import type { ParticipantHueAssignment } from "../../tokens/index.js";
 import type { SessionStore } from "../../store/index.js";
@@ -184,11 +190,6 @@ export function ageBoundariesOf(
 /** How far ahead the day band is enumerated. Beyond it the figure moves once a day. */
 const AGE_BOUNDARY_HORIZON_DAYS = 30;
 
-const SECOND_MILLISECONDS = 1000;
-const MINUTE_MILLISECONDS = 60 * SECOND_MILLISECONDS;
-const HOUR_MILLISECONDS = 60 * MINUTE_MILLISECONDS;
-const DAY_MILLISECONDS = 24 * HOUR_MILLISECONDS;
-
 /**
  * Why a half-unit deadline is armed one millisecond late.
  *
@@ -209,9 +210,9 @@ const AGE_BOUNDARY_TIE_BREAK_MILLISECONDS = 1;
  * deadline any row earns.
  */
 const AGE_BANDS: readonly { readonly unitMilliseconds: number; readonly steps: number }[] = [
-  { unitMilliseconds: MINUTE_MILLISECONDS, steps: 60 },
-  { unitMilliseconds: HOUR_MILLISECONDS, steps: 24 },
-  { unitMilliseconds: DAY_MILLISECONDS, steps: AGE_BOUNDARY_HORIZON_DAYS },
+  { unitMilliseconds: MILLISECONDS_PER_MINUTE, steps: 60 },
+  { unitMilliseconds: MILLISECONDS_PER_HOUR, steps: 24 },
+  { unitMilliseconds: MILLISECONDS_PER_DAY, steps: AGE_BOUNDARY_HORIZON_DAYS },
 ];
 
 /**

@@ -13,7 +13,7 @@
 // The one fact the console cannot build for itself is WHICH scripted session a
 // fixture build plays, because that is a property of the launch rather than of the
 // code. It arrives on the document URL and is read here, once, at module
-// evaluation — see `console/bridge/scenario-selection.ts`.
+// evaluation — see `console/bridge/scenario-runtime/scenario-selection.ts`.
 
 import { ScenarioSelection } from "./console/bridge/index.js";
 import { ConsoleRoot } from "./console/frame/index.js";

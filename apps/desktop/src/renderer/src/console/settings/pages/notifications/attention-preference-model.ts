@@ -26,7 +26,7 @@
 // renders as itself and says plainly that this is what the daemon holds.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { GrowthReading } from "../../shared/growth-reading.js";
+import type { GrowthReading } from "../../../bridge/index.js";
 import { formatCount } from "../../../primitives/index.js";
 
 /**

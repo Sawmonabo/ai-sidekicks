@@ -35,7 +35,7 @@
 
 import { createElement } from "react";
 
-import type { ConsoleSurfaceRegistry } from "../../frame/surface-registry.js";
+import type { ConsoleSurfaceRegistry } from "../../seats/index.js";
 import { routeSessionId } from "../../routing/index.js";
 import { ConsolePaneChrome, paneBodyForKind, type ConsolePaneRegistry } from "../../seats/index.js";
 import { AgentConsoleBody } from "./AgentConsoleBody.js";

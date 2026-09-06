@@ -20,9 +20,9 @@
 //     surface has not been built, which is true, rather than rendering an empty pane
 //     that reads as a broken feature.
 //
-// Three of the four reach the screen through `primitives/SurfaceAbsence.tsx`, the one
-// centring wrapper the frame has; `legacy-surfaces.ts` raises two more through the
-// same module, which is why it is a module and not a block in this one.
+// Three of the four reach the screen through the `SurfaceAbsence` primitive, which
+// is the console's one centring wrapper; `seats/absorbed-surfaces.ts` raises three
+// more through the same component, which is why it is a module and not a block in here.
 
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
@@ -31,7 +31,7 @@ import {
   consoleSurfaceRegistry,
   surfaceSlotFor,
   type ConsoleSurfaceContext,
-} from "./surface-registry.js";
+} from "../seats/index.js";
 
 export interface RouteSurfaceProps {
   readonly context: ConsoleSurfaceContext;

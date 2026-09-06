@@ -21,7 +21,7 @@ import { act } from "@testing-library/react";
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import type { ConsoleEntity, SessionSnapshot } from "../../store/index.js";

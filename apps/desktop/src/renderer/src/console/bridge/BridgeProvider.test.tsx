@@ -23,8 +23,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, useBridgeResolution } from "./BridgeProvider.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture-bridge.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "./scenario-selection.js";
+import { createFixtureBridge } from "./fixture/fixture-bridge.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "./scenario-runtime/scenario-selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./scenarios/flagship.js";
 

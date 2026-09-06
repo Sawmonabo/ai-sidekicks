@@ -2,8 +2,8 @@
 // position the store reads it at.
 
 import type { ScenarioWireTruthDefect } from "./defect.js";
-import { BASE_STATE_CURSOR } from "../../fixture-session-snapshot.js";
-import type { ConsoleScenario } from "../../scenario.js";
+import { BASE_STATE_CURSOR } from "../../fixture/index.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 /**
  * The log position a scenario's first beat occupies.

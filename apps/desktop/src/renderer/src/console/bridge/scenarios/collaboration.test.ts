@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { parseInstant } from "../../core/index.js";
 import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/members/presence-model.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
-import type { ScenarioReply, ScenarioResolvingReply } from "../scenario.js";
+import type { ScenarioReply, ScenarioResolvingReply } from "../scenario-runtime/scenario.js";
 
 /** The resolving reply for one call, or a failure naming the call that is missing. */
 function resolvingReplyFor(call: string): ScenarioResolvingReply {

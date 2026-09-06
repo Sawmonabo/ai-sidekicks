@@ -10,7 +10,7 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { ApplicationPage, registerApplicationPage } from "./ApplicationPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 

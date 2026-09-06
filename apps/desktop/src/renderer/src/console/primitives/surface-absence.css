@@ -1,15 +1,11 @@
 /*
- * The whole-surface absence, moved here with its component.
+ * A whole-surface absence — the wrapper `SurfaceAbsence.tsx` beside this file draws.
  *
- * These three rules lived in `frame/frame.css` under the frame's own prefix, which
- * stopped being true the moment the component left that family: the route surface
- * still raises one and so do the absorbed Tier-1 mounts, which sit below the frame
- * and cannot reach it. A sheet is imported by its family's door, so a rule kept in
- * the frame's sheet would only be present in a window the frame composed — and the
- * mounts that need it render inside surfaces the frame does not.
+ * In this family with its component, which moved here from `frame/` when the door
+ * rule made the frame unreachable from a view family and from below. The class stem
+ * moved with it: `meridian-frame__absence` named a family that no longer owns the
+ * rules.
  */
-
-/* --- Surface-scale absence ---------------------------------------------- */
 
 /*
  * A route that resolves to no surface, composed as a deliberate state.

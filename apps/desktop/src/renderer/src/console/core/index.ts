@@ -49,8 +49,23 @@ export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // release-absence sweep, which imports the leaf directly — a barrel line no
 // importer reaches is a dead export the structure gate reports.
 export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
+// The millisecond unit factors, beside the reading that makes the millisecond this
+// console's unit. Through the door because a duration is composed and compared above
+// every family: the presence model, the deadline wake and the invite shelf each wrote
+// their own chain of them before this.
+//
+// Each claim below is the set of tasks whose branch carries a PRODUCTION module that
+// will rebind through this door — measured over the six family tips, not inferred
+// from who might want a duration. A `core/` sibling reaches `./instant.js` and a
+// suite reaches the declaring module, so neither is a reader a door line can be
+// retired by, and a claim naming one could never be discharged.
 export {
   compareInstants,
+  MILLISECONDS_PER_DAY,
+  MILLISECONDS_PER_HOUR,
+  MILLISECONDS_PER_MINUTE,
+  /** @consumedBy T-023p-1C-4 */
+  MILLISECONDS_PER_SECOND,
   parseInstant,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type Instant,
@@ -88,8 +103,10 @@ export {
   type RejectionFallback,
   type WireRefusal,
 } from "./wire-rejection.js";
-// The string predicate three view families each made for themselves. It ships
-// through this door rather than from the family that happened to need it first,
-// because view families are siblings: a helper two of them share has no home above
-// the DAG that both may reach.
+// The two predicates a reading of an untyped wire value starts from, each written
+// separately by the families that needed it. They ship through this door rather than
+// from the family that happened to need one first, because their readers sit at three
+// different heights on the DAG — `persistence/`, `bridge/`, `frame/` — and two of
+// those cannot reach the third, so the floor is the only home all of them share.
+export { isWireRecord } from "./wire-record.js";
 export { readWireString } from "./wire-strings.js";

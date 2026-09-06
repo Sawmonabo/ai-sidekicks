@@ -18,7 +18,7 @@ import {
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { AttentionPlane } from "./attention-plane.js";
 import {
   READS_NO_ATTENTION_PROJECTION,

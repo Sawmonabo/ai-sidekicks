@@ -53,7 +53,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useConsoleClock, type GrowthPort } from "../bridge/index.js";
 import {
   NotificationCenter,

@@ -14,7 +14,7 @@
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 
 /** A real fixture bridge that scripts no reply, so every read settles as refused. */

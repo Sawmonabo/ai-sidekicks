@@ -27,7 +27,7 @@
 // a second code path.
 
 import { registerCollaborationSections } from "./collaboration/index.js";
-import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
+import type { ConsoleSurfaceRegistry } from "./seats/index.js";
 import { registerAgentConsoleSurface } from "./agents/index.js";
 import { registerSessionsSurface } from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";

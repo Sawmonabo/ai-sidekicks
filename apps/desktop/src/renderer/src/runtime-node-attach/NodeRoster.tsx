@@ -86,7 +86,7 @@
 // `node-roster-reads.ts`. This file holds the RENDER, which is a total function over
 // the three-state union that hook settles into. The seam itself names no wire: the
 // registered procedure name and the presence event set are declared once in
-// `console/bridge/runtime-node-roster.ts` and reach this view already resolved.
+// `console/bridge/runtime-nodes/runtime-node-roster.ts` and reach this view already resolved.
 //
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports ONLY:
 //   • `react` — the renderer's UI engine; explicitly allowed.

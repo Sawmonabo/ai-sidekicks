@@ -25,10 +25,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "../../frame/surface-registry.js";
+import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ConsolePaneRegistry, PaneControlsContext } from "../../seats/index.js";
 import { registerAgentConsolePane, registerAgentConsoleSurface } from "./agent-console-mounts.js";

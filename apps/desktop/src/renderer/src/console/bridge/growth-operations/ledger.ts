@@ -4,7 +4,7 @@
 // single table's own sections share a module because they share a reader, and both
 // comments are kept apart so the seam between them is still legible.
 
-import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
 
 /**

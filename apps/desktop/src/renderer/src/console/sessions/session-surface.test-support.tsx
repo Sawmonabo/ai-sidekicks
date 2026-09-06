@@ -17,7 +17,7 @@ import { SidekicksBridgeProvider } from "../bridge/index.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 import { openStore } from "./sessions.test-support.js";
 import { SessionStore } from "../store/index.js";
-import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceContext } from "../seats/index.js";
 
 /**
  * Let the destination's asynchronous arrivals land.

@@ -18,10 +18,10 @@
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";
-import type { GrowthOperationId } from "./growth-entry.js";
-import type { GrowthPort } from "./growth-port.js";
-import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-node-roster.js";
-import type { ScenarioEngine } from "./scenario-engine.js";
+import type { GrowthOperationId } from "./growth-port/index.js";
+import type { GrowthPort } from "./growth-port/index.js";
+import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-nodes/index.js";
+import type { ScenarioEngine } from "./scenario-runtime/index.js";
 
 /** Which bridge the console is running against. Rendered, never inferred. */
 export type ConsoleBridgeSource = "live" | "fixture";

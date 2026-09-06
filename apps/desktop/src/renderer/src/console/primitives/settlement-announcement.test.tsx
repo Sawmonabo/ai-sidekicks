@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
+import { liveRegionText, politeText } from "./live-region.test-support.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
 import { useSettlementAnnouncement } from "./settlement-announcement.js";
 
@@ -24,10 +25,6 @@ afterEach(() => {
 function SettlingSurface(props: { readonly sentence: string | undefined }): React.JSX.Element {
   useSettlementAnnouncement(props.sentence);
   return <p>a surface</p>;
-}
-
-function politeText(container: HTMLElement): string {
-  return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
 }
 
 /**
@@ -72,7 +69,7 @@ describe("settlement announcement — what is said", () => {
 
   it("leaves the assertive region silent, because a settled read interrupts nobody", () => {
     const { container } = mount("Four mounts were read.");
-    expect(container.querySelector('[data-live-region="assertive"]')?.textContent).toBe("");
+    expect(liveRegionText(container, "assertive")).toBe("");
   });
 
   it("says nothing at all while the read has not settled", () => {

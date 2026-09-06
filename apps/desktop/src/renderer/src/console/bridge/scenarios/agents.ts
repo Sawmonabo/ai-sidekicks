@@ -51,7 +51,7 @@
 
 import type { DeclaredLossKind, ProviderOutputSpeedState } from "@ai-sidekicks/contracts";
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,

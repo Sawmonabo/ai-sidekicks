@@ -55,7 +55,7 @@
 // into the reversible band at the same moment its heartbeat came back is a real
 // state, and a page showing one health scalar would report it as either fine or
 
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   PARTICIPANT_YOU,
   RUNTIME_NODES,

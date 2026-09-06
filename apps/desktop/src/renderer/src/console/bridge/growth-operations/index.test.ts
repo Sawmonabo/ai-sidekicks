@@ -30,9 +30,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { GrowthOperationId } from "../growth-entry.js";
+import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import { GROWTH_OPERATION_PLANES, GROWTH_OPERATIONS } from "./index.js";
-import type { GrowthSlateRowId } from "../growth-slate.js";
+import type { GrowthSlateRowId } from "../growth-port/growth-slate.js";
 
 const WORKFLOW_SLATE_ROW: GrowthSlateRowId = "workflow-run-control";
 const SIDEKICK_SLATE_ROW: GrowthSlateRowId = "sidekick-definition-registry";

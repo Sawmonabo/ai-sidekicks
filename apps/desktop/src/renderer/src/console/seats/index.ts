@@ -2,7 +2,8 @@
 //
 // The family holds the session workspace's shared vocabulary: the seats through
 // which the view families hand each other panes, a composer, sidebar sections,
-// timeline rows, and inline cards. It sits directly above `bridge/` and below
+// timeline rows, and inline cards, and the surface registry through which a family
+// hands the frame a whole route's body. It sits directly above `bridge/` and below
 // `palette/` and `frame/` in the console's DAG.
 //
 // WHY THAT POSITION, AND NOT INSIDE A VIEW FAMILY. These contracts used to live at
@@ -20,7 +21,9 @@
 // The position is read off the imports rather than chosen: the seats import `core/`,
 // `tokens/`, `routing/`, `store/`, `persistence/`, `bridge/`, and `src/shared/`, and
 // nothing higher, so the lowest home above all of them is the slot immediately above
-// `bridge/`. Lower is also the more permissive choice for the two families that sit
+// `bridge/`. The surface registry was read the same way and answered the same slot,
+// which is why it moved here from `frame/` and took the console's last named layering
+// exemption with it. Lower is also the more permissive choice for the two families that sit
 // between here and the view families — the palette may open a pane, and the frame may
 // hold the board — while neither can be reached from a seat.
 //
@@ -73,6 +76,28 @@
 // imports the symbol — a tag that outlives its consumer fails the run.
 
 import "./pane-chrome.css";
+
+// How a family reaches the screen: the registry it claims a slot in, the call that
+// claims one, and everything a mounted surface is handed. Here rather than in
+// `frame/` because this is the same kind of contract every other seat is — a family
+// hands the frame a body through it — and because a view family cannot import the
+// frame's door at all without closing a cycle back through `families.ts`. No
+// `@consumedBy` claims: the frame, the composition root and the legacy surfaces all
+// read these today.
+//
+// Three names are deliberately absent, each because no PRODUCTION module reaches it
+// through this door and the barrel census fails a line like that. `ConsoleSurfaceSlot`
+// is reached through the descriptor a family fills in. `CONSOLE_SURFACE_SLOTS`'s only
+// reader is `families.test.ts`. `registerConsoleSurface` — the module-scope door a
+// plan-owned subtree mounting into the console would call — has no caller outside this
+// family yet; the family that lands the first one adds the line in its own diff.
+export {
+  ConsoleSurfaceRegistry,
+  consoleSurfaceRegistry,
+  surfaceSlotFor,
+  type ConsoleSurfaceContext,
+  type ConsoleSurfaceDescriptor,
+} from "./surface-registry.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -277,29 +302,26 @@ export {
 // The console's single copy of the daemon-EVENT cast. The brand
 // `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
 // it, and every caller casts; one module casts, and the day the brand narrows one
-// file changes. Its call-side twin is gone — `bridge/daemon-reply.ts` names the
+// file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./wire-access.js";
 
-// The session directory read, which moved here from `frame/`.
+// The node's session directory — the read, and the offer a picker draws from it.
 //
-// The frame's context picker offers the sessions this node has, and the sessions
-// destination lists them — one a layer family, the other a view family — so the
-// hook had a reader on each side of the DAG and lived above one of them. It reads
-// the growth port and nothing else, so `seats/` is the lowest family that owns its
-// inputs, and both readers now reach it through this door.
-export {
-  offeredSessionIds,
-  useSessionDirectory,
-  type SessionDirectoryState,
-} from "./session-directory.js";
+// In this family because its one input is the growth port and `seats/` is the lowest
+// family above `bridge/`. It was authored in `frame/` when the frame was its only
+// reader; it has readers on both sides of the frame now, and neither `frame/` nor its
+// door is reachable from below.
+export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+export type { SessionDirectoryState } from "./session-directory.js";
 
-// The shipped Tier-1 families the console absorbed, and the guard two of them still
-// carry. They sit in this family because the surfaces that mount them are four
-// different view families and the helpers were written in `frame/`, which no view
-// family may reach into and whose door composes those families. `frame/
-// legacy-surfaces.ts` keeps the slot table and reaches the roster's mount through
-// this door like every other consumer.
+// The mounts for the four shipped Tier-1 families the console absorbed, three of them
+// carrying the bridge-source guard that decides whether they may be mounted at all.
+//
+// In this family because a mount reads a bridge source, two primitives and the console's
+// own bridge, and nothing above `bridge/`, and on this door because the surfaces that
+// mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
+// reaches them here like every other consumer.
 export {
   renderAbsorbedInviteAcceptance,
   renderAbsorbedNodeRoster,

@@ -28,7 +28,7 @@
 
 import { useMemo, useState } from "react";
 import { useFrameStore, useOpenSessionStore } from "../store/index.js";
-import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
   SETTINGS_SECTION_IDS,
   matchSettingsEntries,

@@ -45,7 +45,7 @@
 // WHERE THE PARSE IS NOT
 //
 // This module holds no reading of a reply and no reading of a rejection. Both are
-// `bridge/daemon-reply.ts`, which parses the request before it goes and the reply
+// `bridge/daemon/daemon-reply.ts`, which parses the request before it goes and the reply
 // when it lands and answers one closed value either way — so what arrives here is
 // already `served` or `refused`, and there is nothing left for a coordinator to
 // narrow, cast, or catch. What it adds is the part that is genuinely its own: which

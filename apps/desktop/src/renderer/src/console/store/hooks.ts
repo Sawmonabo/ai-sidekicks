@@ -141,7 +141,7 @@ export type CallerParticipantReader = () => Promise<string | ConsoleRefusal>;
  * an untyped body member against the shape the corpus registers — which the console
  * only permits at or above `bridge/`, a family this one sits below. So the lookup
  * arrives the way this file's caller-identity read already arrives: as a function the
- * composition root supplies. `bridge/entity-body-reads.ts` declares the one
+ * composition root supplies. `bridge/daemon/entity-body-reads.ts` declares the one
  * implementation; nothing here narrows anything itself.
  */
 export type MembershipRoleReader = (

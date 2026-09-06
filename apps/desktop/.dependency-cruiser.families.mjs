@@ -13,9 +13,11 @@
 /** Console family homes, low to high. A family may import any home below it and none above. */
 export const CONSOLE = "^src/renderer/src/console";
 
-// `core/` is the DAG floor: `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`,
-// `emitter.ts`, `clock.ts`. Nothing below it, so its rule below is the only one that forbids
-// every other family at once.
+// `core/` is the DAG floor: the caps and tripwires, the refusal vocabulary, the clock, the
+// keyed registry, the emitter, the wire-string readers. Nothing below it, so its rule below
+// is the only one that forbids every other family at once. The residents are read off the
+// directory rather than listed here — a roster in a comment is a closed set whose second
+// home nothing keeps current.
 export const CORE = `${CONSOLE}/core/`;
 export const TOKENS = `${CONSOLE}/tokens/`;
 export const ROUTING = `${CONSOLE}/routing/`;
@@ -71,22 +73,6 @@ export const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
 export const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
- * The one cross-family deep specifier the tree still carries, and why it is named here.
- *
- * `frame/surface-registry.ts` declares `ConsoleSurfaceContext` and the registry a view
- * family registers itself into, and a view family cannot import the FRAME's door to
- * reach them: that door composes the view families through `families.ts`, so an import
- * back closes a cycle `no-circular` fails. Its right home is `seats/` — it is a contract
- * through which families hand each other bodies, and it imports nothing above `bridge/`
- * — and the pane registry now travels through the surface context, but the module still
- * sits in `frame/`; moving it is the cross-family structure audit's, at which point this
- * exemption is deleted and the rule covers the whole console. Naming the one module
- * rather than excepting `frame/` keeps the rule's reach exact: a second deep specifier
- * into this family, including one into this same module's neighbours, still fails.
- */
-export const FRAME_SURFACE_REGISTRY = `${CONSOLE}/frame/surface-registry\\.ts$`;
-
-/**
  * Test scaffolding, subtracted from the DOOR rule alone and from no other rule here.
  *
  * A `.test-support.*` module is a module like any other — `apps/desktop/AGENTS.md`
@@ -108,6 +94,18 @@ export const FRAME_SURFACE_REGISTRY = `${CONSOLE}/frame/surface-registry\\.ts$`;
  * in — and which landed in the same change as the one import it made legal.
  */
 export const TEST_SUPPORT_MODULES = "\\.test-support\\.(ts|tsx)$";
+
+/**
+ * The one cross-process leaf: types and pure functions main, preload and the renderer
+ * all need.
+ *
+ * Named here because two rules scope to it and they say opposite things — what it may
+ * import, and who may import it. The console reaches it through the layer family that
+ * owns the concern, never from a view family: `core/` is where a wire string, a
+ * refusal code or a stringifier lands, so one console module knows the shared shape
+ * and everything above it reads the console's own.
+ */
+export const CROSS_PROCESS_SHARED = "^src/shared/";
 
 /** Every family door, and only a family door — a sub-module door is one segment deeper. */
 export const CONSOLE_FAMILY_DOORS = `${CONSOLE}/[^/]+/index\\.ts$`;

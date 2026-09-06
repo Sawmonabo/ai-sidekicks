@@ -219,6 +219,78 @@ export function moduleNamed(
   return found;
 }
 
+/** One module and the text it was read as, paired so a scan carries both. */
+export interface ConsoleModuleText {
+  readonly module: ConsoleSourceModule;
+  /** What a failure message names the module by — {@link ConsoleSourceModule.displayPath}. */
+  readonly displayPath: string;
+  readonly source: string;
+}
+
+/** What one reading of the tree answers: the modules, and every one of them read. */
+export interface ConsoleSourceReading {
+  readonly modules: readonly ConsoleSourceModule[];
+  readonly texts: readonly ConsoleModuleText[];
+}
+
+/**
+ * The tree, walked and read ONCE for a file, behind a throwing accessor.
+ *
+ * A ROLE RATHER THAN A HELPER, which is why it lives beside the walk it pays for. A
+ * source-text gate asks several questions of one tree, and the shape that answers them
+ * cheaply is always the same: walk once, read every module once, hold the pair, and
+ * assert the count so the hoist is a claim rather than a structure that looks right. A
+ * gate that splits into two files needs it in both, which is the second use this is
+ * hoisted on.
+ *
+ * BEHIND A PRIVATE FIELD WITH A THROWING ACCESSOR rather than a mutable binding a case
+ * could read as `undefined`: a `beforeAll` that failed would otherwise surface as a
+ * type error in whichever case ran first, which names the wrong thing.
+ *
+ * A GATE THAT FOLDS ITS READING IMMEDIATELY IS NOT A SECOND COPY OF THIS. The censuses
+ * in `glyph-size-home.test.ts` and `one-doc-per-declaration.test.ts` walk and read the
+ * same way and then keep a DERIVED answer — a set of sizes, a list of stranded blocks —
+ * and never hold the texts at all. What they share with this is the walk and the
+ * per-module read, and those they already share, from this module.
+ */
+export class ConsoleSourceTree {
+  readonly #scan: ConsoleSourceScan;
+  #reading: ConsoleSourceReading | undefined = undefined;
+  #readCount = 0;
+
+  /** @param scan Which roots to walk and whether tests count, as {@link consoleSourceModules} takes it. */
+  public constructor(scan: ConsoleSourceScan = {}) {
+    this.#scan = scan;
+  }
+
+  /** How many times the tree has been walked, for the control that it is once. */
+  public get readCount(): number {
+    return this.#readCount;
+  }
+
+  /** The one reading this file paid for. Throws if a case asks before the hook ran. */
+  public get reading(): ConsoleSourceReading {
+    if (this.#reading === undefined) {
+      throw new Error("the console reading was asked for before the hook filled it in");
+    }
+    return this.#reading;
+  }
+
+  /** Walk the roots and read every module. Called once, from a `beforeAll`. */
+  public read(): void {
+    this.#readCount += 1;
+    const modules = consoleSourceModules(this.#scan);
+    this.#reading = {
+      modules,
+      texts: modules.map((module) => ({
+        module,
+        displayPath: module.displayPath,
+        source: readConsoleSourceModule(module),
+      })),
+    };
+  }
+}
+
 function isSourceModulePath(entry: string, tests: boolean): boolean {
   if (entry.endsWith(".d.ts")) {
     return false;

@@ -24,7 +24,7 @@ import {
   SWITCH_CONTINUITIES,
   SWITCH_STATUSES,
 } from "../../agents/agent-wire.js";
-import type { ScenarioResolvingReply } from "../scenario.js";
+import type { ScenarioResolvingReply } from "../scenario-runtime/scenario.js";
 
 function resolvingReplyFor(call: string): ScenarioResolvingReply {
   const reply = AGENTS_SCENARIO.replies.find((candidate) => candidate.call === call);

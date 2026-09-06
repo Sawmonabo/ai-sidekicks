@@ -12,7 +12,7 @@
 // or the child-run link read, and a module in a VIEW FAMILY is the wrong place to
 // declare a wire shape: the growth port is what states that a wire is missing, who
 // owes it, and what the console stands in with, and none of that machinery can see a
-// declaration up here. So those shapes are `bridge/agent-plane.ts` and this module
+// declaration up here. So those shapes are `bridge/wire-shapes/agent-plane.ts` and this module
 // consumes them like any other caller.
 //
 // WHAT STAYS. Three things a family genuinely owns. The METHOD STRINGS, because which
@@ -141,7 +141,7 @@ export function isKnownMember(vocabulary: readonly string[], value: string): boo
 
 // --- Reading shapes -------------------------------------------------------
 //
-// The wire's own reply shapes are NOT here. They are `bridge/agent-plane.ts`, beside
+// The wire's own reply shapes are NOT here. They are `bridge/wire-shapes/agent-plane.ts`, beside
 // the growth signatures that send and receive them — a module above the bridge
 // cannot declare what a wire carries without putting that declaration where no gate
 // looks. What stays here is the definition picker's reading, which is this family's
