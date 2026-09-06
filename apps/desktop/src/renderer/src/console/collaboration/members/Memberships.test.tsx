@@ -1,12 +1,11 @@
-// The membership ledger: which facts it prints, which controls it offers, and the
-// one screen it gives up entirely for a confirmation.
+// The membership ledger: which facts it prints, which controls it offers, and how an
+// invitation arriving on the deep link announces itself here.
 //
 // The properties worth the most are the ones that would be WRONG rather than
 // missing. A row that showed a role no event stated would be a fabricated fact; a
 // revoke control hidden from the last owner would replace an answer a person can
-// act on with a control they cannot find; and a ledger that rendered its own
-// controls behind a pending confirmation would offer two jobs on one screen at
-// the moment the person has to concentrate on one.
+// act on with a control they cannot find; and a confirmation that opened itself
+// would take the screen from whatever was being done at the moment it arrived.
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
@@ -16,7 +15,6 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import { Memberships } from "./Memberships.js";
-import type { PendingInviteConfirmation } from "../invites/InviteConfirmation.js";
 
 type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
 
@@ -225,43 +223,79 @@ describe("memberships — nothing projected", () => {
   });
 });
 
-describe("memberships — a pending confirmation takes the whole surface", () => {
-  const PENDING: PendingInviteConfirmation = {
-    token: "v4.local.opaque-token",
-    sessionId: SESSION_ID,
+describe("memberships — an invitation waiting on the deep link", () => {
+  /** A scenario that hands this window one pending invitation at the first tick. */
+  const SCENARIO_WITH_INVITATION: FixtureScenario = {
+    ...EMPTY_SCENARIO,
+    pendingInvites: [
+      {
+        atMs: 0,
+        invite: {
+          reference: "pending-ref-members-test",
+          sessionId: "019b7913-0001-7000-8000-000000000001",
+          joinMode: "collaborator",
+          expiresAt: "2026-01-08T10:05:00.000Z",
+          sessionName: "Design review",
+          inviterDisplayName: "Priya Raman",
+        },
+        onConfirm: {
+          kind: "joined",
+          reference: "pending-ref-members-test",
+          sessionId: "019b7913-0001-7000-8000-000000000001",
+          membershipId: "019b7913-0002-7000-8000-000000000002",
+          role: "collaborator",
+        },
+      },
+    ],
   };
 
-  it("renders the confirmation and none of the section's own controls", () => {
+  /** The section, driven against a bridge whose scenario scripts the arrival. */
+  async function sectionWithInvitation(): Promise<HTMLElement> {
+    const bridge = createFixtureBridge({ scenario: SCENARIO_WITH_INVITATION });
     const { container } = render(
-      <Memberships
-        context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))}
-        pendingInvite={PENDING}
-      />,
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), bridge)} />,
     );
-    expect(container.querySelector(".meridian-invite-confirmation")).not.toBeNull();
-    expect(container.querySelector(".meridian-members__manage")).toBeNull();
-    expect(container.querySelector(".meridian-invites")).toBeNull();
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+    return container;
+  }
+
+  it("draws a notice and opens nothing by itself", async () => {
+    // An arrival is on somebody else's schedule. The notice is unmissable and
+    // persistent; the confirmation is one press later, and never a moment the
+    // person did not choose.
+    const container = await sectionWithInvitation();
+    expect(container.textContent ?? "").toContain("You have an invitation waiting.");
+    expect(container.ownerDocument.querySelector(".meridian-invite-confirmation")).toBeNull();
   });
 
-  it("returns the section once the confirmation is put away", () => {
-    const { container } = render(
-      <Memberships
-        context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))}
-        pendingInvite={PENDING}
-      />,
-    );
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".meridian-invite-confirmation__dismiss")?.click();
-    });
-    expect(container.querySelector(".meridian-invite-confirmation")).toBeNull();
+  it("keeps the section's own controls reachable while one waits", async () => {
+    const container = await sectionWithInvitation();
     expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
   });
 
-  it("negative control: with no pending invitation the section renders straight away", () => {
+  it("opens the confirmation on the press, and not before", async () => {
+    const container = await sectionWithInvitation();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".meridian-members__invitation-open")?.click();
+      await crossMacrotaskBoundary();
+    });
+    const popup = container.ownerDocument.querySelector(".meridian-invite-confirmation");
+    expect(popup).not.toBeNull();
+    expect(popup?.textContent ?? "").toContain("Design review");
+  });
+
+  it("negative control: a scenario that scripts no arrival draws no notice", async () => {
+    // Without this the cases above would pass over a section that announced an
+    // invitation whether or not one had come.
     const { container } = render(
       <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
     );
-    expect(container.querySelector(".meridian-invite-confirmation")).toBeNull();
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+    expect(container.querySelector(".meridian-members__invitation")).toBeNull();
     expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
   });
 });

@@ -21,6 +21,20 @@ import { CollaborationSessionModelHolder, useSessionModels } from "./session-mod
 
 export const RENDER_FAILURE_MESSAGE = "this section could not render";
 
+/**
+ * How many daemon subscriptions ONE live models set opens.
+ *
+ * Two, and they are two reads rather than one read counted twice: the presence model
+ * re-reads the roster on the Awareness change signal, and the activity feed re-reads
+ * who is composing where on the same signal. Each owns its own subscription because
+ * each owns its own read — that is the console's push-driven discipline, where the
+ * read is the truth and the push only says "ask again".
+ *
+ * Named here rather than written as a number at each assertion, so a set that grows a
+ * third read moves one line and every case goes on reading as "one set is live".
+ */
+export const SUBSCRIPTIONS_PER_MODEL_SET = 2;
+
 /** The fixture bridge, with every daemon subscription it opens counted. */
 export interface CountedBridge {
   readonly bridge: ConsoleBridge;

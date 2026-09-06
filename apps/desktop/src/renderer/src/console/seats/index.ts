@@ -301,15 +301,16 @@ export {
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./wire-access.js";
 
-// The mounts for the four shipped Tier-1 families the console absorbed, three of them
+// The mounts for the three shipped Tier-1 families the console absorbed, two of them
 // carrying the bridge-source guard that decides whether they may be mounted at all.
+// The fourth, the invite acceptance prompt, is mounted by nothing: its one prop is the
+// raw invite token, which the deep-link lifecycle confines to the main process.
 //
 // In this family because a mount reads a bridge source, two primitives and the console's
 // own bridge, and nothing above `bridge/`, and on this door because the surfaces that
 // mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
 // reaches them here like every other consumer.
 export {
-  renderAbsorbedInviteAcceptance,
   renderAbsorbedNodeRoster,
   renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,

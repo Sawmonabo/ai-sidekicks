@@ -49,8 +49,10 @@ import { ARTIFACT_GROWTH_OPERATIONS } from "./artifacts.js";
 import { ATTENTION_GROWTH_OPERATIONS } from "./attention.js";
 import { GITFLOW_GROWTH_OPERATIONS } from "./gitflow.js";
 import { IDENTITY_GROWTH_OPERATIONS } from "./identity.js";
+import { INVITE_GROWTH_OPERATIONS } from "./invites.js";
 import { LEDGER_GROWTH_OPERATIONS } from "./ledger.js";
 import { PANE_GROWTH_OPERATIONS } from "./panes.js";
+import { PRESENCE_GROWTH_OPERATIONS } from "./presence.js";
 import { SESSION_GROWTH_OPERATIONS } from "./sessions.js";
 import { SIDEKICK_GROWTH_OPERATIONS } from "./sidekicks.js";
 import { WORKFLOW_GROWTH_OPERATIONS } from "./workflows.js";
@@ -76,6 +78,8 @@ export const GROWTH_OPERATION_PLANES: readonly Readonly<
   APPROVAL_GROWTH_OPERATIONS,
   SIDEKICK_GROWTH_OPERATIONS,
   LEDGER_GROWTH_OPERATIONS,
+  PRESENCE_GROWTH_OPERATIONS,
+  INVITE_GROWTH_OPERATIONS,
 ];
 
 /**
@@ -95,4 +99,6 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...SIDEKICK_GROWTH_OPERATIONS,
   ...AGENT_GROWTH_OPERATIONS,
   ...LEDGER_GROWTH_OPERATIONS,
+  ...PRESENCE_GROWTH_OPERATIONS,
+  ...INVITE_GROWTH_OPERATIONS,
 };

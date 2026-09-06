@@ -60,7 +60,9 @@ import type { AttentionGrowthSignatures } from "./attention.js";
 import type { GitflowGrowthSignatures } from "./gitflow.js";
 import type { IdentityGrowthSignatures } from "./identity.js";
 import type { LedgerGrowthSignatures } from "./ledger.js";
+import type { InviteGrowthSignatures } from "./invites.js";
 import type { PaneGrowthSignatures } from "./panes.js";
+import type { PresenceGrowthSignatures } from "./presence.js";
 import type { SessionGrowthSignatures } from "./sessions.js";
 import type { SidekickGrowthSignatures } from "./sidekicks.js";
 import type { WorkflowGrowthSignatures } from "./workflows.js";
@@ -86,4 +88,6 @@ export interface GrowthOperationSignatures
     AgentGrowthSignatures,
     ApprovalGrowthSignatures,
     SidekickGrowthSignatures,
-    LedgerGrowthSignatures {}
+    LedgerGrowthSignatures,
+    PresenceGrowthSignatures,
+    InviteGrowthSignatures {}

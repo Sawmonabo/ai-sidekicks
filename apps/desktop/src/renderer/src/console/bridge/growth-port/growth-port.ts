@@ -386,5 +386,16 @@ export function createRefusingGrowthPort(): GrowthPort {
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
+    // presence — the two Awareness activity fields
+    presenceActivityRead: async () => growthUnavailable("presenceActivityRead"),
+    presenceComposingSet: async () => growthUnavailable("presenceComposingSet"),
+    presenceComposingClear: async () => growthUnavailable("presenceComposingClear"),
+    // invite — the pending namespace, and the host a link is written on
+    invitePendingSubscribe: async () => growthUnavailable("invitePendingSubscribe"),
+    inviteOutcomeSubscribe: async () => growthUnavailable("inviteOutcomeSubscribe"),
+    inviteConfirmPending: async () => growthUnavailable("inviteConfirmPending"),
+    inviteRetryPending: async () => growthUnavailable("inviteRetryPending"),
+    inviteDismissPending: async () => growthUnavailable("inviteDismissPending"),
+    controlPlaneHostRead: async () => growthUnavailable("controlPlaneHostRead"),
   };
 }

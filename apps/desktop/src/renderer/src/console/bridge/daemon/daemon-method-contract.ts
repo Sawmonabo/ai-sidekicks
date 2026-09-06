@@ -24,6 +24,8 @@ import type {
   ExecutionModeSelectResponse,
   InterventionRequestPayload,
   InterventionRequestResponse,
+  InviteCreate,
+  InviteCreateResponse,
   InviteRevoke,
   InviteRevokeResponse,
   MembershipUpdate,
@@ -160,6 +162,17 @@ export interface ConsoleDaemonMethodContract {
   readonly "presence.read": {
     readonly request: PresenceReadRequest;
     readonly response: PresenceReadResponse;
+  };
+  /**
+   * Mint one invitation, and hand back its plaintext token exactly once.
+   *
+   * The reply is the only moment the token exists outside the control plane — only
+   * its hash is persisted — so the surface that calls this is the surface that has
+   * to reveal the link, and no later read can recover it.
+   */
+  readonly "invite.create": {
+    readonly request: InviteCreate;
+    readonly response: InviteCreateResponse;
   };
   readonly "invite.revoke": {
     readonly request: InviteRevoke;

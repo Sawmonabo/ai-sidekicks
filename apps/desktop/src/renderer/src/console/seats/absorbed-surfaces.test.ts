@@ -1,8 +1,8 @@
 // The shipped Tier-1 families a console surface absorbed, and the seam one is handed.
 //
-// Three of the four families reach the screen through a console-authored surface
-// rather than through a slot of their own, so this file covers the mounts those
-// surfaces call and the guard two of them carry. The guard is a CLAIM — a helper
+// Two of the four families reach the screen through a console-authored surface rather
+// than through a slot of their own, so this file covers the mounts those surfaces call
+// and the guard one of them carries. The guard is a CLAIM — a helper
 // that mounted its component past the check would look identical from the outside
 // until it answered from the live daemon in a window showing fixture data. The
 // roster's half carries a different claim: it is handed the bridge's own reads, so

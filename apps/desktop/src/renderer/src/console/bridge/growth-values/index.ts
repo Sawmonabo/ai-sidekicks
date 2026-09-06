@@ -78,6 +78,16 @@ export type {
 
 export type { GrowthAttentionPreference } from "./attention.js";
 
+// lane: cov-collab-activity-invites — the two Awareness activity fields' readings.
+export type {
+  GrowthActivitySnapshot,
+  GrowthAgentActivityReading,
+  GrowthComposingReading,
+} from "./presence.js";
+
+// lane: cov-collab-activity-invites — the pending confirmation and its four outcomes.
+export type { GrowthInviteOutcome, GrowthPendingInvite } from "./invites.js";
+
 export {
   GROWTH_PR_PREPARATION_STATES,
   type GrowthBranchContext,

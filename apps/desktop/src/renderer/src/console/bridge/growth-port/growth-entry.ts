@@ -156,7 +156,22 @@ export type GrowthOperationId =
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
-  | "orchestrationBudgetRead";
+  | "orchestrationBudgetRead"
+  // presence — the two Awareness activity fields, read for everyone else and
+  // published for this participant. Neither field is a method anywhere in the
+  // corpus, so no id here folds a wire method: see `growth-operations/presence.ts`.
+  | "presenceActivityRead"
+  | "presenceComposingSet"
+  | "presenceComposingClear"
+  // invite — the pending-invite namespace `Spec-023 §Preload Bridge Contract` writes
+  // out verbatim, each id its named method's tail with the root folded in, plus the
+  // control-plane host a shareable link is composed from, which folds to no method.
+  | "invitePendingSubscribe"
+  | "inviteOutcomeSubscribe"
+  | "inviteConfirmPending"
+  | "inviteRetryPending"
+  | "inviteDismissPending"
+  | "controlPlaneHostRead";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

@@ -45,6 +45,28 @@ export const SESSION_ID = "019b7910-0000-7000-8000-000000000001";
 export const SESSION_A = "019b7910-0000-7000-8000-00000000000a";
 export const SESSION_B = "019b7910-0000-7000-8000-00000000000b";
 
+/**
+ * The participant every bridge here answers the caller-identity read with.
+ *
+ * SERVED rather than left to the scenario, and the reason is the session ids above:
+ * these cases drive the surface at `SESSION_ID`, `SESSION_A`, and `SESSION_B`, while
+ * a scenario plays exactly one session — so the fixture's own identity read, which is
+ * scoped to the session being played, would refuse for at least two of the three. The
+ * create form above the ledger composes its request from that read, and a refusal
+ * there would stand an unrelated absence over every case in these suites.
+ */
+export const VIEWING_PARTICIPANT = "019b7910-0005-7000-8000-000000000001";
+
+/**
+ * The identity read, served, in every bridge these suites build.
+ *
+ * Declared once and spread, so a builder added later cannot arrive without it and
+ * quietly reintroduce the refusal.
+ */
+const SERVED_IDENTITY = {
+  callerParticipantRead: growthServing({ participantId: VIEWING_PARTICIPANT }),
+};
+
 export const EMPTY_SCENARIO: ConsoleScenario = unscriptedScenario("collaboration-invites-test");
 
 export function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
@@ -52,6 +74,7 @@ export function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
     inviteId: INVITE_1,
     state: "pending",
     expiresAt: "2026-01-08T10:05:00.000Z",
+    joinMode: "collaborator",
     ...overrides,
   };
 }
@@ -67,13 +90,17 @@ export function invite(overrides: Partial<ServedInvite> = {}): ServedInvite {
  */
 export function bridgeRefusingInvites(): ConsoleBridge {
   return fixtureBridgeWithGrowth(EMPTY_SCENARIO, {
+    ...SERVED_IDENTITY,
     invitesList: growthRefusing("invitesList"),
   });
 }
 
 /** The real fixture bridge, with the one growth operation this surface reads served. */
 export function bridgeServing(invites: readonly ServedInvite[]): ConsoleBridge {
-  return fixtureBridgeWithGrowth(EMPTY_SCENARIO, { invitesList: growthServing(invites) });
+  return fixtureBridgeWithGrowth(EMPTY_SCENARIO, {
+    ...SERVED_IDENTITY,
+    invitesList: growthServing(invites),
+  });
 }
 
 /**
@@ -96,7 +123,10 @@ export function bridgeSettlingRevoke(invites: readonly ServedInvite[]): {
 } {
   const invitesList = vi.fn(growthServing(invites));
   return {
-    bridge: fixtureBridgeWithGrowth(scenarioSettlingRevoke(INVITE_1), { invitesList }),
+    bridge: fixtureBridgeWithGrowth(scenarioSettlingRevoke(INVITE_1), {
+      ...SERVED_IDENTITY,
+      invitesList,
+    }),
     invitesListCallCount: () => invitesList.mock.calls.length,
   };
 }

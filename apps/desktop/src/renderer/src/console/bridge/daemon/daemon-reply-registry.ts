@@ -58,6 +58,8 @@ import {
   ExecutionModeSelectResponseSchema,
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
+  InviteCreateResponseSchema,
+  InviteCreateSchema,
   InviteRevokeResponseSchema,
   InviteRevokeSchema,
   MembershipUpdateResponseSchema,
@@ -193,6 +195,7 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema),
   "membership.update": bindDaemonMethod(MembershipUpdateSchema, MembershipUpdateResponseSchema),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
+  "invite.create": bindDaemonMethod(InviteCreateSchema, InviteCreateResponseSchema),
   "invite.revoke": bindDaemonMethod(InviteRevokeSchema, InviteRevokeResponseSchema),
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,

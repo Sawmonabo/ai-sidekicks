@@ -92,6 +92,25 @@ const CHANNEL_REVIEW = "019b7904-8ce0-7c11-8120-cca0117a0390";
 const CHANNEL_HANDOFF = "019b7904-8ce0-7c11-8130-cca0117a0395";
 const INVITE_EXPIRING = "019b7904-8ce0-7f22-8110-cca0117a03a0";
 const INVITE_ACCEPTED = "019b7904-8ce0-7f22-8120-cca0117a03b0";
+// The one this scenario MINTS, when a person fills the create form in and presses
+// send. It is not in the ledger above: it does not exist until the act, which is
+// the whole difference between a row the read returns and a row the create makes.
+const INVITE_MINTED = "019b7904-8ce0-7f22-8130-cca0117a03b8";
+
+// The deep link's own identifiers. The references are opaque by contract, so they are
+// spelled as something no reader could mistake for a token or an id — which is the
+// point of them: `Plan-023 §Invariants` I-023-10 makes what the renderer holds a
+// handle main resolves, and a fixture spelling one as a credential would teach the
+// wrong shape.
+const PENDING_REFERENCE_DESIGN = "pending-ref-design";
+const PENDING_REFERENCE_AUDIT = "pending-ref-audit";
+const INVITED_SESSION_DESIGN = "019b7904-8ce0-7f22-8140-cca0117a0410";
+const INVITED_SESSION_AUDIT = "019b7904-8ce0-7f22-8150-cca0117a0420";
+const MEMBERSHIP_FROM_INVITE = "019b7904-8ce0-7f22-8160-cca0117a0430";
+const MEMBERSHIP_FROM_RETRY = "019b7904-8ce0-7f22-8170-cca0117a0440";
+// A run this session's log has NOT carried, and deliberately so — see the activity
+// frames below, which say why an unresolved run id is the case worth scripting.
+const PEER_RUN_ID = "019b7904-8ce0-740e-8110-cca0117a03c0";
 
 /**
  * Who is in the room, in join order, and what the roster read says of each.
@@ -242,6 +261,75 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
   ),
   startedAtIso: "2026-01-01T10:05:00.000Z",
   runtimeNodeRoster: collaborationRuntimeNodeRoster(RUNTIME_NODE_SCRIPT),
+  // Who is composing where, and which runs are working where, as the room reads over
+  // scenario time. Without these frames every indicator in the console renders its
+  // empty state permanently — which is the state the registry was in until it had a
+  // producer at all — and a screenshot of a room with people in it shows a room where
+  // nothing is happening.
+  //
+  // TWO FRAMES, BECAUSE ONE COULD ONLY SHOW A STILL. The first is the room mid-
+  // conversation; the second is what it looks like a moment later, and the difference
+  // between them is what the fold has to get right: Priya's `since` MOVES, which is a
+  // publisher still typing and the only thing that re-arms the receiver's clear, and
+  // Tomas simply leaves, which is the stop. A frame that repeated Priya's reading
+  // unchanged would be the same publication read twice, and treating that as a
+  // refresh is the failure the receiver-timed bound exists to prevent.
+  //
+  // TOMAS IS `reconnecting` AND IS TYPING, which is not a contradiction and is here
+  // because it looks like one: composing rides beside presence rather than inside it,
+  // so a person on a flaky connection is still writing a sentence.
+  //
+  // THE AGENT RUN NAMES A RUN THIS LOG HAS NOT CARRIED. This session attaches no
+  // agent, and the run below belongs to a peer's machine — one of the three in
+  // `collaboration-runtime-nodes.js` — whose `run.*` beats have not reached this
+  // console. That is not a shape the wire cannot produce; it is the case
+  // `sessionProjectionLabels.runLabel` has an id fallback FOR, and a fixture whose
+  // every indicator resolved to a name would leave that arm unreachable.
+  activity: [
+    {
+      atMs: 0,
+      activity: {
+        composing: [
+          {
+            participantId: PARTICIPANT_PRIYA,
+            channelId: CHANNEL_MAIN,
+            since: "2026-01-01T10:04:58.000Z",
+          },
+          {
+            participantId: PARTICIPANT_TOMAS,
+            channelId: CHANNEL_REVIEW,
+            since: "2026-01-01T10:04:59.000Z",
+          },
+        ],
+        agentRuns: [
+          {
+            runId: PEER_RUN_ID,
+            channelId: CHANNEL_REVIEW,
+            since: "2026-01-01T10:04:30.000Z",
+          },
+        ],
+      },
+    },
+    {
+      atMs: 500,
+      activity: {
+        composing: [
+          {
+            participantId: PARTICIPANT_PRIYA,
+            channelId: CHANNEL_MAIN,
+            since: "2026-01-01T10:05:00.500Z",
+          },
+        ],
+        agentRuns: [
+          {
+            runId: PEER_RUN_ID,
+            channelId: CHANNEL_REVIEW,
+            since: "2026-01-01T10:04:30.000Z",
+          },
+        ],
+      },
+    },
+  ],
   beats: [
     {
       atMs: 0,
@@ -358,22 +446,124 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
     {
       // Served through the fixture growth port's `invitesList`, in the
       // `GrowthInviteSummary` shape the console declares: `{inviteId, state,
-      // expiresAt}`. There is no plaintext token and no join link, because
-      // `invite.create` returns the token exactly once and nothing hands this
-      // renderer its control-plane host — a fixture that supplied either would let
-      // a copy-link control be built against an identifier that opens nothing.
+      // expiresAt, joinMode}`. The two rows grant DIFFERENT roles, because the
+      // ledger prints the role each invitation grants and a table where every row
+      // said the same word would not show that it prints it at all.
+      //
+      // No plaintext token and no join link, because the read carries neither: the
+      // token exists exactly once, in the reply to the act that minted it, and a
+      // ledger row that carried one would be a credential recoverable by re-reading.
       //
       // The pending row expires forty seconds after the scenario starts, so a
       // console driven past that tick sees an invitation age out rather than one
       // frozen permanently on the brink.
       call: "invites.list",
       result: [
-        { inviteId: INVITE_EXPIRING, state: "pending", expiresAt: "2026-01-01T10:05:40.000Z" },
-        { inviteId: INVITE_ACCEPTED, state: "accepted", expiresAt: "2026-01-01T10:04:00.000Z" },
+        {
+          inviteId: INVITE_EXPIRING,
+          state: "pending",
+          expiresAt: "2026-01-01T10:05:40.000Z",
+          joinMode: "collaborator",
+        },
+        {
+          inviteId: INVITE_ACCEPTED,
+          state: "accepted",
+          expiresAt: "2026-01-01T10:04:00.000Z",
+          joinMode: "viewer",
+        },
       ],
+    },
+    {
+      // The mint. A COMPUTED reply rather than a fixed one, because two of the three
+      // members it answers with are the caller's own: the expiry is whichever the
+      // person picked in the form, and echoing back a different one would show a
+      // reveal that contradicts the request that produced it. The invite id is the
+      // scenario's, because the control plane mints that and the caller does not.
+      //
+      // The registered `InviteCreateResponse` is `{inviteId, token, expiresAt}` and
+      // the call door parses this against it, so the token below is a base64url-ish
+      // blob rather than a sentence: a fixture that scripted a readable string here
+      // would be teaching the reveal a shape the wire cannot send.
+      //
+      // THE REFUSAL ARMS ARE NOT REACHABLE FROM HERE, and that is the reply table's
+      // shape rather than a gap: it answers one call one way, so a scenario cannot
+      // both mint an invitation and refuse the next mint. The pending-cap sentence
+      // and the sliding-window refusal are driven by the create form's own cases,
+      // against the codes `Spec-021` registers.
+      call: "invite.create",
+      afterMs: 250,
+      resultFor: (request) => {
+        const asked = request as { readonly expiresAt?: unknown };
+        return {
+          inviteId: INVITE_MINTED,
+          token: "v4.local.V0hBVEVWRVIgVEhFIENPTlRST0wgUExBTkUgTUlOVEVE",
+          expiresAt:
+            typeof asked.expiresAt === "string" ? asked.expiresAt : "2026-01-08T10:05:00.000Z",
+        };
+      },
     },
     // No agent has been attached, and the empty list is the honest reading rather
     // than an absent reply: the read succeeded and this room has no agents in it.
     { call: "agent.list", result: { agents: [] } },
   ],
+  // An invitation arriving on this window's deep link — to a DIFFERENT session than
+  // the one on screen, which is what a deep-link invitation always is: nobody is
+  // invited to a room they are already in. The members section draws the notice from
+  // the first tick, and the confirmation opens on a press rather than by itself.
+  //
+  // TWO OF THEM, so the queue's "behind it" reading is reachable, and the two settle
+  // differently on purpose: the first is the ordinary success, and the second is the
+  // authentication detour whose retry — the one arm where trying again is a remedy —
+  // has nowhere else to be shown. The retry succeeds, so the whole two-attempt path
+  // is walkable from this scenario alone.
+  pendingInvites: [
+    {
+      atMs: 0,
+      invite: {
+        reference: PENDING_REFERENCE_DESIGN,
+        sessionId: INVITED_SESSION_DESIGN,
+        joinMode: "collaborator",
+        expiresAt: "2026-01-08T10:05:00.000Z",
+        sessionName: "Design review — Q1 shell",
+        inviterDisplayName: "Priya Raman",
+      },
+      onConfirm: {
+        kind: "joined",
+        reference: PENDING_REFERENCE_DESIGN,
+        sessionId: INVITED_SESSION_DESIGN,
+        membershipId: MEMBERSHIP_FROM_INVITE,
+        role: "collaborator",
+      },
+    },
+    {
+      atMs: 0,
+      invite: {
+        // Both display facts absent, and `null` rather than omitted: the preview
+        // ANSWERED and carried nothing — a different reading from a preview never
+        // put, and the one the confirmation's absences are written for.
+        reference: PENDING_REFERENCE_AUDIT,
+        sessionId: INVITED_SESSION_AUDIT,
+        joinMode: "viewer",
+        expiresAt: "2026-01-02T10:05:00.000Z",
+        sessionName: null,
+        inviterDisplayName: null,
+      },
+      onConfirm: {
+        kind: "authentication-required",
+        reference: PENDING_REFERENCE_AUDIT,
+      },
+      onRetry: {
+        kind: "joined",
+        reference: PENDING_REFERENCE_AUDIT,
+        sessionId: INVITED_SESSION_AUDIT,
+        membershipId: MEMBERSHIP_FROM_RETRY,
+        role: "viewer",
+      },
+    },
+  ],
+  // The node this scenario stands for answers its control plane here, so a minted
+  // invitation reveals the link a person would actually send rather than an
+  // identifier that opens nothing. A bare host: the link's own form is
+  // `Spec-002 §Invite Delivery`'s and the console composes it in one place.
+  controlPlaneHost: "sidekicks.example",
 };
