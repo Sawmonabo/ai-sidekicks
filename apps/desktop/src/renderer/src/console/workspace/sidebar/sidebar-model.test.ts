@@ -7,11 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 
+import { SIDEBAR_MAXIMUM_WIDTH_PERCENT } from "../../core/index.js";
 import { SIDEBAR_SECTION_IDS } from "../../seats/index.js";
 import {
   DECK_MINIMUM_WIDTH_PERCENT,
   SIDEBAR_DEFAULT_WIDTH_PERCENT,
-  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
 } from "../workspace-bounds.js";
 import {

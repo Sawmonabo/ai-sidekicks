@@ -16,8 +16,8 @@
 //     nobody expects that of a row pruned an hour ago. Unbounded, this table would
 //     be the memory leak the cap above it exists to prevent.
 
+import { LEDGER_PARKED_LEASE_CAP } from "../../core/index.js";
 import { type TimelineRowDensity } from "../../seats/index.js";
-import { LEDGER_PARKED_LEASE_CAP } from "./frame-bounds.js";
 
 /**
  * Renderer-local state a row body leases from the list.

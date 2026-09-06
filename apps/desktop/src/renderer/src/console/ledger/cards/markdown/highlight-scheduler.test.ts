@@ -3,11 +3,6 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
-  CODE_TOKEN_CACHE_BYTE_CAP,
-  CODE_WORKER_THRESHOLD_BYTES,
-} from "../card-bounds.js";
 import type { HighlightRequestMessage, HighlightResponseMessage } from "./highlight-protocol.js";
 import {
   HIGHLIGHT_DECLINE_REASONS,
@@ -28,9 +23,9 @@ const NEVER_SETTLED = "never-settled";
 
 /**
  * The retained-token-to-source ratio `Spec-023 §Console Libraries` measures, and the
- * budget it is measured against. Here rather than in `card-bounds.ts` because they are
- * what the constant is DERIVED from — a module that exported its own derivation inputs
- * would let a future edit move both together and still call the result checked.
+ * budget it is measured against. Here rather than beside the constant because they are
+ * what it is DERIVED from — a module that exported its own derivation inputs would let a
+ * future edit move both together and still call the result checked.
  */
 const MEASURED_TOKEN_TO_SOURCE_RATIO = 21.5;
 const ONE_MEBIBYTE = 1_048_576;
@@ -299,3 +294,8 @@ describe("a worker that dies", () => {
     expect(worker?.terminateCount).toBe(0);
   });
 });
+import {
+  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
+  CODE_TOKEN_CACHE_BYTE_CAP,
+  CODE_WORKER_THRESHOLD_BYTES,
+} from "../../../core/index.js";

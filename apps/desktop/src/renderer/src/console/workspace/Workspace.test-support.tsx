@@ -11,6 +11,7 @@ import { render } from "@testing-library/react";
 import { useContext } from "react";
 import { expect } from "vitest";
 
+import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
 import {
   SidekicksBridgeProvider,
   createFixtureBridge,
@@ -20,7 +21,6 @@ import type { ConsoleScenario } from "../bridge/scenario-runtime/scenario.js";
 import type { StoredRecord } from "../persistence/adapter.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { DECK_RESTORED_PANE_CAP } from "./workspace-bounds.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { FrameStore, SessionStore } from "../store/index.js";
 import { ConsolePaneRegistry, PaneControlsContext } from "../seats/index.js";

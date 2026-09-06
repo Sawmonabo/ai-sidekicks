@@ -26,8 +26,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "../../../core/index.js";
-import { LEDGER_TAIL_TOLERANCE_PX, LEDGER_WINDOW_ROW_CAP } from "../frame-bounds.js";
+import { LEDGER_WINDOW_ROW_CAP, ManualClock } from "../../../core/index.js";
+import { LEDGER_TAIL_TOLERANCE_PX } from "../frame-bounds.js";
 import { useLedgerViewport, type LedgerViewportBinding } from "./viewport-binding.js";
 import { LedgerViewportController } from "./viewport-controller.js";
 import type { LedgerViewportRow } from "./viewport-snapshot.js";

@@ -70,7 +70,6 @@ export {
   runIdOfChapteredRow,
   type LedgerChapter,
 } from "./chapters/chapters.js";
-export { CHAPTER_VISIBLE_ROW_CAP } from "./structure-bounds.js";
 export {
   UNFILTERED_LEDGER,
   applyLedgerFilter,

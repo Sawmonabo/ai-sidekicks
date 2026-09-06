@@ -7,7 +7,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../frame-bounds.js";
 import { LedgerWindow, PRUNE_DEFERRAL_REASONS, type PruneConditions } from "./window-cap.js";
 import {
   CHILDREN_PER_CHAPTER,
@@ -246,3 +245,4 @@ describe("the ledger window — the reading floor", () => {
     expect(outcome.topLevelRetained).toBe(LEDGER_WINDOW_ROW_CAP);
   });
 });
+import { LEDGER_WINDOW_ROW_CAP } from "../../../core/index.js";

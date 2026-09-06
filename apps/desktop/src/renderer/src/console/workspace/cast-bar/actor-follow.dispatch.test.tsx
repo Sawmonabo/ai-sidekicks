@@ -10,6 +10,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import {
   actorFollowHandler,
   registerActorFollowHandler,
@@ -17,7 +18,6 @@ import {
   type ActorFollowOutcome,
 } from "../../seats/index.js";
 import { type ConsoleSessionEvent, type SessionStore } from "../../store/index.js";
-import { DECK_RESTORED_PANE_CAP } from "../workspace-bounds.js";
 import { DeckLayout } from "../deck/deck-layout.js";
 import { ACTOR_FOLLOW_ANNOUNCEMENTS, useActorFollow } from "./actor-follow.js";
 

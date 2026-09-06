@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../../core/index.js";
-import { LEDGER_ROW_HEIGHT_ESTIMATE_PX, LEDGER_WINDOW_ROW_CAP } from "../frame-bounds.js";
+import { LEDGER_WINDOW_ROW_CAP, ManualClock } from "../../../core/index.js";
+import { LEDGER_ROW_HEIGHT_ESTIMATE_PX } from "../frame-bounds.js";
 import { countingSurface } from "../scroll/scroll-surface.test-support.js";
 import { LedgerViewportController } from "./viewport-controller.js";
 import { CALM, syntheticRows } from "./viewport-controller.test-support.js";

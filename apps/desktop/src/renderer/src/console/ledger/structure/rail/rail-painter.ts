@@ -46,18 +46,14 @@
 // fisheye radius in. `rail-surface.ts` is what tells the component that the box or
 // the ratio moved; nothing here polls, and there is no frame loop at rest.
 
+import { RAIL_FISHEYE_MAX_SCALE, RAIL_MAX_TICKS_PER_PIXEL } from "../../../core/index.js";
 import {
   SCHEME_COLOR_TOKENS,
   formatOklch,
   tokenVariableName,
   type ParticipantHueAssignment,
 } from "../../../tokens/index.js";
-import {
-  RAIL_FISHEYE_MAX_SCALE,
-  RAIL_FISHEYE_RADIUS_PX,
-  RAIL_INK_WIDTH_PX,
-  RAIL_MAX_TICKS_PER_PIXEL,
-} from "../structure-bounds.js";
+import { RAIL_FISHEYE_RADIUS_PX, RAIL_INK_WIDTH_PX } from "../structure-bounds.js";
 import { hostDevicePixelRatio } from "./rail-surface.js";
 import { type RailTick } from "./rail-model.js";
 import { type RailTickTone } from "./rail-ticks.js";

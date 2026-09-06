@@ -34,7 +34,12 @@
 // every drop is a typed refusal the sidebar renders rather than a tripwire that throws
 // over a record last week's build wrote.
 
-import { isWireRecord, refuse, type NarrowedRefusal } from "../../core/index.js";
+import {
+  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
+  isWireRecord,
+  refuse,
+  type NarrowedRefusal,
+} from "../../core/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   type SidebarSectionDescriptor,
@@ -43,7 +48,6 @@ import {
 import { type PersistedLayoutRecord } from "../layout/layout-writer.js";
 import {
   SIDEBAR_DEFAULT_WIDTH_PERCENT,
-  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
 } from "../workspace-bounds.js";
 

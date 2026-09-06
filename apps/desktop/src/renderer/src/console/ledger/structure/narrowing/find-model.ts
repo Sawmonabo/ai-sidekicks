@@ -22,8 +22,6 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { FIND_MATCH_CAP } from "../structure-bounds.js";
-
 /**
  * The sentence the field states its boundary in.
  *
@@ -57,7 +55,7 @@ export type FindStepDirection = (typeof FIND_STEP_DIRECTIONS)[number];
  * STEPPED THROUGH. Composed from `FIND_MATCH_CAP` rather than restating the number,
  * for the same one-value-one-home reason the constant carries its own rationale.
  */
-export const LEDGER_FIND_CAP_NOTE: string = `Only the first ${String(FIND_MATCH_CAP)} matches can be stepped through. Narrow the query to reach the rest.`;
+export const LEDGER_FIND_TRUNCATION_NOTE: string = `Only the first ${String(FIND_MATCH_CAP)} matches can be stepped through. Narrow the query to reach the rest.`;
 
 /** One row the query matched, and where. */
 export interface LedgerFindMatch {
@@ -227,3 +225,4 @@ function steppedIndexFrom(
   // so stepping back from index 0 would land on -1 rather than on the last match.
   return (((currentIndex + step) % count) + count) % count;
 }
+import { FIND_MATCH_CAP } from "../../../core/index.js";

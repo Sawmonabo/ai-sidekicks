@@ -21,10 +21,9 @@
 // no shape for a tool result, so it is drawn as prose rather than as terminal output
 // guessed at from the tool that produced it.
 
-import { readWireString } from "../../core/index.js";
+import { TOOL_SUMMARY_MAX_CHARACTERS, readWireString } from "../../core/index.js";
 import { Chip, Glyph, LedgerRow, formatDuration, type ChipTone } from "../../primitives/index.js";
 import { LedgerRowGroup } from "../frame/index.js";
-import { TOOL_SUMMARY_MAX_CHARACTERS } from "./card-bounds.js";
 import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
 import { MachineBody } from "./bodies/index.js";

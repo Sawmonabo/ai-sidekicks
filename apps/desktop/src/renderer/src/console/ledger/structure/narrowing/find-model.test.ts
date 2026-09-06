@@ -9,10 +9,9 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { FIND_MATCH_CAP } from "../structure-bounds.js";
 import {
   FIND_STEP_DIRECTIONS,
-  LEDGER_FIND_CAP_NOTE,
+  LEDGER_FIND_TRUNCATION_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
   emptyFindResult,
   findInLedger,
@@ -141,7 +140,7 @@ describe("find — the cap bounds the walk and never the count", () => {
     // this one answer, so the two can never disagree about whether a walk is
     // bounded.
     expect(isFindWalkCapped(findInLedger(oversizedWindow(), "recurring", false))).toBe(true);
-    expect(LEDGER_FIND_CAP_NOTE).toContain(String(FIND_MATCH_CAP));
+    expect(LEDGER_FIND_TRUNCATION_NOTE).toContain(String(FIND_MATCH_CAP));
   });
 
   it("negative control: under the cap the two numbers agree", () => {
@@ -272,3 +271,4 @@ describe("find — the first step, before anything is selected", () => {
     expect(stepFindMatch(result, 2, "next")?.index).toBe(3);
   });
 });
+import { FIND_MATCH_CAP } from "../../../core/index.js";

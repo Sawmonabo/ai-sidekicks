@@ -30,7 +30,6 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 import remend from "remend";
 
-import { MARKDOWN_BLOCK_CACHE_BYTE_CAP } from "../card-bounds.js";
 import { ByteBoundedCache } from "./byte-bounded-cache.js";
 
 /** The document a parse produces. Derived from the parser, never restated. */
@@ -209,3 +208,4 @@ function parseAgainstDefinitions(blockSource: string, definitionPreamble: string
 export function settledBlockCacheStats(): ReturnType<ByteBoundedCache<MarkdownRoot>["stats"]> {
   return settledBlockCache.stats();
 }
+import { MARKDOWN_BLOCK_CACHE_BYTE_CAP } from "../../../core/index.js";

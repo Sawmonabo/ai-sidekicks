@@ -14,7 +14,7 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../workspace-bounds.js";
+import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { memoryStore } from "../Workspace.test-support.js";
 import { DeckLayout } from "../deck/deck-layout.js";

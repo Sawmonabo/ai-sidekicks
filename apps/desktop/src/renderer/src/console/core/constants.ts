@@ -6,6 +6,16 @@
 // its own module beside its subtree rather than widening this one, so a bound
 // always sits next to the code that spends it.
 //
+// WITH ONE SHAPE THE GATE DECIDES, and it decides against the sentence above.
+// `test/console/architecture/cap-constant-home.test.ts` reads DECLARATIONS, names
+// this module the one a bound may be declared in, and fails a view family that
+// declares one of its own. So a family's bound TABLE — a record keyed by the names
+// it declares in one tuple, which is what `browser/bounds/browser-bounds.ts` is —
+// stays beside its readers, while a plain `export const SOMETHING_CAP = …` lands
+// here whichever family spends it. The rationale travels with the value: each block
+// below carries the paragraph it was written with, and the family module it left
+// says what went and why.
+//
 // A number that appears inline anywhere under `console/` and is not a layout
 // literal is a review rejection: the rationale is the point, not the constant.
 
@@ -262,3 +272,235 @@ export const POSITION_SIBLING_OBSERVER_CAP = 64;
  * `_THRESHOLD` as well as `_CAP` and `_MAX`.
  */
 export const PARTITION_FOLD_THRESHOLD = 10;
+
+// The ledger cards' bounds. Spent under `ledger/cards/` and `ledger/markdown/`,
+// declared here because `cap-constant-home` allows a bound exactly one declaring
+// module; what stays beside those readers is the layout and lag figures that are
+// not ceilings.
+
+/**
+ * Bytes of parsed-block cache the renderer retains, across every card.
+ *
+ * Bounded in bytes rather than in entries because the entries are markdown blocks and
+ * their sizes span four orders of magnitude: a thousand one-line paragraphs and one
+ * pasted file are the same entry count and not the same memory. Two mebibytes is
+ * several long conversations' worth of settled prose at the ledger's density, and it
+ * is charged against the source text rather than the node tree because the source is
+ * what the cache is keyed by and the only figure it can measure without walking.
+ */
+export const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
+
+/**
+ * SOURCE bytes of highlighted code the token cache holds, across every code block.
+ *
+ * `Spec-023 §Console Libraries`, syntax-highlighting row: "byte-bounded token cache".
+ * The bound is in source bytes because that is what `byte-bounded-cache.ts` charges —
+ * it measures the KEY, which is the block's own text, for the reason its header gives:
+ * a node tree's retained size cannot be had without walking it. So this figure is sized
+ * with the retained tokens in mind rather than stated in them. That row's measurement is
+ * 21.5x, and one mebibyte of retained tokens divided by it is about 48,771 source bytes;
+ * 48,000 is that rounded down, so the tokens stay INSIDE the mebibyte rather than a
+ * little past it. It is a screenful of fenced blocks in scrollback, and far below the
+ * point where retaining them costs more than re-tokenising them.
+ *
+ * THE CONSEQUENCE, NAMED RATHER THAN LEFT TO BE FOUND: a block between this cap and
+ * `CODE_HIGHLIGHT_SOURCE_BYTE_CAP` is highlighted and NOT cached, because the cache
+ * drops an entry larger than the whole cap rather than evicting everything else to hold
+ * it. That is exactly what the highlight-source cap's own rationale below asserts, and
+ * it is only true while this figure is stated in the units the cache charges.
+ */
+export const CODE_TOKEN_CACHE_BYTE_CAP = 48_000;
+
+/**
+ * Source bytes above which highlighting leaves the main thread.
+ *
+ * `Spec-023 §Console Libraries`: "in a Worker above about 4 kB of source". The row's
+ * own measurement is the reason — the JavaScript engine costs about 8.1 ms per 2,700 bytes,
+ * so 4,096 bytes is the last size whose tokenisation still fits inside one 16.7 ms frame
+ * beside the layout it has to leave room for.
+ */
+export const CODE_WORKER_THRESHOLD_BYTES = 4096;
+
+/**
+ * Source bytes above which a code block is not highlighted at all.
+ *
+ * The worker keeps a large block off the main thread; it does not make the block
+ * cheap. Past a quarter mebibyte the tokens cost more than the whole retained cache
+ * and the block is prose to the reader either way, so it renders as plain mono text
+ * and says so — which is the honest reading of `Spec-023 §Console Design (Meridian)`
+ * rule 8's "an absence names its cause" applied to a capability rather than to a row.
+ */
+export const CODE_HIGHLIGHT_SOURCE_BYTE_CAP = 262_144;
+
+/**
+ * Footnote definitions one timeline's registry retains.
+ *
+ * This console keeps one popover host per timeline with a definition registry keyed by
+ * source — `markdown/footnote-registry.ts` states why. Bounded for the reason every cache in the
+ * console is: a definition belongs to the message that carried it, and a log holds
+ * `LEDGER_WINDOW_ROW_CAP` rows, so a few definitions per retained row is the whole
+ * reachable population and nothing above it can ever be opened.
+ */
+export const FOOTNOTE_DEFINITION_CAP = 2048;
+
+/**
+ * Characters of a tool row's one-clause summary before it is elided.
+ *
+ * `Spec-023 §Meridian, the design language` rule 7: "Tool rows render as one line until
+ * opened." What that one line carries — glyph, tool name, a one-clause summary, elapsed,
+ * and the result state — is this console's own composition; the line is the constraint,
+ * and at the ledger's measure and mono figure column this is what fits beside the name
+ * and the elapsed without wrapping.
+ */
+export const TOOL_SUMMARY_MAX_CHARACTERS = 96;
+
+/**
+ * ANSI chunks one command-output body renders before the rest is folded away.
+ *
+ * `anser` yields one entry per style run, so a colour-heavy build log produces far more
+ * entries than lines. The cap is on the mapped spans rather than on the source bytes
+ * because the spans are what become DOM nodes.
+ *
+ * IT IS THE FIRST RENDER'S CAP AND NOT THE BLOCK'S CEILING. `Spec-023 §Console Design
+ * (Meridian)`'s "#### Rules every console surface obeys" is why: the fold has to be
+ * recoverable, and `AnsiOutput` is what makes it so — the notice carries both figures
+ * and a control that re-parses the same source under a cap that admits every run. A cap
+ * with no way past it would put the tail of a colour-heavy command beyond reach, since
+ * reopening the card re-parses exactly the same capped sequence.
+ */
+export const ANSI_SPAN_RENDER_CAP = 4096;
+
+// The ledger frame's bounds — the window, the element ceiling, and the reveal
+// engine's per-frame budget. Spent inside `ledger/frame/`.
+
+/**
+ * Top-level rows the ledger window retains before the oldest are pruned.
+ *
+ * A ceiling rather than a nicety: Chromium caps an element's height at
+ * `LEDGER_MAX_ELEMENT_HEIGHT_PX`, so an uncapped log eventually renders rows the
+ * browser cannot place. Four hundred rows is several screens of scrollback at the
+ * ledger's density, which is as far back as a person reads before reaching for
+ * find or the rail.
+ */
+export const LEDGER_WINDOW_ROW_CAP = 400;
+
+/**
+ * Chromium's maximum element height, in CSS pixels.
+ *
+ * The reason the window is a cap and not an optimisation: past this a virtual
+ * list's total-size spacer stops growing and every row below it is unreachable.
+ */
+export const LEDGER_MAX_ELEMENT_HEIGHT_PX = 33_554_431;
+
+/**
+ * Characters the reveal engine publishes per frame, across every lane.
+ *
+ * Sized to the frame budget rather than to reading speed: at 60 Hz this is roughly
+ * 28,000 characters a second, which outruns every provider's output while leaving
+ * the frame's remaining time to layout. The per-lane share is this figure divided
+ * across the lanes that have work, so four lanes each advance every frame instead
+ * of one lane finishing while three wait.
+ */
+export const REVEAL_FRAME_CHARACTER_BUDGET = 480;
+
+/**
+ * Checkpoints a lane retains for its authoritative commits.
+ *
+ * The tail is bounded because a checkpoint exists to re-anchor a commit that
+ * arrived out of band, and a commit older than a few frames is one the engine has
+ * already published past. Eight frames of history is a tenth of a second.
+ */
+export const REVEAL_CHECKPOINT_TAIL_CAP = 8;
+
+/**
+ * Pruned rows whose leased state the window parks under a synthetic key.
+ *
+ * Bounded for the reason every cache in the console is: a person who pages back
+ * expects the row they had open to still be open, and nobody expects that of a row
+ * pruned an hour ago. Parking one window's worth covers a page back and no more.
+ */
+export const LEDGER_PARKED_LEASE_CAP = 400;
+
+/**
+ * How far the reveal gate walks back from a candidate ceiling looking for a
+ * literal-safe stopping point.
+ *
+ * Bounded because a run of volatile characters — a rule of asterisks, a table
+ * border — would otherwise make the walk proportional to the block's length on
+ * every frame. Eight characters covers every incomplete construct the gate can
+ * withhold (a fence, a link opener, an emphasis run) and refuses to become a scan.
+ */
+export const REVEAL_LITERAL_BACKTRACK_CAP = 8;
+
+// The ledger structure's bounds — the chapter, the rail's two painting ceilings,
+// and the find walk. Spent inside `ledger/structure/`.
+
+/**
+ * Rows a single chapter renders before its body clips.
+ *
+ * The cap on a chapter's visible rows, held here rather than inside the fold so the
+ * bound sits beside the rest of the structure family's. A chapter is a nested scroller, so the
+ * cap is not about what fits on screen — it is about how many rows one run may
+ * mount at once while three sibling runs stream beside it. 120 is four screens of
+ * ledger at this density: enough that scrolling inside a chapter is reading
+ * rather than paging, and far short of the point where four live chapters cost a
+ * frame.
+ */
+export const CHAPTER_VISIBLE_ROW_CAP = 120;
+
+/**
+ * The widest a tick grows at the centre of the fisheye. Past roughly three the
+ * magnified band stops reading as the same rail and starts reading as a second
+ * control.
+ */
+export const RAIL_FISHEYE_MAX_SCALE = 2.6;
+
+/**
+ * Ticks the rail paints per column of ink.
+ *
+ * The rail draws the loaded window, which the ledger's own timeline cap already
+ * bounds; this is the second bound, and it is a painting bound rather than a data
+ * one — past one tick per pixel the marks overdraw and the minimap stops being a
+ * map. Ticks beyond it are folded into the nearest painted column, never dropped.
+ */
+export const RAIL_MAX_TICKS_PER_PIXEL = 1;
+
+/**
+ * Matches the find field ranks and offers next/previous over.
+ *
+ * The field searches the loaded window, and a query of one character matches most
+ * of it; past this the count stops being a number a person acts on and the
+ * next/previous walk stops terminating in a session. The cap bounds the walkable
+ * set, so the counter's denominator is that set and the true match count rides
+ * beside it as a second figure — a denominator naming matches no press can reach
+ * is a promise the walk cannot keep.
+ */
+export const FIND_MATCH_CAP = 500;
+
+// The workspace's two bounds. The rest of that family's figures are widths, a
+// density table, and defaults, which are not ceilings and stay beside their readers.
+
+/**
+ * Panes one saved deck layout may restore.
+ *
+ * This family's own decision, like the third of the three restore rules
+ * `deck/deck-snapshot.ts` states — no committed document fixes the number, and the cap
+ * is about untrusted input rather than performance: a persisted record is a file on
+ * disk, and without a bound a corrupted or hand-edited one mounts panes until the
+ * window stops responding. Twelve is past any arrangement a person builds on a display
+ * the density presets below are drawn for, so the cap binds a defect and never a
+ * session.
+ */
+export const DECK_RESTORED_PANE_CAP = 12;
+
+/**
+ * The widest the sidebar may be kept at, in percent.
+ *
+ * DERIVED FROM THE DECK, not chosen for the sidebar: the deck is the side whose own
+ * density floor is measured in pixels, and forty percent is the share that still
+ * leaves a two-pane deck above its preset's minimum on the narrowest window the
+ * presets are drawn for. So it is written here as the sidebar's ceiling and read from
+ * here as the deck's floor, rather than declared twice at two ends of one band and
+ * left to agree by inspection.
+ */
+export const SIDEBAR_MAXIMUM_WIDTH_PERCENT = 40;

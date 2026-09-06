@@ -17,8 +17,8 @@
 // holding an emitter: a lane that could reach the console's subscribers directly
 // would be a second publisher on a channel the engine owns.
 
-import { REVEAL_CHECKPOINT_TAIL_CAP } from "../frame-bounds.js";
 import type { RevealDelta, RevealDiagnostic, RevealLaneState } from "./reveal-vocabulary.js";
+import { REVEAL_CHECKPOINT_TAIL_CAP } from "../../../core/index.js";
 import { RopeSmoother, type ProvenAppendToken } from "../scroll/index.js";
 
 /** Where a lane's diagnostics go. The engine's emitter, in practice. */

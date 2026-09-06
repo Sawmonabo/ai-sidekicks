@@ -3,7 +3,6 @@
 import type { RootContent } from "mdast";
 import { describe, expect, it } from "vitest";
 
-import { FOOTNOTE_DEFINITION_CAP } from "../card-bounds.js";
 import { FootnoteRegistry } from "./footnote-registry.js";
 
 const BODY: readonly RootContent[] = [
@@ -68,3 +67,4 @@ describe("the footnote registry", () => {
     expect(registry.resolve("event-01", String(FOOTNOTE_DEFINITION_CAP + 4))).not.toBeUndefined();
   });
 });
+import { FOOTNOTE_DEFINITION_CAP } from "../../../core/index.js";

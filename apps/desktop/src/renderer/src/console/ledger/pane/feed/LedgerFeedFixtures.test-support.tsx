@@ -18,11 +18,11 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { vi } from "vitest";
 
+import { LEDGER_WINDOW_ROW_CAP } from "../../../core/index.js";
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { useLedgerRowLease } from "../../frame/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger-quiet.js";
 import { consoleCommandSurface, consoleCommands } from "../../../palette/index.js";
-import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-bounds.js";
 import {
   LEDGER_COMMAND_OWNER,
   registerLedgerCommands,

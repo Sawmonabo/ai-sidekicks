@@ -3,9 +3,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ANSI_SPAN_RENDER_CAP } from "../../../core/index.js";
 import { formatCount } from "../../../primitives/index.js";
 import { AnsiOutput } from "./AnsiOutput.js";
-import { ANSI_SPAN_RENDER_CAP } from "../card-bounds.js";
 
 const ESCAPE = String.fromCodePoint(0x1b);
 

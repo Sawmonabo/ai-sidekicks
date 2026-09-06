@@ -16,8 +16,7 @@ import {
   lossyStringify,
   UNREPRESENTABLE_VALUE_TEXT,
 } from "../../../../../../shared/wire-errors.js";
-import { ManualClock } from "../../../core/index.js";
-import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame-bounds.js";
+import { ManualClock, REVEAL_FRAME_CHARACTER_BUDGET } from "../../../core/index.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import { RopeSmoother } from "../scroll/rope-smoother.js";

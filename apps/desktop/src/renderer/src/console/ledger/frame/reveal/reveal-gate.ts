@@ -25,8 +25,6 @@
 //   • **in-word apostrophe.** `don't` has a letter on both sides and opens
 //     nothing, so withholding it would stall a lane on ordinary prose.
 
-import { REVEAL_LITERAL_BACKTRACK_CAP } from "../frame-bounds.js";
-
 /**
  * How a delta claims to relate to what the lane already holds. Closed.
  *
@@ -137,3 +135,4 @@ function startsLine(text: string, index: number): boolean {
   }
   return true;
 }
+import { REVEAL_LITERAL_BACKTRACK_CAP } from "../../../core/index.js";

@@ -21,9 +21,9 @@
 
 import { useMemo, useState } from "react";
 
+import { ANSI_SPAN_RENDER_CAP } from "../../../core/index.js";
 import { Nothing, formatCount } from "../../../primitives/index.js";
 import { ansiSpanClassNames, parseAnsiSpans } from "./ansi-spans.js";
-import { ANSI_SPAN_RENDER_CAP } from "../card-bounds.js";
 
 export interface AnsiOutputProps {
   /** The tool's output, wire-verbatim, escape sequences and all. */

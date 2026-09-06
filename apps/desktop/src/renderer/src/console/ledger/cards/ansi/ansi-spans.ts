@@ -34,7 +34,6 @@
 
 import Anser from "anser";
 
-import { ANSI_SPAN_RENDER_CAP } from "../card-bounds.js";
 import { withoutResidualEscapes } from "./escape-sequences.js";
 
 /**
@@ -305,3 +304,4 @@ function resolveColor(anserClass: string | null | undefined): AnsiColorName | un
   }
   return COLOR_NAMES_BY_ANSER_CLASS.get(anserClass);
 }
+import { ANSI_SPAN_RENDER_CAP } from "../../../core/index.js";

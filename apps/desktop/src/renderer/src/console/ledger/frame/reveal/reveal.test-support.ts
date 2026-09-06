@@ -8,8 +8,6 @@
 // budget. A fixture module beside the code it serves, on `scroll-surface.test-support.ts`'
 // terms.
 
-import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame-bounds.js";
-
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
 /**
@@ -36,3 +34,4 @@ export function revealProse(characterCount: number): string {
  * multiple, so "one frame's worth" means one thing in both.
  */
 export const TWO_FRAME_REVEAL_SOURCE: string = revealProse(REVEAL_FRAME_CHARACTER_BUDGET * 2);
+import { REVEAL_FRAME_CHARACTER_BUDGET } from "../../../core/index.js";

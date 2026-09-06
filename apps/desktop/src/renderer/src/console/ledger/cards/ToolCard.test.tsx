@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { TOOL_SUMMARY_MAX_CHARACTERS } from "./card-bounds.js";
+import { TOOL_SUMMARY_MAX_CHARACTERS } from "../../core/index.js";
 import { FootnoteRegistry } from "./markdown/index.js";
 import { sampleRunRow } from "./row-samples.test-support.js";
 import { ToolCard, clampSummary } from "./ToolCard.js";

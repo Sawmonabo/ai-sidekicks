@@ -34,12 +34,8 @@
 // virtual list's size container stops growing and every row below is unreachable.
 // The ledger reports that rather than leaving it a mystery in the scrollbar.
 
-import {
-  LEDGER_GEOMETRY_EPSILON_PX,
-  LEDGER_MAX_ELEMENT_HEIGHT_PX,
-  LEDGER_ROW_HEIGHT_ESTIMATE_PX,
-  LEDGER_WINDOW_ROW_CAP,
-} from "../frame-bounds.js";
+import { LEDGER_MAX_ELEMENT_HEIGHT_PX, LEDGER_WINDOW_ROW_CAP } from "../../../core/index.js";
+import { LEDGER_GEOMETRY_EPSILON_PX, LEDGER_ROW_HEIGHT_ESTIMATE_PX } from "../frame-bounds.js";
 
 /**
  * The display facts a measurement is only valid under.

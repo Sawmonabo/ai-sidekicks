@@ -41,17 +41,14 @@
 
 import {
   Emitter,
+  REVEAL_FRAME_CHARACTER_BUDGET,
+  REVEAL_LITERAL_BACKTRACK_CAP,
   lossyStringify,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
 } from "../../../core/index.js";
-import {
-  REVEAL_CATCH_UP_MULTIPLIER,
-  REVEAL_FRAME_CHARACTER_BUDGET,
-  REVEAL_GATE_TAIL_CHARACTERS,
-  REVEAL_LITERAL_BACKTRACK_CAP,
-} from "../frame-bounds.js";
+import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_GATE_TAIL_CHARACTERS } from "../frame-bounds.js";
 import { safeRevealCeiling } from "./reveal-gate.js";
 import { RevealLane } from "./reveal-lane.js";
 import type {

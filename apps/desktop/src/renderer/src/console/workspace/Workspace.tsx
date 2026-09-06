@@ -44,7 +44,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
-import { type ConsoleRefusal } from "../core/index.js";
+import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { consoleCommandSurface } from "../palette/index.js";
 import { useAnnounce } from "../primitives/index.js";
@@ -54,7 +54,6 @@ import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 
 import {
   DECK_MINIMUM_WIDTH_PERCENT,
-  DECK_RESTORED_PANE_CAP,
   SIDEBAR_COLLAPSED_WIDTH_PX,
   SIDEBAR_MINIMUM_WIDTH_PERCENT,
 } from "./workspace-bounds.js";

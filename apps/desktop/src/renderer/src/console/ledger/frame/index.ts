@@ -35,9 +35,10 @@
 // there. The reveal engine and the error slots are the two that stand alone: one
 // publishes text and the other holds refusals, and neither needs a viewport.
 //
-// The bounds every one of them spends live in `frame-bounds.ts`, which stays at this
-// root rather than joining `measurement/`: all five seams spend them, on the terms
-// `core/constants.ts` sets for a view family's own module.
+// The ceilings every one of them spends are declared in `core/constants.ts`, the one
+// module the `cap-constant-home` gate admits a bound in; the frame's other figures —
+// the estimate, the tolerance, the epsilon, the overscan — stay in `frame-bounds.ts`
+// at this root rather than joining `measurement/`, because all five seams spend them.
 
 // WHAT THIS DOOR CARRIES IS WHAT LEAVES THE DIRECTORY, AND NOTHING MORE.
 //

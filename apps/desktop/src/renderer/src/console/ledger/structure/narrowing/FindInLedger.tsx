@@ -27,7 +27,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import { DerivedFigure, Glyph } from "../../../primitives/index.js";
 import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
 import {
-  LEDGER_FIND_CAP_NOTE,
+  LEDGER_FIND_TRUNCATION_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
   isFindWalkCapped,
   type FindStepDirection,
@@ -156,7 +156,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
         {/* Two boundaries, two sentences: the note above bounds what was searched
             and this bounds what can be stepped through, and only the second one
             depends on how many matches this particular query found. */}
-        {isFindWalkCapped(result) ? <span>{LEDGER_FIND_CAP_NOTE}</span> : null}
+        {isFindWalkCapped(result) ? <span>{LEDGER_FIND_TRUNCATION_NOTE}</span> : null}
         {result.hasEarlierRows && onLoadEarlier !== undefined ? (
           <button type="button" className="meridian-find__load-earlier" onClick={onLoadEarlier}>
             Load earlier

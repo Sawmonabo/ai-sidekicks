@@ -4,8 +4,8 @@
 //
 //   • **Above about 4 kB of source, the work leaves the main thread.** Below it, a
 //     block costs a few milliseconds and a worker round trip would cost more than it
-//     saved. `CODE_WORKER_THRESHOLD_BYTES` is the line and `card-bounds.ts` is where its
-//     rationale lives.
+//     saved. `CODE_WORKER_THRESHOLD_BYTES` is the line, and `core/constants.ts` — the
+//     one module a bound is declared in — is where its rationale lives.
 //   • **The cache is content-addressed and bounded in bytes.** Keyed by language and
 //     source, so the same block re-rendered — a scroll back, a re-mount, the same snippet
 //     quoted twice — is free, and theme-independent because the tokens carry family
@@ -26,11 +26,6 @@
 // is "never spend a frame on this", and a console that quietly broke that rule on hosts
 // without workers would break it exactly where nobody was measuring.
 
-import {
-  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
-  CODE_TOKEN_CACHE_BYTE_CAP,
-  CODE_WORKER_THRESHOLD_BYTES,
-} from "../card-bounds.js";
 import { ByteBoundedCache, measureUtf8ByteLength } from "./byte-bounded-cache.js";
 import type { CodeTokenLine, HighlightableLanguage } from "./code-tokenizer.js";
 import type { HighlightRequestMessage, HighlightResponseMessage } from "./highlight-protocol.js";
@@ -239,3 +234,8 @@ function cacheKey(source: string, language: HighlightableLanguage): string {
 
 /** The renderer's scheduler. One per realm, on `code-tokenizer.ts`' terms. */
 export const consoleCodeHighlightScheduler: CodeHighlightScheduler = new CodeHighlightScheduler();
+import {
+  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
+  CODE_TOKEN_CACHE_BYTE_CAP,
+  CODE_WORKER_THRESHOLD_BYTES,
+} from "../../../core/index.js";

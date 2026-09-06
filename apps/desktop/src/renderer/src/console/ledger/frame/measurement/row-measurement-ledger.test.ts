@@ -8,11 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  LEDGER_GEOMETRY_EPSILON_PX,
-  LEDGER_MAX_ELEMENT_HEIGHT_PX,
-  LEDGER_ROW_HEIGHT_ESTIMATE_PX,
-} from "../frame-bounds.js";
+import { LEDGER_MAX_ELEMENT_HEIGHT_PX } from "../../../core/index.js";
+import { LEDGER_GEOMETRY_EPSILON_PX, LEDGER_ROW_HEIGHT_ESTIMATE_PX } from "../frame-bounds.js";
 import { RowMeasurementLedger } from "./row-measurement-ledger.js";
 
 function keys(count: number, prefix = "row"): readonly string[] {

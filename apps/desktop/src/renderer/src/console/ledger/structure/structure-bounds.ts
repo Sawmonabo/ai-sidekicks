@@ -1,37 +1,19 @@
-// The ledger structure's named bounds.
+// The ledger structure's named figures that are not ceilings.
 //
-// `core/constants.ts` states the rule this file follows: "each view family adds
-// its own module beside its subtree rather than widening this one, so a bound
-// always sits next to the code that spends it". Every value below is spent by a
-// module in this directory and by nothing else.
+// THE CEILINGS ARE NOT HERE. `test/console/architecture/cap-constant-home.test.ts`
+// names `core/constants.ts` the one module a bound may be DECLARED in, so the chapter
+// cap, the rail's fisheye and painting maxima, and the find walk's cap are declared
+// there and read through the core door. What stays is the rail's geometry, its
+// preview grace, its thumb floor, and the replay interval.
 //
-// THREE BOUNDS MODULES IN THIS FAMILY, AND THEY DO NOT FOLD INTO ONE — one per
-// subtree that spends numbers. `frame-bounds.ts` holds the window and the frame —
-// the row cap, the element ceiling, the overscan, the reveal budget — and every one
-// of those is spent inside `ledger/frame/`; `cards/card-bounds.ts` holds the card
-// layer's, spent inside `ledger/cards/` and under `markdown/`. The chapter cap, the
-// rail's geometry, the replay interval, and the find cap are spent inside this
-// directory and nowhere else. No two of the three sets share a spender, so a single
-// `ledger-bounds.ts` would move every value in two of them away from the code that
-// spends them to satisfy a count, which is the opposite of the rule quoted above;
-// the rule's subject is a family widening the SUBSTRATE's module, and applying it
-// one level down is what these three files are.
+// Every value below is spent by a module in this directory and by nothing else,
+// which is also why this file did not fold into one `ledger-bounds.ts` when its
+// ceilings left: `frame-bounds.ts` and `cards/card-bounds.ts` are the family's
+// other two, no two of the three share a spender, and folding them would move
+// every remaining figure away from the code that spends it to satisfy a count.
 //
 // `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine":
 // "Every cap, window, and timeout is a named constant with a one-line rationale".
-
-/**
- * Rows a single chapter renders before its body clips.
- *
- * The cap on a chapter's visible rows, held here rather than inside the fold so the
- * bound sits beside the rest of the structure family's. A chapter is a nested scroller, so the
- * cap is not about what fits on screen — it is about how many rows one run may
- * mount at once while three sibling runs stream beside it. 120 is four screens of
- * ledger at this density: enough that scrolling inside a chapter is reading
- * rather than paging, and far short of the point where four live chapters cost a
- * frame.
- */
-export const CHAPTER_VISIBLE_ROW_CAP = 120;
 
 /**
  * The rail's pointer strip, in CSS pixels.
@@ -58,13 +40,6 @@ export const RAIL_INK_WIDTH_PX = 12;
 export const RAIL_FISHEYE_RADIUS_PX = 36;
 
 /**
- * The widest a tick grows at the centre of the fisheye. Past roughly three the
- * magnified band stops reading as the same rail and starts reading as a second
- * control.
- */
-export const RAIL_FISHEYE_MAX_SCALE = 2.6;
-
-/**
  * How long the pointer rests on a tick before its preview card opens.
  *
  * `rail-model.ts`'s rule: the card activates after a short
@@ -87,31 +62,9 @@ export const RAIL_PREVIEW_GRACE_MS = 160;
 export const RAIL_THUMB_MIN_EXTENT = 0.01;
 
 /**
- * Ticks the rail paints per column of ink.
- *
- * The rail draws the loaded window, which the ledger's own timeline cap already
- * bounds; this is the second bound, and it is a painting bound rather than a data
- * one — past one tick per pixel the marks overdraw and the minimap stops being a
- * map. Ticks beyond it are folded into the nearest painted column, never dropped.
- */
-export const RAIL_MAX_TICKS_PER_PIXEL = 1;
-
-/**
  * How often replay advances its position while playing, in milliseconds of real
  * time. Twenty frames a second: fast enough that a 1× replay reads as motion,
  * slow enough that a 32× replay does not schedule work the reveal engine cannot
  * absorb. It is a scheduled timeout through `core/clock.ts`, never an interval.
  */
 export const REPLAY_FRAME_INTERVAL_MS = 50;
-
-/**
- * Matches the find field ranks and offers next/previous over.
- *
- * The field searches the loaded window, and a query of one character matches most
- * of it; past this the count stops being a number a person acts on and the
- * next/previous walk stops terminating in a session. The cap bounds the walkable
- * set, so the counter's denominator is that set and the true match count rides
- * beside it as a second figure — a denominator naming matches no press can reach
- * is a promise the walk cannot keep.
- */
-export const FIND_MATCH_CAP = 500;

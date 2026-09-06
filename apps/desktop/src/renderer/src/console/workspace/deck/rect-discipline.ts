@@ -41,6 +41,7 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../../core/index.js";
+import { observeElementResize } from "../../primitives/index.js";
 import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../workspace-bounds.js";
 import {
   rectKey,
@@ -324,15 +325,20 @@ export function usePaneRectSources(
 ): void {
   useEffect(() => {
     const element = container.current;
-    if (element === null || typeof ResizeObserver === "undefined") {
+    if (element === null) {
       return;
     }
-    const observer = new ResizeObserver(() => {
+    // Through the console's one size-observer site rather than a second construction:
+    // `primitives/element-resize.ts` owns the feature detection and the teardown, and
+    // its degrade is what makes the guard above an element test alone — a platform
+    // with no observer arms nothing THERE while the window and scroll sources below
+    // still fire, where the construction this replaced returned before arming any of
+    // the four and left a pane's rect answering from a measurement nothing refreshed.
+    const releaseHostSizeSource = observeElementResize(element, () => {
       // A READ, queued. Mutating layout from inside this callback re-enters the
       // observer, which is the loop this module's rule 1 forbids.
       tracker.invalidate("host-resize");
     });
-    observer.observe(element);
 
     const onWindowResize = (): void => {
       tracker.invalidate("window-resize");
@@ -344,7 +350,7 @@ export function usePaneRectSources(
     document.addEventListener("scroll", onAncestorScroll, { capture: true, passive: true });
 
     return () => {
-      observer.disconnect();
+      releaseHostSizeSource();
       window.removeEventListener("resize", onWindowResize);
       document.removeEventListener("scroll", onAncestorScroll, { capture: true });
     };

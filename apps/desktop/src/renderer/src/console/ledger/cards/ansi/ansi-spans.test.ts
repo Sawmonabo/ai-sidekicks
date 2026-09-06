@@ -2,7 +2,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ANSI_SPAN_RENDER_CAP } from "../card-bounds.js";
 import {
   ANSI_COLOR_NAMES,
   ANSI_DECORATIONS,
@@ -260,3 +259,4 @@ describe("the class names one span carries", () => {
     ).toStrictEqual(["meridian-ansi__fg--red", "meridian-ansi__bg--green"]);
   });
 });
+import { ANSI_SPAN_RENDER_CAP } from "../../../core/index.js";

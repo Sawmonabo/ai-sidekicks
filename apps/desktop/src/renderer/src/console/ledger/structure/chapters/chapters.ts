@@ -31,8 +31,6 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../structure-bounds.js";
-
 /**
  * The run-lifecycle event types that END a run, wire-verbatim.
  *
@@ -336,3 +334,4 @@ function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
     hasIncompleteChildExpand: accumulator.hasIncompleteChildExpand,
   };
 }
+import { CHAPTER_VISIBLE_ROW_CAP } from "../../../core/index.js";

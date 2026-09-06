@@ -11,7 +11,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-bounds.js";
+import { LEDGER_WINDOW_ROW_CAP } from "../../../core/index.js";
 import { type TimelineRowSlotProps } from "../../../seats/index.js";
 import {
   LeasingRowBody,

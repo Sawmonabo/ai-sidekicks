@@ -10,10 +10,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FIND_MATCH_CAP } from "../structure-bounds.js";
 import { FindInLedger } from "./FindInLedger.js";
 import {
-  LEDGER_FIND_CAP_NOTE,
+  LEDGER_FIND_TRUNCATION_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
   emptyFindResult,
   findInLedger,
@@ -155,9 +154,9 @@ describe("find field — the counter is the console's own reading", () => {
   it("states the cap as its own sentence, beside the scope note", () => {
     const capped: LedgerFindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
     const { field } = renderField({ result: capped, currentMatchIndex: 0 });
-    expect(field.textContent).toContain(LEDGER_FIND_CAP_NOTE);
+    expect(field.textContent).toContain(LEDGER_FIND_TRUNCATION_NOTE);
     expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
-    expect(LEDGER_FIND_CAP_NOTE).toContain(String(FIND_MATCH_CAP));
+    expect(LEDGER_FIND_TRUNCATION_NOTE).toContain(String(FIND_MATCH_CAP));
   });
 
   it("negative control: an uncapped result shows one figure and no cap sentence", () => {
@@ -167,7 +166,7 @@ describe("find field — the counter is the console's own reading", () => {
     const { field } = renderField({ currentMatchIndex: 0 });
     expect(field.textContent).toContain("1 of 3");
     expect(field.textContent).not.toContain("matched)");
-    expect(field.textContent).not.toContain(LEDGER_FIND_CAP_NOTE);
+    expect(field.textContent).not.toContain(LEDGER_FIND_TRUNCATION_NOTE);
   });
 
   it("negative control: with nothing found it says so, and says it once", () => {
@@ -321,3 +320,4 @@ describe("find field — the query and the close", () => {
     expect(harness.acts).toStrictEqual(["close"]);
   });
 });
+import { FIND_MATCH_CAP } from "../../../core/index.js";

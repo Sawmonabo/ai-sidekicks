@@ -11,8 +11,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../../core/index.js";
-import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_FRAME_CHARACTER_BUDGET } from "../frame-bounds.js";
+import { ManualClock, REVEAL_FRAME_CHARACTER_BUDGET } from "../../../core/index.js";
+import { REVEAL_CATCH_UP_MULTIPLIER } from "../frame-bounds.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import type { RevealDiagnostic, RevealFrame } from "./reveal-vocabulary.js";

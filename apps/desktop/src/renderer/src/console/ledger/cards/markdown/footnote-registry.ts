@@ -23,8 +23,6 @@
 
 import type { RootContent } from "mdast";
 
-import { FOOTNOTE_DEFINITION_CAP } from "../card-bounds.js";
-
 /**
  * The separator the composite key is built with.
  *
@@ -60,7 +58,8 @@ export class FootnoteRegistry {
   /**
    * Record a definition under its own source.
    *
-   * Bounded, and eviction is oldest-first for the reason `card-bounds.ts` gives: a
+   * Bounded, and eviction is oldest-first for the reason the cap's own rationale in
+   * `core/constants.ts` gives: a
    * definition belongs to the message that carried it, the window retains a bounded
    * number of messages, and a definition older than the window's oldest row can never
    * be opened because the reference that would open it is gone too.
@@ -108,3 +107,4 @@ export class FootnoteRegistry {
 function footnoteKey(sourceId: string, identifier: string): string {
   return sourceId + FOOTNOTE_KEY_SEPARATOR + identifier;
 }
+import { FOOTNOTE_DEFINITION_CAP } from "../../../core/index.js";

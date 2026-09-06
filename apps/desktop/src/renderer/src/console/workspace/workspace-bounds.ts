@@ -1,11 +1,14 @@
-// The workspace's named bounds — one home, beside the code that spends them.
+// The workspace's named figures that are not ceilings.
 //
-// `core/constants.ts` states the rule this module exists for: it "is that place for
-// the substrate's domains; each view family adds its own module beside its subtree
-// rather than widening this one, so a bound always sits next to the code that spends
-// it". This family had four homes and no module — a cap in the deck's density table,
-// one in its rect discipline, two in the sidebar's grammar, and one that had been put
-// in `core/constants.ts` itself, against that file's own sentence.
+// THE CEILINGS ARE NOT HERE. `test/console/architecture/cap-constant-home.test.ts`
+// names `core/constants.ts` the one module a bound may be DECLARED in, so the
+// restored-pane cap and the sidebar's width ceiling are declared there and read
+// through the core door — the ceiling by this module too, since the deck's own floor
+// is its complement and one band still has one home.
+//
+// This family had four homes and no module — a figure in the deck's density table,
+// one in its rect discipline, and two in the sidebar's grammar — and this is the one
+// they collected into.
 //
 // `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine": "Every
 // cap, window, and timeout is a named constant with a one-line rationale". The
@@ -19,18 +22,7 @@
 // fails. What stays in `deck/density.ts` is what READS these — the predicate, the
 // lookup, and the how-many-fit arithmetic.
 
-/**
- * Panes one saved deck layout may restore.
- *
- * This family's own decision, like the third of the three restore rules
- * `deck/deck-snapshot.ts` states — no committed document fixes the number, and the cap
- * is about untrusted input rather than performance: a persisted record is a file on
- * disk, and without a bound a corrupted or hand-edited one mounts panes until the
- * window stops responding. Twelve is past any arrangement a person builds on a display
- * the density presets below are drawn for, so the cap binds a defect and never a
- * session.
- */
-export const DECK_RESTORED_PANE_CAP = 12;
+import { SIDEBAR_MAXIMUM_WIDTH_PERCENT } from "../core/index.js";
 
 /**
  * The deck's density presets, widest first.
@@ -101,18 +93,6 @@ export const NATIVE_VIEW_MINIMUM_VISIBLE_PX = 1;
  * sidebar narrower than this is one a person would have collapsed on purpose.
  */
 export const SIDEBAR_MINIMUM_WIDTH_PERCENT = 12;
-
-/**
- * The widest the sidebar may be kept at, in percent.
- *
- * DERIVED FROM THE DECK, not chosen for the sidebar: the deck is the side whose own
- * density floor is measured in pixels, and forty percent is the share that still
- * leaves a two-pane deck above its preset's minimum on the narrowest window the
- * presets are drawn for. So it is written here as the sidebar's ceiling and read from
- * here as the deck's floor, rather than declared twice at two ends of one band and
- * left to agree by inspection.
- */
-export const SIDEBAR_MAXIMUM_WIDTH_PERCENT = 40;
 
 /**
  * The narrowest the deck may be squeezed to by a sidebar drag, in percent.
