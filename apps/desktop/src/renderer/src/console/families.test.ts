@@ -138,10 +138,14 @@ describe("console families — the pane board a composition writes into", () => 
   });
 
   it("forwards the pane registry it was handed and reaches for no singleton", () => {
-    // The claim that survives the board filling up. A behavioural check cannot make
-    // it today — the seats are reserved, so composing registers nothing either way —
-    // so it is read off the composition's own source, on the precedent
-    // `panes/panes.test.ts` sets for the sibling board.
+    // The claim that survives the board filling up, read off the composition's own
+    // source on the precedent `panes/panes.test.ts` sets for the sibling board. It
+    // used to say a behavioural check could not make it because composing registered
+    // nothing either way, which stopped being true the moment `registerConsolePanes`
+    // claimed its first kinds — the case at the foot of this file makes exactly that
+    // check now, and this one is what a behavioural check cannot say: that the
+    // singleton is unreachable from the module rather than merely unused by it, and
+    // that the board takes its registry as a TYPE from the seats door.
     expect(Object.keys(seatBoardSources)).toHaveLength(1);
     expect(seatBoardSource).toContain("registerConsolePanes(paneRegistry)");
     // The singleton is not merely unused here — it is unreachable, because the
