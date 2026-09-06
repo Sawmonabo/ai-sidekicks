@@ -17,13 +17,15 @@
 // rejected `completion` is a third: the command ran and failed, and the honest report
 // is the command's own failure rather than a claim that it was never recognised.
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import {
   isErrorInstance,
   lossyStringify,
   readGuardedProperty,
 } from "../../../../../shared/wire-errors.js";
+import type { GrowthPort } from "../../../console/bridge/index.js";
+import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
 import type {
@@ -39,6 +41,8 @@ import {
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 import { addressedProviderBinding } from "./provider-command-catalog.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
+import type { DirectiveLineHandlers } from "./directive-line-handlers.js";
+import { useWorkflowStartAccelerator } from "./workflow-start-accelerator.js";
 
 /**
  * Build the executor for one composer.
@@ -46,10 +50,12 @@ import type { ComposerTarget } from "../chips/chip-models.js";
  * The surface is read through a THUNK rather than captured as a value: the frame
  * registers this window's commands from an effect that runs after the composer
  * mounts, so an executor holding a list captured at construction would refuse every
- * command in the window it was built in.
+ * command in the window it was built in. The handlers are read through one for the
+ * mirror-image reason: they close over what the composer is addressed at, which moves.
  */
 export function createClientCommandExecutor(options: {
   readonly readSurface: () => ComposerCommandSurface;
+  readonly readDirectiveHandlers: () => DirectiveLineHandlers;
 }): CommandExecutor {
   return async (line: DirectiveLine): Promise<CommandOutcome> => {
     const surface = options.readSurface();
@@ -59,6 +65,13 @@ export function createClientCommandExecutor(options: {
     const recognition = recognizeClientCommand(line.commandName, recognitionInput);
     if (recognition.status === "refused") {
       return { status: "refused", refusal: recognition.refusal };
+    }
+    // Preferred over the registry's argument-free `invoke`, and only after the
+    // recogniser has claimed the name: an argument-reading command performed through
+    // `invoke` would run with the line thrown away.
+    const handler = options.readDirectiveHandlers().get(recognition.commandId);
+    if (handler !== undefined) {
+      return await handler(line);
     }
     return await settleInvocation(surface, recognition.commandId);
   };
@@ -157,6 +170,13 @@ export function useComposerCommandZone(options: {
    * a name published by one of the others is not a name this send path may recognise.
    */
   readonly target: ComposerTarget;
+  /** The port the accelerators call. Theirs alone; nothing else in this zone asks. */
+  readonly growth: GrowthPort;
+  /** The session an accelerator starts work in, or nothing where there is none. */
+  readonly sessionId: string | undefined;
+  readonly draftStore: DraftStore;
+  /** This composer's own line, which the workflow accelerator's palette entry types. */
+  readonly draftKey: string;
 }): ComposerCommandZone {
   const { route, commandEnumeration, target } = options;
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
@@ -167,8 +187,23 @@ export function useComposerCommandZone(options: {
       }).status === "recognized",
     [readSurface],
   );
+  // Read through a thunk for the same reason the surface is: an accelerator closes
+  // over the session and the port this composer is addressed at, and both move under
+  // a mounted composer.
+  const directiveHandlers = useWorkflowStartAccelerator({
+    growth: options.growth,
+    sessionId: options.sessionId,
+    draftStore: options.draftStore,
+    draftKey: options.draftKey,
+  });
+  const handlersRef = useRef<DirectiveLineHandlers>(directiveHandlers);
+  handlersRef.current = directiveHandlers;
   const commandExecutor = useMemo(
-    () => createClientCommandExecutor({ readSurface }),
+    () =>
+      createClientCommandExecutor({
+        readSurface,
+        readDirectiveHandlers: () => handlersRef.current,
+      }),
     [readSurface],
   );
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);

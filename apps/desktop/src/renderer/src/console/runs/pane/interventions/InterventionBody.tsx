@@ -7,7 +7,11 @@
 
 import { WireFigure } from "../../../primitives/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { readAppliedRollback, readDegradedRollback } from "../controls/rollback-result.js";
+import {
+  compositeGuardReading,
+  readAppliedRollback,
+  readDegradedRollback,
+} from "../controls/rollback-result.js";
 import { RollbackDisclosure } from "../controls/RollbackDisclosure.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
 
@@ -30,6 +34,10 @@ export function InterventionBody(props: {
     );
   }
   const { response } = outcome;
+  const guard =
+    response.rejectionReason === undefined
+      ? undefined
+      : compositeGuardReading(response.rejectionReason);
   return (
     <>
       <p className="meridian-interventions__detail">
@@ -43,6 +51,15 @@ export function InterventionBody(props: {
         <p className="meridian-interventions__reason">
           <WireFigure value={response.rejectionReason} />
         </p>
+      )}
+      {guard === undefined ? null : (
+        // Beside the verbatim code, never instead of it: the daemon still says what
+        // happened, and these two lines say what the check was and what clears it.
+        // A reason naming no guard renders nothing here at all.
+        <>
+          <p className="meridian-interventions__detail">{guard.refused}</p>
+          <p className="meridian-interventions__remedy">{guard.remedy}</p>
+        </>
       )}
       {response.interventionType === "rollback" && response.state === "applied" ? (
         <RollbackDisclosure

@@ -29,13 +29,14 @@
 // draft is WHEN the store's restart disclosure is taken on, which the store documents
 // as the first focus of a composer.
 
-import { useCallback, useId } from "react";
-import { InlineRefusal, RefusalCard } from "../../../console/primitives/index.js";
-import { type ComposerSeatProps } from "../../../console/seats/index.js";
+import { useCallback, useEffect, useId, useRef } from "react";
+import { RefusalCard, RemediedRefusal } from "../../../console/primitives/index.js";
+import { subscribeToComposerFocus, type ComposerSeatProps } from "../../../console/seats/index.js";
 import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";
 import { useComposerCommandZone } from "../commands/client-command-executor.js";
+import { composerDraftKey } from "./draft-key.js";
 import type { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { useSendController } from "./send-controller.js";
 import { ResendOffer } from "./ResendOffer.js";
@@ -63,6 +64,12 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     // published comes from the addressed run's own binding and not from a sibling
     // binding the same agent happens to hold.
     target: address.target,
+    // The accelerators' own inputs. The zone reaches no wire of its own for the
+    // recogniser or the enumeration; these are for the one command that starts work.
+    growth: props.bridge.growth,
+    sessionId: props.sessionStore.sessionId,
+    draftStore: props.draftStore,
+    draftKey: composerDraftKey(address.target),
   });
   const controller = useSendController({
     bridge: props.bridge,
@@ -122,9 +129,24 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     isProviderBound ? address.target.providerFailureDetail : undefined,
   );
 
+  // The seat's other direction. A surface elsewhere in the window — the runs pane's
+  // empty state is the first — tells a person to send a message; this is what makes
+  // that sentence actionable from where they are standing. The ask carries nothing,
+  // so what focusing means stays this component's decision, and an ask that arrives
+  // while no composer is mounted reaches nobody rather than queueing.
+  const lineRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(
+    () =>
+      subscribeToComposerFocus(() => {
+        lineRef.current?.focus();
+      }),
+    [],
+  );
+
   return (
     <div className="meridian-composer__send">
       <textarea
+        ref={lineRef}
         className="meridian-composer__line"
         aria-label="Message"
         aria-describedby={controller.pathLabel === undefined ? undefined : pathLabelId}
@@ -189,7 +211,11 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         </button>
       </div>
       {controller.refusal === undefined ? null : (
-        <InlineRefusal code={controller.refusal.code} detail={controller.refusal.detail} />
+        // Through the remedy join rather than straight to the inline shape: the
+        // send router reaches `intervention.idempotency_conflict`,
+        // `run.version_conflict`, and `session.not_found`, and each of those has a
+        // next move the daemon's own sentence does not carry.
+        <RemediedRefusal refusal={controller.refusal} />
       )}
       {neutralization === undefined ? null : (
         <RefusalCard

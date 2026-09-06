@@ -41,11 +41,20 @@ export const CLIENT_COMMAND_REFUSAL_ORIGIN = "composer-commands";
  * Why the composer would not run a typed command.
  *
  * Closed, and each member is a different remedy: type a different name, go where the
- * command applies, or read what the command itself reported. A fourth is a decision.
+ * command applies, fix what follows the name, or read what the command itself
+ * reported.
+ *
+ * The fourth was a decision and this is it. A command that reads arguments off its own
+ * line — `workflow.start` is the first — can be named correctly and handed something
+ * it cannot act on: no name at all, a name nothing matches, a name several things
+ * match. None of those is `command-failed`, which says the command RAN and failed, and
+ * saying so would send a person looking for a broken command rather than at the words
+ * after it. A fifth is a decision on the same footing.
  */
 export const CLIENT_COMMAND_REFUSAL_CODES = [
   "unknown-command",
   "command-unavailable-here",
+  "command-argument-invalid",
   "command-failed",
 ] as const;
 

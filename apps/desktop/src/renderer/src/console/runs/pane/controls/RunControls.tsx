@@ -31,24 +31,15 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../../bridge/index.js";
-import { Glyph, InlineRefusal } from "../../../primitives/index.js";
+import { Glyph, RemediedRefusal } from "../../../primitives/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
-import type { ConsoleRefusal } from "../../../core/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
-import { isControlOffered } from "./run-control-gating.js";
+import { offeredRunControls } from "./run-control-gating.js";
+import { readRunControlSettlement } from "./run-control-reading.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
 import { type RunProjection } from "../run-state-projection.js";
-import { isLiveRunState } from "../run-status.js";
 import { ControlButton } from "./ControlButton.js";
 import { StepIn } from "./StepIn.js";
-
-/**
- * The controls that live one click away, in the design's own order.
- *
- * `pause`, `resume`, and `interrupt` are the always-visible half and are not on
- * this list; `pause` reaches the row through `StepIn`, which sends it.
- */
-const OVERFLOW_CONTROLS: readonly RunControl[] = ["steer", "cancel", "rollback"];
 
 export interface RunControlsProps {
   readonly run: RunProjection;
@@ -111,23 +102,29 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
     ],
   );
 
-  const offeredOverflow = OVERFLOW_CONTROLS.filter((control) =>
-    isControlOffered(control, driverCapabilities, run.runId),
-  );
-  const isLive = isLiveRunState(run.state);
-  const refusal = latestRefusalFor(surface, run.runId);
+  // The row draws what this reading offers and decides nothing else. The palette
+  // contributes the same two lists from the same call, which is what keeps the two
+  // surfaces offering one set rather than two that have to be kept in step.
+  const settlement = readRunControlSettlement(surface, run.runId);
+  // A run the daemon says it does not have has no act left on it, so the strip goes
+  // to the refusal alone rather than to buttons that can only be refused again. The
+  // ROW keeps every figure it folded: what is on screen is the last anyone will know
+  // about this run, and the refusal's own next move says so.
+  const offered = settlement.isGone ? EMPTY_OFFER : offeredRunControls(run, driverCapabilities);
+  const offeredOverflow = offered.overflow;
+  const refusal = settlement.refusal;
 
   return (
     <div className="meridian-run-controls">
       <div className="meridian-run-controls__primary">
-        {isLive && run.state === "paused" ? (
+        {offered.primary.includes("resume") ? (
           <ControlButton
             control="resume"
             isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, "resume"))}
             onPress={onResume}
           />
         ) : null}
-        {isLive && run.state !== "paused" ? (
+        {offered.primary.includes("pause") ? (
           <StepIn
             bridge={props.bridge}
             targetRunId={run.runId}
@@ -140,7 +137,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
             onTakeTheFloor={props.onTakeTheFloor}
           />
         ) : null}
-        {isLive ? (
+        {offered.primary.includes("interrupt") ? (
           <ControlButton
             control="interrupt"
             isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, "interrupt"))}
@@ -177,26 +174,13 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
           ))}
         </div>
       ) : null}
-      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+      {refusal === undefined ? null : <RemediedRefusal refusal={refusal} />}
     </div>
   );
 }
 
-/**
- * The refusal this run's controls most recently came back with, if the newest
- * settlement was one.
- *
- * Newest-settlement-only rather than newest-refusal-ever: a refusal that has since
- * been superseded by a successful control is not what the row is in, and leaving it
- * on screen would report a state the daemon has moved past.
- */
-function latestRefusalFor(surface: RunControlSurface, runId: string): ConsoleRefusal | undefined {
-  for (let position = surface.records.length - 1; position >= 0; position -= 1) {
-    const record = surface.records[position];
-    if (record === undefined || record.runId !== runId) {
-      continue;
-    }
-    return record.outcome.kind === "refused" ? record.outcome.refusal : undefined;
-  }
-  return undefined;
-}
+/** What a gone run offers, which is nothing on either half of the strip. */
+const EMPTY_OFFER = Object.freeze({
+  primary: Object.freeze([]),
+  overflow: Object.freeze([]),
+});

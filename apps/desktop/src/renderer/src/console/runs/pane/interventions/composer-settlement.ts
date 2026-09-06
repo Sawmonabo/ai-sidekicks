@@ -8,6 +8,7 @@
 // all, which is what the exhaustive tails below are worth.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { compositeGuardReading } from "../controls/rollback-result.js";
 import {
   RUN_CONTROL_REFUSAL_ORIGIN,
   type RunControlOutcome,
@@ -63,7 +64,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
         notice: refuse(
           RUN_CONTROL_REFUSAL_ORIGIN,
           response.rejectionReason ?? settledState,
-          "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.",
+          rejectedDetail(response.rejectionReason),
         ),
       };
     case "expired":
@@ -88,6 +89,28 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
     default:
       return unreadableSettlement(settledState);
   }
+}
+
+/**
+ * What the form says beside a rejected settlement.
+ *
+ * The four structural guards of the edit-and-resend composite each leave a different
+ * next move, and two of them are acts a person has to perform before this same
+ * request can ever be admitted — so where the daemon's reason names one, the form
+ * says the act rather than "change what it asks for", which for a pending queued send
+ * names nothing the participant can change in this box. Every other rejection keeps
+ * the general sentence, because that is the honest one when the console does not know
+ * what would make the request admissible.
+ *
+ * The wire code itself is the refusal's `code` on both paths and is rendered verbatim
+ * either way; this is only the sentence beside it.
+ */
+function rejectedDetail(rejectionReason: string | undefined): string {
+  const guard = rejectionReason === undefined ? undefined : compositeGuardReading(rejectionReason);
+  if (guard === undefined) {
+    return "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
+  }
+  return `${guard.refused} ${guard.remedy} What you typed is still here.`;
 }
 
 /**

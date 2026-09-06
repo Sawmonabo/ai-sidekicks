@@ -19,6 +19,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import {
+  compositeGuardReading,
   readAppliedRollback,
   readDegradedRollback,
   resendSettlementSentence,
@@ -207,5 +208,69 @@ describe("the replacement leg", () => {
 
   it("says an unapplied replacement stays recoverable", () => {
     expect(resendSettlementSentence("unapplied")).toContain("recoverable");
+  });
+});
+
+describe("the four structural guards a composite is refused whole by", () => {
+  it.each([
+    ["no active turn", "composite.no_active_turn", "no-active-turn"],
+    ["an accepted-but-undelivered send", "rollback.pending_send", "no-pending-send"],
+    ["an undrained queued send", "composite.queued_send_present", "no-pending-send"],
+    [
+      "an orchestration-authored boundary",
+      "target.not_participant_authored",
+      "participant-authored-boundary",
+    ],
+    ["a workflow phase input", "boundary.orchestration_authored", "participant-authored-boundary"],
+    ["a rootless target", "run.rootless_not_resumable", "resumable-target"],
+    ["a target that can never resume", "target.non_resumable", "resumable-target"],
+  ])("recognises %s", (_name, rejectionReason, guard) => {
+    expect(compositeGuardReading(rejectionReason)?.guard).toBe(guard);
+  });
+
+  it("recognises the check whatever the daemon's spelling of it", () => {
+    // `rejectionReason` is a free-form wire string and no closed union is registered
+    // for these four, so what is matched is the check's own name rather than one
+    // guessed identifier — across the three shapes a producer plausibly sends.
+    const guards = [
+      "no_pending_send",
+      "composite.pendingSend",
+      "A pending send exists on this run.",
+    ].map((reason) => compositeGuardReading(reason)?.guard);
+
+    expect(guards).toStrictEqual(["no-pending-send", "no-pending-send", "no-pending-send"]);
+  });
+
+  it("names the pending-send remedy as an act, since nothing in the form can clear it", () => {
+    const reading = compositeGuardReading("composite.pending_send");
+
+    expect(reading?.remedy).toContain("Cancel the queued items");
+    expect(reading?.remedy).toContain("drain");
+  });
+
+  it("gives each guard its own words, so four refusals never read as one", () => {
+    const readings = [
+      "composite.no_active_turn",
+      "composite.pending_send",
+      "target.not_participant_authored",
+      "target.non_resumable",
+    ].map((reason) => compositeGuardReading(reason));
+    const remedies = readings.map((reading) => reading?.remedy);
+
+    expect(new Set(remedies).size).toBe(4);
+    for (const reading of readings) {
+      expect(reading?.refused.length ?? 0).toBeGreaterThan(20);
+    }
+  });
+
+  it.each([
+    ["a bare rollback's capability refusal", "driver.capability_unsupported"],
+    ["a stale comparand", "run.version_conflict"],
+    ["a transition the run does not admit", "run.invalid_transition"],
+    ["the empty string", ""],
+  ])("invents no guard for %s", (_name, rejectionReason) => {
+    // The negative control for the whole reading: telling a person to drain a queue
+    // that has nothing in it is worse than showing the wire code alone.
+    expect(compositeGuardReading(rejectionReason)).toBeUndefined();
   });
 });

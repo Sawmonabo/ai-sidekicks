@@ -46,6 +46,14 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* The guard's remedy carries full text colour: it is the one line on a refused row
+   that names an act, and muting it beside the code and the cause loses it. */
+.meridian-interventions__remedy {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
 .meridian-rollback {
   display: flex;
   flex-direction: column;

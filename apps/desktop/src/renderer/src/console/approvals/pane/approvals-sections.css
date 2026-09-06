@@ -140,6 +140,19 @@
   resize: vertical;
 }
 
+/*
+ * The bindings a delivery failure named, inside the refusal's action slot.
+ *
+ * A wrapping row rather than a list, because each entry is a wire figure that
+ * carries its own mono treatment and the count is small — one per live provider leg
+ * that refused.
+ */
+.meridian-goal__failed-bindings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
 .meridian-goal__effectiveness {
   max-width: 68ch;
   margin: 0;

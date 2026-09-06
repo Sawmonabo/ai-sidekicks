@@ -66,6 +66,9 @@ export type { SessionSnapshot } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
+// The handover a pane performs when its refusal stops being its own business: a
+// whole-workspace code reaches the frame's banner rather than a line inside one pane.
+export { useRefusalBannerEscalation } from "./refusal-escalation.js";
 
 // `SessionSnapshotRead` now leaves the family, because the producer it was held
 // back for exists: the composition root builds a reader over the growth port's

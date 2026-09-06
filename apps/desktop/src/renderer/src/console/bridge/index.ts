@@ -461,9 +461,4 @@ export { readNodeState } from "./daemon/node-state-read.js";
 // another; the module's own header says why this is the lowest family that owns its
 // inputs.
 export type { SessionGoalProjection } from "./session-goal.js";
-export {
-  SESSION_GOAL_EVENT_KINDS,
-  clearSessionGoal,
-  foldSessionGoal,
-  updateSessionGoal,
-} from "./session-goal.js";
+export { clearSessionGoal, foldSessionGoal, updateSessionGoal } from "./session-goal.js";

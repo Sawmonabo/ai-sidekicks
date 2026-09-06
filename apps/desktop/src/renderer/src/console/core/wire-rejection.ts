@@ -79,6 +79,7 @@ export type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
 import {
   readRefusalExtensions,
+  wireFailedBindingsExtension,
   wireRetryExtension,
   withRefusalExtensions,
   type ConsoleRefusalExtensions,
@@ -246,10 +247,14 @@ function classifyRejection(
   const dottedCode = readGuardedProperty(data, "type");
   const message = readGuardedProperty(rejection, "message");
   if (typeof dottedCode === "string" && dottedCode.length > 0) {
-    return withRefusalExtensions(
-      refuse(origin, dottedCode, envelopeDetail(message, fallback)),
-      wireRetryExtension(readGuardedProperty(data, "fields")),
-    );
+    const fields = readGuardedProperty(data, "fields");
+    return withRefusalExtensions(refuse(origin, dottedCode, envelopeDetail(message, fallback)), {
+      // Both `data.fields` readers, merged rather than chosen between: an envelope
+      // may carry a retry bound, a failed-binding list, both, or neither, and each
+      // reader contributes only the member it actually found.
+      ...wireRetryExtension(fields),
+      ...wireFailedBindingsExtension(fields),
+    });
   }
   // The flat envelope — `{ code, message }` — from the same two readings the arms
   // above already took, never a second pass over the candidate.

@@ -13,6 +13,7 @@ import { InlineRefusal, Nothing } from "../../../console/primitives/index.js";
 import type { CommandOutcome } from "../router/command-executor.js";
 import { CatalogRow } from "./CatalogRow.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
+import { NO_DIRECTIVE_LINE_HANDLERS } from "./directive-line-handlers.js";
 import { type ComposerCommandSurface } from "./console-command-surface.js";
 import {
   composeCatalog,
@@ -95,7 +96,14 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
   const isServedEmpty =
     entries.length === 0 && haveAllSourcesAnswered(enumeration) && !isEnumerationTruncated;
 
-  const executor = useMemo(() => createClientCommandExecutor({ readSurface }), [readSurface]);
+  const executor = useMemo(
+    () =>
+      createClientCommandExecutor({
+        readSurface,
+        readDirectiveHandlers: () => NO_DIRECTIVE_LINE_HANDLERS,
+      }),
+    [readSurface],
+  );
 
   const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
 

@@ -97,6 +97,18 @@
   gap: var(--meridian-space-2);
 }
 
+/*
+ * The console's own next move, inside the action slot.
+ *
+ * Set as prose rather than in mono: the code beside it is the wire string and wears
+ * the provenance signature, and a sentence in mono is a sentence nobody reads. It
+ * takes the same muted colour the daemon's own sentence does, because it is a second
+ * sentence and not a control — what separates the two is the slot, not the weight.
+ */
+.meridian-refusal__next-move {
+  color: var(--meridian-text-muted);
+}
+
 .meridian-refusal__dismiss {
   box-sizing: border-box;
   display: inline-flex;

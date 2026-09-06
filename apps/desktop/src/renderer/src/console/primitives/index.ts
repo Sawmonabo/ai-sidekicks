@@ -205,6 +205,11 @@ export {
 export { InlineRefusal } from "./InlineRefusal.js";
 export { RefusalBanner } from "./RefusalBanner.js";
 export { RefusalCard } from "./RefusalCard.js";
+// The join between a refusal and the console's own next move for it. On this door
+// because the composer, the runs pane, and the approvals pane all render daemon
+// refusals whose codes the remedy table answers for, and three surfaces looking a
+// code up themselves is three chances to answer one code differently.
+export { RemediedRefusal } from "./RemediedRefusal.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach

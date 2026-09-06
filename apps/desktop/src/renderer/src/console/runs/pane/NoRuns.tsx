@@ -7,6 +7,15 @@
 // separates them, and the refusal that closed the stream is carried rather than
 // paraphrased, because "no runs" over a stream nobody could open is a claim this
 // surface has no standing to make.
+//
+// AND THE EMPTY ARM CARRIES THE ACT IT NAMES. Telling a person to send a message and
+// then leaving them to find the line themselves is the failure mode an empty state
+// has: the sentence is right and the surface is inert. The control puts the caret in
+// the composer through `seats/composer-focus.ts` — an ASK and not a handle, so this
+// family names no part of the composer's own tree — and it is offered on exactly the
+// arm whose sentence names the act. The two absence arms above it offer nothing,
+// because neither says a run could be started right now: one has not finished reading
+// and the other could not open the stream at all.
 
 import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
@@ -26,6 +35,8 @@ import { InlineRefusal, Nothing } from "../../primitives/index.js";
 export function NoRuns(props: {
   readonly hasRead: boolean;
   readonly openRefusal: ConsoleRefusal | undefined;
+  /** Put the caret where the sentence points. Offered on the empty arm only. */
+  readonly onStart: () => void;
 }): React.JSX.Element {
   if (props.openRefusal !== undefined) {
     return <InlineRefusal code={props.openRefusal.code} detail={props.openRefusal.detail} />;
@@ -41,6 +52,11 @@ export function NoRuns(props: {
       placement="surface"
       title="No run has started in this session yet."
       detail="Send a message to an agent and its run appears here with its status, its queue, and every intervention raised against it."
+      action={
+        <button type="button" className="meridian-runs__start" onClick={props.onStart}>
+          Write a message
+        </button>
+      }
     />
   );
 }

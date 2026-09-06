@@ -89,6 +89,22 @@ function renderCard(
   };
 }
 
+/**
+ * A delivery refusal carrying the failed bindings the wire named.
+ *
+ * Built by spread rather than through the extension writer, which the core door does
+ * not publish: the readers work structurally off the value, so this is the same shape
+ * a rebuilt wire rejection produces — which is the point, since that rebuild is the
+ * only producer of one in the running console.
+ */
+function deliveryRefusalNaming(failedBindingIds: readonly string[]): ConsoleRefusal {
+  const refusal: ConsoleRefusal & Record<string, unknown> = {
+    ...refuse("session-goal", "session.goal_delivery_failed", "Delivery failed."),
+    failedBindingIds,
+  };
+  return refusal;
+}
+
 describe("eligibility is supplied, never derived", () => {
   it("offers no control at all when the role has not been read", () => {
     renderCard({ canMutate: undefined });
@@ -350,6 +366,51 @@ describe("the readings that are not a goal", () => {
       />,
     );
     expect(screen.getByText("goal_mutation_in_flight")).not.toBeNull();
+  });
+
+  it("names the bindings a goal delivery failed on, beside the move", () => {
+    // `error-contracts.md` puts `failedBindingIds` on the refusal's own
+    // `data.fields`, and this is the only surface that can say which they were —
+    // the shared table knows the code but not who did not answer.
+    render(
+      <SessionGoalCard
+        bridge={inertBridge()}
+        sessionId={FIRST_SESSION_ID}
+        goal={A_GOAL}
+        canMutate
+        authorizationRefusal={undefined}
+        isMutating={false}
+        refusal={deliveryRefusalNaming(["binding-a", "binding-b"])}
+        onUpdate={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("session.goal_delivery_failed")).not.toBeNull();
+    expect(screen.getByText(/the goal did not change/)).not.toBeNull();
+    expect(screen.getByText("binding-a")).not.toBeNull();
+    expect(screen.getByText("binding-b")).not.toBeNull();
+  });
+
+  it("negative control: a refusal carrying no bindings names none", () => {
+    // Without this, a card that rendered an empty binding row on every refusal
+    // would pass the case above while claiming a failed binding that has no name.
+    render(
+      <SessionGoalCard
+        bridge={inertBridge()}
+        sessionId={FIRST_SESSION_ID}
+        goal={A_GOAL}
+        canMutate
+        authorizationRefusal={undefined}
+        isMutating={false}
+        refusal={refuse("session-goal", "session.goal_delivery_failed", "Delivery failed.")}
+        onUpdate={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/the goal did not change/)).not.toBeNull();
+    expect(document.querySelector(".meridian-goal__failed-bindings")).toBeNull();
   });
 
   it("says why no control is offered when the role read itself refused", () => {

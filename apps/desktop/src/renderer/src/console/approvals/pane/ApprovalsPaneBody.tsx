@@ -19,6 +19,7 @@ import {
   useDeadlineWake,
   useSessionPartition,
   useSessionStore,
+  useRefusalBannerEscalation,
   useSubjectScopedState,
   type ConsoleEntity,
   type SessionStore,
@@ -33,6 +34,7 @@ import { addressedRunPostures } from "./posture/addressed-run-postures.js";
 import { CALLBACK_TOOLS_CAPABILITY, CallbackTools } from "./posture/CallbackTools.js";
 import { useCallbackToolRegistry } from "./posture/callback-tool-registry.js";
 import { SessionGoalCard } from "./goal/SessionGoalCard.js";
+import { useApprovalCommands } from "./approval-commands.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { useGoalMutationAuthorization } from "./goal/goal-authorization.js";
 import { type ApprovalRecord } from "../../bridge/index.js";
@@ -120,6 +122,30 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
   // expired, and the row a person was deciding about was the one row whose deadline
   // had passed. One timeout at a time, and none once every expiry is behind.
   const nowMilliseconds = useDeadlineWake(clock, expiryDeadlines);
+
+  // A refusal that ends the whole session rather than this read reaches the frame's
+  // banner instead of a line inside this pane. The projection read is where
+  // `session.not_found` lands here, because that is the call that names the session.
+  useRefusalBannerEscalation(
+    props.bridgeContext.frameStore,
+    snapshot.approvals.status === "refused" ? snapshot.approvals.refusal : undefined,
+  );
+
+  // The pane's acts, reachable from the palette while it is open. Every row is
+  // built from the same values the controls below render from, so a row is offered
+  // exactly where its control is: `canMutate` fails closed on `undefined`, which is
+  // the unresolved role, and a card already resolving contributes nothing.
+  useApprovalCommands({
+    pending,
+    resolvingApprovalIds: snapshot.resolvingApprovalIds,
+    resolve: (request) => {
+      reader.resolve(request);
+    },
+    goal,
+    canMutateGoal: goalAuthorization.canMutate === true,
+    isMutatingGoal: goalMutation.isMutating,
+    clearGoal: goalMutation.clear,
+  });
 
   const paneRootRef = useRef<HTMLDivElement>(null);
   const announcement = useArrivalAnnouncement(pending, paneRootRef);

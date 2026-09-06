@@ -32,11 +32,11 @@
 // its invocations land as tool-activity rows, and none of them bypasses the
 // approval pipeline.
 
-import { type DriverCapabilityFlag, type SessionCallbackTool } from "@ai-sidekicks/contracts";
-import { Collapsible } from "@base-ui/react/collapsible";
+import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityReading } from "../../../bridge/index.js";
-import { Chip, InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "./callback-tool-registry.js";
 
 /**
@@ -108,7 +108,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
           diagnostic beside it — never completed without a policy decision, and never left
           unanswered.
         </p>
-        <ToolRows tools={props.registry.tools} deniedTone />
+        <CallbackToolRows tools={props.registry.tools} deniedTone />
         {/* The read this surface put, named rather than implied. It says nothing
             about what the registry holds — the entries above are the ones the
             contract registers — only that no wire answered a question about them. */}
@@ -126,54 +126,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
         is governed exactly as a provider tool is, its invocations land as ordinary tool rows, and
         none of them bypasses the approval pipeline.
       </p>
-      <ToolRows tools={props.registry.tools} />
+      <CallbackToolRows tools={props.registry.tools} />
     </div>
-  );
-}
-
-/**
- * One row per entry, with the schema one click away and never expanded.
- *
- * `deniedTone` is the withheld arm's: the entry is registered and unreachable, and
- * the chip says which answer a stray invocation gets. It is a presentation of the
- * arm the caller already narrowed, never a second decision about reachability.
- */
-function ToolRows(props: {
-  readonly tools: readonly SessionCallbackTool[];
-  readonly deniedTone?: boolean;
-}): React.JSX.Element | null {
-  if (props.tools.length === 0) {
-    return null;
-  }
-  return (
-    <ul className="meridian-callback-tools__list">
-      {props.tools.map((tool) => (
-        <li className="meridian-callback-tools__row" key={tool.name}>
-          <div className="meridian-callback-tools__line">
-            <WireFigure value={tool.name} />
-            {props.deniedTone === true ? (
-              <Chip label="denied" tone="failure" />
-            ) : (
-              <Chip label="daemon-hosted" />
-            )}
-            <span className="meridian-callback-tools__description">{tool.description}</span>
-          </div>
-          <Collapsible.Root className="meridian-callback-tools__schema">
-            <Collapsible.Trigger className="meridian-callback-tools__schema-trigger">
-              Input schema
-            </Collapsible.Trigger>
-            <Collapsible.Panel className="meridian-callback-tools__schema-panel">
-              <ul className="meridian-callback-tools__schema-keys">
-                {Object.keys(tool.inputSchema).map((key) => (
-                  <li key={key}>
-                    <WireFigure value={key} />
-                  </li>
-                ))}
-              </ul>
-            </Collapsible.Panel>
-          </Collapsible.Root>
-        </li>
-      ))}
-    </ul>
   );
 }

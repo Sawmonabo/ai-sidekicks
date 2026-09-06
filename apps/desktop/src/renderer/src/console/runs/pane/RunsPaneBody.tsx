@@ -15,8 +15,12 @@ import {
   withRunDriverBindings,
 } from "../../bridge/index.js";
 import { DerivedFigure, formatCount, InlineRefusal } from "../../primitives/index.js";
-import { useSessionPartition, type SessionStore } from "../../store/index.js";
-import { type PaneContextOf } from "../../seats/index.js";
+import {
+  useRefusalBannerEscalation,
+  useSessionPartition,
+  type SessionStore,
+} from "../../store/index.js";
+import { requestComposerFocus, type PaneContextOf } from "../../seats/index.js";
 import { KnownRunRow } from "./KnownRunRow.js";
 import { QueueContents } from "./queue/QueueContents.js";
 import {
@@ -25,6 +29,7 @@ import {
 } from "./interventions/RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
 import { seatRuns } from "./run-seating.js";
+import { useRunControlCommands } from "./controls/run-control-commands.js";
 import { useRunControlSurface } from "./controls/run-control-surface.js";
 import { useRunFeed } from "./run-state-feed.js";
 import { NoRuns } from "./NoRuns.js";
@@ -87,6 +92,24 @@ export function RunsPaneBody(props: {
     setComposerTarget(undefined);
   }, []);
 
+  // A refusal that ends the whole session rather than this pane's read reaches the
+  // frame's banner instead of a line inside one pane. The subscription's open
+  // refusal is where `session.not_found` lands here, because that is the call that
+  // names the session.
+  useRefusalBannerEscalation(context.frameStore, stateFeed.openRefusal);
+
+  // The same six acts the rows draw, reachable from the palette while this pane is
+  // open. Contributed here rather than at module scope because every one of them
+  // closes over this pane's dispatcher, and dispatched through that same surface so
+  // a palette press and a button press are one mutation with one idempotency key.
+  useRunControlCommands({
+    runs: stateFeed.runs,
+    driverCapabilities,
+    surface,
+    onRequestSteer,
+    onRequestRewind,
+  });
+
   // The composer is offered only against a run the STREAM has described: its guard
   // is `expectedRunVersion` reconciled against the live reading, which a row seated
   // from the session's record does not have — and that row offers no control to
@@ -131,7 +154,14 @@ export function RunsPaneBody(props: {
           />
         ) : null}
         {seating.rows.length === 0 ? (
-          <NoRuns hasRead={stateFeed.hasRead} openRefusal={stateFeed.openRefusal} />
+          <NoRuns
+            hasRead={stateFeed.hasRead}
+            openRefusal={stateFeed.openRefusal}
+            // The empty state names an act this pane cannot perform — the composer
+            // is the workspace's, mounted beside the deck — so it asks for it
+            // rather than reaching into another family for the element.
+            onStart={requestComposerFocus}
+          />
         ) : (
           <div className="meridian-runs__rows" role="feed" aria-label="Runs in this session">
             {seating.rows.map((seated) =>

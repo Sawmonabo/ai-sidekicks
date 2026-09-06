@@ -137,10 +137,12 @@ describe("ProviderCommandAutocomplete — the list activates its active row", ()
     });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
-    // Console entries lead the catalog, so one step down lands on the first
-    // provider row — and the assertion below reads which row that is off the
-    // attribute rather than trusting the arithmetic.
-    await pressOnList(list, "ArrowDown");
+    // Console entries lead the catalog, and HOW MANY of them there are is not this
+    // case's business: any console surface mounted beside this composer contributes
+    // its own, so a hard-coded step count turns a growing palette into a failure
+    // about arithmetic. Step while the active row still carries the run affordance
+    // and let the loop's exit condition be the claim the assertion then re-reads.
+    await stepToFirstUnrunnableRow(mounted, list);
     expect(
       activeRow(mounted.container, list)?.querySelector(".meridian-command-discovery__run"),
     ).toBeNull();
@@ -280,3 +282,27 @@ describe("ProviderCommandAutocomplete — a declared disabled entry renders disa
     expect(pressNotice(mounted)).not.toContain(DISABLED_PRESS_FRAGMENT);
   });
 });
+
+/**
+ * Move the active row to the first entry that cannot be run.
+ *
+ * The console's runnable entries lead the catalog and every one of them renders the
+ * run affordance, so the ABSENCE of that affordance is what identifies a provider
+ * row — read off the rendered row rather than counted from a position. Bounded by the
+ * number of options, so a list whose every row is runnable fails here rather than
+ * pressing a key forever.
+ */
+async function stepToFirstUnrunnableRow(
+  mounted: MountedComposer,
+  list: HTMLElement,
+): Promise<void> {
+  const optionCount = optionNames(mounted.container).length;
+  for (let step = 0; step < optionCount; step += 1) {
+    const row = activeRow(mounted.container, list);
+    if (row !== null && row.querySelector(".meridian-command-discovery__run") === null) {
+      return;
+    }
+    await pressOnList(list, "ArrowDown");
+  }
+  throw new Error("every row in this list can run, so no provider row was reached");
+}

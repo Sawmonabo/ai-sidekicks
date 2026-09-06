@@ -37,11 +37,11 @@ import {
   ACCENT_FILL_CLASS,
   Chip,
   DerivedFigure,
-  InlineRefusal,
+  RemediedRefusal,
   WireFigure,
   formatClockTime,
 } from "../../../primitives/index.js";
-import { type ConsoleRefusal } from "../../../core/index.js";
+import { refusalRemedyFor, type ConsoleRefusal } from "../../../core/index.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import { isResolvedState, type ApprovalRecord } from "../../../bridge/index.js";
 import {
@@ -138,6 +138,13 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const state = asApprovalState(record.state);
   const category = asApprovalCategory(record.category);
   const isPending = state === "pending";
+  // A refusal that SETTLED this request takes the two actions off the card rather
+  // than leaving them pressable: `approval.already_resolved` means somebody else
+  // answered, so every further press would be refused the same way, and the next
+  // projection read drops the card entirely. Read from the shared remedy table
+  // rather than by naming the code here, so the runs pane and this one agree about
+  // which refusals end an act.
+  const answerable = isPending && refusalRemedyFor(props.refusal?.code ?? "")?.settled !== true;
 
   const answer = useCallback(
     (decision: "approved" | "rejected") => {
@@ -247,7 +254,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
       {isResolvedRecord(record) ? <ResolvedQuad record={record} /> : null}
 
-      {isPending ? (
+      {answerable ? (
         <>
           <RememberDecision intent={rememberedGrantIntent} onChange={setRememberedGrantIntent} />
 
@@ -276,7 +283,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         </>
       ) : null}
 
-      {props.refusal === undefined ? null : <InlineRefusal {...props.refusal} />}
+      {props.refusal === undefined ? null : <RemediedRefusal refusal={props.refusal} />}
     </article>
   );
 }

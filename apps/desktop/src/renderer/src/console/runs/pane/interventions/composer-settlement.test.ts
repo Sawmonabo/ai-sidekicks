@@ -82,6 +82,36 @@ describe("only a settlement that landed closes the form", () => {
   });
 });
 
+describe("what the form says beside a rejected settlement", () => {
+  it("names the guard's act where the daemon's reason names one of the four", () => {
+    // "Change what it asks for and confirm again" names nothing a person can change
+    // in this box when the blocker is an older send sitting in the queue.
+    const settlement = readComposerSettlement(settledAt("rejected", "composite.pending_send"));
+    const detail = settlement.kind === "refused" ? settlement.notice.detail : "";
+
+    expect(detail).toContain("Cancel the queued items");
+    expect(detail).toContain("What you typed is still here.");
+  });
+
+  it("keeps the wire code as the refusal's code on that path too", () => {
+    const settlement = readComposerSettlement(settledAt("rejected", "composite.pending_send"));
+
+    expect(settlement.kind === "refused" ? settlement.notice.code : undefined).toBe(
+      "composite.pending_send",
+    );
+  });
+
+  it("keeps the general sentence for a rejection naming no guard", () => {
+    // The honest one when the console does not know what would make the request
+    // admissible — and the negative control for the branch above.
+    const settlement = readComposerSettlement(settledAt("rejected", "run.version_conflict"));
+    const detail = settlement.kind === "refused" ? settlement.notice.detail : "";
+
+    expect(detail).toContain("change what it asks for");
+    expect(detail).not.toContain("Cancel the queued items");
+  });
+});
+
 describe("a refused admission says which reason it was", () => {
   it("names the reason as its code and says nothing was sent", () => {
     const refusal = admissionRefusal("in-flight");

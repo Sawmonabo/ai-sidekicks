@@ -9,11 +9,15 @@
 // from `invoke`'s synchronous return would pass every clean case here and still clear
 // a person's line on a command that had not finished.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { consoleCommands } from "../../../console/palette/index.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
+import {
+  NO_DIRECTIVE_LINE_HANDLERS,
+  type DirectiveLineHandlers,
+} from "./directive-line-handlers.js";
 import { composerCommandSurface } from "./console-command-surface.js";
 
 const RAN_COMMAND_ID = "composer-executor-test.ran";
@@ -37,9 +41,10 @@ function registerCommand(command: {
   registeredIds.push(command.id);
 }
 
-function executorOverConsoleRegistry() {
+function executorOverConsoleRegistry(handlers: DirectiveLineHandlers = NO_DIRECTIVE_LINE_HANDLERS) {
   return createClientCommandExecutor({
     readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
+    readDirectiveHandlers: () => handlers,
   });
 }
 
@@ -178,5 +183,51 @@ describe("createClientCommandExecutor", () => {
       status: "applied",
     });
     expect(ranCount).toBe(1);
+  });
+});
+
+describe("a command that reads arguments off its own line", () => {
+  it("is reached through its handler rather than through the registry's invoke", async () => {
+    // The registry's `run()` takes nothing, so an argument-reading command performed
+    // through `invoke` would run with the line thrown away.
+    const invoked = vi.fn();
+    const handled = vi.fn(async () => ({ status: "applied" }) as const);
+    registerCommand({ id: "test.withArguments", run: invoked });
+
+    const outcome = await executorOverConsoleRegistry(new Map([["test.withArguments", handled]]))({
+      commandName: "test.withArguments",
+      text: "/test.withArguments a name",
+    });
+
+    expect(outcome).toStrictEqual({ status: "applied" });
+    expect(handled).toHaveBeenCalledWith({
+      commandName: "test.withArguments",
+      text: "/test.withArguments a name",
+    });
+    expect(invoked).not.toHaveBeenCalled();
+  });
+
+  it("negative control: a command with no handler still goes through the registry", async () => {
+    const invoked = vi.fn();
+    registerCommand({ id: "test.withoutArguments", run: invoked });
+
+    await executorOverConsoleRegistry(new Map([["test.other", vi.fn()]]))(
+      directiveLine("test.withoutArguments"),
+    );
+
+    expect(invoked).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not widen recognition: a handler for an unregistered id is unreachable", async () => {
+    // The recogniser answers first. A second registry that could claim a name the
+    // console has never heard of is what `client-command-recognizer.ts` prevents.
+    const handled = vi.fn();
+
+    const outcome = await executorOverConsoleRegistry(new Map([["test.unregistered", handled]]))(
+      directiveLine("test.unregistered"),
+    );
+
+    expect(outcome.status).toBe("refused");
+    expect(handled).not.toHaveBeenCalled();
   });
 });
