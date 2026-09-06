@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import {
@@ -48,7 +48,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("complete");
@@ -73,10 +73,10 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const client = clientOver(port);
     port.refuseChunksWith("wire-unregistered");
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     client.abandon("attachment-1");
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("abandoned");
@@ -91,7 +91,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const client = clientOver(port);
     port.refuseChunksWith("artifact.ingest_capacity_exhausted");
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [refused] = client.snapshot;
     expect(refused?.state).toBe("refused");
@@ -101,7 +101,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     // nothing could read, so the proof is a second chunk on the wire.
     port.refuseChunksWith(undefined);
     client.retry("attachment-two");
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(client.snapshot[0]?.state).toBe("complete");
     expect(port.chunkCalls).toHaveLength(3);
@@ -120,7 +120,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(client.snapshot[0]?.state).toBe("complete");
 
     let publishCount = 0;
@@ -128,7 +128,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
       publishCount += 1;
     });
     client.retry("attachment-1");
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(publishCount).toBe(0);
     expect(client.snapshot[0]?.state).toBe("complete");
@@ -187,7 +187,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const client = clientOver(port);
     port.holdChunks();
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("ingesting");

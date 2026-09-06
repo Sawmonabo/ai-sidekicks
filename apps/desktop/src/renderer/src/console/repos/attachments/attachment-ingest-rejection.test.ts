@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import {
@@ -45,7 +45,7 @@ describe("ingest client — a rejected leg is a refusal on the entry", () => {
     const client = clientOver(port);
     port.rejectBeginWith(new Error("the bridge namespace is gone"));
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // `declared` was the old resting state: the rejection escaped, so nothing was ever
     // written back and the card charted zero bytes of a stream nobody was sending.
@@ -69,7 +69,7 @@ describe("ingest client — a rejected leg is a refusal on the entry", () => {
       message: "no spool capacity is available",
     });
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.refusal?.code).toBe(INGEST_CAPACITY_EXHAUSTED_CODE);
@@ -82,7 +82,7 @@ describe("ingest client — a rejected leg is a refusal on the entry", () => {
     const client = clientOver(port);
     port.rejectChunksWith(new Error("the chunk never reached a daemon"));
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // The stream opened, so the old failure left this one at `ingesting` forever: a
     // progress bar that could not move and a stop control beside no explanation.
@@ -97,7 +97,7 @@ describe("ingest client — a rejected leg is a refusal on the entry", () => {
     const client = clientOver(port);
     port.rejectCompletionWith(new Error("the completion never reached a daemon"));
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("refused");
@@ -120,7 +120,7 @@ describe("ingest client — a rejected leg is a refusal on the entry", () => {
         new Error("the file behind this blob is gone"),
       ),
     );
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("refused");
@@ -136,7 +136,7 @@ describe("ingest client — a rejected leg is a refusal on the entry", () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("complete");
@@ -176,10 +176,10 @@ describe("ingest client — the drive promise settles rather than escaping", () 
       const client = clientOver(port);
       port.rejectBeginWith(new Error("the bridge namespace is gone"));
       client.attach(SMALL_SOURCE);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
       // Reported a macrotask after the microtask queue drains, so a body that awaited
       // only microtasks would report clean whether or not one escaped.
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     } finally {
       runnerHost.process.off("unhandledRejection", record);
     }
@@ -203,10 +203,10 @@ describe("ingest client — the drive promise settles rather than escaping", () 
       port.refuseChunksWith("wire-unregistered");
       port.rejectAbortsWith(new Error("the bridge namespace is gone"));
       client.attach(SMALL_SOURCE);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
       client.abandon("attachment-1");
-      await drainMicrotasks();
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
+      await crossMacrotaskBoundary();
     } finally {
       runnerHost.process.off("unhandledRejection", record);
     }
@@ -229,7 +229,7 @@ describe("ingest client — the drive promise settles rather than escaping", () 
       }
     });
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
     const [report] = consoleTripwires.reports();
@@ -247,7 +247,7 @@ describe("ingest client — the drive promise settles rather than escaping", () 
     const client = clientOver(port);
     client.subscribe(() => undefined);
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(consoleTripwires.totalFiringCount).toBe(0);
     expect(client.snapshot[0]?.state).toBe("complete");

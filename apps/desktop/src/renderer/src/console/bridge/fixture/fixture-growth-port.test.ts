@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { callOperation, fixturePort } from "./fixture-growth-port.test-support.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 import { createLiveBridge } from "../live-bridge.js";

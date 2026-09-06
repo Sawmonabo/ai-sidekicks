@@ -9,7 +9,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  inlineCardBody,
+  InlineCardSeatRegistry,
   inlineCardSeatRegistry,
   type DiffInlineCardProps,
 } from "../../seats/index.js";
@@ -42,30 +42,46 @@ beforeEach(() => {
 
 afterEach(() => {
   layout.restore();
-  // The seat registry is process-wide, so a case that registers into it puts it
-  // back. Leaving a body behind would make a later case pass because of this
-  // one.
-  inlineCardSeatRegistry.unregister("diff");
 });
 
 describe("inline diff card — the seat", () => {
+  /**
+   * A board this case owns.
+   *
+   * The registrar writes only what it is handed, so there is nothing to release
+   * afterwards — the previous shape claimed the process-wide board and needed an
+   * `afterEach` unregistering the kind by hand, where a case that forgot made the
+   * next one pass for its neighbour's reason.
+   */
+  function fill(): InlineCardSeatRegistry {
+    const seats = new InlineCardSeatRegistry();
+    registerInlineDiffCardBody(seats);
+    return seats;
+  }
+
   it("fills the ledger's diff card body", () => {
-    registerInlineDiffCardBody();
-    expect(inlineCardBody("diff")?.owner).toBe("repos");
-    expect(inlineCardSeatRegistry.registeredCardKinds()).toContain("diff");
+    const seats = fill();
+    expect(seats.bodyFor("diff")?.owner).toBe("repos");
+    expect(seats.registeredCardKinds()).toContain("diff");
   });
 
   it("renders through the registry the ledger reaches it by", () => {
-    registerInlineDiffCardBody();
-    const { container } = render(<>{inlineCardSeatRegistry.render(CARD)}</>);
+    const seats = fill();
+    const { container } = render(<>{seats.render(CARD)}</>);
     expect(container.querySelector(".meridian-diff-card")).not.toBeNull();
   });
 
-  it("negative control: the registry answers nothing before the body is registered", () => {
-    // Without this, the two cases above would pass over a registry that answered
-    // from somewhere else entirely, and the registration call would be doing
-    // nothing.
-    expect(inlineCardBody("diff")).toBeUndefined();
+  it("negative control: an unfilled board answers nothing", () => {
+    // Without this, the two cases above would pass over a board that answered from
+    // somewhere else entirely, and the registration call would be doing nothing.
+    expect(new InlineCardSeatRegistry().bodyFor("diff")).toBeUndefined();
+  });
+
+  it("writes the board it is given and never the process-wide one", () => {
+    // The registrar closes over no singleton. A body that reached one would render
+    // correctly in every case above and still leak into the running console.
+    fill();
+    expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
   });
 });
 

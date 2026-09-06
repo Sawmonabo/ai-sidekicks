@@ -33,10 +33,13 @@ import { normalizeWireRejection, refuse } from "../../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 import {
+  CALL_REJECTED_REFUSAL_CODE,
   GROWTH_PORT_REFUSAL_ORIGIN,
+  WIRE_UNREGISTERED_REFUSAL_CODE,
+  type GrowthCallRejected,
   type GrowthOutcome,
-  type GrowthPortRefusalCode,
-  type GrowthUnavailable,
+  type GrowthRefusalLedger,
+  type GrowthWireRefused,
 } from "./growth-outcome.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { growthSlateRow } from "./growth-slate.js";
@@ -97,11 +100,11 @@ export type GrowthServedValue<TOperationId extends GrowthOperationId> = Extract<
  * stay uniform across the console; that builder is generic in its code, so this
  * port's closed vocabulary arrives narrowed rather than widened to `string`.
  */
-export function growthUnavailable(operationId: GrowthOperationId): GrowthUnavailable {
+export function growthUnavailable(operationId: GrowthOperationId): GrowthWireRefused {
   const row = growthSlateRow(GROWTH_OPERATIONS[operationId].slateRow);
-  return buildGrowthUnavailable(
+  return buildWireRefused(
     operationId,
-    "wire-unregistered",
+    WIRE_UNREGISTERED_REFUSAL_CODE,
     // Product vocabulary only: the owning document travels as the structured
     // `owningDocument` member for the ledger, never inside the sentence a person
     // reads, which names the wire and the fact that this build does not carry it.
@@ -128,8 +131,8 @@ export function growthScriptedReplyUnavailable(
   operationId: GrowthOperationId,
   code: ScriptedReplyRefusalCode,
   detail: string,
-): GrowthUnavailable {
-  return buildGrowthUnavailable(operationId, code, detail);
+): GrowthWireRefused {
+  return buildWireRefused(operationId, code, detail);
 }
 
 /**
@@ -149,12 +152,26 @@ export function growthScriptedReplyUnavailable(
  * port mints it: `origin` stays this port's, and `code` stays one member of
  * `GROWTH_PORT_REFUSAL_CODES`.
  *
- * THE SENTENCE COMES FROM `normalizeWireRejection` AND THE CODE DOES NOT. A rejection
- * is an unestablished value — the throw of a hostile accessor is the ordinary hazard
- * on this path, and reading it is exactly what the console's one total normalizer is
- * for. Its `code` is discarded deliberately: it answers what a DAEMON envelope said,
- * and what happened here is that this port broke, which is one fact with one code
- * however the rejection spelled itself.
+ * THE SENTENCE AND THE CAUSE BOTH COME FROM `normalizeWireRejection`. A rejection is
+ * an unestablished value — the throw of a hostile accessor is the ordinary hazard on
+ * this path, and reading it is exactly what the console's one total normalizer is
+ * for. What it recovers travels on `cause` WHOLE: `code` says this port's call broke,
+ * which is one fact however the rejection spelled itself, and `cause.code` says what
+ * the other side sent, which is a different fact and the one a person acts on. An
+ * earlier revision kept the first and dropped the second, so a daemon's own dotted
+ * code was read here and then thrown away — and a surface settling a rejection
+ * through this builder rendered `call-rejected` where its sibling one navigation
+ * later rendered `workflow.session_not_found` for the same class of failure.
+ *
+ * NO CALLER IN THE CONSOLE TAKES THIS BUILDER TODAY, and that is a measured state
+ * rather than an oversight: every growth call in the tree — reads and the two run
+ * controls alike — settles through `bridge/readings/read-settlement.ts`, which is
+ * strictly better for a READ because it keeps the daemon's code as the refusal's own.
+ * It is kept because the port's vocabulary carries `call-rejected` and a code nothing
+ * can construct is worse than a constructor nothing yet calls: the rejection channel
+ * of a promise exists whether a contract uses it or not, and the next caller that
+ * cannot reach the reading layer needs a refusal that carries this port's origin
+ * rather than one it invented. Its suite drives it, so what it produces is pinned.
  *
  * NO `RejectionFallback` IS PASSED, and that is a reading of what one does rather than
  * an omission. A fallback is the caller's stand-in SENTENCE for a rejection carrying no
@@ -168,40 +185,57 @@ export function growthScriptedReplyUnavailable(
 export function growthUnavailableFromRejection(
   operationId: GrowthOperationId,
   rejection: unknown,
-): GrowthUnavailable {
+): GrowthCallRejected {
   const row = growthSlateRow(GROWTH_OPERATIONS[operationId].slateRow);
-  const normalized = normalizeWireRejection(GROWTH_PORT_REFUSAL_ORIGIN, rejection);
-  return buildGrowthUnavailable(
-    operationId,
-    "call-rejected",
-    // Product vocabulary, and the same shape the unregistered sentence takes: the
-    // wire this read needed, then what went wrong with it.
-    `${row.wire} did not answer — ${normalized.detail}`,
-  );
+  const cause = normalizeWireRejection(GROWTH_PORT_REFUSAL_ORIGIN, rejection);
+  return {
+    ...refuse(
+      GROWTH_PORT_REFUSAL_ORIGIN,
+      CALL_REJECTED_REFUSAL_CODE,
+      // Product vocabulary, and the same shape the unregistered sentence takes: the
+      // wire this read needed, then what went wrong with it.
+      `${row.wire} did not answer — ${cause.detail}`,
+    ),
+    ...growthRefusalLedger(operationId),
+    cause,
+  };
 }
 
 /**
- * The one construction all three refusals share: `core`'s refusal, widened with what
- * a growth refusal knows.
+ * The ledger every growth refusal carries: which operation, which row, whose wire.
  *
- * `code` is written in ONE position. `refuse` is generic in it, so the parameter's
- * annotation — the closed vocabulary `GROWTH_PORT_REFUSAL_CODES` declares — is what
- * the spread carries onto the result, and there is no second literal to drift from
- * the first. The members beside it are the ones `core` has no reason to know: which
- * operation was called, which slate row it serves, and who owes the wire.
+ * ONE CONSTRUCTION FOR THE MEMBERS `core` HAS NO REASON TO KNOW, and no count of the
+ * builders that spread it — a number written here is a claim about the module's other
+ * declarations, and it went stale the moment a builder was added or split.
  */
-function buildGrowthUnavailable(
-  operationId: GrowthOperationId,
-  code: GrowthPortRefusalCode,
-  detail: string,
-): GrowthUnavailable {
+function growthRefusalLedger(operationId: GrowthOperationId): GrowthRefusalLedger {
   const entry = GROWTH_OPERATIONS[operationId];
   return {
-    ...refuse(GROWTH_PORT_REFUSAL_ORIGIN, code, detail),
     status: "unavailable",
     operationId,
     slateRow: entry.slateRow,
     owningDocument: growthSlateRow(entry.slateRow).owningDocument,
+  };
+}
+
+/**
+ * A refusal for a wire nobody asked: the unregistered one, and a scripted reply that
+ * never came.
+ *
+ * `code` is written in ONE position. `refuse` is generic in it, so the parameter's
+ * annotation is what the spread carries onto the result, and there is no second
+ * literal to drift from the first. The rejection arm is deliberately NOT routed
+ * through here: it carries a member neither of these two has, and a builder taking an
+ * optional cause would let a caller mint a `call-rejected` refusal that dropped one.
+ */
+function buildWireRefused(
+  operationId: GrowthOperationId,
+  code: GrowthWireRefused["code"],
+  detail: string,
+): GrowthWireRefused {
+  return {
+    ...refuse(GROWTH_PORT_REFUSAL_ORIGIN, code, detail),
+    ...growthRefusalLedger(operationId),
   };
 }
 

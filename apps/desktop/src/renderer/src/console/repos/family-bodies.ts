@@ -9,12 +9,11 @@
 // and the door goes back to two registration functions and a list of names.
 //
 // WHAT IS HERE AND WHAT IS IN THE DOOR. The sidebar and card registrations run here,
-// because `registerSidebarSection` is a seats-door line and the census asks the same
-// question of it: read only from this family's barrel it has no production reader at
-// all. The two pane RENDERERS are here for the same reason and stop there — the pane
-// REGISTRATION is declared in `repos/index.ts`, because `console/panes/index.ts`
-// states that contract in its own words: a family claims its pane kinds "inside that
-// function", the one it publishes from its own `index.ts`.
+// against the boards the composition hands this family rather than against a
+// process-wide singleton. The two pane RENDERERS are here for the same reason and stop
+// there — the pane REGISTRATION is declared in `repos/index.ts`, because
+// `console/panes/index.ts` states that contract in its own words: a family claims its
+// pane kinds "inside that function", the one it publishes from its own `index.ts`.
 
 import { createElement, type ReactNode } from "react";
 
@@ -26,8 +25,9 @@ import {
 import { DiffPane, registerInlineDiffCardBody } from "./diff-pane/index.js";
 import {
   paneBodyForKind,
-  registerSidebarSection,
   type ConsolePaneContext,
+  type InlineCardSeatRegistry,
+  type SidebarSectionRegistry,
 } from "../seats/index.js";
 import { AttachmentCarrierSection } from "./attachments/AttachmentCarrierSection.js";
 import { RepoSection } from "./mounts/RepoSection.js";
@@ -73,7 +73,17 @@ export const renderArtifactPaneBody: (context: ConsolePaneContext) => ReactNode 
  * Fill the sidebar's two repos-family sections and the ledger row's three cards.
  *
  * Reached from `console/families.ts` through this family's door, at its own reserved
- * line.
+ * line, and handed the two boards it writes into.
+ *
+ * THE BOARDS ARE PARAMETERS RATHER THAN IMPORTS, which is the same rule
+ * `registerReposPanes` already follows for the pane deck. A family that reached for a
+ * module-scope singleton would write into a board no caller named, so an independent
+ * composition — an auxiliary window selecting a subset, a suite composing one family
+ * in isolation — would mutate the running console instead of its own registry, and
+ * two compositions in one process would see each other's registrations. Passing the
+ * board makes the write addressable: what a composition gets is what it asked for.
+ * There is deliberately no singleton-reaching convenience form left to fall back to,
+ * because a default that reintroduces the defect is the defect.
  *
  * TWO SECTIONS AND NOT ONE, because `seats/sidebar-sections.ts` names both as this
  * family's: "repos and artifacts are the repos family's". The second is the
@@ -82,24 +92,27 @@ export const renderArtifactPaneBody: (context: ConsolePaneContext) => ReactNode 
  *
  * A CALL PER CARD RATHER THAN A DESCRIPTOR LIST, because that seat registry is filled
  * by a call each card module makes for itself: the body stays private to the module
- * that draws it and what leaves is the registration. All three kinds
- * `INLINE_CARD_KINDS` declares are this family's, so after this function returns that
- * registry is full — and they are claimed HERE rather than at each card module's own
- * scope so that a family registers everything it owns through one entry point, and a
- * hot reload re-runs one module rather than four.
+ * that draws it and what leaves is the registration, which now carries the board
+ * through. All three kinds `INLINE_CARD_KINDS` declares are this family's, so after
+ * this function returns that board is full — and they are claimed HERE rather than at
+ * each card module's own scope so that a family registers everything it owns through
+ * one entry point, and a hot reload re-runs one module rather than four.
  */
-export function registerRepos(): void {
-  registerSidebarSection({
+export function registerRepos(
+  sidebarSections: SidebarSectionRegistry,
+  inlineCardSeats: InlineCardSeatRegistry,
+): void {
+  sidebarSections.register({
     id: "repos",
     owner: REPOS_FAMILY_OWNER,
     render: (context) => createElement(RepoSection, { context }),
   });
-  registerSidebarSection({
+  sidebarSections.register({
     id: "artifacts",
     owner: REPOS_FAMILY_OWNER,
     render: (context) => createElement(AttachmentCarrierSection, { context }),
   });
-  registerInlineDiffCardBody();
-  registerInlineArtifactCardBody();
-  registerInlineAttachmentCardBody();
+  registerInlineDiffCardBody(inlineCardSeats);
+  registerInlineArtifactCardBody(inlineCardSeats);
+  registerInlineAttachmentCardBody(inlineCardSeats);
 }

@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ManualClock } from "../../core/index.js";
 import {
   OTHER_ARTIFACT_ID,
@@ -35,7 +35,7 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     await readThrough(clock);
 
     const firstPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     const secondPress = await reader.fetchPayload(OTHER_ARTIFACT_ID);
 
     expect(artifactRead).toHaveBeenCalledTimes(1);
@@ -74,7 +74,7 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     await readThrough(clock);
 
     const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     reader.dispose();
     releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "an answer nobody is waiting for"));
 
@@ -96,7 +96,7 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     await readThrough(clock);
 
     const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     reader.refresh();
     await readThrough(clock);
     expect(reader.performCount).toBe(2);
@@ -119,12 +119,12 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
     await readThrough(clock);
 
     const firstPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "first"));
     await firstPress;
 
     const secondPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "second"));
 
     expect((await secondPress).status).toBe("settled");
@@ -149,7 +149,7 @@ describe("artifact pane actions — a delete supersedes the fetch for the row it
     await readThrough(clock);
 
     const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(reader.snapshot.payload.status).toBe("fetching");
 
     const deletion = await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
@@ -175,11 +175,11 @@ describe("artifact pane actions — a delete supersedes the fetch for the row it
     await readThrough(clock);
 
     void reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
 
     const nextPress = reader.fetchPayload(OTHER_ARTIFACT_ID);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(artifactRead).toHaveBeenCalledTimes(2);
     releaseRead(servedPayload(OTHER_ARTIFACT_ID, "the next artifact's bytes"));
     expect((await nextPress).status).toBe("settled");
@@ -196,7 +196,7 @@ describe("artifact pane actions — a delete supersedes the fetch for the row it
     await readThrough(clock);
 
     const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     await reader.deleteArtifact(OTHER_ARTIFACT_ID);
 
     releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the bytes the press asked for"));

@@ -11,7 +11,7 @@
 // it is the registration that the seat boards depend on.
 
 import { render, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
@@ -20,6 +20,9 @@ import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { SessionStore } from "../store/index.js";
 import {
   ConsolePaneRegistry,
+  InlineCardSeatRegistry,
+  SidebarSectionRegistry,
+  inlineCardSeatRegistry,
   isDetachablePaneKind,
   sidebarSectionRegistry,
   type ConsolePaneAddress,
@@ -100,43 +103,56 @@ function contextForPane(kind: (typeof REPOS_PANE_KINDS)[number]): ConsolePaneCon
   });
 }
 
-afterEach(() => {
-  // The sidebar registry is process-wide, so a case that claimed a section has to
-  // give it back — otherwise the negative controls below read a claim some earlier
-  // case left behind and pass for the wrong reason. BOTH of the family's sections,
-  // because a door that claims two and a teardown that releases one leaves the
-  // second's negative control asserting against a registry it never emptied.
-  sidebarSectionRegistry.unregister("repos");
-  sidebarSectionRegistry.unregister("artifacts");
-});
+/**
+ * Compose this family against boards the CASE owns.
+ *
+ * There is no teardown here and there is nothing to tear down: the door writes only
+ * into what it is handed, so a case's claims die with its boards. That is the whole
+ * point of the boards being parameters — the previous shape claimed into a
+ * process-wide registry and needed an `afterEach` releasing both sections by hand,
+ * where forgetting one left the next negative control asserting against a registry
+ * it never emptied.
+ */
+function composeRepos(): {
+  readonly sections: SidebarSectionRegistry;
+  readonly cards: InlineCardSeatRegistry;
+} {
+  const sections = new SidebarSectionRegistry();
+  const cards = new InlineCardSeatRegistry();
+  registerRepos(sections, cards);
+  return { sections, cards };
+}
 
 describe("repos family — the sidebar section", () => {
   it("claims the repos section under the family's own owner", () => {
-    registerRepos();
-    expect(sidebarSectionRegistry.descriptorFor("repos")?.owner).toBe("repos");
-    expect(sidebarSectionRegistry.registeredSectionIds()).toContain("repos");
+    const { sections } = composeRepos();
+    expect(sections.descriptorFor("repos")?.owner).toBe("repos");
+    expect(sections.registeredSectionIds()).toContain("repos");
   });
 
-  it("negative control: nothing claims the section before the door is called", () => {
-    // Without this the case above would pass against a registry that had been
-    // holding the descriptor since module evaluation, and would keep passing if
+  it("negative control: an uncomposed board holds no section", () => {
+    // Without this the case above would pass against a board that had been holding
+    // the descriptor since module evaluation, and would keep passing if
     // `registerRepos` stopped registering anything at all.
-    expect(sidebarSectionRegistry.descriptorFor("repos")).toBeUndefined();
+    expect(new SidebarSectionRegistry().descriptorFor("repos")).toBeUndefined();
   });
 
   it("survives being registered twice, as a hot reload does it", () => {
     // Owner-scoped: the same owner re-claiming replaces. A family that changed its
     // owner string between registrations would raise here, which is correct — the
-    // owner is what the policy is about.
+    // owner is what the policy is about. Both passes write the same board, because
+    // a hot reload re-runs the door against the composition already standing.
+    const sections = new SidebarSectionRegistry();
+    const cards = new InlineCardSeatRegistry();
     expect(() => {
-      registerRepos();
-      registerRepos();
+      registerRepos(sections, cards);
+      registerRepos(sections, cards);
     }).not.toThrow();
   });
 
   it("renders its body through the descriptor, collapsed and open", () => {
-    registerRepos();
-    const descriptor = sidebarSectionRegistry.descriptorFor("repos");
+    const { sections } = composeRepos();
+    const descriptor = sections.descriptorFor("repos");
     expect(descriptor).toBeDefined();
     const open = render(<>{descriptor?.render(contextForSection(true))}</>);
     expect(open.container.querySelector(".meridian-repo-section__mounts")).not.toBeNull();
@@ -155,23 +171,56 @@ describe("repos family — the artifacts section", () => {
     // the second: the attachment carrier, which is the ingest trio's only production
     // entry point. A door that registered one of the two would leave the Init /
     // Chunk / Complete flow reachable from tests and from nothing else.
-    registerRepos();
-    expect(sidebarSectionRegistry.descriptorFor("artifacts")?.owner).toBe("repos");
-    expect(sidebarSectionRegistry.registeredSectionIds()).toContain("artifacts");
+    const { sections } = composeRepos();
+    expect(sections.descriptorFor("artifacts")?.owner).toBe("repos");
+    expect(sections.registeredSectionIds()).toContain("artifacts");
   });
 
-  it("negative control: nothing claims it before the door is called", () => {
-    expect(sidebarSectionRegistry.descriptorFor("artifacts")).toBeUndefined();
+  it("negative control: an uncomposed board holds no artifacts section", () => {
+    expect(new SidebarSectionRegistry().descriptorFor("artifacts")).toBeUndefined();
   });
 
   it("renders the picker its body offers, open and not collapsed", () => {
-    registerRepos();
-    const descriptor = sidebarSectionRegistry.descriptorFor("artifacts");
+    const { sections } = composeRepos();
+    const descriptor = sections.descriptorFor("artifacts");
     expect(descriptor).toBeDefined();
     const open = render(<>{descriptor?.render(contextForSection(true))}</>);
     expect(within(open.container).getByLabelText("Attach a file")).toBeDefined();
     const collapsed = render(<>{descriptor?.render(contextForSection(false))}</>);
     expect(within(collapsed.container).queryByLabelText("Attach a file")).toBeNull();
+  });
+});
+
+describe("repos family — the boards it is handed, and only those", () => {
+  // The claim this whole seam exists for, and the one a behavioural check over the
+  // caller's own board cannot make: composing the family must leave the process-wide
+  // boards untouched. Without it a door that wrote BOTH the handed board and the
+  // singleton would pass every case above, and the defect would surface only when a
+  // second composition — an auxiliary window selecting a subset, a suite composing
+  // one family alone — silently mutated the running console.
+
+  it("writes the sidebar board it is given and never the process-wide one", () => {
+    const { sections } = composeRepos();
+    expect(sections.registeredSectionIds()).toStrictEqual(["repos", "artifacts"]);
+    expect(sidebarSectionRegistry.registeredSectionIds()).toStrictEqual([]);
+  });
+
+  it("writes the card board it is given and never the process-wide one", () => {
+    const { cards } = composeRepos();
+    // All three kinds, because every card the ledger row declares is this family's:
+    // a door that filled the handed board partially would leave the rest reserved.
+    expect(cards.registeredCardKinds()).toStrictEqual(["diff", "attachment", "artifact"]);
+    expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
+  });
+
+  it("keeps two compositions apart", () => {
+    // The property the singleton could never have. Registering into one composition
+    // must be invisible to another, which is what lets an auxiliary window compose a
+    // subset without the main window seeing it.
+    const first = composeRepos();
+    const second = new SidebarSectionRegistry();
+    expect(first.sections.registeredSectionIds()).toStrictEqual(["repos", "artifacts"]);
+    expect(second.registeredSectionIds()).toStrictEqual([]);
   });
 });
 

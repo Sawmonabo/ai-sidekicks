@@ -28,8 +28,13 @@
 // a live store, which module scope cannot reach, so `ConsoleRoot` registers them in an
 // effect and removes them on unmount.
 
+import type { Unsubscribe } from "../core/index.js";
 import { RAIL_DESTINATIONS, type RailDestination } from "../routing/index.js";
-import type { ConsoleWhenClauseKey } from "./console-commands.js";
+import {
+  consoleFamilyKeyBindings,
+  subscribeToConsoleFamilyContributions,
+  type ConsoleWhenClauseKey,
+} from "./console-commands.js";
 import type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
 /** A command the frame itself contributes: its `when` is the console's vocabulary. */
@@ -110,3 +115,33 @@ export const FRAME_KEY_BINDINGS: readonly FrameKeyBinding[] = RAIL_DESTINATIONS.
     commandId: RAIL_NAVIGATION_DETAILS[destination].commandId,
   }),
 );
+
+/**
+ * Every chord the window binds: the frame's own, then the families'.
+ *
+ * Read by whatever installs the window's chord table, so a family's chords reach the
+ * keyboard without the frame naming the family — the same relationship the surface
+ * registry gives a family's routes. The families' half is read from
+ * `console-commands.ts` beside this file, which is where their contributions are
+ * collected.
+ *
+ * A FUNCTION AND NOT AN ARRAY, because the families' half is not known when this
+ * module is evaluated. Read it once into a constant and the console binds whatever
+ * had been composed by the time this file was imported, which is an ordering nobody
+ * declared and nothing reports.
+ */
+export function consoleKeyBindings(): readonly KeyBinding[] {
+  return [...FRAME_KEY_BINDINGS, ...consoleFamilyKeyBindings()];
+}
+
+/**
+ * Told when {@link consoleKeyBindings} would answer differently.
+ *
+ * Paired with the reader rather than published beside the contribution door: a
+ * caller that installs the table has to do both, and two names from one module is
+ * what makes the pair hard to take apart. The frame's own half never changes, so
+ * every change comes from the families.
+ */
+export function subscribeToConsoleKeyBindings(listener: () => void): Unsubscribe {
+  return subscribeToConsoleFamilyContributions(listener);
+}

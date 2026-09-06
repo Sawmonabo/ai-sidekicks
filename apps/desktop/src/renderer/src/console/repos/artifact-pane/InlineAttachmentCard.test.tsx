@@ -13,7 +13,7 @@ import { INGEST_STALL_DISCLOSURE_MS } from "../../core/index.js";
 import type { AttachmentIngestEntry } from "../attachments/attachment-shapes.js";
 
 import {
-  inlineCardBody,
+  InlineCardSeatRegistry,
   inlineCardSeatRegistry,
   type AttachmentInlineCardProps,
 } from "../../seats/index.js";
@@ -48,25 +48,46 @@ function quietUpload(): AttachmentIngestEntry {
   };
 }
 
-afterEach(() => {
-  inlineCardSeatRegistry.unregister("attachment");
-});
+afterEach(() => {});
 
 describe("inline attachment card — the seat", () => {
+  /**
+   * A board this case owns.
+   *
+   * The registrar writes only what it is handed, so there is nothing to release
+   * afterwards — the previous shape claimed the process-wide board and needed an
+   * `afterEach` unregistering the kind by hand, where a case that forgot made the
+   * next one pass for its neighbour's reason.
+   */
+  function fill(): InlineCardSeatRegistry {
+    const seats = new InlineCardSeatRegistry();
+    registerInlineAttachmentCardBody(seats);
+    return seats;
+  }
+
   it("fills the ledger's attachment card body", () => {
-    registerInlineAttachmentCardBody();
-    expect(inlineCardBody("attachment")?.owner).toBe("repos");
-    expect(inlineCardSeatRegistry.registeredCardKinds()).toContain("attachment");
+    const seats = fill();
+    expect(seats.bodyFor("attachment")?.owner).toBe("repos");
+    expect(seats.registeredCardKinds()).toContain("attachment");
   });
 
   it("renders through the registry the ledger reaches it by", () => {
-    registerInlineAttachmentCardBody();
-    const { container } = render(<>{inlineCardSeatRegistry.render(CARD)}</>);
+    const seats = fill();
+    const { container } = render(<>{seats.render(CARD)}</>);
     expect(container.querySelector(".meridian-attachment-card")).not.toBeNull();
   });
 
-  it("negative control: the registry answers nothing before the body is registered", () => {
-    expect(inlineCardBody("attachment")).toBeUndefined();
+  it("negative control: an unfilled board answers nothing", () => {
+    // Without this, the two cases above would pass over a board that answered from
+    // somewhere else entirely, and the registration call would be doing nothing.
+    expect(new InlineCardSeatRegistry().bodyFor("attachment")).toBeUndefined();
+  });
+
+  it("writes the board it is given and never the process-wide one", () => {
+    // The registrar closes over no singleton. A body that reached one would render
+    // correctly in every case above and still leak into the running console.
+    fill();
+    expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
   });
 });
 

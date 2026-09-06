@@ -128,12 +128,7 @@ export { useSubjectScopedResource } from "./subject-scoped-resource.js";
 // The union alone — the two arms are reached by writing one of them, never by naming
 // it, so a door line for each would be a name nothing outside this family ever types.
 export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
-export type {
-  /** @consumedBy T-023p-1C-8 */
-  SubjectKey,
-  /** @consumedBy T-023p-1C-8 */
-  SubjectScopedPublish,
-} from "./subject-scoped-holder.js";
+export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
 export {
   GenerationLatch,

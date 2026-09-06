@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { ArtifactManifestRow } from "../artifacts/artifact-model.js";
 import {
-  inlineCardBody,
+  InlineCardSeatRegistry,
   inlineCardSeatRegistry,
   type ArtifactInlineCardProps,
 } from "../../seats/index.js";
@@ -35,26 +35,46 @@ const MANIFEST: ArtifactManifestRow = {
   createdAt: "2026-09-01T00:00:00.000Z",
 };
 
-afterEach(() => {
-  // The seat registry is process-wide, so a case that registers into it puts it back.
-  inlineCardSeatRegistry.unregister("artifact");
-});
+afterEach(() => {});
 
 describe("inline artifact card — the seat", () => {
+  /**
+   * A board this case owns.
+   *
+   * The registrar writes only what it is handed, so there is nothing to release
+   * afterwards — the previous shape claimed the process-wide board and needed an
+   * `afterEach` unregistering the kind by hand, where a case that forgot made the
+   * next one pass for its neighbour's reason.
+   */
+  function fill(): InlineCardSeatRegistry {
+    const seats = new InlineCardSeatRegistry();
+    registerInlineArtifactCardBody(seats);
+    return seats;
+  }
+
   it("fills the ledger's artifact card body", () => {
-    registerInlineArtifactCardBody();
-    expect(inlineCardBody("artifact")?.owner).toBe("repos");
-    expect(inlineCardSeatRegistry.registeredCardKinds()).toContain("artifact");
+    const seats = fill();
+    expect(seats.bodyFor("artifact")?.owner).toBe("repos");
+    expect(seats.registeredCardKinds()).toContain("artifact");
   });
 
   it("renders through the registry the ledger reaches it by", () => {
-    registerInlineArtifactCardBody();
-    const { container } = render(<>{inlineCardSeatRegistry.render(CARD)}</>);
+    const seats = fill();
+    const { container } = render(<>{seats.render(CARD)}</>);
     expect(container.querySelector(".meridian-artifact-card")).not.toBeNull();
   });
 
-  it("negative control: the registry answers nothing before the body is registered", () => {
-    expect(inlineCardBody("artifact")).toBeUndefined();
+  it("negative control: an unfilled board answers nothing", () => {
+    // Without this, the two cases above would pass over a board that answered from
+    // somewhere else entirely, and the registration call would be doing nothing.
+    expect(new InlineCardSeatRegistry().bodyFor("artifact")).toBeUndefined();
+  });
+
+  it("writes the board it is given and never the process-wide one", () => {
+    // The registrar closes over no singleton. A body that reached one would render
+    // correctly in every case above and still leak into the running console.
+    fill();
+    expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
   });
 });
 

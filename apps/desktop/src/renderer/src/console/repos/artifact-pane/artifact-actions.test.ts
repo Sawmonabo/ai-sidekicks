@@ -19,7 +19,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { growthUnavailable } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
@@ -170,7 +170,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     const secondPress = await reader.readManifest(SERVED_SUMMARY.artifactId);
 
     expect(artifactRead).toHaveBeenCalledTimes(1);
@@ -201,7 +201,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     const press = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     reader.dispose();
     releaseNthRead(0, servedManifest("sha256:stale"));
 
@@ -219,13 +219,13 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     releaseNthRead(0, servedManifest("sha256:first"));
     expect((await firstPress).status).toBe("settled");
     expect(reader.snapshot.manifestReadInFlightArtifactIds.size).toBe(0);
 
     const secondPress = reader.readManifest(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     releaseNthRead(1, servedManifest("sha256:second"));
 
     expect((await secondPress).status).toBe("settled");
@@ -244,9 +244,9 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
     await readThrough(clock);
 
     void reader.readManifest(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     void reader.readManifest(OTHER_ARTIFACT_ID);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(artifactRead).toHaveBeenCalledTimes(2);
     expect(reader.snapshot.manifestReadInFlightArtifactIds.has(OTHER_ARTIFACT_ID)).toBe(true);

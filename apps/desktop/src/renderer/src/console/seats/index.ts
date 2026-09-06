@@ -97,9 +97,6 @@ export {
   DETACHABLE_PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
-  // Consumed by T-023p-1C-2. A line comment rather than the JSDoc tag beside it,
-  // because this specifier is already reached by a test and knip therefore counts the
-  // symbol referenced — a tag that suppresses nothing fails the dead-code run.
   isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
@@ -122,12 +119,10 @@ export {
 export {
   ConsolePaneRegistry,
   consolePaneRegistry,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
-  registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   type ConsolePaneContext,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
@@ -151,18 +146,14 @@ export {
 export {
   /** @consumedBy T-023p-1C-3 */
   SIDEBAR_SECTION_IDS,
-  /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  registerSidebarSection,
-  // Consumed by T-023p-1C-3. A line comment for the reason the pane-kind predicate
-  // above gives: a test reaches it, so knip counts it referenced.
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -183,41 +174,31 @@ export {
   type TimelineRowSlotProps,
 } from "./timeline-row-slot.js";
 
-// The inline-card body descriptor left this door with its tag. `T-023p-1C-5` was the
-// only task that had ever claimed it, that task shipped importing the registrar and the
-// three per-kind prop types and not the descriptor, and nothing else in the tree names
-// it outside `inline-card-seats.ts` — so the line was an export with no reader, which
-// `apps/desktop/AGENTS.md` deletes rather than tags.
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
-  /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
-  // Consumed by T-023p-1C-2, the two below with it. Line comments rather than the
-  // JSDoc tag, because this family's card suites already reach both.
+  /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
-  // Consumed by T-023p-1C-2, with the reader above.
   inlineCardSeatRegistry,
-  registerInlineCardBody,
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardAttachmentRef,
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy T-023p-1C-5 */
+  type InlineCardBodyDescriptor,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardKind,
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardPropsByKind,
   /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. All three chrome lines
-// carry no claim any more — this family's two pane bodies import all three, which is
-// the event the claims named, and a tag that suppresses nothing fails the dead-code run
-// under `--treat-tag-hints-as-errors`. The five pane-body tasks still to land are
-// consumers of an export that already has one. `PaneControls` and its context are still
-// claimed by the task that builds the deck, which is the only host that provides them.
+// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
+// named by all six pane-body tasks; `PaneControls` and its context are named by the one
+// that builds the deck, which is the only host that provides them.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {

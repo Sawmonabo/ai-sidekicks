@@ -17,7 +17,7 @@ import {
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);
@@ -35,7 +35,7 @@ describe("ingest client — the happy stream", () => {
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await Promise.resolve();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(port.chunkCalls.map((call) => call.ingestId)).toStrictEqual(["ingest-1"]);
     expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0]);
@@ -49,7 +49,7 @@ describe("ingest client — the happy stream", () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;
     expect(entry?.derived).toStrictEqual({
@@ -68,7 +68,7 @@ describe("ingest client — the happy stream", () => {
     // the client never made.
     const port = new ScriptedGrowthPort();
     clientOver(port);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(port.chunkCalls).toStrictEqual([]);
   });
 });
@@ -78,7 +78,7 @@ describe("ingest client — what Init declares", () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // A leading-byte signature determines nothing for a textual subtype, so this
     // declaration is the whole of what could admit the payload under the
@@ -99,7 +99,7 @@ describe("ingest client — what Init declares", () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // The KEY's absence, not an `undefined` value: absence is a first-class state the
     // contract names, and a member present-and-empty would be this console declaring a
@@ -117,7 +117,7 @@ describe("ingest client — what Init declares", () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-unplaced", "capture.bin", 300, ""));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     const [initCall] = port.initCalls;
     expect(initCall).toBeDefined();
@@ -129,12 +129,12 @@ describe("ingest client — what Init declares", () => {
     const client = clientOver(port);
     port.refuseChunksWith(INGEST_STREAM_INVALID_CODE);
     client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(client.snapshot[0]?.disposition).toBe("restart");
 
     port.refuseChunksWith(undefined);
     client.retry("attachment-notes");
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // A restart re-opens the stream, so the second Init has to carry the declaration too:
     // it is read from the ledger's own record of what the participant handed over, which

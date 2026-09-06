@@ -42,7 +42,7 @@ import {
   artifactProducerLabel,
   artifactReplicationPresentation,
 } from "../artifacts/artifact-copy.js";
-import { registerInlineCardBody, type ArtifactInlineCardProps } from "../../seats/index.js";
+import type { InlineCardSeatRegistry, ArtifactInlineCardProps } from "../../seats/index.js";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
@@ -105,9 +105,9 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
   );
 }
 
-/** Fill the ledger's `artifact` card seat. Called from the repos family's own door. */
-export function registerInlineArtifactCardBody(): void {
-  registerInlineCardBody("artifact", {
+/** Fill the ledger's `artifact` card seat on the board the family's own door supplies. */
+export function registerInlineArtifactCardBody(seats: InlineCardSeatRegistry): void {
+  seats.register("artifact", {
     owner: INLINE_ARTIFACT_CARD_OWNER,
     render: (cardProps) => <InlineArtifactCard card={cardProps} />,
   });

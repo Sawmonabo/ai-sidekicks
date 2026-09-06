@@ -19,7 +19,7 @@
 // against. The mounted half composes the same reader behind `ArtifactPane`, so both
 // halves prove the same object.
 //
-// NO SECOND WAIT AND NO SECOND STRINGIFIER. `drainMicrotasks` is the console's one
+// NO SECOND WAIT AND NO SECOND STRINGIFIER. `crossMacrotaskBoundary` is the console's one
 // let-the-promises-run helper and is imported rather than re-written as a raw
 // `setTimeout` — the third copy of it this directory used to carry.
 
@@ -46,7 +46,7 @@ import { growthUnavailable } from "../../bridge/index.js";
 // name whichever one it happened to be importing something else from.
 export type { GrowthPortAnswer };
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -262,7 +262,7 @@ async function scriptedAnswer<TAnswer>(
  * two contracts.
  *
  * The `act` and the drain are the two harnesses' own settling, not a third clock:
- * `drainMicrotasks` crosses a macrotask boundary and so never resolves while the host
+ * `crossMacrotaskBoundary` crosses a macrotask boundary and so never resolves while the host
  * timers are faked, and `act` needs a rendering environment a reader-only case does
  * not have. `vi.isFakeTimers()` is what tells them apart, rather than a second
  * parameter a call site would have to keep in step with its own `beforeEach`.
@@ -270,7 +270,7 @@ async function scriptedAnswer<TAnswer>(
 export async function readThrough(clock?: ManualClock): Promise<void> {
   if (clock !== undefined && !vi.isFakeTimers()) {
     clock.advance(REFRESH_DEBOUNCE_MS);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     return;
   }
   await act(async () => {

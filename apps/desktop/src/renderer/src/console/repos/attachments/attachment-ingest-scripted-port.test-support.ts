@@ -29,7 +29,6 @@ import type {
   ConsoleBridge,
   GrowthOperationId,
   GrowthPort,
-  GrowthPortRefusalCode,
   GrowthUnavailable,
 } from "../../bridge/index.js";
 import { growthUnavailable } from "../../bridge/index.js";
@@ -67,16 +66,24 @@ export function patternedBytes(byteLength: number): Uint8Array<ArrayBuffer> {
  * `owningDocument`) their real values, so a case reading any of them reads what the
  * port would have said.
  *
- * `code` alone is cast, and deliberately: `GrowthPortRefusalCode` is closed at the
- * three the CONSOLE mints, while these cases script the codes a DAEMON sends
+ * `code` alone is cast, and deliberately: the port's own codes are the closed set the
+ * CONSOLE mints, while these cases script the codes a DAEMON sends
  * (`artifact.ingest_not_found` among them) to drive the ingest client against answers
  * it must survive. That is off the port's contract on one member, which is exactly
  * what a narrow cast should say — and it is checked everywhere else.
+ *
+ * THE CAST TARGET IS THE WIRE-REFUSED ARM'S CODE AND NOT THE WHOLE UNION, which is
+ * what keeps this honest now that `GrowthUnavailable` has two arms discriminated on
+ * `code`. Casting to the union would let the object claim the `call-rejected` arm
+ * while carrying no `cause` — the member that arm exists to require — so the scripted
+ * refusal would be a shape the builder can never produce. Taking the arm this spread
+ * is actually on says the same thing about `code` and nothing false about the rest.
  */
 function scriptedRefusal(operationId: GrowthOperationId, code: string): GrowthUnavailable {
+  const refused = growthUnavailable(operationId);
   return {
-    ...growthUnavailable(operationId),
-    code: code as GrowthPortRefusalCode,
+    ...refused,
+    code: code as typeof refused.code,
     detail: "scripted refusal",
   };
 }

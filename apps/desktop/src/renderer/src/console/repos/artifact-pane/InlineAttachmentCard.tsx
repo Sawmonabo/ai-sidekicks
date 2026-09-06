@@ -25,7 +25,7 @@
 
 import { AttachmentCard } from "../attachments/AttachmentCard.js";
 import type { AttachmentReading } from "../attachments/attachment-shapes.js";
-import { registerInlineCardBody, type AttachmentInlineCardProps } from "../../seats/index.js";
+import type { InlineCardSeatRegistry, AttachmentInlineCardProps } from "../../seats/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_ATTACHMENT_CARD_OWNER = "repos";
@@ -81,9 +81,9 @@ export function InlineAttachmentCard(props: InlineAttachmentCardProps): React.JS
   );
 }
 
-/** Fill the ledger's `attachment` card seat. Called from the repos family's own door. */
-export function registerInlineAttachmentCardBody(): void {
-  registerInlineCardBody("attachment", {
+/** Fill the ledger's `attachment` card seat on the board the family's own door supplies. */
+export function registerInlineAttachmentCardBody(seats: InlineCardSeatRegistry): void {
+  seats.register("attachment", {
     owner: INLINE_ATTACHMENT_CARD_OWNER,
     render: (cardProps) => <InlineAttachmentCard card={cardProps} />,
   });

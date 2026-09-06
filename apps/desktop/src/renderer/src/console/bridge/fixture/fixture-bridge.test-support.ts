@@ -8,7 +8,7 @@
 //
 // The macrotask drain the settling cases wait on is deliberately NOT here. It is a
 // timing helper rather than a fixture one, and two families below `bridge/` wait on
-// it, so it lives at `core/microtask-drain.test-support.ts` — the lowest family all
+// it, so it lives at `core/macrotask-boundary.test-support.ts` — the lowest family all
 // three of its readers may reach.
 
 import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";

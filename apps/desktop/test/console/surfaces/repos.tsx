@@ -72,7 +72,10 @@ import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/
 import { registerRepos } from "../../../src/renderer/src/console/repos/index.js";
 import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
 import { sectionContext } from "../../../src/renderer/src/console/repos/pane-contexts.test-support.js";
-import { sidebarSectionRegistry } from "../../../src/renderer/src/console/seats/index.js";
+import {
+  InlineCardSeatRegistry,
+  SidebarSectionRegistry,
+} from "../../../src/renderer/src/console/seats/index.js";
 
 /**
  * The repos sidebar section, open, with its two mounts read.
@@ -82,8 +85,12 @@ import { sidebarSectionRegistry } from "../../../src/renderer/src/console/seats/
  * would pin the pre-read frame and then compare a later warm run against it.
  */
 export async function mountRepoSection(): Promise<MountedFamilySurface> {
-  registerRepos();
-  const descriptor = sidebarSectionRegistry.descriptorFor("repos");
+  // Composed onto boards this surface owns, the way `console/families.ts` composes
+  // onto the five it is handed. Reading the process-wide board instead would make the
+  // capture depend on whether some other module had registered into it first.
+  const sidebarSections = new SidebarSectionRegistry();
+  registerRepos(sidebarSections, new InlineCardSeatRegistry());
+  const descriptor = sidebarSections.descriptorFor("repos");
   if (descriptor === undefined) {
     throw new Error("the repos family registered no sidebar section");
   }

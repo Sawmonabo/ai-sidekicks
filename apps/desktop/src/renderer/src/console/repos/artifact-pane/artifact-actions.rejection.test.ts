@@ -13,7 +13,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { growthUnavailable } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
@@ -173,7 +173,7 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
     await readThrough(clock);
 
     const served = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the bytes came back"));
     expect((await served).status).toBe("settled");
 

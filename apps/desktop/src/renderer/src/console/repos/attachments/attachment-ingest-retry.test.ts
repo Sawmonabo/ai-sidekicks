@@ -15,7 +15,7 @@ import {
   clientOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
 import { INGEST_CAPACITY_EXHAUSTED_CODE, INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);
@@ -33,12 +33,12 @@ describe("ingest client — retry replays, and one refusal restarts", () => {
     const client = clientOver(port);
     port.refuseChunksWith("wire-unregistered");
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(client.snapshot[0]?.disposition).toBe("retry-in-place");
 
     port.refuseChunksWith(undefined);
     client.retry("attachment-1");
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // Two chunk calls at the SAME sequence number carrying the SAME bytes: the replay,
     // not a restart. That pair is exactly what the daemon acknowledges without
@@ -53,7 +53,7 @@ describe("ingest client — retry replays, and one refusal restarts", () => {
     const client = clientOver(port);
     port.refuseChunksWith(INGEST_STREAM_INVALID_CODE);
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(client.snapshot[0]?.disposition).toBe("restart");
     expect(client.snapshot[0]?.refusal?.code).toBe(INGEST_STREAM_INVALID_CODE);
@@ -64,7 +64,7 @@ describe("ingest client — retry replays, and one refusal restarts", () => {
     const client = clientOver(port);
     port.refuseChunksWith(INGEST_CAPACITY_EXHAUSTED_CODE);
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(client.snapshot[0]?.disposition).toBe("wait-and-retry");
     expect(client.snapshot[0]?.ingestId).toBe("ingest-1");
@@ -75,12 +75,12 @@ describe("ingest client — retry replays, and one refusal restarts", () => {
     const client = clientOver(port);
     port.refuseCompletionWith("wire-unregistered");
     client.attach(SMALL_SOURCE);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(client.snapshot[0]?.state).toBe("refused");
 
     port.refuseCompletionWith(undefined);
     client.retry("attachment-1");
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // One chunk sent in total: the retry resumed at the end of the ledger and went
     // straight back to completion.

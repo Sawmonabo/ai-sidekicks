@@ -39,7 +39,7 @@ import { useId, useRef, useState } from "react";
 
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph, Nothing } from "../../primitives/index.js";
-import { registerInlineCardBody, type DiffInlineCardProps } from "../../seats/index.js";
+import type { InlineCardSeatRegistry, DiffInlineCardProps } from "../../seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "./DiffToolbar.js";
@@ -182,10 +182,11 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
  * Called from the repos family's own door rather than at this module's scope: a
  * registration that ran on import would fire from whichever module the bundler
  * reached first, and the family barrel is the one place that knows every body it
- * owns.
+ * owns — and now the one place holding the board to write it into, which is why the
+ * board arrives as an argument rather than being reached for here.
  */
-export function registerInlineDiffCardBody(): void {
-  registerInlineCardBody("diff", {
+export function registerInlineDiffCardBody(seats: InlineCardSeatRegistry): void {
+  seats.register("diff", {
     owner: INLINE_DIFF_CARD_OWNER,
     render: (cardProps) => <InlineDiffCard card={cardProps} />,
   });

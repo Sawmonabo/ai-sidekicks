@@ -28,11 +28,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  GROWTH_PORT_REFUSAL_ORIGIN,
-  growthUnavailable,
-  type GrowthPortRefusalCode,
-} from "../bridge/index.js";
+import { GROWTH_PORT_REFUSAL_ORIGIN, growthUnavailable } from "../bridge/index.js";
+// The code union is read from the module that DECLARES it rather than through the
+// bridge door: this family mints no port refusal of its own any more — the builder
+// does — so the door specifier had no production reader, which is what
+// `barrel-census.test.ts` fails. A suite reaching the declaring module is the
+// disposition that rule names, and the layering DAG excludes test files.
+import type { GrowthPortRefusalCode } from "../bridge/growth-port/growth-outcome.js";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import { growthAnswerReading, readGrowthAnswer } from "./growth-call.js";
 

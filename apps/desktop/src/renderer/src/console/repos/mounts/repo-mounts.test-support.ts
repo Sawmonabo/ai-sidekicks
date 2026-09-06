@@ -68,7 +68,7 @@ export function openReader(
  * asked for a second read while the first was landing would otherwise advance past a
  * timer that did not exist yet and observe a re-read that had simply not been armed.
  *
- * The two turn counts are the shape `drainMicrotasks` replaced elsewhere and are kept
+ * The two turn counts are the shape `crossMacrotaskBoundary` replaced elsewhere and are kept
  * here for a reason that does not apply there: the second loop STOPS at the reading it
  * is waiting for, so the count is a ceiling on a wait rather than a tuning of one.
  */

@@ -17,7 +17,7 @@ import {
   INGEST_STALL_DISCLOSURE_MS,
   ManualClock,
 } from "../../core/index.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
@@ -82,7 +82,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     port.holdChunks();
     const carrier = carrierOver(port, clock);
     carrier.attachFiles([pickedFile(300)]);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // The stream is open and its chunk is in flight: this is the last publication the
     // ledger will make, and the instant on it is the instant progress stopped.
@@ -107,7 +107,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     port.holdChunks();
     const carrier = carrierOver(port, clock);
     carrier.attachFiles([pickedFile(300)]);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     clock.advance(INGEST_STALL_DISCLOSURE_MS);
     const stampAtDisclosure = carrier.snapshot.publishedAtMilliseconds;
 
@@ -122,14 +122,14 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     const firstChunkGate = port.holdChunks();
     const carrier = carrierOver(port, clock);
     carrier.attachFiles([pickedFile(ATTACHMENT_CHUNK_BYTE_CAP * 2)]);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // Half a disclosure window in, the second chunk is gated before the first is let
     // through, so the stream is outstanding again the moment progress lands.
     clock.advance(INGEST_STALL_DISCLOSURE_MS / 2);
     port.holdChunks();
     firstChunkGate.open();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     const progressMilliseconds = START_MILLISECONDS + INGEST_STALL_DISCLOSURE_MS / 2;
     expect(carrier.snapshot.publishedAtMilliseconds).toBe(progressMilliseconds);
 
@@ -151,7 +151,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     const clock = new ManualClock(START_MILLISECONDS);
     const carrier = carrierOver(port, clock);
     carrier.attachFiles([pickedFile(300)]);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // A completed upload cannot go quiet, so the last publication takes the wake-up
     // away rather than leaving one armed against an entry nothing will move again.
@@ -169,7 +169,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
       publishCount += 1;
     });
     carrier.attachFiles([pickedFile(300)]);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     const publishCountAtDisposal = publishCount;
 
     carrier.dispose();
@@ -192,7 +192,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     carrier.subscribe(() => {
       publishCount += 1;
     });
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(clock.pendingCount).toBe(0);
     clock.advance(INGEST_STALL_DISCLOSURE_MS * 3);
@@ -275,7 +275,7 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
 
     await act(async () => {
       binding?.attachFiles([pickedFile(300)]);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(port.initCalls).toHaveLength(1);
@@ -311,7 +311,7 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
 
     await act(async () => {
       binding?.attachFiles([pickedFile(300)]);
-      await drainMicrotasks();
+      await crossMacrotaskBoundary();
     });
 
     expect(port.initCalls).toHaveLength(1);
@@ -334,7 +334,7 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
         </StrictMode>,
       );
       await act(async () => {
-        await drainMicrotasks();
+        await crossMacrotaskBoundary();
       });
       unmount();
 
