@@ -92,6 +92,7 @@ import {
   type SessionSnapshot,
   type SessionSnapshotRead,
   type SessionStore,
+  type SubjectScopedDisposal,
 } from "../store/index.js";
 import { SessionEventBinder } from "./session-event-binder.js";
 
@@ -143,8 +144,7 @@ export function useSessionStoreRegistry(
     bridge,
     undefined,
     () => createWindowSessionPlumbing(bridge, projectorRegistry),
-    disposeWindowSessionPlumbing,
-    (candidate) => candidate.registry.isDisposed,
+    WINDOW_SESSION_PLUMBING_DISPOSAL,
   );
   // THE SUBSCRIPTION, KEYED ON THE PLUMBING AND NOTHING ELSE. Anything else in this
   // list is a reason to re-run for something that has nothing to do with the
@@ -256,6 +256,25 @@ function disposeWindowSessionPlumbing(plumbing: WindowSessionPlumbing): void {
   plumbing.binder.dispose();
   plumbing.registry.disposeAll();
 }
+
+/**
+ * How a plumbing ends, stated once: it is disposed, and a disposed one is readable.
+ *
+ * THE TERMINAL ARM, WHICH IS WHAT THE SHAPE OF THIS OBJECT SAYS. `disposeAll` is
+ * one-way — a registry that has run it never serves another store — so React's
+ * double-mount would re-commit the retired plumbing if the hook had no way to
+ * recognise it, and the window would go on addressing a registry that answers
+ * nothing. The reading is `isDisposed` because that is the registry's own record of
+ * having run it, not a flag this module keeps beside it.
+ *
+ * A module-level constant rather than a literal at the call site, so the disposal
+ * this hands over has one identity for the whole mount and the hook's own dependency
+ * lists do not move on renders that have nothing to do with the plumbing.
+ */
+const WINDOW_SESSION_PLUMBING_DISPOSAL: SubjectScopedDisposal<WindowSessionPlumbing> = {
+  dispose: disposeWindowSessionPlumbing,
+  isClosed: (plumbing) => plumbing.registry.isDisposed,
+};
 
 /**
  * The read a window performs, resolved from what its bridge actually serves.
