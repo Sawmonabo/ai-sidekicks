@@ -1,0 +1,172 @@
+/* The keyboard page's rows and its controls.
+ *
+ * A sibling sheet rather than a block appended to `settings.css`: the filter, the row
+ * table, the recorder and the two reset controls are all this page's and nothing else
+ * draws them. Every value is a Meridian token — the recorder shares the console's one
+ * control shape (`agents.css` states it for its own family's actions) rather than
+ * minting a second button that agrees with the first only until one is restyled.
+ */
+
+/* --- The keyboard map ----------------------------------------------------- */
+/* A scannable list rather than a table: every row carries the same three things,
+   and a chord is read by shape rather than by column position. */
+
+.meridian-keymap__filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-bottom: var(--meridian-space-4);
+}
+
+.meridian-keymap__filter-label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__filter-input {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-keymap__filter-input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-keymap__filter-input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-keymap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-keymap__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding-bottom: var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-keymap__row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.meridian-keymap__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-keymap__title {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-keymap__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__scope {
+  overflow-wrap: anywhere;
+}
+
+.meridian-keymap__unavailable {
+  margin: 0;
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-keymap__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-top: var(--meridian-space-1);
+}
+
+.meridian-keymap__record,
+.meridian-keymap__reset,
+.meridian-keymap__reset-all {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-keymap__record:hover,
+.meridian-keymap__reset:hover,
+.meridian-keymap__reset-all:hover {
+  background: var(--meridian-surface);
+}
+
+.meridian-keymap__record:focus-visible,
+.meridian-keymap__reset:focus-visible,
+.meridian-keymap__reset-all:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Armed. The border carries the state as well as the pressed attribute does for a
+   reader, because "press a chord now" is the one moment on this page where the
+   keyboard behaves differently from every other moment. */
+.meridian-keymap__record[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-keymap__recording-hint {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__reset-all {
+  align-self: flex-start;
+  margin-top: var(--meridian-space-2);
+}
+
+/* The chords kept for commands this build does not have.
+ *
+ * A plain list rather than the row shape above: these entries have no title, no
+ * group, and no scope — an id, a chord, and the one control that removes them — so
+ * borrowing the keymap row's grid would leave three empty columns claiming those
+ * facts are missing rather than absent. */
+.meridian-keymap__stale {
+  list-style: none;
+  margin: var(--meridian-space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-keymap__stale-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}

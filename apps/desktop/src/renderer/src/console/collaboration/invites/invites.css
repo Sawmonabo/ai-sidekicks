@@ -1,0 +1,121 @@
+/* The invite sub-family's own styles: the sent-invite ledger and the confirmation.
+ *
+ * A sibling sheet rather than a block in `collaboration.css`: the ledger's head, its
+ * rows and its fold, and the confirmation card, are this sub-family's shape and
+ * nothing else draws them. The card chrome and the one control shape it shares with
+ * the memberships stay at the family door.
+ */
+
+.meridian-invites__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-invites {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+  min-width: 0;
+}
+
+.meridian-invites__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-invites__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+}
+
+.meridian-invites__fold-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-invites__fold-overflow {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* The confirmation is the whole section while it is up, so it takes the measure
+ * and centres rather than sitting in the ledger's column. */
+.meridian-invite-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-invite-confirmation__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-invite-confirmation__title {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-invite-confirmation__identity {
+  margin: 0;
+}
+
+.meridian-invite-confirmation__facts {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) minmax(0, 1fr);
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+}
+
+.meridian-invite-confirmation__fact {
+  display: contents;
+}
+
+.meridian-invite-confirmation__fact dt {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-invite-confirmation__fact dd {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-invite-confirmation__acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-invite-confirmation__footnote {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}

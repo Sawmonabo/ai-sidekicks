@@ -96,12 +96,20 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
  * make a lost name and a retired name indistinguishable, which is the whole property
  * that census exists to hold.
  *
- * All five are the artifact vocabulary's runtime lists and its two read arms. Nothing
- * in the tree read them: a consumer of the vocabulary takes the DERIVED type, where
- * `Record<GrowthArtifactState, …>` is total in both directions at compile time, and a
- * consumer of the read union narrows it structurally on `payload`, which is `never` on
- * the deferred arm. A published list beside a derived type is a second way to ask one
- * question, and only one of the two ways is checked.
+ * The first five are the artifact vocabulary's runtime lists and its two read arms.
+ * Nothing in the tree read them: a consumer of the vocabulary takes the DERIVED type,
+ * where `Record<GrowthArtifactState, …>` is total in both directions at compile time,
+ * and a consumer of the read union narrows it structurally on `payload`, which is
+ * `never` on the deferred arm. A published list beside a derived type is a second way
+ * to ask one question, and only one of the two ways is checked.
+ *
+ * The last six are the cost receipt's row shapes, its status vocabulary, its principal
+ * and its cap. Each carried a per-specifier line naming the cost page as the reader
+ * that would import it; that page has landed and derives every one of them off
+ * `GrowthCostReceipt`, which stays published and is the closed set's one home. A door
+ * line whose named consumer arrived and did not take it can never retire itself, so
+ * the line is retired instead — which is the disposition `apps/desktop/AGENTS.md`
+ * names for a door line with no production reader.
  */
 const RETIRED_SINCE_SPLIT: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -109,6 +117,12 @@ const RETIRED_SINCE_SPLIT: readonly string[] = [
   "GROWTH_ARTIFACT_VISIBILITIES",
   "GrowthArtifactReadDeferred",
   "GrowthArtifactReadInline",
+  "GrowthCostReceiptAccountRow",
+  "GrowthCostReceiptCausedByRow",
+  "GrowthCostReceiptRunRow",
+  "GrowthCostStatus",
+  "GrowthEffectivePrincipal",
+  "GrowthUnpricedFamilyCap",
 ];
 
 /** What the barrel is expected to publish today: the split's surface, less the retired. */

@@ -1,0 +1,151 @@
+/* The notification center's own styles.
+ *
+ * A column of session groups, each a heading over a stack of rows. The rows carry
+ * no colour of their own: severity is already spent on the chip, and a second
+ * carrier of the same fact would be the two-hue rule broken twice for one item.
+ * What varies between an actionable row and an informational one is the chip and
+ * the fold it sits in, which is exactly the axis suppression keys on.
+ */
+
+.meridian-attention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-attention__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attention__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-attention__mute {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attention__groups,
+.meridian-attention__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-attention__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attention__group-title {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 400;
+  color: var(--meridian-text-faint);
+}
+
+/* One row, in both of its forms. The button form resets the platform's chrome so a
+   pressable row and a plain one are the same shape — the press is an affordance the
+   hover and focus treatments announce, not a different object. */
+.meridian-attention__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  margin: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.meridian-attention__row--open {
+  cursor: pointer;
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-attention__row--open:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-attention__row--open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-attention__row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attention__row-summary {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-attention__row-scope {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-attention__fold-summary {
+  cursor: pointer;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-attention__fold-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-attention__fold[open] > .meridian-attention__fold-summary {
+  margin-bottom: var(--meridian-space-2);
+}
+
+/* The sessions a fan-out never got an answer for.
+ *
+ * A stack under whatever the sessions that DID answer produced, never beside it:
+ * the coverage gap qualifies the reading above it, and a column keeps that reading
+ * order true at every width. Each row pairs the identifier with the port's own
+ * refusal, so no colour of this block's own carries the fact — the inline refusal
+ * already spends the failure hue, and a second carrier would break the two-hue rule
+ * for one sentence. */
+.meridian-attention__refused,
+.meridian-attention__refused-list,
+.meridian-attention__refused-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-attention__refused-list {
+  margin: 0;
+  padding: 0;
+  gap: var(--meridian-space-2);
+  list-style: none;
+}
+
+.meridian-attention__refused-count {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}

@@ -49,6 +49,35 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     expect(refusals[0]?.detail).toContain("update check could not start");
   });
 
+  it("routes a bridge that THROWS to the same sink as one that rejects", async () => {
+    // The shipped Tier-1 bridge implements every method as a synchronous `throw`,
+    // and the fixture refuses by returning a rejected promise, so the two arms fail
+    // differently and must land on one line. This is the negative control for a
+    // boundary attached to the returned promise: under that shape the throw escapes
+    // `settle` entirely, the sink is never called, and `run` rejects into a dispatch
+    // that drops it.
+    const bridge = fixtureBridge();
+    const throwing: ConsoleBridge = {
+      ...bridge,
+      sidekicks: {
+        ...bridge.sidekicks,
+        update: {
+          ...bridge.sidekicks.update,
+          requestCheck: () => {
+            throw new Error("update.requestCheck is not implemented");
+          },
+        },
+      },
+    };
+    const refusals: ConsoleRefusal[] = [];
+    const commands = buildBridgeCommands(throwing, (refusal) => refusals.push(refusal));
+
+    await expect(commandById(commands, "bridge.checkForUpdates").run()).resolves.toBeUndefined();
+
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]?.code).toBe("update-check-unavailable");
+  });
+
   it("does not reject, so the palette's fire-and-forget dispatch is safe", async () => {
     const commands = buildBridgeCommands(fixtureBridge(), () => undefined);
 

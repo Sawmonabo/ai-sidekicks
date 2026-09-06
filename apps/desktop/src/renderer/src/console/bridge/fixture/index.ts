@@ -2,10 +2,12 @@
 //
 // WHAT PUTS A MODULE HERE. A module that exists so the fixture can ANSWER — the
 // bridge object itself, its two doors (the call door and the subscription door), the
-// refusal vocabulary both raise, the growth port that decides which operation is
-// served, and the answer builders that port leans on, each composing one plane's
-// reply out of the scenario in play: the base state a session opens with, what the
-// node has, the attention projection, and a scripted settlement. They are named
+// refusal vocabulary both raise, the served set that decides WHICH growth operation
+// is answered, the growth port that composes each answer, and the answer builders
+// that port leans on, each composing one plane's reply out of the scenario in play:
+// the base state a session opens with, what the node has, the runtime-node roster the
+// scenario's frames report, the attention projection, and a scripted settlement. They
+// are named
 // rather than counted, because a plane the fixture learns to answer adds one here in
 // a diff that never reads this header. `fixture-refusal.ts` is separate from the
 // bridge on purpose and must not be folded back in: both doors raise it and the

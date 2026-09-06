@@ -53,6 +53,7 @@
 // intra-family specifiers, so `bridge/index.ts` remains the single door the rest of
 // the console comes through.
 
+import type { AgentGrowthSignatures } from "./agents.js";
 import type { ArtifactGrowthSignatures } from "./artifacts.js";
 import type { AttentionGrowthSignatures } from "./attention.js";
 import type { GitflowGrowthSignatures } from "./gitflow.js";
@@ -82,4 +83,5 @@ export interface GrowthOperationSignatures
     WorkflowGrowthSignatures,
     IdentityGrowthSignatures,
     SidekickGrowthSignatures,
+    AgentGrowthSignatures,
     LedgerGrowthSignatures {}

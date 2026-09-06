@@ -35,12 +35,10 @@ import {
   readConsoleSourceModule,
 } from "../console-source-modules.js";
 
+import { BOUNDED_ENUMERATION_MAX_ROWS } from "../../../src/renderer/src/console/core/index.js";
+import { ENUMERATION_ROW_HEIGHT_REM } from "../../../src/renderer/src/console/tokens/palette.js";
 import {
-  BOUNDED_ENUMERATION_MAX_ROWS,
-  ENUMERATION_ROW_HEIGHT_REM,
-} from "../../../src/renderer/src/console/tokens/palette.js";
-import {
-  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
+  BOUNDED_ENUMERATION_HEIGHT_REM,
   PARTICIPANT_HUES,
   SCHEME_COLOR_TOKENS,
   formatOklch,
@@ -243,10 +241,11 @@ describe("assets — the generated token sheet", () => {
   it("caps a bounded enumeration at a whole number of those rows, never a hand-picked length", () => {
     const css = generateMeridianCss();
 
-    expect(emittedRemValue(css, "enumeration-max-height")).toBe(BOUNDED_ENUMERATION_MAX_HEIGHT_REM);
-    // The cap is a ROW count converted to a length here so no stylesheet
-    // multiplies; a length picked directly would not divide evenly.
-    expect(BOUNDED_ENUMERATION_MAX_HEIGHT_REM / ENUMERATION_ROW_HEIGHT_REM).toBe(
+    expect(emittedRemValue(css, "enumeration-max-height")).toBe(BOUNDED_ENUMERATION_HEIGHT_REM);
+    // The cap is a ROW count — declared in the bounds home — converted to a length
+    // here so no stylesheet multiplies; a length picked directly would not divide
+    // evenly.
+    expect(BOUNDED_ENUMERATION_HEIGHT_REM / ENUMERATION_ROW_HEIGHT_REM).toBe(
       BOUNDED_ENUMERATION_MAX_ROWS,
     );
   });

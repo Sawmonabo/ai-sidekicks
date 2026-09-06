@@ -22,7 +22,7 @@
 // all six.
 //
 // The formatters that decide something `Intl` does not have their own files: the
-// three time readings, where the UNIT changes rather than the number growing, in
+// four time readings, where the UNIT changes rather than the number growing, in
 // `wire-figures.time.test.ts`; and the two figures whose unit and precision the
 // console picks itself, in `wire-figures.units.test.ts`.
 

@@ -1,17 +1,17 @@
-// The shipped Tier-1 families the console absorbed, and the guard they share.
+// The shipped Tier-1 families the console absorbed, and the guard three of them share.
 //
-// Three families shipped before the console existed and were rendered by the
-// renderer root directly: the session probe, the participant roster, and the
-// runtime-node roster. When the console took over the root they stopped being
-// rendered by anything, which is not a decision anybody made — it is what happens
-// when a new mount point lands before the old surfaces are re-homed. This module
-// re-homes them.
+// Four families shipped before the console existed and were rendered by the
+// renderer root directly: the session probe, the participant roster, the runtime-node
+// roster, and the invite acceptance prompt. When the console took over the root they
+// stopped being rendered by anything, which is not a decision anybody made — it is
+// what happens when a new mount point lands before the old surfaces are re-homed.
+// This module re-homes them.
 //
 // ABSORBED BY IMPORT, NOT BY CALL. A plan-owned subtree whose owner MOUNTS INTO the
 // console reaches the frame by calling `registerConsoleSurface`; the console imports
 // it through no path, which is why the layering gate bans those subtrees outright.
-// These three are the stated exception — they are shipped Tier-1 components with no
-// owner left to make the call, so the console absorbs them.
+// These are the stated exception — they are shipped Tier-1 components with no owner
+// left to make the call, so the console absorbs them.
 //
 // IN `seats/` RATHER THAN IN `frame/`, WHICH IS WHERE THEY WERE WRITTEN. A mount here
 // reads a bridge source, two primitives, and a branded id, and nothing above
@@ -36,32 +36,44 @@
 // a renderer subtree OUTSIDE the console, absorbed by the console as a whole rather
 // than authored by any family in it.
 //
-// WHY EACH MOUNT IS GUARDED ON THE BRIDGE SOURCE. All three components read
-// `window.sidekicks` directly rather than taking a bridge from context, so the
-// console's fixture cannot stand in for the preload the way it does for every
-// console-authored surface. Under the fixture they would reach past it: in a window
-// with no preload at all they throw into the surface boundary and read as a crash, and
-// in the fixture build they would answer from the live daemon beside fixture data in
-// the same window, which is worse than answering nothing. So the console says the
-// question was not put, which is exactly what happened.
+// WHY THREE OF THE FOUR MOUNTS ARE GUARDED ON THE BRIDGE SOURCE. The probe, the
+// participant roster and the acceptance prompt read `window.sidekicks` directly rather
+// than taking a bridge from context, so the console's fixture cannot stand in for the
+// preload the way it does for every console-authored surface. Under the fixture they
+// would reach past it: in a window with no preload at all they throw into the surface
+// boundary and read as a crash, and in the fixture build they would answer from the
+// live daemon beside fixture data in the same window, which is worse than answering
+// nothing. So the console says the question was not put, which is exactly what
+// happened.
 //
-// The suite that drives all three is `frame/legacy-surfaces.test.ts`, which walks the
-// frame's table and renders what each row produces. Driving them there rather than
-// here is deliberate: the claim is which component reaches which slot under which
+// THE NODE ROSTER IS NO LONGER ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
+// That view now takes an optional read seam and this module builds one from the bridge
+// the console has already resolved, so it asks whichever bridge this window is running
+// on: the control plane under the preload, the scenario's own roster frames under the
+// fixture. There is no longer a window in which it could reach past the console's
+// bridge, so the condition the guard tested does not arise for it — and every fixture
+// build that used to render "the question was not put" where the roster belongs now
+// renders the roster.
+//
+// The suite that drives the slot-held mounts is `frame/legacy-surfaces.test.ts`, which
+// walks the frame's table and renders what each row produces. Driving them there rather
+// than here is deliberate: the claim is which component reaches which slot under which
 // bridge, and the table is half of every one of those sentences.
 
 import { createElement, type ReactNode } from "react";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridgeSource } from "../bridge/index.js";
+import type { ConsoleBridge, ConsoleBridgeSource } from "../bridge/index.js";
+import { ConsoleRefusalError } from "../core/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
-import { NodeRoster } from "../../runtime-node-attach/index.js";
+import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // Deep, because `session-members/` ships no barrel. The other two are reached
 // through theirs. Adding one is that family's own diff, not the console's — the
 // console does not author files inside a subtree it merely absorbs.
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
+import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
 
 /**
  * The session probe, built on the participant's own act.
@@ -94,14 +106,141 @@ export function renderAbsorbedParticipantRoster(
   );
 }
 
-/** The runtime-node roster, on the same terms: a resolved subject, or an absence. */
+/**
+ * The runtime-node roster, mounted inside the console's agent console.
+ *
+ * Takes the session id rather than a route, because the two mounts that need it
+ * carry a session differently — one from a pane's own store, one from an auxiliary
+ * address — and neither should have to build a route to reach a component.
+ *
+ * Takes the BRIDGE rather than its source, because it now hands the view the pair
+ * of reads that bridge already serves rather than deciding whether to mount it at
+ * all. The bridge is optional for one caller's sake: the agent console is mounted
+ * from two contexts and types its own bridge prop as possibly absent, and a helper
+ * that demanded one would move that absence into the caller — which is precisely
+ * what the guard rule here says not to do.
+ *
+ * The seam it hands over is the SAME OBJECT for the same bridge, every call. That
+ * is what lets the view depend on it: this helper runs on every parent render, so
+ * a freshly composed pair each time would tear the roster's subscription down and
+ * re-open it on every keystroke above it, and a pair that never changed identity
+ * would leave the roster reading a bridge the provider has already replaced.
+ */
 export function renderAbsorbedNodeRoster(
-  bridgeSource: ConsoleBridgeSource,
-  subject: string | undefined,
+  bridge: ConsoleBridge | undefined,
+  sessionId: string | undefined,
 ): ReactNode {
-  return mountSessionScopedAbsorbedSurface(bridgeSource, subject, (sessionId) =>
-    createElement(NodeRoster, { sessionId }),
-  );
+  if (bridge === undefined) {
+    return centredAbsence({
+      kind: "not-checked",
+      title: "This surface was not handed a bridge to read the roster through.",
+      detail:
+        "The roster is one read per session, and this mount resolved nothing to perform it with. Nothing was asked.",
+    });
+  }
+  const resolvedSessionId = brandedSessionId(sessionId);
+  if (resolvedSessionId === undefined) {
+    return noSessionAbsence();
+  }
+  return createElement(NodeRoster, {
+    sessionId: resolvedSessionId,
+    reads: nodeRosterReadSeams.forBridge(bridge),
+  });
+}
+
+/**
+ * One read seam per bridge, held for as long as that bridge is reachable.
+ *
+ * WHY THE IDENTITY IS THE POINT. `SidekicksBridgeProvider` replaces its resolution
+ * as STATE without remounting anything below it — when the `bridge` prop or the
+ * scenario changes, and again when its own engine has been disposed and a second
+ * mount must take a fresh one. So "same session, different transport" is a state
+ * this console genuinely reaches, and the roster's effect has to notice it. It can
+ * only notice by depending on the seam, and depending on a pair rebuilt on every
+ * render would make the dependency fire on renders where nothing changed. Caching
+ * by bridge gives the effect exactly one signal: a different seam means a different
+ * bridge, and nothing else does.
+ *
+ * A `WeakMap` rather than a `Map` because the key is the whole lifetime: a
+ * superseded bridge is unreachable the moment the provider drops it, and its seam
+ * goes with it rather than accumulating one entry per scenario swap for the life of
+ * the window.
+ *
+ * A class with a private field rather than a module-level `Map`, on the
+ * `palette/keybinding-override-store.ts` precedent — module scope is window scope here,
+ * since an auxiliary window is its own renderer process and no channel joins two
+ * windows' module graphs.
+ */
+class NodeRosterReadSeams {
+  readonly #seamsByBridge = new WeakMap<ConsoleBridge, NodeRosterReads>();
+
+  public forBridge(bridge: ConsoleBridge): NodeRosterReads {
+    const existingSeam = this.#seamsByBridge.get(bridge);
+    if (existingSeam !== undefined) {
+      return existingSeam;
+    }
+    const seam = nodeRosterReadsFrom(bridge);
+    this.#seamsByBridge.set(bridge, seam);
+    return seam;
+  }
+}
+
+/** This window's seams. Not exported: the helper above is the only way in. */
+const nodeRosterReadSeams = new NodeRosterReadSeams();
+
+/**
+ * The roster's two reads, as the console's own bridge answers them.
+ *
+ * BOTH ARMS CONVERT A RETURNED REFUSAL INTO A THROWN ONE, and the conversion is
+ * the whole adapter. The bridge answers outcomes because a surface that renders a
+ * refusal wants a value; this view renders a refusal from its own error arm, which
+ * is reached by a rejection. `ConsoleRefusalError` is the console's one shape for a
+ * refusal that has to travel as an exception, so the code, the sentence, and the
+ * origin all survive the trip — the view renders `ConsoleRefusalError` followed by
+ * `<origin>: <code>: <detail>`, which is the refuser's own code verbatim rather
+ * than a paraphrase.
+ *
+ * The SUBSCRIBE arm throws for a second reason beyond symmetry. Handing back a
+ * no-op unsubscribe would leave the roster believing it is live: it would never
+ * re-read and would go quietly stale, which is the one failure a live roster exists
+ * to prevent. The view's own subscribe arm catches a synchronous throw, renders it,
+ * and deliberately SKIPS the initial read rather than painting a snapshot with no
+ * channel behind it — so a refusal here reads as a roster that is not live, which
+ * is what it is.
+ */
+function nodeRosterReadsFrom(bridge: ConsoleBridge): NodeRosterReads {
+  return {
+    readRoster: async (request) => {
+      const outcome = await bridge.runtimeNodeRosterRead(request);
+      if (outcome.status === "refused") {
+        throw new ConsoleRefusalError(outcome);
+      }
+      return outcome.value;
+    },
+    subscribePresence: (sessionId, onPresenceChange) => {
+      const subscription = bridge.runtimeNodePresenceSubscribe(sessionId, onPresenceChange);
+      if (subscription.status === "refused") {
+        throw new ConsoleRefusalError(subscription);
+      }
+      return subscription.unsubscribe;
+    },
+  };
+}
+
+/**
+ * The invite acceptance prompt, mounted inside the console's invite confirmation.
+ *
+ * Takes the token rather than a route for the reason the slot table gives: no
+ * address carries one, so a route could never supply it. The component performs
+ * the acceptance itself — this console authors no second `invite.accept` caller —
+ * and the guard travels with it, so a confirmation cannot mount the prompt past
+ * the fixture check.
+ */
+export function renderAbsorbedInviteAcceptance(
+  bridgeSource: ConsoleBridgeSource,
+  token: string,
+): ReactNode {
+  return mountAbsorbedSurface(bridgeSource, () => createElement(InviteAcceptView, { token }));
 }
 
 /**
@@ -143,13 +282,24 @@ function mountSessionScopedAbsorbedSurface(
   return mountAbsorbedSurface(bridgeSource, () => {
     const sessionId = brandedSessionId(subject);
     if (sessionId === undefined) {
-      return centredAbsence({
-        kind: "empty",
-        title: "This surface needs a session, and this address names none.",
-        detail: "Open a session from the Sessions list and the surface follows it.",
-      });
+      return noSessionAbsence();
     }
     return build(sessionId);
+  });
+}
+
+/**
+ * The absence a session-scoped surface renders at an address that names none.
+ *
+ * Written once because two mounts reach it from opposite sides now — the guarded
+ * path above, and the node roster, which has no guard left to reach it through —
+ * and one sentence a person reads must not exist in two places to drift between.
+ */
+function noSessionAbsence(): ReactNode {
+  return centredAbsence({
+    kind: "empty",
+    title: "This surface needs a session, and this address names none.",
+    detail: "Open a session from the Sessions list and the surface follows it.",
   });
 }
 

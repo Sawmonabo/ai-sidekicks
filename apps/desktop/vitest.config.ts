@@ -163,6 +163,15 @@ export default defineConfig({
         // (The node `main` smoke project imports contracts type-only → erased →
         // needs none. The `main-unit` project above DOES need them — see its
         // own block.)
+        // A Tier-1 renderer component consumes the console's subject-scoped holder —
+        // `runtime-node-attach/NodeRoster.tsx` holds its roster per session and per
+        // transport — and that holder reaches the console's `core` door, which
+        // carries the tripwire module's fixture branch. So this project compiles
+        // console source even though it runs no console test, and the flag has to be
+        // substituted here for the same reason `main-unit` above substitutes it:
+        // without it the bare identifier is a ReferenceError at import time. `false`,
+        // matching the release bundle, so the branch is statically dead.
+        define: { __SIDEKICKS_CONSOLE_FIXTURES__: "false" },
         resolve: {
           conditions: WORKSPACE_SOURCE_CONDITIONS,
         },

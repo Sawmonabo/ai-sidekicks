@@ -1,13 +1,29 @@
-// The console's named bounds.
+// The console's named bounds. All of them.
 //
 // `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine":
 // "Every cap, window, and timeout is a named constant with a one-line rationale".
-// This module is that place for the substrate's domains; each view family adds
-// its own module beside its subtree rather than widening this one, so a bound
-// always sits next to the code that spends it.
+// `apps/desktop/AGENTS.md` says where: "One value, one home: budgets and their unit
+// factors in `budgets.json`, caps in `console/core/constants.ts` with a rationale
+// each."
+//
+// ONE HOME MEANS ONE HOME. This file used to say a view family adds its own module
+// beside its subtree, and four families took that licence — `agents/constants.ts`,
+// `collaboration/constants.ts`, `sessions/bounds.ts`, `settings/constants.ts` — so a
+// cap audit's answer depended on which of five places it looked in, and a bound was
+// spelled `constants` in three of them and `bounds` in the fourth. Every bound lives
+// here now, and `test/console/architecture/cap-single-home.test.ts` fails the build
+// if a second home appears.
+//
+// GROUPED BY WHO SPENDS IT, banner-commented, appended within a group. The rationale
+// travels with the value: a bound moved here without the paragraph that says why it
+// is that number is a number, and a number is what this file exists to prevent.
+// `core/` is the bottom of the family DAG, so every family may import from it and no
+// family crosses another to reach a bound.
 //
 // A number that appears inline anywhere under `console/` and is not a layout
 // literal is a review rejection: the rationale is the point, not the constant.
+
+// ----------------------------------------------------------------- the substrate
 
 /**
  * Trailing debounce on the refresh scheduler. Long enough that a burst of
@@ -92,6 +108,28 @@ export const PERSISTENCE_RECORD_BYTE_CAP: number = 64 * 1024;
  */
 export const PERSISTENCE_QUOTA_PRESSURE_RATIO = 0.8;
 
+/**
+ * The longest identifier the persistence grammar admits. A UUID is 36 characters
+ * and a namespaced command id is well under this; prose is not.
+ *
+ * Held to by two boundaries rather than one — the durable value walk and the pane
+ * address parse — which is why it is a bound with a home and not a literal beside
+ * either of them.
+ */
+export const IDENTIFIER_MAX_LENGTH = 128;
+
+/**
+ * Live composer drafts one window holds before the oldest is evicted.
+ *
+ * More composers than a person has open, and still bounded: drafts are held in
+ * memory and never persisted, so the ceiling is what keeps a long session's
+ * abandoned text from growing without limit. It is supplied to `DraftStore` by the
+ * frame rather than defaulted inside it, because that module imports nothing at all
+ * — `draft-non-persistence.test.ts` asserts the zero, since acquiring anything there
+ * is the first move of persisting a draft.
+ */
+export const MAXIMUM_LIVE_DRAFT_COUNT = 64;
+
 /** Commands the palette remembers. Enough to cover a working session's rhythm. */
 export const PALETTE_RECENTS_CAP = 8;
 
@@ -102,11 +140,35 @@ export const PALETTE_RECENTS_CAP = 8;
 export const PALETTE_RESULT_CAP = 40;
 
 /**
+ * Rows a bounded enumeration shows before it scrolls.
+ *
+ * Six, and the number is a ceiling rather than a preference. The shortest window
+ * the console ships is 720 px tall (the agent-console auxiliary geometry), which is
+ * 45 rem at the 16 px root; an enumeration allowed to take more than a third of
+ * that would leave the surface holding it with nothing else on screen. Six rows is
+ * 13.875 rem and clears that third; seven is 16.1875 rem and does not. The rem
+ * height itself is the token family's, because it is this count multiplied by a row
+ * height the type and space scales decide.
+ */
+export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
+
+/**
  * Maximum nesting depth of a keybinding when-clause. Bounded so a malformed or
  * hostile expression cannot recurse the parser; past the bound the clause is
  * refused and the binding evaluates false, which is the fail-closed arm.
  */
 export const WHEN_CLAUSE_MAX_DEPTH = 8;
+
+/**
+ * Distinct context keys a pair of when-clauses may name before
+ * `whenClausesCanOverlap` stops enumerating.
+ *
+ * Twelve keys is 4096 assignments per pair, checked only for bindings that share a
+ * chord — microseconds, once, at install. It is set by what a human writes: a
+ * console clause names two or three keys, and a pair naming thirteen is a design
+ * smell long before it is a performance problem.
+ */
+export const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;
 
 /**
  * Participant chips the cast bar shows before folding to "+N" (rule 7).
@@ -173,6 +235,106 @@ export const LIVE_ANNOUNCEMENT_QUEUE_CAP = 8;
  * `LIVE_ANNOUNCEMENT_QUEUE_CAP` × this — seconds, not minutes.
  */
 export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
+
+// ---------------------------------------------------------------- the agents family
+
+/**
+ * Tool names rendered from a resolved allowlist before the list folds to a count.
+ *
+ * The allowlist is a snapshot taken at attach and can be long. Past this many names
+ * the line stops telling a reader what the agent may do and starts being a wall, and
+ * the useful residual fact is how many more there are.
+ */
+export const TOOL_ALLOWLIST_NAMED_CAP = 6;
+
+/**
+ * Characters of a resolved instruction or goal rendered inline before it clamps.
+ *
+ * Both are free prose an operator wrote and either may be pages. The echo's job at
+ * the point of confirmation is to prove the daemon resolved what was asked, which a
+ * leading passage does; the whole text belongs to the definition editor, which is
+ * another plan's body.
+ */
+export const RESOLVED_PROSE_INLINE_CAP = 240;
+
+// --------------------------------------------------------- the collaboration family
+
+/**
+ * How long a human's composing indicator survives without a refresh, in
+ * milliseconds.
+ *
+ * The receive half of the bound `Spec-023 §Console Design (Meridian)`'s
+ * collaboration section states. It sits well inside the thirty-second Awareness
+ * staleness window, so an indicator is gone from the screen long before the
+ * protocol would garbage-collect the client that wrote it.
+ *
+ * The publisher half is deliberately absent: no surface in this console emits a
+ * composing signal, because no transport carries one, and a bound spent by nobody
+ * is a number that would go stale unread before its first reader arrived. It lands
+ * beside the emitter, in the change that adds one.
+ */
+export const COMPOSING_RECEIVED_STALE_MS = 10_000;
+
+/**
+ * Concurrent composers rendered by name before the line folds to a count.
+ *
+ * Above three the line stops being information and starts being motion: the names
+ * churn faster than they can be read, and what a person actually wants from a
+ * fourth composer is the fact that the room is busy.
+ */
+export const COMPOSING_NAMED_CAP = 3;
+
+/**
+ * Settled invitations the sent-invite ledger renders inside its one disclosure.
+ *
+ * Sixteen. The fold exists because accepted, expired, and revoked rows are history
+ * rather than work, and history that outgrows one screenful stops being scannable
+ * and becomes a log — which is the timeline's job, not this section's. A sender who
+ * needs more than this is asking a question the ledger cannot answer, because no
+ * invite read carries a cursor to page with.
+ */
+export const SETTLED_INVITE_VISIBLE_CAP = 16;
+
+// -------------------------------------------------------------- the sessions family
+
+/**
+ * Back-tier rows the all-sessions list shows before folding the rest under a
+ * count (the design's density rule: "the back tier folds to a count when it
+ * exceeds the visible budget").
+ *
+ * Five, because the back tier is the demoted half of the list and its job is to
+ * stay reachable without competing with the front tier for the same screen. A
+ * taller budget makes the divider stop meaning anything; a shorter one folds a
+ * tier that had barely begun.
+ */
+export const SESSION_BACK_TIER_VISIBLE_CAP = 5;
+
+/**
+ * Invitations the shelf remembers a person set aside.
+ *
+ * Bounded because the hide set is a durable cache and an unbounded cache is a
+ * store that grows for as long as the install lives. Sixty-four is generous
+ * against the shape of the thing — an invitation is a rare, expiring object, and
+ * a person with more than this many set aside has a different problem — and the
+ * set is pruned against every served read besides, so the cap is the second line
+ * of defence rather than the first.
+ */
+export const HIDDEN_INVITE_CAP = 64;
+
+// -------------------------------------------------------------- the settings family
+
+/**
+ * Mounts a settings inventory reads in full before it stops naming them.
+ *
+ * The mount inventory is composed from two reads — the session's workspace list
+ * names the mounts, and each mount is then read for its path and its health — so
+ * the second read's cost is one call per distinct mount. Twenty-four is far above
+ * any session a person assembles by hand and low enough that a session with a
+ * pathological mount count cannot turn one settings visit into an unbounded fan-out.
+ * Past it the page names how many mounts it did not read rather than hiding them,
+ * because a silently truncated inventory is the one thing worse than a long one.
+ */
+export const MOUNT_INVENTORY_READ_CAP = 24;
 
 // ── The terminal family's bounds ──────────────────────────────────────────────
 //

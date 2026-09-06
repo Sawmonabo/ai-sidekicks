@@ -23,6 +23,20 @@ export type {
   AttentionTrigger,
 } from "./attention-projection.js";
 
+export type {
+  AgentAttachReading,
+  AgentAttachRequest,
+  AgentConfigUpdateReading,
+  AgentConfigUpdateRequest,
+  AgentDetachRequest,
+  AgentListRequest,
+  AgentRosterReading,
+  ChildRunLinkReadRequest,
+  ChildRunLinkReading,
+  PeerInvocationReading,
+  PeerInvocationSetRequest,
+} from "./agent-plane.js";
+
 export type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 
 export type {

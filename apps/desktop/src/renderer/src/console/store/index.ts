@@ -22,7 +22,10 @@ export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 // `ConsoleEntity` leaves the family because the two validating body reads live in
 // `bridge/daemon/entity-body-reads.ts`: a read that narrows a wire member has to sit where
 // the registered shapes may be imported, and it still takes and returns this
-// family's own entity.
+// family's own entity. It joins the reference and the event on the line below for a
+// second reader too: a family that reads a PARTITION of the projection — rather than
+// one entity by reference — has to name the row type to derive anything from it, as
+// the membership ledger and the agent console's session projection both do.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
@@ -61,6 +64,19 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./open-session-entry.js";
 
+// The refresh chokepoint, through the same door as the stores it feeds. A view
+// family that refreshes a wire read reaches this scheduler and no other timer:
+// `apps/desktop/AGENTS.md` puts every refresh through `store/scheduling.ts`, and a
+// chokepoint reachable only by deep-importing past this barrel is one a family
+// would route around rather than through.
+export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+
+// The signal half of a push-driven read, beside the scheduler that coalesces it.
+// It leaves the family because its callers are view families, which are siblings
+// and cannot reach each other — so the second caller's only alternative to this
+// door was the second copy of the filter that this export replaces.
+export { subscribeToSessionEventKinds } from "./session-event-signal.js";
+
 // The selector hook, and the state its selector reads.
 //
 // `useOpenSessionStore` hands a caller the store; reading it is a second act, and
@@ -81,6 +97,7 @@ export {
   useLocationHash,
   useOpenSessionIds,
   useOpenSessionStore,
+  useSessionDegraded,
   useSessionInitialised,
   useSessionPartition,
 } from "./hooks.js";
@@ -93,7 +110,6 @@ export {
 export {
   /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   earliestFutureDeadline,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   useDeadlineWake,
 } from "./deadline-wake.js";
 
@@ -132,11 +148,7 @@ export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
 export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
-export type {
-  /** @consumedBy T-023p-1C-8 */
-  CurrentGenerationClaim,
-  GenerationClaim,
-} from "./generation-latch.js";
+export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch.js";
 // The caller's own membership role, forwarded with the two types a caller has to name
 // to use it. Its first surface consumer is the terminal lease line: taking the shell
 // is owner/collaborator-only, so a control offered on identity alone offered viewers
