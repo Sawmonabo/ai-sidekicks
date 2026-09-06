@@ -76,46 +76,6 @@ export function bindFormVerdict(form: BindFormState): BindFormVerdict {
   };
 }
 
-/** One mode row the bind form offers, with the mount's own reason where it cannot. */
-export interface BindModeOption {
-  readonly mode: ExecutionMode;
-  readonly available: boolean;
-  /** The mount's own sentence for an excluded mode, or none on file. */
-  readonly restrictionReason: string | undefined;
-}
-
-/**
- * The modes this mount admits, in the order the daemon returned them, plus the ones it
- * excluded with the reason it gave.
- *
- * THE ORDER IS THE REPLY'S FOR THE AVAILABLE ROWS AND THE RESTRICTIONS MAP'S FOR THE
- * REST, so the console imposes no ranking of its own on either half. An excluded mode
- * with no entry in the map has no reason on file, which the row says outright rather
- * than filling in.
- */
-export function bindModeOptions(
-  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
-): readonly BindModeOption[] {
-  const available: BindModeOption[] = capabilities.availableModes.map((mode) => ({
-    mode,
-    available: true,
-    restrictionReason: undefined,
-  }));
-  const restrictions = capabilities.restrictions ?? {};
-  const excluded: BindModeOption[] = [];
-  for (const [mode, reason] of Object.entries(restrictions)) {
-    if (capabilities.availableModes.includes(mode as ExecutionMode)) {
-      continue;
-    }
-    excluded.push({
-      mode: mode as ExecutionMode,
-      available: false,
-      restrictionReason: reason,
-    });
-  }
-  return [...available, ...excluded];
-}
-
 /** The mode to pre-fill: the daemon's own default, and never a guess of the console's. */
 export function defaultBindMode(
   capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,

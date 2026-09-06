@@ -5,7 +5,7 @@ import type {
 import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import { ModeRowView } from "./ModeRowView.js";
-import { type ModeRow } from "./mode-row.js";
+import { executionModeRows } from "./mode-row.js";
 import { modeRestrictionReason, mountRefusalRecovery } from "./mount-refusal-copy.js";
 import { RefusalRecovery } from "./RefusalRecovery.js";
 
@@ -71,7 +71,7 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
     );
   }
 
-  const rows = modeRows(capabilities);
+  const rows = executionModeRows(capabilities);
   const { pendingMode } = props;
   return (
     <div className="meridian-mode-picker">
@@ -110,31 +110,4 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
       ) : null}
     </div>
   );
-}
-
-/**
- * The rows, built from the reply and from nothing else.
- *
- * Available modes first, in the order the daemon listed them; then every restricted
- * mode, in the order its reasons arrived. A mode named in BOTH halves is rendered
- * once, as available, and keeps its reason visible — the reply is malformed in that
- * case and hiding half of it would be the renderer deciding which half was true.
- */
-function modeRows(
-  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
-): readonly ModeRow[] {
-  const restrictions = capabilities.restrictions ?? {};
-  const rows: ModeRow[] = capabilities.availableModes.map((mode) => ({
-    mode,
-    available: true,
-    restrictionReason: restrictions[mode],
-  }));
-  for (const [restrictedMode, reason] of Object.entries(restrictions)) {
-    const mode = restrictedMode as ExecutionMode;
-    if (rows.some((row) => row.mode === mode)) {
-      continue;
-    }
-    rows.push({ mode, available: false, restrictionReason: reason });
-  }
-  return rows;
 }

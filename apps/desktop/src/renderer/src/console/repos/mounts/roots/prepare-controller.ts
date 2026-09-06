@@ -7,9 +7,11 @@
 // surface that sent the prepare first would learn the same three facts as REFUSALS,
 // after the fact, and would have no way to ask for the consent the dirty case needs.
 //
-// THE CHECK IS KEYED ON WHAT WAS TYPED AND IS RE-RUN WHEN IT CHANGES, which is why it
-// is a call a control makes rather than a read this class arms on construction: the
-// branch name is the question, and it does not exist until someone types one.
+// THE CHECK IS KEYED ON WHAT WAS TYPED AND IS RE-RUN WHEN IT CHANGES, which is why the
+// branch name is the prerequisite QUESTION `store/act-controller.ts` is scoped to: it
+// does not exist until someone types one, a different one abandons the answer in
+// flight, and an emptied field withdraws it rather than leaving a verdict on screen
+// attached to a branch nobody named.
 //
 // THE CLONE PREPARE IS HERE TOO, AND NOT IN A THIRD CLASS. It is the same act — put an
 // execution root on disk for this workspace — reached by a different call because the
@@ -19,15 +21,6 @@
 // NOTHING IS RE-READ AFTER A SETTLEMENT BY THIS CLASS. The section owns its own
 // reading and re-reads on the participant's act; a controller that also re-read would
 // put two reads on the wire for one prepare.
-//
-// THE CHECK IS A WIRE READING, SO IT GOES THROUGH THE CONSOLE'S ONE SCHEDULER. Whether
-// a branch already has a live checkout is a fact about the mount that another
-// participant's retire, or another run's prepare, changes while this form sits open —
-// so `Spec-023 §Rules every console surface obeys` applies to it exactly as it applies
-// to the section's own read: no timer, four admitted reasons, one scheduler. What is
-// unusual is only that the QUESTION arrives late. There is nothing to ask until a
-// branch is named, so a refresh reason arriving with no named branch asks nothing
-// rather than sending a request the contract would refuse unread.
 //
 // AND THE PREPARE ITSELF IS NOT REFRESHABLE, which is why only the check half is
 // scheduled. A prepare is an act a person took once; re-sending it on a window focus
@@ -43,16 +36,12 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
+import type { ConsoleClock, Unsubscribe } from "../../../core/index.js";
 import {
-  Emitter,
-  normalizeWireRejection,
-  type ConsoleClock,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../../core/index.js";
-import {
-  RefreshScheduler,
-  SessionRefreshTriggers,
+  ActController,
+  type ActPrerequisiteReading,
+  type ActReading,
+  type ActSettlementReading,
   type ReadTriggerTarget,
   type RefreshReason,
   type SessionStore,
@@ -66,31 +55,21 @@ import {
 } from "../../repo-reads.js";
 import { reuseVerdictFor, type ReuseVerdict } from "./root-act-model.js";
 
-/** Where the reuse check stands, for the branch name currently in the form. */
-export type ReuseCheckReading =
-  | { readonly status: "not-checked" }
-  | { readonly status: "checking" }
-  | { readonly status: "checked"; readonly verdict: ReuseVerdict }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/** Where the prepare stands. Its served arm carries the root the daemon put on disk. */
-export type PrepareActReading =
-  | { readonly status: "idle" }
-  | { readonly status: "sending" }
-  | { readonly status: "prepared"; readonly executionRoot: string; readonly state: string }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/** Both halves, published together so a surface renders one consistent frame. */
-export interface PrepareReading {
-  readonly reuse: ReuseCheckReading;
-  readonly act: PrepareActReading;
+/** What a finished prepare carries: the root on disk, and the state it is in. */
+export interface PrepareSettlement {
+  readonly status: "prepared";
+  readonly executionRoot: string;
+  readonly state: string;
 }
 
-/** Nothing checked and nothing sent. */
-export const PREPARE_NOT_STARTED: PrepareReading = {
-  reuse: { status: "not-checked" },
-  act: { status: "idle" },
-};
+/** Where the reuse check stands, for the branch name currently in the form. */
+export type ReuseCheckReading = ActPrerequisiteReading<ReuseVerdict>;
+
+/** Where the prepare stands. Its served arm carries the root the daemon put on disk. */
+export type PrepareActReading = ActSettlementReading<PrepareSettlement>;
+
+/** Both halves, published together so a surface renders one consistent frame. */
+export type PrepareReading = ActReading<ReuseVerdict, PrepareSettlement>;
 
 /** What one prepare controller is scoped to: a workspace, on a mount, in one mode. */
 export interface PrepareSubject {
@@ -124,47 +103,40 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
   );
   readonly #bridge: ConsoleBridge;
   readonly #subject: PrepareSubject;
-  readonly #scheduler: RefreshScheduler;
-  readonly #triggers: SessionRefreshTriggers;
-  readonly #changes = new Emitter<PrepareReading>("execution root prepare reading");
-  #reading: PrepareReading = PREPARE_NOT_STARTED;
-  #started = false;
-  #disposed = false;
-  /**
-   * The branch the newest check was issued for.
-   *
-   * THE GUARD AGAINST A LATE ANSWER OVERWRITING A NEWER QUESTION. Two checks in flight
-   * settle in whatever order the wire returns them, and without this the verdict on
-   * screen could be the one for a branch name the participant has already edited away
-   * from — which is the one state that would let a consent be given for the wrong tree.
-   */
-  #checkedBranch: string | undefined;
+  readonly #acts: ActController<ReuseVerdict, PrepareSettlement>;
 
   public constructor(options: PrepareControllerOptions) {
     this.#bridge = options.bridge;
     this.#subject = options.subject;
-    this.#scheduler = new RefreshScheduler({
+    this.#acts = new ActController({
+      label: "execution root prepare reading",
       clock: options.clock,
-      perform: async () => {
-        await this.#performReuseCheck();
-      },
-      // A check that threw past its own refusal handling reaches nobody from inside a
-      // scheduler callback, so it lands in the reuse half as a refusal instead — the
-      // form renders it rather than holding the verdict it was showing before.
-      onError: (error: unknown) => {
-        this.#publish({
-          ...this.#reading,
-          reuse: {
-            status: "refused",
-            refusal: normalizeWireRejection(REPO_READS_REFUSAL_ORIGIN, error),
-          },
-        });
-      },
-    });
-    this.#triggers = new SessionRefreshTriggers({
-      target: this,
       sessionStore: options.sessionStore,
+      triggeringEventKinds: this.triggeringEventKinds,
+      refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
+      readPrerequisite: async (branchName: string) => {
+        const reply = await checkWorktreeReuse(
+          this.#bridge,
+          this.#subject.repoMountId as RepoMountId,
+          branchName,
+        );
+        return reply.status === "refused"
+          ? reply
+          : { status: "served", value: reuseVerdictFor(reply.value) };
+      },
     });
+  }
+
+  public get snapshot(): PrepareReading {
+    return this.#acts.snapshot;
+  }
+
+  public get isDisposed(): boolean {
+    return this.#acts.isDisposed;
+  }
+
+  public subscribe(sink: (reading: PrepareReading) => void): Unsubscribe {
+    return this.#acts.subscribe(sink);
   }
 
   /**
@@ -176,11 +148,7 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    * with the first `checkReuse`.
    */
   public start(): void {
-    if (this.#started || this.#disposed) {
-      return;
-    }
-    this.#started = true;
-    this.#triggers.start();
+    this.#acts.start();
   }
 
   /**
@@ -192,29 +160,11 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    * an empty branch on every focus for the life of the card.
    */
   public requestRead(reason: RefreshReason): void {
-    if (this.#disposed || this.#checkedBranch === undefined) {
-      return;
-    }
-    this.#scheduler.request(reason);
-  }
-
-  public get snapshot(): PrepareReading {
-    return this.#reading;
-  }
-
-  public get isDisposed(): boolean {
-    return this.#disposed;
-  }
-
-  public subscribe(sink: (reading: PrepareReading) => void): Unsubscribe {
-    return this.#changes.subscribe(sink);
+    this.#acts.requestRead(reason);
   }
 
   public dispose(): void {
-    this.#disposed = true;
-    this.#scheduler.dispose();
-    this.#triggers.dispose();
-    this.#changes.clear();
+    this.#acts.dispose();
   }
 
   /**
@@ -226,46 +176,11 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    * to a branch nobody named.
    */
   public checkReuse(branchName: string): void {
-    if (this.#disposed) {
-      return;
-    }
     if (branchName.trim().length === 0) {
-      this.#checkedBranch = undefined;
-      this.#publish({ ...this.#reading, reuse: { status: "not-checked" } });
+      this.#acts.withdraw();
       return;
     }
-    this.#checkedBranch = branchName;
-    this.#publish({ ...this.#reading, reuse: { status: "checking" } });
-    this.requestRead("participant-request");
-  }
-
-  /**
-   * Ask the daemon about the branch the newest check named.
-   *
-   * READS THE BRANCH AT PERFORM TIME rather than taking one at request time, because
-   * the scheduler coalesces: two edits inside one debounce window are one call, and it
-   * has to be the call for what is in the field NOW.
-   */
-  async #performReuseCheck(): Promise<void> {
-    const branchName = this.#checkedBranch;
-    if (branchName === undefined) {
-      return;
-    }
-    const reply = await checkWorktreeReuse(
-      this.#bridge,
-      this.#subject.repoMountId as RepoMountId,
-      branchName,
-    );
-    if (this.#disposed || this.#checkedBranch !== branchName) {
-      return;
-    }
-    this.#publish({
-      ...this.#reading,
-      reuse:
-        reply.status === "refused"
-          ? { status: "refused", refusal: reply.refusal }
-          : { status: "checked", verdict: reuseVerdictFor(reply.value) },
-    });
+    this.#acts.ask(branchName, "participant-request");
   }
 
   /**
@@ -277,27 +192,22 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    * nothing — which is why the reuse id is what decides whether either is sent.
    */
   public async prepare(branchName: string, acknowledgeDirtyCandidate: boolean): Promise<void> {
-    if (this.#reading.act.status === "sending" || this.#disposed) {
-      return;
-    }
-    const reuse = this.#reading.reuse;
-    const reuseWorktreeId =
-      reuse.status === "checked" && reuse.verdict.kind !== "none"
-        ? reuse.verdict.worktreeId
-        : undefined;
-    this.#publish({ ...this.#reading, act: { status: "sending" } });
-    const reply = await prepareExecutionRoot(this.#bridge, {
-      workspaceId: this.#subject.workspaceId as WorkspaceId,
-      branchName,
-      ...(reuseWorktreeId === undefined
-        ? {}
-        : { reuseWorktreeId: reuseWorktreeId as WorktreeId, acknowledgeDirtyCandidate }),
-    });
-    this.#settle(reply, (value: ExecutionRootPrepareResponse) => ({
-      status: "prepared" as const,
-      executionRoot: value.executionRoot,
-      state: value.state,
-    }));
+    const reuseWorktreeId = this.#reusableCandidate();
+    await this.#acts.act(
+      async () =>
+        await prepareExecutionRoot(this.#bridge, {
+          workspaceId: this.#subject.workspaceId as WorkspaceId,
+          branchName,
+          ...(reuseWorktreeId === undefined
+            ? {}
+            : { reuseWorktreeId: reuseWorktreeId as WorktreeId, acknowledgeDirtyCandidate }),
+        }),
+      (value: ExecutionRootPrepareResponse) => ({
+        status: "prepared" as const,
+        executionRoot: value.executionRoot,
+        state: value.state,
+      }),
+    );
   }
 
   /**
@@ -310,57 +220,30 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    * asked it to choose.
    */
   public async prepareClone(branchName: string): Promise<void> {
-    if (this.#reading.act.status === "sending" || this.#disposed) {
-      return;
-    }
-    this.#publish({ ...this.#reading, act: { status: "sending" } });
-    const reply = await prepareEphemeralClone(this.#bridge, {
-      workspaceId: this.#subject.workspaceId as WorkspaceId,
-      branchName,
-    });
-    this.#settle(reply, (value: EphemeralClonePrepareResponse) => ({
-      status: "prepared" as const,
-      executionRoot: value.cloneRoot,
-      state: value.state,
-    }));
+    await this.#acts.act(
+      async () =>
+        await prepareEphemeralClone(this.#bridge, {
+          workspaceId: this.#subject.workspaceId as WorkspaceId,
+          branchName,
+        }),
+      (value: EphemeralClonePrepareResponse) => ({
+        status: "prepared" as const,
+        executionRoot: value.cloneRoot,
+        state: value.state,
+      }),
+    );
   }
 
   /** Put the act half back to idle, so a second prepare is not read against the first. */
   public clearAct(): void {
-    if (this.#reading.act.status === "idle") {
-      return;
-    }
-    this.#publish({ ...this.#reading, act: { status: "idle" } });
+    this.#acts.clearAct();
   }
 
-  /**
-   * Publish one prepare's settlement, whichever call produced it.
-   *
-   * THE TWO CALLS ANSWER DIFFERENT SHAPES AND SETTLE THE SAME WAY, which is what this
-   * takes a reader for: the worktree arm names its root `executionRoot` and the clone
-   * arm names its root `cloneRoot`, and a surface that had to know which call it had
-   * made in order to read the answer would carry the branch twice.
-   */
-  #settle<TValue>(
-    reply:
-      | { readonly status: "served"; readonly value: TValue }
-      | { readonly status: "refused"; readonly refusal: ConsoleRefusal },
-    read: (value: TValue) => PrepareActReading,
-  ): void {
-    if (this.#disposed) {
-      return;
-    }
-    this.#publish({
-      ...this.#reading,
-      act:
-        reply.status === "refused"
-          ? { status: "refused", refusal: reply.refusal }
-          : read(reply.value),
-    });
-  }
-
-  #publish(reading: PrepareReading): void {
-    this.#reading = reading;
-    this.#changes.emit(reading);
+  /** The worktree the newest verdict names, where the verdict names one at all. */
+  #reusableCandidate(): string | undefined {
+    const { prerequisite } = this.#acts.snapshot;
+    return prerequisite.status === "read" && prerequisite.value.kind !== "none"
+      ? prerequisite.value.worktreeId
+      : undefined;
   }
 }

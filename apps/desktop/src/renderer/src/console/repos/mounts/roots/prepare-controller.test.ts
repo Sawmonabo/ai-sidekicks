@@ -40,7 +40,11 @@ async function settleCheck(
     await Promise.resolve();
   }
   clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && controller.snapshot.reuse.status === "checking"; turn += 1) {
+  for (
+    let turn = 0;
+    turn < 50 && controller.snapshot.prerequisite.status === "reading";
+    turn += 1
+  ) {
     await Promise.resolve();
   }
 }
@@ -56,25 +60,25 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
     const { controller, clock } = open();
     controller.checkReuse("feat/rate-limit-wiring");
     await settleCheck(controller, clock);
-    const { reuse } = controller.snapshot;
-    expect(reuse.status).toBe("checked");
-    expect(reuse.status === "checked" && reuse.verdict.kind).toBe("dirty");
+    const { prerequisite } = controller.snapshot;
+    expect(prerequisite.status).toBe("read");
+    expect(prerequisite.status === "read" && prerequisite.value.kind).toBe("dirty");
   });
 
   it("finds the incompatible candidate, which admits no consent", async () => {
     const { controller, clock } = open();
     controller.checkReuse("review/rate-limit-wiring");
     await settleCheck(controller, clock);
-    const { reuse } = controller.snapshot;
-    expect(reuse.status === "checked" && reuse.verdict.kind).toBe("incompatible");
+    const { prerequisite } = controller.snapshot;
+    expect(prerequisite.status === "read" && prerequisite.value.kind).toBe("incompatible");
   });
 
   it("answers an unheld branch with no candidate at all", async () => {
     const { controller, clock } = open();
     controller.checkReuse("feat/nothing-here");
     await settleCheck(controller, clock);
-    const { reuse } = controller.snapshot;
-    expect(reuse.status === "checked" && reuse.verdict.kind).toBe("none");
+    const { prerequisite } = controller.snapshot;
+    expect(prerequisite.status === "read" && prerequisite.value.kind).toBe("none");
   });
 
   it("withdraws the question when the field is cleared", async () => {
@@ -83,7 +87,7 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
     await settleCheck(controller, clock);
     controller.checkReuse("   ");
     // A verdict left on screen would be attached to a branch nobody named.
-    expect(controller.snapshot.reuse.status).toBe("not-checked");
+    expect(controller.snapshot.prerequisite.status).toBe("not-read");
   });
 
   it("negative control: a refresh reason with no branch named puts nothing on the wire", async () => {
@@ -92,7 +96,7 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
     controller.start();
     controller.requestRead("window-focus");
     await settleCheck(controller, clock);
-    expect(controller.snapshot.reuse.status).toBe("not-checked");
+    expect(controller.snapshot.prerequisite.status).toBe("not-read");
   });
 
   it("declares this family's event census, so a retired root re-asks the question", () => {
@@ -127,10 +131,10 @@ describe("ExecutionRootPrepareController — the prepare", () => {
   it("prepares a clone through the clone call, with no reuse check behind it", async () => {
     const { controller } = open("ephemeral clone");
     await controller.prepareClone("feat/clone-root");
-    const { act, reuse } = controller.snapshot;
+    const { act, prerequisite } = controller.snapshot;
     expect(act.status).toBe("prepared");
     // A clone is minted per run and nothing is reused, so the check is never made.
-    expect(reuse.status).toBe("not-checked");
+    expect(prerequisite.status).toBe("not-read");
   });
 
   it("clears the act without clearing the verdict beside it", async () => {
@@ -140,6 +144,6 @@ describe("ExecutionRootPrepareController — the prepare", () => {
     await controller.prepare("feat/rate-limit-wiring", false);
     controller.clearAct();
     expect(controller.snapshot.act.status).toBe("idle");
-    expect(controller.snapshot.reuse.status).toBe("checked");
+    expect(controller.snapshot.prerequisite.status).toBe("read");
   });
 });

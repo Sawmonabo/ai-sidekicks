@@ -10,18 +10,19 @@
 // binding anything, and every one of them is a question about a workspace that does not
 // exist yet.
 //
-// AND ONCE MADE IT GOES THROUGH THE CONSOLE'S ONE SCHEDULER. `Spec-023 §Rules every
-// console surface obeys` admits four reasons to read again and forbids interval
-// polling, so this class hands itself to a `SessionRefreshTriggers` exactly as the
-// section's reader does. What a mount admits changes when the mount does, which is why
-// the census it declares is this family's own.
+// WHAT A MOUNT ADMITS CHANGES WHEN THE MOUNT DOES, which is why the census this reading
+// declares is this family's own rather than a list written in this module.
 //
 // THE SETTLEMENT IS PUBLISHED ON BOTH ARMS. A writable bind answers `provisioning` with
 // no root at all — the execution root does not exist yet — and a `read-only` bind
 // answers with its root on the same reply. Both are settlements a person reads, and a
 // dialog that closed on the press would report the refusal as a success.
+//
+// EVERYTHING ELSE IS `store/act-controller.ts`'S, on the attach controller's note: the
+// scheduler, the triggers, the arms, the single-flight guard, and the disposed latch
+// were written three times in this directory and are now written once.
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo } from "react";
 
 import type {
   ExecutionMode,
@@ -31,21 +32,16 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
+import type { ConsoleClock, Unsubscribe } from "../../../core/index.js";
 import {
-  Emitter,
-  normalizeWireRejection,
-  type ConsoleClock,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../../core/index.js";
-import {
-  RefreshScheduler,
-  SessionRefreshTriggers,
-  useSubjectScopedResource,
+  ActController,
+  useActController,
+  type ActPrerequisiteReading,
+  type ActReading,
+  type ActSettlementReading,
   type ReadTriggerTarget,
   type RefreshReason,
   type SessionStore,
-  type SubjectScopedDisposal,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
 import {
@@ -54,28 +50,24 @@ import {
   REPO_READS_REFUSAL_ORIGIN,
 } from "../../repo-reads.js";
 
+/** What a finished bind carries: the workspace the daemon bound, in whatever state. */
+export interface BindSettlement {
+  readonly status: "bound";
+  readonly response: WorkspaceBindResponse;
+}
+
 /** Where the pre-bind capabilities read stands, in the four states rule 8 keeps apart. */
 export type BindCapabilitiesReading =
-  | { readonly status: "not-read" }
-  | { readonly status: "reading" }
-  | {
-      readonly status: "read";
-      readonly capabilities: WorkspaceExecutionModeCapabilitiesReadResponse;
-    }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  ActPrerequisiteReading<WorkspaceExecutionModeCapabilitiesReadResponse>;
 
 /** Where the bind itself stands. */
-export type BindActReading =
-  | { readonly status: "idle" }
-  | { readonly status: "sending" }
-  | { readonly status: "bound"; readonly response: WorkspaceBindResponse }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+export type BindActReading = ActSettlementReading<BindSettlement>;
 
-/** Both readings, published together so a surface renders one consistent frame. */
-export interface BindReading {
-  readonly capabilities: BindCapabilitiesReading;
-  readonly act: BindActReading;
-}
+/** Both halves, published together so a surface renders one consistent frame. */
+export type BindReading = ActReading<
+  WorkspaceExecutionModeCapabilitiesReadResponse,
+  BindSettlement
+>;
 
 /** What one bind controller is scoped to: a mount, its session, and the clock. */
 export interface BindControllerOptions {
@@ -87,11 +79,14 @@ export interface BindControllerOptions {
   readonly clock: ConsoleClock;
 }
 
-/** Nothing asked and nothing sent. */
-export const BIND_NOT_STARTED: BindReading = {
-  capabilities: { status: "not-read" },
-  act: { status: "idle" },
-};
+/**
+ * The pre-bind question, named once.
+ *
+ * A CONSTANT for the roster question's reason: there is one of it per controller, and
+ * the controller is already scoped to the mount it asks about. Its stability is what
+ * keeps a reopened dialog off the wire.
+ */
+const CAPABILITIES_QUESTION = "capabilities";
 
 /** Reads what a mount admits and sends the bind for it. */
 export class BindWorkspaceController implements ReadTriggerTarget {
@@ -101,47 +96,32 @@ export class BindWorkspaceController implements ReadTriggerTarget {
   );
   readonly #bridge: ConsoleBridge;
   readonly #repoMountId: string;
-  readonly #scheduler: RefreshScheduler;
-  readonly #triggers: SessionRefreshTriggers;
-  readonly #changes = new Emitter<BindReading>("workspace bind reading");
-  #reading: BindReading = BIND_NOT_STARTED;
-  #capabilitiesRequested = false;
-  #disposed = false;
+  readonly #acts: ActController<WorkspaceExecutionModeCapabilitiesReadResponse, BindSettlement>;
 
   public constructor(options: BindControllerOptions) {
     this.#bridge = options.bridge;
     this.#repoMountId = options.repoMountId;
-    this.#scheduler = new RefreshScheduler({
+    this.#acts = new ActController({
+      label: "workspace bind reading",
       clock: options.clock,
-      perform: async () => {
-        await this.#performRead();
-      },
-      onError: (error: unknown) => {
-        this.#publish({
-          ...this.#reading,
-          capabilities: {
-            status: "refused",
-            refusal: normalizeWireRejection(REPO_READS_REFUSAL_ORIGIN, error),
-          },
-        });
-      },
-    });
-    this.#triggers = new SessionRefreshTriggers({
-      target: this,
       sessionStore: options.sessionStore,
+      triggeringEventKinds: this.triggeringEventKinds,
+      refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
+      readPrerequisite: async () =>
+        await readMountExecutionModeCapabilities(this.#bridge, this.#repoMountId as RepoMountId),
     });
   }
 
   public get snapshot(): BindReading {
-    return this.#reading;
+    return this.#acts.snapshot;
   }
 
   public get isDisposed(): boolean {
-    return this.#disposed;
+    return this.#acts.isDisposed;
   }
 
   public subscribe(sink: (reading: BindReading) => void): Unsubscribe {
-    return this.#changes.subscribe(sink);
+    return this.#acts.subscribe(sink);
   }
 
   /**
@@ -151,12 +131,7 @@ export class BindWorkspaceController implements ReadTriggerTarget {
    * popup shut, and re-reading on every open would put a call on the wire per glance.
    */
   public requestCapabilities(): void {
-    if (this.#capabilitiesRequested || this.#disposed) {
-      return;
-    }
-    this.#capabilitiesRequested = true;
-    this.#triggers.start();
-    this.requestRead("subscribe");
+    this.#acts.ask(CAPABILITIES_QUESTION, "subscribe");
   }
 
   /**
@@ -167,18 +142,12 @@ export class BindWorkspaceController implements ReadTriggerTarget {
    * while nobody has opened the dialog changes nothing on screen.
    */
   public requestRead(reason: RefreshReason): void {
-    if (this.#disposed || !this.#capabilitiesRequested) {
-      return;
-    }
-    if (this.#reading.capabilities.status === "not-read") {
-      this.#publish({ ...this.#reading, capabilities: { status: "reading" } });
-    }
-    this.#scheduler.request(reason);
+    this.#acts.requestRead(reason);
   }
 
   /** Ask again after a refused read. The participant-driven one of the four. */
   public retryCapabilities(): void {
-    this.requestRead("participant-request");
+    this.#acts.retryRead();
   }
 
   /**
@@ -188,64 +157,26 @@ export class BindWorkspaceController implements ReadTriggerTarget {
    * one bind is on the wire binds a second workspace for one intent.
    */
   public async bind(executionMode: ExecutionMode, directory: string | undefined): Promise<void> {
-    if (this.#reading.act.status === "sending" || this.#disposed) {
-      return;
-    }
-    this.#publish({ ...this.#reading, act: { status: "sending" } });
-    const reply = await bindWorkspace(this.#bridge, {
-      repoMountId: this.#repoMountId as RepoMountId,
-      executionMode,
-      // OMITTED AND NOT EMPTIED. The absent member means the mount root; an empty
-      // string is a path of no characters, which the parser refuses.
-      ...(directory === undefined ? {} : { directory }),
-    });
-    if (this.#disposed) {
-      return;
-    }
-    this.#publish({
-      ...this.#reading,
-      act:
-        reply.status === "refused"
-          ? { status: "refused", refusal: reply.refusal }
-          : { status: "bound", response: reply.value },
-    });
+    await this.#acts.act(
+      async () =>
+        await bindWorkspace(this.#bridge, {
+          repoMountId: this.#repoMountId as RepoMountId,
+          executionMode,
+          // OMITTED AND NOT EMPTIED. The absent member means the mount root; an empty
+          // string is a path of no characters, which the parser refuses.
+          ...(directory === undefined ? {} : { directory }),
+        }),
+      (response: WorkspaceBindResponse) => ({ status: "bound" as const, response }),
+    );
   }
 
   /** Put the act half back to idle. The read half is deliberately untouched. */
   public clearAct(): void {
-    if (this.#reading.act.status === "idle") {
-      return;
-    }
-    this.#publish({ ...this.#reading, act: { status: "idle" } });
+    this.#acts.clearAct();
   }
 
   public dispose(): void {
-    this.#disposed = true;
-    this.#scheduler.dispose();
-    this.#triggers.dispose();
-    this.#changes.clear();
-  }
-
-  async #performRead(): Promise<void> {
-    const reply = await readMountExecutionModeCapabilities(
-      this.#bridge,
-      this.#repoMountId as RepoMountId,
-    );
-    if (this.#disposed) {
-      return;
-    }
-    this.#publish({
-      ...this.#reading,
-      capabilities:
-        reply.status === "refused"
-          ? { status: "refused", refusal: reply.refusal }
-          : { status: "read", capabilities: reply.value },
-    });
-  }
-
-  #publish(reading: BindReading): void {
-    this.#reading = reading;
-    this.#changes.emit(reading);
+    this.#acts.dispose();
   }
 }
 
@@ -271,18 +202,11 @@ export function useBindController(
   // One window, one time base, memoised so a fresh clock per render does not re-mint
   // the controller beneath it.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { value: controller } = useSubjectScopedResource(
+  const { controller, reading } = useActController(
     bridge,
     repoMountId,
     () => new BindWorkspaceController({ bridge, repoMountId, sessionStore, clock }),
-    BIND_CONTROLLER_DISPOSAL,
   );
-  const subscribe = useCallback(
-    (onReadingChange: () => void) => controller.subscribe(onReadingChange),
-    [controller],
-  );
-  const read = useCallback(() => controller.snapshot, [controller]);
-  const reading = useSyncExternalStore(subscribe, read, read);
   const requestCapabilities = useCallback(() => {
     controller.requestCapabilities();
   }, [controller]);
@@ -300,11 +224,3 @@ export function useBindController(
   }, [controller]);
   return { reading, requestCapabilities, retryCapabilities, bind, clearAct };
 }
-
-/** How one controller ends, and how one already ended is recognised. */
-const BIND_CONTROLLER_DISPOSAL: SubjectScopedDisposal<BindWorkspaceController> = {
-  dispose: (controller) => {
-    controller.dispose();
-  },
-  isClosed: (controller) => controller.isDisposed,
-};

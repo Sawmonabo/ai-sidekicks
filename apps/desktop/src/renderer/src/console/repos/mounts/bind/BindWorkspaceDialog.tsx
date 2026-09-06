@@ -25,11 +25,11 @@ import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js
 import type { SessionStore } from "../../../store/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
+import { executionModeRows } from "../mode-row.js";
 import { BindModePicker } from "./BindModePicker.js";
 import { useBindController, type BindReading } from "./bind-controller.js";
 import {
   bindFormVerdict,
-  bindModeOptions,
   defaultBindMode,
   EMPTY_BIND_FORM,
   type BindFormState,
@@ -78,8 +78,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
   // has touched: a later re-read must not move a mode a participant has chosen. Held in
   // a ref rather than derived, because the pre-fill is an event and not a state.
   const preFilledFor = useRef<string | undefined>(undefined);
-  const served =
-    reading.capabilities.status === "read" ? reading.capabilities.capabilities : undefined;
+  const served = reading.prerequisite.status === "read" ? reading.prerequisite.value : undefined;
   useEffect(() => {
     if (served === undefined || preFilledFor.current === props.repoMountId) {
       return;
@@ -191,7 +190,7 @@ function renderModes(
   onSelect: (mode: ExecutionMode) => void,
   onRetry: () => void,
 ): React.JSX.Element {
-  switch (reading.capabilities.status) {
+  switch (reading.prerequisite.status) {
     case "not-read":
       return <Nothing kind="not-checked" title="What this mount admits has not been read." />;
     case "reading":
@@ -200,8 +199,8 @@ function renderModes(
       return (
         <div className="meridian-bind__modes-refusal">
           <InlineRefusal
-            code={reading.capabilities.refusal.code}
-            detail={reading.capabilities.refusal.detail}
+            code={reading.prerequisite.refusal.code}
+            detail={reading.prerequisite.refusal.detail}
           />
           <button type="button" className="meridian-bind__retry" onClick={onRetry}>
             Read the modes again
@@ -211,7 +210,7 @@ function renderModes(
     case "read":
       return (
         <BindModePicker
-          options={bindModeOptions(reading.capabilities.capabilities)}
+          options={executionModeRows(reading.prerequisite.value)}
           selectedMode={selectedMode}
           groupName={MODE_GROUP_NAME}
           onSelect={onSelect}

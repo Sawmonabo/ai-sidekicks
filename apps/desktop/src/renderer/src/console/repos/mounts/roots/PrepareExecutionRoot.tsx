@@ -181,7 +181,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
  * treating it as consent-requiring would ask for a consent about nothing.
  */
 function reuseVerdictOf(reading: PrepareReading): ReuseVerdict {
-  return reading.reuse.status === "checked" ? reading.reuse.verdict : { kind: "none" };
+  return reading.prerequisite.status === "read" ? reading.prerequisite.value : { kind: "none" };
 }
 
 /** One honest line per reading, for a summary with room for exactly one. */
@@ -192,15 +192,15 @@ function summaryLineFor(reading: PrepareReading, isClone: boolean): string {
   if (isClone) {
     return "a clone per run";
   }
-  switch (reading.reuse.status) {
-    case "not-checked":
+  switch (reading.prerequisite.status) {
+    case "not-read":
       return "name a branch";
-    case "checking":
+    case "reading":
       return "checking for a live checkout";
     case "refused":
-      return `reuse not checked — ${reading.reuse.refusal.code}`;
-    case "checked":
-      return reading.reuse.verdict.kind;
+      return `reuse not checked — ${reading.prerequisite.refusal.code}`;
+    case "read":
+      return reading.prerequisite.value.kind;
   }
 }
 
@@ -213,21 +213,21 @@ function summaryLineFor(reading: PrepareReading, isClone: boolean): string {
  * person reading a git fact with no statement of what it costs them.
  */
 function renderReuse(reading: PrepareReading): React.JSX.Element {
-  switch (reading.reuse.status) {
-    case "not-checked":
+  switch (reading.prerequisite.status) {
+    case "not-read":
       return <Nothing kind="not-checked" title="No branch named yet." />;
-    case "checking":
+    case "reading":
       return <Nothing kind="computing" title="Checking for a live checkout." />;
     case "refused":
       return (
         <InlineRefusal
-          code={reading.reuse.refusal.code}
-          detail={reading.reuse.refusal.detail}
-          action={renderRecovery(reading.reuse.refusal.code)}
+          code={reading.prerequisite.refusal.code}
+          detail={reading.prerequisite.refusal.detail}
+          action={renderRecovery(reading.prerequisite.refusal.code)}
         />
       );
-    case "checked": {
-      const { verdict } = reading.reuse;
+    case "read": {
+      const verdict = reading.prerequisite.value;
       return (
         <div
           className={`meridian-prepare-root__verdict meridian-prepare-root__verdict--${verdict.kind}`}

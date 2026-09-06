@@ -35,7 +35,7 @@ async function settleRoster(controller: AttachController, clock: ManualClock): P
     await Promise.resolve();
   }
   clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && controller.snapshot.roster.status !== "read"; turn += 1) {
+  for (let turn = 0; turn < 50 && controller.snapshot.prerequisite.status !== "read"; turn += 1) {
     await Promise.resolve();
   }
 }
@@ -53,18 +53,18 @@ describe("AttachController — the roster read", () => {
     const { controller, clock } = open();
     controller.requestRead("reconnect");
     await settleRoster(controller, clock);
-    expect(controller.snapshot.roster.status).toBe("not-read");
+    expect(controller.snapshot.prerequisite.status).toBe("not-read");
   });
 
   it("reads the session's nodes once the dialog opens", async () => {
     const { controller, clock } = open();
     controller.requestRoster();
     await settleRoster(controller, clock);
-    const { roster } = controller.snapshot;
-    expect(roster.status).toBe("read");
-    expect(roster.status === "read" && roster.options.map((option) => option.nodeId)).toContain(
-      NODE_ID,
-    );
+    const { prerequisite } = controller.snapshot;
+    expect(prerequisite.status).toBe("read");
+    expect(
+      prerequisite.status === "read" && prerequisite.value.map((option) => option.nodeId),
+    ).toContain(NODE_ID);
   });
 
   it("declares the runtime-node census and not this family's", () => {
@@ -98,8 +98,8 @@ describe("AttachController — the attach itself", () => {
   it("refuses to put a second attach on the wire for one intent", async () => {
     const { controller } = open();
     const first = controller.attach("/Users/dev/code/new-repo", NODE_ID);
-    // The guard is read off the published `sending` arm, so the second call returns
-    // without reaching the wire — where it would have refused against the first's work.
+    // The single-flight key is already taken, so the second call returns without
+    // reaching the wire — where it would have refused against the first's own work.
     await controller.attach("/Users/dev/code/other-repo", NODE_ID);
     await first;
     const { act } = controller.snapshot;
@@ -114,7 +114,7 @@ describe("AttachController — the attach itself", () => {
     controller.clearAct();
     expect(controller.snapshot.act.status).toBe("idle");
     // Reopening the dialog must not re-read what has not changed.
-    expect(controller.snapshot.roster.status).toBe("read");
+    expect(controller.snapshot.prerequisite.status).toBe("read");
   });
 
   it("negative control: a disposed controller publishes nothing more", async () => {
