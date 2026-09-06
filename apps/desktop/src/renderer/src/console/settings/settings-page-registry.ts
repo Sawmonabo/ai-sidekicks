@@ -8,7 +8,7 @@
 //
 // WHY A REGISTRY RATHER THAN A SWITCH
 //
-// The thirteen sections are built by four lanes at once and three of them are bodies
+// The fourteen sections are built by four lanes at once and three of them are bodies
 // this repository does not author at all. A `switch` over section ids would be one
 // file every lane edits — the conflict the console's seat boards exist to avoid,
 // one level down. A page claims its section through {@link registerSettingsPage}
@@ -28,13 +28,14 @@ import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { scoreSubsequence } from "../palette/index.js";
 import { Nothing } from "../primitives/index.js";
-import type { SessionStore } from "../store/index.js";
+import type { SessionStore, ShellState } from "../store/index.js";
 import type { OwnerSlotProps } from "../seats/index.js";
 
 /**
  * Every settings section, in rail order.
  *
- * The twelve the design enumerates, in its order, plus `sidekicks`. The rail a
+ * The twelve the design enumerates, in its order, plus `sidekicks` and `daemon`.
+ * The rail a
  * person reads is this tuple, and the union is derived from it for the reason
  * `seats/surface-registry.ts` gives about its own slots: a union written beside a
  * hand-repeated array is two closed sets that agree until one of them is widened.
@@ -60,6 +61,13 @@ export const SETTINGS_SECTION_IDS = [
   "data",
   "application",
   "browser",
+  // The local runtime's own page, which is §Tray and daemon lifecycle's "one click
+  // away": the supervisor detail, its attempt count and last heartbeat, and the stop
+  // and restart controls. Like `sidekicks` it is not one of the design's section ids
+  // — the design puts this detail one click behind the frame's chip and names no
+  // section for it — and the alternative was a chip that claims a detail view nothing
+  // can reach.
+  "daemon",
 ] as const;
 
 /** One settings section. Derived from the enumeration, never restated. */
@@ -68,7 +76,7 @@ export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 /**
  * The rail's label for each section, in one place.
  *
- * A TOTAL record, so a fourteenth section is a compile error here until its label
+ * A TOTAL record, so a fifteenth section is a compile error here until its label
  * is decided — the label cannot silently default to the id, which is how a rail
  * grows an entry reading `mcp-servers`.
  */
@@ -86,6 +94,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsSectionId, string>
   data: "Data",
   application: "Application",
   browser: "Browser",
+  daemon: "Local runtime",
 };
 
 /**
@@ -132,6 +141,15 @@ export interface SettingsPageContext {
    * and a page reads that as one refresh signal fewer rather than as a failure.
    */
   readonly retainedSessionStore: SessionStore | undefined;
+  /**
+   * What this window has been told about the shell it is running against.
+   *
+   * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
+   * subscription for it and every consumer — the frame's chip, the palette's
+   * read-only line, and the local-runtime page — renders the same value, so the three
+   * surfaces cannot report different supervisor states in one window.
+   */
+  readonly shellState: ShellState;
 }
 
 /** What a page renders. A function rather than a component type, as the seats are. */

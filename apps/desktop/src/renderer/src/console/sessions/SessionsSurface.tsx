@@ -59,6 +59,7 @@ import {
   NotificationCenter,
   attentionProjectionReaderFor,
   useAttentionProjection,
+  useRailAttentionPublisher,
   useAttentionSettlementAnnouncement,
 } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
@@ -110,6 +111,8 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // harnesses that render it with no announcer above them. The panel draws the same
   // read for everyone who can see it — this is the half for everyone who cannot.
   useAttentionSettlementAnnouncement(attention);
+  // The rail's count, published from this read for as long as it is mounted.
+  useRailAttentionPublisher(context.frameStore, attention);
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);

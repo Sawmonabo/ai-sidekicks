@@ -31,3 +31,4 @@ export { attentionProjectionReaderFor } from "./attention-projection-read.js";
 // The read's own lifetime lives next door: the plane is a vocabulary and a fold, and
 // the hook that performs the read and keeps it current is what a destination mounts.
 export { useAttentionProjection, useAttentionSettlementAnnouncement } from "./attention-read.js";
+export { useRailAttentionPublisher } from "./rail-attention.js";

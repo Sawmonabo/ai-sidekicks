@@ -21,6 +21,7 @@ type SessionOperationId = Extract<
   | `daemon${string}`
   | `onboarding${string}`
   | `shellConfig${string}`
+  | `shellStatus${string}`
   | `providerSessionImport${string}`
   | "invitesList"
   | "healthSubscribe"
@@ -71,6 +72,17 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "method",
       "restart the daemon",
       "DaemonRestart",
+    ),
+    // The one act on this row that is NOT a call: a stopped daemon has no IPC
+    // server to receive a start, so the shell spawns the process. It sits here
+    // because the seam a surface reaches it through is the same one, and a second
+    // seam for one operation would be the split this port exists to avoid.
+    daemonStart: op(
+      "daemonStart",
+      "daemon-control-methods",
+      "method",
+      "start a stopped daemon, which is a shell spawn rather than a call",
+      "DaemonStart",
     ),
     onboardingStateRead: op(
       "onboardingStateRead",
@@ -160,5 +172,11 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "provider-session-import",
       "subscription",
       "progress for a running provider-session import",
+    ),
+    shellStatusSubscribe: op(
+      "shellStatusSubscribe",
+      "shell-status-signals",
+      "subscription",
+      "the shell's own condition as one feed — the supervisor's step and attempt count, the handshake ack, the transport it reached the daemon over, and whether this host has a usable keystore",
     ),
   };

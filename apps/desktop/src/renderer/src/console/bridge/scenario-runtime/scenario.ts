@@ -20,7 +20,7 @@
 
 import type { MembershipRole, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "../../store/index.js";
+import type { ConsoleSessionEvent, ShellReport } from "../../store/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
@@ -51,6 +51,25 @@ export interface ScenarioBeat {
 export interface ScenarioRuntimeNodeRosterFrame {
   readonly atMs: number;
   readonly nodes: readonly RuntimeNodeRosterEntry[];
+}
+
+/**
+ * One reading of the shell's own condition, and the tick it becomes current.
+ *
+ * {@link ScenarioRuntimeNodeRosterFrame}'s shape applied to the other thing a
+ * scenario has to be able to MOVE: the supervisor's step, its attempt count, the
+ * handshake ack, and the two honesty notices all change over a session's life, and a
+ * fixture whose shell condition could not move would let the console ship a
+ * reconnect banner nobody had ever seen render.
+ *
+ * `report` is `ShellReport` verbatim — the console's own vocabulary, declared once in
+ * `store/shell-state.ts` and narrowed by nobody twice. A scenario that names no
+ * frames has not been asked, and the growth port refuses rather than serving a
+ * synthesised "connected", which is the one answer a fixture must never invent.
+ */
+export interface ScenarioShellStatusFrame {
+  readonly atMs: number;
+  readonly report: ShellReport;
 }
 
 /** What every canned reply carries, whichever way it settles. */
@@ -217,6 +236,17 @@ export interface ConsoleScenario {
    * whose ANSWER is a function of the clock.
    */
   readonly runtimeNodeRoster?: readonly ScenarioRuntimeNodeRosterFrame[];
+  /**
+   * The shell's own condition as it reads over scenario time.
+   *
+   * OPTIONAL on {@link runtimeNodeRoster}'s reasoning, and the optionality carries
+   * the same meaning: a scenario that names no frames has not been asked, so the
+   * subscription refuses with the "not checked" absence instead of opening a stream
+   * that would report a connected shell nobody scripted. It is a scenario member
+   * rather than a `replies` row for that module's other reason — the reply table
+   * answers one call with one fixed value, and this is a feed.
+   */
+  readonly shellStatus?: readonly ScenarioShellStatusFrame[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
 }

@@ -177,7 +177,7 @@ export function contextWith(options: {
           ),
       },
     },
-    frameStore: { navigate: () => undefined },
+    frameStore: { navigate: () => undefined, publishRailAttentionCount: () => undefined },
     sessionStore: options.sessionStore,
     sessionStoreRegistry: {
       openSessionIds: [

@@ -284,3 +284,16 @@
   display: flex;
   gap: var(--meridian-space-3);
 }
+
+/*
+ * The read-only line, above the input.
+ *
+ * Its own row rather than an item in the list, because it is a fact about every
+ * mutating command at once and repeating it per row would be the same sentence
+ * printed a dozen times. The refusal primitive inside carries its own colour; this
+ * block owns only where it sits.
+ */
+.console-palette__degraded {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+}

@@ -223,6 +223,11 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "shellStatusSubscribe",
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -265,6 +270,22 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // the shell's own condition — the first FEED this fixture serves, answered from the
+  // frames a scenario declares against the frozen clock and refused by one that
+  // declares none. It is script-only for the reason the write operations below are:
+  // there is no such thing as "the shell reported and said nothing", and a served
+  // stream that never yielded would read on screen exactly like a shell that has not
+  // reported — one of which is a scripting gap and the other the console's ordinary
+  // state.
+  "shellStatusSubscribe",
+  // the three daemon controls and the status read, answered from the same channel the
+  // feed is answered from — so a stop moves what the feed says rather than resolving
+  // into a shell nothing reports. All four refuse under a scenario that scripts no
+  // shell condition, for the same reason the feed does.
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -291,6 +312,11 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  * separates them is whether an empty answer would be a lie.
  */
 export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGrowthOperationId[] = [
+  "shellStatusSubscribe",
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
   "agentAttach",
   "agentConfigUpdate",
   "agentDetach",

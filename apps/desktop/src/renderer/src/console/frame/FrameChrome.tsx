@@ -50,6 +50,16 @@ export interface FrameChromeProps {
   readonly onSelectDestination: (destination: RailDestination) => void;
   readonly banners: readonly FrameBanner[];
   readonly onDismissBanner: (bannerId: string) => void;
+  /**
+   * Standing chrome about the shell itself, above the raised-banner stack.
+   *
+   * A slot rather than a render, for the same reason `surfaces` is: the frame owns
+   * chrome and does not know what a supervisor is. And ABOVE the banner stack
+   * rather than inside it, because these lines clear when their condition clears
+   * while a raised banner is a queue entry a person dismisses — one stack holding
+   * both would make an outage dismissible.
+   */
+  readonly shellChrome?: React.ReactNode;
   /** The surface the route resolves to. Mounted inside its own error boundary. */
   readonly children: React.ReactNode;
   /** Rendered above the surface: the palette, dialogs, anything window-scoped. */
@@ -80,6 +90,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           />
         )}
         <div className="meridian-frame__column">
+          {props.shellChrome}
           {props.banners.length === 0 ? null : (
             <div className="meridian-frame__banners">
               {props.banners.map((banner) =>
