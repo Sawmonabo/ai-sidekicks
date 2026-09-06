@@ -9,17 +9,22 @@
 // The one case that cannot drive a shipped port is the REJECTING one, because no port
 // in this build rejects: the arm under test is the fail-closed guard for a channel a
 // promise carries whether the contract uses it or not. That case wraps a real port and
-// replaces exactly one method with a rejection, and its control is the pre-change
-// effect itself, kept runnable below so the claim "this used to pin `reading`" is
-// measured rather than remembered.
+// replaces exactly one method with a rejection, and its control is the shipped hook
+// with exactly that arm removed, kept runnable below so the claim "this used to pin
+// `reading`" is measured rather than remembered.
+//
+// AND ONE CLAIM IS ABOUT FRAMES RATHER THAN ABOUT STATES, so it is a suite of its
+// own: `session-directory.frames.test.tsx` measures which frames a port swap paints,
+// which no assertion on a settled state can see. Every case here reads states.
 
 import { act, cleanup, render } from "@testing-library/react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
+import { useSubjectScopedState } from "../store/index.js";
 import {
   offeredSessionIds,
   useSessionDirectory,
@@ -38,26 +43,27 @@ function rejectingDirectoryPort(): GrowthPort {
 }
 
 /**
- * The hook as it was before the rejection arm, kept runnable so the control is real.
+ * The shipped hook with exactly the rejection arm removed, kept runnable.
  *
- * The effect body is the shipped one with the second `then` argument removed, which is
- * the whole of the change under test. The `.catch` tail is NOT part of that shape: it
- * is on the derived promise, outside the state machine, and it exists so the runner
- * does not report the foil's own unhandled rejection instead of running the case. What
- * the case reads is the state, and the state is untouched by it.
+ * One change from the shipped shape and no others — the same holder, the same
+ * `settle()` publisher, the same fulfilment arm — so what the case below reads is the
+ * arm and not a second difference. The `.catch` tail is NOT part of that shape: it is
+ * on the derived promise, outside the state machine, and it exists so the runner does
+ * not report the foil's own unhandled rejection instead of running the case. What the
+ * case reads is the state, and the state is untouched by it.
  */
 function useSessionDirectoryWithoutRejectionArm(growth: GrowthPort): SessionDirectoryState {
-  const [state, setState] = useState<SessionDirectoryState>({ status: "reading" });
+  const { value: state, settle } = useSubjectScopedState<SessionDirectoryState>(
+    growth,
+    undefined,
+    () => ({ status: "reading" }),
+  );
   useEffect(() => {
-    setState({ status: "reading" });
-    let isMounted = true;
+    const publish = settle();
     void growth
       .sessionList({})
       .then((outcome) => {
-        if (!isMounted) {
-          return;
-        }
-        setState(
+        publish(
           outcome.status === "served"
             ? { status: "served", sessions: outcome.value }
             : { status: "unavailable", refusal: outcome },
@@ -66,10 +72,7 @@ function useSessionDirectoryWithoutRejectionArm(growth: GrowthPort): SessionDire
       .catch(() => {
         // Deliberately empty; see this function's own header.
       });
-    return () => {
-      isMounted = false;
-    };
-  }, [growth]);
+  }, [growth, settle]);
   return state;
 }
 

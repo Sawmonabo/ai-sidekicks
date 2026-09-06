@@ -242,6 +242,117 @@ describe("documentation — one block per declaration", () => {
     expect(statementPositionsOnly("members.ts", members)).toStrictEqual([]);
   });
 
+  it("negative control: a stack on a SPECIFIER, a property, or an ambient body is reported", () => {
+    // The four positions the member walk could not see. A door's export specifier is
+    // where this package concentrates its JSDoc — `apps/desktop/AGENTS.md` §Module
+    // shape puts the `@consumedBy` claim there because that is the export knip reports
+    // — so a stacked pair on one is the shape a merge of two doors produces, and it sat
+    // outside the claim this file makes. The other three are the same defect at the
+    // other positions a block is written at: an import specifier, an object literal's
+    // property, and a statement inside a `declare global` body, none of which is a
+    // module header. The second assertion is the foil: the statements-only reading
+    // answers nothing over the same text, and so did the walk this one widened —
+    // neither reaches inside a named clause, an object literal, or an ambient body.
+    const nested = [
+      "/** The module header. */",
+      "export {",
+      "  /** The first block, stranded by an edit. */",
+      "  /** The block that belongs to the specifier. */",
+      "  named,",
+      '} from "./a.js";',
+      "import {",
+      "  /** Stranded on an import specifier. */",
+      "  /** The block that belongs to it. */",
+      "  held,",
+      '} from "./b.js";',
+      "export const rows = {",
+      "  /** Stranded on a property assignment. */",
+      "  /** The block that belongs to it. */",
+      "  first: 1,",
+      "};",
+      "declare global {",
+      "  /** Stranded on a statement inside an ambient body. */",
+      "  /** The block that belongs to it. */",
+      "  interface Window {",
+      "    readonly held: typeof held;",
+      "  }",
+      "}",
+    ].join("\n");
+
+    expect(strandedDocumentationIn("nested.ts", nested)).toStrictEqual([
+      { displayPath: "nested.ts", line: 5, cause: "stacked", blockCount: 2 },
+      { displayPath: "nested.ts", line: 10, cause: "stacked", blockCount: 2 },
+      { displayPath: "nested.ts", line: 15, cause: "stacked", blockCount: 2 },
+      { displayPath: "nested.ts", line: 20, cause: "stacked", blockCount: 2 },
+    ]);
+    expect(statementPositionsOnly("nested.ts", nested)).toStrictEqual([]);
+  });
+
+  it("negative control: one block at each of those positions is not an offence", () => {
+    // Without this the case above would also be satisfied by a walk that reported
+    // every specifier, property and ambient statement carrying any documentation at
+    // all — which would fail the console's own doors on the first pass.
+    const attachedNested = [
+      "/** The module header. */",
+      "import {",
+      "  /** One block on an import specifier. */",
+      "  held,",
+      '} from "./b.js";',
+      "export {",
+      "  /** One block on an export specifier. */",
+      "  held,",
+      "};",
+      "export const rows = {",
+      "  /** One block on a property assignment. */",
+      "  first: 1,",
+      "  /** One block, and a line comment is not documentation. */",
+      "  // An aside.",
+      "  second: 2,",
+      "};",
+      "declare global {",
+      "  /** One block on the first statement of an ambient body. */",
+      "  interface Window {",
+      "    readonly first: number;",
+      "  }",
+      "}",
+    ].join("\n");
+    expect(strandedDocumentationIn("attached-nested.ts", attachedNested)).toStrictEqual([]);
+  });
+
+  it("negative control: an empty block comment is not a documentation block", () => {
+    // `/**/` starts with `/**` because its closing star is its second one, so a prefix
+    // test alone counts it — and a real JSDoc under one was then reported as a
+    // declaration carrying two blocks. No such comment is in the tree today, which is
+    // exactly why this is a corpus: the defect is a false positive on a gate whose
+    // whole value is that its report is trustworthy, and it would arrive silently.
+    const emptyBlocks = [
+      "/** The module header. */",
+      'import { a } from "./a.js";',
+      "/**/",
+      "/** The block that documents this declaration. */",
+      "export const value = a;",
+      "export interface Shape {",
+      "  /**/",
+      "  /** The one block that documents this member. */",
+      "  readonly first: string;",
+      "}",
+    ].join("\n");
+    expect(strandedDocumentationIn("empty-blocks.ts", emptyBlocks)).toStrictEqual([]);
+
+    // And the reading still bites where the pair is real, so the width test above did
+    // not simply stop counting.
+    const realPair = [
+      "/** The module header. */",
+      'import { a } from "./a.js";',
+      "/** The first block, stranded by an edit. */",
+      "/** The block that belongs to the declaration. */",
+      "export const value = a;",
+    ].join("\n");
+    expect(strandedDocumentationIn("real-pair.ts", realPair)).toStrictEqual([
+      { displayPath: "real-pair.ts", line: 5, cause: "stacked", blockCount: 2 },
+    ]);
+  });
+
   it("negative control: the ordinary member shapes are not offences", () => {
     // Without this the case above would also be satisfied by a walk that reported
     // every member with any documentation at all. The first member of a container is

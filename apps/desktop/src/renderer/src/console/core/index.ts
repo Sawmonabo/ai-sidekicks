@@ -41,11 +41,17 @@ export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./f
 // console's unit. Through the door because a duration is composed and compared above
 // every family: the presence model, the deadline wake and the invite shelf each wrote
 // their own chain of them before this.
+//
+// Each claim below is the set of tasks whose branch carries a PRODUCTION module that
+// will rebind through this door — measured over the six family tips, not inferred
+// from who might want a duration. A `core/` sibling reaches `./instant.js` and a
+// suite reaches the declaring module, so neither is a reader a door line can be
+// retired by, and a claim naming one could never be discharged.
 export {
   compareInstants,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_DAY,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-4 */
   MILLISECONDS_PER_HOUR,
   /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   MILLISECONDS_PER_MINUTE,
@@ -91,8 +97,8 @@ export {
 } from "./wire-rejection.js";
 // The two predicates a reading of an untyped wire value starts from, each written
 // separately by the families that needed it. They ship through this door rather than
-// from the family that happened to need one first, because the readers sit at three
-// different heights on the DAG and two of them are siblings: a helper they share has
-// no home above the floor that all of them may reach.
+// from the family that happened to need one first, because their readers sit at three
+// different heights on the DAG — `persistence/`, `bridge/`, `frame/` — and two of
+// those cannot reach the third, so the floor is the only home all of them share.
 export { isWireRecord } from "./wire-record.js";
 export { readWireString } from "./wire-strings.js";
