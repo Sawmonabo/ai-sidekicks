@@ -133,7 +133,7 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
     expect(currentRailDestination(mounted)).toBe("Workflows");
     // Reserved, not stubbed: T-023p-1C-6 claims this slot on its own branch, so
     // the frame says the surface has not been built rather than rendering blank.
-    expect(mounted.container.querySelector(".meridian-frame__absence")).not.toBeNull();
+    expect(mounted.container.querySelector(".meridian-surface-absence")).not.toBeNull();
   });
 
   it("keeps the session this window opened after the route leaves it", async () => {

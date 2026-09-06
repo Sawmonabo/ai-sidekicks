@@ -36,7 +36,12 @@ import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PALETTE_RESULT_CAP } from "../core/index.js";
-import { formatChordForPlatform, formatCount, type ChordPlatform } from "../primitives/index.js";
+import {
+  COMMAND_PALETTE_OPEN_CHORD,
+  formatChordForPlatform,
+  formatCount,
+  type ChordPlatform,
+} from "../primitives/index.js";
 import type { CommandSearchResult } from "./command-ranking.js";
 import type { CommandRegistry } from "./command-registry.js";
 import { chordMatchesEvent, parseChord } from "./keybinding-chord.js";
@@ -44,15 +49,6 @@ import type { KeyBindingTable, KeyBindingTarget } from "./keybindings.js";
 import { PaletteAbsence, type PaletteReadiness } from "./PaletteAbsence.js";
 import { PaletteResultList, groupResults } from "./PaletteResultList.js";
 import type { WhenClauseContext } from "./when-clause.js";
-
-/**
- * The chord that opens the palette.
- *
- * `KeyK` rather than `k` so the binding is keyboard-layout independent: on an
- * AZERTY or Dvorak layout the physical key a person reaches for is the same one,
- * and matching by `KeyboardEvent.code` is what preserves that.
- */
-export const COMMAND_PALETTE_OPEN_CHORD = "$mod+KeyK";
 
 export interface PaletteOverlayProps {
   readonly registry: CommandRegistry;

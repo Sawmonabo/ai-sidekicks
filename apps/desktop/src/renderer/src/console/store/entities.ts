@@ -166,7 +166,7 @@ export interface ConsoleSessionEvent {
    *
    * Absent for the system arm, and absent is the ONE no-value state: the wire has two,
    * present-`null` and omitted, and the decode boundary folds both into this one
-   * (`bridge/session-event-payload.ts`). Nothing downstream has to tell them apart,
+   * (`bridge/daemon/session-event-payload.ts`). Nothing downstream has to tell them apart,
    * because no daemon distinguishes them either.
    */
   readonly actorId?: string;

@@ -8,7 +8,7 @@
 // the invite list, the health stream, and the provider-session import a new session
 // can be seeded from.
 
-import type { GrowthStream } from "../growth-outcome.js";
+import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type {
   GrowthHealthReading,
   GrowthImportProgress,

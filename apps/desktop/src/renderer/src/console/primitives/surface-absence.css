@@ -1,0 +1,50 @@
+/*
+ * A whole-surface absence — the wrapper `SurfaceAbsence.tsx` beside this file draws.
+ *
+ * In this family with its component, which moved here from `frame/` when the door
+ * rule made the frame unreachable from a view family and from below. The class stem
+ * moved with it: `meridian-frame__absence` named a family that no longer owns the
+ * rules.
+ */
+
+/*
+ * A route that resolves to no surface, composed as a deliberate state.
+ *
+ * A flex COLUMN with `justify-content: center`, not a grid with `place-items`. The
+ * grid version centres each row inside its own stretched track, which pushes the
+ * copy into the top half and the hint into the bottom half with a hundred pixels of
+ * nothing between two lines that belong together. Flex centring keeps the block
+ * whole.
+ *
+ * The extra `padding-block-end` sits the block slightly above the true centre for
+ * the reason every dialog does: dead-centre reads as low.
+ */
+.meridian-surface-absence {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: var(--meridian-space-6);
+  padding-block-end: calc(var(--meridian-space-6) * 2);
+  text-align: center;
+}
+
+/* Left-aligned inside a centred block: the title is one line and the detail is two
+   or three, and centred prose makes a reader re-find the left edge on every line. */
+.meridian-surface-absence__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-inline-size: 44rem;
+  text-align: start;
+}
+
+.meridian-surface-absence__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-5) 0 0;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-sm);
+}

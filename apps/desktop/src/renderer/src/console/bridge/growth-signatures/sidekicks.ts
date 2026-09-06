@@ -5,7 +5,7 @@
 // section and row comments below are the file's own, kept with the rows they
 // explain.
 
-import type { SidekickDefinition, SidekickDefinitionDraft } from "../sidekick-definition.js";
+import type { SidekickDefinition, SidekickDefinitionDraft } from "../wire-shapes/index.js";
 
 export interface SidekickGrowthSignatures {
   // sidekick — four of the five registered pairs, in the registry's own order. The

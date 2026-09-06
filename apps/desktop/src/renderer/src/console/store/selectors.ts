@@ -9,7 +9,7 @@
 // AND NO SELECTOR HERE NAMES A WIRE SHAPE. `entities.ts` frames
 // `ConsoleSessionEvent` as a renderer-local projection contract so this family
 // holds no wire knowledge, and the two body reads that DID name one — the stamped
-// execution posture and the roster role — moved to `bridge/entity-body-reads.ts`
+// execution posture and the roster role — moved to `bridge/daemon/entity-body-reads.ts`
 // when the console banned contracts schemas above the bridge. They are validating
 // reads and a validating read needs the canonical shape; the family that owns the
 // wire's shapes is the family that may hold them. A store hook that wants one takes

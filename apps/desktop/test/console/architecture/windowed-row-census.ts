@@ -12,6 +12,14 @@
 // switched the claim off for a whole module, and a module whose rows are a sibling
 // component was reported as an offence for naming a primitive its rows do go through.
 //
+// THE TWO TEXT PREDICATES ARE HERE TOO, and they are not the parser's. Whether a
+// module writes the position pair, and which of its row-role tags omit it, are
+// questions about characters rather than about a declaration boundary — but they are
+// questions about the SAME subject, and both gates next door ask them: one to assert
+// the pair has a single writer, the other to show that the hand-rolled list its own
+// claim catches passes both. A predicate split across two modules by instrument rather
+// than by subject is one a caller has to know two homes for.
+//
 // IT ALSO ANSWERS THE TAB-ORDER QUESTION, for the same reason. A windowed list has one
 // tab stop and the roving index controls it (the APG's roving-tabindex rule), and the
 // primitive can only write the stop on the element it renders itself — the wrapper, or
@@ -25,6 +33,50 @@ import ts from "typescript";
 
 import { readConsoleSourceModule, type ConsoleSourceModule } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+
+/**
+ * The one module allowed to write a windowed row's position members.
+ *
+ * A path rather than a convention: moving the primitive is an edit a reviewer sees.
+ * Here rather than in either gate because both of them name it — one to assert it is
+ * the sole writer, the other to resolve the row's own module out of the real tree.
+ */
+export const WINDOWED_ROW_MODULE = "console/primitives/WindowedListRow.tsx";
+
+/** The pair, as one claim. A row carrying one and not the other is half a statement. */
+export const POSITION_MEMBERS: readonly string[] = ["aria-setsize", "aria-posinset"];
+
+/**
+ * An opening tag that declares a row or option role.
+ *
+ * COARSE, AND DELIBERATELY SO: an opening tag up to its first `>`. A tag containing a
+ * `>` inside an expression (`onSelect={() => choose(row)}`) is therefore cut short, and
+ * a cut-short tag whose members sat past the cut is reported as an offence. That error
+ * direction is the choice — a false alarm is a reviewer reading one tag, and a false
+ * pass is a reader being told the wrong length of a list with nothing to notice.
+ */
+const WINDOWED_ROW_ROLE_TAG = /<[A-Za-z][^>]*\brole="(?:row|option|article)"[^>]*>/g;
+
+/** Whether `source` writes either position member anywhere. Text, not structure. */
+export function writesPositionMembers(source: string): boolean {
+  return POSITION_MEMBERS.some((member) => source.includes(member));
+}
+
+/** Every row-role opening tag in `source`, as written, whether or not it is an offence. */
+export function roleTagsIn(source: string): readonly string[] {
+  return [...source.matchAll(WINDOWED_ROW_ROLE_TAG)].map((match) => match[0]);
+}
+
+/**
+ * Every row-role tag in `source` that does not carry both position members.
+ *
+ * Pure over text so the controls can drive it with tags whose verdict is known.
+ */
+export function roleTagsMissingPosition(source: string): readonly string[] {
+  return roleTagsIn(source).filter(
+    (tag) => !POSITION_MEMBERS.every((member) => tag.includes(member)),
+  );
+}
 
 /**
  * How a module shows it windows a list.
@@ -152,12 +204,30 @@ export function handRolledWindowedRows(
 }
 
 /**
+ * Whether `source` RENDERS the row primitive, rather than merely naming it.
+ *
+ * The same instrument, and the same reason, as `handRolledWindowedRows` next door: a
+ * module that mentions `WindowedListRow` in a comment — "deliberately not
+ * WindowedListRow" is the sentence that was measured doing it — satisfies a substring
+ * test and places its rows itself. A JSX element is a declaration boundary, so the
+ * question is the parser's; an import of the name is not a rendering of it either, and
+ * this asks only about the element.
+ *
+ * Pure over text so a control can drive it with a module whose verdict is known,
+ * on this file's own model-beside-its-gate pattern.
+ */
+export function rendersTheRowPrimitive(source: string, fileName: string): boolean {
+  const parsed = parseSourceText(fileName, source);
+  return jsxTagNamesIn(parsed, parsed).includes(WINDOWED_ROW_PRIMITIVE);
+}
+
+/**
  * Whether a row rendered as a component reaches the primitive in the module it names.
  *
  * The `DiffFileList` / `DiffFileRow` shape: the windowing module names no primitive and
  * its rows do go through one. Resolved by matching the component's name to the module
  * that declares it, which is this tree's own convention — one component per `.tsx` file,
- * named for it.
+ * named for it, and then by reading whether that module RENDERS the primitive.
  */
 export function rowComponentDelegates(
   rowComponents: readonly string[],
@@ -167,7 +237,7 @@ export function rowComponentDelegates(
     modules.some(
       (module) =>
         module.displayPath.endsWith(`/${component}.tsx`) &&
-        readConsoleSourceModule(module).includes(WINDOWED_ROW_PRIMITIVE),
+        rendersTheRowPrimitive(readConsoleSourceModule(module), module.displayPath),
     ),
   );
 }
