@@ -77,16 +77,19 @@ export type {
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
 // port type, the one summary shape those surfaces render, the refusal they render
-// instead, and the builder that mints one all leave through this door — the same
-// door the bridge itself does, because a growth refusal IS what this bridge
-// answers for a wire the corpus has not registered.
+// instead, and the two builders that mint one all leave through this door — the
+// same door the bridge itself does, because a growth refusal IS what this bridge
+// answers for a wire the corpus has not registered. The second builder is for the
+// arm a caller cannot answer for itself: a call that REJECTED rather than
+// resolving, whose refusal has to keep this port's `origin` and this port's code
+// rather than one the caller invented.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
 // reached deep by the three modules inside this family that read several planes at
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable } from "./growth-port/growth-port.js";
+export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
 export type { GrowthPort } from "./growth-port/growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";

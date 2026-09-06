@@ -77,8 +77,10 @@ export {
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type WireRefusal,
 } from "./wire-rejection.js";
-// The string predicate three view families each made for themselves. It ships
-// through this door rather than from the family that happened to need it first,
-// because view families are siblings: a helper two of them share has no home above
-// the DAG that both may reach.
+// The two predicates a reading of an untyped wire value starts from, each written
+// separately by the families that needed it. They ship through this door rather than
+// from the family that happened to need one first, because the readers sit at three
+// different heights on the DAG and two of them are siblings: a helper they share has
+// no home above the floor that all of them may reach.
+export { isWireRecord } from "./wire-record.js";
 export { readWireString } from "./wire-strings.js";
