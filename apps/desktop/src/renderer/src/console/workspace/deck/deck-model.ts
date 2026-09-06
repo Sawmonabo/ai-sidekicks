@@ -257,6 +257,57 @@ export function sizesAreEqual(left: readonly DeckPane[], right: readonly DeckPan
 const MINIMUM_NORMALISED_PERMILLE = 1;
 
 /**
+ * Seat arriving panes in front of an arrangement a person already made.
+ *
+ * {@link distributeEvenly}'s counterpart for the merge path, and the difference is the
+ * whole point: equalising a deck that already holds panes destroys the drag the person
+ * finished while the record was being read, which is exactly the work
+ * `DeckLayout.adoptBeneath` exists to protect.
+ *
+ * HOW THE REMAINDER IS CARVED WHEN THE LIVE PANES ALREADY FILL THE TOTAL, which they
+ * always do — every commit leaves the row summing to {@link DECK_TOTAL_PERMILLE}, so
+ * there is no unclaimed space for an arriving pane to take. Each arriving pane takes the
+ * equal share it would have been given had the whole deck opened at once, and the live
+ * row is rescaled INTO what is left, in proportion to the widths it already carried. So
+ * the live panes keep their arrangement — a seventy-thirty deck stays seventy-thirty
+ * across the space it still holds — while an adopted pane arrives at an ordinary width
+ * rather than at whatever a subtraction happened to leave it.
+ *
+ * The sum is settled by {@link settleToTotal}, the same pass `normalise` and
+ * `applyPaneSizePercentages` run, so one rule decides where a rounding remainder goes
+ * and the row sums to a whole deck on every path.
+ */
+export function distributeAdoptedBeneath(
+  adopted: readonly DeckPane[],
+  live: readonly DeckPane[],
+): readonly DeckPane[] {
+  if (adopted.length === 0) {
+    return live;
+  }
+  if (live.length === 0) {
+    return distributeEvenly(adopted);
+  }
+  const adoptedShare = Math.floor(DECK_TOTAL_PERMILLE / (adopted.length + live.length));
+  const liveBudget = DECK_TOTAL_PERMILLE - adoptedShare * adopted.length;
+  const liveTotal = live.reduce((sum, pane) => sum + pane.sizePermille, 0);
+  return settleToTotal(
+    [
+      ...adopted.map((pane) => ({ ...pane, sizePermille: adoptedShare })),
+      ...live.map((pane) => ({
+        ...pane,
+        sizePermille: Math.max(
+          MINIMUM_NORMALISED_PERMILLE,
+          liveTotal <= 0
+            ? Math.floor(liveBudget / live.length)
+            : Math.round((pane.sizePermille / liveTotal) * liveBudget),
+        ),
+      })),
+    ],
+    MINIMUM_NORMALISED_PERMILLE,
+  );
+}
+
+/**
  * Rescale restored sizes so they sum to the total, whatever was on disk.
  *
  * ROUNDING ALONE DOES NOT SUM. Each pane's share is rounded independently, so three

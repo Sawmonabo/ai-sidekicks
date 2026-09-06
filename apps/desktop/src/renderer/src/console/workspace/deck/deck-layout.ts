@@ -33,6 +33,7 @@ import {
   EPHEMERAL_PANE_KINDS,
   addressesMatch,
   applyPaneSizePercentages,
+  distributeAdoptedBeneath,
   distributeEvenly,
   highestOrdinal,
   paneAddressKey,
@@ -274,8 +275,9 @@ export class DeckLayout {
    * this deck and the live ones by this run, so the two id spaces collide outright;
    * the live ids are the ones already on screen and already quoted by a focus, a drag,
    * and an ephemeral pane's `sourcePaneId`, so those stand and the arriving panes take
-   * fresh ids. The record's focus goes with them, under the same rule — the pane the
-   * person is looking at is the one they chose last.
+   * fresh ids. The record's own focus is discarded with its id space, under the same
+   * rule — the pane the person is looking at is the one they chose last — and a deck
+   * focusing nothing takes the first adopted pane rather than staying unfocused.
    */
   public adoptBeneath(
     snapshot: unknown,
@@ -298,8 +300,25 @@ export class DeckLayout {
 
     // The record's panes land IN FRONT of the person's. They were open first, and this
     // deck's own rule is that a pane a person opens goes at the end.
+    //
+    // AND THE LIVE WIDTHS ARE CARRIED THROUGH, which is what makes the sentence above
+    // about widths true rather than aspirational. `distributeEvenly` would have given
+    // every pane an equal share, so the drag the person finished during the read was
+    // equalised away the moment the record contributed one address — the common shape
+    // of this path, not an edge of it. `distributeAdoptedBeneath` keeps the live row's
+    // proportions and carves the arriving panes' share out of the deck instead.
+    //
+    // AND THE FOCUS LANDS SOMEWHERE. `close` clears `focusedPaneId` when the closed
+    // pane held it, so an open-then-close during the read reaches here with the deck
+    // focusing nothing; adopting panes without focusing one leaves the composer with
+    // nowhere to send and no way back but a click. The live focus still wins where
+    // there is one — the pane the person is looking at is the one they chose last.
     if (adopted.length > 0) {
-      this.#commit({ panes: distributeEvenly([...adopted, ...this.#state.panes]), density });
+      this.#commit({
+        panes: distributeAdoptedBeneath(adopted, this.#state.panes),
+        focusedPaneId: this.#state.focusedPaneId ?? adopted[0]?.paneId,
+        density,
+      });
     } else if (density !== this.#state.density) {
       this.#commit({ density });
     }

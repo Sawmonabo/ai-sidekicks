@@ -33,7 +33,7 @@ function uiStateStore(): UiStateStore {
 /** A saved arrangement, written through the grammar that reads it back. */
 async function saveDeck(
   store: UiStateStore,
-  kinds: readonly ("timeline" | "runs")[],
+  kinds: readonly ("timeline" | "runs" | "approvals")[],
 ): Promise<void> {
   const layout = deckLayout();
   for (const kind of kinds) {
@@ -190,12 +190,18 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     expect(await savedPaneCount(store)).toBe(1);
   });
 
-  it("keeps the widths the person set during the read", async () => {
-    // The record carries widths of its own, and a wholesale restore adopts them over
-    // a drag the person has just finished. Nothing here needs adopting from the
-    // record — every address it names is already on screen — so the drag stands.
+  it("keeps the widths the person set during the read while the record adds a pane", async () => {
+    // THE RECORD NAMES AN ADDRESS THAT IS NOT ON SCREEN, so the merge actually runs.
+    // A record every one of whose addresses is already open adopts nothing and leaves
+    // the deck untouched by construction, which is why the earlier shape of this case
+    // never reached the commit it was written to constrain: the merge equalised every
+    // live pane, so the drag the person had just finished was gone.
+    //
+    // The arriving pane takes the equal share a three-pane deck gives it and the two
+    // live panes keep their seventy-thirty ratio across what is left — 467 to 200,
+    // which is 700 and 300 rescaled into the 667 the deck still holds.
     const store = uiStateStore();
-    await saveDeck(store, ["timeline"]);
+    await saveDeck(store, ["approvals"]);
     const layout = deckLayout();
 
     mountPersistence(layout, store);
@@ -209,8 +215,50 @@ describe("useDeckPersistence — an arrangement made while the record was being 
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["timeline", "runs"]);
-    expect(paneWidths(layout)).toStrictEqual([700, 300]);
+    expect(paneKinds(layout)).toStrictEqual(["approvals", "timeline", "runs"]);
+    expect(paneWidths(layout)).toStrictEqual([333, 467, 200]);
+  });
+
+  it("focuses an adopted pane when the person left the deck focusing nothing", async () => {
+    // `close` clears the focus when the pane holding it goes, so an open-then-close
+    // during the read reaches the merge with the deck focusing nothing. Panes then
+    // arrived from the record with no focus among them, and the composer read that as
+    // having nowhere to send — recoverable only by a click or an arrow key.
+    const store = uiStateStore();
+    await saveDeck(store, ["approvals"]);
+    const layout = deckLayout();
+
+    mountPersistence(layout, store);
+    act(() => {
+      const runsPaneId = layout.open({ kind: "runs", entity: undefined });
+      layout.close(runsPaneId);
+    });
+    await drain();
+
+    const focused = layout
+      .snapshot()
+      .panes.find((pane) => pane.paneId === layout.snapshot().focusedPaneId);
+    expect(focused?.kind).toBe("approvals");
+  });
+
+  it("negative control: a live focus is not moved onto the adopted pane", async () => {
+    // Without this the case above would pass over a merge that focused the record's
+    // panes unconditionally, which is the same window-undoing-work-under-their-hands
+    // defect the width rule exists for, one axis over.
+    const store = uiStateStore();
+    await saveDeck(store, ["approvals"]);
+    const layout = deckLayout();
+
+    mountPersistence(layout, store);
+    act(() => {
+      layout.open({ kind: "runs", entity: undefined });
+    });
+    await drain();
+
+    const focused = layout
+      .snapshot()
+      .panes.find((pane) => pane.paneId === layout.snapshot().focusedPaneId);
+    expect(focused?.kind).toBe("runs");
   });
 
   it("keeps the order the person set during the read", async () => {
