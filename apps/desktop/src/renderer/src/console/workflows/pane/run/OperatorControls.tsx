@@ -17,10 +17,21 @@
 //      edits and leave the audited from-and-to pair unverifiable against what the
 //      operator saw. An empty chain means no target can be named, so the picker is
 //      absent rather than empty — "absent, not disabled", the family's own rule.
-//   4. **Eligibility is the daemon's.** A control arrives admitted or refused; this
-//      file reads no run status and computes no permission. A refusal renders
-//      INLINE (`Spec-023 §Console Design (Meridian)` rule 9: nothing changed, the
-//      act did not happen, and the control stays beside its refusal).
+//   4. **Eligibility is the daemon's.** Both controls are OFFERED; this file reads no
+//      run status and computes no permission, and it never decides in advance that an
+//      act is unreachable. The press puts the question and the answer — a served
+//      settlement, or a refusal from the growth port, the daemon or this family's own
+//      single flight — renders INLINE beside the button (`Spec-023 §Console Design
+//      (Meridian)` rule 9: nothing changed, the act did not happen, and the control
+//      stays beside its refusal). `RunControlOutcome.tsx` draws it.
+//
+// THE CALL IS NOT THIS FILE'S AND THE OUTCOME IS NOT EITHER. What a press puts on the
+// growth port, whether it may be dispatched at all, and what the reply settles to are
+// `run-control-dispatch.ts`; what stands here is the FORM — the reason field and its
+// budget, the re-pin picker, and the two submits. So this component issues no call and
+// holds no single-flight flag of its own: a flag read in a handler is the value from
+// the render that produced it, which is exactly how two presses in one frame become
+// two cancellations.
 //
 // THE REASON BOUND IS MEASURED BEFORE THE ROUND TRIP AND NEVER SILENTLY TRUNCATED.
 // The engine bounds a cancellation reason exactly as it bounds a park cause, and a
@@ -58,12 +69,12 @@
 //
 // SCOPED IS NOT RESOLVED, AND THE RE-PIN NEEDED BOTH. Scoping answers which RUN the
 // target was chosen for; it says nothing about whether that run's chain still offers
-// it. A version published while the pane stood open, or a resume control re-served
-// after a refusal, replaces `versionChain` on a run that never moved — so the state
-// survives, the `<select>` matches no option and displays blank, and the line beside
-// it still quotes the id the submit would still send. The held id is therefore
-// RESOLVED against the chain on screen each render, exactly as `human-form-selection.ts`
-// resolves its held phase id against the mounts the current snapshot carries.
+// it. A version published while the pane stood open replaces `versionChain` on a run
+// that never moved — so the state survives, the `<select>` matches no option and
+// displays blank, and the line beside it still quotes the id the submit would still
+// send. The held id is therefore RESOLVED against the chain on screen each render,
+// exactly as `human-form-selection.ts` resolves its held phase id against the mounts
+// the current snapshot carries.
 
 import { useId, useMemo, useRef } from "react";
 
@@ -77,24 +88,18 @@ import {
 } from "../../../primitives/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
 import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
+import { RunControlOutcome } from "./RunControlOutcome.js";
 import {
+  WORKFLOW_RUN_RE_PARKED_STATE,
   cancelReasonBudget,
   reasonPastBoundRefusal,
   type WorkflowCancelControl,
   type WorkflowResumeControl,
+  type WorkflowVersionChoice,
 } from "./run-controls.js";
 
 /** The picker value that means "resume without re-pinning". Never a version id. */
 const NO_REPIN = "";
-
-/**
- * The state a resume answers with when the run re-parks on its next dispatch.
- *
- * A wire value quoted in the note beside the button, so it wears rule 4's mono
- * signature: an operator who then sees this word on the run reads the same string
- * the console warned them about, not a paraphrase of it.
- */
-const RE_PARKED_RUN_STATE = "suspended";
 
 export interface OperatorControlsProps {
   readonly cancel: WorkflowCancelControl;
@@ -102,11 +107,11 @@ export interface OperatorControlsProps {
   /**
    * The port the pane's run read is addressed at, taken as a SUBJECT and not called.
    *
-   * This component issues no read — the controls arrive already admitted or refused —
-   * so the port is here for its identity alone. It is in the pair for the read's own
-   * reason: the fixture's scenario switch replaces the bridge and keeps the run id, so
-   * a run-only holder would carry a reason typed against the previous daemon into the
-   * next one.
+   * This component calls nothing — the controls arrive carrying the calls their
+   * dispatcher composed — so the port is here for its identity alone. It is in the
+   * pair for the read's own reason: the fixture's scenario switch replaces the bridge
+   * and keeps the run id, so a run-only holder would carry a reason typed against the
+   * previous daemon into the next one.
    */
   readonly growth: GrowthPort;
   /** The run whose controls these are, and which the fields below are answers about. */
@@ -128,7 +133,7 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
   );
   // Resolved before either renderer can see it, so no arm of this file is able to
   // print, offer or submit a target the chain in hand does not carry.
-  const repinTarget = repinTargetWithinChain(heldRepinTarget, props.resume);
+  const repinTarget = repinTargetWithinChain(heldRepinTarget, props.resume.versionChain);
   const reasonFieldId = useId();
   const repinFieldId = useId();
   // Refs rather than a controlled `open`, deliberately. The disclosure below is the
@@ -170,15 +175,16 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
  * absent, and the submit sends `undefined` — so an unofferable id resolves to a state
  * the surface can render honestly instead of one it can only render wrongly.
  *
- * The refused arm answers `NO_REPIN` because a refused resume has no chain at all; it
- * renders no picker, and a held id surviving behind the refusal would come back the
- * moment the control was re-served.
+ * The CHAIN and not the whole control, because resolving a held id against the
+ * offered targets is all this does: handed the control it would be free to read the
+ * outcome beside it and start deciding what a refusal means for a picker, which is
+ * the eligibility this file is forbidden to compute.
  */
-function repinTargetWithinChain(held: string, resume: WorkflowResumeControl): string {
-  if (resume.kind === "refused") {
-    return NO_REPIN;
-  }
-  return resume.versionChain.some((choice) => choice.workflowVersionId === held) ? held : NO_REPIN;
+function repinTargetWithinChain(
+  held: string,
+  versionChain: readonly WorkflowVersionChoice[],
+): string {
+  return versionChain.some((choice) => choice.workflowVersionId === held) ? held : NO_REPIN;
 }
 
 /** Everything the cancel control needs beyond the control itself. */
@@ -229,14 +235,6 @@ function revealReasonField(fields: CancelFieldState): void {
  * budget stays inside, because it is only legible while the field it counts is.
  */
 function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState): React.JSX.Element {
-  if (control.kind === "refused") {
-    return (
-      <div className="meridian-run-controls__control">
-        <span className="meridian-run-controls__label">Cancel</span>
-        <InlineRefusal code={control.refusal.code} detail={control.refusal.detail} />
-      </div>
-    );
-  }
   const pastBound = fields.budget.isPastBound;
   return (
     <form
@@ -267,6 +265,14 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
         </span>
       </div>
       {pastBound ? <InlineRefusal {...reasonPastBoundRefusal(fields.budget)} /> : null}
+      {/*
+        What the daemon said about the last press, beside the button rather than in
+        place of it. Below the local refusal because they answer different moments —
+        this one is about a call that was put, and the one above is about one that was
+        not — and an operator who has just been refused for a long reason must not have
+        the previous round trip's answer read as the response to this press.
+      */}
+      <RunControlOutcome outcome={control.outcome} />
       <details className="meridian-run-controls__disclosure" ref={fields.reasonDisclosure}>
         <summary className="meridian-run-controls__summary">Add a reason (optional)</summary>
         <label className="meridian-run-controls__field-label" htmlFor={fields.reasonFieldId}>
@@ -307,14 +313,6 @@ interface RepinFieldState {
  * where the operator is about to press it.
  */
 function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): React.JSX.Element {
-  if (control.kind === "refused") {
-    return (
-      <div className="meridian-run-controls__control">
-        <span className="meridian-run-controls__label">Resume</span>
-        <InlineRefusal code={control.refusal.code} detail={control.refusal.detail} />
-      </div>
-    );
-  }
   return (
     <form
       className="meridian-run-controls__control"
@@ -334,10 +332,11 @@ function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): 
         </button>
         <span className="meridian-run-controls__note">
           <span>A run that re-parks on its next dispatch answers </span>
-          <WireFigure value={RE_PARKED_RUN_STATE} />
+          <WireFigure value={WORKFLOW_RUN_RE_PARKED_STATE} />
           <span>, which is an outcome and not a failure.</span>
         </span>
       </div>
+      <RunControlOutcome outcome={control.outcome} />
       {control.versionChain.length === 0 ? null : (
         <div className="meridian-run-controls__repin">
           <label className="meridian-run-controls__field-label" htmlFor={fields.repinFieldId}>

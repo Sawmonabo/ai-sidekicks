@@ -1,39 +1,47 @@
-// The run controls' vocabulary: the two actions, what the console may know about
-// each, and the two refusals this surface can raise on its own.
+// The run controls' vocabulary: the two actions, what a dispatched act can have got
+// to, and the two refusals this surface can raise on its own.
 //
 // WHY A MODULE RATHER THAN PROPS ON THE COMPONENT. Three of the four things below
-// are CLOSED SETS — the actions, the refusal codes, the shape a re-pin takes — and
-// a closed set spelled inside a component is a set the next surface re-spells. The
-// fourth, the reason bound, is a number with a rationale, which belongs beside the
-// code that spends it (`console/core/constants.ts` says so in its own header: a
-// view family adds its own module rather than widening that one).
+// are CLOSED SETS — the actions, the refusal codes, the states a served reply may
+// answer with — and a closed set spelled inside a component is a set the next
+// surface re-spells. The fourth, the reason bound, is a number with a rationale,
+// which belongs beside the code that spends it (`console/core/constants.ts` says so
+// in its own header: a view family adds its own module rather than widening that
+// one).
 //
-// ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS THE POINT OF THE STATE UNION.
+// ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS WHY THERE IS NO REFUSED CONTROL.
 // Whether a run may be cancelled or resumed is a daemon adjudication reaching the
 // console as a typed refusal — `workflow.control_denied` on either of the two
-// separately grantable actions, `workflow.run_not_cancellable` on a run that
-// reached a terminal, `workflow.resume_not_parked` and the repair codes on resume.
-// So a control arrives in exactly one of two states: ADMITTED, carrying the call
-// its caller supplied, or REFUSED, carrying the refusal verbatim. There is no
-// third arm in which the renderer decided, and no boolean anywhere that a surface
-// could compute from a run's status.
+// separately grantable actions, `workflow.run_not_cancellable` on a run that reached
+// a terminal, `workflow.resume_not_parked` and the repair codes on resume. Nothing in
+// this console can know any of that before it asks. So a control is OFFERED, its
+// press puts the question, and the answer lands on {@link WorkflowRunControlOutcome}
+// beside the button that asked it — rule 9's shape exactly: nothing changed, the act
+// did not happen, and the control stays beside its refusal. A pre-press `refused`
+// arm would have had to be composed by a caller that had adjudicated nothing, which
+// is how this surface came to claim its wire was missing while the port carried it.
 //
-// THE ONE REFUSAL THIS FAMILY RAISES ITSELF is the reason bound, and it is raised
-// BEFORE a call rather than instead of one: an operator's cancellation reason past
-// the bound would be rejected at the far end, and refusing it here — loudly, with
-// the budget visible — is the difference between a control that explains itself and
-// one that fails after the operator has committed.
+// THE TWO REFUSALS THIS FAMILY RAISES ITSELF are the reason bound and a second press
+// while the first is still in flight, and both are raised BEFORE a call rather than
+// instead of one. An operator's cancellation reason past the bound would be rejected
+// at the far end, and refusing it here — loudly, with the budget visible — is the
+// difference between a control that explains itself and one that fails after the
+// operator has committed. A second press is refused for the opposite reason: the
+// first call is still outstanding, a queue would perform an act nobody re-confirmed
+// against a run whose state has moved, and dropping it silently is a button that
+// looks broken.
 //
 // WIRE STATUS — READ THIS BEFORE WIRING A CALLER. `packages/contracts` registers no
-// `workflow.*` method and `console/bridge/growth-port.ts` carries no workflow
-// operation, so nothing in this console can call the run controls at all today. The
-// slate's two workflow rows (`workflow-event-registration`,
-// `workflow-definition-scope`) cover the event taxonomy and a definition-scope type
-// meaning, not these operations. `unregisteredRunControl` below is what a caller
-// that has no wire hands the controls, and it renders as the honest absence rather
-// than as a dead button.
+// `workflow.*` method, so both controls travel the growth port instead:
+// `bridge/growth-operations/workflows.ts` carries `workflowRunCancel` and
+// `workflowRunResume` on the `workflow-run-control` slate row, and
+// `bridge/growth-port.ts` composes the `wire-unregistered` refusal for a build whose
+// bridge cannot serve them. That refusal is the PORT's and is never composed here: a
+// mount site that built its own would be asserting a wire fact it had not checked,
+// and the port's own builder is unreachable from outside `bridge/` by construction.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import type { GrowthPort } from "../../../bridge/index.js";
 // The console's one byte measurement, through the family door that publishes it.
 // This surface bounds a cancellation reason exactly as the durable path bounds a
 // record, and `apps/desktop/AGENTS.md` §Chokepoints gives that one function: a
@@ -62,10 +70,11 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
  * The refusals this surface raises on its own, and no others.
  *
  * Deliberately short and deliberately not the daemon's vocabulary: every
- * `workflow.*` code arrives from the daemon already formed and is rendered
- * verbatim. These two are the cases where there is no daemon in the loop at all —
- * a wire that does not exist, and an input this surface can measure before it
- * spends anyone's round trip.
+ * `workflow.*` code arrives from the daemon already formed and is rendered verbatim,
+ * and the unregistered-wire code is the growth port's own. These two are the cases
+ * where there is no daemon in the loop at all — an input this surface can measure
+ * before it spends anyone's round trip, and a press it can see is a duplicate of one
+ * already outstanding.
  *
  * A UNION AND NOT AN EXPORTED TUPLE, unlike the actions above, and the difference is
  * that the actions array is READ — the surface renders a control per member — while
@@ -74,7 +83,83 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
  * only reader is `typeof` is dead weight at runtime, which is the reason
  * `run-list-rows.ts` gives for its own type-over-value choice.
  */
-export type WorkflowRunControlRefusalCode = "wire-unregistered" | "reason-past-bound";
+export type WorkflowRunControlRefusalCode = "reason-past-bound" | "act-already-in-flight";
+
+/**
+ * The served arm of whatever outcome one growth operation answers with.
+ *
+ * A conditional rather than `Extract<…>["value"]`, which does not compile: over an
+ * unresolved generic the extraction is not yet known to carry a `value` member at all,
+ * so the member is inferred out of the matching arm instead.
+ */
+type ServedGrowthValue<TOutcome> = TOutcome extends {
+  readonly status: "served";
+  readonly value: infer TValue;
+}
+  ? TValue
+  : never;
+
+/**
+ * What a served `workflow.runCancel` answers with, taken from the port's signature.
+ *
+ * DERIVED AND NEVER RESTATED. The reply narrows the run union to the outcomes this
+ * operation can actually reach, and a hand-written copy of that narrowing is a second
+ * wire vocabulary that agrees until the operation's own `Extract` moves. This module
+ * reaches for the port's TYPE only; it calls nothing.
+ */
+export type WorkflowRunCancelReply = ServedGrowthValue<
+  Awaited<ReturnType<GrowthPort["workflowRunCancel"]>>
+>;
+
+/** What a served `workflow.runResume` answers with, on the same derivation. */
+export type WorkflowRunResumeReply = ServedGrowthValue<
+  Awaited<ReturnType<GrowthPort["workflowRunResume"]>>
+>;
+
+/** Every run state either control's served reply can report, and no others. */
+export type WorkflowRunControlRunState =
+  | WorkflowRunCancelReply["state"]
+  | WorkflowRunResumeReply["state"];
+
+/**
+ * Where one control's dispatched act has got to, for the run it was pressed on.
+ *
+ * FOUR ARMS BECAUSE FOUR THINGS ARE TRUE AT DIFFERENT MOMENTS and none of them is
+ * another: nothing has been pressed, a call is out, an answer came back, or the act
+ * was refused. `idle` is not "it succeeded and there is nothing to say", and
+ * `dispatching` is not a settlement — a control that collapsed either into the other
+ * would be reporting an act that had not happened.
+ *
+ * There is deliberately no optimistic arm. Nothing here mutates the run the pane is
+ * rendering: what a person sees change is what the daemon answered, which is the
+ * whole of `Spec-023 §Console Design (Meridian)` rule 9.
+ */
+export type WorkflowRunControlOutcome =
+  | { readonly kind: "idle" }
+  | { readonly kind: "dispatching" }
+  | {
+      readonly kind: "settled";
+      /** The run state the reply answered with, wire-verbatim and never paraphrased. */
+      readonly runState: WorkflowRunControlRunState;
+      /** What that state means for the operator, in this console's own words. */
+      readonly detail: string;
+    }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/** The outcome a control stands at before anything has been pressed on this run. */
+export const IDLE_RUN_CONTROL_OUTCOME: WorkflowRunControlOutcome = { kind: "idle" };
+
+/**
+ * The state a resume answers with when the run re-parks on its next dispatch.
+ *
+ * ONE HOME BECAUSE TWO SURFACES NAME IT. The resume control warns about this outcome
+ * before the press, and the dispatcher reads the reply to decide which sentence the
+ * settlement carries after it — two literals of one wire word, and the pair is
+ * exactly how a console comes to warn about a state it no longer recognises.
+ * Annotated with the derived union, so a word this reply cannot answer with is a
+ * compile error rather than a warning about nothing.
+ */
+export const WORKFLOW_RUN_RE_PARKED_STATE: WorkflowRunControlRunState = "suspended";
 
 /** What the operator has spent of the reason budget, and whether they are past it. */
 export interface CancelReasonBudget {
@@ -114,27 +199,32 @@ export function reasonPastBoundRefusal(budget: CancelReasonBudget): ConsoleRefus
   );
 }
 
-/** What each action is called where a person reads about it not being reachable. */
+/** What each action is called where a person reads a sentence about it. */
 const ACTION_PROSE: Readonly<Record<WorkflowRunControlAction, string>> = {
   cancel: "Cancelling a run",
   resume: "Resuming a run",
 };
 
 /**
- * The state a control is in on a build whose bridge does not carry its operation.
+ * The refusal a second press earns while the first call is still outstanding.
  *
- * "Not checked" and never "denied": nobody put the question to a daemon, so a
- * console that rendered this as a denial would be asserting an adjudication that
- * never happened. The detail says which act is unreachable in prose rather than
- * naming a method string, because no such method is registered and printing one
- * would be this surface inventing the wire it is reporting the absence of.
+ * REFUSED AND NEVER QUEUED, and never dropped either. Queued, the second press would
+ * perform an act nobody re-confirmed against a run whose state the first call has by
+ * then moved; dropped, the operator presses a button that does nothing and is told
+ * nothing, which is the one failure rule 9 exists to prevent. So the press is
+ * answered, in the control's own body, with the fact that the run already has this
+ * act in flight.
+ *
+ * "In flight" and never "denied": no question was put to a daemon by this press at
+ * all, so a console that rendered it as an adjudication would be asserting one that
+ * never happened.
  */
-export function unregisteredRunControl(action: WorkflowRunControlAction): ConsoleRefusal {
-  const code: WorkflowRunControlRefusalCode = "wire-unregistered";
+export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): ConsoleRefusal {
+  const code: WorkflowRunControlRefusalCode = "act-already-in-flight";
   return refuse(
     WORKFLOW_RUN_CONTROL_ORIGIN,
     code,
-    `${ACTION_PROSE[action]} is not reachable from this build — the operation is not on the bridge yet.`,
+    `${ACTION_PROSE[action]} is already in flight for this run. Wait for the answer; a second press is not queued.`,
   );
 }
 
@@ -161,25 +251,21 @@ export interface WorkflowVersionRepin {
   readonly targetWorkflowVersionId: string;
 }
 
-/** What a cancel control is: the call, or the refusal that stands in its place. */
-export type WorkflowCancelControl =
-  | {
-      readonly kind: "admitted";
-      /** `undefined` when the operator gave no reason, which is a legal cancel. */
-      readonly cancel: (reason: string | undefined) => void;
-    }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+/** What a cancel control is: the call, and where the last press of it got to. */
+export interface WorkflowCancelControl {
+  /** `undefined` when the operator gave no reason, which is a legal cancel. */
+  readonly cancel: (reason: string | undefined) => void;
+  readonly outcome: WorkflowRunControlOutcome;
+}
 
 /** What a resume control is, plus the chain a re-pin may choose from. */
-export type WorkflowResumeControl =
-  | {
-      readonly kind: "admitted";
-      readonly resume: (repin: WorkflowVersionRepin | undefined) => void;
-      /**
-       * The version chain, as the caller read it. Empty means no chain was read,
-       * so no target can be named explicitly and the re-pin control is ABSENT —
-       * not a disabled picker, and never a silent "latest".
-       */
-      readonly versionChain: readonly WorkflowVersionChoice[];
-    }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+export interface WorkflowResumeControl {
+  readonly resume: (repin: WorkflowVersionRepin | undefined) => void;
+  /**
+   * The version chain, as the caller read it. Empty means no chain was read,
+   * so no target can be named explicitly and the re-pin control is ABSENT —
+   * not a disabled picker, and never a silent "latest".
+   */
+  readonly versionChain: readonly WorkflowVersionChoice[];
+  readonly outcome: WorkflowRunControlOutcome;
+}

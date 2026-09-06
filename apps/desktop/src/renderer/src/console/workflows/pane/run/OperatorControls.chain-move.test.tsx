@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../../bridge/index.js";
 import { OperatorControls } from "./OperatorControls.js";
-import { unregisteredRunControl, type WorkflowVersionChoice } from "./run-controls.js";
+import { IDLE_RUN_CONTROL_OUTCOME, type WorkflowVersionChoice } from "./run-controls.js";
 
 /** The one address every case renders at: the run is what these cases hold still. */
 const RUN_ADDRESS = { growth: {} as GrowthPort, workflowRunId: "run-a" } as const;
@@ -48,8 +48,12 @@ function admitted(props: {
   return (
     <OperatorControls
       {...RUN_ADDRESS}
-      cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-      resume={{ kind: "admitted", resume: props.resume, versionChain: props.versionChain }}
+      cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+      resume={{
+        resume: props.resume,
+        versionChain: props.versionChain,
+        outcome: IDLE_RUN_CONTROL_OUTCOME,
+      }}
     />
   );
 }
