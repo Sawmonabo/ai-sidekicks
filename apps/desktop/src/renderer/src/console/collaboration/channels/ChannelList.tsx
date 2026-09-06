@@ -67,10 +67,18 @@ export interface ChannelListProps {
    * rows are stale.
    */
   readonly isCatchingUp: boolean;
+  /**
+   * Re-open the channel stream after a refusal. Rendered only on the failed arm.
+   *
+   * The read's own trigger rather than a rebuild of this session's models, for the
+   * reason the roster's own prop gives: a refusal on one stream says nothing about
+   * the others, and this section is the only way back into a directory that refused.
+   */
+  readonly onReopen: () => void;
 }
 
 export function ChannelList(props: ChannelListProps): React.JSX.Element {
-  const { state, openPane, activity, labels, isCatchingUp } = props;
+  const { state, openPane, activity, labels, isCatchingUp, onReopen } = props;
 
   const ordered = useMemo(
     () => (state.kind === "loaded" ? orderChannelRows(state.value) : undefined),
@@ -99,7 +107,15 @@ export function ChannelList(props: ChannelListProps): React.JSX.Element {
   if (state.kind === "failed") {
     return (
       <div className="meridian-channels">
-        <RefusalCard code={state.refusal.code} detail={state.refusal.detail} />
+        <RefusalCard
+          code={state.refusal.code}
+          detail={state.refusal.detail}
+          action={
+            <button type="button" onClick={onReopen}>
+              Try again
+            </button>
+          }
+        />
       </div>
     );
   }

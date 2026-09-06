@@ -3,7 +3,10 @@
 // A READ SURFACE AND NOTHING ELSE. There is no control here: role changes and
 // invites are the members surface's, and a roster that carried either would be a
 // second place to perform them. What it offers is legibility — one line per person,
-// their hue, their presence, and whether they are composing right now.
+// their hue, their presence, and whether they are composing right now. The one
+// control it does carry acts on the READ rather than on the session: a refused
+// presence stream is otherwise terminal for the life of the window, and a column
+// that can only say it failed is a column a person has no way out of.
 //
 // EVERY ROW STAYS. An offline participant is dimmed and marked, never dropped: the
 // question this surface answers is "who is in this session", and someone who
@@ -45,6 +48,14 @@ export interface RosterProps {
    * still current about.
    */
   readonly isLastKnown: boolean;
+  /**
+   * Re-open the presence stream after a refusal. Rendered only on the failed arm.
+   *
+   * The read's own trigger rather than a rebuild of this session's models: a
+   * refusal on one stream says nothing about the others, and tearing the set down
+   * would re-open reads that never failed and clear the activity registry with them.
+   */
+  readonly onReopen: () => void;
 }
 
 /**
@@ -59,7 +70,8 @@ export interface RosterProps {
  */
 export const Roster: React.MemoExoticComponent<(props: RosterProps) => React.JSX.Element> = memo(
   function Roster(props: RosterProps): React.JSX.Element {
-    const { state, rows, nowMilliseconds, labels, composingChannelFor, isLastKnown } = props;
+    const { state, rows, nowMilliseconds, labels, composingChannelFor, isLastKnown, onReopen } =
+      props;
 
     if (state.kind === "not-loaded") {
       return (
@@ -72,7 +84,15 @@ export const Roster: React.MemoExoticComponent<(props: RosterProps) => React.JSX
     if (state.kind === "failed") {
       return (
         <div className="meridian-roster">
-          <RefusalCard code={state.refusal.code} detail={state.refusal.detail} />
+          <RefusalCard
+            code={state.refusal.code}
+            detail={state.refusal.detail}
+            action={
+              <button type="button" onClick={onReopen}>
+                Try again
+              </button>
+            }
+          />
         </div>
       );
     }

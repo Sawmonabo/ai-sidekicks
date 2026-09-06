@@ -14,6 +14,9 @@ import { Roster } from "./Roster.js";
 
 const NOW_MILLISECONDS = frozenStartMilliseconds();
 
+/** A stable no-op re-open. Fresh per render, it would defeat the memo the cases below drive. */
+const NO_REOPEN = (): void => undefined;
+
 const LABELS: ChannelActivityLabels = {
   participantLabel: (participantId) => participantId.replace("participant-", ""),
   runLabel: (runId) => runId,
@@ -37,6 +40,7 @@ function renderRoster(
     readonly selfParticipantId?: string;
     readonly composingChannelFor?: (participantId: string) => string | undefined;
     readonly isLastKnown?: boolean;
+    readonly onReopen?: () => void;
   },
 ): ReturnType<typeof render> {
   const allocator = overrides?.allocator ?? new ParticipantHueAllocator();
@@ -57,6 +61,7 @@ function renderRoster(
       labels={LABELS}
       composingChannelFor={overrides?.composingChannelFor ?? (() => undefined)}
       isLastKnown={overrides?.isLastKnown ?? false}
+      onReopen={overrides?.onReopen ?? (() => undefined)}
     />,
   );
 }
@@ -161,6 +166,7 @@ describe("roster — the absences", () => {
         labels={LABELS}
         composingChannelFor={() => undefined}
         isLastKnown={false}
+        onReopen={() => undefined}
       />,
     );
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
@@ -178,11 +184,48 @@ describe("roster — the absences", () => {
         labels={LABELS}
         composingChannelFor={() => undefined}
         isLastKnown={false}
+        onReopen={() => undefined}
       />,
     );
     const text = container.textContent ?? "";
     expect(text).toContain("presence.permission_denied");
     expect(text).toContain("Per-device detail is withheld.");
+  });
+
+  it("offers a way back into a stream that refused to open", () => {
+    // A refused subscribe is terminal for the read: nothing re-runs the effect that
+    // opened it, so without a control the column says one line of error text for the
+    // life of the window and a cap that clears in thirty seconds is indistinguishable
+    // from a permanent refusal.
+    let reopenCount = 0;
+    const { container } = render(
+      <Roster
+        state={{
+          kind: "failed",
+          refusal: refuse("daemon", "ratelimit.exceeded", "Too many open subscriptions."),
+        }}
+        rows={[]}
+        nowMilliseconds={NOW_MILLISECONDS}
+        labels={LABELS}
+        composingChannelFor={() => undefined}
+        isLastKnown={false}
+        onReopen={() => {
+          reopenCount += 1;
+        }}
+      />,
+    );
+    const retry = container.querySelector(".meridian-refusal__action button");
+    expect(retry?.textContent).toBe("Try again");
+    (retry as HTMLButtonElement).click();
+    expect(reopenCount).toBe(1);
+  });
+
+  it("negative control: a loaded roster offers no re-open", () => {
+    // Without this, the case above would pass over a column that offered the control
+    // on every arm — a retry beside a list that is already current, which reads as a
+    // refresh the console does not have.
+    const { container } = renderRoster([participant("participant-one", "online")]);
+    expect(container.querySelector(".meridian-refusal__action")).toBeNull();
   });
 
   it("degrades under one line rather than per-row noise", () => {
@@ -224,6 +267,7 @@ describe("roster — a re-render that moved nothing does no work", () => {
         labels={LABELS}
         composingChannelFor={composingChannelFor}
         isLastKnown={false}
+        onReopen={NO_REOPEN}
       />
     );
     const { rerender } = render(<div>{rosterElement()}</div>);
@@ -258,6 +302,7 @@ describe("roster — a re-render that moved nothing does no work", () => {
         labels={LABELS}
         composingChannelFor={composingChannelFor}
         isLastKnown={false}
+        onReopen={NO_REOPEN}
       />
     );
     const { rerender } = render(<div>{rosterAt(NOW_MILLISECONDS)}</div>);

@@ -115,6 +115,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
         activity={new ActivityIndicatorRegistry(new ManualClock())}
         labels={LABELS}
         isCatchingUp={false}
+        onReopen={() => undefined}
       />,
     );
 
@@ -145,6 +146,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
           participantId === "participant-priya" ? "review" : undefined
         }
         isLastKnown={false}
+        onReopen={() => undefined}
       />,
     );
 

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { usePushDrivenRead, type SidebarSectionContext } from "../../seats/index.js";
 import { useComposingLookup } from "../activity-model.js";
 import { useDeadlineWake, useSessionDegraded } from "../../store/index.js";
@@ -49,6 +49,21 @@ export function MembersSectionBody(props: {
   // fires at the minute a rendered age changes rather than every second. A mark that
   // depends on an unrelated re-render is right by accident.
   const composingChannelFor = useComposingLookup(models.activity);
+  // The read's OWN re-open, not a rebuild of the set: a refused subscribe leaves this
+  // column terminal for the life of the window, and the roster that refused is the
+  // only one that has to be re-opened.
+  const reopenRoster = useCallback(() => {
+    // THE STREAM FIRST, THE READ SECOND, AND NEVER BOTH. A read whose stream never
+    // opened is behind a dead channel, and refreshing that one paints a current-looking
+    // surface over a subscription nobody holds; a read whose stream IS live failed at
+    // the read alone, and a fresh read is the whole recovery. `isSubscribed` is the
+    // seam's own answer to which of the two this is.
+    if (models.presenceRoster.isSubscribed) {
+      models.presenceRoster.refresh("participant-request");
+      return;
+    }
+    models.presenceRoster.start();
+  }, [models]);
 
   const rows = useMemo(
     () =>
@@ -75,6 +90,7 @@ export function MembersSectionBody(props: {
         labels={models.labels}
         composingChannelFor={composingChannelFor}
         isLastKnown={isLastKnown}
+        onReopen={reopenRoster}
       />
       <Memberships context={context} />
     </>

@@ -35,7 +35,11 @@ function loaded(
 
 function renderList(
   state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
-  overrides?: { readonly openPane?: () => void; readonly isCatchingUp?: boolean },
+  overrides?: {
+    readonly openPane?: () => void;
+    readonly isCatchingUp?: boolean;
+    readonly onReopen?: () => void;
+  },
 ): ReturnType<typeof render> {
   return render(
     <ChannelList
@@ -44,6 +48,7 @@ function renderList(
       activity={new ActivityIndicatorRegistry(new ManualClock())}
       labels={LABELS}
       isCatchingUp={overrides?.isCatchingUp ?? false}
+      onReopen={overrides?.onReopen ?? (() => undefined)}
     />,
   );
 }
@@ -205,6 +210,32 @@ describe("channel list — the absences", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("channel.not_found");
     expect(text).toContain("That channel is gone.");
+  });
+
+  it("offers a way back into a stream that refused to open", () => {
+    // A refused subscribe is terminal for the read, exactly as it is for the roster
+    // beside it: nothing re-runs the effect that opened it, so a column with no
+    // control is a directory a person cannot get back.
+    let reopenCount = 0;
+    const { container } = renderList(
+      { kind: "failed", refusal: refuse("daemon", "ratelimit.exceeded", "Too many streams.") },
+      {
+        onReopen: () => {
+          reopenCount += 1;
+        },
+      },
+    );
+    const retry = container.querySelector(".meridian-refusal__action button");
+    expect(retry?.textContent).toBe("Try again");
+    (retry as HTMLButtonElement).click();
+    expect(reopenCount).toBe(1);
+  });
+
+  it("negative control: a served directory offers no re-open", () => {
+    // Without this, the case above would pass over a column that offered the control
+    // on every arm, which reads as a refresh this surface does not have.
+    const { container } = renderList(loaded([channel("channel-main", "active", "main")]));
+    expect(container.querySelector(".meridian-refusal__action")).toBeNull();
   });
 
   it("teaches what a channel is for when there is none to show", () => {

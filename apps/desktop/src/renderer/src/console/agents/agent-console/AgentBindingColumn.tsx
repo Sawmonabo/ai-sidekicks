@@ -211,6 +211,23 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     [models, submitBindingMove],
   );
 
+  // The roster read's OWN re-open. A refused subscribe is terminal — nothing re-runs
+  // the effect that opened it — so without this the column says one line of error text
+  // for the life of the window, and a cap that clears in thirty seconds is
+  // indistinguishable from a refusal that never will.
+  const reopenRoster = useCallback(() => {
+    // THE STREAM FIRST, THE READ SECOND, AND NEVER BOTH. A read whose stream never
+    // opened is behind a dead channel, and refreshing that one paints a current-looking
+    // surface over a subscription nobody holds; a read whose stream IS live failed at
+    // the read alone, and a fresh read is the whole recovery. `isSubscribed` is the
+    // seam's own answer to which of the two this is.
+    if (models.roster.isSubscribed) {
+      models.roster.refresh("participant-request");
+      return;
+    }
+    models.roster.start();
+  }, [models]);
+
   const agents = rosterState.kind === "loaded" ? rosterState.value.agents : [];
   const shownAgents = useMemo(
     () => (agentId === undefined ? agents : agents.filter((row) => row.agentId === agentId)),
@@ -259,7 +276,16 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       {rosterState.kind === "not-loaded" ? (
         <Nothing kind="not-loaded" title="Reading this session's agents" />
       ) : null}
-      {rosterState.kind === "failed" ? <RefusalCard {...rosterState.refusal} /> : null}
+      {rosterState.kind === "failed" ? (
+        <RefusalCard
+          {...rosterState.refusal}
+          action={
+            <button type="button" onClick={reopenRoster}>
+              Try again
+            </button>
+          }
+        />
+      ) : null}
       {rosterState.kind === "loaded" && shownAgents.length === 0 ? (
         <AgentRosterEmpty onAttach={() => setAttachOpen(true)} />
       ) : null}
