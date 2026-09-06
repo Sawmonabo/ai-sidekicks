@@ -15,6 +15,7 @@
 // step — instead of a blank window.
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import { isWireRecord } from "../core/index.js";
 import { SIDEKICKS_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createRefusingGrowthPort } from "./growth-port/index.js";
@@ -71,13 +72,16 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
  * The namespace list is `bridge-shape.ts`'s, not a second copy — that module holds
  * it as a table keyed by `keyof SidekicksBridge`, so a namespace added to the
  * contract cannot slip past this probe unlisted.
+ *
+ * The record reading is `core/isWireRecord`, not a hand-written `typeof … === "object"`
+ * pair, which is what these two lines were. That pair admits an ARRAY on both sides —
+ * `typeof [] === "object"` and `[] !== null` — so an array-valued namespace passed the
+ * probe and the console went on to call methods on it. The shared predicate rejects one,
+ * and it also narrows, so the cast the inner line carried is gone with it.
  */
 function isBridgeShaped(candidate: unknown): candidate is SidekicksBridge {
-  if (typeof candidate !== "object" || candidate === null) {
+  if (!isWireRecord(candidate)) {
     return false;
   }
-  return SIDEKICKS_BRIDGE_NAMESPACES.every((namespace) => {
-    const value = (candidate as Record<string, unknown>)[namespace];
-    return typeof value === "object" && value !== null;
-  });
+  return SIDEKICKS_BRIDGE_NAMESPACES.every((namespace) => isWireRecord(candidate[namespace]));
 }

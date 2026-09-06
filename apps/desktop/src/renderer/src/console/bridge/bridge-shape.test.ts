@@ -179,6 +179,22 @@ describe("I-023-13 — the fixture bridge is shape-identical to the live bridge"
     expect(resolveLiveBridgeFrom(undefined)).toBeUndefined();
     expect(resolveLiveBridgeFrom({ daemon: {} })).toBeUndefined();
   });
+
+  it("negative control: an array-valued namespace is refused rather than admitted", () => {
+    // The probe used to read each namespace as `typeof … === "object" && … !== null`,
+    // which is true of an array — so a namespace that arrived as one passed, and the
+    // console went on to call methods on it. The reading is `core/isWireRecord` now,
+    // which rejects an array, and this is what fails if that is written by hand again.
+    const installed = createTier1Bridge();
+    const [firstNamespace] = SIDEKICKS_BRIDGE_NAMESPACES;
+    expect(firstNamespace).toBeDefined();
+    const arrayValued = { ...installed, [firstNamespace ?? "daemon"]: [] };
+
+    expect(resolveLiveBridgeFrom(arrayValued)).toBeUndefined();
+    // And the same object with that namespace intact IS admitted, so the case above
+    // fails for the array and not for the way this literal was built.
+    expect(resolveLiveBridgeFrom({ ...installed })).toBeDefined();
+  });
 });
 
 describe("I-023-13 — the growth ledger's live status is checked against the slate", () => {
