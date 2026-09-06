@@ -17,7 +17,7 @@ import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import type { ConsoleBridgeSource } from "../bridge/console-bridge.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
-import { settleReactWork } from "../primitives/act-settlement.test-support.js";
+import { settleReactWork } from "../core/act-settlement.test-support.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 

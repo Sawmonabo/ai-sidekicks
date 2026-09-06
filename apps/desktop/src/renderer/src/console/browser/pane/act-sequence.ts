@@ -35,7 +35,12 @@
 import { useCallback } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
+import {
+  normalizeWireRejection,
+  refuse,
+  type ConsoleRefusal,
+  type RejectionFallback,
+} from "../../core/index.js";
 import {
   useSubjectScopedResource,
   useSubjectScopedState,
@@ -44,13 +49,6 @@ import {
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
-
-/**
- * The caller-written refusal for a rejection carrying no code of its own, derived
- * from the normalizer that consumes it rather than restated here — a second
- * declaration of that shape would agree with the first only until one was widened.
- */
-type ActRejectionFallback = NonNullable<Parameters<typeof normalizeWireRejection>[2]>;
 
 /**
  * Which dispatched act is the newest one.
@@ -113,7 +111,7 @@ export interface BrowserPaneActs {
    * where the act was served; a rejection is normalized through the console's one
    * wire-rejection reader, so a code the other side sent survives.
    */
-  run(act: () => Promise<ConsoleRefusal | undefined>, fallback: ActRejectionFallback): void;
+  run(act: () => Promise<ConsoleRefusal | undefined>, fallback: RejectionFallback): void;
   /** Refuse here and now, without crossing the boundary. Outranks anything in flight. */
   refuseLocally(code: string, detail: string): void;
   /** Clear what is on screen. Starts nothing, and supersedes nothing. */
@@ -148,7 +146,7 @@ export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): Brows
   );
 
   const run = useCallback(
-    (act: () => Promise<ConsoleRefusal | undefined>, fallback: ActRejectionFallback): void => {
+    (act: () => Promise<ConsoleRefusal | undefined>, fallback: RejectionFallback): void => {
       const token = sequence.begin();
       void act().then(
         (outcome) => {

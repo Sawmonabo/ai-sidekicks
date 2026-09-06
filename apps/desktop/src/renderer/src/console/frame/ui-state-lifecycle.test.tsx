@@ -43,7 +43,7 @@ import {
 import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.js";
-import { settleReactWork } from "../primitives/act-settlement.test-support.js";
+import { settleReactWork } from "../core/act-settlement.test-support.js";
 
 /**
  * How deep this suite's own settlement runs.

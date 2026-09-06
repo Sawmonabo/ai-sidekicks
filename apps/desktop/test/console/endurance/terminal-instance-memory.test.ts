@@ -67,6 +67,13 @@
 // working day of open-and-close cycles leaves the page where it started — are
 // `terminal-endurance.test.ts`'s and are not restated here. That file makes no
 // ceiling claim of its own: this row has one gate, and it is below.
+//
+// Nor does it own the pane-count sweep. Opening the instances, reading the heap
+// around each one, and deciding whether those readings agree well enough to be
+// evidence about a pane is `terminal-instance-series.ts`'s, with its own cases beside
+// it driving the rule over hand-written readings rather than over a window. What
+// stays here is what the budget row says: which subject is priced, why the figure is
+// a sum, and what fails the run.
 
 import process from "node:process";
 
@@ -87,6 +94,13 @@ import {
   openHarnessOnDeliveredSession,
   openPaneAndAwaitWebglReadiness,
 } from "./terminal-pane-harness.js";
+import {
+  admissibilityOf,
+  measureTerminalInstanceSeries,
+  MEASURED_INSTANCE_COUNT,
+  TEARDOWN_RESIDUE_FACTOR,
+  type TerminalInstanceSeries,
+} from "./terminal-instance-series.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
@@ -109,58 +123,6 @@ const budget = registry.requireBudget(TERMINAL_INSTANCE_BUDGET_ID);
 
 /** This file's collector and settling loop, for the half measured in process. */
 const heapSampler = new HeapSampler();
-
-/**
- * How many instances the slope is read over.
- *
- * Three: one gives a delta and no slope, two give a slope from a single interval
- * whose noise is the whole reading, and three give two intervals whose agreement is
- * itself evidence. More would spend a WebGL context per instance against a page
- * ledger capped at twelve for reasons `terminal/emulator/renderer-pool.ts` records.
- */
-const MEASURED_INSTANCE_COUNT = 3;
-
-/**
- * How far the later instances' slope may sit from the first instance's delta.
- *
- * A FACTOR rather than a byte figure, because a tolerance tight enough to mean
- * something at this revision's ~940 kB pane reading would be inside the noise once
- * the output stream lands and the same pane holds a filled buffer.
- *
- * The LOWER bound is the load-bearing half and the reason this control exists: a
- * first delta inflated by a one-time cost — the emulator chunk, a lazily created
- * texture atlas, a page-wide allocation the second instance reuses — shows up as a
- * slope that is a small FRACTION of it, which is precisely the shape of "a fixed
- * cost reported as the instance". That is not hypothetical here: before the
- * readings were taken behind a forced collection, this run measured a first
- * instance at 4,165 kB and a slope of MINUS 5,765 kB, because a later mount
- * triggered the collection the baseline had not had. The upper bound catches the
- * mirror image — a first instance costing less than its successors, which would
- * mean the gated figure is not the worst case it claims to be.
- *
- * The band is wide against what the instrument actually delivers: measured on macOS
- * over five runs, a first instance of 937-942 kB against a slope of 824-827 kB. The
- * absolute figures move by a few kilobytes between runs and the RATIO does not — it
- * read 0.88 in every one — which is the quantity this control is about. The width is
- * headroom for a different runner's allocator rather than slack this reading needs.
- *
- * Read against the PANE half alone, deliberately. The slope is a claim about what a
- * second pane costs, and the scrollback half is measured once for the subject rather
- * than per mounted instance.
- */
-const SLOPE_AGREEMENT_LOWER_FACTOR = 0.5;
-const SLOPE_AGREEMENT_UPPER_FACTOR = 2;
-
-/**
- * How much of one pane's cost may still be held after every pane is closed.
- *
- * One pane's own figure. Three came and went, so a per-instance retention would
- * show three times over; anything under one instance cannot be a per-instance leak.
- * The claim is deliberately the weaker one — this file owns the pane-shaped
- * teardown, and the adapter's own churn accounting over a working day of cycles is
- * `terminal-endurance.test.ts`'s and is not duplicated here.
- */
-const TEARDOWN_RESIDUE_FACTOR = 1;
 
 /**
  * The split this gate exists to catch, priced in bytes.
@@ -252,49 +214,67 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
 
           // The warm-up cycle. Its whole purpose is to move the emulator chunk and every
           // other one-time page cost to the LEFT of the baseline, so the first instance's
-          // delta below is an instance and not a library.
+          // delta below is an instance and not a library. It is paid here rather than
+          // inside the sweep because a second sweep must not pay it again.
           await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
           await closeEveryPane(consoleApplication, 1);
 
-          const baselineHeapBytes = await heapProbe.readSettledBytes();
-
-          await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
-          const oneInstanceHeapBytes = await heapProbe.readSettledBytes();
-          const paneStandingBytes = oneInstanceHeapBytes - baselineHeapBytes;
-
-          for (let instance = 2; instance <= MEASURED_INSTANCE_COUNT; instance += 1) {
-            await openPaneAndAwaitWebglReadiness(consoleApplication, instance);
+          // ONE RE-MEASURE, AND ONLY ONE. Every figure below is a difference of two
+          // ~13 MB heap readings, and the slope is a ratio of two of those, so a single
+          // stochastic sweep cannot carry a hard gate: a loaded machine has produced a
+          // 0.15 ratio on a tree whose idle ratio is 0.87. A sweep the rule rejects is
+          // therefore taken again — once, so a genuine regression still fails rather
+          // than retrying until the run gives the answer the gate wants.
+          let series: TerminalInstanceSeries = await measureTerminalInstanceSeries(
+            consoleApplication,
+            heapProbe,
+          );
+          let admissibility = admissibilityOf(series);
+          if (!admissibility.admissible) {
+            process.stdout.write(
+              `[console-endurance] re-measuring the terminal pane sweep: ${admissibility.reason}\n`,
+            );
+            series = await measureTerminalInstanceSeries(consoleApplication, heapProbe);
+            admissibility = admissibilityOf(series);
           }
-          const everyInstanceHeapBytes = await heapProbe.readSettledBytes();
-          const laterInstanceBytes =
-            (everyInstanceHeapBytes - oneInstanceHeapBytes) / (MEASURED_INSTANCE_COUNT - 1);
-
-          await closeEveryPane(consoleApplication, MEASURED_INSTANCE_COUNT);
-          const afterTeardownHeapBytes = await heapProbe.readSettledBytes();
-          const teardownResidueBytes = Math.max(0, afterTeardownHeapBytes - baselineHeapBytes);
 
           // One subject, one verdict.
-          const populatedInstanceBytes = paneStandingBytes + fullScrollbackBytes;
+          const populatedInstanceBytes = series.paneStandingBytes + fullScrollbackBytes;
           const verdict = evaluateBudget(budget, populatedInstanceBytes);
 
           // Reported before the assertions, on the reason the two readings beside it in
           // this tier print theirs: a gate that speaks only when it fails gives a
           // reviewer no way to watch a margin shrink over months until the day it
           // crosses. Both halves are named, because a sum that moved is a question about
-          // which half moved.
+          // which half moved — and the per-instance intervals with them, because the
+          // slope is now a claim about readings a reader can check against each other.
           process.stdout.write(
             `[console-endurance] populated terminal pane ` +
               `${String(Math.round(populatedInstanceBytes / 1024))} kB ` +
               `of ${String(Math.round(budget.limit.canonicalValue / 1024))} kB ` +
               `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) = ` +
-              `pane ${String(Math.round(paneStandingBytes / 1024))} kB + scrollback ` +
+              `pane ${String(Math.round(series.paneStandingBytes / 1024))} kB + scrollback ` +
               `${String(Math.round(fullScrollbackBytes / 1024))} kB at ` +
               `${String(TERMINAL_DEFAULT_SCROLLBACK_LINES)} lines × ` +
               `${String(TERMINAL_BUDGET_MEASUREMENT_COLUMNS)} columns; ` +
-              `later panes ${String(Math.round(laterInstanceBytes / 1024))} kB each; ` +
-              `${String(Math.round(teardownResidueBytes / 1024))} kB still held after closing ` +
+              `later panes ${String(Math.round(series.laterInstanceBytes / 1024))} kB each ` +
+              `[${series.perInstanceIntervalBytes
+                .map((interval) => `${String(Math.round(interval / 1024))} kB`)
+                .join(", ")}]; ` +
+              `${String(Math.round(series.teardownResidueBytes / 1024))} kB still held after closing ` +
               `${String(MEASURED_INSTANCE_COUNT)}\n`,
           );
+
+          // The slope control, and the first thing asserted: every figure under it is
+          // arithmetic on the same readings, so a sweep that is not evidence about a
+          // pane is not evidence about a budget either. The sentence names which of the
+          // rule's three tests failed and what it read.
+          expect(
+            admissibility.admissible,
+            admissibility.admissible
+              ? ""
+              : `the terminal pane sweep was inadmissible twice: ${admissibility.reason}`,
+          ).toBe(true);
 
           // The verdict is taken on the SUM, and this is the assertion that keeps it
           // there: a gate quietly returned to pricing one half would still satisfy every
@@ -302,20 +282,22 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
           expect(
             verdict.measuredCanonicalValue,
             "this row's verdict must be taken on the populated pane, not on either half of it",
-          ).toBe(paneStandingBytes + fullScrollbackBytes);
+          ).toBe(series.paneStandingBytes + fullScrollbackBytes);
 
           expect(
             verdict.withinBudget,
-            `${budget.label}: ${String(populatedInstanceBytes)} B (pane ${String(paneStandingBytes)} B ` +
+            `${budget.label}: ${String(populatedInstanceBytes)} B (pane ${String(series.paneStandingBytes)} B ` +
               `+ scrollback ${String(fullScrollbackBytes)} B) against a ` +
               `${String(budget.limit.canonicalValue)} B ceiling`,
           ).toBe(true);
 
           // Each half has to be a figure. A pane delta at or below zero means the reading
           // moved the wrong way, and a scrollback half at zero means the sum above was
-          // the pane alone — the exact state this gate was rebuilt to end.
+          // the pane alone — the exact state this gate was rebuilt to end. The pane half
+          // is already past the noise floor by the time this runs; the floor is the
+          // instrument's claim and this is the subject's.
           expect(
-            paneStandingBytes,
+            series.paneStandingBytes,
             "mounting a terminal pane did not raise the renderer's heap at all, so the comparison above measured nothing",
           ).toBeGreaterThan(0);
           expect(
@@ -323,23 +305,17 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
             "a full scrollback retained nothing, so the gated sum is the empty pane again",
           ).toBeGreaterThan(0);
 
-          // The slope control: the later panes cost about what the first one did, so the
-          // pane half of the gated figure is the price of an instance rather than a
-          // one-time cost the first instance happened to carry.
-          expect(
-            laterInstanceBytes,
-            `later panes cost ${String(Math.round(laterInstanceBytes / 1024))} kB against the first pane's ` +
-              `${String(Math.round(paneStandingBytes / 1024))} kB, so the gated figure is dominated by a cost that is ` +
-              "paid once rather than per instance",
-          ).toBeGreaterThan(paneStandingBytes * SLOPE_AGREEMENT_LOWER_FACTOR);
-          expect(laterInstanceBytes).toBeLessThan(paneStandingBytes * SLOPE_AGREEMENT_UPPER_FACTOR);
-
           // The leak half, pane-shaped: three whole panes came and went and the page is
-          // back within one pane of where it started.
+          // back within one pane of where it started. Scaled by the sweep's per-instance
+          // figure over all three observations, never by the first delta alone — both
+          // bounds hung off that one difference, so a single under-read tightened this
+          // one in the same run that made the slope fail, and one wobble failed two
+          // controls as if they were two findings.
           expect(
-            teardownResidueBytes,
-            `${String(MEASURED_INSTANCE_COUNT)} panes were closed and ${String(Math.round(teardownResidueBytes / 1024))} kB is still held`,
-          ).toBeLessThan(paneStandingBytes * TEARDOWN_RESIDUE_FACTOR);
+            series.teardownResidueBytes,
+            `${String(MEASURED_INSTANCE_COUNT)} panes were closed and ${String(Math.round(series.teardownResidueBytes / 1024))} kB is still held, ` +
+              `against a per-instance cost of ${String(Math.round(series.perInstanceBytes / 1024))} kB`,
+          ).toBeLessThan(series.perInstanceBytes * TEARDOWN_RESIDUE_FACTOR);
 
           // A ceiling planted one byte under the reading must fail the same comparison
           // this gate just passed.

@@ -41,6 +41,15 @@ import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-suppor
  * An hour rather than a margin over some particular delay: the claim being made is
  * that NO retry is armed, which is unbounded in time, so the horizon has to be one
  * nobody would schedule past rather than one chosen to clear a specific implementation.
+ *
+ * SPELLED OUT RATHER THAN TAKEN FROM `MILLISECONDS_PER_HOUR`, and the exemption is
+ * recorded here because the value is the unit factor and the constant is one import
+ * away. This is a test INPUT — how far to wind a frozen clock — and not a factor this
+ * file computes with; and the door line publishing that constant carries a
+ * `@consumedBy` claim, which knip fails the moment anything reaches it through the
+ * door, so an import here would trade a defensible literal for a red gate on a
+ * neighbouring family's marker. The declaring module is one deep specifier away and
+ * that is a door bypass taken for a marker's sake, which is worse than the literal.
  */
 const RETRY_HORIZON_MS = 60 * 60 * 1000;
 

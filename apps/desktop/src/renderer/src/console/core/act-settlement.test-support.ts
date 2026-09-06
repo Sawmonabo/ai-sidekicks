@@ -9,13 +9,20 @@
 // suite needed two microtask turns and another needed a macrotask because happy-dom
 // raises `hashchange` on a task of its own.
 //
-// IT LIVES IN `primitives/` BECAUSE OF WHO NEEDS IT. The consumers span view families,
-// and a view family never imports another; the frame is above them, so its module
-// could not be the home either. `primitives/` is the lowest family every consumer sits
-// above, which is what this package's hoisting rule names as the home — and the only
-// other candidate, `test/console/`, is unreachable from a co-located suite, since
-// `src/renderer/tsconfig.test.json` roots at `apps/desktop/src` and an import out of
-// the package's `test/` tree is a TS6059 rather than a style question.
+// IT LIVES IN `core/` BECAUSE OF WHO NEEDS IT. The consumers span view families, and a
+// view family never imports another; the frame is above them, so its module could not
+// be the home either. `core/` is the DAG floor and therefore the lowest family every
+// consumer sits above, which is what this package's hoisting rule names as the home —
+// and the only other candidate, `test/console/`, is unreachable from a co-located
+// suite, since `src/renderer/tsconfig.test.json` roots at `apps/desktop/src` and an
+// import out of the package's `test/` tree is a TS6059 rather than a style question.
+//
+// It sat in `primitives/` on the same rule read one family too high, which was true
+// when it landed and stopped being true in the same substrate that put the settle
+// boundary's sibling at `core/macrotask-boundary.test-support.ts` — one role split
+// across two layer families, the higher one justified by a sentence the tree had
+// already contradicted. `core/committed-frame.test-support.tsx` is the precedent that
+// this family may hold a React-importing test-support module.
 //
 // THE TURN COUNT IS A PARAMETER AND THE MACROTASK IS NOT. One turn and two turns are
 // the same act with a different depth of continuation, so a caller that needs the

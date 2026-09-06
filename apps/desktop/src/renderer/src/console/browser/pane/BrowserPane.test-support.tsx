@@ -11,14 +11,13 @@ import { act, render, screen, waitFor, type RenderResult } from "@testing-librar
 import { expect } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
-import {
-  consoleClockFor,
-  createFixtureBridge,
-  createLiveBridge,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { consoleClockFor, createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
+// Both deep, and both because the bridge door publishes neither: the console
+// resolves the live bridge inside that family, and the transport marker's readers
+// are this module and the two suites beside it.
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
+import { createLiveBridge } from "../../bridge/live-bridge.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore } from "../../store/index.js";
 import type { PaneContextOf } from "../../seats/index.js";

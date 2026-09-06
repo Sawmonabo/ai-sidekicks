@@ -16,7 +16,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { formatRoute } from "../routing/index.js";
 import { FrameStore, useLocationHash } from "../store/index.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
@@ -46,14 +46,14 @@ async function bind(): Promise<FrameStore> {
  *
  * A macrotask rather than a microtask: happy-dom raises `hashchange` on a task of
  * its own, so a promise flush returns before the echo the binding is waiting for.
- * That is why this one is not `primitives/act-settlement.test-support.ts`'s and is
+ * That is why this one is not `core/act-settlement.test-support.ts`'s and is
  * named for what it waits on rather than for settling in general — the shared helper
  * settles a promise chain, and folding a task wait in behind a flag would let a caller
  * ask for "settled" and be given a wait whose reason it never stated.
  */
 async function settleQueuedBrowserTask(): Promise<void> {
   await act(async () => {
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -66,7 +66,7 @@ afterEach(async () => {
   // this one. So the reset lands here, with no binding mounted and no listener
   // registered to hear it, before the next case begins.
   window.location.hash = SESSIONS_HASH;
-  await drainMicrotasks();
+  await crossMacrotaskBoundary();
 });
 
 describe("useHashRouteBinding", () => {

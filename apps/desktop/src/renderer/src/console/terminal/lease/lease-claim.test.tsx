@@ -21,7 +21,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { settleReactWork } from "../../primitives/act-settlement.test-support.js";
+import { settleReactWork } from "../../core/act-settlement.test-support.js";
 import { HeldLeaseWire, OTHER_SESSION_ID, SESSION_ID } from "./LeaseLine.test-support.js";
 import { useTerminalLeaseClaim, type TerminalLeaseClaim } from "./lease-claim.js";
 

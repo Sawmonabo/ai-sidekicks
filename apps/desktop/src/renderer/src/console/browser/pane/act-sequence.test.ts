@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { settleReactWork } from "../../primitives/act-settlement.test-support.js";
+import { settleReactWork } from "../../core/act-settlement.test-support.js";
 import { useBrowserPaneActs, type BrowserPaneActs } from "./act-sequence.js";
 
 /** The fallback a rejection with no code of its own is rendered as. */

@@ -203,10 +203,10 @@ export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
  * family ORDERING has no such subtraction, because a harness reaching upward is the
  * same inversion an ordinary module's edge is — the symbol it wants lives above the
  * family that needs it, and the remedy is to hoist the symbol rather than to exempt
- * the reader. `drainMicrotasks` was exactly this shape in production: a timing helper
- * parked in `bridge/fixture/fixture-bridge.test-support.ts` that `store/` and `frame/`
- * suites both waited on, hoisted by this branch to
- * `core/microtask-drain.test-support.ts`.
+ * the reader. `crossMacrotaskBoundary` was exactly this shape in production: a timing
+ * helper parked in `bridge/fixture/fixture-bridge.test-support.ts` that `store/` and
+ * `frame/` suites both waited on, hoisted by this branch to
+ * `core/macrotask-boundary.test-support.ts`.
  *
  * WHY A `.test-support.*` MODULE RATHER THAN THE SUITE THAT FOUND THE DEFECT. The
  * suite is a `.test.tsx`, and `options.exclude` in `.dependency-cruiser.mjs` removes

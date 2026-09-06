@@ -33,7 +33,7 @@ import { describe, expect, it } from "vitest";
 import { BROWSER_SCENARIO } from "./browser.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
 import { TERMINAL_HOST_NODE_ID } from "./terminal-cast.js";
-import type { ConsoleScenario, ScenarioBeat } from "../scenario-runtime/scenario.js";
+import type { ConsoleScenario, ScenarioBeat } from "../scenario-runtime/index.js";
 
 /** Every payload member value the beats of one kind carry under one member name. */
 function payloadValuesOf(scenario: ConsoleScenario, kind: string, member: string): string[] {

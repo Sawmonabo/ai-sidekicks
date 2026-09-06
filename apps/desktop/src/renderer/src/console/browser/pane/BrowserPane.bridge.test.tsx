@@ -10,6 +10,10 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+// Deep because the marker is deliberately off the bridge door: a scripted host built
+// here has to carry the same word the fixture's own builder does, and two spellings
+// of one transport agree only until either moves.
+import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import {
   addressField,
@@ -271,7 +275,7 @@ describe("browser pane geometry outcomes", () => {
     const bridge: ConsoleBridge = {
       ...fixtureBrowserBridge(),
       paneViewHostScript: {
-        transport: "scripted",
+        transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
         holdsPane: (paneId) => {
           published.push(paneId);
           return { holds: true };
@@ -317,7 +321,7 @@ describe("browser pane geometry outcomes", () => {
     const bridge: ConsoleBridge = {
       ...fixtureBrowserBridge(),
       paneViewHostScript: {
-        transport: "scripted",
+        transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
         holdsPane: (paneId) => {
           published.push(paneId);
           return { holds: true };
@@ -360,7 +364,7 @@ describe("browser pane geometry outcomes", () => {
     const bridge: ConsoleBridge = {
       ...fixtureBrowserBridge(),
       paneViewHostScript: {
-        transport: "scripted",
+        transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
         holdsPane: (paneId) => {
           published.push(paneId);
           return { holds: true };

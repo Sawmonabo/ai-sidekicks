@@ -12,7 +12,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, createLiveBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+// Both deep, and both for the same reason: neither name is on the bridge door,
+// because no cross-family production module takes either one through it.
+import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
+import { createLiveBridge } from "../../bridge/live-bridge.js";
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
 import { isConsoleRefusal } from "../../core/index.js";
 import type { PaneGeometrySample } from "./pane-geometry.js";
@@ -87,7 +91,7 @@ describe("resolvePaneViewHost", () => {
     const bridge: ConsoleBridge = {
       ...fixtureBridge(),
       paneViewHostScript: {
-        transport: "scripted",
+        transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
         holdsPane: () => ({ holds: false, detail: gone }),
       },
     };
@@ -114,7 +118,7 @@ describe("resolvePaneViewHost", () => {
     const bridge: ConsoleBridge = {
       ...fixtureBridge(),
       paneViewHostScript: {
-        transport: "scripted",
+        transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
         holdsPane: (paneId) => {
           asked.push(paneId);
           return { holds: true };

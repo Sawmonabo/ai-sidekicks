@@ -95,7 +95,6 @@ export {
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type RejectionFallback,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type WireRefusal,

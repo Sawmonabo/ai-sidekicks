@@ -17,6 +17,21 @@
 // branches each add one line to, and it is reached through `scenario-manifest.js`
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
+//
+// Nor is the scripted pane view host — not its type, not its factory, not its
+// transport marker. `console-bridge.ts` names the type on the contract and reaches
+// it by its own specifier; the browser family reads the script structurally off
+// `ConsoleBridge.paneViewHostScript` and names the type nowhere; and the modules
+// that assert on the marker take it from the module that declares it. A door line
+// for any of them would be a published name with no importer, which is the class
+// `test/console/architecture/barrel-census.test.ts` fails.
+//
+// Nor is `createLiveBridge`. Its one production reader is `BridgeProvider.tsx`
+// beside it, which imports the declaring module, and the harnesses that build a
+// live bridge over the fixture's own preload namespace do the same — a door line
+// would be a second path to a symbol no cross-family production module takes, and
+// `.dependency-cruiser.families.mjs` names this symbol where it records why a
+// `.test-support` module is subtracted from the door rule at all.
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
@@ -73,20 +88,6 @@ export type {
   DaemonRequestOf,
   DaemonResponseOf,
 } from "./daemon/daemon-reply-registry.js";
-// The live bridge, for the surfaces and suites that build one over an installed
-// preload contract rather than reading `window.sidekicks` themselves.
-export { createLiveBridge } from "./live-bridge.js";
-
-// 12.11's scripted view host. The TYPE leaves through this door because the browser
-// family wraps one into the host a pane publishes through and has to be able to name
-// it: the wiring table sits in a view family and the seam it selects on is declared
-// down here, which is the only place a bridge can hold it. The factory and the
-// transport marker deliberately do NOT — the fixture bridge builds one and the two
-// suites that assert on the marker read the module that declares it, which is what
-// `test/console/architecture/barrel-census.test.ts` names for a door line no
-// production module would ever import.
-export type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
-
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
 // port type, the one summary shape those surfaces render, the refusal they render
@@ -140,7 +141,9 @@ export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 // `membershipRoleOf` is the injected lookup `useCallerMembershipRole` takes: the
 // store's roster holds the role and deliberately names no wire member, so the read
 // that narrows one lives here and travels through the door to the surfaces that
-// gate a control on the caller's role (the approvals goal editor first). Its
+// gate a control on the caller's role — `terminal/pane/BoundTerminalPane.tsx`, which
+// takes it through `useCallerMembershipRole` to decide whether this viewer may hold
+// the write lease, is the reader today and the reason the line is a door line. Its
 // sibling `stampedExecutionPostureOf` is NOT published: the stamped posture waits on
 // the projector that carries the member into a run body, and a door line whose only
 // importer is a test is the class `test/console/architecture/barrel-census.test.ts`

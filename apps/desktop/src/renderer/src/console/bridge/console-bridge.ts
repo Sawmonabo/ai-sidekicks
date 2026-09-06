@@ -19,8 +19,7 @@
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
-import type { GrowthOperationId } from "./growth-port/index.js";
-import type { GrowthPort } from "./growth-port/index.js";
+import type { GrowthOperationId, GrowthPort } from "./growth-port/index.js";
 import type { ScenarioEngine } from "./scenario-runtime/index.js";
 
 /** Which bridge the console is running against. Rendered, never inferred. */
