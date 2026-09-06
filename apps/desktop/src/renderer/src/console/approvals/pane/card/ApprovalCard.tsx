@@ -41,7 +41,8 @@ import {
   WireFigure,
   formatClockTime,
 } from "../../../primitives/index.js";
-import { refusalRemedyFor, type ConsoleRefusal } from "../../../core/index.js";
+import { type ConsoleRefusal } from "../../../core/index.js";
+import { isApprovalAnswerable } from "../approval-offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import { isResolvedState, type ApprovalRecord } from "../../../bridge/index.js";
 import {
@@ -137,14 +138,11 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
   const state = asApprovalState(record.state);
   const category = asApprovalCategory(record.category);
-  const isPending = state === "pending";
-  // A refusal that SETTLED this request takes the two actions off the card rather
-  // than leaving them pressable: `approval.already_resolved` means somebody else
-  // answered, so every further press would be refused the same way, and the next
-  // projection read drops the card entirely. Read from the shared remedy table
-  // rather than by naming the code here, so the runs pane and this one agree about
-  // which refusals end an act.
-  const answerable = isPending && refusalRemedyFor(props.refusal?.code ?? "")?.settled !== true;
+  // The one offer reading, shared with this pane's palette rows: a refusal that
+  // SETTLED this request takes the two actions off the card rather than leaving them
+  // pressable, and takes the same two rows out of the palette in the same breath.
+  // See `approvals/pane/approval-offer.ts` for why it is one function and not two.
+  const answerable = isApprovalAnswerable(record, props.refusal);
 
   const answer = useCallback(
     (decision: "approved" | "rejected") => {

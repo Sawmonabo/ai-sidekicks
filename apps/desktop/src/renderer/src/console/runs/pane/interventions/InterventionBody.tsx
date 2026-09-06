@@ -34,8 +34,14 @@ export function InterventionBody(props: {
     );
   }
   const { response } = outcome;
+  // The composite reading is offered ONLY where the request was a composite. The
+  // four guards it names are the edit-and-resend's own, and the answer echoes the
+  // replacement nowhere, so the record's own flag is the only thing that can tell
+  // the two dispatches apart — and a bare rewind whose reason happens to contain a
+  // guard's name would otherwise be answered with a remedy about a correction it
+  // never carried.
   const guard =
-    response.rejectionReason === undefined
+    !props.record.composite || response.rejectionReason === undefined
       ? undefined
       : compositeGuardReading(response.rejectionReason);
   return (

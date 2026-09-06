@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type SessionGoalProjection } from "../../bridge/index.js";
 import { type ApprovalRecord } from "../../bridge/index.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
   approvalCommandRows,
   performApprovalCommand,
@@ -39,10 +40,21 @@ function pendingRecord(approvalRequestId: string): ApprovalRecord {
   };
 }
 
+/** The refusal that says somebody else answered: `settled` in the shared table. */
+function alreadyResolved(approvalRequestId: string): ReadonlyMap<string, ConsoleRefusal> {
+  return new Map([
+    [
+      approvalRequestId,
+      refuse("approvals", "approval.already_resolved", "this request was already answered"),
+    ],
+  ]);
+}
+
 function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalCommandInput {
   return {
     pending: [pendingRecord(FIRST_REQUEST)],
     resolvingApprovalIds: new Set<string>(),
+    resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
     resolve: () => undefined,
     goal: NO_GOAL,
     canMutateGoal: false,
@@ -77,6 +89,30 @@ describe("the rows the approvals pane contributes", () => {
     const rows = approvalCommandRows(inputFor({ resolvingApprovalIds: new Set([FIRST_REQUEST]) }));
 
     expect(rows).toEqual([]);
+  });
+
+  it("offers nothing for a record a SETTLED refusal already answered", () => {
+    // The card takes both buttons off on `approval.already_resolved` — somebody else
+    // answered — so the two palette rows go with them. One reading, both surfaces:
+    // withholding this map is what left the palette offering a decision about a
+    // request that was no longer waiting.
+    const rows = approvalCommandRows(
+      inputFor({ resolveRefusalByApprovalId: alreadyResolved(FIRST_REQUEST) }),
+    );
+
+    expect(rows).toEqual([]);
+  });
+
+  it("negative control: an unsettled refusal leaves both rows, since the act may work", () => {
+    const rows = approvalCommandRows(
+      inputFor({
+        resolveRefusalByApprovalId: new Map([
+          [FIRST_REQUEST, refuse("approvals", "session.goal_delivery_failed", "nothing landed")],
+        ]),
+      }),
+    );
+
+    expect(rows.map((row) => row.kind)).toEqual(["approve", "reject"]);
   });
 
   it("offers the goal clear only where a goal is set and the role may mutate it", () => {
@@ -120,6 +156,20 @@ describe("what answering from the palette sends", () => {
     );
 
     expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ decision: "rejected" }));
+  });
+
+  it("answers nothing for a record a settled refusal reached after the row was built", () => {
+    // The row leaves the palette on the next contribution, and a press can land in
+    // the gap. The invoke path re-reads the same offer, so it cannot send a decision
+    // the card has already withdrawn.
+    const resolve = vi.fn();
+
+    performApprovalCommand(
+      { kind: "approve", record: pendingRecord(FIRST_REQUEST), title: "Approve" },
+      inputFor({ resolve, resolveRefusalByApprovalId: alreadyResolved(FIRST_REQUEST) }),
+    );
+
+    expect(resolve).not.toHaveBeenCalled();
   });
 
   it("answers nothing for a record the read no longer returns as pending", () => {

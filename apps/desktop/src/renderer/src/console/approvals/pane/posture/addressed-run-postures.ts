@@ -11,8 +11,14 @@
 // THE POSTURE ITSELF IS READ, NEVER SUBSCRIBED TO HERE. `run.running` reaches the
 // session store through the ordinary apply chokepoint and `bridge/`'s
 // `stampedExecutionPostureOf` narrows the run entity's body through the registered
-// parse. Opening the run-state subscription for it would be a second arrival path for
-// one fact, with no way to say which ordering was right when the two disagreed.
+// parse. Opening the run-state subscription for it here would be a second arrival
+// path this pane has no need of — it holds no run feed and wants none.
+//
+// THE RUNS PANE DOES HOLD ONE, and that is settled rather than left to land in
+// whatever order the two transports land in: `runs/pane/run-posture.ts` states the
+// precedence both surfaces observe — this same durable reading first, the stream
+// projection only for a run the partition does not carry yet — so the two families
+// cannot render different boundaries for one run.
 //
 // AN UNSTAMPED RUN IS CARRIED, NOT DROPPED. A run that has not reached `running`, or
 // one whose stamp this build could not validate, yields `undefined` — and the row

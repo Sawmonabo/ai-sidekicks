@@ -256,15 +256,31 @@ export function resendSettlementSentence(
 // does is recognise which check the daemon SAID refused.
 //
 // AND IT RECOGNISES A PHRASE RATHER THAN A TOKEN, because there is no token to key
-// on: `rejectionReason` is registered as a free-form `string`
+// on YET: `rejectionReason` is registered as a free-form `string`
 // (`api-payload-contracts.md`), and no closed union for these four is registered
-// anywhere in the corpus. An exact table would therefore have to guess the daemon's
-// spelling and would silently answer `undefined` for every near-miss. So the match is
-// containment of the spec's OWN name for the check — "pending send", "active turn",
-// "participant authored", "resumable" — over a reason normalized to lowercase
-// hyphens, which is robust across `no_pending_send`, `composite.pendingSend`, and a
-// plain English sentence alike. The phrases are disjoint, so the scan order decides
-// nothing.
+// anywhere in the corpus. A typed `rejectionGuard` member — an additive-optional
+// closed four-value union on the intervention response — is the reading that
+// SUPERSEDES this one: when it lands, this file switches to it and every phrase
+// below is deleted rather than kept beside it, because two answers to "which guard
+// refused" is exactly the drift this module refuses everywhere else.
+//
+// UNTIL THEN THE MATCH IS DELIBERATELY NARROW, and narrowness is the whole design.
+// It anchors on the guard's WHOLE name as the corpus writes it — "no active turn",
+// "no pending send", "participant-authored boundary", "resumable target" — and not
+// on a fragment of it, over a reason normalized to lowercase hyphens. A fragment
+// match is the failure mode that matters: "resumable" alone is carried by the
+// sentence "the target run is not resumable", by every bare rollback refusal that
+// mentions resumption at all, and by half the vocabulary around a released
+// execution root — and answering any of them with the composite's remedy tells a
+// person to drain a queue that has nothing in it. So a near miss answers
+// `undefined`, which is what a renderer that cannot tell should say.
+//
+// AND A REASON NAMING TWO GUARDS ANSWERS `undefined` TOO. Phrase containment cannot
+// rank two matches: a sentence carrying both names is either a daemon reporting a
+// compound refusal or a reason this reading does not understand, and picking the
+// first entry in a hand-ordered table would be the console inventing which check
+// refused. `undefined` renders the daemon's own sentence and nothing beside it,
+// which is the honest answer to a reason with two readings.
 //
 // A REASON NAMING NONE OF THEM READS EXACTLY AS IT DOES WITHOUT THIS: the daemon's
 // own string, verbatim, with no move beside it. Answering `undefined` is the honest
@@ -296,14 +312,17 @@ interface CompositeGuardEntry extends CompositeGuardReading {
 const COMPOSITE_GUARDS: readonly CompositeGuardEntry[] = [
   {
     guard: "no-active-turn",
-    namedBy: ["active-turn"],
+    namedBy: ["no-active-turn"],
     refused:
       "The run is still answering the message you corrected. The rewind was refused outright rather than pausing a live turn to rewrite the prompt it is working from.",
     remedy: "Pause or stop the run first, then correct the message again.",
   },
   {
     guard: "no-pending-send",
-    namedBy: ["pending-send", "queued-send"],
+    // Two spellings of ONE name — `api-payload-contracts.md` writes the check as
+    // "no earlier pending send" where the spec writes "No pending send." — and never
+    // the bare fragment, which every sentence about a queued item carries.
+    namedBy: ["no-pending-send", "no-earlier-pending-send"],
     refused:
       "An earlier send is still pending on this run — accepted and not yet delivered, or queued and not yet drained — and it would reach the provider ahead of your correction.",
     remedy:
@@ -311,7 +330,10 @@ const COMPOSITE_GUARDS: readonly CompositeGuardEntry[] = [
   },
   {
     guard: "participant-authored-boundary",
-    namedBy: ["participant-authored", "orchestration-authored"],
+    // The noun the corpus pairs with the adjective, both spellings: "a
+    // participant-authored `user.message` boundary of the target run" and "a
+    // participant-authored target of this run".
+    namedBy: ["participant-authored-boundary", "participant-authored-target"],
     refused:
       "The boundary you targeted was not opened by a participant message of this run, so there is no participant send to replace. A workflow phase input and an orchestrated child run both land here.",
     remedy:
@@ -319,7 +341,10 @@ const COMPOSITE_GUARDS: readonly CompositeGuardEntry[] = [
   },
   {
     guard: "resumable-target",
-    namedBy: ["resumable", "rootless"],
+    // `non-resumable-target` and `not-resumable-target` both contain this, so the
+    // negated spellings need no entry of their own. The bare "resumable" does NOT
+    // appear here: it is carried by every sentence about a released execution root.
+    namedBy: ["resumable-target"],
     refused:
       "This run can never resume — its execution context is released with no working root — so a correction queued against it would never be delivered.",
     remedy:
@@ -328,10 +353,12 @@ const COMPOSITE_GUARDS: readonly CompositeGuardEntry[] = [
 ];
 
 /**
- * Which structural guard the daemon's reason names, where it names one.
+ * Which structural guard the daemon's reason names, where it names EXACTLY one.
  *
- * `undefined` for every reason that names none, which is the whole of what the
- * console can honestly say about a refusal it does not recognise.
+ * `undefined` for a reason that names none and for a reason that names two, which
+ * is the whole of what the console can honestly say about a refusal it does not
+ * recognise or cannot tell apart. Superseded by the typed `rejectionGuard` member
+ * the moment that lands: see this module's header.
  */
 export function compositeGuardReading(rejectionReason: string): CompositeGuardReading | undefined {
   // The camel-case split runs BEFORE the lowercase, because after it there is no
@@ -341,13 +368,16 @@ export function compositeGuardReading(rejectionReason: string): CompositeGuardRe
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-");
-  const matched = COMPOSITE_GUARDS.find((entry) =>
+  // Every match, never the first: a reason naming two guards has two readings and
+  // this function has no ground to choose between them. See the module header.
+  const matched = COMPOSITE_GUARDS.filter((entry) =>
     entry.namedBy.some((phrase) => normalized.includes(phrase)),
   );
-  if (matched === undefined) {
+  const only = matched.length === 1 ? matched[0] : undefined;
+  if (only === undefined) {
     return undefined;
   }
-  return { guard: matched.guard, refused: matched.refused, remedy: matched.remedy };
+  return { guard: only.guard, refused: only.refused, remedy: only.remedy };
 }
 
 /**

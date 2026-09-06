@@ -19,9 +19,9 @@
 
 import { type ExecutionPosture as WireExecutionPosture } from "@ai-sidekicks/contracts";
 
-import { DerivedFigure } from "./DerivedFigure.js";
-import { WireFigure } from "./WireFigure.js";
-import { BROAD_ALLOW_LIST_THRESHOLD } from "../core/index.js";
+import { DerivedFigure } from "../DerivedFigure.js";
+import { WireFigure } from "../WireFigure.js";
+import { BROAD_ALLOW_LIST_THRESHOLD } from "../../core/index.js";
 
 export function PostureFacts(props: { readonly posture: WireExecutionPosture }): React.JSX.Element {
   const { posture } = props;

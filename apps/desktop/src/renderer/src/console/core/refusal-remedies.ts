@@ -14,10 +14,17 @@
 // leaving a button that cannot work.
 //
 // ONE TABLE RATHER THAN COPY AT EACH SURFACE, because these codes reach more than
-// one. `run.version_conflict` refuses a composer steer and a runs-pane control alike;
-// `session.not_found` can answer almost anything. Two surfaces writing their own
-// words for one code is how a person learns a remedy on one screen and does not
+// one. `session.not_found` can answer almost anything; `intervention.idempotency_conflict`
+// refuses a composer steer and a runs-pane control alike. Two surfaces writing their
+// own words for one code is how a person learns a remedy on one screen and does not
 // recognise it on the next.
+//
+// AND EVERY KEY IS A CODE `error-contracts.md` ACTUALLY REGISTERS, which is checked
+// against that file rather than asserted here: a key the wire never sends answers
+// `undefined` forever, so the copy behind it reaches nobody and nothing reports it.
+// `run.version_conflict` was exactly that — console vocabulary that appears in no
+// registry, the corpus routing a stale comparand to the intervention lifecycle state
+// `expired` instead — so its row is gone rather than kept for symmetry.
 //
 // IT IS KEYED ON THE WIRE STRING AND ANSWERS `undefined` FOR EVERY OTHER CODE, which
 // is deliberate: a `Record` over a closed union would make this module import each
@@ -68,16 +75,6 @@ const REFUSAL_REMEDIES: Readonly<Record<string, RefusalRemedy>> = {
     nextMove:
       "This was already sent with different text. Nothing new went out — send the line again as a new message.",
     settled: true,
-  },
-  // The comparand was stale. The refusal itself answered with the run's current
-  // version, so the console is already holding the fresh one: the next send guards
-  // against where the turn is now, and no separate re-read control is offered
-  // because none is needed.
-  "run.version_conflict": {
-    rendering: "inline",
-    nextMove:
-      "The run moved on. The console has taken the run version from this answer, so sending again guards against where the turn is now.",
-    settled: false,
   },
   // The run left the daemon. Whatever the surface last saw of it is the last thing
   // anyone will see; the row stays and stops claiming to be live.

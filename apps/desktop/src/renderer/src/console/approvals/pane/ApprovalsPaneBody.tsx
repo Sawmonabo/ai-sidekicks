@@ -131,13 +131,19 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
     snapshot.approvals.status === "refused" ? snapshot.approvals.refusal : undefined,
   );
 
-  // The pane's acts, reachable from the palette while it is open. Every row is
-  // built from the same values the controls below render from, so a row is offered
-  // exactly where its control is: `canMutate` fails closed on `undefined`, which is
-  // the unresolved role, and a card already resolving contributes nothing.
+  // The pane's acts, reachable from the palette while it is open. Every row is built
+  // from the same values the controls below render from AND through the same offer
+  // readings, so a row is offered exactly where its control is: `canMutate` fails
+  // closed on `undefined`, which is the unresolved role; a card already resolving
+  // contributes nothing; and a record whose own resolve refusal settled it
+  // contributes nothing either.
   useApprovalCommands({
     pending,
     resolvingApprovalIds: snapshot.resolvingApprovalIds,
+    // The same map the card list below receives. Without it the rows read a record's
+    // state and nothing else, and a request somebody else answered kept two palette
+    // rows the card had already withdrawn.
+    resolveRefusalByApprovalId: snapshot.resolveRefusalByApprovalId,
     resolve: (request) => {
       reader.resolve(request);
     },

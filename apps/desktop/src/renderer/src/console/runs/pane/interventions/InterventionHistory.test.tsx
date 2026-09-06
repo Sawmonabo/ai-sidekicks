@@ -22,6 +22,7 @@ function refusedRecord(recordId: string, runId: string): RunControlRecord {
     recordId,
     runId,
     control: "cancel",
+    composite: false,
     outcome: {
       kind: "refused",
       control: "cancel",
@@ -35,6 +36,7 @@ function degradedRollbackRecord(recordId: string): RunControlRecord {
     recordId,
     runId: RUN_ID,
     control: "rollback",
+    composite: false,
     outcome: {
       kind: "settled",
       control: "rollback",
@@ -116,6 +118,7 @@ describe("a degraded settlement is never a success", () => {
         recordId: "six",
         runId: RUN_ID,
         control: "rollback",
+        composite: false,
         outcome: {
           kind: "settled",
           control: "rollback",
@@ -140,6 +143,7 @@ function restoredRollbackRecord(recordId: string): RunControlRecord {
     recordId,
     runId: RUN_ID,
     control: "rollback",
+    composite: false,
     outcome: {
       kind: "settled",
       control: "rollback",
@@ -192,5 +196,52 @@ describe("a rewind that mutated the working tree is disclosed here", () => {
     // never on a disposition name, and `boundary-diverged` carries none.
     const container = renderHistory([degradedRollbackRecord("one")]);
     expect(container.querySelector(".meridian-restore-disclosure")).toBeNull();
+  });
+});
+
+/**
+ * A rejected rollback whose reason names one of the composite's four guards.
+ *
+ * `composite` is the caller's own record of what it SENT, because the answer echoes
+ * the replacement nowhere — so the same reason on a bare rewind and on an
+ * edit-and-resend has to read differently, and only this flag can tell them apart.
+ */
+function rejectedRollbackRecord(recordId: string, composite: boolean): RunControlRecord {
+  return {
+    recordId,
+    runId: RUN_ID,
+    control: "rollback",
+    composite,
+    outcome: {
+      kind: "settled",
+      control: "rollback",
+      response: {
+        interventionId: INTERVENTION_ID as never,
+        interventionType: "rollback",
+        state: "rejected",
+        runVersion: 12,
+        rejectionReason: "composite.no_pending_send",
+      },
+    },
+  };
+}
+
+describe("the composite's guard prose reaches composite dispatches alone", () => {
+  it("names the check and its remedy for an edit-and-resend that was refused whole", () => {
+    const container = renderHistory([rejectedRollbackRecord("one", true)]);
+
+    expect(container.textContent).toContain("An earlier send is still pending on this run");
+    expect(container.textContent).toContain("Cancel the queued items");
+  });
+
+  it("negative control: a bare rewind with the same reason gets the daemon's words alone", () => {
+    // The four guards belong to the atomic edit-and-resend. A bare rewind carried no
+    // correction, so telling its author to drain a queue so the correction can land
+    // is advice about a message that does not exist.
+    const container = renderHistory([rejectedRollbackRecord("two", false)]);
+
+    expect(container.textContent).toContain("composite.no_pending_send");
+    expect(container.textContent).not.toContain("An earlier send is still pending on this run");
+    expect(container.textContent).not.toContain("Cancel the queued items");
   });
 });

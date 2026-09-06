@@ -2,33 +2,20 @@
 // verbatim or explicitly absent, a remember opt-in that sends nothing until it is
 // engaged, and an action row a keyboard can walk.
 //
+// The fifth claim — that a refusal SETTLING the request withdraws both answers, and
+// withdraws the pane's palette rows with them — is `ApprovalCard.settled.test.tsx`
+// beside this file. It is a different subject (one offer reading, two surfaces)
+// and it is what took this file past the length the package splits at.
+//
 // The payload assertions drive the REAL `onResolve` the component calls, so what is
 // checked is the request that would go on the wire rather than a re-derivation of
 // it beside the component.
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ApprovalCard } from "./ApprovalCard.js";
 import { ACCENT_FILL_CLASS } from "../../../primitives/index.js";
-import { refuse, type ConsoleRefusal } from "../../../core/index.js";
-import { type ApprovalRecord } from "../../../bridge/index.js";
-import { type ApprovalResolveRequest } from "../approvals-wire.js";
-
-function pendingRecord(overrides: Partial<ApprovalRecord> = {}): ApprovalRecord {
-  return {
-    approvalRequestId: "approval-01",
-    runId: "run-01",
-    category: "file_write",
-    state: "pending",
-    requestedBy: "agent-implementer",
-    requestedScope: "session",
-    resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
-    createdAt: "2026-01-01T13:30:00.900Z",
-    updatedAt: "2026-01-01T13:30:00.900Z",
-    ...overrides,
-  };
-}
+import { pendingRecord, renderCard } from "./approval-card.test-support.js";
 
 /**
  * Engage the remember opt-in the way a person does — by clicking its label.
@@ -62,23 +49,6 @@ function namesAMatchingSyntax(copy: string): boolean {
   return ["glob", "wildcard", "regex", "prefix", "*", "://"].some((token) =>
     copy.toLowerCase().includes(token),
   );
-}
-
-function renderCard(
-  record: ApprovalRecord,
-  isResolving = false,
-  refusal: ConsoleRefusal | undefined = undefined,
-): ApprovalResolveRequest[] {
-  const requests: ApprovalResolveRequest[] = [];
-  render(
-    <ApprovalCard
-      record={record}
-      isResolving={isResolving}
-      refusal={refusal}
-      onResolve={(request) => requests.push(request)}
-    />,
-  );
-  return requests;
 }
 
 describe("the two answers", () => {
@@ -361,44 +331,5 @@ describe("a remembered scope on a resolved record", () => {
       }),
     );
     expect(screen.getByText("the whole category inside that boundary")).not.toBeNull();
-  });
-});
-
-describe("a refusal that settles the request takes the answers off the card", () => {
-  it("withdraws both actions once somebody else answered", () => {
-    // `approval.already_resolved` is settled: pressing Approve again can only be
-    // refused again, and a card that keeps offering it is offering an act that
-    // cannot work.
-    renderCard(
-      pendingRecord(),
-      false,
-      refuse("approvals", "approval.already_resolved", "Answered elsewhere."),
-    );
-
-    expect(screen.queryByRole("toolbar", { name: "Answer this request" })).toBeNull();
-    expect(screen.getByText("approval.already_resolved")).not.toBeNull();
-  });
-
-  it("keeps the answers where the refusal leaves the same act admissible", () => {
-    // The negative control: a refusal is not by itself a reason to take a control
-    // away, and withdrawing on every one would strand a person on a retryable
-    // failure.
-    renderCard(
-      pendingRecord(),
-      false,
-      refuse("approvals", "approval.decision_conflict", "Two answers raced."),
-    );
-
-    expect(screen.queryByRole("toolbar", { name: "Answer this request" })).not.toBeNull();
-  });
-
-  it("says what happens next beside the withdrawn actions", () => {
-    renderCard(
-      pendingRecord(),
-      false,
-      refuse("approvals", "approval.already_resolved", "Answered elsewhere."),
-    );
-
-    expect(screen.getByText(/leaves the list on the next read/)).not.toBeNull();
   });
 });

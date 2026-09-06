@@ -7,11 +7,26 @@
 // shortcut through the picker's own act rather than a second way to start a run.
 //
 // THE NAME IS THE COMMAND ID, EXACTLY, AND THE ARGUMENT FOLLOWS IT.
-// `client-command-recognizer.ts` matches a typed `/name` against the console's
-// registered command ids and its header forbids a friendlier alias vocabulary resolved
-// at the composer — so the line is `/workflow.start <definition name>` and never
-// `/workflow start <name>`, which would be an alias only this surface knew. What
-// follows the id is this command's own argument, read here and nowhere else.
+// `directive-syntax.ts` splits a directive line at the FIRST run of whitespace, so
+// `readDirectiveName` yields the first word alone and the recogniser
+// (`client-command-recognizer.ts`) is handed that NAME and never the line — its own
+// header states that deliberately, and it matches the name against the console's
+// registered command ids with no alias vocabulary resolved at the composer. A
+// space-bearing id is therefore unrecognisable by construction: making
+// `/workflow start <name>` parse would mean teaching the syntax module a
+// longest-registered-id match, which puts the command registry inside the one seam
+// the router and the discovery popover both read through.
+//
+// SO THE TYPED LINE IS `/workflow.start <definition name>`, and the DISPLAY title is
+// "Start a workflow" — nobody types an id they found in a palette, and the entry's
+// own act is to put the directive on the line rather than to be read as one. Taking
+// the bare `workflow` namespace for this one verb was the other way to reach a
+// space-separated line, and it is rejected on its own ground: every console id is
+// `<namespace>.<verb>`, these ids are the public vocabulary a person binds on the
+// Keyboard page, and spending the whole namespace here leaves no room for a
+// `workflow.cancel` beside it.
+//
+// What follows the id is this command's own argument, read here and nowhere else.
 //
 // WHICH IS WHY THE COMMAND REGISTRY IS NOT THE PATH THAT RUNS IT. A console command's
 // `run()` takes nothing: the registry is keyed for a palette, where there is no line

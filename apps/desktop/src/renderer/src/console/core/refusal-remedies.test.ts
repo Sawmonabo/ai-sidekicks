@@ -24,7 +24,6 @@ const EXPECTED_CODES = [
   "approval.already_resolved",
   "intervention.idempotency_conflict",
   "run.not_found",
-  "run.version_conflict",
   "session.goal_delivery_failed",
   "session.not_found",
 ];
@@ -65,24 +64,21 @@ describe("what the table says about each answered code", () => {
     expect(refusalRemedyFor("session.not_found")?.rendering).toBe("banner");
   });
 
-  it("settles the three whose act cannot be retried, and leaves the two that can", () => {
+  it("settles the four whose act cannot be retried, and leaves the one that can", () => {
     // `settled` is what withdraws a control. A surface reading it wrongly either
     // leaves a button that can only be refused again, or takes away one that works.
     expect(refusalRemedyFor("intervention.idempotency_conflict")?.settled).toBe(true);
     expect(refusalRemedyFor("approval.already_resolved")?.settled).toBe(true);
     expect(refusalRemedyFor("run.not_found")?.settled).toBe(true);
-    expect(refusalRemedyFor("run.version_conflict")?.settled).toBe(false);
+    expect(refusalRemedyFor("session.not_found")?.settled).toBe(true);
     expect(refusalRemedyFor("session.goal_delivery_failed")?.settled).toBe(false);
-  });
-
-  it("names sending again for a stale comparand, since the answer carried a fresh one", () => {
-    expect(refusalRemedyFor("run.version_conflict")?.nextMove).toContain("again");
   });
 });
 
 describe("an unlisted code gets no invented move", () => {
   it.each([
     ["a registered code with no console act", "driver.capability_unsupported"],
+    ["a code the corpus registers nowhere", "run.version_conflict"],
     ["a code from a namespace the table names", "session.archived"],
     ["a near miss on a code it does answer", "run.not_found "],
     ["the empty string", ""],

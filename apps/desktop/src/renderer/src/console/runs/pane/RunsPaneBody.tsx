@@ -28,6 +28,7 @@ import {
   type ComposedControl,
 } from "./interventions/RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
+import { settledRunPosture } from "./run-posture.js";
 import { seatRuns } from "./run-seating.js";
 import { useRunControlCommands } from "./controls/run-control-commands.js";
 import { useRunControlSurface } from "./controls/run-control-surface.js";
@@ -169,6 +170,13 @@ export function RunsPaneBody(props: {
                 <RunRow
                   key={seated.runId}
                   run={seated.projection}
+                  // One arrival path for the daemon's stamp: the durable entry the
+                  // approvals pane reads, with this row's own stream projection as
+                  // the named fallback for a run the partition has not caught up to.
+                  posture={settledRunPosture(
+                    knownRuns[seated.runId],
+                    seated.projection.executionPosture,
+                  )}
                   surface={surface}
                   bridge={context.bridge}
                   driverCapabilities={driverCapabilities}

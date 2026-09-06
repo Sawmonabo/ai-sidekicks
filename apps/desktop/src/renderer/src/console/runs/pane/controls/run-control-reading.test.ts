@@ -21,6 +21,7 @@ function refusedRecord(runId: string, code: string, recordId: string): RunContro
     recordId,
     runId,
     control: "pause",
+    composite: false,
     outcome: { kind: "refused", control: "pause", refusal: refuse("run-control", code, "…") },
   };
 }
@@ -31,7 +32,7 @@ function acknowledgedRecord(runId: string, recordId: string): RunControlRecord {
     control: "pause",
     ack: { runId, currentState: "paused", runVersion: 8 } as RunControlAck,
   };
-  return { recordId, runId, control: "pause", outcome };
+  return { recordId, runId, control: "pause", composite: false, outcome };
 }
 
 /** A surface holding exactly the records a case is about. Nothing else is read. */

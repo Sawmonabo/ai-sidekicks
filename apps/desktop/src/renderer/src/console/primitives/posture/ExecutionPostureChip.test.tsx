@@ -15,7 +15,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ExecutionPostureChip } from "./ExecutionPostureChip.js";
-import { BROAD_ALLOW_LIST_THRESHOLD } from "../core/index.js";
+import { BROAD_ALLOW_LIST_THRESHOLD } from "../../core/index.js";
 
 const TRUSTED: ExecutionPosture = {
   mode: "trusted",

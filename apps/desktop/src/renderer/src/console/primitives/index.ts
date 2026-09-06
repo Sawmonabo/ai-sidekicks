@@ -38,7 +38,7 @@ import "./ledger-row.css";
 import "./partial-read.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
-import "./posture.css";
+import "./posture/posture.css";
 import "./restore/restore.css";
 
 // The sheet's one filled-accent face, named where TypeScript can see it. Two
@@ -331,5 +331,10 @@ export {
 // the two homes are VIEW families, which may not import one another. The lowest
 // family that owns their inputs is this one, so this is where they live and this
 // door is how both callers reach them.
-export { ExecutionPostureChip } from "./ExecutionPostureChip.js";
+export { ExecutionPostureChip } from "./posture/ExecutionPostureChip.js";
+// The absent-posture sentence, for the ONE surface outside this family that says
+// it in its own words: the composer's posture chip renders no facts and so cannot
+// mount the chip above, but a second sentence for one fact is the copy this
+// family owns being written twice.
+export { POSTURE_ABSENT_DETAIL } from "./posture/posture-copy.js";
 export { FileRestoreDisclosure } from "./restore/FileRestoreDisclosure.js";

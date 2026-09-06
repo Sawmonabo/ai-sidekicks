@@ -44,9 +44,9 @@
 
 import { type ExecutionPosture as WireExecutionPosture } from "@ai-sidekicks/contracts";
 
-import { Chip } from "./Chip.js";
-import { DerivedFigure } from "./DerivedFigure.js";
-import { Nothing } from "./Nothing.js";
+import { Chip } from "../Chip.js";
+import { DerivedFigure } from "../DerivedFigure.js";
+import { Nothing } from "../Nothing.js";
 import { PostureFacts } from "./PostureFacts.js";
 import { PostureRow } from "./PostureRow.js";
 import { POSTURE_ABSENT_DETAIL, POSTURE_ENFORCEMENT_CAVEAT } from "./posture-copy.js";

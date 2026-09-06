@@ -17,15 +17,15 @@
 // it. The frame gets away with the plural call because it bumps the revision
 // itself, in the same effect; a pane has no revision to bump.
 //
-// ONE LIVE CONTRIBUTOR PER OWNER, TRACKED BY TOKEN. `contribute` is owner-scoped
-// replace, which is exactly right for a surface re-contributing its own changed
-// rows and exactly wrong for two mounts of one surface: the second replaces the
-// first, and then the FIRST one's unmount clears rows the second still owns,
-// leaving a live pane whose commands are gone from the palette with nothing on
-// screen to say so. So each contribution records the token that made it, and a
-// cleanup clears the owner only while its own token is still the live one. A
-// stale mount's teardown is a no-op, which is the same rule `GenerationLatch`
-// applies to a settlement arriving on a transport that has been replaced.
+// ONE LIVE CONTRIBUTOR PER OWNER, AND THE SURFACE KEEPS THAT — NOT THIS HOOK. Two
+// mounts of one surface would otherwise tear down in the wrong order and the first
+// one's cleanup would clear rows the second still owns. The token that decides
+// which contributor is live belongs beside the owner-scoped replace it disambiguates,
+// so `contribute` hands back a release that is a no-op once superseded and this hook
+// returns it as its effect cleanup. What that buys beyond tidiness is instance
+// scoping: a token map at module scope is shared by every composition in the process
+// — a second window, a second test mount building its own registry — and one of them
+// superseding an owner it has no rows in silently disarms the other's release.
 //
 // NO CHORDS. The seat contributes acts and binds no keys: a chord is a
 // window-wide claim, the key-binding table refuses two bindings on one chord, and
@@ -41,9 +41,6 @@ import type { ConsoleCommand } from "./contributions.js";
 /** No chords, always. Frozen so a caller cannot make this the exception. */
 const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);
 
-/** The token whose contribution is live, per owner. */
-const liveTokenByOwner = new Map<string, symbol>();
-
 /**
  * Contribute `commands` under `owner` for as long as this component is mounted.
  *
@@ -55,20 +52,12 @@ const liveTokenByOwner = new Map<string, symbol>();
  * through a ref, so a run version advancing does not rewrite the palette.
  */
 export function useConsoleCommandSeat(owner: string, commands: readonly ConsoleCommand[]): void {
-  useEffect(() => {
-    const token = Symbol(owner);
-    liveTokenByOwner.set(owner, token);
-    consoleCommandSurface.contribute({ owner, commands, keyBindings: NO_KEY_BINDINGS });
-    return () => {
-      // Only the live contributor clears the owner. A mount React has already
-      // replaced — a second pane of this kind, a development-mode remount — tears
-      // down after the one that superseded it, and clearing there would take a
-      // living surface's commands out of the palette.
-      if (liveTokenByOwner.get(owner) !== token) {
-        return;
-      }
-      liveTokenByOwner.delete(owner);
-      consoleCommandSurface.contribute({ owner, commands: [], keyBindings: NO_KEY_BINDINGS });
-    };
-  }, [owner, commands]);
+  useEffect(
+    // The release IS the cleanup. Only the live contributor clears the owner: a mount
+    // React has already replaced — a second pane of this kind, a development-mode
+    // remount — tears down after the one that superseded it, and the release it holds
+    // is already a no-op by then.
+    () => consoleCommandSurface.contribute({ owner, commands, keyBindings: NO_KEY_BINDINGS }),
+    [owner, commands],
+  );
 }

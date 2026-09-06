@@ -18,17 +18,24 @@
 // needs no body, so it is the one goal act that can be an act rather than a
 // navigation.
 //
-// EVERY ROW MIRRORS ITS CONTROL'S OWN OFFER RULE. A record whose resolve is in
-// flight has its two buttons disabled, so it contributes no rows; a role that may
-// not mutate the goal has no clear control, so it contributes none either. The
-// mirror is read from the same values the surface renders from, so the palette
-// cannot offer an act the pane has withdrawn.
+// EVERY ROW READS ITS CONTROL'S OWN OFFER RULE — the same function, never a mirror
+// of it. `isApprovalAnswerable` decides whether a record's two answers are offered
+// and `approvals/pane/approval-offer.ts` says why it is one function; the goal row
+// asks `canClearSessionGoal`, which is what the card's own clear button is disabled
+// on. A record whose resolve is in flight has its buttons disabled, so it
+// contributes no rows either. What this buys over "written twice and agreeing" is
+// that the palette CANNOT offer an act the pane has withdrawn: a settled refusal
+// takes the two buttons off the card and the two rows out of the palette in one
+// reading, and there is no second expression to drift.
 
 import { useMemo, useRef } from "react";
 
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../palette/index.js";
+import { type ConsoleRefusal } from "../../core/index.js";
 import { type ApprovalRecord, type SessionGoalProjection } from "../../bridge/index.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
+import { isApprovalAnswerable } from "./approval-offer.js";
+import { canClearSessionGoal } from "./goal/goal-authorization.js";
 
 /** The owner these rows are contributed under. One per family, one live at a time. */
 export const APPROVAL_COMMAND_OWNER = "approvals-family";
@@ -59,6 +66,13 @@ export interface ApprovalCommandInput {
   readonly pending: readonly ApprovalRecord[];
   /** Records with a resolve in flight. Their controls are disabled, so no row. */
   readonly resolvingApprovalIds: ReadonlySet<string>;
+  /**
+   * The refusal each record's own resolve last answered with, exactly as the card
+   * list receives it. A SETTLED refusal takes the card's two buttons off, so the two
+   * rows go with them; withholding this map is what let the palette keep offering a
+   * decision about a request somebody else had already answered.
+   */
+  readonly resolveRefusalByApprovalId: ReadonlyMap<string, ConsoleRefusal>;
   readonly resolve: (request: ApprovalResolveRequest) => void;
   readonly goal: SessionGoalProjection;
   /** Whether this window's role may mutate the goal, as the card resolved it. */
@@ -103,7 +117,7 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
   const rows: ApprovalCommandRow[] = [];
   const namesTheRecord = input.pending.length > 1;
   for (const record of input.pending) {
-    if (input.resolvingApprovalIds.has(record.approvalRequestId)) {
+    if (!offersAnAnswer(record, input)) {
       continue;
     }
     rows.push({
@@ -121,10 +135,27 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
         : "Reject the pending request",
     });
   }
-  if (input.goal.status === "set" && input.canMutateGoal && !input.isMutatingGoal) {
+  if (canClearSessionGoal(input.goal, input.canMutateGoal, input.isMutatingGoal)) {
     rows.push({ kind: "clear-goal", record: undefined, title: "Clear the session goal" });
   }
   return rows;
+}
+
+/**
+ * Whether this record's two answers are offered right now, on both surfaces.
+ *
+ * The in-flight test is this palette's own — a card mid-resolve has its buttons
+ * disabled rather than absent, and a row for a disabled button is a row that does
+ * nothing — and the rest is the card's own reading, called rather than restated.
+ */
+function offersAnAnswer(record: ApprovalRecord, input: ApprovalCommandInput): boolean {
+  if (input.resolvingApprovalIds.has(record.approvalRequestId)) {
+    return false;
+  }
+  return isApprovalAnswerable(
+    record,
+    input.resolveRefusalByApprovalId.get(record.approvalRequestId),
+  );
 }
 
 /** One command, reading everything that moves through the ref at invoke time. */
@@ -158,14 +189,17 @@ function buildApprovalCommand(
  */
 export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalCommandInput): void {
   if (row.kind === "clear-goal") {
-    if (input.canMutateGoal) {
+    if (canClearSessionGoal(input.goal, input.canMutateGoal, input.isMutatingGoal)) {
       input.clearGoal();
     }
     return;
   }
   const recordId = row.record?.approvalRequestId;
   const live = input.pending.find((candidate) => candidate.approvalRequestId === recordId);
-  if (live === undefined || input.resolvingApprovalIds.has(live.approvalRequestId)) {
+  // Re-read at invoke time and not trusted from contribution time: the same
+  // reading the row was built from, because a settled refusal can land in the gap
+  // between the row being contributed and the key being pressed.
+  if (live === undefined || !offersAnAnswer(live, input)) {
     return;
   }
   input.resolve({

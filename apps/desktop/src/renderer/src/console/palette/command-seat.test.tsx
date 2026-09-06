@@ -10,7 +10,8 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { consoleCommands } from "./console-commands.js";
+import { CommandRegistry } from "./command-registry.js";
+import { ConsoleFamilyContributions, consoleCommands } from "./console-commands.js";
 import { subscribeToConsoleKeyBindings } from "./command-surface.js";
 import { useConsoleCommandSeat } from "./command-seat.js";
 import type { ConsoleCommand } from "./contributions.js";
@@ -105,5 +106,54 @@ describe("a surface's command seat", () => {
     newer.unmount();
 
     expect(registeredSuiteIds()).toEqual([]);
+  });
+});
+
+describe("the live-contributor register belongs to the composition, not to the module", () => {
+  it("two compositions do not see each other's rows, nor disarm each other's release", () => {
+    // The register used to be a module-level `Map`, which every composition in the
+    // process shared: a second window — or a second test building its own registry —
+    // contributing under the same owner superseded a token it holds no rows for, and
+    // the first composition's release then became a permanent no-op. Its rows would
+    // have outlived the surface that owned them with nothing on screen to say so.
+    const firstRegistry = new CommandRegistry();
+    const secondRegistry = new CommandRegistry();
+    const first = new ConsoleFamilyContributions(firstRegistry);
+    const second = new ConsoleFamilyContributions(secondRegistry);
+
+    const releaseFirst = first.contribute({
+      owner: OWNER,
+      commands: [command("suite.first")],
+      keyBindings: [],
+    });
+    second.contribute({ owner: OWNER, commands: [command("suite.second")], keyBindings: [] });
+
+    expect(firstRegistry.all().map((entry) => entry.id)).toEqual(["suite.first"]);
+    expect(secondRegistry.all().map((entry) => entry.id)).toEqual(["suite.second"]);
+
+    releaseFirst();
+
+    expect(firstRegistry.all()).toEqual([]);
+    expect(secondRegistry.all().map((entry) => entry.id)).toEqual(["suite.second"]);
+  });
+
+  it("a superseded contributor's release is a no-op within one composition", () => {
+    const registry = new CommandRegistry();
+    const contributions = new ConsoleFamilyContributions(registry);
+
+    const releaseOlder = contributions.contribute({
+      owner: OWNER,
+      commands: [command("suite.older")],
+      keyBindings: [],
+    });
+    contributions.contribute({
+      owner: OWNER,
+      commands: [command("suite.newer")],
+      keyBindings: [],
+    });
+
+    releaseOlder();
+
+    expect(registry.all().map((entry) => entry.id)).toEqual(["suite.newer"]);
   });
 });

@@ -17,7 +17,7 @@
 // rejected `completion` is a third: the command ran and failed, and the honest report
 // is the command's own failure rather than a claim that it was never recognised.
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   isErrorInstance,
@@ -197,7 +197,14 @@ export function useComposerCommandZone(options: {
     draftKey: options.draftKey,
   });
   const handlersRef = useRef<DirectiveLineHandlers>(directiveHandlers);
-  handlersRef.current = directiveHandlers;
+  // Written from an effect and never during render. React's own rule is that a ref
+  // is not touched while rendering — under a concurrent render that is thrown away,
+  // a render-body write has already mutated state the committed tree keeps — and the
+  // thunk below is what makes the effect sufficient: effects flush before any typing
+  // can reach the executor, so the handlers it reads are never a render behind.
+  useEffect(() => {
+    handlersRef.current = directiveHandlers;
+  }, [directiveHandlers]);
   const commandExecutor = useMemo(
     () =>
       createClientCommandExecutor({

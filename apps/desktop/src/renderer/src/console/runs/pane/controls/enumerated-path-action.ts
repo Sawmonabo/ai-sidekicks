@@ -17,11 +17,14 @@
 
 import { useCallback, useState } from "react";
 
-import { type ConsoleBridge } from "../../../bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { type ConsoleBridge, type DaemonReplyRefusalCode } from "../../../bridge/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../../../core/index.js";
 
 /** The verb this action puts in each path control's accessible name. */
 export const ENUMERATED_PATH_ACTION_LABEL = "Copy path";
+
+/** The subsystem every refusal this action raises is attributed to. */
+const ENUMERATED_PATH_REFUSAL_ORIGIN = "runs-pane";
 
 /** One path action, and the last refusal the host answered it with. */
 export interface EnumeratedPathAction {
@@ -42,15 +45,24 @@ export function useEnumeratedPathAction(bridge: ConsoleBridge): EnumeratedPathAc
   const copyPath = useCallback(
     (path: string) => {
       setRefusal(undefined);
-      bridge.sidekicks.native.copyToClipboard(path).catch(() => {
-        // The path itself is deliberately not in the sentence: it is a wire string
-        // of unbounded length and a refusal is not the place to repeat it.
+      bridge.sidekicks.native.copyToClipboard(path).catch((rejection: unknown) => {
+        // WHAT THE HOST SAID, NEVER THE CONSOLE'S PARAPHRASE OF IT. The `catch` used
+        // to take no parameter and answer with prose of its own, which discarded the
+        // one machine-readable thing the refusal carried:
+        // `Spec-023 §Console Design (Meridian)` rule 9 puts the other side's code and
+        // sentence on screen verbatim and leaves the console the `action` slot alone.
+        // The normalizer is the console's one reading of a rejected promise, so this
+        // seam invents no second refusal constructor beside it — the fallback below
+        // is reached only where the rejection said nothing machine-readable at all.
+        //
+        // The path itself is deliberately not in the fallback sentence: it is a wire
+        // string of unbounded length and a refusal is not the place to repeat it.
         setRefusal(
-          refuse(
-            "runs-pane",
-            "native.copy_refused",
-            "The host refused the clipboard, so the path was not copied. It is still shown above and can be selected by hand.",
-          ),
+          normalizeWireRejection(ENUMERATED_PATH_REFUSAL_ORIGIN, rejection, {
+            code: "call-rejected" satisfies DaemonReplyRefusalCode,
+            detail:
+              "native.copyToClipboard was rejected, so the path was not copied. It is still shown above and can be selected by hand.",
+          }),
         );
       });
     },

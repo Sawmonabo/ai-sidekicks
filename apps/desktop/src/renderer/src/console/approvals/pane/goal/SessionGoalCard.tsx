@@ -55,6 +55,7 @@ import { useSessionScopedState } from "../../../seats/index.js";
 import { isSendableGoalText } from "../../../bridge/index.js";
 import { SESSION_GOAL_MAX_LENGTH } from "../../../core/index.js";
 import { type SessionGoalProjection } from "../../../bridge/index.js";
+import { canClearSessionGoal } from "./goal-authorization.js";
 import { GoalReading } from "./GoalReading.js";
 
 /**
@@ -204,11 +205,13 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
             >
               Save goal
             </button>
-            {/* Clearing lives inside the editor, never beside the read-only line. */}
+            {/* Clearing lives inside the editor, never beside the read-only line.
+                The enabling rule is `canClearSessionGoal`, the same predicate the
+                palette's clear row is offered on — one expression, two surfaces. */}
             <button
               className="meridian-goal__clear"
               type="button"
-              disabled={props.isMutating || goal.status !== "set"}
+              disabled={!canClearSessionGoal(goal, props.canMutate === true, props.isMutating)}
               onClick={props.onClear}
             >
               Clear the goal

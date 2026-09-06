@@ -30,6 +30,7 @@
 // a list of runs free at idle.
 
 import { useCallback, useId, useState } from "react";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../bridge/index.js";
 import {
   Chip,
@@ -65,6 +66,15 @@ const UNATTRIBUTED_HUE_STEP = -1;
 
 export interface RunRowProps {
   readonly run: RunProjection;
+  /**
+   * The boundary this run executed under, resolved by `settledRunPosture`.
+   *
+   * Supplied rather than read off `run` so this row and the approvals pane share one
+   * arrival path for one daemon stamp: `RunProjection.executionPosture` remains the
+   * TRANSITION record — cleared on every transition that does not carry one — and is
+   * the fallback that resolution names, not a second source of truth for the row.
+   */
+  readonly posture: ExecutionPosture | undefined;
   readonly surface: RunControlSurface;
   readonly bridge: ConsoleBridge;
   /** Passed through to the control row, which resolves it for this row's run. */
@@ -125,9 +135,11 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
       </div>
       {/* The boundary this run executed under, at the row's density. Read-only and
           offering nothing: no posture verb exists anywhere in the corpus, and a
-          posture change is a new run rather than a mutation of this one. */}
+          posture change is a new run rather than a mutation of this one. Supplied
+          rather than taken off the projection, so this row and the approvals pane
+          read one arrival path — `runs/pane/run-posture.ts` states which. */}
       <ExecutionPostureChip
-        posture={run.executionPosture}
+        posture={props.posture}
         reading="stamped"
         runId={run.runId}
         presentation="row"
