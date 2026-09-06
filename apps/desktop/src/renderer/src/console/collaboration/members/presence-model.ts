@@ -27,9 +27,9 @@
 // over two reads free to disagree — and the shipped one could not be the survivor:
 // it reads `window.sidekicks` directly, so no scenario can drive it, and it carries
 // no seam for the role, the terminal-lease holder, or the per-device fan-out the
-// rows beside this model render. That slot claim is retired; giving the shipped
-// component a read seam instead would be an edit inside `session-members/`, which is
-// Plan-002's subtree. This model reaches the bridge the console resolved, which is
+// rows beside this model render — so beside a roster that draws all three it has no
+// fact left to contribute. That slot claim is retired. This model reaches the bridge
+// the console resolved, which is
 // what lets a scenario drive it, and it routes its refresh through the scheduler
 // rather than through a hand-rolled sequence counter.
 

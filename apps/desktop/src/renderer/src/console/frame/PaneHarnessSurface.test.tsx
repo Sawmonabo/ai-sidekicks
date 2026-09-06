@@ -116,8 +116,7 @@ function boardWithBothStubBodies(): ConsolePaneRegistry {
  * The frame store is the real class because the harness reads the route through it
  * in a running window; the two persistence stores are cast away because
  * constructing them opens a database to hand a surface that only passes them
- * through — `RouteSurface.test.tsx` and `legacy-surfaces.test.ts` cast for the same
- * reason.
+ * through — `RouteSurface.test.tsx` casts for the same reason.
  */
 function surfaceContextFor(route: ConsoleRoute): ConsoleSurfaceContext {
   return {

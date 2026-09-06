@@ -31,7 +31,7 @@
 //
 // WHY THIS BARREL BUILDS ELEMENTS RATHER THAN BEING A `.tsx`. It owns a TABLE —
 // kind, owner, body, and the tear-off answer — not a view, which is the same reason
-// `frame/legacy-surfaces.ts` builds its mounts with `createElement`. Written as a
+// `seats/absorbed-surfaces.ts` builds its mounts with `createElement`. Written as a
 // component file it would be a `.tsx` holding no component at all.
 
 import "./workflows.css";

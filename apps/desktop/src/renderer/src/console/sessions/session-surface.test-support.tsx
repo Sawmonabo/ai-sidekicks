@@ -111,7 +111,7 @@ export function refusedRead(operationId: string, slateRow: string): unknown {
 /**
  * The fields this surface reads, and nothing else.
  *
- * Cast rather than fully constructed, for `legacy-surfaces.test.ts`'s reason: a
+ * Cast rather than fully constructed, for `RouteSurface.test.tsx`'s reason: a
  * real context carries three stores, one of which opens a database on
  * construction, and building all of that to hand six fields to a component that
  * reads six would make the setup the subject. The two stores that ARE real here

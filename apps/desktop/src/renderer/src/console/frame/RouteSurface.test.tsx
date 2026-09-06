@@ -56,7 +56,7 @@ function registryWithOpenSessions(...sessionIds: readonly string[]): SessionStor
  * The frame store and the registry are the real classes, because they are the
  * subject; the two persistence stores are cast away because constructing them
  * opens a database to hand a branch that never touches them — the same reason
- * `legacy-surfaces.test.ts` casts.
+ * `PaneHarnessSurface.test.tsx` casts.
  */
 function contextFor(
   route: ConsoleRoute,

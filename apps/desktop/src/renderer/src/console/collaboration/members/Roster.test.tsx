@@ -159,11 +159,12 @@ describe("roster — the absences", () => {
     expect(text).toContain("The presence service is down.");
   });
 
-  it("renders the authorization answer as the summary rather than as an error", () => {
-    // `Spec-018` makes the aggregated summary the unauthorized-DEFAULT projection, so
-    // this code is an answer and not a failure. A refusal card would put an error tone
-    // on a correct reading, and its retry would offer to ask a question whose answer is
-    // settled by who the caller is.
+  it("claims no summary it is not showing, whatever code the read refused with", () => {
+    // The unauthorized default belongs to the PER-DEVICE gateway, and this is the
+    // roster's own read. An arm here that recognised that code answered a rows-less
+    // surface with a sentence saying the summary was on screen instead — and a failed
+    // read has no rows, so nothing was. The refusal is named and the retry is offered,
+    // like every other refusal on this read.
     const { container } = render(
       <Roster
         state={{
@@ -179,9 +180,11 @@ describe("roster — the absences", () => {
         onReopen={() => undefined}
       />,
     );
-    expect(container.querySelector(".meridian-refusal__action")).toBeNull();
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-    expect(container.textContent ?? "").toContain("aggregated summary");
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("aggregated summary");
+    expect(container.querySelectorAll(".meridian-roster__row")).toHaveLength(0);
+    expect(text).toContain("presence.permission_denied");
+    expect(container.querySelector(".meridian-refusal__action")).not.toBeNull();
   });
 
   it("offers a way back into a stream that refused to open", () => {

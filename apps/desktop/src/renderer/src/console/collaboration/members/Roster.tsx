@@ -24,13 +24,15 @@
 // same colour here, in the log, and on a pane's focus ring. A participant the wheel
 // has not admitted renders unattributed rather than borrowing a neighbour's colour.
 //
-// AND ONE REFUSAL IS NOT A FAILURE. `presence.permission_denied` is the authorization
-// answer rather than an error: `Spec-018` makes the aggregated summary the
-// unauthorized-default projection, so the only honest rendering of that code is a
-// sentence saying the summary is what this caller sees — never a refusal card, and
-// never a retry control offering to ask the same question again with the same answer.
-// Every other refusal keeps the card and the retry, because every other refusal is
-// something a person may be able to do something about.
+// AND EVERY REFUSAL ON THIS READ KEEPS ITS CARD AND ITS RETRY. The authorization
+// answer that is not a failure — the unauthorized default that serves the aggregated
+// summary — belongs to the PER-DEVICE read, which is a different gateway and a
+// different surface: `PresenceDeviceDetail.tsx` renders it there, through the
+// predicate `presence-detail.ts` publishes so no surface spells the code itself. A
+// second arm here read that code off the ROSTER's own read and answered a rows-less
+// surface with a sentence saying the summary was being shown instead — while showing
+// no summary, because a failed read has no rows to show. Saying a projection is on
+// screen where none is is worse than naming the refusal, so this read names it.
 
 import { memo } from "react";
 
@@ -39,7 +41,7 @@ import type { MembershipRole } from "@ai-sidekicks/contracts";
 import { DerivedFigure, Nothing, RefusalCard } from "../../primitives/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
-import { PRESENCE_PERMISSION_DENIED_CODE, type PresenceDetailReading } from "./presence-detail.js";
+import type { PresenceDetailReading } from "./presence-detail.js";
 import type { PresenceReading, RosterRow } from "./presence-model.js";
 import { RosterListRow } from "./RosterListRow.js";
 import { TerminalControlLine } from "./TerminalControlLine.js";
@@ -105,21 +107,6 @@ export const Roster: React.MemoExoticComponent<(props: RosterProps) => React.JSX
     }
 
     if (state.kind === "failed") {
-      // The one code that is an answer rather than a failure. `not-checked` and not a
-      // refusal card: nothing went wrong, and the retry a card carries would offer to
-      // ask a question whose answer is settled by who the caller is.
-      if (state.refusal.code === PRESENCE_PERMISSION_DENIED_CODE) {
-        return (
-          <div className="meridian-roster">
-            <Nothing
-              kind="not-checked"
-              placement="surface"
-              title="Presence here is the aggregated summary."
-              detail="Per-participant presence is an owner and operator reading, and this session shows you the summary instead. Nothing failed, and asking again would answer the same way."
-            />
-          </div>
-        );
-      }
       return (
         <div className="meridian-roster">
           <RefusalCard
