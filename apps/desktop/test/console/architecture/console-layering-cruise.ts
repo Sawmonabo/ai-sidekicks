@@ -82,12 +82,15 @@ const OWNED_RULES: readonly string[] = [
  * that some finite figure is enforced and that a case which overruns it says which
  * cruise it was rather than taking vitest's undiagnosable kill.
  *
- * Measured rather than chosen. On an idle eight-core Apple-silicon host each of the
- * three cruises settles in 65-110 ms and the whole file in 262 ms of test time. Ten
- * seconds is two orders of magnitude over that, which is the margin the tier needs:
- * the failure this replaces was not a slow cruise but a cruise queued behind
- * twenty-eight other architecture files under the pool's default parallelism, where
- * what a case waits out is contention rather than work.
+ * Measured rather than chosen, and measured PER CRUISE, which is the only figure this
+ * allowance is spent in: on an idle eight-core Apple-silicon host one cruise settles
+ * in 65-110 ms. Ten seconds is two orders of magnitude over that, which is the margin
+ * the tier needs — the failure this replaces was not a slow cruise but a cruise queued
+ * behind twenty-eight other architecture files under the pool's default parallelism,
+ * where what a case waits out is contention rather than work. A whole-file total is
+ * deliberately not recorded beside it: it is the per-cruise figure multiplied by
+ * however many trees the suite next door plants, so it is a number that goes stale
+ * every time a rule gains a control and nothing reports that it has.
  *
  * It is a constant here rather than a `budgets.json` row for the reason that registry
  * states about `MINIMUM_SETTLEMENT_RESIDUAL_MS`: the rows there are the slices of the
@@ -194,8 +197,8 @@ export class PlantedTreeCache {
     // `realpath` is load-bearing on macOS, where `tmpdir()` is `/var/folders/…`, a symlink
     // to `/private/var/…`: dependency-cruiser resolves modules to their real paths, so a
     // `baseDir` on the symlinked side leaves every module absolute and outside it, and every
-    // path-anchored rule silently matches nothing. Measured — without it all four cases
-    // report zero violations, including the two that must fail.
+    // path-anchored rule silently matches nothing. Measured — without it every case
+    // reports zero violations, including the ones whose whole claim is that a rule fires.
     const plantRoot = await realpath(await mkdtemp(join(tmpdir(), "console-layering-")));
     this.#plantedRoots.push(plantRoot);
     for (const [relativePath, contents] of Object.entries(tree)) {

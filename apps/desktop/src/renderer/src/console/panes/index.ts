@@ -86,6 +86,7 @@ import { registerLedgerPanes } from "../ledger/index.js";
 import { registerReposPanes } from "../repos/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { registerTerminalPanes } from "../terminal/index.js";
+import { registerWorkflowPanes } from "../workflows/index.js";
 
 /**
  * Register every shipped pane body against a registry.
@@ -100,7 +101,7 @@ export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-3 runs approvals inspector
   registerAgentConsolePane(registry); // T-023p-1C-4 agent-console
   registerReposPanes(registry); // T-023p-1C-5 diff artifact
-  // T-023p-1C-6 workflow-run workflow-builder
+  registerWorkflowPanes(registry); // T-023p-1C-6 workflow-run workflow-builder
   registerBrowserPanes(registry); // T-023p-1C-7 browser
   registerTerminalPanes(registry); // T-023p-1C-7 terminal
 }

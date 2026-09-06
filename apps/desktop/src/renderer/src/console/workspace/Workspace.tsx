@@ -70,7 +70,6 @@ import { registerSidebarCommands } from "./sidebar/sidebar-commands.js";
 import { useSidebarLayout } from "./sidebar/sidebar-state.js";
 import {
   composerSeatRenderer,
-  consolePaneRegistry,
   parseConsolePaneAddress,
   type ConsolePaneAddress,
   type ConsolePaneContext,
@@ -112,13 +111,18 @@ export interface WorkspaceProps {
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
   readonly route: ConsoleRoute;
-  /** Where pane bodies come from. Defaults to the process-wide registry. */
-  readonly registry?: ConsolePaneRegistry;
+  /**
+   * The pane board THIS composition filled, the same fact `ConsoleSurfaceContext`
+   * carries and on the same terms: required rather than defaulted to the process-wide
+   * singleton, because a default is the same hard-coding one parameter along and a
+   * caller that forgets it still mounts production's bodies into a composed window.
+   */
+  readonly paneRegistry: ConsolePaneRegistry;
 }
 
 export function Workspace(props: WorkspaceProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
-  const registry = props.registry ?? consolePaneRegistry;
+  const registry = props.paneRegistry;
   const layout = useDeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
   const deckState = useDeckLayoutState(layout);
   // Read HERE and not inside the follow callback: a hook may not be called from one,

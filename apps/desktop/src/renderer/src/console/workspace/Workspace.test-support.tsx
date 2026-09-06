@@ -165,7 +165,7 @@ export function workspaceFor(
           uiStateStore={uiStateStore}
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
           route={{ kind: "workspace", sessionId: session.sessionId }}
-          registry={testRegistry()}
+          paneRegistry={testRegistry()}
         />
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>

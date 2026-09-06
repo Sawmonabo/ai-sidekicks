@@ -46,7 +46,6 @@ import { consoleCommandSurface } from "../palette/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
 import {
-  consolePaneRegistry,
   paneBodyForKind,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
@@ -250,6 +249,7 @@ function mountWorkspace(
       uiStateStore: context.uiStateStore,
       draftStore: context.draftStore,
       route: context.route,
+      paneRegistry: context.paneRegistry,
     }),
   );
 }
@@ -266,10 +266,12 @@ function mountWorkspace(
  *
  * Resolution happens during render, on `RouteSurface`'s reasoning: the pane seat
  * board is composed at module scope before any window renders, so a descriptor is
- * there to be looked up on the first pass.
+ * there to be looked up on the first pass. The board read is the one on the context —
+ * the board THIS composition filled — rather than the process-wide singleton, so a
+ * window composed with its own board mounts its own body and not production's.
  */
 function mountLedgerPane(context: ConsoleSurfaceContext): ReactNode {
-  const descriptor = consolePaneRegistry.descriptorFor("timeline");
+  const descriptor = context.paneRegistry.descriptorFor("timeline");
   if (descriptor === undefined) {
     // Reserved, not stubbed. Unreachable while the pane seat board composes this
     // family, and rendered honestly rather than assumed away: the descriptor is

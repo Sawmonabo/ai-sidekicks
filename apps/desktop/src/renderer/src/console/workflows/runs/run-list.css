@@ -1,0 +1,132 @@
+/*
+ * The run list: its header counts, its rows, and what a row says about one run.
+ *
+ * Owned by `RunList.tsx`, and reached through `workflows.css`, which is the entry
+ * point for the sheets this directory owns. The park badges a row stacks are next door
+ * in `park-badge.css` — they are shown by the run pane too, and a rule shared by two
+ * surfaces belongs to neither of them alone.
+ */
+
+/* ----------------------------------------------------------------- run list */
+
+.meridian-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-run-list__summary {
+  display: flex;
+  gap: var(--meridian-space-4);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-run-list__summary-item {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-run-list__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-run-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-run-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-run-row__name {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+  text-align: start;
+}
+
+.meridian-run-row__open {
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.meridian-run-row__open:hover {
+  color: var(--meridian-accent-text);
+}
+
+.meridian-run-row__open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-run-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-run-row__pin {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-run-row__parks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * The failure reason is the daemon's sentence, so it renders as prose on the red
+ * text colour rather than inside a refusal shape: a run that failed is a fact the
+ * list is reporting, not a control the operator just pressed (rule 9).
+ */
+.meridian-run-row__failure {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-red-text);
+}
+
+/*
+ * The same wire member on a run that did not fail. One member carries two facts — a
+ * bound breach's reason and a cancel's — so a row painted red for both would report
+ * an outcome an operator asked for as a breach. This arm is prose in the ordinary
+ * text colour, with the label in front saying which reading arrived; the hue is spent
+ * on the failure and nowhere else (rule 2.3).
+ */
+.meridian-run-row__reason {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-run-row__reason-label {
+  color: var(--meridian-text-faint);
+}

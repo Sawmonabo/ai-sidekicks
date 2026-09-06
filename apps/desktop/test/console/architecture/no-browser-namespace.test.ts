@@ -45,7 +45,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   consoleSourceModules,
@@ -54,6 +54,27 @@ import {
   SHELL_DIRECTORY,
 } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+
+/**
+ * The budget this file states rather than inherits.
+ *
+ * Its claim is a parse pass over every console module, so what it costs is a
+ * property of the TREE and grows with it. Measured on the authoring machine with a
+ * warm transform cache and this file's neighbours for company, the pass is 2569 ms
+ * — and on a cold cache, or under the aggregate gate's five-project concurrency, the
+ * same pass crossed vitest's 5 s default with no change to the code it reads. That is
+ * how it was found: two view families landed, the tree grew, and four whole-tree
+ * gates that had never stated a budget began timing out on the load rather than on a
+ * defect.
+ *
+ * Set well above the loaded measurement on purpose, and to the figure
+ * `source-walk-chokepoint.test.ts` already states for the same reason: what a budget
+ * guards is a pass that never settles, not a slow one, and a budget tightened to the
+ * last measurement fails on the next machine rather than on the next defect.
+ */
+const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
+
+vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_SOURCE_ROOT = resolve(HERE, "..", "..", "..", "src");

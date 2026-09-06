@@ -5,16 +5,18 @@
 // surface hands the pane — and a React element carries all of that before anything
 // renders it. What the pane itself draws is that component's own test.
 //
-// The pane registry read here is the process-wide one, because the surface resolves
-// through it deliberately: a pane is mounted through a single door, and a surface
-// that imported the body instead would be a second one.
+// The pane board read here is this suite's OWN, because that is what the surface
+// resolves through: the board arrives on the surface context, so a case composes one,
+// registers into it, and reads back what the surface mounted from it. A pane is still
+// mounted through a single door — a surface that imported the body instead would be a
+// second one — and a per-case board is what keeps one case's claim out of the next.
 
 import { isValidElement, type ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  ConsolePaneRegistry,
   ConsoleSurfaceRegistry,
-  consolePaneRegistry,
   type ConsolePaneContext,
   type ConsoleSurfaceContext,
 } from "../seats/index.js";
@@ -23,11 +25,25 @@ import { registerLedger } from "./index.js";
 const PANE_TEST_OWNER = "ledger-test";
 
 /**
- * The four members the surface passes through, and nothing else.
+ * The board a case composes, replaced before each one so no claim outlives its case.
+ *
+ * A board of this suite's own rather than the process-wide singleton: the surface
+ * resolves the pane through whatever board its context carries, so a case that
+ * registered into the singleton would be asserting over a board production also
+ * fills — and would have to unregister afterwards to keep the next case honest.
+ */
+let composedPaneRegistry = new ConsolePaneRegistry();
+
+beforeEach(() => {
+  composedPaneRegistry = new ConsolePaneRegistry();
+});
+
+/**
+ * The members the surface passes through, and nothing else.
  *
  * Cast rather than constructed, for the reason the legacy suite gives: a real
  * context carries three stores, one of which opens a database on construction, and
- * building all of that to hand four fields to a function that copies four fields
+ * building all of that to hand a handful of fields to a function that copies them
  * would make the setup the subject.
  */
 function surfaceContext(sessionId = "session-7"): ConsoleSurfaceContext {
@@ -38,6 +54,7 @@ function surfaceContext(sessionId = "session-7"): ConsoleSurfaceContext {
     sessionStore: undefined,
     uiStateStore: {},
     draftStore: {},
+    paneRegistry: composedPaneRegistry,
   } as unknown as ConsoleSurfaceContext;
 }
 
@@ -78,12 +95,6 @@ function paneContextHandedTo(node: ReactNode): ConsolePaneContext {
   return shell.props["children"] as ConsolePaneContext;
 }
 
-afterEach(() => {
-  // The process-wide registry outlives a case, so a claim made here would decide
-  // what the next case resolves.
-  consolePaneRegistry.unregister("timeline");
-});
-
 describe("the ledger — which slots it holds", () => {
   it("claims the workspace surface and the full-screen timeline window, under one owner", () => {
     const registry = registeredLedger();
@@ -115,7 +126,7 @@ describe("the ledger — what it mounts", () => {
     // `Spec-023 §The surface set`: an auxiliary window loads "the same renderer
     // bundle at a window route" for one moved pane, so this slot mounts the pane
     // ALONE — no deck around it and no composer.
-    consolePaneRegistry.register({
+    composedPaneRegistry.register({
       kind: "timeline",
       owner: PANE_TEST_OWNER,
       render: (context) => context as unknown as ReactNode,
@@ -142,7 +153,7 @@ describe("the ledger — what it mounts", () => {
     // Fail-closed, per the seat's own rule: the ring takes an actor's hue only where
     // the pane's entity is a run or an agent, and this timeline is scoped to the
     // session rather than to one of its entities.
-    consolePaneRegistry.register({
+    composedPaneRegistry.register({
       kind: "timeline",
       owner: PANE_TEST_OWNER,
       render: (context) => context as unknown as ReactNode,
@@ -186,7 +197,7 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
   });
 
   it("keys the pane subtree on the route's session, the same way and for the same reason", () => {
-    consolePaneRegistry.register({
+    composedPaneRegistry.register({
       kind: "timeline",
       owner: PANE_TEST_OWNER,
       render: (context) => context as unknown as ReactNode,
@@ -201,7 +212,7 @@ describe("the ledger — what decides the mounted subtree's lifetime", () => {
     // Without this, both cases above would pass over a key that changed on every
     // render — which remounts the ledger on every keystroke and loses the very state
     // the key exists to scope.
-    consolePaneRegistry.register({
+    composedPaneRegistry.register({
       kind: "timeline",
       owner: PANE_TEST_OWNER,
       render: (context) => context as unknown as ReactNode,

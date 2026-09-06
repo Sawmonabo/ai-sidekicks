@@ -42,7 +42,7 @@
 // WHY IT SURVIVES AT ALL. Nine modules inside this family reach it: the seven plane
 // modules of `growth-signatures/` that name a value at all — `panes.ts` names shapes
 // from two of these planes and the other six one each — plus
-// `fixture-session-directory.ts` and the gitflow port test. What the door buys them
+// `fixture/fixture-session-directory.ts` and the gitflow port test. What the door buys them
 // is a binding to the growth values as a SET rather than to the file layout
 // underneath: a plane module that reached `growth-values/tools.js` directly would
 // have to move the day a value did, for no gain over the one name that never moves.

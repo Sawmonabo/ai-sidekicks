@@ -158,6 +158,40 @@ export interface WorkflowRunSnapshot {
 }
 
 /**
+ * One run as the run ENUMERATION carries it: the run read's shape, plus the two
+ * facts about the definition it was started from.
+ *
+ * WHY THE ENUMERATION CARRIES THEM AND THE RUN READ DOES NOT. `workflow.runRead`
+ * addresses one run by an id the caller already holds — a caller that got that id
+ * from a definition already knows which definition it came from. An enumeration has
+ * no such caller: it answers with runs nobody named, each pinned to an opaque
+ * version id, and no registered read maps a version id back to its definition
+ * (`workflow.versionRead` addresses by `(definitionId, versionNumber)`, and the
+ * definition enumeration carries only each definition's LATEST version). So a run
+ * list built on the read's shape alone can name no run and can never tell that a
+ * pin has fallen behind — which is the one condition an operator repairs.
+ *
+ * The enumeration is registered nowhere and rides `workflow-run-enumeration` on
+ * `Plan-023 §Console growth slate`; this is the console declaring what that wire has
+ * to answer with, in the same file and on the same footing as the request shape it
+ * already declares. A daemon serving it holds both rows in one query.
+ */
+export interface WorkflowRunListEntry extends WorkflowRunSnapshot {
+  /** The definition this run was started from, so a row reads as more than an id. */
+  readonly definitionName: string;
+  /**
+   * That definition's newest version id at the moment the enumeration answered.
+   *
+   * Additive-optional, on the reading `WorkflowDefinitionReadResponse` already takes
+   * for its own `workflowVersionId`: a daemon that does not send it leaves the
+   * frozen-pin state UNKNOWN, and unknown is reported as not-stale rather than
+   * guessed — claiming a run is current is a smaller error than claiming it is stale
+   * and inviting a repair the daemon would refuse.
+   */
+  readonly definitionLatestWorkflowVersionId?: string;
+}
+
+/**
  * One entry of the definition enumeration.
  *
  * `latestWorkflowVersionId` is the opaque server-minted reference a run start
@@ -185,6 +219,34 @@ export interface WorkflowDefinitionSummary {
    */
   readonly resolvesAtThisContext: boolean;
   readonly createdAt: string;
+}
+
+/**
+ * One version of a definition, as the version CHAIN read carries it.
+ *
+ * WHY A CHAIN READ EXISTS AND WHAT IT ANSWERS. A run carries one opaque
+ * `workflowVersionId` and nothing else about the definition it was started from.
+ * `workflow.versionRead` addresses a version by `(definitionId, versionNumber)` and
+ * the definition enumeration carries only each definition's LATEST, so a surface
+ * holding a run's pin can name no other version of the same definition — which is
+ * exactly what an operator re-pinning a parked run has to do. The chain read closes
+ * that: handed the pin, it answers the versions that pin's definition has.
+ *
+ * TWO MEMBERS AND NOT MORE. The id is what a re-pin travels with and the number is
+ * what a person reads instead of it; a content hash, an author and an instant are all
+ * facts the registered version read already carries for a version somebody named, and
+ * minting them here would be members ahead of any reader. Which entry is the CURRENT
+ * pin is deliberately absent too: the caller asked BY that id and can compare, so a
+ * flag would be the wire restating the request.
+ *
+ * Registered nowhere — this rides `workflow-version-chain` on
+ * `Plan-023 §Console growth slate`, on the same footing as the run enumeration above.
+ */
+export interface WorkflowVersionChainEntry {
+  /** Opaque and server-minted, exactly as a run start accepts it. Never parsed. */
+  readonly workflowVersionId: string;
+  /** The version's own ordinal, which is what a version read addresses it by. */
+  readonly versionNumber: number;
 }
 
 /**

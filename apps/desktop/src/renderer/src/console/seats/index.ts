@@ -201,10 +201,11 @@ export {
 // import the chrome and narrow through `paneBodyForKind`; the deck — the one host that
 // provides the two controls — ships and mounts every pane inside `PaneControlsContext`,
 // so the agent console's detach control is drawn through the seam a deck provides it
-// through rather than asserted by a test; and the ledger's message card and timeline
-// pane read the owner slot's contract. A surviving tag would fail the run under
-// `--treat-tag-hints-as-errors`; the pane-body tasks still to land are consumers of
-// exports that already have one.
+// through rather than asserted by a test; and two shipped families name the owner
+// slot's contract on the slots they declare — the ledger's message card and timeline
+// pane, and the workflows family's own slot table. A surviving tag would fail the run
+// under `--treat-tag-hints-as-errors`; the pane-body tasks still to land are consumers
+// of exports that already have one.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export { PaneControlsContext, type PaneControls } from "./pane-controls.js";

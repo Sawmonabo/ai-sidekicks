@@ -102,7 +102,7 @@ describe("Workspace — the sidebar it composes beside the deck", () => {
             uiStateStore={memoryStore()}
             draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
             route={{ kind: "sessions" }}
-            registry={testRegistry()}
+            paneRegistry={testRegistry()}
           />
         </LiveAnnouncerProvider>
       </SidekicksBridgeProvider>,

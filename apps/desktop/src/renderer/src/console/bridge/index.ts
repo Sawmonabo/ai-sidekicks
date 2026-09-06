@@ -102,16 +102,17 @@ export { heldIdAsWireId } from "./daemon/wire-ids.js";
 // refusal they render instead, and the builder that mints one all leave through this
 // door — the same door the bridge itself does, because a growth refusal IS what this
 // bridge answers for a wire the corpus has not registered.
-// `growthUnavailableFromRejection` AND `GrowthUnavailable` are here for the callers
-// that hold a REJECTED call, rather than for the session directory, which is the
-// distinction the reading layer drew when it took both off. A directory read settles
-// through `readings/read-settlement.js` below and keeps the daemon's own code, so
-// nothing on that path mints a port refusal or names the type. The repos family's
-// growth calls are not directory reads: `repos/growth-call.ts` catches a REJECTED
-// call — the path the port never answers on — and hands the rejection to the builder,
-// returning the type. The auxiliary hand-off reaches the type from the act side for
-// the same reason: it translates a growth refusal into its own vocabulary, branching
-// on which growth code was raised, so it names the union rather than a settled read's
+// `growthUnavailableFromRejection` AND `GrowthUnavailable` are here for readers
+// outside the session directory, which is the distinction the reading layer drew when
+// it took both off. A directory read settles through `readings/read-settlement.js`
+// below and keeps the daemon's own code, so nothing on that path mints a port refusal
+// or names the type. Three families since reach past that path: `repos/growth-call.ts`
+// catches a REJECTED call — the one path the port never answers on — and hands the
+// rejection to the builder, returning the type; the workflow run pane's control
+// dispatch names the outcome's refusal arm for a port answer it did not settle
+// through a hook; and the workspace family's auxiliary hand-off reaches the type from
+// the act side, translating a growth refusal into its own vocabulary by branching on
+// which growth code was raised, so it names the union rather than a settled read's
 // `SettledReadRefusal`. So both travel, and the rule that took them off is unchanged:
 // a door line stands while a production module reaches it, and these two are reached.
 // `settledGrowthCall` travels beside them and on the same rule — it is what every
@@ -268,6 +269,11 @@ export { isUnbuiltWireRefusal } from "./growth-port/growth-outcome.js";
 // which is how two speculative lines came off that door already.
 export type { GrowthReading } from "./growth-port/growth-outcome.js";
 
+// The code a refusing port answers with, published because one view family's own
+// refusal union is declared as this code widened by its own — so the union is built
+// from the port's word for it rather than from a second literal that would drift.
+export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js";
+
 // The growth ledger's row lookup, through the door this file's header already claims
 // it for ("the ledger that makes those refusals checkable"). A view family that must
 // render an absence names the row that would fill it, and reading the row through the
@@ -290,15 +296,28 @@ export { SIDEKICK_POSTURE_MODES } from "./wire-shapes/sidekick-definition.js";
 // meets the module: no `bridge/` sibling reads this pair, so an inner barrel would
 // publish a name nothing inside the family takes, which is the dead export
 // `structure:dead-code` reports.
-// The HOOK and the refusal it settles on are what leaves. `settleGrowthRead` and
-// `READ_SETTLEMENT_REFUSAL_ORIGIN` stay off this door under the same rule from the
-// other side: the bare settlement is called by the hook and by the suites that drive
-// it without a render, and the origin is read only by the suites that assert who a
-// synthesized refusal names. A door line no production reader uses is a dead export
-// rather than a convenience, and the first surface to settle a read outside a
-// component brings the line with it.
-export { useSettledGrowthRead } from "./readings/read-settlement.js";
+// `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door for the same
+// rule from the other side: its only readers are the suites that assert who a
+// synthesized refusal names, and a door line no production reader uses is a dead
+// export rather than a convenience.
+export { settleGrowthRead, useSettledGrowthRead } from "./readings/read-settlement.js";
 export type { SettledReadRefusal } from "./readings/read-settlement.js";
+
+// The workflow plane's read shapes, for the family that renders them. Declared on
+// this substrate because no code package registers a `workflow.*` type yet, and
+// re-exported here rather than deep-imported because a view family reaches another
+// family only through its door. Every one of them goes when `packages/contracts`
+// registers the plane and `wire-shapes/workflow-projection.ts` is deleted with its
+// slate row.
+export { WORKFLOW_DEFINITION_SCOPES } from "./wire-shapes/workflow-projection.js";
+export type {
+  WorkflowDefinitionScope,
+  WorkflowDefinitionSummary,
+  WorkflowPhaseState,
+  WorkflowRunListEntry,
+  WorkflowRunSnapshot,
+  WorkflowVersionChainEntry,
+} from "./wire-shapes/workflow-projection.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

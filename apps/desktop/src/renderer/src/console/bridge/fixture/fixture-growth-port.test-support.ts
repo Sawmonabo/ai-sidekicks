@@ -6,11 +6,12 @@
 // single suite uses — a helper with one reader stays beside its reader.
 
 import { createFixtureBridge } from "./fixture-bridge.js";
-import type { GrowthOperationId } from "../growth-port/index.js";
-import type { GrowthOutcome } from "../growth-port/index.js";
+import type { GrowthOperationId, GrowthOutcome } from "../growth-port/index.js";
 import type { GrowthPort } from "../index.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
+import { WORKFLOWS_COMPLETED_PHASE_ID } from "../scenarios/workflow-fixture-phase-outputs.js";
+import { WORKFLOWS_PARKED_RUN } from "../scenarios/workflow-fixture-runs.js";
 
 /**
  * Call one operation without knowing its request shape.
@@ -25,14 +26,44 @@ import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
  * `callerParticipantRead` does, because an identity is a fact about one roster — so
  * a probe carrying no session would be asking about a session the fixture is not
  * playing and would read a correct scoping refusal as a broken served claim.
+ *
+ * Which is also why the session is a PARAMETER rather than a constant: the suites
+ * drive more than one scenario, and a probe naming the flagship's session against a
+ * bridge playing a different one would fail for exactly the reason above. The
+ * flagship stays the default, so only a caller that means another scenario says so.
  */
 export async function callOperation(
   port: GrowthPort,
   operationId: GrowthOperationId,
+  sessionId: string = FLAGSHIP_SCENARIO.sessionId,
 ): Promise<GrowthOutcome<unknown>> {
   const call = port[operationId] as (request: unknown) => Promise<GrowthOutcome<unknown>>;
-  return call({ sessionId: FLAGSHIP_SCENARIO.sessionId });
+  return call({ sessionId, ...PROBE_SUBJECTS[operationId] });
 }
+
+/**
+ * The identifiers a probe has to carry beyond a session id, per operation.
+ *
+ * A bare `{sessionId}` is not a valid request for every operation, and the sweep was
+ * only getting away with it while the workflow handlers discarded what they were
+ * addressed by. Now that they refuse a run or a phase their scenario projects nothing
+ * for, a probe naming neither is a probe asking about `undefined` — so the sweep
+ * supplies the workflows scenario's own identifiers and asks the question a caller
+ * would ask. Operations addressed by a session alone stay absent from the table
+ * rather than carrying an empty entry each.
+ */
+const PROBE_SUBJECTS: Partial<Record<GrowthOperationId, Readonly<Record<string, string>>>> = {
+  workflowRunRead: { workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId },
+  workflowPhaseOutputRead: {
+    workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+    phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+  },
+  // The version the parked run is pinned to, which is the only address this read
+  // takes: it resolves a version id to the chain its definition holds, so a probe
+  // naming a run or a session would be asking a question the request has no member
+  // for.
+  workflowVersionChainRead: { workflowVersionId: WORKFLOWS_PARKED_RUN.workflowVersionId },
+};
 
 /** The flagship scenario's fixture port, which is the port under test. */
 export function fixturePort(): GrowthPort {
