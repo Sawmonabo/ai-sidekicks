@@ -156,12 +156,6 @@ export class SidebarSectionRegistry {
 /** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
-/** The call a family makes to fill one sidebar section. */
-export function registerSidebarSection(descriptor: SidebarSectionDescriptor): void {
-  sidebarSectionRegistry.register(descriptor);
-}
-
 // Consumed by T-023p-1C-3
 /** One section's body, or `undefined` while nobody has filled it. */
 export function sidebarSectionRenderer(

@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { UiStateStore } from "../../persistence/index.js";
 import { DECK_LAYOUT_RECORD_KEY } from "./layout-persistence.js";
 import { CoalescingLayoutWriter, type PersistedLayoutRecord } from "./layout-writer.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   GatedPersistenceAdapter,
   SESSION_ID,
@@ -62,7 +62,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
     rerender(workspaceFor(session, storeOver(liveAdapter), false));
     const askedOfRetiredStore = retiredAdapter.asked.length;
     cycleDeckFocus(container);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     await waitFor(() => {
       expect(liveAdapter.asked.length).toBeGreaterThan(0);
@@ -105,7 +105,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
     );
     rerender(<ProbeHoldingOneWriter store={storeOver(liveAdapter)} />);
     fireEvent.click(getByRole("button", { name: "Save" }));
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(retiredAdapter.asked.length).toBe(1);
     expect(liveAdapter.asked).toHaveLength(0);
@@ -130,8 +130,8 @@ describe("Workspace — the restore runs once for the session on screen", () => 
     });
 
     rerender(workspaceFor(session, secondStore, false));
-    await drainMicrotasks();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
+    await crossMacrotaskBoundary();
 
     expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
   });

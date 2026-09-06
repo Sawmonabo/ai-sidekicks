@@ -2,9 +2,12 @@
 //
 // `Spec-023 §Console Design (Meridian)` §The surface set states the deck rule in
 // structural terms — "one entity opens one pane, structurally (a single mount door
-// and a tripwire that fails on a second)". This module is that door. A view family
-// calls `registerConsolePane` at module scope with the kind it owns; the deck
-// resolves a pane's kind to a descriptor and mounts it.
+// and a tripwire that fails on a second)". This module is that door. A view family is
+// HANDED this table by the composition and claims the kind it owns inside its own
+// `register<Family>` entry point; the deck resolves a pane's kind to a descriptor and
+// mounts it. There is deliberately no module-scope convenience that writes into the
+// process-wide instance — a family calling one would compose into production from
+// inside a composition that had handed it somewhere else.
 //
 // WHY THIS IS NOT `surface-registry.ts`, BESIDE IT IN THIS FAMILY
 //
@@ -39,6 +42,7 @@ import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 
+// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * How a pane names itself as the pane another was opened FROM.
  *
@@ -70,6 +74,7 @@ export interface ConsolePaneLink {
  */
 export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePaneLink) => void;
 
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
  * Everything a pane body is handed. Nothing here is global; all of it is per pane,
  * in the window the pane is mounted in.
@@ -122,6 +127,7 @@ interface ConsolePaneBinding {
   readonly focusHue: string | undefined;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
  * What a family registers to claim a pane kind.
  *
@@ -178,12 +184,6 @@ export class ConsolePaneRegistry {
 
 /** The process-wide registry the view families call at module scope. */
 export const consolePaneRegistry: ConsolePaneRegistry = new ConsolePaneRegistry();
-
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
-/** The call a view family makes to claim a pane kind. */
-export function registerConsolePane(descriptor: ConsolePaneDescriptor): void {
-  consolePaneRegistry.register(descriptor);
-}
 
 // Consumed by T-023p-1C-2, T-023p-1C-8
 /** Which pane kinds the process-wide registry has a body for. */

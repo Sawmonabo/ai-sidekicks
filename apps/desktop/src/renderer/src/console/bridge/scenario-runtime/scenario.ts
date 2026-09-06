@@ -21,7 +21,7 @@
 import type { MembershipRole } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
-import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
+import type { WireErrorEnvelope } from "../../core/index.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {
@@ -62,11 +62,14 @@ export interface ScenarioResolvingReply extends ScenarioReplyBase {
  * was unreachable, and the console's refusal renderings could only ever be driven
  * from the growth port's one typed absence.
  *
- * `WireErrorEnvelope` is `src/shared/wire-errors.ts`'s, not a second refusal
- * vocabulary minted here: that module is the console's one home for the wire's
- * `{code, message}` shape and for `normalizeWireRejection`, which is what every
- * renderer catch arm already turns a rejection into. A fixture refusing in any
- * other shape would train a surface against a value the live bridge never sends.
+ * `WireErrorEnvelope` is not a second refusal vocabulary minted here. It is declared
+ * in `src/shared/wire-errors.ts` and reached through `core/index.js`, which is the
+ * console's one home for the wire's `{code, message}` shape and for
+ * `normalizeWireRejection` — what every renderer catch arm already turns a rejection
+ * into. `src/shared/` sits on no rung of the console's family DAG, so taking the
+ * shape from `core` is what keeps one reading of it above that floor rather than one
+ * per family. A fixture refusing in any other shape would train a surface against a
+ * value the live bridge never sends.
  */
 export interface ScenarioRejectingReply extends ScenarioReplyBase {
   readonly refusal: WireErrorEnvelope;

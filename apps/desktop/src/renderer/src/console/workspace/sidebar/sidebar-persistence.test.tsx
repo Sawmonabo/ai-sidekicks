@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "../../persistence/index.js";
 import { SIDEBAR_DEFAULT_WIDTH_PERCENT } from "../workspace-bounds.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { GatedPersistenceAdapter } from "../Workspace.test-support.js";
 import { SIDEBAR_LAYOUT_RECORD_KEY, encodeSidebarLayout } from "./sidebar-model.js";
 import { useSidebarLayout, type SidebarLayout } from "./sidebar-state.js";
@@ -117,7 +117,7 @@ describe("the sidebar's persistence — a writer whose terminal is one-way", () 
     await probe.settled();
 
     probe.dragDividerTo(WIDTH_ARRANGED_IN_A);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     await waitFor(async () => {
       const record = await probe.uiStateStore.read(SESSION_A, SIDEBAR_LAYOUT_RECORD_KEY);
@@ -132,7 +132,7 @@ describe("the sidebar's persistence — a writer whose terminal is one-way", () 
     await probe.settled();
 
     probe.dragDividerTo(WIDTH_ARRANGED_IN_A);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     await waitFor(() => {
       expect(probe.adapter.asked.map((write) => write.partition)).toContain(SESSION_A);
@@ -154,7 +154,7 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
     probe.adapter.holdReads();
     probe.showSession(SESSION_B);
     probe.dragDividerTo(WIDTH_ARRANGED_IN_A);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(probe.adapter.asked.map((write) => write.partition)).not.toContain(SESSION_B);
   });
@@ -166,10 +166,10 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
     await probe.settled();
 
     probe.showSession(SESSION_B);
-    await drainMicrotasks();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
+    await crossMacrotaskBoundary();
     probe.dragDividerTo(WIDTH_ARRANGED_IN_A);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     await waitFor(() => {
       expect(probe.adapter.asked.map((write) => write.partition)).toContain(SESSION_B);
@@ -200,7 +200,7 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
       probe.layout().setCollapsed(true);
     });
     probe.adapter.releaseReads();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     // Theirs on the axis they touched, the record's on the two they did not.
     expect(probe.layout().snapshot().state.isCollapsed).toBe(true);
@@ -224,7 +224,7 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
     );
 
     probe.showSession(SESSION_B);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(probe.layout().snapshot().state.widthPercent).toBe(WIDTH_SAVED_IN_B);
     expect(probe.layout().snapshot().state.isCollapsed).toBe(true);
@@ -254,8 +254,8 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
     const writesBeforeArrival = probe.adapter.asked.length;
 
     probe.showSession(SESSION_B);
-    await drainMicrotasks();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
+    await crossMacrotaskBoundary();
 
     expect(probe.layout().snapshot().state.widthPercent).toBe(WIDTH_SAVED_IN_B);
     expect(
@@ -288,7 +288,7 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
       probe.layout().setCollapsed(true);
     });
     probe.adapter.releaseReads();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     await waitFor(() => {
       expect(
@@ -307,7 +307,7 @@ describe("the sidebar's persistence — the write gate across a navigation", () 
 
     probe.adapter.holdReads();
     probe.showSession(SESSION_B);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(probe.layout().snapshot().hasSettled).toBe(true);
   });

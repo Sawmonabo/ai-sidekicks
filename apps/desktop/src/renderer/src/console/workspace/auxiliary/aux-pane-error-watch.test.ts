@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { drainMicrotasks } from "../../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { lostWindowNotice, type LostAuxiliaryWindow } from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import { servingPort } from "./aux-handoff.test-support.js";
@@ -63,7 +63,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     expect(handoff.detached()).toHaveLength(1);
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(handoff.detached()).toHaveLength(0);
     expect(handoff.paneErrorRefusal).toBeUndefined();
@@ -84,7 +84,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(handoff.detached()).toHaveLength(1);
   });
@@ -115,7 +115,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(handoff.paneErrorRefusal).toBeUndefined();
   });
@@ -208,10 +208,10 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     handoff.stopWatchingPaneErrors();
     held.settleNext();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(held.streams).toHaveLength(1);
     expect(held.streams[0]?.closed).toBe(true);
@@ -227,14 +227,14 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     handoff.stopWatchingPaneErrors();
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     held.settleNext();
     held.settleNext();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(held.streams).toHaveLength(2);
     const live = held.streams.filter((stream) => !stream.closed);
@@ -251,10 +251,10 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
 
     void handoff.watchPaneErrors();
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     held.settleNext();
     held.settleNext();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(held.streams).toHaveLength(1);
     expect(held.streams[0]?.closed).toBe(false);
@@ -268,9 +268,9 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     held.settleNext();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(held.streams).toHaveLength(1);
     expect(held.streams[0]?.closed).toBe(false);
@@ -358,17 +358,17 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     handoff.stopWatchingPaneErrors();
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(held.openedCount()).toBe(2);
     expect(handoff.paneErrorRefusal).toBeUndefined();
     // And the healthy stream is still the installed one: the stale drain's clear is a
     // settlement too, and it went nowhere.
     handoff.stopWatchingPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     expect(handoff.paneErrorRefusal).toBeUndefined();
   });
 
@@ -380,9 +380,9 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchPaneErrors();
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     held.failDeliveryOn(0);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(handoff.paneErrorRefusal?.detail).toContain("the channel dropped");
   });

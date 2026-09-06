@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "../persistence/index.js";
 import { DECK_LAYOUT_RECORD_KEY } from "./layout/layout-persistence.js";
-import { drainMicrotasks } from "../core/microtask-drain.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import {
   GatedPersistenceAdapter,
   SESSION_B_ID,
@@ -138,7 +138,7 @@ describe("Workspace — navigating between two sessions the shell already has op
     // it is what outlives the navigation below.
     cycleDeckFocus(container);
     cycleDeckFocus(container);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     const askedBeforeNavigation = adapter.asked.length;
 
     rerender(workspaceFor(otherSession(), store, false));

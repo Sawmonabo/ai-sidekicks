@@ -1,4 +1,12 @@
-// The pane seat board's grammar, and the reader that holds the board to it.
+// The seat boards' grammar, and the reader that holds both boards to it.
+//
+// TWO BOARDS, ONE GRAMMAR. `console/families.ts` seats the view families and
+// `console/panes/index.ts` seats their pane bodies. They differ in what surrounds
+// the seats — the pane board is composition-only, so its whole body is seats, while
+// the family board composes the shipped families first and holds its seats at the
+// foot — and in nothing else. One reader with a shape per board is what keeps that
+// difference stated once rather than inferred twice, and it is why this module sits
+// beside the two composition sites rather than inside either of them.
 //
 // WHY A GRAMMAR AND NOT A LIST OF LINES
 //
@@ -49,13 +57,45 @@
 // would then be prose, which the reader refuses line by line.
 
 /**
- * Which task ordinals the pane seat board reserves, low to high.
+ * Where a board keeps its seats.
  *
- * The board's own range and not the surface board's: `console/families.ts` reserves
- * a seat for a family that claims no pane kind at all, so the two boards' ordinal
- * sets are deliberately different lengths and neither is derived from the other.
+ * `whole-body` is the pane board: it composes nothing else, so a line that is not a
+ * seat is a line that does not belong. `at-the-foot` is the family board: it calls
+ * the shipped families first, with the prose that explains each call, and its seats
+ * are the run of lines that closes the function. The distinction is only about where
+ * the block STARTS — inside it both boards obey the same grammar, which is what makes
+ * a prose paragraph between two seats an offence on either one.
  */
-export const PANE_SEAT_TASK_ORDINALS: readonly number[] = [2, 3, 4, 5, 6, 7];
+type SeatBlockPlacement = "whole-body" | "at-the-foot";
+
+/** How one seat board is written, so one reader can hold both to their grammar. */
+export interface SeatBoardShape {
+  /** How the board's function declares itself, matched at column 0. */
+  readonly declarationPrefix: string;
+  /** The task ordinals this board reserves a seat for, low to high. */
+  readonly taskOrdinals: readonly number[];
+  readonly seatBlock: SeatBlockPlacement;
+}
+
+/**
+ * The deck's pane bodies.
+ *
+ * Six ordinals and not the family board's seven: `console/families.ts` reserves a
+ * seat for a family that claims no pane kind at all, so the two ranges are
+ * deliberately different lengths and neither is derived from the other.
+ */
+export const PANE_SEAT_BOARD: SeatBoardShape = {
+  declarationPrefix: "export function registerConsolePanes(",
+  taskOrdinals: [2, 3, 4, 5, 6, 7],
+  seatBlock: "whole-body",
+};
+
+/** The console's view families. */
+export const FAMILY_SEAT_BOARD: SeatBoardShape = {
+  declarationPrefix: "export function registerConsoleFamilies(",
+  taskOrdinals: [2, 3, 4, 5, 6, 7, 8],
+  seatBlock: "at-the-foot",
+};
 
 /**
  * Everything that can be wrong with a seat board, in the order a census reports it.
@@ -117,9 +157,6 @@ const FILLED_SEAT_LINE = new RegExp(
   "u",
 );
 
-/** How the board's one function declares itself, matched at column 0. */
-const BOARD_DECLARATION_PREFIX = "export function registerConsolePanes(";
-
 /** The line that closes it, which a composition-only body reaches at column 0. */
 const BOARD_CLOSING_LINE = "}";
 
@@ -148,17 +185,46 @@ function readSeatLine(text: string): SeatLine | undefined {
   return undefined;
 }
 
-/** The lines between the board's declaration and its close, or nothing if absent. */
-function boardBodyLines(source: string): readonly string[] | undefined {
+/**
+ * The lines between the board's declaration and its close, or nothing if absent.
+ *
+ * The declaration is matched at COLUMN 0 — prose quoting an older board is indented
+ * behind a `//` and is therefore not the board — and its parameter list may run over
+ * several lines, which is what the family board's five parameters make it do. So the
+ * body opens at the first line from the declaration onward that ENDS in a brace, and
+ * closes at the first line that is exactly one: a composition-only body reaches that
+ * closing brace at column 0, and a nested block's would be indented.
+ */
+function boardBodyLines(source: string, board: SeatBoardShape): readonly string[] | undefined {
   const lines = source.split("\n");
-  const declaration = lines.findIndex(
-    (line) => line.startsWith(BOARD_DECLARATION_PREFIX) && line.endsWith("{"),
-  );
+  const declaration = lines.findIndex((line) => line.startsWith(board.declarationPrefix));
   if (declaration === -1) {
     return undefined;
   }
-  const closing = lines.indexOf(BOARD_CLOSING_LINE, declaration + 1);
-  return closing === -1 ? undefined : lines.slice(declaration + 1, closing);
+  const opening = lines.findIndex((line, index) => index >= declaration && line.endsWith("{"));
+  if (opening === -1) {
+    return undefined;
+  }
+  const closing = lines.indexOf(BOARD_CLOSING_LINE, opening + 1);
+  return closing === -1 ? undefined : lines.slice(opening + 1, closing);
+}
+
+/**
+ * The lines of `bodyLines` the seat grammar governs.
+ *
+ * On a `whole-body` board that is all of them. On an `at-the-foot` board it is
+ * everything from the first seat line onward — the composition and the prose that
+ * explains it sit above and are not the census's business, while a line inside the
+ * block is. That boundary is the whole rule: a paragraph between two seats reads to
+ * a branch exactly like a paragraph above them, and only one of the two leaves the
+ * six one-line diffs at six distinct positions.
+ */
+function seatBlockLines(bodyLines: readonly string[], board: SeatBoardShape): readonly string[] {
+  if (board.seatBlock === "whole-body") {
+    return bodyLines;
+  }
+  const firstSeat = bodyLines.findIndex((line) => readSeatLine(line.trim()) !== undefined);
+  return firstSeat === -1 ? [] : bodyLines.slice(firstSeat);
 }
 
 /** Group consecutive seat lines by the ordinal they carry. */
@@ -192,15 +258,15 @@ function isWellFormedRun(run: SeatLineRun): boolean {
  * become and which a rule reachable only through the live file could never be shown
  * to catch.
  */
-export function readSeatBoardCensus(source: string): SeatBoardCensus {
-  const bodyLines = boardBodyLines(source);
+export function readSeatBoardCensus(source: string, board: SeatBoardShape): SeatBoardCensus {
+  const bodyLines = boardBodyLines(source, board);
   if (bodyLines === undefined) {
     return { seats: [], offences: ["board-not-found"] };
   }
 
   const raised = new Set<SeatBoardOffence>();
   const seatLines: SeatLine[] = [];
-  for (const line of bodyLines) {
+  for (const line of seatBlockLines(bodyLines, board)) {
     const text = line.trim();
     if (text === "") {
       continue;
@@ -236,10 +302,10 @@ export function readSeatBoardCensus(source: string): SeatBoardCensus {
   if (new Set(ordinals).size !== ordinals.length) {
     raised.add("duplicate-task");
   }
-  if (!ordinals.every((ordinal) => PANE_SEAT_TASK_ORDINALS.includes(ordinal))) {
+  if (!ordinals.every((ordinal) => board.taskOrdinals.includes(ordinal))) {
     raised.add("task-out-of-range");
   }
-  if (!PANE_SEAT_TASK_ORDINALS.every((ordinal) => ordinals.includes(ordinal))) {
+  if (!board.taskOrdinals.every((ordinal) => ordinals.includes(ordinal))) {
     raised.add("missing-task");
   }
 
@@ -261,13 +327,21 @@ export function filledSeatLine(taskOrdinal: number, kindWords: string): string {
  *
  * The surrounding text is deliberately more than the declaration: a board carries an
  * import above its function, and a reader that only worked on a bare function would
- * be proved over text the real file never has.
+ * be proved over text the real file never has. `linesAboveTheBlock` is what an
+ * `at-the-foot` board composes before its seats — the calls and the prose that
+ * explains them — so a case can put a line above the block and another inside it and
+ * show that only one of the two is an offence.
  */
-export function seatBoardSourceFrom(bodyLines: readonly string[]): string {
+export function seatBoardSourceFrom(
+  board: SeatBoardShape,
+  bodyLines: readonly string[],
+  linesAboveTheBlock: readonly string[] = [],
+): string {
   return [
-    'import type { ConsolePaneRegistry } from "../seats/index.js";',
+    'import type { SeatRegistry } from "./seats/index.js";',
     "",
-    "export function registerConsolePanes(registry: ConsolePaneRegistry): void {",
+    `${board.declarationPrefix}registry: SeatRegistry): void {`,
+    ...linesAboveTheBlock,
     ...bodyLines,
     "}",
     "",

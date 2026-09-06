@@ -19,6 +19,9 @@
 // calls for its surfaces — claims its pane kinds inside that function, and replaces
 // its own placeholder line below with the import and the call. Its line names the
 // kinds it claims, so a reviewer can read the whole deck off this file.
+// A filled seat is therefore one or more `register<X>(registry); // T-023p-1C-<n>
+// <word…>` lines carrying that seat's task id and no other, every one of them
+// marked — the shape `panes.test.ts` reads this board as a census against.
 //
 // THE BODIES DO NOT LIVE UNDER THIS DIRECTORY. This file and its suite are the whole
 // of `panes/`, and that is a rule rather than an accident of what has landed: the
