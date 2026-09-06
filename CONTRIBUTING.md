@@ -123,6 +123,14 @@ gitleaks version   # → 8.30.1
 
 If the binary is missing, the lefthook hook emits a `WARNING:` to stderr and lets the commit through — CI is the authoritative gate. Skipping the local hook (`git commit --no-verify`) is rejected at CI time anyway.
 
+### Concurrent commits across worktrees
+
+`pre-commit` takes a repository-wide lock before lefthook starts, so only one worktree at a time sits inside lefthook's unstaged-changes backup. Committing from a second worktree while another is mid-commit prints `lefthook: another worktree is mid-commit — waiting for it to finish` and then proceeds; no other hook waits on anything.
+
+The lock exists because lefthook hides the unstaged hunks of partially staged files for the length of a `pre-commit` run and keeps the backup in two places every linked worktree shares: `.git/info/lefthook-unstaged.patch` (`git rev-parse --git-path info` resolves to the **common** git dir, not the worktree's own) and the `lefthook auto backup` stash under the shared `refs/stash`, whose cleanup drops every entry carrying that message rather than only its own. Two worktrees inside that window either apply one's hunks into the other's tree or delete them outright, while both commits report success — reproduced on lefthook 2.1.6 (this repo's pin) and reported upstream as [evilmartians/lefthook#1529](https://github.com/evilmartians/lefthook/issues/1529), with every one of those code paths unchanged through 2.1.9, which a generated hook will use if PATH offers it. No configuration key at those versions turns the backup off or moves it per worktree, and the window opens before the first job in `lefthook.yml` runs, so the lock is taken from `tools/lefthook-rc.sh` — wired in as lefthook's `rc:` file and therefore sourced by the generated hook itself — and released from its `EXIT` trap. `tools/lefthook-worktree-lock.mjs` implements it.
+
+If a commit is refused with `lefthook: timed out waiting for lefthook-unstaged-backup.lock`, the named holder is still running; the message prints its worktree and pid. A lock whose owner died is broken automatically on the next attempt. `node tools/lefthook-worktree-lock.mjs status` prints the current holder.
+
 ## PR Workflow
 
 1. **Branch off `develop`.** `git switch develop && git pull && git switch -c feat/plan-001-monorepo-scaffold`
