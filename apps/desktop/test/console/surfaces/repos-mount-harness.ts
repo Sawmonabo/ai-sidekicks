@@ -17,6 +17,7 @@ import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/sc
 
 import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
 
+/** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedFamilySurface {
   readonly element: HTMLElement;
   readonly bridge: ConsoleBridge;

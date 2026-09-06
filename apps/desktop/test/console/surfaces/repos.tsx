@@ -76,8 +76,6 @@ import {
   type SidebarSectionContext,
 } from "../../../src/renderer/src/console/seats/index.js";
 
-/** The element a tier reads, and the bridge it was mounted against. */
-
 /**
  * The repos sidebar section, open, with its two mounts read.
  *

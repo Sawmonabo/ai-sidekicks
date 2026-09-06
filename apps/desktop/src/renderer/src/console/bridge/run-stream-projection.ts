@@ -60,21 +60,32 @@
 // rest of the fixture subtree. The budget therefore pays nothing for the schemas,
 // and a fixture that validates what it delivers is worth strictly more than one that
 // asserts it.
+//
+// WHAT THE SIBLING HOLDS. `run-stream-shapes.ts` carries the outcome type these arms
+// return and the three things all of them do identically — the session cross-check,
+// the registered-shape parse, and the refusal constructors. This file is the arms and
+// the table they read; that one is what an arm is made of. The fourth, reading a wire
+// member as a string, is `core/wire-strings.ts`, which is one rule wider than this
+// family and had four spellings across the tree before it had a home.
 
 import {
   QueueItemSummarySchema,
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
 } from "@ai-sidekicks/contracts";
-import type {
-  QueueItemSummary,
-  RunRolledBackEvent,
-  RunStateChangeEvent,
-} from "@ai-sidekicks/contracts";
-import type { ZodType } from "zod";
+import type { RunStateChangeEvent } from "@ai-sidekicks/contracts";
 
+import { readWireString } from "../core/index.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { RUN_QUEUE_ROW_READ, scriptedQueueRowFor } from "./queue-row-source.js";
+import {
+  carriedOptionalMembers,
+  projectThroughRegisteredShape,
+  refuseSessionDisagreement,
+  unprojectable,
+  unprojectableFor,
+} from "./run-stream-shapes.js";
+import type { RunStreamProjection } from "./run-stream-shapes.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
@@ -82,23 +93,6 @@ import {
   runStateForTransitionKind,
   runStateStreamArmFor,
 } from "./session-event-streams.js";
-
-/** One registered payload a narrowed run stream delivers. */
-export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;
-
-/**
- * What one beat projects to on one narrowed stream.
- *
- * A returned outcome rather than a thrown error, per `core/refusal.ts`: returning a
- * refusal is the console's default and an exception is the exception. The bridge is
- * what turns `unprojectable` into the named rejection a caller sees, because the
- * refusal VOCABULARY belongs to the bridge boundary and the projection rule belongs
- * here — the same split the scenario engine and the bridge already keep for a
- * scripted reply that never came due.
- */
-export type RunStreamProjection =
-  | { readonly status: "projected"; readonly delivery: RunStreamDelivery }
-  | { readonly status: "unprojectable"; readonly detail: string };
 
 /**
  * The optional members of `RunStateChangeEvent` this projection carries through.
@@ -235,7 +229,7 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
   if (sessionDisagreement !== undefined) {
     return sessionDisagreement;
   }
-  const channelId = readWireString(payload, "channelId");
+  const channelId = readWireString(payload["channelId"]);
   return projectThroughRegisteredShape(RunRolledBackEventSchema, event, {
     // The PAYLOAD's session, checked equal to the envelope's just above and then
     // carried untouched. Copying the envelope's here instead would make that check
@@ -268,7 +262,7 @@ function projectRunQueueStreamBeat(
   if (sessionDisagreement !== undefined) {
     return sessionDisagreement;
   }
-  const queueItemId = readWireString(payload, "queueItemId");
+  const queueItemId = readWireString(payload["queueItemId"]);
   if (queueItemId === undefined) {
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
@@ -302,8 +296,8 @@ function projectRunQueueStreamBeat(
       `is about queue item "${queueItemId}", for which the scenario's \`${RUN_QUEUE_ROW_READ}\` reply carries no row — and the row is where \`priority\` and \`createdAt\` live`,
     );
   }
-  const channelId = readWireString(queueRow, "channelId");
-  const announcedChannelId = readWireString(payload, "channelId");
+  const channelId = readWireString(queueRow["channelId"]);
+  const announcedChannelId = readWireString(payload["channelId"]);
   if (announcedChannelId !== undefined && announcedChannelId !== channelId) {
     return unprojectableFor(
       event,
@@ -326,123 +320,4 @@ function projectRunQueueStreamBeat(
     // moment the row was last updated. Sourced, not stamped from a clock.
     updatedAt: event.occurredAt,
   });
-}
-
-/**
- * The envelope-against-payload session cross-check, for every arm of both run streams.
- *
- * A fact about this BEAT that no schema can make, and one none of the three arms can
- * skip. `Spec-006` gives every one of these payloads a required `sessionId`, so a beat
- * delivered on session A whose payload names session B is not a beat that omitted a
- * check: it is a frame no daemon produces. The state and queue arms then compound it,
- * because neither registered stream shape carries a `sessionId` member at all — the
- * projection drops the disagreeing value on the floor and the narrowed subscriber
- * receives a valid-looking update about a session it never asked for, with nothing on
- * the delivered payload left to notice it by.
- *
- * ONE GUARD RATHER THAN THREE COPIES, because three copies of one comparison drift
- * and the gate goes green: the rollback arm carried this rule alone for one round and
- * the two arms beside it were the ones that could hide the mismatch afterwards.
- *
- * A non-string `sessionId` refuses on the same arm as an absent one. It cannot be
- * compared to the envelope's, and admitting it here would leave the state and queue
- * arms delivering on an identifier nothing ever checked.
- *
- * Returns the refusal, or `undefined` when the beat agrees with its envelope — the
- * guard shape a caller reads as "nothing to say" without a second status vocabulary.
- */
-function refuseSessionDisagreement(
-  event: ConsoleSessionEvent,
-  payload: Readonly<Record<string, unknown>>,
-): RunStreamProjection | undefined {
-  const statedSessionId = readWireString(payload, "sessionId");
-  if (statedSessionId === undefined) {
-    return unprojectableFor(
-      event,
-      "names no `sessionId`, which every registered run payload requires and which no other member of these shapes can stand in for",
-    );
-  }
-  if (statedSessionId !== event.sessionId) {
-    return unprojectableFor(
-      event,
-      `is delivered on session "${event.sessionId}" and names ${JSON.stringify(statedSessionId)} in its payload; outer attribution and payload cannot disagree about which session a beat is about`,
-    );
-  }
-  return undefined;
-}
-
-/**
- * Parse one composed candidate through the shape the corpus registers for it.
- *
- * The single delivery gate: nothing leaves this module without passing the schema a
- * live subscriber would be handed values against. A failure names every failing
- * member by its own path, so a scenario author reads which member is wrong rather
- * than that something is.
- */
-function projectThroughRegisteredShape<Delivery extends RunStreamDelivery>(
-  registeredShape: ZodType<Delivery>,
-  event: ConsoleSessionEvent,
-  candidate: Readonly<Record<string, unknown>>,
-): RunStreamProjection {
-  const parsed = registeredShape.safeParse(candidate);
-  if (!parsed.success) {
-    return unprojectableFor(
-      event,
-      `does not satisfy its registered shape — ${parsed.error.issues.map(describeIssue).join("; ")}`,
-    );
-  }
-  return { status: "projected", delivery: parsed.data };
-}
-
-/** One parse issue as a sentence fragment: which member, and what is wrong with it. */
-function describeIssue(issue: {
-  readonly path: readonly PropertyKey[];
-  readonly message: string;
-}): string {
-  const member = issue.path.length === 0 ? "the payload" : issue.path.map(String).join(".");
-  return `${member}: ${issue.message}`;
-}
-
-/** Every carried optional member the payload actually supplies, wire-verbatim. */
-function carriedOptionalMembers(
-  payload: Readonly<Record<string, unknown>>,
-  carriedMembers: Readonly<Record<string, true>>,
-): Readonly<Record<string, unknown>> {
-  const carried: Record<string, unknown> = {};
-  for (const member of Object.keys(carriedMembers)) {
-    const value = payload[member];
-    if (value !== undefined) {
-      carried[member] = value;
-    }
-  }
-  return carried;
-}
-
-/**
- * One member as a non-empty string, or `undefined` when it is not one.
- *
- * The two jobs a value has to do BEFORE the parse can run: key a lookup, and be
- * compared against another source. Every member that only has to be delivered is
- * carried raw and left to the schema.
- */
-function readWireString(
-  source: Readonly<Record<string, unknown>>,
-  member: string,
-): string | undefined {
-  const value = source[member];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** A refusal naming the beat it is about, so a scenario author can find it. */
-function unprojectableFor(event: ConsoleSessionEvent, fault: string): RunStreamProjection {
-  return unprojectable(
-    `the "${event.kind}" beat at sequence ${String(event.sequence)} ${fault}. ` +
-      "Script what the registered projection reads — the beat's own registered payload, and the " +
-      "row read it projects from — rather than letting the stream deliver a partial shape.",
-  );
-}
-
-/** The refusal arm, spelled once. */
-function unprojectable(detail: string): RunStreamProjection {
-  return { status: "unprojectable", detail };
 }

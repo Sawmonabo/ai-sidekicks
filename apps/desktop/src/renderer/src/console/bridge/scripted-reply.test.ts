@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { SCENARIO_PENDING_REPLY_CAP } from "../core/index.js";
-import { FixtureBridgeError } from "./fixture-bridge.js";
+import { FixtureBridgeError } from "./fixture-refusal.js";
 import { createFixture } from "./fixture-bridge.test-support.js";
 import { GROWTH_PORT_REFUSAL_CODES, type GrowthOutcome } from "./growth-outcome.js";
 import type { GrowthPort } from "./growth-port.js";

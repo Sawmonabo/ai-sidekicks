@@ -10,6 +10,9 @@
 
 export { encodeBase64 } from "./base64.js";
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
+// The clock seam's third implementation: one identity over a clock the window
+// replaces underneath a live mount.
+export { ForwardingConsoleClock } from "./forwarding-clock.js";
 export {
   APPLY_COALESCE_MS,
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
@@ -79,3 +82,8 @@ export {
   type RejectionFallback,
   type WireRefusal,
 } from "./wire-rejection.js";
+// The string predicate three view families each made for themselves. It ships
+// through this door rather than from the family that happened to need it first,
+// because view families are siblings: a helper two of them share has no home above
+// the DAG that both may reach.
+export { readWireString } from "./wire-strings.js";

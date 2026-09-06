@@ -41,10 +41,6 @@ import {
 import { cloneRecord, worktreeRecord } from "./repo-mounts.test-support.js";
 
 /**
- * A worktree row. Ids are readable rather than UUID-shaped, which is the repos
- * scenario's convention and safe for its reason: no console module parses one.
- */
-/**
  * Does a summary/detail split cover a labels table exactly once each?
  *
  * A pure predicate rather than a loop inside one case, so the negative controls can

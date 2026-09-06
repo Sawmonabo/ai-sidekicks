@@ -1,12 +1,13 @@
 // What a suite watching the console's resource seam counts, and why it counts THAT.
 //
 // A RESOURCE THIS FAMILY OPENS IS DISPOSED ONCE. `useSubjectScopedResource` is handed
-// a terminal `close` and, beside it, the `isClosed` that tells it the disposal is
-// terminal; without that fifth argument the seam records a corpse as committed, the
-// caller publishes a replacement, and the value-change cleanup disposes the corpse a
-// second time. Every one of this family's four disposals happens to be re-entrant, so
-// the second call changes nothing observable ON THE RESOURCE — which is exactly why
-// the observable has to be the CALL and not its effect.
+// one disposal object, and which SHAPE it has is what says whether the ending is
+// terminal: this family's four all hand over `{ dispose, isClosed }`, where the reading
+// is not optional beside the `dispose` it belongs with. Handed a bare release instead,
+// the seam records a corpse as committed, the caller publishes a replacement, and the
+// value-change cleanup disposes the corpse a second time. Every one of those disposals
+// happens to be re-entrant, so the second call changes nothing observable ON THE
+// RESOURCE — which is exactly why the observable has to be the CALL and not its effect.
 //
 // SPIED ON THE PROTOTYPE AND NOT WRAPPED, so what is counted is the disposal the
 // binding really performs through the real seam. A suite that handed a binding a

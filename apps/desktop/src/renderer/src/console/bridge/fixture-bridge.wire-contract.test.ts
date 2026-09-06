@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { FixtureBridgeError } from "./fixture-bridge.js";
+import { FixtureBridgeError } from "./fixture-refusal.js";
 import { callThroughBridge, createFixture } from "./fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";

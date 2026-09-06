@@ -22,6 +22,7 @@ import { growthUnavailable } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
 import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS } from "../repo-lifecycle-events.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
@@ -65,17 +66,6 @@ describe("artifact pane reader — before anything is asked", () => {
   });
 });
 
-/** One projected frame, as the store admits it. */
-function frame(sequence: number, kind: string): Parameters<SessionStore["applyBatch"]>[0][number] {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: SESSION_ID,
-    sequence,
-    kind,
-    occurredAt: "2026-09-02T07:00:00.000Z",
-  };
-}
-
 /** A reader over a store a case drives, with the two reads refusing throughout. */
 function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactPaneReader {
   return new ArtifactPaneReader({
@@ -100,7 +90,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
       expect(reader.performCount).toBe(1);
 
       sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-      sessionStore.applyBatch([frame(1, kind)]);
+      sessionStore.applyBatch([eventOfKind(SESSION_ID, kind, 1)]);
       await readThrough(clock);
 
       // The list and the effective allow-list both go stale on these three, and the
@@ -150,7 +140,10 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     await readThrough(clock);
 
     sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-    sessionStore.applyBatch([frame(1, "run.queued"), frame(2, "workspace.stale")]);
+    sessionStore.applyBatch([
+      eventOfKind(SESSION_ID, "run.queued", 1),
+      eventOfKind(SESSION_ID, "workspace.stale", 2),
+    ]);
     await readThrough(clock);
 
     expect(reader.performCount).toBe(1);
@@ -168,7 +161,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
 
     reader.dispose();
     sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-    sessionStore.applyBatch([frame(1, "artifact.published")]);
+    sessionStore.applyBatch([eventOfKind(SESSION_ID, "artifact.published", 1)]);
     window.dispatchEvent(new Event("focus"));
     await readThrough(clock);
 

@@ -8,7 +8,7 @@
 import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ATTACHMENT_CHUNK_BYTE_CAP, encodeBase64 } from "../../core/index.js";
+import { ATTACHMENT_CHUNK_BYTE_CAP, encodeBase64, readWireString } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import { CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE } from "./attachment-ingest-acknowledgement.js";
 import {
@@ -21,8 +21,7 @@ import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
 
 /** Whether one recorded request actually carried bytes, rather than describing them. */
 function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {
-  const chunk = request["chunk"];
-  return typeof chunk === "string" && chunk.length > 0;
+  return readWireString(request["chunk"]) !== undefined;
 }
 
 beforeEach(() => {

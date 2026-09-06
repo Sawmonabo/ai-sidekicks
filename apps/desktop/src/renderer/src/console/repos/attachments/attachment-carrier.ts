@@ -40,7 +40,11 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../../core/index.js";
-import { earliestFutureDeadline, useSubjectScopedResource } from "../../store/index.js";
+import {
+  earliestFutureDeadline,
+  useSubjectScopedResource,
+  type SubjectScopedDisposal,
+} from "../../store/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
@@ -247,25 +251,25 @@ export interface AttachmentCarrierBinding {
   readonly abandon: (localId: string) => void;
 }
 
-/** Close one carrier. Declared once so the resource seam holds one identity for it. */
-function closeAttachmentCarrier(carrier: AttachmentCarrier): void {
-  carrier.dispose();
-}
-
 /**
- * Whether a carrier's disposal has already ended it. Declared beside its `close`.
+ * How one carrier ends, and how one this module already ended is recognised.
  *
- * THE SEAM'S FIFTH ARGUMENT AND NOT A PREDICATE IN AN EFFECT. `close` here is
- * terminal, and a terminal disposal is what `isClosed` exists to be told about:
- * without it the seam records the corpse as committed, the caller publishes a
- * replacement, and the value-change cleanup calls `dispose()` on the corpse a second
- * time. `AttachmentIngestClient.dispose` happens to be re-entrant, so nothing broke —
- * one non-idempotent teardown away from a real double-release, and one copy of a
- * predicate the substrate already holds.
+ * ONE MODULE-LEVEL OBJECT, because the resource seam holds `dispose` and `isClosed` on
+ * dependencies of their own: a literal minted in the render body would hand over a
+ * fresh identity on every pass and restart the lifetime beneath it. `dispose` here is
+ * TERMINAL, which is why the reading travels beside it in the same object rather than
+ * being re-derived in an effect: without it the seam records the corpse as
+ * committed, the caller publishes a replacement, and the value-change cleanup calls
+ * `dispose()` on the corpse a second time. `AttachmentIngestClient.dispose` happens to
+ * be re-entrant, so nothing broke — one non-idempotent teardown away from a real
+ * double-release.
  */
-function attachmentCarrierIsClosed(carrier: AttachmentCarrier): boolean {
-  return carrier.isDisposed;
-}
+const ATTACHMENT_CARRIER_DISPOSAL: SubjectScopedDisposal<AttachmentCarrier> = {
+  dispose: (carrier) => {
+    carrier.dispose();
+  },
+  isClosed: (carrier) => carrier.isDisposed,
+};
 
 /**
  * Bind one carrier to one component's lifetime.
@@ -302,8 +306,7 @@ export function useAttachmentCarrier(
     bridge,
     sessionId,
     () => new AttachmentCarrier({ bridge, sessionId, clock }),
-    closeAttachmentCarrier,
-    attachmentCarrierIsClosed,
+    ATTACHMENT_CARRIER_DISPOSAL,
   );
   useEffect(() => {
     carrier.start();
