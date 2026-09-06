@@ -49,6 +49,7 @@ import { readGuardedProperty } from "../../../../shared/wire-errors.js";
 
 import { parseInstant } from "./instant.js";
 import type { ConsoleRefusal } from "./refusal.js";
+import { readWireString } from "./wire-strings.js";
 
 /**
  * When the refusing side said the caller may try again.
@@ -154,13 +155,14 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
  *
  * Non-EMPTY rather than merely a string, because an empty identifier is not one — it
  * would travel to a ledger renderer as a row naming nobody, which is worse than the
- * member being absent and honest about it.
+ * member being absent and honest about it. That is `readWireString`'s rule and its
+ * whole subject, so the predicate is imported rather than restated: a second copy of
+ * "present means a non-empty string" is a rule two modules can come to disagree
+ * about, with the gate green on both sides of the disagreement.
  */
 function identifierMemberReader(memberName: string): (candidate: unknown) => string | undefined {
-  return (candidate: unknown): string | undefined => {
-    const value = readGuardedProperty(candidate, memberName);
-    return typeof value === "string" && value.length > 0 ? value : undefined;
-  };
+  return (candidate: unknown): string | undefined =>
+    readWireString(readGuardedProperty(candidate, memberName));
 }
 
 /**
