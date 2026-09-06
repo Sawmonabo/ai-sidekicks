@@ -73,8 +73,71 @@ function literalStringOf(initializer: ts.Expression): string | undefined {
   return undefined;
 }
 
+/**
+ * Every `const NAME = { … }` object literal in one module, keyed by its name.
+ *
+ * Collected because a contract may be COMPOSED — a shared constant holding the two
+ * members every seat in a family answers the same way, spread into each declaration
+ * beside the one member that differs. Without this the spread members are invisible:
+ * the completeness case reads them as absent and the governance-id case, which is the
+ * one that matters, sweeps a literal that carries none of the strings it is about. A
+ * composed contract was exactly how a plan id first reached a runtime string here.
+ *
+ * ONE LEVEL AND ONE MODULE. A spread of anything else — an import, a call, a nested
+ * spread — is left unresolved rather than guessed at, so the completeness case fails
+ * on it and this gate never reports clean over a literal it could not read.
+ */
+function objectLiteralsIn(parsed: ts.SourceFile): ReadonlyMap<string, ts.ObjectLiteralExpression> {
+  const literals = new Map<string, ts.ObjectLiteralExpression>();
+  forEachDescendant(parsed, (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.initializer !== undefined &&
+      ts.isObjectLiteralExpression(node.initializer) &&
+      ts.isIdentifier(node.name)
+    ) {
+      literals.set(node.name.text, node.initializer);
+    }
+  });
+  return literals;
+}
+
+/**
+ * The string members one literal declares, with a same-module spread folded in first.
+ *
+ * Spread first and assignments after, which is the order the language itself applies,
+ * so a declaration that overrides a shared member is read the way it runs.
+ */
+function stringMembersOf(
+  literal: ts.ObjectLiteralExpression,
+  parsed: ts.SourceFile,
+  literalsByName: ReadonlyMap<string, ts.ObjectLiteralExpression>,
+): ReadonlyMap<string, string> {
+  const members = new Map<string, string>();
+  for (const property of literal.properties) {
+    if (ts.isSpreadAssignment(property) && ts.isIdentifier(property.expression)) {
+      const spread = literalsByName.get(property.expression.text);
+      if (spread !== undefined) {
+        for (const [member, value] of stringMembersOf(spread, parsed, literalsByName)) {
+          members.set(member, value);
+        }
+      }
+      continue;
+    }
+    if (!ts.isPropertyAssignment(property)) {
+      continue;
+    }
+    const value = literalStringOf(property.initializer);
+    if (value !== undefined) {
+      members.set(property.name.getText(parsed), value);
+    }
+  }
+  return members;
+}
+
 function declaredContractsIn(module: string, sourceText: string): readonly DeclaredContract[] {
   const parsed = parseSourceText(module, sourceText);
+  const literalsByName = objectLiteralsIn(parsed);
   const found: DeclaredContract[] = [];
   forEachDescendant(parsed, (node) => {
     if (!ts.isVariableDeclaration(node) || node.initializer === undefined) {
@@ -91,17 +154,11 @@ function declaredContractsIn(module: string, sourceText: string): readonly Decla
     if (!ts.isObjectLiteralExpression(node.initializer)) {
       return;
     }
-    const members = new Map<string, string>();
-    for (const property of node.initializer.properties) {
-      if (!ts.isPropertyAssignment(property)) {
-        continue;
-      }
-      const value = literalStringOf(property.initializer);
-      if (value !== undefined) {
-        members.set(property.name.getText(parsed), value);
-      }
-    }
-    found.push({ module, name: node.name.getText(parsed), members });
+    found.push({
+      module,
+      name: node.name.getText(parsed),
+      members: stringMembersOf(node.initializer, parsed, literalsByName),
+    });
   });
   return found;
 }
@@ -129,6 +186,33 @@ describe("owner-slot contracts — developer prose, and no governance id in any 
         .map(([member]) => `${contract.module}: ${contract.name}.${member}`),
     );
     expect(offenders).toStrictEqual([]);
+  });
+
+  it("planted control: a composed contract's spread members are swept, not skipped", () => {
+    // The half the tree cannot prove on its own once every declaration is clean. A
+    // literal built from a shared constant reads as three absent members to a walker
+    // that stops at property assignments — so both cases above would pass over it, and
+    // the id in the shared half would never be reported. Driven through the real
+    // resolver with a composed source whose verdict is known.
+    const composed = [
+      "const SHARED: Pick<OwnerSlotContract, 'owningTask' | 'deleteShellIn'> = {",
+      "  owningTask: 'Plan-017 — the workflow engine bodies',",
+      "  deleteShellIn: 'the task that mounts the body',",
+      "};",
+      "export const COMPOSED_SLOT: OwnerSlotContract = {",
+      "  ...SHARED,",
+      "  mountObligation: 'the pane supplies the context and reads back nothing',",
+      "};",
+    ].join("\n");
+
+    const resolved = declaredContractsIn("composed.ts", composed);
+
+    expect(resolved).toHaveLength(1);
+    const members = resolved[0]?.members;
+    for (const member of CONTRACT_MEMBERS) {
+      expect(members?.get(member) ?? "", `${member} was not resolved`).not.toBe("");
+    }
+    expect(GOVERNANCE_ID.test(members?.get("owningTask") ?? "")).toBe(true);
   });
 
   it("negative control: the needle matches the shape it is looking for", () => {
