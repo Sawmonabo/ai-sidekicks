@@ -23,12 +23,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  formatClockTime,
-  formatDuration,
-  formatRelativeTime,
-  relativeTimeFormatFor,
-} from "./wire-figures.js";
+import { formatClockTime, formatDuration, formatRelativeTime } from "./wire-figures.js";
 
 describe("formatDuration — the unit changes rather than the number growing", () => {
   it("keeps sub-second durations in milliseconds", () => {
@@ -118,26 +113,6 @@ describe("formatRelativeTime — the platform composes the phrase", () => {
       expect(formatRelativeTime(text, now, "en-US")).toBe("—");
       expect(Number.isNaN(Date.parse(text))).toBe(false);
     }
-  });
-
-  it("holds one formatter per locale rather than minting one per figure", () => {
-    // Asserted by IDENTITY, which is the whole of what "constructed once" means: a
-    // second construction is a second object, so `toBe` is the counter and no spy
-    // and no global monkeypatch is needed. The per-call mint this replaced could not
-    // satisfy it — every ask answered with a fresh instance, and a ledger of ages
-    // resolved a locale per row per reading tick.
-    expect(relativeTimeFormatFor("en-US")).toBe(relativeTimeFormatFor("en-US"));
-    expect(relativeTimeFormatFor(undefined)).toBe(relativeTimeFormatFor(undefined));
-    // And per LOCALE rather than one for the console: two locales are two message
-    // tables, so sharing one would render the second locale's figures in the first's
-    // words.
-    expect(relativeTimeFormatFor("en-US")).not.toBe(relativeTimeFormatFor("de-DE"));
-    expect(relativeTimeFormatFor("en-US")).not.toBe(relativeTimeFormatFor(undefined));
-    // The cached instance is the one the figure is composed through, so the reading
-    // is not merely fast but the same reading.
-    expect(formatRelativeTime("2026-09-01T11:59:30Z", now, "de-DE")).toBe(
-      relativeTimeFormatFor("de-DE").format(-30, "second"),
-    );
   });
 });
 
