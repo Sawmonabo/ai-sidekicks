@@ -187,11 +187,14 @@ export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch
 export { useCallerMembershipRole } from "./hooks.js";
 export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
 
-// The resume reading, forwarded with the decision type a caller has to name to render
-// it. Its consumer is the ledger surface that mounts a session's workspace: the
-// refused arm is what a console talking to a responder with no cursor floor is
-// PERMANENTLY in, and a refusal nothing renders is a version skew a person meets as an
-// ordinary-looking session that quietly never resumes. Through this door rather than a
-// deep import, on the family's one-subscription-path rule.
+// The resume reading. Its consumer is the ledger surface that mounts a session's
+// workspace: the refused arm is what a console talking to a responder with no cursor
+// floor is PERMANENTLY in, and a refusal nothing renders is a version skew a person
+// meets as an ordinary-looking session that quietly never resumes. Through this door
+// rather than a deep import, on the family's one-subscription-path rule.
+//
+// The DECISION TYPE is deliberately not published beside it: the hook's return type
+// is inferred at every call site, so a door line for the name would be a line with no
+// reader — which is the dead export the census fails, and the type is reached deep
+// inside this family by the registry that forwards it.
 export { useTimelineResume } from "./hooks.js";
-export type { TimelineResumeDecision } from "./timeline-resume.js";
