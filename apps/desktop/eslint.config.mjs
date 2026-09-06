@@ -259,8 +259,8 @@ export default [
   //
   // WHAT IT ADDS. `zod`, AND THE SCHEMAS `@ai-sidekicks/contracts` ALREADY SHIPS.
   // Every daemon reply the console reads is parsed at one door —
-  // `console/bridge/daemon-reply.ts`, against the schemas
-  // `console/bridge/daemon-reply-registry.ts` binds to each method — and a surface
+  // `console/bridge/daemon/daemon-reply.ts`, against the schemas
+  // `console/bridge/daemon/daemon-reply-registry.ts` binds to each method — and a surface
   // that could reach the validator directly could parse a second time, differently,
   // or skip the parse and keep the fulfilled `unknown`. That is not hypothetical:
   // the per-family parsers this chokepoint replaces were three different readings
