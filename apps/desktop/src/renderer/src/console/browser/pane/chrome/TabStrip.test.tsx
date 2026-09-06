@@ -9,9 +9,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import { refuse } from "../../core/index.js";
-import type { PageListReading } from "./page-state.js";
-import { browserPage as page, threeBrowserPages } from "./page-state.test-support.js";
+import { refuse } from "../../../core/index.js";
+import type { PageListReading } from "../page-state.js";
+import { browserPage as page, threeBrowserPages } from "../page-state.test-support.js";
 import { TabStrip, type TabStripProps } from "./TabStrip.js";
 import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "./tab-reorder.js";
 
@@ -132,7 +132,10 @@ describe("the tab strip's readings", () => {
     });
     expect(screen.getByText("Loading")).toBeTruthy();
     expect(screen.getByText("background")).toBeTruthy();
-    expect(tabFace(0).getAttribute("aria-current")).toBe("true");
+    // `"page"` and not `"true"`: the strip is a set of pages and `aria-current` has a
+    // token for exactly that, which tells a screen reader WHICH kind of current this
+    // is rather than only that something is.
+    expect(tabFace(0).getAttribute("aria-current")).toBe("page");
   });
 
   it("marks the selected tab with a class the stylesheet can key on", () => {

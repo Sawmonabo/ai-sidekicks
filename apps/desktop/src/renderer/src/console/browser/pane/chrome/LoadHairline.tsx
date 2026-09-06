@@ -16,7 +16,7 @@
 // disappear, and a track sitting under the address field on every idle page is a
 // permanent hairline the design does not have.
 
-import { LOAD_PROGRESS_MAX, LOAD_PROGRESS_MIN } from "../../core/index.js";
+import { LOAD_PROGRESS_MAX, LOAD_PROGRESS_MIN } from "../../../core/index.js";
 
 export interface LoadHairlineProps {
   readonly isLoading: boolean;

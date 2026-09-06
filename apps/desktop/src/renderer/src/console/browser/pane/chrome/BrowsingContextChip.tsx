@@ -8,7 +8,7 @@
 // context name is a thing an agent sets through a tool, and a chip that invented one
 // would tell a person the agent had named its context when it had not.
 
-import type { PageListReading } from "./page-state.js";
+import type { PageListReading } from "../page-state.js";
 
 export function BrowsingContextChip(props: {
   readonly reading: PageListReading;

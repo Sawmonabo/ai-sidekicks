@@ -57,31 +57,32 @@ import {
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
 } from "./address-field-model.js";
-import { describeChordEvent, isCloseTabChord } from "./chord-claim.js";
-import { useBrowserChromeActs } from "./chrome-acts.js";
-import { useAdmittedRoots } from "./file-boundary.js";
-import { useKeyboardHandbackBinding } from "./handback-binding.js";
-import { LoadHairline } from "./LoadHairline.js";
+import { describeChordEvent, isCloseTabChord } from "./handback/chord-claim.js";
+import { useBrowserChromeActs } from "./chrome/chrome-acts.js";
+import { useAdmittedRoots } from "./file/file-boundary.js";
+import { useKeyboardHandbackBinding } from "./handback/handback-binding.js";
+import { LoadHairline } from "./chrome/LoadHairline.js";
 import {
   isFilesystemDestination,
   useReportedNavigation,
   type NavigationReading,
 } from "./navigation-state.js";
 import { pagesOf, useReportedPages } from "./page-state.js";
-import { PaneOverflow } from "./PaneOverflow.js";
-import { TabStrip } from "./TabStrip.js";
+import { PaneOverflow } from "./chrome/PaneOverflow.js";
+import { TabStrip } from "./chrome/TabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";
 import { useGeometryPublisher } from "./geometry-binding.js";
 import { usePaneAddressField } from "./pane-address-field.js";
-import { ChromeControl } from "./ChromeControl.js";
+import { ChromeControl } from "./chrome/ChromeControl.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
+import type { BrowserPaneRejectionFallback } from "./pane-refusals.js";
 
 /** The same, for the one control that leaves this window entirely. */
-const OPEN_EXTERNAL_FALLBACK = {
+const OPEN_EXTERNAL_FALLBACK: BrowserPaneRejectionFallback = {
   code: "open-external-failed",
   detail: "The system browser could not be reached from this window.",
-} as const;
+};
 
 export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Element {
   const { bridge, paneId, focusHue, sessionStore } = context;

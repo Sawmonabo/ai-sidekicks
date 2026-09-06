@@ -20,7 +20,7 @@
 //      host this task deliberately did not mint.
 //
 // COMMENTS ARE NOT CODE, and the distinction is load-bearing rather than a
-// convenience. `browser/geometry/geometry-publisher.ts` and `browser/pane/keyboard-handback.ts` are
+// convenience. `browser/geometry/geometry-publisher.ts` and `browser/pane/handback/keyboard-handback.ts` are
 // REQUIRED to name `browser.setRect` and `browser.onAccelerator` in prose — naming the
 // wire you do not have is how the next task finds what it owes — and `pane-kinds.ts`
 // names `WebContentsView` when it says why a browser pane cannot be torn off into an

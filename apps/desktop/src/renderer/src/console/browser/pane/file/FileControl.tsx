@@ -23,10 +23,10 @@
 
 import { useId, useState } from "react";
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleRefusal } from "../../../core/index.js";
 import { AdmittedRoots } from "./AdmittedRoots.js";
-import { ChromeControl } from "./ChromeControl.js";
-import type { BrowserChromeActs } from "./chrome-acts.js";
+import { ChromeControl } from "../chrome/ChromeControl.js";
+import type { BrowserChromeActs } from "../chrome/chrome-acts.js";
 import { isOutsideTrustEnvelope, type AdmittedRootsReading } from "./file-boundary.js";
 
 export interface FileControlProps {

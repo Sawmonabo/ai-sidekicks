@@ -36,7 +36,7 @@ vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS });
 const TRANSLATION_FUNCTION = "pageMoveIndex";
 
 /** Where it is declared. Its own module is not a caller of it. */
-const TRANSLATION_MODULE = "browser/pane/tab-reorder.ts";
+const TRANSLATION_MODULE = "browser/pane/chrome/tab-reorder.ts";
 
 /** Whether a module CALLS the named function, as a tree shape rather than a substring. */
 function callsFunctionNamed(fileName: string, source: string, functionName: string): boolean {
@@ -96,12 +96,15 @@ describe("tab reorder — the slot translation is stated once", () => {
   });
 
   it("has exactly one caller, and it is the strip", () => {
+    // No `.test.ts` filter: `consoleSourceModules` defaults `tests: false`, so a
+    // filter for them here would be a condition nothing can meet — and one a reader
+    // would take as evidence that co-located tests are being scanned and excused.
     const callers = modules
-      .filter((module) => module !== TRANSLATION_MODULE && !module.endsWith(".test.ts"))
+      .filter((module) => module !== TRANSLATION_MODULE)
       .filter((module) =>
         callsFunctionNamed(module, readConsoleSource(module), TRANSLATION_FUNCTION),
       );
-    expect(callers).toStrictEqual(["browser/pane/TabStrip.tsx"]);
+    expect(callers).toStrictEqual(["browser/pane/chrome/TabStrip.tsx"]);
   });
 
   it("no module rediscovers the subtraction by hand", () => {

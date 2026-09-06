@@ -10,7 +10,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import { recordingChromeActs, type RecordedChromeAct } from "./chrome-acts.test-support.js";
-import type { HandbackBinding } from "./handback-binding.js";
+import type { HandbackBinding } from "../handback/handback-binding.js";
 import { PaneOverflow, type PaneOverflowProps } from "./PaneOverflow.js";
 
 /** A mirror that published, which is the state every case but the handback's assumes. */

@@ -14,7 +14,7 @@
 // come back — the second figure is what turns "we published something" into evidence
 // that the wire between the page and this window is carrying keystrokes.
 
-import { DerivedFigure, formatCount, InlineRefusal, Nothing } from "../../primitives/index.js";
+import { DerivedFigure, formatCount, InlineRefusal, Nothing } from "../../../primitives/index.js";
 import type { HandbackBinding } from "./handback-binding.js";
 
 export interface HandbackReadingProps {

@@ -22,10 +22,10 @@
 
 import { useState } from "react";
 
-import { Glyph, InlineRefusal, Nothing } from "../../primitives/index.js";
+import { Glyph, InlineRefusal, Nothing } from "../../../primitives/index.js";
 import { BrowsingContextChip } from "./BrowsingContextChip.js";
 import { ChromeControl } from "./ChromeControl.js";
-import { pagesOf, type BrowserPage, type PageListReading } from "./page-state.js";
+import { pagesOf, type BrowserPage, type PageListReading } from "../page-state.js";
 import {
   isTabDrag,
   pageMoveIndex,
@@ -156,7 +156,7 @@ export function TabStrip(props: TabStripProps): React.JSX.Element {
               <button
                 type="button"
                 className="meridian-browser-tab__face"
-                aria-current={page.isSelected ? "true" : undefined}
+                aria-current={page.isSelected ? "page" : undefined}
                 onClick={() => {
                   onSelect(page.pageId);
                 }}

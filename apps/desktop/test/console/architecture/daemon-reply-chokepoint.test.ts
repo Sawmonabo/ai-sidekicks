@@ -144,7 +144,7 @@ function isBridgeFamilyModule(module: string): boolean {
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
- *  12. `console/browser/pane/file-boundary.ts` — the browser pane's admitted-root
+ *  12. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
  *      read. The pane's file control has to say which roots a local file may come
  *      from before a person picks one, and the trust envelope is the daemon's: a
  *      renderer that answered from anything else would be deriving the eligibility

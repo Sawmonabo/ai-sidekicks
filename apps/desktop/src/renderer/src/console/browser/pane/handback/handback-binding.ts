@@ -25,26 +25,27 @@
 
 import { useEffect, useMemo } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
-import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js";
-import { consoleKeybindingOverrides, useKeybindingSurface } from "../../palette/index.js";
-import { HOST_CHORD_PLATFORM } from "../../primitives/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
+import type { ConsoleBridge } from "../../../bridge/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../../../core/index.js";
+import { consoleKeybindingOverrides, useKeybindingSurface } from "../../../palette/index.js";
+import { HOST_CHORD_PLATFORM } from "../../../primitives/index.js";
+import { useSubjectScopedState } from "../../../store/index.js";
 import type { ChordDescriptor } from "./chord-claim.js";
 import { KeyboardHandback, type ChordReplayOutcome } from "./keyboard-handback.js";
+import type { BrowserPaneRejectionFallback } from "../pane-refusals.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
 const HANDBACK_BINDING_REFUSAL_ORIGIN = "browser-keyboard-handback";
 
 /** What a broken handback subscription refuses under, where it carries no code. */
-const HANDBACK_SUBSCRIPTION_FALLBACK = {
+const HANDBACK_SUBSCRIPTION_FALLBACK: BrowserPaneRejectionFallback = {
   code: "handback-subscription-failed",
   detail:
     "Keystrokes claimed from the page are no longer reaching this window, so an application chord pressed inside the page does nothing. Closing the pane and opening it again starts a new subscription.",
 };
 
 /** What a mirror publish that never answered says, where it carries no code. */
-const MIRROR_PUBLISH_FALLBACK = {
+const MIRROR_PUBLISH_FALLBACK: BrowserPaneRejectionFallback = {
   code: "chord-mirror-publish-failed",
   detail:
     "The console's chords could not be published to the page host, so no application chord is claimed from the page. Every keystroke reaches the page instead, which is the safe direction.",
@@ -111,6 +112,12 @@ export function useKeyboardHandbackBinding(
       // projection takes the same path, because a mirror holding no chord claims none.
       return;
     }
+    // The count belongs to the mirror that is being replaced, and it is reset WITH it.
+    // `handback` is re-minted whenever the chord table changes, and the new object
+    // starts its own tally at zero — so a count left standing here would show the old
+    // window's total against a new mirror until the next claimed chord overwrote it,
+    // which is a number about a mirror that is gone.
+    publishReplayCount(0);
     let cancelled = false;
     void bridge.growth.browserPublishChordMirror({ paneId, chords: mirrorKey.split(" ") }).then(
       (outcome) => {
@@ -133,7 +140,7 @@ export function useKeyboardHandbackBinding(
     return () => {
       cancelled = true;
     };
-  }, [bridge, mirrorKey, paneId, publishRefusal]);
+  }, [bridge, mirrorKey, paneId, publishRefusal, publishReplayCount]);
 
   useEffect(() => {
     let stream: AcceleratorStream | undefined;

@@ -9,8 +9,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../../core/index.js";
-import { recordingChromeActs } from "./chrome-acts.test-support.js";
+import { refuse } from "../../../core/index.js";
+import { recordingChromeActs } from "../chrome/chrome-acts.test-support.js";
 import { OUTSIDE_TRUST_ENVELOPE_CODE, type AdmittedRootsReading } from "./file-boundary.js";
 import { FileControl } from "./FileControl.js";
 

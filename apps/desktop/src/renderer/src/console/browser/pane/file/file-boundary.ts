@@ -30,12 +30,9 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { useEffect } from "react";
 
-import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
-import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
-
-/** The subsystem name every refusal this module raises itself carries. */
-const FILE_BOUNDARY_REFUSAL_ORIGIN = "browser-file-boundary";
+import { callDaemon, type ConsoleBridge } from "../../../bridge/index.js";
+import type { ConsoleRefusal } from "../../../core/index.js";
+import { useSubjectScopedState } from "../../../store/index.js";
 
 /**
  * The registered code a destination outside the envelope is refused under.
@@ -45,13 +42,6 @@ const FILE_BOUNDARY_REFUSAL_ORIGIN = "browser-file-boundary";
  * second place for one registered string to be edited.
  */
 export const OUTSIDE_TRUST_ENVELOPE_CODE = "repo.outside_trust_envelope";
-
-/** What a workspace-root read that never answered says, where it carries no code. */
-const ROOT_READ_FAILURE_FALLBACK = {
-  code: "admitted-roots-unread",
-  detail:
-    "The workspaces attached to this session could not be read, so this control cannot say where local files may come from.",
-};
 
 /**
  * Whether a refusal IS the boundary refusal, wherever the code arrived on it.
@@ -125,39 +115,34 @@ export function useAdmittedRoots(
     }
     let cancelled = false;
     void (async () => {
-      try {
-        // The console never MINTS a session id; it forwards the one it was given,
-        // and the brand is a compile-time marker over the same opaque string.
-        const reply = await callDaemon(bridge, "repo.workspaceList", {
-          sessionId: sessionId as SessionId,
-        });
-        if (cancelled) {
-          return;
-        }
-        if (reply.status === "refused") {
-          publish({ kind: "refused", refusal: reply.refusal });
-          return;
-        }
-        const roots = reply.value.workspaces
-          .map((workspace) => workspace.fsRoot)
-          .filter((root): root is string => root !== undefined && root.length > 0);
-        publish({
-          kind: "served",
-          roots,
-          unreportedWorkspaceCount: reply.value.workspaces.length - roots.length,
-        });
-      } catch (failure) {
-        if (!cancelled) {
-          publish({
-            kind: "refused",
-            refusal: normalizeWireRejection(
-              FILE_BOUNDARY_REFUSAL_ORIGIN,
-              failure,
-              ROOT_READ_FAILURE_FALLBACK,
-            ),
-          });
-        }
+      // NO `catch` HERE, AND THAT IS THE POINT. `callDaemon` is total by construction
+      // and by its own documented claim — every throw site inside it sits in its own
+      // `try` — so a `catch` around this call could only ever run if that seam broke
+      // its contract, and the refusal code it would have to mint for that case is a
+      // code no test could reach and no person could ever see. `reply.status ===
+      // "refused"` is the one refusal path, which is what the eleven other console
+      // callers of this seam already assume by carrying no `catch` at all.
+      //
+      // The console never MINTS a session id; it forwards the one it was given, and
+      // the brand is a compile-time marker over the same opaque string.
+      const reply = await callDaemon(bridge, "repo.workspaceList", {
+        sessionId: sessionId as SessionId,
+      });
+      if (cancelled) {
+        return;
       }
+      if (reply.status === "refused") {
+        publish({ kind: "refused", refusal: reply.refusal });
+        return;
+      }
+      const roots = reply.value.workspaces
+        .map((workspace) => workspace.fsRoot)
+        .filter((root): root is string => root !== undefined && root.length > 0);
+      publish({
+        kind: "served",
+        roots,
+        unreportedWorkspaceCount: reply.value.workspaces.length - roots.length,
+      });
     })();
     return () => {
       cancelled = true;

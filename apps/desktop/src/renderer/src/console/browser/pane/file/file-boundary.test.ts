@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../../core/index.js";
+import { refuse } from "../../../core/index.js";
 import { OUTSIDE_TRUST_ENVELOPE_CODE, isOutsideTrustEnvelope } from "./file-boundary.js";
 
 describe("the file-boundary refusal", () => {

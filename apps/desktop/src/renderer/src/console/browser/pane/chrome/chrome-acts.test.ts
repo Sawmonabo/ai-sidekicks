@@ -15,10 +15,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
-import { admitAnotherPage } from "../bounds/bound-enforcement.js";
-import { useBrowserPaneActs } from "./act-sequence.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
+import { BROWSER_SCENARIO } from "../../../bridge/scenarios/browser.js";
+import { admitAnotherPage } from "../../bounds/bound-enforcement.js";
+import { useBrowserPaneActs } from "../act-sequence.js";
 import { useBrowserChromeActs, type BrowserChromeActs } from "./chrome-acts.js";
 
 const PANE_ID = "pane-browser-1";

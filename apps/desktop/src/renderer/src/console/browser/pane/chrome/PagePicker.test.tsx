@@ -9,9 +9,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../../core/index.js";
+import { refuse } from "../../../core/index.js";
 import { recordingChromeActs, type RecordedChromeAct } from "./chrome-acts.test-support.js";
-import type { BrowserPage, PageListReading } from "./page-state.js";
+import type { BrowserPage, PageListReading } from "../page-state.js";
 import { PagePicker } from "./PagePicker.js";
 
 function page(overrides: Partial<BrowserPage> & { readonly pageId: string }): BrowserPage {

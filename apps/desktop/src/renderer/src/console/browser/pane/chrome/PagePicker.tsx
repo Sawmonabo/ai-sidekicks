@@ -24,11 +24,11 @@
 // destination the wire reported, read through this family's single
 // filesystem-destination predicate rather than a second `startsWith("file:")`.
 
-import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { InlineRefusal, Nothing } from "../../../primitives/index.js";
 import { ChromeControl } from "./ChromeControl.js";
 import type { BrowserChromeActs } from "./chrome-acts.js";
-import { isFilesystemDestination } from "./navigation-state.js";
-import { pagesOf, type PageListReading } from "./page-state.js";
+import { isFilesystemDestination } from "../navigation-state.js";
+import { pagesOf, type PageListReading } from "../page-state.js";
 
 export interface PagePickerProps {
   readonly reading: PageListReading;

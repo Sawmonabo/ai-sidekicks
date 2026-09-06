@@ -49,10 +49,10 @@
 
 import { useMemo } from "react";
 
-import type { ConsoleBridge, GrowthOutcome } from "../../bridge/index.js";
-import type { RejectionFallback } from "../../core/index.js";
-import { admitAnotherPage } from "../bounds/bound-enforcement.js";
-import type { BrowserPaneActs } from "./act-sequence.js";
+import type { ConsoleBridge, GrowthOutcome } from "../../../bridge/index.js";
+import { admitAnotherPage } from "../../bounds/bound-enforcement.js";
+import type { BrowserPaneActs } from "../act-sequence.js";
+import type { BrowserPaneRejectionFallback } from "../pane-refusals.js";
 
 /**
  * What a navigation act that never answered says, where the rejection carries no code.
@@ -65,18 +65,18 @@ import type { BrowserPaneActs } from "./act-sequence.js";
  * of reach. So the acts that move the view take this one and the rest take the second,
  * and neither says anything about the other's subject.
  */
-const NAVIGATION_CALL_FALLBACK = {
+const NAVIGATION_CALL_FALLBACK: BrowserPaneRejectionFallback = {
   code: "navigation-call-failed",
   detail:
     "The page could not be reached from this window, because the call into the browser never answered.",
-} as const;
+};
 
 /** The same, for the acts that operate on the pane's pages rather than on a location. */
-const CHROME_CALL_FALLBACK = {
+const CHROME_CALL_FALLBACK: BrowserPaneRejectionFallback = {
   code: "chrome-call-failed",
   detail:
     "This pane's controls could not be applied, because the call into the browser never answered.",
-} as const;
+};
 
 /** Every act the pane's chrome dispatches, the address row's five included. */
 export interface BrowserChromeActs {
@@ -117,7 +117,7 @@ export function useBrowserChromeActs(options: BrowserChromeActsOptions): Browser
   return useMemo((): BrowserChromeActs => {
     const dispatch = (
       act: () => Promise<GrowthOutcome<unknown>>,
-      fallback: RejectionFallback = CHROME_CALL_FALLBACK,
+      fallback: BrowserPaneRejectionFallback = CHROME_CALL_FALLBACK,
     ): void => {
       run(async () => {
         const outcome = await act();

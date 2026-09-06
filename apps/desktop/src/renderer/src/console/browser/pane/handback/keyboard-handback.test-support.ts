@@ -5,7 +5,7 @@
 // written twice would drift on the field a case forgot to set, and that field is
 // exactly where a claim rule goes one modifier too wide.
 
-import type { ChordPlatform } from "../../primitives/index.js";
+import type { ChordPlatform } from "../../../primitives/index.js";
 import { type ChordDescriptor } from "./chord-claim.js";
 import { KeyboardHandback } from "./keyboard-handback.js";
 

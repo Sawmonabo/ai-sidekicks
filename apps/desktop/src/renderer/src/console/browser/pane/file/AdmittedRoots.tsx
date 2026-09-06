@@ -10,7 +10,7 @@
 // roots are what the daemon reported and the copy says plainly that a path inside one
 // can still be refused. Nothing here compares a draft against them.
 
-import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
+import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
 import type { AdmittedRootsReading } from "./file-boundary.js";
 
 /**

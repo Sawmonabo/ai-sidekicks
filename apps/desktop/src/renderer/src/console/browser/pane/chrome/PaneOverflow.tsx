@@ -21,21 +21,21 @@
 // lets the whole overflow be driven from a test with four literals, and it is why
 // `chrome-acts.ts` exists — the acts are one object rather than nine callbacks.
 
-import type { ConsoleRefusal } from "../../core/index.js";
-import type { SessionStore } from "../../store/index.js";
-import { Nothing } from "../../primitives/index.js";
-import type { ProducedObjectCard } from "../cards/produced-objects.js";
-import { SessionProducedObjects } from "../cards/SessionProducedObjects.js";
-import { ToolCallFeed } from "../cards/ToolCallFeed.js";
-import type { ToolCallReading } from "../cards/tool-call-relay.js";
+import type { ConsoleRefusal } from "../../../core/index.js";
+import type { SessionStore } from "../../../store/index.js";
+import { Nothing } from "../../../primitives/index.js";
+import type { ProducedObjectCard } from "../../cards/produced-objects.js";
+import { SessionProducedObjects } from "../../cards/SessionProducedObjects.js";
+import { ToolCallFeed } from "../../cards/ToolCallFeed.js";
+import type { ToolCallReading } from "../../cards/tool-call-relay.js";
 import { ChromeControl } from "./ChromeControl.js";
 import type { BrowserChromeActs } from "./chrome-acts.js";
-import type { AdmittedRootsReading } from "./file-boundary.js";
-import { FileControl } from "./FileControl.js";
-import type { HandbackBinding } from "./handback-binding.js";
-import { HandbackReading } from "./HandbackReading.js";
+import type { AdmittedRootsReading } from "../file/file-boundary.js";
+import { FileControl } from "../file/FileControl.js";
+import type { HandbackBinding } from "../handback/handback-binding.js";
+import { HandbackReading } from "../handback/HandbackReading.js";
 import { PagePicker } from "./PagePicker.js";
-import type { PageListReading } from "./page-state.js";
+import type { PageListReading } from "../page-state.js";
 
 export interface PaneOverflowProps {
   readonly acts: BrowserChromeActs;

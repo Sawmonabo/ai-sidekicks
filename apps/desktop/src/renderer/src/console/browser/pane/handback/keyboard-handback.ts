@@ -75,13 +75,13 @@
 // its wire, for `chord-claim.ts`' reason: the claim is the difference between a symbol
 // waiting for a named consumer and one nothing will ever import.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { chordMatchesEvent, parseChord } from "../../palette/index.js";
+import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { chordMatchesEvent, parseChord } from "../../../palette/index.js";
 import {
   PLATFORM_MODIFIER_CHORD_TOKEN,
   PLATFORM_MODIFIER_TOKEN,
   type ChordPlatform,
-} from "../../primitives/index.js";
+} from "../../../primitives/index.js";
 import {
   carriesApplicationModifier,
   projectClaimableChords,
