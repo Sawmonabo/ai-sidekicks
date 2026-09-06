@@ -159,14 +159,8 @@ describe("the deck's panes", () => {
 
   it("focuses the pane that already shows an entity instead of opening a second", () => {
     const layout = emptyLayout();
-    const first = layout.open({
-      kind: "inspector",
-      entity: { kind: "participant", id: "participant-01" },
-    });
-    const second = layout.open({
-      kind: "inspector",
-      entity: { kind: "participant", id: "participant-01" },
-    });
+    const first = layout.open({ kind: "inspector", entity: { kind: "participant", id: "you" } });
+    const second = layout.open({ kind: "inspector", entity: { kind: "participant", id: "you" } });
     const deck = renderDeck(layout, registryWith({ kind: "inspector" }));
     expect(second).toBe(first);
     expect(deck.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
