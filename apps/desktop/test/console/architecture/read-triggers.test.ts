@@ -35,6 +35,13 @@
 // hand-rolled copies of the same effects. TypeScript's `implements` proves the shape
 // where a class writes the clause; this proves the clause is there to write.
 //
+// THE CONTRACT AND NOT THE WIRING, which is why the three repos readings satisfy this
+// gate without mounting a hook. A reading minted per subject inside a resource seam
+// cannot call one, so `store/refresh-triggers.ts` wires the same policy imperatively
+// — and it wires it by reading these same two members off the reading. Two wirings
+// are honest; two vocabularies would not be, and what this gate holds is the
+// vocabulary.
+//
 // THE CENSUS IS PINNED BY NAME. The walk can come back empty — a moved directory, a
 // changed extension — and a gate over an empty set passes. Naming every reading makes
 // a disappearance a failure and makes the next one arrive here first — which is what
@@ -57,8 +64,11 @@ const TRIGGER_CONTRACT_MEMBERS: readonly string[] = ["triggeringEventKinds", "re
 const EXPECTED_READINGS: readonly string[] = [
   "AgentRosterReading",
   "ApprovalsReader",
+  "ArtifactPaneReader",
   "BridgeCapabilityRead",
   "NodeProviderQuotaReading",
+  "ProposalGateReader",
+  "RepoMountsReader",
   "SessionQueueReading",
   "ShellPreferenceStore",
   "SidekickRegistryView",

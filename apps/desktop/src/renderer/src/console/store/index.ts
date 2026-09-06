@@ -115,10 +115,13 @@ export {
   type ReadTriggerTarget,
 } from "./read-triggers.js";
 
-// The three reasons a self-reading surface re-reads, beside the scheduler they are
-// requested against. Here rather than in a view family because the observations —
-// window focus, the store's repair edge, and a named frame — are the same three
-// whichever surface reads; only the kinds differ, and those are the one parameter.
+// The three reasons a self-reading surface re-reads, wired imperatively over the
+// `ReadTriggerTarget` above. Here rather than in a view family because the
+// observations — window focus, the store's repair edge, and a named frame — are the
+// same three whichever surface reads; only the kinds differ, and the reading declares
+// those. It ships beside the hook wiring and not instead of it: a reading minted per
+// subject inside a resource seam cannot call a hook, so the two wirings differ and the
+// two members they read do not.
 export { SessionRefreshTriggers } from "./refresh-triggers.js";
 
 // `useSessionPartition` joins the door with its cross-family consumers: the

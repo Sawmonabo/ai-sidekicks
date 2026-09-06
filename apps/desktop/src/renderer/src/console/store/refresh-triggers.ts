@@ -15,6 +15,17 @@
 // three artifact kinds, and a second copy would be the same listener wiring and the
 // same transition scan written twice, drifting apart at the first fix applied to one.
 //
+// IT WIRES A `ReadTriggerTarget` AND NOT A SCHEDULER, which is the one thing it takes
+// from `read-triggers.ts` beside it. That module wires the same policy through React
+// hooks for a reading a surface mounts; this one wires it imperatively for a reading
+// minted outside React, in a resource seam, and started and disposed by hand. Two
+// WIRINGS are honest — a class held per subject cannot call a hook — but two
+// VOCABULARIES are not, and a reading that declared its kinds to one and its request
+// path to the other would be two answers to "when does this go stale". So both read
+// the same two members off the reading itself: `triggeringEventKinds`, which is a
+// property of the QUESTION rather than of whoever mounts it, and `requestRead`, which
+// is the reading's own way into its own scheduler.
+//
 // EVERY REASON IS ONE `RefreshReason` ALREADY NAMES, and nothing here mints a member:
 // a window focus is `window-focus`, a named frame is `terminal-event`, and the repair
 // edge below is `reconnect`. Requesting is all this class does; the scheduler decides
@@ -34,25 +45,29 @@
 // behind every session open for no new information, so the scan runs only over
 // transitions of an already-initialised store.
 
-import type { SessionEventType } from "@ai-sidekicks/contracts";
-
-import type { RefreshScheduler } from "./scheduling.js";
+import type { ReadTriggerTarget } from "./read-triggers.js";
 import type { SessionStore } from "./session-store.js";
 
 export interface SessionRefreshTriggerOptions {
-  /** The scheduler to request against. Requested, never armed: this class owns no timer. */
-  readonly scheduler: RefreshScheduler;
+  /**
+   * The reading these observations refresh.
+   *
+   * Asked, never armed: this class owns no timer and no scheduler, and the reading's
+   * own `requestRead` is what decides whether a reason reaches a scheduler at all.
+   * The frames it re-reads on come off the same object as `triggeringEventKinds`,
+   * rather than being passed beside it, because which events change an answer is a
+   * property of the QUESTION — two surfaces asking the same one must not disagree
+   * about when it goes stale, and a kind list handed in at the call site is exactly
+   * how they come to.
+   *
+   * The `SessionEventType` census check that list used to carry at each call site is
+   * not lost by the move: it lives at the home of the kind set the reading declares
+   * from — `repos/repo-lifecycle-events.ts` for this family — which is one place
+   * instead of one per reader.
+   */
+  readonly target: ReadTriggerTarget;
   /** The session whose frames and whose repair edge are two of the three reasons. */
   readonly sessionStore: SessionStore;
-  /**
-   * The frames this reader re-reads on — "the terminal events the owning spec names".
-   *
-   * Required and typed `SessionEventType`, so a kind renamed on the wire fails to
-   * compile at the call site instead of silently matching nothing for the life of the
-   * release, and so a reader that watches for nothing has to say so by passing an
-   * empty list rather than by leaving a default in place it never considered.
-   */
-  readonly terminalEventKinds: readonly SessionEventType[];
 }
 
 /**
@@ -63,26 +78,15 @@ export interface SessionRefreshTriggerOptions {
  * exactly the environment where the budget is watched.
  */
 export class SessionRefreshTriggers {
-  readonly #scheduler: RefreshScheduler;
+  readonly #target: ReadTriggerTarget;
   readonly #sessionStore: SessionStore;
-  /**
-   * Widened to `string` for the membership test, and only there.
-   *
-   * A projected frame's `kind` is a plain string — the store admits what the wire
-   * sent — so a set typed to the census could not be asked about one. The census
-   * check happens at the CONSTRUCTOR boundary, where a caller naming a kind the
-   * contract does not carry fails to compile; widening here loses nothing that was
-   * ever checked and keeps the comparison honest about what it is comparing.
-   */
-  readonly #terminalEventKinds: ReadonlySet<string>;
   /** One detach per attached listener, run in `dispose` and then dropped. */
   readonly #detachers: (() => void)[] = [];
   #started = false;
 
   public constructor(options: SessionRefreshTriggerOptions) {
-    this.#scheduler = options.scheduler;
+    this.#target = options.target;
     this.#sessionStore = options.sessionStore;
-    this.#terminalEventKinds = new Set(options.terminalEventKinds);
   }
 
   public start(): void {
@@ -99,7 +103,7 @@ export class SessionRefreshTriggers {
       return;
     }
     const onWindowFocus = (): void => {
-      this.#scheduler.request("window-focus");
+      this.#target.requestRead("window-focus");
     };
     window.addEventListener("focus", onWindowFocus);
     this.#detachers.push(() => {
@@ -126,14 +130,20 @@ export class SessionRefreshTriggers {
     previous: ReturnType<SessionStore["snapshot"]>,
   ): void {
     if (previous.degradedCause !== undefined && state.degradedCause === undefined) {
-      this.#scheduler.request("reconnect");
+      this.#target.requestRead("reconnect");
     }
     if (!previous.initialised || state.cursor <= previous.cursor) {
       return;
     }
     const admitted = state.timeline.filter((event) => event.sequence > previous.cursor);
-    if (admitted.some((event) => this.#terminalEventKinds.has(event.kind))) {
-      this.#scheduler.request("terminal-event");
+    // The kinds are read off the target on every transition rather than copied at
+    // construction, so a reading whose declaration is a getter over something that
+    // moves is compared against what it declares NOW. A projected frame's `kind` is a
+    // plain string — the store admits what the wire sent — which is why the declared
+    // set is `ReadonlySet<string>` and the comparison is honest about what it compares.
+    const { triggeringEventKinds } = this.#target;
+    if (admitted.some((event) => triggeringEventKinds.has(event.kind))) {
+      this.#target.requestRead("terminal-event");
     }
   }
 }

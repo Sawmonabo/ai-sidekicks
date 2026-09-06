@@ -24,7 +24,7 @@
 // "Reads happen on subscribe, on window focus, on reconnect, and on the terminal events
 // the owning spec names", under "No interval polling" — so this class arms no timer of
 // its own and owns no listener of
-// its own either: it builds a `SessionRefreshTriggers` over its own scheduler exactly as
+// its own either: it hands itself to a `SessionRefreshTriggers` exactly as
 // `repo-mounts-reader.ts` beside it does, which is what makes all four reasons reach
 // a gate rather than only window focus. A daemon that reconnected, or a `workspace.stale`
 // frame arriving in an already-focused window, used to leave the branch context and
@@ -63,7 +63,13 @@
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { CallerParticipantRead } from "./caller-participant-read.js";
 import { Emitter, refuse, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
-import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
+import {
+  RefreshScheduler,
+  SessionRefreshTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
+  type SessionStore,
+} from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { ProposalGateActions } from "./proposal-gate-actions.js";
 import type { ProposalGateActionHost } from "./proposal-gate-action-host.js";
@@ -110,7 +116,18 @@ export interface ProposalGateReaderOptions {
   readonly clock: ConsoleClock;
 }
 
-export class ProposalGateReader {
+export class ProposalGateReader implements ReadTriggerTarget {
+  /**
+   * The frames whose arrival owes this gate a fresh read.
+   *
+   * The family's census and not a set of this file's own — `repo-lifecycle-events.ts`
+   * derives it from the contract's registry, and the mounts reader declares the same
+   * one, so neither can watch a different frame while reading rows about the same
+   * three entities.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
+    REPO_LIFECYCLE_EVENT_KINDS,
+  );
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
   /** The session the caller-identity read is asked under. The store's own, never minted. */
@@ -171,13 +188,11 @@ export class ProposalGateReader {
         });
       },
     });
-    // The three reasons to read again. They reach this reader only through the scheduler.
+    // The three reasons to read again. They reach this reader through `requestRead`
+    // and the scheduler behind it, and through nothing else.
     this.#triggers = new SessionRefreshTriggers({
-      scheduler: this.#scheduler,
+      target: this,
       sessionStore: options.sessionStore,
-      // The family's own answer to which frames matter, shared by both readers so
-      // neither can watch a different frame while reading the same rows.
-      terminalEventKinds: REPO_LIFECYCLE_EVENT_KINDS,
     });
     this.#callerParticipant = new CallerParticipantRead({
       bridge: options.bridge,
@@ -252,8 +267,23 @@ export class ProposalGateReader {
       this.#publishUnaddressable(this.#readPlan.reason);
       return;
     }
-    this.#scheduler.request("subscribe");
+    this.requestRead("subscribe");
     this.#triggers.start();
+  }
+
+  /**
+   * Ask for a read. Coalescing, debouncing, and the call itself stay the scheduler's.
+   *
+   * Refused outright on an UNADDRESSABLE root, which is the arm `start` publishes
+   * without arming anything: there is no arm of the registered request such a root can
+   * fill, so every reason would produce the same answer and cost a read burst to do
+   * it. The guard sits here rather than at each caller because this is the one way in.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (this.#disposed || this.#readPlan.kind === "unaddressable") {
+      return;
+    }
+    this.#scheduler.request(reason);
   }
 
   /**
@@ -305,7 +335,7 @@ export class ProposalGateReader {
         this.#discardProposal();
       },
       requestRefreshAfterAct: () => {
-        this.#scheduler.request("terminal-event");
+        this.requestRead("terminal-event");
       },
     };
   }

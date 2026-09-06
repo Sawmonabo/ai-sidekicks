@@ -20,6 +20,7 @@ import { act } from "@testing-library/react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /**
  * The frozen clock a fixture bridge hands every subsystem a surface composes.
@@ -58,9 +59,7 @@ const SCENARIO_SETTLE_PASSES = 24;
 export async function advanceScenarioOneInterval(bridge: ConsoleBridge): Promise<void> {
   await act(async () => {
     bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
-    for (let turn = 0; turn < 5; turn += 1) {
-      await Promise.resolve();
-    }
+    await crossMacrotaskBoundary();
   });
 }
 
