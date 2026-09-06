@@ -17,14 +17,17 @@
 // the walkthrough opens and again after each act that could have changed it — a step
 // recorded, a step skipped, a choice made — and every other reason to re-read arrives
 // through `requestRead`, which is `RefreshScheduler`'s to coalesce. There is no timer
-// anywhere in this family.
+// anywhere in this family. The walkthrough hands this flow to the WINDOW trigger set,
+// which is the pair a node-scoped reading takes: the arrival, and the window
+// regaining focus. A repaired connection and a timeline event are a SESSION's
+// reasons, and this flow holds no session.
 //
 // THE OPEN AND THE POST-ACT RE-READ ARE PERFORMED DIRECTLY, and that is the queue
 // reading's own precedent rather than an exception carved here. This reading has no
 // tail keeping it current, and the fixture's clock is frozen — only a scenario beat
 // moves it — so a first read parked behind the scheduler's debounce window would
-// never happen at all in fixture mode. What the scheduler is for is the reasons that
-// arrive in bursts: a window regaining focus, a repaired connection.
+// never happen at all in fixture mode. What the scheduler is for is the reason that
+// arrives in bursts: a window regaining focus.
 //
 // AND ITS TRIGGERING EVENT SET IS EMPTY, which is a claim rather than an omission.
 // Onboarding is NODE-scoped: nothing appended to a session's timeline says this
@@ -163,7 +166,7 @@ export class OnboardingFlow implements ReadTriggerTarget {
    *
    * The walkthrough's ARRIVAL reads immediately — there is no tail keeping this
    * current, and the fixture's clock is frozen, so a first read behind the debounce
-   * window would never fire at all. Every other reason is coalesced.
+   * window would never fire at all. The other reason is coalesced.
    */
   public requestRead(reason: RefreshReason): void {
     if (reason === "subscribe") {

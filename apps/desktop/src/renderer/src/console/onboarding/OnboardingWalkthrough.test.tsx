@@ -11,11 +11,20 @@
 //
 // AND THE THREE RELAY OPTIONS ARE ALL VISIBLE AT ONCE. Collapsing the third behind an
 // advanced control is a named defect, so the count is the assertion.
+//
+// AND BOTH READINGS TAKE THE WINDOW TRIGGER SET. Both models implement
+// `ReadTriggerTarget`, and implementing it is not the same as being wired to it: this
+// walkthrough once performed the two arrival reads itself, so the contract was
+// satisfied, the gate was green, and neither reading ever heard about a window
+// regaining focus. The last case below is what makes the difference observable —
+// what it asserts is a second call LEAVING this window, not a state on a model.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import { withDaemonCall } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { settleScheduledRead } from "../bridge/readings/scheduled-read.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
@@ -117,5 +126,57 @@ describe("the footer", () => {
       expect(container.textContent, step).toContain("These providers are not ready");
       expect(container.textContent, step).toContain("codex");
     }
+  });
+});
+
+describe("the window trigger set", () => {
+  it("re-reads both node-scoped readings when the window regains focus", async () => {
+    const held = withDaemonCall(
+      createFixtureBridge({ scenario: ONBOARDING_SCENARIO }),
+      async (_call, passThrough) => passThrough(),
+    );
+    // The flow reads through the growth port and the readiness model through the
+    // daemon door, so counting one would prove the wiring of one. Delegating to the
+    // real operation rather than answering for it keeps the walkthrough reading the
+    // scenario's own state, which is what every other case here depends on.
+    let stateReadCount = 0;
+    const bridge: ConsoleBridge = {
+      ...held.bridge,
+      growth: {
+        ...held.bridge.growth,
+        onboardingStateRead: async (request) => {
+          stateReadCount += 1;
+          return held.bridge.growth.onboardingStateRead(request);
+        },
+      },
+    };
+    const readinessReadCount = (): number =>
+      held.calls.filter((call) => call.method === "providerAccount.list").length;
+
+    render(
+      <OnboardingWalkthrough
+        flow={new OnboardingFlow(bridge)}
+        readiness={new ProviderReadinessModel(bridge)}
+        openAtStep="providers"
+        accountScope={undefined}
+        onOpenAccountRegistry={() => undefined}
+      />,
+    );
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+    expect(stateReadCount).toBe(1);
+    expect(readinessReadCount()).toBe(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await crossMacrotaskBoundary();
+    });
+    // Both go through the scheduler on this reason, so the frozen clock has to reach
+    // the window's deadline before either read is performed.
+    await settleScheduledRead(bridge);
+
+    expect(stateReadCount).toBe(2);
+    expect(readinessReadCount()).toBe(2);
   });
 });

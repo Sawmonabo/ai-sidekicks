@@ -16,17 +16,22 @@
 // AND THE READ GOES THROUGH THE ONE SCHEDULER, which is what separates "nothing
 // polls" from "nothing can ask again". This model used to read once from the step's
 // own arrival and hold whatever that answered for the life of the window: current at
-// mount and stale from the first reconnect, with nothing on screen saying so. It is a
-// `ReadTriggerTarget` now, so the three reasons the console supplies from outside — a
-// window regaining focus, a repaired connection, a surface arriving — reach it
-// through `requestRead` and are coalesced by `RefreshScheduler`, exactly as
-// `onboarding-flow.ts` next door takes them.
+// mount and stale the first time somebody came back to it, with nothing on screen
+// saying so. It is a `ReadTriggerTarget` the walkthrough WIRES now — declaring the
+// contract and never being handed to it is the same staleness with a green gate — so
+// the two reasons a node-scoped reading takes, a surface arriving and a window
+// regaining focus, reach it through `requestRead` and are coalesced by
+// `RefreshScheduler`, exactly as `onboarding-flow.ts` next door takes them. A
+// repaired connection is a SESSION's reason, and this reading holds no session.
 //
-// THE ARRIVAL IS THE SCOPE-BEARING CALL, and that is why `read` stays public beside
-// `requestRead`. An activation names which account the readiness read is addressed
-// at, and a scheduler keyed on nothing could not tell two scopes apart — so the
-// walkthrough's arrival supplies the scope, this model remembers it, and every later
-// reason re-reads THAT scope rather than silently widening to the provider default.
+// THE SCOPE ARRIVES THROUGH ONE VERB AND THE READ LEAVES THROUGH ANOTHER, which is
+// why `addressAt` exists and why no read is public at all. An activation names which
+// account the readiness read is addressed at, and a scheduler keyed on nothing could
+// not tell two scopes apart — so the walkthrough ADDRESSES this model at that scope
+// before its trigger set opens, this model remembers it, and every reason afterwards
+// — the arrival included — re-reads THAT scope rather than silently widening to the
+// provider default. A public read beside a routed one is what let the arrival bypass
+// the scheduler in the first place, so there is no longer one to reach for.
 //
 // THE THREE ACTS THIS MODEL PERFORMS, and why there is no fourth. Sign-in hands the
 // participant to the provider's own first-party flow through the growth port — the
@@ -103,7 +108,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   readonly #actionsByProvider = new Map<string, ProviderActionReading>();
   #reading: ProviderReadinessReading = { kind: "reading" };
   /**
-   * The scope the newest read was addressed at. Re-read by every later reason.
+   * The scope this model is addressed at. Read by every reason, written by one verb.
    *
    * Held rather than re-derived, because the activation that named it is gone by the
    * time a reconnect asks for a fresh read — and a refresh that quietly widened to
@@ -120,7 +125,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
       // otherwise, resolved once per model.
       clock: consoleClockFor(bridge),
       perform: async () => {
-        await this.read(this.#accountScope);
+        await this.#read();
       },
       // A refused read is already this model's own `unreadable` arm, so re-throwing
       // would surface the same fact a second time as an unhandled rejection.
@@ -133,17 +138,30 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   }
 
   /**
-   * Ask for a fresh readiness read, at whatever scope the arrival named.
+   * Address this model at one account, or at the provider default.
+   *
+   * SETS AND READS NOTHING, which is the whole of its job: the scope is a property of
+   * the ACTIVATION and the read is the trigger set's, so folding them into one call
+   * would put a second read beside the routed one and make which of the two answered
+   * a question of ordering. Called before the trigger set opens, and again whenever a
+   * later activation addresses this model somewhere else.
+   */
+  public addressAt(accountScope: ProviderAccountId | undefined): void {
+    this.#accountScope = accountScope;
+  }
+
+  /**
+   * Ask for a fresh readiness read, at whatever scope this model was addressed at.
    *
    * The ARRIVAL reads immediately, on `onboarding-flow.ts`' rule and for its reason:
    * this reading has no tail keeping it current and the fixture's clock is frozen, so
-   * a first read parked behind the debounce window would never happen at all. Every
-   * other reason arrives in bursts — a window regaining focus, a repaired connection
-   * — and is the scheduler's to coalesce.
+   * a first read parked behind the debounce window would never happen at all. The
+   * other reason a node-scoped reading takes — a window regaining focus, which
+   * arrives in bursts — is the scheduler's to coalesce.
    */
   public requestRead(reason: RefreshReason): void {
     if (reason === "subscribe") {
-      void this.read(this.#accountScope);
+      void this.#read();
       return;
     }
     this.#refresh.request(reason);
@@ -165,16 +183,15 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   }
 
   /**
-   * Read the readiness projection, optionally scoped to one account.
+   * Read the readiness projection at the scope this model holds.
    *
    * The scope exists for the post-refusal path alone: a run bound to a per-run
    * account override was refused about THAT account, and an unscoped read would hand
-   * back the provider default's remedy — a different account, possibly healthy. It is
-   * REMEMBERED here, which is what lets every later trigger re-read the same scope.
+   * back the provider default's remedy — a different account, possibly healthy.
    */
-  public async read(accountScope: ProviderAccountId | undefined): Promise<void> {
+  async #read(): Promise<void> {
     const generation = this.#generation;
-    this.#accountScope = accountScope;
+    const accountScope = this.#accountScope;
     const reply = await callDaemon(
       this.#bridge,
       "providerAccount.list",
@@ -197,10 +214,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    * success — the probe behind the readiness derivation is — so what this reports is
    * whatever the projection says next, never that the hand-off "worked".
    */
-  public async handOffSignIn(
-    providerName: string,
-    accountScope: ProviderAccountId | undefined,
-  ): Promise<void> {
+  public async handOffSignIn(providerName: string): Promise<void> {
     const generation = this.#generation;
     this.#publishAction(providerName, { kind: "handing-off" });
     const settlement = await settleGrowthRead(
@@ -214,7 +228,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
       return;
     }
     this.#publishAction(providerName, { kind: "handed-off" });
-    await this.read(accountScope);
+    await this.#read();
   }
 
   /**
@@ -226,11 +240,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    * state would be this console re-deriving readiness, which is the defect the
    * required `readiness` member exists to remove.
    */
-  public async recheck(
-    providerName: string,
-    accountId: ProviderAccountId,
-    accountScope: ProviderAccountId | undefined,
-  ): Promise<void> {
+  public async recheck(providerName: string, accountId: ProviderAccountId): Promise<void> {
     const generation = this.#generation;
     this.#publishAction(providerName, { kind: "rechecking" });
     const reply = await callDaemon(this.#bridge, "providerAccount.probe", { accountId });
@@ -242,7 +252,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
       return;
     }
     this.#publishAction(providerName, IDLE);
-    await this.read(accountScope);
+    await this.#read();
   }
 
   #publishAction(providerName: string, reading: ProviderActionReading): void {

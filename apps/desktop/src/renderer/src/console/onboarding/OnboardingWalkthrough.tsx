@@ -16,7 +16,15 @@
 // registry read that spawns no provider process, which is the whole reason the
 // contract serves it from the stored observation.
 //
-// AND NOTHING RE-READS ON A TIMER. Every later read is the tail of an act somebody
+// AND BOTH GO THROUGH THE WINDOW TRIGGER SET, which is the console's one home for
+// when a reading re-reads. Both models are NODE-scoped — where this node is, and
+// which providers this node can run — so the pair they take is the window's: the
+// arrival, and the window regaining focus. Neither holds a session, so no session's
+// repair and no session's timeline bear on either. This file used to call the two
+// arrival reads itself, which left both readings current at mount and stale from the
+// first time somebody came back to the window, with nothing on screen saying so.
+//
+// AND NOTHING RE-READS ON A TIMER. Every other read is the tail of an act somebody
 // performed: a step recorded, a choice made, a sign-in handed off, a re-check asked
 // for.
 
@@ -25,6 +33,7 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { RefusalCard } from "../primitives/index.js";
+import { useWindowReadTriggers } from "../store/index.js";
 import { CompletionSummary } from "./CompletionSummary.js";
 import type { OnboardingFlow, OnboardingSnapshot } from "./onboarding-flow.js";
 import { ProviderReadinessStep } from "./provider-readiness/ProviderReadinessStep.js";
@@ -63,14 +72,21 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
   const readinessReading = useSyncExternalStore(subscribeToReadiness, readReadiness);
 
   const { accountScope } = props;
-  // THE ARRIVAL, which is one of the four reasons the design rules name. The flow
-  // takes it through its scheduler's own entry point rather than by calling the read;
-  // the readiness model reads directly, because it is scoped to an account this
-  // activation named and a scheduler keyed on nothing could not tell two scopes apart.
+  // ADDRESSED BEFORE THE TRIGGERS OPEN, and the ordering is why this effect is
+  // declared above them rather than beside the props it reads. `useWindowReadTriggers`
+  // asks for the arrival read from an effect of its own, React runs a component's
+  // effects in the order its hooks were called, and a readiness model still holding
+  // the previous activation's scope would answer about a different account than the
+  // one this activation was raised over. Addressing is not a read: the scope arrives
+  // through one verb and every read leaves through the routed entry.
   useEffect(() => {
-    flow.requestRead("subscribe");
-    void readiness.read(accountScope);
-  }, [flow, readiness, accountScope]);
+    readiness.addressAt(accountScope);
+  }, [readiness, accountScope]);
+  // THE TWO REASONS A NODE-SCOPED READING RE-READS, wired through the one home for
+  // them. Nothing here performs a read; a reading that wired its own arrival by hand
+  // is the reading that never hears about the second one.
+  useWindowReadTriggers(flow);
+  useWindowReadTriggers(readiness);
 
   const { reading } = snapshot;
   const completed = reading.kind === "read" ? reading.completed : NO_STEPS_DONE;
@@ -130,7 +146,7 @@ function renderStep(
   props: OnboardingWalkthroughProps,
   state: StepRenderState,
 ): React.ReactNode {
-  const { flow, readiness, accountScope } = props;
+  const { flow, readiness } = props;
   switch (stepId) {
     case "relay":
       return (
@@ -157,10 +173,10 @@ function renderStep(
           reading={state.readinessReading}
           actionFor={(providerName) => readiness.actionFor(providerName)}
           onSignIn={(providerName) => {
-            void readiness.handOffSignIn(providerName, accountScope);
+            void readiness.handOffSignIn(providerName);
           }}
           onRecheck={(providerName, accountId) => {
-            void readiness.recheck(providerName, accountId, accountScope);
+            void readiness.recheck(providerName, accountId);
           }}
           onOpenAccountRegistry={props.onOpenAccountRegistry}
           // From the rail's model rather than from this arm: `Spec-026` makes exactly

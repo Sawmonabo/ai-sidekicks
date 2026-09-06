@@ -130,8 +130,8 @@ function harness(
     // count of calls is the whole observable.
     sidekicks: {
       native: {
-        showNotification: (options_: unknown) => {
-          raisedNotifications.push(options_);
+        showNotification: (notificationOptions: unknown) => {
+          raisedNotifications.push(notificationOptions);
         },
       },
     },

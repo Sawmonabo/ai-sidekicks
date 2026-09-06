@@ -53,13 +53,14 @@ export interface OnboardingStepDescriptor {
    *
    * EXACTLY ONE STEP IS SKIPPABLE, and it is the provider step: `Spec-026 §Provider
    * Authentication (Group B)` makes it "offered and never demanded", and onboarding
-   * completes with zero registered accounts. The other two are not. The relay choice
-   * is non-dismissible "until a choice is made or that invite is explicitly
-   * cancelled" (`Spec-026 §Desktop Surface`), and telemetry — which this field once
-   * called skippable — is the step that spec is most explicit about: "The flow must
-   * not proceed past telemetry opt-in without an explicit choice; no silent default"
-   * (`Spec-026 §Telemetry Opt-In`). Default-OFF is what the answer defaults to, not
-   * permission to leave without giving one.
+   * completes with zero registered accounts. The other two are not. `Spec-026
+   * §Desktop Surface` puts the relay choice behind a modal that is "non-dismissible
+   * until a choice is made or the user explicitly cancels the outbound invite that
+   * triggered it", and telemetry — which this field once called skippable — is the
+   * step that spec is most explicit about: "The flow must not proceed past telemetry
+   * opt-in without an explicit choice; no silent default" (`Spec-026 §Telemetry
+   * Opt-In`). Default-OFF is what the answer defaults to, not permission to leave
+   * without giving one.
    *
    * READ BY THE WALKTHROUGH AND BY NOTHING ELSE, which is what keeps it honest: the
    * skip control is offered from this field, so a step marked unskippable has no way
