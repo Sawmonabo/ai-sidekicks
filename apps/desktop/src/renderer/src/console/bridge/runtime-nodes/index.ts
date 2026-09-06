@@ -9,10 +9,13 @@
 // table, the frame decoders — and this is one feed folded on top of it, on the rule
 // that a feed takes a directory named for the wire it folds.
 //
-// TWO MODULES, ONE VOCABULARY. `runtime-node-roster.ts` holds the names, the refusal
-// codes, the outcome types and the scenario-driven fixture read;
+// TWO MODULES, ONE VOCABULARY. `runtime-node-roster.ts` holds the names, the outcome
+// types and the one refusal constructor both arms stamp their `origin` through;
 // `runtime-node-roster-transport.ts` holds everything that touches a real transport.
-// Neither arm can invent a name the other does not know.
+// Neither arm can invent a name the other does not know. The fixture's arm is not here
+// at all — it is `fixture/fixture-runtime-node-roster.ts`, on that directory's own rule
+// that a module which makes the fixture ANSWER something belongs beside the fixture —
+// which is why nothing under this directory imports `scenario-runtime/`.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
 // rule. It publishes what a SIBLING takes: the bridge contract types the pair on
@@ -21,13 +24,18 @@
 // `bridge/index.ts` at all.
 
 // WHAT A SIBLING TAKES AND NOTHING ELSE: the two seam types the bridge contract puts
-// on `ConsoleBridge`, the fixture's scenario read, and the two live arms. The seam's
-// spelled names, refusal-code tuples and outcome shapes are read only by the suites
-// beside them, and a suite is not a reader a door line survives — `barrel-census`
-// fails such a specifier as reached only by a test, and knip reports it besides.
+// on `ConsoleBridge`, the two live arms, and the three names the fixture's own roster
+// arm builds its answer out of — the outcome union it returns, the refused arm it
+// narrows to, and the constructor that stamps this seam's `origin` on both. The seam's
+// spelled procedure name, its event census and its wire refusal-code tuple are read
+// only by the suites beside them, and a suite is not a reader a door line survives —
+// `barrel-census` fails such a specifier as reached only by a test, and knip reports it
+// besides.
 export {
-  readRuntimeNodeRosterFromScenario,
+  runtimeNodeRefusal,
   type RuntimeNodePresenceSubscribe,
+  type RuntimeNodeRefused,
+  type RuntimeNodeRosterOutcome,
   type RuntimeNodeRosterRead,
 } from "./runtime-node-roster.js";
 

@@ -22,7 +22,9 @@
 //   • The READ differs. The live bridge forwards it to `controlPlane.call` with the
 //     registered procedure name; the fixture answers it from the scenario, which
 //     carries the roster as data rather than as a scripted reply so that a reading
-//     can CHANGE as the frozen clock advances (`scenario.ts`'s roster frames).
+//     can CHANGE as the frozen clock advances (`scenario.ts`'s roster frames). The
+//     fixture's half is `fixture/fixture-runtime-node-roster.ts`, where every module
+//     that makes the fixture answer something lives.
 //   • The SUBSCRIPTION does not. Both bridges route it through their own
 //     `daemon.subscribe`, because the fixture's `daemon.subscribe` already delivers
 //     scenario beats routed by the registered event name — so one implementation
@@ -36,13 +38,18 @@
 // invent one in a `catch`. The refused arm IS a `ConsoleRefusal`, so a surface
 // spreads it straight into the refusal primitives.
 //
-// WHERE THE TWO ARMS LIVE. This module holds the seam's VOCABULARY — the registered
-// procedure name, the event census the presence set is derived from, the refusal
-// codes, the outcome types — plus the FIXTURE read, which is scenario-driven and
-// touches no transport. The two LIVE arms are `runtime-node-roster-transport.ts`
-// beside it: they speak to a real `SidekicksBridge`, they carry the Plan-007 /
-// Plan-008 brand casts, and they are driven by their own suite. One vocabulary, two
-// arms, and neither arm can invent a name the other does not know.
+// WHERE THE ARMS LIVE, AND WHY NONE OF THEM IS HERE. This module holds the seam's
+// VOCABULARY and nothing that answers: the registered procedure name, the event census
+// the presence set is derived from, the outcome types, and the one refusal constructor
+// every arm goes through — so neither arm can invent a name the other does not know.
+// The two LIVE arms are `runtime-node-roster-transport.ts` beside it, which speak to a
+// real `SidekicksBridge` and carry the Plan-007 / Plan-008 brand casts. The FIXTURE arm
+// is `fixture/fixture-runtime-node-roster.ts`, one directory over, because that is
+// where a module exists so the fixture can answer — and keeping it here was what gave
+// this directory its only edge into `scenario-runtime/`, for one function.
+//
+// Each arm declares the refusal codes it itself raises, beside the code that raises
+// them: the wire fallbacks below, the scenario's two in the fixture module.
 
 import type {
   RuntimeNodeEventName,
@@ -53,8 +60,6 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { refuse, type WireRefusal } from "../../core/index.js";
-import type { ScenarioEngine } from "../scenario-runtime/index.js";
-import type { ScenarioRuntimeNodeRosterFrame } from "../scenario-runtime/index.js";
 
 /**
  * The registered control-plane procedure that reads a session's node roster.
@@ -122,19 +127,6 @@ const RUNTIME_NODE_EVENT_AXIS_BY_NAME = {
 export const RUNTIME_NODE_PRESENCE_EVENT_NAMES: readonly RuntimeNodeEventName[] = (
   Object.keys(RUNTIME_NODE_EVENT_AXIS_BY_NAME) as RuntimeNodeEventName[]
 ).filter((eventName) => RUNTIME_NODE_EVENT_AXIS_BY_NAME[eventName] === "state-transition");
-
-/**
- * The codes the FIXTURE arm raises. Both are facts about the scenario.
- *
- * Kept apart from the wire arm's set below rather than pooled with it, because each
- * set is TOTAL for the arm that raises it and the two arms are driven by different
- * suites: pooled, neither census could claim every code it declares is reachable, and
- * a code nothing raises is exactly the drift a census exists to catch.
- */
-export const RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES: readonly [
-  "roster-unscripted",
-  "session-not-played",
-] = ["roster-unscripted", "session-not-played"];
 
 /**
  * The codes the LIVE arms fall back to, and only fall back to.
@@ -219,74 +211,6 @@ export type RuntimeNodePresenceSubscribe = (
   sessionId: SessionId,
   onPresenceChange: () => void,
 ) => RuntimeNodePresenceSubscription;
-
-/**
- * Read the roster from the scenario the fixture is playing. The fixture arm.
- *
- * Three answers, and the two refusals are different facts a surface draws
- * differently. A scenario that names no roster has not been asked — the honest
- * "not checked" absence, which is what a fixture build of a page whose data nobody
- * scripted must show. A request naming a session this scenario is not playing takes
- * the same refusal rather than this session's nodes: a roster is a fact about ONE
- * session's attachments, and lending another session's machines to it would be a
- * fabrication the surface would render as confidently as a reading.
- *
- * An EMPTY node set is NOT one of those: the registered response admits an empty
- * array — a session with no attachments yet — so a scenario that names a roster
- * with no rows has been asked and answered, and the surface draws its empty state.
- */
-export function readRuntimeNodeRosterFromScenario(
-  engine: ScenarioEngine,
-  request: RuntimeNodeRosterRequest,
-): RuntimeNodeRosterOutcome {
-  const { scenario } = engine;
-  if (request.sessionId !== scenario.sessionId) {
-    return refusedByScenario(
-      "session-not-played",
-      `Not checked — scenario "${scenario.id}" plays session ${scenario.sessionId} and holds no roster for the session this read names.`,
-    );
-  }
-  const frames = scenario.runtimeNodeRoster;
-  const current = frames === undefined ? undefined : frameDueAt(frames, engine.progress.elapsedMs);
-  if (current === undefined) {
-    return refusedByScenario(
-      "roster-unscripted",
-      `Not checked — scenario "${scenario.id}" names no runtime-node roster at this tick. Add one to the scenario rather than letting the surface render an empty roster for a read that was never answered.`,
-    );
-  }
-  // Copied out rather than handed over: `RuntimeNodeRosterResponse.nodes` is a
-  // mutable array on the wire type, and a caller that sorted it in place would be
-  // reordering the scenario itself for every later read in the window.
-  return { status: "served", value: { nodes: [...current.nodes] } };
-}
-
-/** The roster reading current at `elapsedMs`, or `undefined` before the first. */
-function frameDueAt(
-  frames: readonly ScenarioRuntimeNodeRosterFrame[],
-  elapsedMs: number,
-): ScenarioRuntimeNodeRosterFrame | undefined {
-  // Last wins rather than first: frames are readings of one roster over scenario
-  // time, so the newest one that has fallen due is the current one.
-  return frames.reduce<ScenarioRuntimeNodeRosterFrame | undefined>(
-    (current, frame) => (frame.atMs <= elapsedMs ? frame : current),
-    undefined,
-  );
-}
-
-/**
- * The refusal the FIXTURE arm raises, held to this seam's own closed vocabulary.
- *
- * Two doors rather than one widened builder, on the growth port's pattern: the two
- * refusals are reached from opposite sides. This one's code is a fact about the
- * scenario and belongs to a set declared here, so passing a wire code through it is
- * a compile error rather than a convention.
- */
-function refusedByScenario(
-  code: (typeof RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES)[number],
-  detail: string,
-): RuntimeNodeRefused {
-  return runtimeNodeRefusal(code, detail);
-}
 
 /**
  * The one construction every door in this seam goes through, so `origin` is never

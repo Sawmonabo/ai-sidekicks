@@ -40,10 +40,8 @@ import { createFixtureGrowthPort } from "./fixture-growth-port.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import { refuseAbsentCapability } from "./fixture-refusal.js";
 import { subscribeToScenario, subscribeToScenarioRelay } from "./fixture-subscriptions.js";
-import {
-  readRuntimeNodeRosterFromScenario,
-  subscribeRuntimeNodePresence,
-} from "../runtime-nodes/index.js";
+import { readRuntimeNodeRosterFromScenario } from "./fixture-runtime-node-roster.js";
+import { subscribeRuntimeNodePresence } from "../runtime-nodes/index.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 

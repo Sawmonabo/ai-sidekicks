@@ -1,6 +1,6 @@
 // The runtime-node seam, held to the wire it claims to speak.
 //
-// Four claims, and each one is a way the seam could look right and be wrong:
+// Three claims, and each one is a way the seam could look right and be wrong:
 //
 //   • **The subscribed name set is the contract's, minus a partition the contract
 //     itself draws.** This file imports the census as a VALUE — a test is not
@@ -8,73 +8,28 @@
 //     derives the expected set from `RUNTIME_NODE_EVENT_NAMES` rather than listing
 //     five strings a second time. A hand-list would go on passing over a name the
 //     contract added and the seam never subscribed to.
-//   • **A frame is chosen by the frozen clock, not by array position.** A fixture
-//     that always answered with the last frame would pass every "the roster is
-//     served" assertion and make the whole snapshot-plus-signal discipline
-//     unobservable.
+//   • **The procedure name is the method namespace's, not the event namespace's.**
+//     One string is the whole coupling point between this console and a
+//     control-plane router.
 //   • **Every shipped roster frame is a reading the wire could actually return.**
 //     The scenarios assert branded identifiers with `as`, which the compiler takes
 //     on trust; `RuntimeNodeRosterResponseSchema` is what discharges the claim, and
 //     it is `.strict()`, so an invented member fails here too.
-//   • **The two health axes move independently.** The frame pair either side of the
-//     departure beat has to disagree in OPPOSITE directions on the two axes, which
-//     is the state the never-mask rule exists for and the reason both scenarios
-//     carry a roster at all.
+//
+// What this seam ANSWERS with is not here: the fixture arm is
+// `fixture/fixture-runtime-node-roster.ts` and its suite is beside it, and the live
+// arms are `runtime-node-roster-transport.ts` and its suite beside that.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  RUNTIME_NODE_EVENT_NAMES,
-  RuntimeNodeRosterResponseSchema,
-  type RuntimeNodeRosterEntry,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { RUNTIME_NODE_EVENT_NAMES, RuntimeNodeRosterResponseSchema } from "@ai-sidekicks/contracts";
 
 import { CONSOLE_SCENARIOS } from "../scenarios/index.js";
-import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
-import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { SETTINGS_SCENARIO } from "../scenarios/settings.js";
 import {
   RUNTIME_NODE_PRESENCE_EVENT_NAMES,
   RUNTIME_NODE_ROSTER_PROCEDURE,
-  RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES,
-  RUNTIME_NODE_ROSTER_REFUSAL_ORIGIN,
-  readRuntimeNodeRosterFromScenario,
-  type RuntimeNodeRosterOutcome,
 } from "./runtime-node-roster.js";
-import { ScenarioEngine } from "../scenario-runtime/index.js";
-import type { ConsoleScenario } from "../scenario-runtime/index.js";
-
-/** A session id no scenario plays, for the wrong-session arm. */
-const FOREIGN_SESSION_ID = "019b7904-8ce0-75e5-8510-000000000000" as SessionId;
-
-/** Read one scenario's roster at a tick, driving the real engine to get there. */
-function rosterAt(scenario: ConsoleScenario, elapsedMs: number): RuntimeNodeRosterOutcome {
-  const engine = new ScenarioEngine({ scenario });
-  engine.advance(elapsedMs);
-  return readRuntimeNodeRosterFromScenario(engine, {
-    sessionId: scenario.sessionId as SessionId,
-  });
-}
-
-/** The served node set, or a failure naming what the read answered instead. */
-function servedNodes(outcome: RuntimeNodeRosterOutcome): readonly RuntimeNodeRosterEntry[] {
-  expect(
-    outcome.status,
-    outcome.status === "refused" ? `the read refused: ${outcome.code}` : "",
-  ).toBe("served");
-  return outcome.status === "served" ? outcome.value.nodes : [];
-}
-
-/** One node's two health axes, as the frame reports them. */
-function axesOf(
-  nodes: readonly RuntimeNodeRosterEntry[],
-  nodeId: string,
-): { state: string; healthState: string | null } {
-  const entry = nodes.find((node) => node.nodeId === nodeId);
-  expect(entry, `no roster row for ${nodeId}`).toBeDefined();
-  return { state: entry?.state ?? "", healthState: entry?.healthState ?? null };
-}
 
 describe("the presence subscription's name set", () => {
   it("carries every registered name that announces a node-state transition", () => {
@@ -113,75 +68,6 @@ describe("the registered procedure name", () => {
   });
 });
 
-describe("the fixture roster read", () => {
-  it("serves the empty reading a session with no attachments has", () => {
-    // Not a refusal, and the distinction is the point: the read WAS answered and
-    // what it found was nothing. A surface draws that; it does not draw "nobody
-    // asked".
-    expect(servedNodes(rosterAt(SETTINGS_SCENARIO, 0))).toStrictEqual([]);
-  });
-
-  it("serves the reading in which the liveness axis has nothing to say yet", () => {
-    // Both machines admitted, neither heartbeating: the read LEFT-JOINs presence on
-    // the attachment, so both liveness members are NULL together. A scenario that
-    // could not express this would leave the page's only "not measured yet" state
-    // unreachable, and a page built without it renders a verdict nobody reached.
-    const nodes = servedNodes(rosterAt(SETTINGS_SCENARIO, 60));
-    expect(nodes).toHaveLength(2);
-    expect(nodes.every((node) => node.healthState === null)).toBe(true);
-    expect(nodes.every((node) => node.lastHeartbeatAt === null)).toBe(true);
-    // The negative control for the pair above: a later reading has both, so the
-    // nulls are this frame's rather than the factory's.
-    const later = servedNodes(rosterAt(SETTINGS_SCENARIO, 200));
-    expect(later.every((node) => node.healthState !== null)).toBe(true);
-    expect(later.every((node) => node.lastHeartbeatAt !== null)).toBe(true);
-  });
-
-  it("serves the reading current at the tick the clock has reached", () => {
-    expect(servedNodes(rosterAt(SETTINGS_SCENARIO, 200))).toHaveLength(2);
-    expect(servedNodes(rosterAt(COLLABORATION_SCENARIO, 600))).toHaveLength(3);
-  });
-
-  it("answers a later tick with a later reading", () => {
-    // The negative control for the case above: a fixture that ignored the clock and
-    // always returned one frame would satisfy every "serves N nodes" assertion.
-    const before = axesOf(servedNodes(rosterAt(SETTINGS_SCENARIO, 200)), "node-builder");
-    const after = axesOf(servedNodes(rosterAt(SETTINGS_SCENARIO, 320)), "node-builder");
-    expect(before).not.toStrictEqual(after);
-  });
-
-  it("refuses when the scenario names no roster at all", () => {
-    const outcome = rosterAt(FLAGSHIP_SCENARIO, 400);
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" ? outcome.code : "").toBe("roster-unscripted");
-    expect(outcome.status === "refused" ? outcome.origin : "").toBe(
-      RUNTIME_NODE_ROSTER_REFUSAL_ORIGIN,
-    );
-  });
-
-  it("refuses a session this scenario is not playing", () => {
-    const engine = new ScenarioEngine({ scenario: SETTINGS_SCENARIO });
-    engine.advance(320);
-    const outcome = readRuntimeNodeRosterFromScenario(engine, { sessionId: FOREIGN_SESSION_ID });
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" ? outcome.code : "").toBe("session-not-played");
-  });
-
-  it("raises every code it declares, and declares every code it raises", () => {
-    const raised = new Set(
-      [rosterAt(FLAGSHIP_SCENARIO, 400)].map((outcome) =>
-        outcome.status === "refused" ? outcome.code : "",
-      ),
-    );
-    const engine = new ScenarioEngine({ scenario: SETTINGS_SCENARIO });
-    const foreign = readRuntimeNodeRosterFromScenario(engine, { sessionId: FOREIGN_SESSION_ID });
-    raised.add(foreign.status === "refused" ? foreign.code : "");
-    expect([...raised].sort()).toStrictEqual(
-      [...RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES].sort(),
-    );
-  });
-});
-
 describe("every shipped roster frame", () => {
   it("is a reading the registered response schema accepts", () => {
     // What discharges the scenarios' `as NodeId` / `as ParticipantId` /
@@ -210,32 +96,5 @@ describe("every shipped roster frame", () => {
         health: "green",
       }),
     ).toThrow();
-  });
-});
-
-describe("the two health axes", () => {
-  it("move independently across the beat that changes one of them", () => {
-    // The settings story: the builder's SLOT degrades at 320 while its LIVENESS
-    // recovers. A page collapsing the two would have to report one of these.
-    const before = axesOf(servedNodes(rosterAt(SETTINGS_SCENARIO, 200)), "node-builder");
-    const after = axesOf(servedNodes(rosterAt(SETTINGS_SCENARIO, 320)), "node-builder");
-    expect(before).toStrictEqual({ state: "online", healthState: "degraded" });
-    expect(after).toStrictEqual({ state: "degraded", healthState: "online" });
-  });
-
-  it("can disagree outright, which the wire admits by construction", () => {
-    // The collaboration story: the runner's attachment reaches its departure
-    // verdict while the sweep still finds the machine healthy.
-    const after = axesOf(servedNodes(rosterAt(COLLABORATION_SCENARIO, 640)), "node-tomas-runner");
-    expect(after).toStrictEqual({ state: "offline", healthState: "online" });
-  });
-
-  it("keeps a below-floor machine in the set rather than hiding it", () => {
-    // Admit-not-eject: a node whose reported wire version is below the session's
-    // floor is rendered read-only, never dropped. A roster that filtered it would
-    // pass a node-count assertion and hide a participant's own machine from her.
-    const nodes = servedNodes(rosterAt(COLLABORATION_SCENARIO, 640));
-    expect(nodes.filter((node) => node.readOnly)).toHaveLength(1);
-    expect(nodes).toHaveLength(3);
   });
 });
