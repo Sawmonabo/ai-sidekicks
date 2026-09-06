@@ -38,6 +38,14 @@ import type {
   QueueItemCreateResponse,
   QueueItemListRequest,
   QueueItemListResponse,
+  EphemeralCloneDisposeRequest,
+  EphemeralCloneDisposeResponse,
+  EphemeralClonePrepareRequest,
+  EphemeralClonePrepareResponse,
+  ExecutionRootPrepareRequest,
+  ExecutionRootPrepareResponse,
+  RepoAttachRequest,
+  RepoAttachResponse,
   RepoMountReadRequest,
   RepoMountReadResponse,
   RunControlAck,
@@ -47,8 +55,14 @@ import type {
   SessionCreateResponse,
   WorkspaceExecutionModeCapabilitiesReadRequest,
   WorkspaceExecutionModeCapabilitiesReadResponse,
+  WorkspaceBindRequest,
+  WorkspaceBindResponse,
   WorkspaceListRequest,
   WorkspaceListResponse,
+  WorktreeRetireRequest,
+  WorktreeRetireResponse,
+  WorktreeReuseCheckRequest,
+  WorktreeReuseCheckResponse,
   WorktreeStatusReadRequest,
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
@@ -122,22 +136,61 @@ export interface ConsoleDaemonMethodContract {
     readonly response: ListModelsResult;
   };
 
-  // repo — the mounts, workspaces, and execution roots the repos section reads.
+  // repo — the mounts, workspaces, and execution roots the repos section reads AND
+  // mutates. One namespace and two registry tables behind it: the six mount-and-
+  // workspace rows and the seven worktree-and-clone rows are registered in
+  // `docs/architecture/contracts/api-payload-contracts.md` §Repo Method-Name Registry
+  // (Tier 6) as one `repo` root, and the rows below are in those tables' own order.
+  //
+  // TWELVE OF THE THIRTEEN. `repo.detach` is the one registered method this console
+  // deliberately does not bind, and its absence is a rule rather than a gap:
+  // `Spec-009 §Detach Semantics (V1 Definition)` gives the desktop renderer no detach
+  // surface in V1, so binding the shape would make the call one import away from a
+  // surface that must not offer it. The mount card DISCLOSES where detach lives
+  // instead of being silent about it.
+  readonly "repo.attach": {
+    readonly request: RepoAttachRequest;
+    readonly response: RepoAttachResponse;
+  };
   readonly "repo.mountRead": {
     readonly request: RepoMountReadRequest;
     readonly response: RepoMountReadResponse;
   };
-  readonly "repo.workspaceList": {
-    readonly request: WorkspaceListRequest;
-    readonly response: WorkspaceListResponse;
+  readonly "repo.workspaceBind": {
+    readonly request: WorkspaceBindRequest;
+    readonly response: WorkspaceBindResponse;
   };
   readonly "repo.executionModeCapabilitiesRead": {
     readonly request: WorkspaceExecutionModeCapabilitiesReadRequest;
     readonly response: WorkspaceExecutionModeCapabilitiesReadResponse;
   };
+  readonly "repo.workspaceList": {
+    readonly request: WorkspaceListRequest;
+    readonly response: WorkspaceListResponse;
+  };
   readonly "repo.executionModeSelect": {
     readonly request: ExecutionModeSelectRequest;
     readonly response: ExecutionModeSelectResponse;
+  };
+  readonly "repo.executionRootPrepare": {
+    readonly request: ExecutionRootPrepareRequest;
+    readonly response: ExecutionRootPrepareResponse;
+  };
+  readonly "repo.worktreeReuseCheck": {
+    readonly request: WorktreeReuseCheckRequest;
+    readonly response: WorktreeReuseCheckResponse;
+  };
+  readonly "repo.ephemeralClonePrepare": {
+    readonly request: EphemeralClonePrepareRequest;
+    readonly response: EphemeralClonePrepareResponse;
+  };
+  readonly "repo.ephemeralCloneDispose": {
+    readonly request: EphemeralCloneDisposeRequest;
+    readonly response: EphemeralCloneDisposeResponse;
+  };
+  readonly "repo.worktreeRetire": {
+    readonly request: WorktreeRetireRequest;
+    readonly response: WorktreeRetireResponse;
   };
   readonly "repo.worktreeStatusRead": {
     readonly request: WorktreeStatusReadRequest;
