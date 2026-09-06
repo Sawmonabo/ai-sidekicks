@@ -10,7 +10,7 @@
 // answers this read. That case overrides the bound call so the failed arm is drawn
 // too — every arm of the read is rendered somewhere.
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -18,10 +18,8 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../../bridge/index.js";
+import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
 import { SETTINGS_SCENARIO } from "../../../../bridge/scenarios/settings.js";
-import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
-import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../../../core/settle.test-support.js";
-import { frozenClockOf } from "../../../frozen-clock.test-support.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
 import { AccountsShell } from "./AccountsShell.js";
 
@@ -43,16 +41,22 @@ function renderShell(bridge: ConsoleBridge): HTMLElement {
 /** Mount, carry the debounced read past its window and past the reply's latency. */
 async function renderSettledShell(bridge: ConsoleBridge): Promise<HTMLElement> {
   const container = renderShell(bridge);
-  await act(async () => {
-    frozenClockOf(bridge).advance(PAST_REFRESH_DEBOUNCE_MS);
-    await crossMacrotaskBoundary();
-  });
-  await settle();
+  await settleScriptedRead(bridge);
   return container;
 }
 
 function fixtureBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
+}
+
+/** Open one account's detail the way a person does — by pressing its row. */
+function selectAccount(container: HTMLElement, displayLabel: string): void {
+  const rows = [...container.querySelectorAll<HTMLButtonElement>(".meridian-accounts__row")];
+  const row = rows.find((button) => (button.textContent ?? "").includes(displayLabel));
+  if (row === undefined) {
+    throw new Error(`the registry rendered no account row labelled ${displayLabel}`);
+  }
+  fireEvent.click(row);
 }
 
 describe("AccountsShell", () => {
@@ -97,6 +101,12 @@ describe("AccountsShell", () => {
 
   it("marks a reading taken under an older credential generation", async () => {
     const container = await renderSettledShell(fixtureBridge());
+    // The account is CHOSEN rather than assumed. A stale reading is one taken before
+    // this account's credential was rotated, so it exists on the entry whose
+    // generation has moved past its last probe — and the detail under the list is one
+    // account's. Reading the whole page for the marker without opening that entry
+    // would report the shell had lost a mark it never had the chance to draw.
+    selectAccount(container, "Claude — batch runs");
     expect(container.textContent).toContain("Behind this account");
   });
 

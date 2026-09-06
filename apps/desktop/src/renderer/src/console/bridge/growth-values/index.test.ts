@@ -103,6 +103,14 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthRecoveryReceipt",
   "GrowthRedactionPolicy",
   "GrowthStuckRunInspection",
+  // The governance plane's three shapes, added with the inventory the servers page
+  // renders: the binding reference both mutations are keyed by, the row the unified
+  // read answers with, and the per-leg result a mutation settles as. The status
+  // vocabulary and the leg and override shapes stay off this list for the reason the
+  // diagnostics plane's do — no sibling in this family reads them.
+  "GrowthMcpBindingRef",
+  "GrowthMcpInventoryEntry",
+  "GrowthMcpMutationResult",
 ];
 
 /**

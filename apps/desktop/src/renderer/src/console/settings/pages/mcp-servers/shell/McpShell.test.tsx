@@ -10,7 +10,7 @@
 // scenario, because a node governing no servers is not a story — it is the answer the
 // unscripted fixture already gives, and asserting it here keeps the two agreeing.
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -19,10 +19,8 @@ import {
   growthUnavailable,
   type ConsoleBridge,
 } from "../../../../bridge/index.js";
+import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
 import { SETTINGS_SCENARIO } from "../../../../bridge/scenarios/settings.js";
-import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
-import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../../../core/settle.test-support.js";
-import { frozenClockOf } from "../../../frozen-clock.test-support.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
 import { McpShell } from "./McpShell.js";
 
@@ -49,27 +47,12 @@ function renderShell(bridge: ConsoleBridge, mintKey?: () => string): HTMLElement
   return container;
 }
 
-/**
- * Carry whatever is in flight past the debounce window and past the reply's latency.
- *
- * One helper for the mount and for a press, because they are the same wait: both arm
- * a read on the scenario's frozen clock and both settle on a reply the fixture
- * delays. A second copy differing in nothing but its name is how the two drift.
- */
-async function settleReads(bridge: ConsoleBridge): Promise<void> {
-  await act(async () => {
-    frozenClockOf(bridge).advance(PAST_REFRESH_DEBOUNCE_MS);
-    await crossMacrotaskBoundary();
-  });
-  await settle();
-}
-
 async function renderSettledShell(
   bridge: ConsoleBridge,
   mintKey?: () => string,
 ): Promise<HTMLElement> {
   const container = renderShell(bridge, mintKey);
-  await settleReads(bridge);
+  await settleScriptedRead(bridge);
   return container;
 }
 
@@ -143,7 +126,7 @@ describe("McpShell", () => {
     const firstEnableButton = enableButtons[0];
     expect(firstEnableButton).toBeDefined();
     fireEvent.click(firstEnableButton as HTMLButtonElement);
-    await settleReads(bridge);
+    await settleScriptedRead(bridge);
     expect(container.textContent).toContain("live_reconcile");
     expect(container.textContent).toContain("mcp.config_write_conflict");
   });
@@ -166,7 +149,7 @@ describe("McpShell", () => {
       /this binding$/u.test(button.textContent ?? ""),
     );
     fireEvent.click(enableButtons[0] as HTMLButtonElement);
-    await settleReads(recordingBridge);
+    await settleScriptedRead(recordingBridge);
     expect(sent).toHaveLength(1);
     expect((sent[0] as { clientIdempotencyKey: string }).clientIdempotencyKey).toBe("one-press");
   });

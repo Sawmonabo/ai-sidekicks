@@ -28,7 +28,7 @@ import {
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../../core/settle.test-support.js";
-import { frozenClockOf } from "../../frozen-clock.test-support.js";
+import { frozenClockOf } from "../../../bridge/readings/scheduled-read.test-support.js";
 import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";
 import type { SessionStore } from "../../../store/index.js";
 import { DiagnosticsPage } from "./DiagnosticsPage.js";

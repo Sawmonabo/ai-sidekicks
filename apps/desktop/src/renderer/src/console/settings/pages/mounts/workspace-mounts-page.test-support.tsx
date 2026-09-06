@@ -21,7 +21,7 @@ import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { politeText } from "../../../primitives/live-region.test-support.js";
 import type { SessionStore } from "../../../store/index.js";
-import { frozenClockOf } from "../../frozen-clock.test-support.js";
+import { frozenClockOf } from "../../../bridge/readings/scheduled-read.test-support.js";
 import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounts.test-support.js";

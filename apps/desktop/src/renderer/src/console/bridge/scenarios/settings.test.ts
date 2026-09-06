@@ -49,17 +49,19 @@ describe("the settings scenario", () => {
     );
   });
 
-  it("scripts the agent roster and the five diagnostics reads, and nothing else", () => {
+  it("scripts the roster and the three unbound planes, and nothing else", () => {
     const scriptedCalls = SETTINGS_SCENARIO.replies.map((reply) => reply.call);
     // The whole scripted surface, stated by enumeration rather than by exclusion: a
     // reply added for a settings read this scenario has not decided about fails here,
     // which is the point.
     //
-    // The five diagnostics reads are scripted because that page is the one settings
-    // surface whose entire content is a health reading, and every region of it was
-    // otherwise reachable only in its absence. Every OTHER settings read this console
-    // makes stays unscripted on purpose: each of those pages renders the growth
-    // port's refusal, which is exactly what the shipped build does.
+    // Three planes are scripted, and each for the same reason: it is the whole content
+    // of a settings surface, so every region of that page was otherwise reachable only
+    // in its absence — the node's health, the provider-account registry with its
+    // sign-in handoff and its per-limit quota, and the unified governance inventory
+    // with the two mutations the operator page sends. Every OTHER settings read this
+    // console makes stays unscripted on purpose: each of those pages renders the
+    // growth port's refusal, which is exactly what the shipped build does.
     expect(scriptedCalls).toStrictEqual([
       "agent.list",
       "health.statusRead",
@@ -67,6 +69,13 @@ describe("the settings scenario", () => {
       "health.failureDetailRead",
       "health.recoveryActionRequest",
       "health.redactionPolicyRead",
+      "providerAccount.list",
+      "providerAccount.login",
+      "providerAccount.loginCancel",
+      "providerAccount.register",
+      "mcp.list",
+      "mcp.setEnabled",
+      "mcp.setTrust",
     ]);
   });
 
