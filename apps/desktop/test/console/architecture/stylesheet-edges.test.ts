@@ -313,11 +313,18 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
   it("negative control: the checker reads a submodule's import and a door's", () => {
     // The clean results above mean nothing unless the reader recognises the two
     // shapes it is looking for. Read out of the real tree rather than asserted about
-    // it: the browser family's door carries its five sheets, and the component beside
-    // it carries none.
-    const doorEdges = stylesheetImportsOf(`browser/${FAMILY_DOOR}`);
+    // it, and read at BOTH kinds of door now that a family's sheets may enter at a
+    // lazy chunk root instead: the repos family's door carries several sheets, the
+    // browser family's pane body carries the five that used to sit on the browser
+    // door, and the component beside that body carries none. The browser door itself
+    // is deliberately not the sample any more — it carries no sheet at all, so a
+    // reader that had stopped seeing imports would still pass there.
+    const doorEdges = stylesheetImportsOf(`repos/${FAMILY_DOOR}`);
     expect(doorEdges.length).toBeGreaterThan(1);
-    expect(doorEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
+    expect(doorEdges.every((sheet) => familyOf(sheet) === "repos")).toBe(true);
+    const chunkRootEdges = stylesheetImportsOf("browser/pane/browser-pane-body.ts");
+    expect(chunkRootEdges.length).toBeGreaterThan(1);
+    expect(chunkRootEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
     expect(stylesheetImportsOf("browser/bounds/BudgetMeter.tsx")).toStrictEqual([]);
   });
 

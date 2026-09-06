@@ -171,6 +171,46 @@ describe("the deck's board — a loader-form registration", () => {
 });
 
 describe("the deck's board — one fetch per registration", () => {
+  it("mounts a preloaded body without ever committing the pending marker", async () => {
+    // The pane board's half of the same claim, and the one the screenshot tier depends
+    // on: a mount that begins after a completed preload must not photograph the marker.
+    const registry = new ConsolePaneRegistry();
+    registry.register({
+      kind: "diff",
+      owner: "repos-family",
+      body: countingLoader(chromedBody("diff", "the diff body")).load,
+    });
+    await registry.preload("diff");
+
+    const { container } = render(
+      <>{registry.descriptorFor("diff")?.render(paneContextAt("diff"))}</>,
+    );
+
+    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(container.textContent).toContain("the diff body");
+  });
+
+  it("keeps the loader when a different owner's claim is refused", async () => {
+    // The refusal path, from the side nothing was watching. `register` used to drop the
+    // loader entry BEFORE the keyed registry got a chance to refuse, so a rejected
+    // component-form claim by a second owner threw with the first owner's descriptor
+    // still admitted and its loader gone: the pane stayed mounted and stopped being
+    // warmable, with no error naming why.
+    const registry = new ConsolePaneRegistry();
+    const loader = countingLoader(chromedBody("diff", "the diff body"));
+    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    expect(registry.unloadedKeys()).toStrictEqual(["diff"]);
+
+    expect(() => {
+      registry.register({ kind: "diff", owner: "a-different-family", render: () => null });
+    }).toThrow(DuplicateRegistrationError);
+
+    expect(registry.unloadedKeys()).toStrictEqual(["diff"]);
+    await registry.preload("diff");
+    expect(loader.callCount()).toBe(1);
+    expect(registry.unloadedKeys()).toStrictEqual([]);
+  });
+
   it("loads once however many callers ask", async () => {
     const registry = new ConsolePaneRegistry();
     const loader = countingLoader<ConsolePaneContext>(() => null);
@@ -347,6 +387,32 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     expect(container.textContent).not.toContain("the settings surface");
     await settle();
     expect(container.textContent).toContain("the settings surface");
+  });
+
+  it("mounts a preloaded surface without ever committing its reserved frame", async () => {
+    // The other half of what a preload is FOR. Warming a destination before the route
+    // commits only helps if the mount that follows is synchronous, and it was not:
+    // `lazy` calls its initializer on the first render and learns the value a microtask
+    // later however warm the promise is, so the reserved frame committed for one frame
+    // on exactly the path that had done the work to avoid it.
+    const registry = new ConsoleSurfaceRegistry();
+    registry.register({
+      slot: "workflows",
+      owner: "workflows-family",
+      body: countingLoader<ConsoleSurfaceContext>(() =>
+        createElement("p", null, "the workflows destination"),
+      ).load,
+    });
+    await registry.preload("workflows");
+
+    const { container } = render(
+      <>{registry.descriptorFor("workflows")?.render(surfaceContext())}</>,
+    );
+
+    // Read at the FIRST commit, with no settle in between: that is the frame a person
+    // would have seen the reserved region in.
+    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(container.textContent).toContain("the workflows destination");
   });
 
   it("loads once however many callers ask, and offers the walk only what is unloaded", async () => {

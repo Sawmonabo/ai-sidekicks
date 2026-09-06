@@ -95,6 +95,21 @@ export class LoadedLazyBody<TContext extends object> {
    */
   readonly #component: LazyExoticComponent<(context: TContext) => React.ReactNode>;
 
+  /**
+   * The body itself, once a load has settled — the thing a warmed mount renders.
+   *
+   * WHY A PRELOAD IS NOT ENOUGH WITHOUT IT. `lazy` calls its initializer on the first
+   * RENDER, and the initializer returns a thenable whichever state the underlying
+   * promise is in; React learns the value in the microtask that thenable resolves in, so
+   * it suspends for that turn and commits the fallback. The whole point of warming a
+   * destination before the route commits is that nobody sees the reserved frame, and
+   * without this field they saw it anyway — for one frame, on exactly the path that had
+   * done the work to avoid it.
+   *
+   * `undefined` while nothing has settled, which is also what `render` branches on.
+   */
+  #resolvedBody: ((context: TContext) => React.ReactNode) | undefined;
+
   public constructor(
     loader: LazyBodyLoader<TContext>,
     fallback: (context: TContext) => React.ReactNode,
@@ -121,7 +136,9 @@ export class LoadedLazyBody<TContext extends object> {
    */
   public async load(): Promise<LazyBodyModule<TContext>> {
     this.#pending ??= this.#loader();
-    return await this.#pending;
+    const loaded = await this.#pending;
+    this.#resolvedBody = loaded.Body;
+    return loaded;
   }
 
   /** Has this body's module been asked for yet? Read by the warm walk, never by a render. */
@@ -139,6 +156,12 @@ export class LoadedLazyBody<TContext extends object> {
   public render = (context: TContext): React.ReactNode =>
     createElement(LazyBody<TContext>, {
       Body: this.#component,
+      // Read at RENDER time, so a mount that begins after a completed preload is handed
+      // the settled body and never suspends. `LazyBody` pins whichever arm it was handed
+      // for the life of that mount — see its own `useState` and the reason there — so a
+      // body that started cold does not have its component identity swapped underneath
+      // it when the module lands mid-flight.
+      resolvedBody: this.#resolvedBody,
       fallback: this.#fallback,
       context,
     });

@@ -274,6 +274,37 @@ function isOwnedEdge(tree: StylesheetTree, sheet: string, edge: StylesheetEdge):
   return edge.importer === owner || owningBarrelOf(tree, edge.importer) === owner;
 }
 
+/**
+ * Whether a sheet's several importers are alternative entries to its own directory.
+ *
+ * THE ONE ADMITTED FAN-IN, and it is narrow on purpose. The single-edge rule exists so
+ * that no sheet is pulled into a document by two different owners — one directory made
+ * the reason another is styled. Two lazy chunk roots under the SAME owning barrel are
+ * not two owners: they are two ways into one body, and the bundler emits the sheet once
+ * into an asset whichever root pulls. `agents/agent-console/` is the live case — the
+ * deck's pane and the auxiliary window's surface are independent first paints of
+ * `AgentConsoleBody`, so each has to name the rules that body needs; a sheet named by
+ * only one of them leaves the other window rendering undressed.
+ *
+ * EVERY importer must qualify, so a barrel joining two chunk roots still offends: what
+ * is admitted is a fan-in whose members are all deferred entries to one directory, not
+ * a sheet that happens to have a chunk root among its importers.
+ */
+function isSiblingChunkRootFanIn(
+  tree: StylesheetTree,
+  sheet: string,
+  inbound: readonly StylesheetEdge[],
+  chunkRoots: ReadonlySet<string>,
+): boolean {
+  const owner = owningBarrelOf(tree, sheet);
+  if (owner === undefined) {
+    return false;
+  }
+  return inbound.every(
+    (edge) => chunkRoots.has(edge.importer) && owningBarrelOf(tree, edge.importer) === owner,
+  );
+}
+
 /** The offending sheets, each reported with the edges that made it one. */
 export function stylesheetEdgeOffences(
   tree: StylesheetTree,
@@ -283,18 +314,20 @@ export function stylesheetEdgeOffences(
   const duplicatePaths: string[] = [];
   const duplicateBarrels: string[] = [];
   const misowned: string[] = [];
+  const chunkRoots = lazyChunkRoots(tree);
   for (const sheet of tree.stylesheetPaths) {
     const inbound = edges.get(sheet) ?? [];
     if (inbound.length === 0) {
       unreached.push(sheet);
       continue;
     }
-    if (inbound.length > 1) {
+    const siblingRoots = isSiblingChunkRootFanIn(tree, sheet, inbound, chunkRoots);
+    if (inbound.length > 1 && !siblingRoots) {
       const paths = inbound.map((edge) => `${edge.importer} → "${edge.specifier}"`).join("; ");
       duplicatePaths.push(`${sheet}: ${inbound.length} inbound edges — ${paths}`);
     }
     const owningBarrels = [...new Set(inbound.map((edge) => edge.owningBarrel))].sort();
-    if (owningBarrels.length > 1) {
+    if (owningBarrels.length > 1 && !siblingRoots) {
       duplicateBarrels.push(`${sheet}: reached from ${owningBarrels.join(", ")}`);
     }
     // THE CLAIM THE OTHER THREE CANNOT MAKE. Reached, reached once, and reached from

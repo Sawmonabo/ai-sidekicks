@@ -51,7 +51,6 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { WorkflowRunPane } from "./pane/run/index.js";
-import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**
  * The family's owner string, as the pane registry's duplicate policy reads it.
@@ -143,19 +142,11 @@ export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void
   registry.register({
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
-    // The host rather than the destination or the browser, and each step of that is
-    // the seat's own reasoning. `#/workflows` is a BARE route, so `context.sessionStore`
-    // is `undefined` on it by construction while the definition enumeration's request
-    // carries a required session id — handed the browser, this seat could only mount a
-    // surface whose read was permanently unasked, so the destination resolves the
-    // session first. And the destination opens panes rather than owning them: the two
-    // pane kinds this family claims are what its lists lead to, and the slot needs a
-    // place to put one, which `WorkflowsPaneHost.tsx` is.
-    //
-    // The whole context, because a pane body is composed from it: a bridge, both
-    // stores, the window store, and the pane's own address. Handing the host three
-    // inputs would mean handing it six the day it composes that context, which is
-    // today.
-    render: (context) => createElement(WorkflowsPaneHost, { context }),
+    // A LOADER, and the seat's reasoning about WHICH component to mount moved with it
+    // to `workflows-surface-body.ts`. `#/workflows` is a rail destination — nothing
+    // paints it until a person asks — so registering it with a `render` put the host,
+    // the scope picker, the definitions browser and the run list on every session's
+    // initial graph and left `preload("workflows")` with nothing to fetch.
+    body: () => import("./workflows-surface-body.js"),
   });
 }

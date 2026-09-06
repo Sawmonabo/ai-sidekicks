@@ -15,7 +15,7 @@
 // second calling convention. The context is therefore constrained to an object: a spread
 // is only meaningful over one, and both boards' contexts are records already.
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 
 export interface LazyBodyProps<TContext extends object> {
   /**
@@ -26,6 +26,15 @@ export interface LazyBodyProps<TContext extends object> {
    * and rebuild the body each time its host re-rendered.
    */
   readonly Body: React.ComponentType<TContext>;
+  /**
+   * The settled body, when the registration's load has already finished.
+   *
+   * `undefined` on a cold mount. Supplied so a mount that begins AFTER a preload
+   * completed can render the module directly and never suspend: `lazy` learns its value
+   * in a microtask however warm the underlying promise is, which costs a committed
+   * fallback frame on exactly the path that paid to avoid one.
+   */
+  readonly resolvedBody?: React.ComponentType<TContext> | undefined;
   /** What stands in the body's place while its module is in flight. */
   readonly fallback: (context: TContext) => React.ReactNode;
   readonly context: TContext;
@@ -43,10 +52,17 @@ export interface LazyBodyProps<TContext extends object> {
 export function LazyBody<TContext extends object>(
   props: LazyBodyProps<TContext>,
 ): React.JSX.Element {
-  const { Body, fallback, context } = props;
+  const { Body, resolvedBody, fallback, context } = props;
+  // PINNED AT THIS MOUNT'S FIRST RENDER, and pinning is the whole of the care here.
+  // The two arms are different component TYPES, so swapping between them mid-mount is an
+  // unmount and a rebuild — the body loses its state and its effects run again, for a
+  // module that had merely finished arriving. Choosing once means a mount that started
+  // warm never suspends and a mount that started cold keeps the lazy element it began
+  // with and swaps nothing when the module lands.
+  const [MountedBody] = useState<React.ComponentType<TContext>>(() => resolvedBody ?? Body);
   return (
     <Suspense fallback={<>{fallback(context)}</>}>
-      <Body {...context} />
+      <MountedBody {...context} />
     </Suspense>
   );
 }

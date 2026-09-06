@@ -118,12 +118,15 @@ export class ConsoleSurfaceRegistry {
   /** Claim a slot. A second claim by a different owner is an error, not a swap. */
   public register(registration: ConsoleSurfaceRegistration): void {
     if (registration.body === undefined) {
-      this.#loadedBodiesBySlot.delete(registration.slot);
+      // Registered first and the loader table trimmed after, for the pane board's
+      // measured reason: a refused re-registration must not strip the loader off the
+      // descriptor that survives it, or a warmable slot silently stops being one.
       this.#descriptorsBySlot.register(registration.slot, {
         slot: registration.slot,
         owner: registration.owner,
         render: registration.render,
       });
+      this.#loadedBodiesBySlot.delete(registration.slot);
       return;
     }
     // The fallback is the route's own absence frame, empty. Supplied here rather than by

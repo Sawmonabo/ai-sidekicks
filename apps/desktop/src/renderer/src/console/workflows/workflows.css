@@ -70,8 +70,14 @@
  *               arrived.
  */
 
-/* The per-surface sheets, in the order a person meets the surfaces. */
-@import "./definitions/definitions-browser.css";
+/* The per-surface sheets, in the order a person meets the surfaces.
+ *
+ * The definitions browser's sheet is NOT among them any more: its only reader is
+ * `definitions/DefinitionsBrowser.tsx`, which nothing reaches without crossing the
+ * destination's `import()`, so it enters at `workflows-surface-body.ts` instead and this
+ * document does not carry it. The two below stay: the run list's sheet declares a class
+ * the runs family also declares, so where it lands in the cascade is not this family's
+ * decision alone, and the park badge is drawn by the statically registered run pane. */
 @import "./runs/run-list.css";
 @import "./parks/park-badge.css";
 

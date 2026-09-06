@@ -135,3 +135,33 @@ export function dynamicImportSpecifiers(fileName: string, source: string): reado
   });
   return specifiers;
 }
+
+/**
+ * Every module specifier a module names STATICALLY, as written. Relative only.
+ *
+ * `import`, `import type`, and `export … from` alike, because all three put the target
+ * in the importing chunk's graph — a type-only edge does not, but the parser's own
+ * `isTypeOnly` flag is not consulted here on purpose: the reach set this feeds is used
+ * to REFUSE moving a stylesheet, and over-reporting refuses more than it must while
+ * under-reporting would admit a move that breaks a surface.
+ *
+ * Dynamic `import()` is deliberately absent — it is `dynamicImportSpecifiers`' subject,
+ * and the boundary between the two is the whole point of both.
+ */
+export function moduleStaticImportSpecifiers(fileName: string, source: string): readonly string[] {
+  if (!fileName.endsWith(".ts") && !fileName.endsWith(".tsx")) {
+    return [];
+  }
+  const specifiers: string[] = [];
+  const parsed = parseSourceText(fileName, source);
+  forEachDescendant(parsed, (node) => {
+    const moduleSpecifier =
+      ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+        ? node.moduleSpecifier
+        : undefined;
+    if (moduleSpecifier !== undefined && ts.isStringLiteral(moduleSpecifier)) {
+      specifiers.push(moduleSpecifier.text);
+    }
+  });
+  return specifiers;
+}
