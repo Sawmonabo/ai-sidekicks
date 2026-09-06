@@ -166,6 +166,53 @@ export function formatRate(perSecond: number, unitLabel: string, locale?: string
 }
 
 /**
+ * The console's `Intl.RelativeTimeFormat` instances, one per locale asked for.
+ *
+ * A CLASS WITH A PRIVATE FIELD rather than a module-level `Map`, per
+ * `apps/desktop/AGENTS.md` §State and views — and it holds state at all because
+ * constructing an `Intl` formatter resolves a locale and builds a message table,
+ * which is the expensive half, while formatting with one is cheap. A relative time
+ * is the console's most repeated figure: every ledger row carrying an age
+ * re-renders on the reading tick, so a formatter minted per call is one locale
+ * resolution per row per tick.
+ *
+ * Bounded by construction rather than by an eviction policy, which is why it needs
+ * none: the only key is the `locale` a caller passes, callers pass the host locale
+ * or nothing, and no wire value reaches this parameter. A `Map` keyed on
+ * `string | undefined` holds the absent case as itself, so "no locale" is one entry
+ * rather than a sentinel that a caller could collide with — `""` would have been
+ * exactly such a collision, since `new Intl.RelativeTimeFormat("")` throws and this
+ * cache must not turn that into a silent host default.
+ */
+class RelativeTimeFormatters {
+  readonly #byLocale = new Map<string | undefined, Intl.RelativeTimeFormat>();
+
+  /** The formatter for `locale`, minted on first ask and kept. */
+  public formatterFor(locale: string | undefined): Intl.RelativeTimeFormat {
+    const cached = this.#byLocale.get(locale);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    this.#byLocale.set(locale, formatter);
+    return formatter;
+  }
+}
+
+const relativeTimeFormatters = new RelativeTimeFormatters();
+
+/**
+ * The one `Intl.RelativeTimeFormat` this console holds for `locale`.
+ *
+ * Exported so the claim is checkable by identity — two asks for one locale answer
+ * with the same object, which is what "constructed once" means and the only thing
+ * that distinguishes this from the per-call mint it replaced.
+ */
+export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat {
+  return relativeTimeFormatters.formatterFor(locale);
+}
+
+/**
  * A relative time, through `Intl.RelativeTimeFormat`.
  *
  * The unit is chosen by magnitude, not by arithmetic on a wire figure: the input is
@@ -181,7 +228,7 @@ export function formatRelativeTime(
     return "—";
   }
   const deltaSeconds = (from.epochMilliseconds - nowMilliseconds) / 1000;
-  const relativeTimeFormat = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const relativeTimeFormat = relativeTimeFormatFor(locale);
   const absoluteSeconds = Math.abs(deltaSeconds);
   if (absoluteSeconds < 60) {
     return relativeTimeFormat.format(Math.round(deltaSeconds), "second");
