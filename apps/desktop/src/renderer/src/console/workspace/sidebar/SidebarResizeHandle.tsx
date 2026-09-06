@@ -17,11 +17,8 @@
 
 import { useRef } from "react";
 
-import {
-  SIDEBAR_MAX_WIDTH_PX,
-  SIDEBAR_MIN_WIDTH_PX,
-  SIDEBAR_WIDTH_KEYBOARD_STEP_PX,
-} from "./sidebar-constants.js";
+import { SIDEBAR_MAX_WIDTH_PX, SIDEBAR_MIN_WIDTH_PX } from "../../core/index.js";
+import { SIDEBAR_WIDTH_KEYBOARD_STEP_PX } from "./sidebar-constants.js";
 
 export interface SidebarResizeHandleProps {
   readonly widthPx: number;

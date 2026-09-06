@@ -22,7 +22,7 @@
 // follows it is scoped to the rows this pane actually drew.
 
 import { DerivedFigure, formatCount, WireFigure } from "../../primitives/index.js";
-import { AWAITING_RUN_IDS_NAMED_CAP } from "./runs-bounds.js";
+import { AWAITING_RUN_IDS_NAMED_CAP } from "../../core/index.js";
 
 /**
  * The runs the session knows and the live tail has not described.

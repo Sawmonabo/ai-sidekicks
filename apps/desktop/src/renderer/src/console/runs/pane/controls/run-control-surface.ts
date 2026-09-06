@@ -64,7 +64,7 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { type ConsoleBridge } from "../../../bridge/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
-import { INTERVENTION_OUTCOME_CAP } from "../runs-bounds.js";
+import { INTERVENTION_OUTCOME_CAP } from "../../../core/index.js";
 import {
   RunControlDispatcher,
   carriedRunControlRefusal,

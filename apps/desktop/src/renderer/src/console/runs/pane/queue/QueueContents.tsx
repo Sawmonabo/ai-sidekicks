@@ -32,7 +32,7 @@ import {
   unreadableDeliveryReading,
 } from "../../../primitives/index.js";
 import { formatCount } from "../../../primitives/index.js";
-import { QUEUE_ROWS_RENDERED_CAP } from "../runs-bounds.js";
+import { QUEUE_ROWS_RENDERED_CAP } from "../../../core/index.js";
 import type { ReadingState } from "../../../primitives/index.js";
 import type { QueueFeed } from "../../../bridge/index.js";
 import { QueueRow } from "./QueueRow.js";

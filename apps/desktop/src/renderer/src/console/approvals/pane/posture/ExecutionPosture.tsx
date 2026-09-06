@@ -35,7 +35,7 @@
 import { type ExecutionPosture as WireExecutionPosture } from "@ai-sidekicks/contracts";
 
 import { Chip, DerivedFigure, Nothing, WireFigure } from "../../../primitives/index.js";
-import { BROAD_ALLOW_LIST_THRESHOLD } from "./posture-bounds.js";
+import { BROAD_ALLOW_LIST_THRESHOLD } from "../../../core/index.js";
 
 /**
  * Which kind of posture reading this is.

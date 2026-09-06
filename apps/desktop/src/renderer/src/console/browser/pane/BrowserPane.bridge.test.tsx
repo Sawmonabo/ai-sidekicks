@@ -15,6 +15,7 @@ import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 // of one transport agree only until either moves.
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   addressField,
   findRefusalBanner,
@@ -234,7 +235,7 @@ describe("browser pane overlapping acts", () => {
     );
     await act(async () => {
       overlapping.rejectReload(new Error("the reload never answered"));
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(queryRefusalBanner()).toBeNull();

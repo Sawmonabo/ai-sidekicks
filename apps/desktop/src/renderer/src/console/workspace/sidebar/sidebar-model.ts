@@ -45,20 +45,22 @@
 // disk — but it does hold the last refusal, so a store that cannot keep the
 // sidebar's shape says so on screen instead of silently forgetting.
 
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import {
+  Emitter,
+  refuse,
+  SIDEBAR_DEFAULT_WIDTH_PX,
+  SIDEBAR_MAX_WIDTH_PX,
+  SIDEBAR_MIN_WIDTH_PX,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   type SidebarSectionAttention,
   type SidebarSectionId,
 } from "../../seats/index.js";
-import {
-  SIDEBAR_COLLAPSED_SECTIONS_KEY,
-  SIDEBAR_DEFAULT_WIDTH_PX,
-  SIDEBAR_MAX_WIDTH_PX,
-  SIDEBAR_MIN_WIDTH_PX,
-  SIDEBAR_WIDTH_KEY,
-} from "./sidebar-constants.js";
+import { SIDEBAR_COLLAPSED_SECTIONS_KEY, SIDEBAR_WIDTH_KEY } from "./sidebar-constants.js";
 import {
   decodeCollapsedSectionIds,
   decodeSidebarWidth,

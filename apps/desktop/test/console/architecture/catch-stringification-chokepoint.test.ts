@@ -210,7 +210,20 @@ function stringificationAt(node: ts.Node, binding: string): string | undefined {
  * the first week somebody hit it.
  */
 export function caughtValueStringifications(fileName: string, source: string): readonly string[] {
-  const parsed = parseSourceText(fileName, source);
+  return stringificationsWithin(parseSourceText(fileName, source));
+}
+
+/**
+ * The same answer over a source file that has ALREADY been parsed.
+ *
+ * Split out because the parse is what this gate costs. The tree-wide case below and
+ * the binding census beside it both need one, and a version keyed by TEXT makes each
+ * caller parse every module under both roots for itself — the second full walk that
+ * pushed the tree-wide case past vitest's default timeout once the browser and
+ * terminal families landed. The planted controls above still drive the text form,
+ * because a control's subject is a string.
+ */
+function stringificationsWithin(parsed: ts.SourceFile): readonly string[] {
   const found: string[] = [];
   for (const binding of caughtBindings(parsed)) {
     const consider = (node: ts.Node): void => {
@@ -227,17 +240,17 @@ export function caughtValueStringifications(fileName: string, source: string): r
 
 describe("catch stringification — no caught value reaches ToPrimitive", () => {
   const modules: readonly ConsoleSourceModule[] = consoleSourceModules({ tests: true });
-  const bindingsByModule = modules.map((module) => ({
-    module: module.displayPath,
-    source: readConsoleSourceModule(module),
-  }));
   // Parsed once for the whole file. Every case below is a comparison over this reading,
   // for the reason `console-layering-rules.test.ts` records about its cruises: a walk of
-  // ~390 modules charged to a case runs against vitest's default timeout under aggregate
-  // tier load, and two cases asking for it separately pay for it twice.
-  const everyCaughtBinding = bindingsByModule.flatMap((entry) =>
-    caughtBindings(parseSourceText(entry.module, entry.source)),
-  );
+  // every module under both roots charged to a case runs against vitest's default
+  // timeout under aggregate tier load, and two cases asking for it separately pay for it
+  // twice — which is what the tree-wide case did while it took the text form of the
+  // reader below.
+  const parsedByModule = modules.map((module) => ({
+    module: module.displayPath,
+    parsed: parseSourceText(module.displayPath, readConsoleSourceModule(module)),
+  }));
+  const everyCaughtBinding = parsedByModule.flatMap((entry) => caughtBindings(entry.parsed));
 
   it("finds a console tree to scan at all", () => {
     // Without this a wrong root would scan nothing and the claim below would pass over
@@ -246,10 +259,10 @@ describe("catch stringification — no caught value reaches ToPrimitive", () => 
   });
 
   it("no console module stringifies a value it caught", () => {
-    const offenders = bindingsByModule
+    const offenders = parsedByModule
       .map((entry) => ({
         module: entry.module,
-        forms: caughtValueStringifications(entry.module, entry.source),
+        forms: stringificationsWithin(entry.parsed),
       }))
       .filter((entry) => entry.forms.length > 0)
       .map((entry) => `${entry.module}: ${entry.forms.join(", ")}`);

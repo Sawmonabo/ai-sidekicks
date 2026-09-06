@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsoleEntity } from "../../store/index.js";
 import { seatRuns } from "./run-seating.js";
-import { SEATED_KNOWN_RUN_CAP } from "./runs-bounds.js";
+import { SEATED_KNOWN_RUN_CAP } from "../../core/index.js";
 import { RunStateProjection, type RunProjection } from "./run-state-projection.js";
 
 const RUN_A = "a1b2c3d4-5e6f-4071-8182-93a4b5c6d7e8";

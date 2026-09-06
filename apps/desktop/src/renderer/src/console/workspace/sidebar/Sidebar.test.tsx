@@ -24,7 +24,7 @@ import {
   SidebarSectionRegistry,
   type SidebarSectionContext,
 } from "../../seats/index.js";
-import { SIDEBAR_MIN_WIDTH_PX } from "./sidebar-constants.js";
+import { SIDEBAR_MIN_WIDTH_PX } from "../../core/index.js";
 import { Sidebar } from "./Sidebar.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 

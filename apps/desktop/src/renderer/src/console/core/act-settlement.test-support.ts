@@ -24,14 +24,21 @@
 // already contradicted. `core/committed-frame.test-support.tsx` is the precedent that
 // this family may hold a React-importing test-support module.
 //
-// THE TURN COUNT IS A PARAMETER AND THE MACROTASK IS NOT. One turn and two turns are
-// the same act with a different depth of continuation, so a caller that needs the
-// deeper one says so. A macrotask is a different scheduling claim about a different
-// producer — the DOM implementation, not a promise chain — and folding it in behind a
-// flag would let a caller ask for "settled" and get a wait whose reason it never
-// stated. That one stays where its reason is written down.
+// THE SETTLE IS A BOUNDARY AND NOT A COUNT, which is a correction rather than the
+// shape this landed in. It took a `microtaskTurns` parameter, and the number was
+// tuned against whatever promise chain the calling case happened to be written over:
+// a reply that grows one link deeper stops being waited for, and the case then
+// reports the ABSENCE of an answer that was merely still in flight — silent in
+// exactly the direction that matters, which is why
+// `test/console/architecture/act-settling.test.ts` forbids the counted form inside an
+// `act` body. So the wait is now the one its sibling
+// `core/macrotask-boundary.test-support.ts` arms, and the two helpers are one
+// vocabulary with one difference between them: whether the wait happens inside
+// React's scope.
 
 import { act } from "@testing-library/react";
+
+import { crossMacrotaskBoundary } from "./macrotask-boundary.test-support.js";
 
 /**
  * Let queued continuations reach React state, inside `act`.
@@ -40,14 +47,13 @@ import { act } from "@testing-library/react";
  * React's scope is applied without the surrounding commit, so an assertion taken next
  * reads the render before it and the suite reports a hook that never moved.
  *
- * `microtaskTurns` is how many continuations deep the caller's own chain runs — one
- * for a hook settling a single awaited call, more where a settlement is itself awaited
- * before the state write it causes.
+ * `crossMacrotaskBoundary` rather than a counted number of continuations: the boundary
+ * drains every pending microtask chain on the way across, so a case whose settlement
+ * is itself awaited before the state write it causes waits correctly without saying
+ * how deep its own chain runs.
  */
-export async function settleReactWork(microtaskTurns: number = 1): Promise<void> {
+export async function settleReactWork(): Promise<void> {
   await act(async () => {
-    for (let turn = 0; turn < microtaskTurns; turn += 1) {
-      await Promise.resolve();
-    }
+    await crossMacrotaskBoundary();
   });
 }

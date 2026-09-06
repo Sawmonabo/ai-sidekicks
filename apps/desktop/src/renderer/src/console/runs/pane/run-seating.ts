@@ -37,14 +37,20 @@
 // session's un-projected runs are as many as the session is old — and this function
 // used to append every one of them, past the `PROJECTED_RUN_CAP` the projection fold
 // spends two files away, sorting all of them on every partition change. So the tail
-// is cut at `SEATED_KNOWN_RUN_CAP` and what was cut is COUNTED: `runs-bounds.ts` says
-// the rule for this family's other capped list — "above it the surface says how many
-// rows it is not drawing rather than drawing them all" — and a bound that dropped
+// is cut at `SEATED_KNOWN_RUN_CAP` and what was cut is COUNTED: the rule for this
+// pane's other capped list is written beside `QUEUE_ROWS_RENDERED_CAP` — "above it
+// the surface says how many rows it is not drawing rather than drawing them all"
+// — and a bound that dropped
 // rows silently would be the pane asserting a session has fewer runs than it has.
 
-import { compareInstants, parseInstant, readWireNumber, readWireString } from "../../core/index.js";
+import {
+  compareInstants,
+  parseInstant,
+  readWireNumber,
+  readWireString,
+  SEATED_KNOWN_RUN_CAP,
+} from "../../core/index.js";
 import type { ConsoleEntity } from "../../store/index.js";
-import { SEATED_KNOWN_RUN_CAP } from "./runs-bounds.js";
 import type { RunProjection } from "./run-state-projection.js";
 
 /**

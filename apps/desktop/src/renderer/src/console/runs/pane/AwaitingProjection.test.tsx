@@ -9,7 +9,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AwaitingProjection } from "./AwaitingProjection.js";
-import { AWAITING_RUN_IDS_NAMED_CAP } from "./runs-bounds.js";
+import { AWAITING_RUN_IDS_NAMED_CAP } from "../../core/index.js";
 
 /** As many distinct run ids as the case needs, in the order the seating hands them. */
 function runIds(count: number): readonly string[] {

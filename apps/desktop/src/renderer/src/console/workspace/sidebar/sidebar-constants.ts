@@ -1,31 +1,14 @@
-// The sidebar's named bounds.
+// The sidebar's named constants — the ones that are not bounds.
 //
-// `console/core/constants.ts` is the substrate's home for these and its header
-// says where a view family's go: "each view family adds its own module beside its
-// subtree rather than widening this one, so a bound always sits next to the code
-// that spends it". This is that module for the sidebar. Every value carries the
-// one-line rationale `Spec-023 §Console Design (Meridian)` §The four bars asks
-// for; a number appearing inline in a sidebar module instead of here is a review
-// rejection.
+// The width range moved to `console/core/constants.ts`: a ceiling declared in a view
+// family is one nobody audits, which is what `apps/desktop/AGENTS.md` §Config
+// single-sourcing states and `cap-constant-home.test.ts` enforces. What is left is a
+// STEP and two persistence keys, neither of which is a bound.
 //
-// The persistence KEYS live here for a second reason beyond tidiness: a key is a
-// record ADDRESS, and the sidebar writes at one address and reads back at the
-// same one. Two spellings of one address is a setting that saves and never
-// restores, which is invisible until a person reopens the window.
-
-/** How wide the sidebar opens when nobody has resized it. Wide enough for a
- *  section title plus its count without wrapping at the default type scale. */
-export const SIDEBAR_DEFAULT_WIDTH_PX = 288;
-
-/** The narrowest the sidebar may be dragged. Below this the disclosure glyph,
- *  the section glyph, and a two-word title stop fitting on one line, and the
- *  sidebar becomes a column of ellipses rather than a navigation. */
-export const SIDEBAR_MIN_WIDTH_PX = 208;
-
-/** The widest. Past this the sidebar is competing with the deck for the window
- *  rather than pointing into it, and this sidebar's density rule is counts, not
- *  lists. */
-export const SIDEBAR_MAX_WIDTH_PX = 480;
+// The keys live here for a reason beyond tidiness: a key is a record ADDRESS, and
+// the sidebar writes at one address and reads back at the same one. Two spellings of
+// one address is a setting that saves and never restores, which is invisible until a
+// person reopens the window.
 
 /** How far one arrow-key press moves the resize separator. Small enough to land
  *  on a chosen width, large enough that crossing the whole range is a held key

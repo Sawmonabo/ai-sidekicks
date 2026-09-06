@@ -17,8 +17,12 @@
 
 import type { RunRolledBackEvent, RunState, RunStateChangeEvent } from "@ai-sidekicks/contracts";
 import { readRunRolledBack, readRunStateChange } from "../../bridge/index.js";
-import { compareInstants, parseInstant } from "../../core/index.js";
-import { PROJECTED_RUN_CAP, RUN_STATUS_ROW_CAP } from "./runs-bounds.js";
+import {
+  compareInstants,
+  parseInstant,
+  PROJECTED_RUN_CAP,
+  RUN_STATUS_ROW_CAP,
+} from "../../core/index.js";
 import { runStatusSubtypeFor, type RunStatusSubtype, type RunStopTrigger } from "./run-status.js";
 
 /** One row of a run's status history, in the subtypes `run-status.ts` declares. */

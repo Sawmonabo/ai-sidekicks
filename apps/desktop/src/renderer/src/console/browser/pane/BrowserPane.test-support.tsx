@@ -13,6 +13,7 @@ import { expect } from "vitest";
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
 import { consoleClockFor, createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 // Both deep, and both because the bridge door publishes neither: the console
 // resolves the live bridge inside that family, and the transport marker's readers
 // are this module and the two suites beside it.
@@ -269,7 +270,7 @@ export async function releaseQueuedPaneFrames(bridge: ConsoleBridge): Promise<vo
   }
   await act(async () => {
     clock.runFrame();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
