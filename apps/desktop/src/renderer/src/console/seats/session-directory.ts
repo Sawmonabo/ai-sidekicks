@@ -40,6 +40,32 @@
 // conflation `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to
 // prevent.
 //
+// THE STATE IS SUBJECT-SCOPED, AND THE SUBJECT IS THE PORT
+//
+// A port is minted once per bridge, so a new one is a new source of session truth —
+// the fixture's scenario switch, a reconnect, a second window's own instance — and
+// the answer read through the previous one stops being an answer at that instant. A
+// hook that cleared its own state from the effect would clear it one commit late:
+// the render that installs the new port commits with the previous bridge's list
+// still held, and both surfaces paint that list under the new source for exactly one
+// frame. A stale list under a fresh source reads as a current one, and nothing about
+// it says otherwise.
+//
+// So the state is held by the console's one subject-scoped holder, addressed DURING
+// the render that first sees a new port, and the seed it re-addresses to is
+// `reading` — which is the truth about a new source nobody has asked yet. The key
+// within the subject is `undefined` because there is none: the port IS the whole
+// subject, and one port carries one directory.
+//
+// The holder also replaces the mounted latch this hook used to carry, and it is a
+// stricter guard than the latch was. `settle()` hands back a publisher bound to the
+// visit ON SCREEN when it is called, so an answer dispatched through a port that has
+// since been replaced is REFUSED — which is the case the latch could not see at all,
+// because it read an unmount and a re-address is not one. After an unmount the write
+// lands in a holder React has already unsubscribed from, so nothing reaches a retired
+// tree; either way the late answer is off the screen rather than on it, and neither
+// arm has to remember to read a boolean first.
+//
 // AND THE READ HAS TWO CHANNELS, NOT ONE
 //
 // Every growth-port operation is typed to RESOLVE to an outcome, and every port in
@@ -51,7 +77,7 @@
 // not an expectation: it settles `unavailable`, carrying a refusal the PORT mints, so
 // this hook does not become a second author of growth refusals.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import {
   growthUnavailableFromRejection,
@@ -59,6 +85,7 @@ import {
   type GrowthSessionSummary,
   type GrowthUnavailable,
 } from "../bridge/index.js";
+import { useSubjectScopedState } from "../store/index.js";
 
 /** What a surface knows about the node's sessions at one moment. */
 export type SessionDirectoryState =
@@ -74,23 +101,21 @@ export type SessionDirectoryState =
  * swapped underneath (the fixture's scenario switch) does.
  */
 export function useSessionDirectory(growth: GrowthPort): SessionDirectoryState {
-  const [state, setState] = useState<SessionDirectoryState>({ status: "reading" });
+  // Addressed during the render, so the pass that first sees a new port already
+  // reads `reading` and no committed frame carries the previous bridge's list under
+  // it. The key is `undefined` because the port is the whole subject.
+  const { value: state, settle } = useSubjectScopedState<SessionDirectoryState>(
+    growth,
+    undefined,
+    () => ({ status: "reading" }),
+  );
   useEffect(() => {
-    // Reset on a port change rather than leaving the previous bridge's answer on
-    // screen while the new one is read: a stale list under a fresh source reads as
-    // a current one, and nothing about it says otherwise.
-    setState({ status: "reading" });
-    let isMounted = true;
+    // Captured after the commit, so it names the visit on screen — this port's. A
+    // later port is a later visit, and this publisher refuses every write into it.
+    const publish = settle();
     void growth.sessionList({}).then(
       (outcome) => {
-        if (!isMounted) {
-          // The unmount already happened. Dropping the answer is the whole point:
-          // `setState` on an unmounted caller is the leak this tier's endurance run
-          // exists to catch, and a directory read outliving its surface by one
-          // navigation is the ordinary case rather than the rare one.
-          return;
-        }
-        setState(
+        publish(
           outcome.status === "served"
             ? { status: "served", sessions: outcome.value }
             : { status: "unavailable", refusal: outcome },
@@ -98,25 +123,19 @@ export function useSessionDirectory(growth: GrowthPort): SessionDirectoryState {
       },
       // The rejection handler rides `then` rather than a `.catch` tail, and the
       // difference is which failures it answers for: a tail would also catch a throw
-      // from the fulfilment arm above — a `setState` fault, a bad render queued by it
-      // — and report it as the port refusing, which is a false author on a failure
+      // from the fulfilment arm above — a publish fault, a bad render queued by it —
+      // and report it as the port refusing, which is a false author on a failure
       // that was this hook's. This arm sees the port's rejection and nothing else.
       (rejection: unknown) => {
-        if (!isMounted) {
-          return;
-        }
         // Never read, never stringified here: the value is unestablished, and the one
         // total reading of one lives behind the port's own builder.
-        setState({
+        publish({
           status: "unavailable",
           refusal: growthUnavailableFromRejection("sessionList", rejection),
         });
       },
     );
-    return () => {
-      isMounted = false;
-    };
-  }, [growth]);
+  }, [growth, settle]);
   return state;
 }
 
