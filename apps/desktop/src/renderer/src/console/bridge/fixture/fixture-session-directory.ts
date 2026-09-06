@@ -16,8 +16,9 @@
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError, isWireRecord, refuse } from "../../core/index.js";
+import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import type { GrowthSessionSummary } from "../growth-values/index.js";
+import { scriptedSessionReadMember } from "./scripted-session-read.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 /** The subsystem a directory-derivation refusal names as its author. */
@@ -127,19 +128,11 @@ export function directorySessionsOf(scenario: ConsoleScenario): readonly GrowthS
  * for it here would be the fixture answering a question nobody asked it.
  */
 function declaredSessionState(scenario: ConsoleScenario): string | undefined {
-  const sessionRead = scenario.replies.find((reply) => reply.call === "session.read");
   // Read out of `unknown` by narrowing, the way the attention derivation reads a
   // beat's payload: a scenario's `result` is deliberately untyped so a scenario can
   // carry any registered reply, and a cast here would assert a shape the type system
-  // was never given.
-  return readSessionState(readMember(readMember(sessionRead?.result, "session"), "state"));
-}
-
-/** One member of a value that may not be a record at all. */
-function readMember(value: unknown, member: string): unknown {
-  return isWireRecord(value) ? value[member] : undefined;
-}
-
-function readSessionState(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
+  // was never given. The walk itself is `scripted-session-read.ts`', because the
+  // snapshot derivation next door reads a different member of the same reply.
+  const state = scriptedSessionReadMember(scenario, "session", "state");
+  return typeof state === "string" ? state : undefined;
 }

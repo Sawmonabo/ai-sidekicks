@@ -46,8 +46,6 @@ import { reportTripwire } from "../core/index.js";
 import { ParticipantHueAllocator } from "../tokens/index.js";
 import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
-import { emptyPartitions } from "./entities.js";
-import { mergeUpsert, type SessionPartitions } from "./entity-partitions.js";
 import { EntityProjectionRunner } from "./entity-projection.js";
 import { PreInitialisationBuffer } from "./pre-initialisation-buffer.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
@@ -56,8 +54,15 @@ import {
   isReconcilableSequence,
   orderBatchBySequence,
 } from "./sequence-reconciler.js";
-import { admitsSnapshotAt } from "./session-state.js";
+import {
+  UNINITIALISED_CURSOR,
+  admitsSnapshotAt,
+  capTimeline,
+  establishedState,
+  uninitialisedState,
+} from "./session-state.js";
 import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
+import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 
 // The store's own vocabulary, re-exported from the door consumers already use: the
 // declarations moved to the collaborators that own them, the names a caller writes
@@ -77,37 +82,7 @@ export interface SessionStoreOptions {
   readonly timelineCap?: number;
 }
 
-/** What one `applyBatch` call did. Returned so callers can count rather than infer. */
-export interface ApplyOutcome {
-  readonly admitted: number;
-  readonly duplicates: number;
-  readonly buffered: number;
-  readonly refusedForeignSession: number;
-  readonly gapDetected: boolean;
-  /** Buffered events this batch pushed past `PRE_INITIALISATION_BUFFER_CAP`. */
-  readonly droppedBeforeInitialisation: number;
-  /**
-   * Events refused because their sequence cannot be reconciled with this store's:
-   * a jump past `MAX_REPAIRABLE_SEQUENCE_GAP` of accumulated loss, or a value no
-   * cursor arithmetic can survive.
-   */
-  readonly refusedDivergedSequence: number;
-  /** Events whose registered projector threw. The event landed; its entities did not. */
-  readonly projectionFailures: number;
-}
-
 const SITE = "console/store/session-store.ts";
-
-/** Nothing reached the state. `buffered` is the caller's, because only it knows. */
-const NOTHING_APPLIED: Omit<ApplyOutcome, "buffered"> = {
-  admitted: 0,
-  duplicates: 0,
-  refusedForeignSession: 0,
-  gapDetected: false,
-  droppedBeforeInitialisation: 0,
-  refusedDivergedSequence: 0,
-  projectionFailures: 0,
-};
 
 export class SessionStore {
   readonly #sessionId: string;
@@ -124,16 +99,9 @@ export class SessionStore {
     this.#sessionId = options.sessionId;
     this.#timelineCap = options.timelineCap;
     this.#projectionRunner = new EntityProjectionRunner(options.projectors ?? {});
-    this.#store = createStore<SessionStoreState>(() => ({
-      sessionId: options.sessionId,
-      initialised: false,
-      partitions: emptyPartitions(),
-      timeline: [],
-      cursor: -1,
-      degradedCause: undefined,
-      gaps: [],
-      revision: 0,
-    }));
+    this.#store = createStore<SessionStoreState>(() =>
+      uninitialisedState({ sessionId: options.sessionId, revision: 0 }),
+    );
   }
 
   /** The session this store is bound to. */
@@ -188,33 +156,72 @@ export class SessionStore {
       this.#hueAllocator.admit(participantId);
     }
 
-    let partitions: SessionPartitions = emptyPartitions();
-    for (const entity of snapshot.entities) {
-      partitions = mergeUpsert(partitions, entity);
-    }
-
     const timeline = orderBatchBySequence(snapshot.timeline ?? []);
     this.#reconciler.rebaseTo(
       snapshot.cursor,
       timeline.map((event) => event.sequence),
     );
 
-    this.#store.setState({
-      sessionId: this.#sessionId,
-      initialised: true,
-      partitions,
-      timeline: capTimeline(timeline, this.#timelineCap),
-      cursor: snapshot.cursor,
-      // A re-pull is exactly what clears the sticky flag.
-      degradedCause: undefined,
-      gaps: [],
-      revision: current.revision + 1,
-    });
+    // A re-pull is exactly what clears the sticky flag, and the builder is where that
+    // happens: every other path merges the cause upward and never drops it.
+    this.#store.setState(
+      establishedState({
+        sessionId: this.#sessionId,
+        snapshot,
+        orderedTimeline: timeline,
+        timelineCap: this.#timelineCap,
+        revision: current.revision + 1,
+      }),
+    );
 
     const buffered = this.#preInitialisationBuffer.drain();
     if (buffered.length > 0) {
       this.applyBatch(buffered);
     }
+  }
+
+  /**
+   * Forget everything projected so far, so the next read establishes a base state
+   * from the floor rather than being refused for arriving behind the cursor.
+   *
+   * THE ONE ACT `initialise` CANNOT PERFORM, and deliberately a separate one rather
+   * than a second arm on it. `admitsSnapshotAt` refuses a snapshot behind the current
+   * cursor precisely so a racing re-read cannot undo newer events — which is right in
+   * every case but one: the resume rule's lost-event arm, where the acknowledged
+   * position has fallen below the log's own floor and the rows in between are gone.
+   * There the newer cursor is describing a projection built on rows the daemon no
+   * longer has, and keeping it is keeping a lie. So the caller states the reset as its
+   * own act, and `initialise` keeps its guard unweakened for everybody else.
+   *
+   * THE HUE WHEEL SURVIVES. Hue is identity — it answers "who" and never "when" — and
+   * a reset that re-allocated the wheel would recolour every participant in the
+   * session at the one moment a reader is trying to work out what they missed. The
+   * allocator is idempotent per participant, so the re-establishing read re-admits
+   * the same roster onto the same steps.
+   *
+   * The store is left DEGRADED rather than merely empty. A reset projection is
+   * known-incomplete until the read that follows it lands, and `initialise` is what
+   * clears the flag — so the window between the two states the truth instead of
+   * rendering an empty session as a settled one.
+   */
+  public resetProjection(cause: SessionDegradedCause): void {
+    const current = this.#store.getState();
+    // Through the reconciler's own rebase door rather than a second one: rebasing to
+    // the pre-initialisation cursor with no admitted sequences IS "this store has
+    // seen nothing", and a `reset()` beside it would be a second way to say it.
+    this.#reconciler.rebaseTo(UNINITIALISED_CURSOR, []);
+    // The pre-initialisation buffer is deliberately NOT drained. What it holds is
+    // events that arrived and were never projected; a reset makes this store
+    // uninitialised again, which is precisely the state that buffer exists for, so
+    // the next `initialise` drains them exactly as a first one would. Emptying it
+    // here would drop live rows to record that older ones were lost.
+    this.#store.setState(
+      uninitialisedState({
+        sessionId: this.#sessionId,
+        degradedCause: cause,
+        revision: current.revision + 1,
+      }),
+    );
   }
 
   /**
@@ -377,14 +384,4 @@ export class SessionStore {
 
     return outcome;
   }
-}
-
-function capTimeline(
-  timeline: readonly ConsoleSessionEvent[],
-  cap: number | undefined,
-): readonly ConsoleSessionEvent[] {
-  if (cap === undefined || timeline.length <= cap) {
-    return timeline;
-  }
-  return timeline.slice(timeline.length - cap);
 }

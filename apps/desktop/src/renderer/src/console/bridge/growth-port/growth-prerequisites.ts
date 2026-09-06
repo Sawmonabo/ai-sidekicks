@@ -134,6 +134,13 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "governing-document",
       "the spec that will govern provider-session import",
     ),
+    // lane: ld-cov-b
+    timelineResumeCursorMember: prerequisite(
+      "timelineResumeCursorMember",
+      "session-directory-read",
+      "type-member",
+      "the session read's earliest cursor — the floor the resume rule is taken against, registered in the canonical contract and absent from the strict reply schema",
+    ),
   };
 
 function prerequisite(

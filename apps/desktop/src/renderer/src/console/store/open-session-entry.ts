@@ -27,13 +27,25 @@
 // and asks this session's own scheduler for the re-pull, so a hole repairs itself
 // instead of waiting for an unrelated refresh a quiet session never gets.
 //
+// THE RESUME RULE LANDS BESIDE THAT REPAIR, and for the same reason. Every read this
+// entry performs answers with the log's own three positions, and
+// `api-payload-contracts.md` puts a rule on them the CONSUMER owns: resume from
+// `acknowledged ?? earliest`, reset the projection when the acknowledged position has
+// fallen below the floor, and refuse the whole cycle SDK-locally when the responder
+// carries no floor at all. `timeline-resume.ts` decides; this entry is what acts,
+// because the reset is a write to the store and the store has exactly one owner. The
+// decision is kept rather than discarded so a surface can render the refused arm —
+// which for an older daemon is a standing state and not an incident.
+//
 // It reads no wire itself. The `read` performer is supplied by the composition
 // root, which is what keeps this family below `bridge/` in the console's DAG.
 
 import { RealClock, type ConsoleClock, type ConsoleRefusal } from "../core/index.js";
 import type { EntityProjectorRegistry } from "./entities.js";
 import { ApplyQueue, RefreshScheduler, type RefreshReason } from "./scheduling.js";
-import { SessionStore, type ApplyOutcome, type SessionSnapshot } from "./session-store.js";
+import { type ApplyOutcome } from "./apply-outcome.js";
+import { SessionStore, type SessionSnapshot } from "./session-store.js";
+import { resolveTimelineResume, type TimelineResumeDecision } from "./timeline-resume.js";
 
 /**
  * The read a refresh performs.
@@ -122,6 +134,15 @@ export class OpenSessionEntry {
   public readonly store: SessionStore;
   public readonly applyQueue: ApplyQueue;
   public readonly refreshScheduler: RefreshScheduler;
+  /**
+   * What the newest completed read's cursor block said to do, or `undefined` before
+   * one has landed.
+   *
+   * Kept as the LATEST decision rather than accumulated: each read carries the whole
+   * cursor block, so the newest one supersedes its predecessor completely and a
+   * history of them would be a record of positions the log has already moved past.
+   */
+  #timelineResume: TimelineResumeDecision | undefined = undefined;
 
   public constructor(sessionId: string, options: OpenSessionEntryOptions) {
     const clock = options.clock ?? new RealClock();
@@ -157,12 +178,22 @@ export class OpenSessionEntry {
           return;
         }
         const snapshot = await options.read(sessionId, reasons);
-        if (snapshot !== undefined) {
-          // A completed re-pull is the ONE thing that clears the sticky degraded
-          // flag — `initialise` does that — which is why the read lands here and
-          // not on a caller that might forget.
-          this.store.initialise(snapshot);
+        if (snapshot === undefined) {
+          return;
         }
+        // The resume decision is taken BEFORE the base state is established, which is
+        // the order the rule itself names: the reset has to happen ahead of the read
+        // that lands on it, or `admitsSnapshotAt` refuses a floor-positioned snapshot
+        // for arriving behind a cursor built on rows the daemon no longer holds.
+        const decision = resolveTimelineResume(snapshot.timelineCursors);
+        this.#timelineResume = decision;
+        if (decision.outcome === "reset") {
+          this.store.resetProjection("stream-diverged");
+        }
+        // A completed re-pull is the ONE thing that clears the sticky degraded
+        // flag — `initialise` does that — which is why the read lands here and
+        // not on a caller that might forget.
+        this.store.initialise(snapshot);
       },
       // A failed read is a real degradation with a named cause, not an unhandled
       // rejection: the surface renders "could not re-read" instead of stale rows
@@ -173,6 +204,19 @@ export class OpenSessionEntry {
       ...(options.refreshDebounceMs === undefined ? {} : { debounceMs: options.refreshDebounceMs }),
       ...(options.refreshMaxWaitMs === undefined ? {} : { maxWaitMs: options.refreshMaxWaitMs }),
     });
+  }
+
+  /**
+   * The resume decision the newest completed read produced, or `undefined` before
+   * one has.
+   *
+   * Read by whatever renders the refused arm. `undefined` is deliberately not folded
+   * into the refusal: "no read has completed" and "the responder carries no floor"
+   * are different facts, and a surface that showed the second for the first would
+   * report a version skew every time a session opened.
+   */
+  public get timelineResume(): TimelineResumeDecision | undefined {
+    return this.#timelineResume;
   }
 
   public dispose(): void {

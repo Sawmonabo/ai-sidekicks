@@ -58,6 +58,7 @@
 
 import type { MembershipSummary } from "@ai-sidekicks/contracts";
 
+import { scriptedSessionReadMember } from "./scripted-session-read.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import type { SessionSnapshot } from "../../store/index.js";
 
@@ -94,6 +95,12 @@ export function fixtureSessionSnapshot(
     cursor: BASE_STATE_CURSOR,
     entities: participantEntitiesOf(scenario),
     participantJoinLog: scenario.participantIdsInJoinOrder,
+    // Carried UNREAD from the scenario's own reply, which is where a daemon puts it.
+    // The store's resume rule owns the shape and the narrowing, so a scenario that
+    // scripts no cursor block, or one that predates the floor member, reaches the
+    // refusal arm here exactly as an older daemon would — which is the state this
+    // fixture has to be able to reproduce rather than paper over.
+    timelineCursors: scriptedSessionReadMember(scenario, "timelineCursors"),
   };
 }
 

@@ -72,6 +72,9 @@ export type GrowthOperationId =
   | "sessionReactivate"
   | "sessionRead"
   | "sessionList"
+  // lane: ld-cov-b — the identity a header renders: the session's display title and
+  // its wire-verbatim state, which the store-shaped snapshot read above drops.
+  | "sessionIdentityRead"
   | "daemonStatusRead"
   | "daemonStop"
   | "daemonRestart"
@@ -84,6 +87,9 @@ export type GrowthOperationId =
   | "shellConfigWrite"
   | "invitesList"
   | "healthSubscribe"
+  // lane: ld-cov-b — the one-shot health read the compact form renders, beside the
+  // stream the strip follows.
+  | "healthStatusRead"
   | "gitActionExecute"
   | "artifactIngestBegin"
   | "artifactIngestWriteChunk"
@@ -170,4 +176,6 @@ export type GrowthPrerequisiteId =
   | "timelinePathReferenceMember"
   | "approvalRememberedRuleMember"
   | "approvalAmendmentArm"
-  | "providerSessionImportSpec";
+  | "providerSessionImportSpec"
+  // lane: ld-cov-b
+  | "timelineResumeCursorMember";

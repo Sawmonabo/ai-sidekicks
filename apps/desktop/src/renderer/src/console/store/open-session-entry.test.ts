@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "../core/index.js";
 import { eventOfKind } from "./session-event.test-support.js";
 import { OpenSessionEntry } from "./open-session-entry.js";
+import type { SessionSnapshot } from "./session-store.js";
 
 /** A reader that establishes nothing, so no read can clear what a test set up. */
 const readsNothing = (): Promise<undefined> => Promise.resolve(undefined);
@@ -69,5 +70,127 @@ describe("OpenSessionEntry — dispose is terminal on both children", () => {
 
     entry.dispose();
     expect(clock.pendingCount).toBe(0);
+  });
+});
+
+describe("OpenSessionEntry — the resume rule runs on every completed read", () => {
+  /**
+   * One entry whose successive reads answer with the snapshots supplied, in order.
+   *
+   * A queue rather than one snapshot, because every case here is about the SECOND
+   * read: the rule only has something to decide once a projection exists for it to
+   * keep or throw away, so each case establishes one and then reconnects.
+   */
+  function entryReadingInTurn(
+    clock: ManualClock,
+    snapshots: readonly SessionSnapshot[],
+  ): OpenSessionEntry {
+    let readIndex = 0;
+    return new OpenSessionEntry("session-1", {
+      read: () => {
+        const snapshot = snapshots[Math.min(readIndex, snapshots.length - 1)];
+        readIndex += 1;
+        return Promise.resolve(snapshot);
+      },
+      clock,
+      applyCoalesceMs: 0,
+      refreshDebounceMs: 20,
+    });
+  }
+
+  /** Ask for a refresh and let the scheduler's deadline and its promise settle. */
+  async function refresh(clock: ManualClock, entry: OpenSessionEntry): Promise<void> {
+    entry.refreshScheduler.request("window-focus");
+    clock.advance(21);
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  /** A projection seven rows deep, whose cursors are in order. */
+  const ESTABLISHED: SessionSnapshot = {
+    cursor: 7,
+    entities: [],
+    participantJoinLog: [],
+    timelineCursors: {
+      earliest: "0_1723291400000000000",
+      latest: "7_1723291480000000000",
+      acknowledged: "7_1723291480000000000",
+    },
+  };
+
+  it("throws the projection away before establishing a base state below the cursor", async () => {
+    // The lost-event arm end to end. The reconnecting read is positioned at the
+    // floor and its acknowledged cursor has fallen below it, so the projection at
+    // cursor 7 was built on rows the daemon no longer holds. Without the reset,
+    // `admitsSnapshotAt` refuses the floor snapshot for arriving behind the cursor
+    // and the store keeps projecting them.
+    const clock = new ManualClock(0);
+    const entry = entryReadingInTurn(clock, [
+      ESTABLISHED,
+      {
+        cursor: 0,
+        entities: [],
+        participantJoinLog: [],
+        timelineCursors: {
+          earliest: "0_1723291400000000000",
+          latest: "9_1723291500000000000",
+          acknowledged: "-4_1723200000000000000",
+        },
+      },
+    ]);
+
+    await refresh(clock, entry);
+    expect(entry.store.snapshot().cursor).toBe(7);
+    await refresh(clock, entry);
+
+    expect(entry.timelineResume?.outcome).toBe("reset");
+    expect(entry.store.snapshot().cursor).toBe(0);
+  });
+
+  it("negative control: an ordered pair leaves the established projection standing", async () => {
+    // Without this the case above would pass over an entry that reset on every read,
+    // which would discard a live projection on every window focus.
+    const clock = new ManualClock(0);
+    const entry = entryReadingInTurn(clock, [
+      ESTABLISHED,
+      {
+        cursor: 0,
+        entities: [],
+        participantJoinLog: [],
+        timelineCursors: {
+          earliest: "0_1723291400000000000",
+          latest: "9_1723291500000000000",
+          acknowledged: "7_1723291480000000000",
+        },
+      },
+    ]);
+
+    await refresh(clock, entry);
+    await refresh(clock, entry);
+
+    expect(entry.timelineResume?.outcome).toBe("resume");
+    expect(entry.store.snapshot().cursor).toBe(7);
+  });
+
+  it("refuses the cycle without resetting anything when the read carries no floor", async () => {
+    // The version-skew arm. The refusal is recorded and the projection is untouched:
+    // an older responder is a standing state, not an incident, and a console that
+    // reset on it would rebuild the same projection on every read forever.
+    const clock = new ManualClock(0);
+    const entry = entryReadingInTurn(clock, [
+      ESTABLISHED,
+      {
+        cursor: 0,
+        entities: [],
+        participantJoinLog: [],
+        timelineCursors: { latest: "9_1723291500000000000" },
+      },
+    ]);
+
+    await refresh(clock, entry);
+    await refresh(clock, entry);
+
+    expect(entry.timelineResume?.outcome).toBe("refused");
+    expect(entry.store.snapshot().cursor).toBe(7);
   });
 });

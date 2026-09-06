@@ -6,8 +6,9 @@
 // the writer, which is how a family acquires a cycle.
 
 import type { SessionDegradedCause } from "./degradation.js";
+import { emptyPartitions } from "./entities.js";
 import type { ConsoleEntity, ConsoleSessionEvent } from "./entities.js";
-import type { SessionPartitions } from "./entity-partitions.js";
+import { mergeUpsert, type SessionPartitions } from "./entity-partitions.js";
 import type { SequenceGap } from "./sequence-reconciler.js";
 
 /** The immutable state one session store holds. */
@@ -43,6 +44,17 @@ export interface SessionSnapshot {
   readonly participantJoinLog: readonly string[];
   /** Events the read response carried, ordered by sequence. */
   readonly timeline?: readonly ConsoleSessionEvent[];
+  /**
+   * The cursor block the read answered with, carried UNREAD.
+   *
+   * The snapshot is the whole of what one read established, and the resume rule is
+   * taken against these three positions rather than against the entity graph beside
+   * them — so a snapshot that dropped them would leave the entry holding a base state
+   * and no way to learn whether the rows below it still exist. It is deliberately
+   * `unknown`: `timeline-resume.ts` owns the shape and the narrowing, and a typed
+   * member here would assert away the very absence that module has to detect.
+   */
+  readonly timelineCursors?: unknown;
 }
 
 /**
@@ -61,4 +73,92 @@ export function admitsSnapshotAt(cursor: number, current: SessionStoreState): bo
     return true;
   }
   return cursor === current.cursor && current.degradedCause !== undefined;
+}
+
+/**
+ * The cursor a store holds before any read has established a base state.
+ *
+ * Named because three writers spend it — the state a store is constructed with, the
+ * state a projection reset returns it to, and the reconciler rebase that reset
+ * performs — and a literal in three places is one value with three homes.
+ */
+export const UNINITIALISED_CURSOR = -1;
+
+/**
+ * The state of a store that has projected nothing: newly constructed, or reset.
+ *
+ * ONE BUILDER FOR BOTH, because they are the same state and differ only in what the
+ * reader should be told about it. A construction is quiet — nothing has been asked
+ * for yet — and a reset is DEGRADED, because a projection thrown away is
+ * known-incomplete until the read that follows it lands, and rendering that window as
+ * a settled empty session would be the console reporting a fact it does not have.
+ */
+export function uninitialisedState(input: {
+  readonly sessionId: string;
+  readonly revision: number;
+  readonly degradedCause?: SessionDegradedCause | undefined;
+}): SessionStoreState {
+  return {
+    sessionId: input.sessionId,
+    initialised: false,
+    partitions: emptyPartitions(),
+    timeline: [],
+    cursor: UNINITIALISED_CURSOR,
+    degradedCause: input.degradedCause,
+    gaps: [],
+    revision: input.revision,
+  };
+}
+
+/**
+ * The state one read response establishes.
+ *
+ * Takes the ordered timeline rather than ordering the snapshot's own, because the
+ * caller has already ordered it: the same sequence list the reconciler rebases onto
+ * is the list this state carries, and ordering it twice would be two orderings of one
+ * log that can disagree.
+ *
+ * `degradedCause` is cleared here and nowhere else. A completed re-pull is exactly
+ * what makes a projection whole again, so the flag every other path only ever merges
+ * upward is dropped at the one moment that earns it.
+ */
+export function establishedState(input: {
+  readonly sessionId: string;
+  readonly snapshot: SessionSnapshot;
+  readonly orderedTimeline: readonly ConsoleSessionEvent[];
+  readonly timelineCap: number | undefined;
+  readonly revision: number;
+}): SessionStoreState {
+  let partitions: SessionPartitions = emptyPartitions();
+  for (const entity of input.snapshot.entities) {
+    partitions = mergeUpsert(partitions, entity);
+  }
+  return {
+    sessionId: input.sessionId,
+    initialised: true,
+    partitions,
+    timeline: capTimeline(input.orderedTimeline, input.timelineCap),
+    cursor: input.snapshot.cursor,
+    degradedCause: undefined,
+    gaps: [],
+    revision: input.revision,
+  };
+}
+
+/**
+ * The newest `cap` events of a timeline, or all of them where there is no cap.
+ *
+ * Here rather than beside the store that applies it because the cap is a property of
+ * the STATE — what a `timeline` member is allowed to hold — and both writers of that
+ * member, the read that establishes it and the batch that appends to it, take the
+ * same answer from this one function.
+ */
+export function capTimeline(
+  timeline: readonly ConsoleSessionEvent[],
+  cap: number | undefined,
+): readonly ConsoleSessionEvent[] {
+  if (cap === undefined || timeline.length <= cap) {
+    return timeline;
+  }
+  return timeline.slice(timeline.length - cap);
 }

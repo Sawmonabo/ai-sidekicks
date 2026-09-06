@@ -32,6 +32,7 @@ import type { ConsoleSessionEvent } from "./entities.js";
 import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
 import type { RefreshReason } from "./scheduling.js";
 import type { SessionStore } from "./session-store.js";
+import type { TimelineResumeDecision } from "./timeline-resume.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";
@@ -184,6 +185,18 @@ export class SessionStoreRegistry {
     for (const entry of this.#entriesBySessionId.values()) {
       entry.refreshScheduler.request(reason);
     }
+  }
+
+  /**
+   * What the newest completed read of one session said about resuming its stream,
+   * or `undefined` when that session is not open or no read has landed on it.
+   *
+   * The registry's own seam onto the entry's decision, so a surface that holds a
+   * session id can reach it without holding the entry — which nothing outside this
+   * family does, by design.
+   */
+  public timelineResumeFor(sessionId: string): TimelineResumeDecision | undefined {
+    return this.#entriesBySessionId.get(sessionId)?.timelineResume;
   }
 
   /** How many reads a session's scheduler has performed. The coalescing assertion. */
