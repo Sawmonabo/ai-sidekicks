@@ -40,10 +40,21 @@ const REPO_MOUNTS_READER_DISPOSAL: SubjectScopedDisposal<RepoMountsReader> = {
   isClosed: (reader) => reader.isDisposed,
 };
 
-/** What the hook hands a surface: the reading, and the one mutation the picker sends. */
+/** What the hook hands a surface: the reading, the picker's mutation, and the re-read. */
 export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
   readonly requestModeSelection: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
+  /**
+   * Read the section again, because a participant's own act changed what it holds.
+   *
+   * `participant-request` AND NOT A NEW REASON. The scheduler's vocabulary already has
+   * the member for an act a person performed, and the attach and re-attach controls are
+   * exactly that: the mount they mint is not announced by any lifecycle frame this
+   * reader subscribes to, so without this the section would keep reporting the roster it
+   * read before the act. It coalesces with the reader's other reasons, so an attach that
+   * lands beside a reconnect is one read and not two.
+   */
+  readonly requestRead: () => void;
 }
 
 /**
@@ -99,5 +110,8 @@ export function useRepoMounts(
     },
     [reader],
   );
-  return { reading, requestModeSelection };
+  const requestRead = useCallback(() => {
+    reader.requestRead("participant-request");
+  }, [reader]);
+  return { reading, requestModeSelection, requestRead };
 }

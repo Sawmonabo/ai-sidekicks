@@ -65,13 +65,17 @@ const EXPECTED_READINGS: readonly string[] = [
   "AgentRosterReading",
   "ApprovalsReader",
   "ArtifactPaneReader",
+  "AttachController",
+  "BindWorkspaceController",
   "BridgeCapabilityRead",
+  "ExecutionRootPrepareController",
   "NodeProviderQuotaReading",
   "ProposalGateReader",
   "RepoMountsReader",
   "SessionQueueReading",
   "ShellPreferenceStore",
   "SidekickRegistryView",
+  "WorkspaceExecutionContextReader",
 ];
 
 /** One class, judged against the rule. */

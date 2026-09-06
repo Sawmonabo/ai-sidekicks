@@ -423,3 +423,460 @@
 .meridian-root-card__detail-list {
   padding-block-start: var(--meridian-space-2);
 }
+
+/* --------------------------------------------- refusal recovery, shared */
+
+/*
+ * The next move under a refusal, in the slot the three refusal shapes reserve for it.
+ *
+ * IT READS AS PART OF THE REFUSAL AND NOT AS A SECOND NOTICE: no border, no ground of
+ * its own, one step of leading. A boxed remedy beside a boxed refusal would present
+ * one fact as two, which is exactly what putting it in the shape's own `action` slot
+ * was meant to avoid.
+ */
+.meridian-mount-recovery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-recovery__move {
+  margin: 0;
+}
+
+/*
+ * The three-way distinctions one code carries. A list because the cases are exclusive
+ * and a person picks between them; run together as prose they read as three steps.
+ */
+.meridian-mount-recovery__cases {
+  margin: 0;
+  padding-inline-start: var(--meridian-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* ------------------------------------------- workspace execution context */
+
+.meridian-execution-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * The fallback badge sits OUTSIDE the disclosure, so it is on screen without an open.
+ * `Spec-010 §Fallback Behavior` requires a substituted mode marked distinctly from a
+ * chosen one, and a marker behind a summary line is not marked.
+ */
+.meridian-execution-context__fallback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-execution-context__fallback-sentence {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-execution-context__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+/* The one line a summary has room for, set apart from the label before it. */
+.meridian-execution-context__line {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-execution-context__list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  padding-block-start: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-execution-context__label {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-execution-context__value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-execution-context__meaning,
+.meridian-execution-context__same {
+  color: var(--meridian-text-faint);
+}
+
+/* ----------------------------------------------------- attach a repository */
+
+/*
+ * ONE CONTROL SHAPE FOR EVERY BUTTON THIS DIRECTORY ADDS, declared once. The attach,
+ * re-attach, prepare, and disposal surfaces each carry a trigger, a cancel, a confirm,
+ * and a retry, and a rule per class would have been sixteen copies of one declaration
+ * — and sixteen chances for one of them to arrive without a focus ring.
+ */
+.meridian-attach__trigger,
+.meridian-attach__cancel,
+.meridian-attach__confirm,
+.meridian-attach__retry,
+.meridian-bind__trigger,
+.meridian-bind__cancel,
+.meridian-bind__confirm,
+.meridian-bind__retry,
+.meridian-reattach__trigger,
+.meridian-reattach__cancel,
+.meridian-reattach__confirm,
+.meridian-prepare-root__confirm,
+.meridian-prepare-root__reread,
+.meridian-root-disposal__trigger,
+.meridian-root-disposal__cancel,
+.meridian-root-disposal__confirm,
+.meridian-root-disposal__reread {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-attach__trigger:hover:enabled,
+.meridian-bind__trigger:hover:enabled,
+.meridian-reattach__trigger:hover:enabled,
+.meridian-prepare-root__confirm:hover:enabled,
+.meridian-root-disposal__trigger:hover:enabled {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-attach__confirm:disabled,
+.meridian-bind__confirm:disabled,
+.meridian-reattach__trigger:disabled,
+.meridian-prepare-root__confirm:disabled,
+.meridian-root-disposal__trigger:disabled {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+/*
+ * Focus is visible on every control these surfaces ship, in one rule rather than one
+ * per class, so a control added later cannot arrive without it.
+ */
+.meridian-attach__dialog :focus-visible,
+.meridian-bind__dialog :focus-visible,
+.meridian-reattach :focus-visible,
+.meridian-reattach__dialog :focus-visible,
+.meridian-prepare-root :focus-visible,
+.meridian-root-disposal :focus-visible,
+.meridian-root-disposal__dialog :focus-visible,
+.meridian-repo-section > .meridian-attach__trigger:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The three popups share one geometry: the members dialog's, which this follows. */
+.meridian-attach__backdrop,
+.meridian-bind__backdrop,
+.meridian-reattach__backdrop,
+.meridian-root-disposal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-attach__dialog,
+.meridian-bind__dialog,
+.meridian-reattach__dialog,
+.meridian-root-disposal__dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-attach__title,
+.meridian-bind__title,
+.meridian-reattach__title,
+.meridian-root-disposal__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-attach__body,
+.meridian-bind__body,
+.meridian-reattach__body,
+.meridian-root-disposal__body {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attach__acts,
+.meridian-bind__acts,
+.meridian-reattach__acts,
+.meridian-root-disposal__acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attach__path,
+.meridian-bind__directory,
+.meridian-prepare-root__branch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* The field label, and the node group's legend, at one size. */
+.meridian-attach__legend,
+.meridian-bind__legend,
+.meridian-prepare-root__legend {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * A path and a branch name are wire values a person is composing, so both are set in
+ * the mono face the surface renders wire strings in — the field and the figure it
+ * becomes read as the same kind of thing.
+ */
+.meridian-attach__path-input,
+.meridian-bind__directory-input,
+.meridian-prepare-root__branch-input {
+  font: inherit;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+.meridian-attach__nodes,
+.meridian-bind__modes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+/* One node per row: the radio, the id, and both health axes side by side. */
+.meridian-attach__node,
+.meridian-bind__mode {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-attach__roster-refusal,
+.meridian-bind__modes-refusal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attach__minted,
+.meridian-reattach__subject {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-attach__attached,
+.meridian-bind__settlement,
+.meridian-reattach__attached {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The sentence saying why a control is closed. Amber rather than red: nothing has
+ * failed, something is missing — and spending the failure colour here would leave it
+ * meaning less where a refusal actually lands.
+ */
+.meridian-attach__blocked,
+.meridian-bind__blocked,
+.meridian-prepare-root__blocked {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-reattach {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}
+
+/* ------------------------------------------- prepare an execution root */
+
+.meridian-prepare-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-prepare-root__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-prepare-root__line {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-prepare-root__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-prepare-root__verdict p {
+  margin: 0;
+}
+
+/*
+ * THE TWO VERDICTS THAT CHANGE WHAT A PRESS DOES ARE TONED, and the two that do not
+ * are left plain. A dirty candidate is a consent about to be given, and an
+ * incompatible one is a control that cannot be pressed at all — those are the readings
+ * a person must not skim past. `none` and `reusable` are ordinary outcomes.
+ */
+.meridian-prepare-root__verdict--dirty {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-prepare-root__verdict--incompatible {
+  color: var(--meridian-red-text);
+}
+
+.meridian-prepare-root__candidate,
+.meridian-prepare-root__reason {
+  min-width: 0;
+}
+
+.meridian-prepare-root__consent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-prepare-root__prepared,
+.meridian-root-disposal__settled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  min-width: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-prepare-root__state,
+.meridian-root-disposal__state {
+  font-family: var(--meridian-font-mono);
+}
+
+/* --------------------------------------------- retire and dispose a root */
+
+.meridian-root-disposal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}
+
+/* ------------------------------------------------- bind a workspace */
+
+/*
+ * The mount root, above the directory field it is the base of. A row rather than a
+ * column, because the legend is naming ONE value and the pair reads as a caption on the
+ * figure — the field below it is the thing being composed and gets the column shape.
+ */
+.meridian-bind__root {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+/*
+ * An excluded mode is dimmed and still legible: `Spec-009 §Fallback Behavior` requires
+ * the gap explicit, so the row must stay readable next to its reason. Dimming it to the
+ * point of vanishing would be the same as dropping it, with extra steps.
+ */
+.meridian-bind__mode--out {
+  color: var(--meridian-text-muted);
+  cursor: default;
+}
+
+/* The mount's own sentence for why a mode is out. Wraps; never truncated. */
+.meridian-bind__mode-reason {
+  min-width: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-bind__settlement-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  min-width: 0;
+}

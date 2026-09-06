@@ -25,6 +25,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
             bridge={props.bridge}
             sessionStore={props.sessionStore}
             onCopyCanonicalRoot={props.onCopy}
+            onRequestRead={props.onRequestRead}
             onSelectExecutionMode={props.onSelect}
           />
         ))}
@@ -54,7 +55,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
         kind="empty"
         placement="surface"
         title="No repository is attached to this session."
-        detail="Attaching is deliberate — nothing is attached automatically. Attach is reached through the command-line and SDK surfaces today; once a repository is attached, this section names each mount's resolved root, the node that owns it, and whether it is still the repository it was attached as."
+        detail="Attaching is deliberate — nothing is attached automatically. Once a repository is attached, this section names each mount's resolved root, the node that owns it, and whether it is still the repository it was attached as."
       />
     );
   }
@@ -75,5 +76,7 @@ export interface MountListProps {
   /** Passed down for the same reason: each root's gate arms its own refresh triggers. */
   readonly sessionStore: SessionStore;
   readonly onCopy: (canonicalRoot: string) => void;
+  /** Read the section again after a participant's own act. Passed through to each card. */
+  readonly onRequestRead: () => void;
   readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
 }

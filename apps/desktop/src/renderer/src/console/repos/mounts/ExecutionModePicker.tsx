@@ -6,6 +6,8 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import { ModeRowView } from "./ModeRowView.js";
 import { type ModeRow } from "./mode-row.js";
+import { modeRestrictionReason, mountRefusalRecovery } from "./mount-refusal-copy.js";
+import { RefusalRecovery } from "./RefusalRecovery.js";
 
 export interface ExecutionModePickerProps {
   /** Wire-verbatim workspace id; the group's inputs are named by it so two pickers never collide. */
@@ -18,6 +20,14 @@ export interface ExecutionModePickerProps {
   readonly refusal: ConsoleRefusal | undefined;
   /** The mode a switch is on the wire for, where one is. Absent means nothing is pending. */
   readonly pendingMode: ExecutionMode | undefined;
+  /**
+   * The mode the refusal above was about, where it came from a refused switch.
+   *
+   * Absent for a refused capabilities READ, which is about the workspace and names no
+   * mode — so the one code whose recovery is the mount's own restriction reason cannot
+   * reach for a reason belonging to a mode nobody pressed.
+   */
+  readonly refusalMode: ExecutionMode | undefined;
   /** Whether the surrounding card offers its bind controls at all. */
   readonly disabled: boolean;
   readonly onSelect: (executionMode: ExecutionMode) => void;
@@ -25,11 +35,32 @@ export interface ExecutionModePickerProps {
 
 export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.Element {
   const { capabilities } = props;
+  // THE RECOVERY IS LOOKED UP ONCE FOR BOTH REFUSAL SITES BELOW, because both render
+  // the same refusal: the picker draws it beside the group when the modes are known and
+  // in place of the group when they are not, and a code's next move does not depend on
+  // which of the two the surface reached.
+  //
+  // The RESTRICTION REASON is available only on the arm that HAS a capabilities reply,
+  // which is the honest shape rather than a limitation: a refused read gives the picker
+  // no `restrictions` map at all, so `workspace.mode_unsupported` on that arm takes the
+  // table's own "no reason on file" sentence instead of one lifted from a stale reply.
+  const recovery =
+    props.refusal === undefined
+      ? undefined
+      : mountRefusalRecovery(props.refusal.code, {
+          restrictionReason: modeRestrictionReason(capabilities?.restrictions, props.refusalMode),
+        });
+  const recoveryAction =
+    recovery === undefined ? undefined : <RefusalRecovery recovery={recovery} />;
   if (capabilities === undefined) {
     return (
       <div className="meridian-mode-picker">
         {props.refusal !== undefined ? (
-          <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
+          <InlineRefusal
+            code={props.refusal.code}
+            detail={props.refusal.detail}
+            action={recoveryAction}
+          />
         ) : (
           <Nothing
             kind="not-checked"
@@ -71,7 +102,11 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
         </p>
       ) : null}
       {props.refusal !== undefined ? (
-        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
+        <InlineRefusal
+          code={props.refusal.code}
+          detail={props.refusal.detail}
+          action={recoveryAction}
+        />
       ) : null}
     </div>
   );

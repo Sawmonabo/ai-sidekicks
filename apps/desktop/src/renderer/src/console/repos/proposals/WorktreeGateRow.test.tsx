@@ -106,6 +106,7 @@ function row(
         bridge={gateRowBridgeAnswering(branchContext)}
         sessionStore={new SessionStore({ sessionId: ROOT.createdBySessionId })}
         nowMilliseconds={NOW}
+        onRequestRead={() => undefined}
         {...overrides}
       />
     </LiveAnnouncerProvider>

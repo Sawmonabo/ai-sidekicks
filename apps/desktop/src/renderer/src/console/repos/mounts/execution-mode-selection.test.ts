@@ -140,10 +140,10 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
 
     expect(port.selectCallCount()).toBe(1);
     const refusal = reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID];
-    expect(refusal?.code).toBe("selection-in-flight");
+    expect(refusal?.refusal.code).toBe("selection-in-flight");
     // The sentence names the switch already on the wire — not the one just pressed and
     // not the mode the row is bound as.
-    expect(refusal?.detail).toBe(selectionInFlightCopy(WORKTREE_MODE));
+    expect(refusal?.refusal.detail).toBe(selectionInFlightCopy(WORKTREE_MODE));
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBe(WORKTREE_MODE);
   });
 
@@ -213,7 +213,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     port.release();
     await drain();
 
-    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.refusal.code).toBe(
       "workspace.busy",
     );
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
@@ -250,7 +250,7 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     await drain();
     port.release();
     await drain();
-    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.refusal.code).toBe(
       "workspace.busy",
     );
 
@@ -279,7 +279,7 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     await drain();
 
     expect(port.selectCallCount()).toBe(2);
-    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.refusal.code).toBe(
       "workspace.busy",
     );
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
@@ -294,14 +294,14 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     await drain();
     port.release();
     await drain();
-    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.refusal.code).toBe(
       "workspace.busy",
     );
 
     void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
     await drain();
 
-    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.refusal.code).toBe(
       "workspace.busy",
     );
     expect(reader.snapshot.pendingModeByWorkspaceId[PLAIN_WORKSPACE_ID]).toBe(BRANCH_MODE);
@@ -339,7 +339,7 @@ describe("ExecutionModeSelections — the register empties on every arm", () => 
     await drain();
 
     expect(reader.inFlightSelectionCount).toBe(0);
-    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.refusal.code).toBe(
       "workspace.busy",
     );
   });

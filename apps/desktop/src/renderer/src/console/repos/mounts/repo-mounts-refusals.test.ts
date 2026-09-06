@@ -103,6 +103,12 @@ async function openSection(behaviour: PortBehaviour = {}): Promise<ReadUnderTest
   trackReader(reader);
   reader.start();
   await settle(clock, reader);
+  // AND THEN THE REST OF THE BURST. `settle` stops at the first `read` reading, which
+  // the section publishes once the roster and the mount reads have landed; the
+  // per-workspace capabilities legs settle behind it, and this scenario now holds three
+  // workspaces rather than two. Without this the case asserting a capabilities refusal
+  // reads the frame before that leg answered.
+  await drain();
   let sequence = 0;
   return {
     reader,
@@ -164,6 +170,9 @@ describe("the per-workspace refusals — one half per producer", () => {
 
     section.deliverLifecycleFrame("workspace.stale");
     await settle(section.clock, section.reader);
+    // The capabilities legs settle behind the reading `settle` stops at — see
+    // `openSection` for why that gap exists at all.
+    await drain();
 
     const reading = section.reader.snapshot;
     expect(reading.workspaceRefusals.byCapabilitiesRead[GIT_WORKSPACE_ID]).toBeUndefined();

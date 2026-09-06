@@ -9,6 +9,10 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { SessionStore } from "../../store/index.js";
+
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import { CANONICAL_ROOT, workspaceRow as workspace } from "./repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
@@ -19,9 +23,14 @@ function renderRow(row: RepoWorkspaceRow): ReturnType<typeof render> {
       workspace={row}
       capabilities={undefined}
       refusal={undefined}
+      refusalMode={undefined}
       pendingMode={undefined}
       modeControlsOffered
+      mountCanonicalRoot={CANONICAL_ROOT}
+      bridge={fixtureBridgeWithGrowth(REPOS_SCENARIO, {})}
+      sessionStore={new SessionStore({ sessionId: "session-repos" })}
       onSelectExecutionMode={() => undefined}
+      onRequestRead={() => undefined}
     />,
   );
 }
