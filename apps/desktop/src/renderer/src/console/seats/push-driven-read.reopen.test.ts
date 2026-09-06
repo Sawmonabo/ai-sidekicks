@@ -14,6 +14,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../core/index.js";
+import { LatchedOnceOpen } from "./push-driven-read.latched-open.test-support.js";
 import { PushDrivenRead } from "./push-driven-read.js";
 
 /** Let the scheduler's in-flight promise settle without advancing the clock. */
@@ -165,6 +166,58 @@ describe("push-driven read — a refused open is not the end of the surface", ()
     expect(model.isSubscribed).toBe(true);
     expect(model.state).toStrictEqual({ kind: "loaded", value: "roster" });
     model.dispose();
+  });
+
+  it("negative control: the shape this replaced refuses the re-open this one admits", async () => {
+    // The control the redesign owes, run rather than described. Both objects are
+    // driven over ONE seam that refuses the first subscribe and admits the second, in
+    // the same order, so the only thing that differs is which open is under it. The
+    // replaced shape is `push-driven-read.latched-open.test-support.ts`, which is
+    // asserted to be WRONG here — it is the defect, kept runnable so a reintroduction
+    // of it fails this case rather than passing every case above.
+    let opensAdmitted = false;
+    let latchedSubscribeCount = 0;
+    const latched = new LatchedOnceOpen({
+      origin: "presence-roster",
+      subscribe: () => {
+        latchedSubscribeCount += 1;
+        if (!opensAdmitted) {
+          throw new Error("daemon.subscribe is not available in this build");
+        }
+        return () => undefined;
+      },
+    });
+
+    latched.start();
+    expect(latched.state.kind).toBe("failed");
+
+    // The repair a person performs: the seam works now, and the surface is asked again.
+    opensAdmitted = true;
+    latched.refresh();
+    latched.start();
+
+    // It never asked a second time, so the refusal is still the answer and no
+    // subscription is held — for the life of the window.
+    expect(latchedSubscribeCount).toBe(1);
+    expect(latched.isSubscribed).toBe(false);
+    expect(latched.state.kind).toBe("failed");
+
+    // The same seam, the same order, under the shape that shipped.
+    const clock = new ManualClock();
+    const harness = buildRefusingRead({ clock });
+    harness.model.start();
+    clock.advance(5000);
+    await settle();
+    expect(harness.model.state.kind).toBe("failed");
+
+    harness.admitOpens();
+    harness.model.refresh("participant-request");
+    clock.advance(200);
+    await settle();
+
+    expect(harness.subscribeCount()).toBe(2);
+    expect(harness.model.isSubscribed).toBe(true);
+    expect(harness.model.state).toStrictEqual({ kind: "loaded", value: "roster" });
   });
 
   it("negative control: dispose beats a re-open, and the trigger opens nothing", async () => {
