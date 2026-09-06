@@ -22,6 +22,6 @@
 
 export { createFixtureBridge } from "./fixture-bridge.js";
 
-export { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
+export { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 
 export { BASE_STATE_CURSOR } from "./fixture-session-snapshot.js";

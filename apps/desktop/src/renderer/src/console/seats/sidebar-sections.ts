@@ -92,7 +92,6 @@ export interface SidebarSectionDescriptor {
   readonly render: (context: SidebarSectionContext) => React.ReactNode;
 }
 
-// Consumed by T-023p-1C-3
 export class SidebarSectionRegistry {
   // `"owner-scoped"`, for `surface-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
@@ -123,15 +122,8 @@ export class SidebarSectionRegistry {
   }
 }
 
-// Consumed by T-023p-1C-3
 /** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
-
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
-/** The call a family makes to fill one sidebar section. */
-export function registerSidebarSection(descriptor: SidebarSectionDescriptor): void {
-  sidebarSectionRegistry.register(descriptor);
-}
 
 // Consumed by T-023p-1C-3
 /** One section's body, or `undefined` while nobody has filled it. */

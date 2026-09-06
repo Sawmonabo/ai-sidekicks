@@ -36,10 +36,8 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../console-bridge.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./fixture-call-door.js";
-import {
-  createFixtureGrowthPort,
-  FIXTURE_SERVED_GROWTH_OPERATION_IDS,
-} from "./fixture-growth-port.js";
+import { createFixtureGrowthPort } from "./fixture-growth-port.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import { refuseAbsentCapability } from "./fixture-refusal.js";
 import { subscribeToScenario, subscribeToScenarioRelay } from "./fixture-subscriptions.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
