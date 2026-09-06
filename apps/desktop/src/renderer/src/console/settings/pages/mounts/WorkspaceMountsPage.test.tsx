@@ -1,155 +1,23 @@
 // The mounts page renders both health axes separately, offers no detach, and says
 // which session it is reading for.
+//
+// The refresh signals and the refused read are the suite next door
+// (`WorkspaceMountsPage.refresh.test.tsx`); both drive the page through the harness
+// in `workspace-mounts-page.test-support.tsx`.
 
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { MOUNT_INVENTORY_READ_CAP } from "../../../core/index.js";
-import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../../core/index.js";
 import {
-  LiveAnnouncer,
-  LiveAnnouncerProvider,
-  formatClockTime,
-  formatDateTime,
-} from "../../../primitives/index.js";
-import { SidekicksBridgeProvider } from "../../../bridge/index.js";
-import type { SessionStore } from "../../../store/index.js";
-import { WorkspaceMountsPage, registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";
-import {
-  MOUNT_A,
-  MOUNT_B,
-  SESSION_ID,
-  mountIdAt,
-  mountReadFor,
-  workspaceListWith,
-} from "./mounts.test-support.js";
-import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
-import { eventOfKind } from "../../../store/session-event.test-support.js";
-import { initialisedStore } from "../../../store/session-store-registry.test-support.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
-
-/**
- * A settings context whose bridge answers the two registered reads on a clock the
- * test owns.
- *
- * The clock rides `scenarioEngine`, which is where the page looks for one: a
- * fixture bridge supplies the story's clock and a live bridge supplies none, and
- * this test drives the same resolution rather than reaching around it. Without it
- * the page builds a `RealClock` and the read's coalescing window becomes a real
- * timer nothing here can advance.
- */
-function contextReading(options: {
-  readonly clock: ManualClock;
-  readonly mountIds: readonly string[];
-  readonly mountOverrides?: Readonly<Record<string, Partial<RepoMountReadResponse>>>;
-  readonly retainedSessionId?: string | undefined;
-  /** The retained session's store, where the window has one open. */
-  readonly sessionStore?: SessionStore | undefined;
-  /** Counts what the page asked for, so a refresh can be proved rather than assumed. */
-  readonly onCall?: (method: string) => void;
-  /** Makes the enumerating read reject, which is the list's own refused arm. */
-  readonly rejectWith?: { readonly code: string; readonly message: string };
-  /**
-   * How many daemon calls `rejectWith` covers. Unbounded when omitted.
-   *
-   * A bounded count is what drives RECOVERY: a refusal that clears is a first
-   * attempt that fails and a second that answers, and a bridge that refused forever
-   * could not tell a permanent refusal apart from a transient one.
-   */
-  readonly rejectionCount?: number;
-}): SettingsPageContext {
-  let refusedCallCount = 0;
-  return {
-    bridge: {
-      source: "fixture",
-      scenarioEngine: { clock: options.clock },
-      sidekicks: {
-        daemon: {
-          call: async (method: string, request: unknown): Promise<unknown> => {
-            options.onCall?.(method);
-            if (
-              options.rejectWith !== undefined &&
-              refusedCallCount < (options.rejectionCount ?? Number.POSITIVE_INFINITY)
-            ) {
-              refusedCallCount += 1;
-              // A wire ENVELOPE and not a bare `Error`: the call door normalizes a
-              // rejection into the console's refusal shape, and only an envelope
-              // carries a code of its own for it to keep. A bare message would be
-              // normalized under the door's own code, which is a different assertion.
-              throw options.rejectWith;
-            }
-            if (method === "repo.workspaceList") {
-              return workspaceListWith(options.mountIds);
-            }
-            const { repoMountId } = request as { repoMountId: string };
-            return mountReadFor(repoMountId, options.mountOverrides?.[repoMountId] ?? {});
-          },
-        },
-      },
-    },
-    openSection: () => undefined,
-    retainedSessionId: "retainedSessionId" in options ? options.retainedSessionId : SESSION_ID,
-    retainedSessionStore: options.sessionStore,
-  } as unknown as SettingsPageContext;
-}
-
-/** The page's own element, so a case never reads the announcer's regions by accident. */
-function mountsPageOf(root: HTMLElement): HTMLElement {
-  const page = root.querySelector<HTMLElement>(".meridian-settings-page");
-  if (page === null) {
-    throw new Error("the mounts page did not render");
-  }
-  return page;
-}
-
-/**
- * Mount, advance past the coalescing window, and let the two chained reads settle.
- *
- * The read itself is the real one and only the wire is a stand-in. Settling is one
- * turn of the macrotask queue rather than a counted run of microtask flushes,
- * because the number of ticks a fan-out takes is a function of how many mounts the
- * fixture named.
- */
-async function renderSettledPage(
-  clock: ManualClock,
-  context: SettingsPageContext,
-): Promise<{
-  readonly page: HTMLElement;
-  readonly politeText: () => string;
-  readonly settle: () => Promise<void>;
-}> {
-  // One announcer, on the page's own frozen clock — the resolution `AppFrame` makes
-  // in a window. A second time base here would make "was it said again" a question
-  // about the runner rather than about the read.
-  const announcer = new LiveAnnouncer({ clock });
-  // Under the bridge provider, because the list below this page takes the window's
-  // clock from `useConsoleClock` — the console's one answer to which clock a window
-  // runs on, and the resolution the provider's own error message says every console
-  // surface renders inside. The supplied bridge is the context's, so nothing about
-  // what this case answers moves.
-  const { container } = render(
-    <SidekicksBridgeProvider bridge={context.bridge}>
-      <LiveAnnouncerProvider announcer={announcer}>
-        <WorkspaceMountsPage context={context} />
-      </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
-  );
-  const settle = async (): Promise<void> => {
-    await act(async () => {
-      clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-      await new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
-    });
-  };
-  await settle();
-  return {
-    page: mountsPageOf(container),
-    politeText: () => container.querySelector('[data-live-region="polite"]')?.textContent ?? "",
-    settle,
-  };
-}
+  LIVE_ANNOUNCEMENT_HOLD_MS,
+  MOUNT_INVENTORY_READ_CAP,
+  ManualClock,
+} from "../../../core/index.js";
+import { formatClockTime, formatDateTime } from "../../../primitives/index.js";
+import { SettingsPageRegistry } from "../../settings-page-registry.js";
+import { MOUNT_A, MOUNT_B, mountIdAt } from "./mounts.test-support.js";
+import { registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";
+import { contextReading, renderSettledPage } from "./workspace-mounts-page.test-support.js";
 
 describe("workspace mounts page", () => {
   it("renders the mount's path and both health axes, never folded together", async () => {
@@ -335,121 +203,5 @@ describe("workspace mounts page — the read says it landed, once", () => {
     // rather than a read that never ran.
     expect(methodsAsked.length).toBeGreaterThan(askedOnFirstRead);
     expect(politeText()).toBe("");
-  });
-});
-
-describe("the page's refresh signals", () => {
-  it("re-reads the inventory when the retained session reports a run terminal", async () => {
-    // The wire this case pins is the PAGE's: the surface resolves the retained
-    // session's store, the page hands it to the read, and the read binds it. A page
-    // that dropped the member on its way through would still render, and the list
-    // would go quietly stale.
-    const clock = new ManualClock();
-    const sessionStore = initialisedStore(SESSION_ID);
-    const listMethods: string[] = [];
-    const context = contextReading({
-      clock,
-      mountIds: [MOUNT_A],
-      sessionStore,
-      onCall: (method) => {
-        listMethods.push(method);
-      },
-    });
-    const { settle } = await renderSettledPage(clock, context);
-    const listReadsBefore = listMethods.filter((method) => method === "repo.workspaceList").length;
-    expect(listReadsBefore).toBe(1);
-
-    await act(async () => {
-      sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
-      clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-      await settle();
-    });
-
-    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(2);
-  });
-
-  it("negative control: the same event moves nothing when the window holds no store", async () => {
-    // Without this the case above would pass over a page that re-read on any
-    // render, and would prove nothing about which signal reached the read.
-    const clock = new ManualClock();
-    const sessionStore = initialisedStore(SESSION_ID);
-    const listMethods: string[] = [];
-    const context = contextReading({
-      clock,
-      mountIds: [MOUNT_A],
-      onCall: (method) => {
-        listMethods.push(method);
-      },
-    });
-    const { settle } = await renderSettledPage(clock, context);
-
-    await act(async () => {
-      sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
-      clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-      await settle();
-    });
-
-    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
-  });
-});
-
-describe("the mounts list — a refused read is not the end of it", () => {
-  it("re-reads the inventory when the refused arm's control is pressed", async () => {
-    // The list's three signals are the session's event stream, window focus, and
-    // nothing else — so a refusal that clears a moment later stood on screen until
-    // one of the two happened to fire. The control is the third way back, and it is
-    // the only one a person can reach on purpose.
-    const clock = new ManualClock();
-    const { page, settle } = await renderSettledPage(
-      clock,
-      contextReading({
-        clock,
-        mountIds: [MOUNT_A],
-        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
-        rejectionCount: 1,
-      }),
-    );
-    expect(page.textContent ?? "").toContain("that node is not attached");
-
-    await act(async () => {
-      page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
-      await Promise.resolve();
-    });
-    await settle();
-
-    expect(page.querySelectorAll(".meridian-mount-list__item")).toHaveLength(1);
-    expect(page.textContent ?? "").not.toContain("that node is not attached");
-  });
-
-  it("negative control: the list offers no such control once it has read", async () => {
-    // Without this, the case above would hold for a page that drew the control on
-    // every arm — a re-read offered beside an inventory that is already current.
-    const clock = new ManualClock();
-    const { page } = await renderSettledPage(clock, contextReading({ clock, mountIds: [MOUNT_A] }));
-
-    expect(page.querySelector(".meridian-nothing button")).toBeNull();
-  });
-
-  it("negative control: a refusal that has not cleared refuses the re-read too", async () => {
-    // Without this, the first case would hold for a control that cleared the refused
-    // arm on press whatever the daemon then said — reporting a recovery that did not
-    // happen, which is worse than the state it replaced.
-    const clock = new ManualClock();
-    const { page, settle } = await renderSettledPage(
-      clock,
-      contextReading({
-        clock,
-        mountIds: [MOUNT_A],
-        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
-      }),
-    );
-
-    await act(async () => {
-      page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
-      await Promise.resolve();
-    });
-    await settle();
-
-    expect(page.textContent ?? "").toContain("that node is not attached");
   });
 });
