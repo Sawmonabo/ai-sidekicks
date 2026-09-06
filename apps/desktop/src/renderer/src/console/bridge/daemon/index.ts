@@ -1,12 +1,16 @@
 // The daemon seam: what the console may call, what it may subscribe to, and how a
 // delivered frame becomes something a surface can read.
 //
-// ONE SUB-MODULE BECAUSE THE THREE HALVES ARE ONE DECISION. The method set names what
-// may be asked, the reply registry binds each method to the shape its answer must
-// match, the stream table names what a subscription delivers, and the two decoders
-// narrow a delivered frame against the schema the corpus registers. Split across the
-// bridge's top level they read as five unrelated files; together they are the single
-// place that knows the wire, which is the property every family above depends on.
+// ONE SUB-MODULE BECAUSE EVERY MODULE IN IT IS ONE DECISION. The method contract
+// names what may be asked, the reply registry binds each method to the shape its
+// answer must match, the reply chokepoint is the one place an answer enters the
+// console and is parsed against that shape, the stream table names what a
+// subscription delivers, and the two decoders narrow a delivered frame — a session
+// event payload, an entity body member — against the schema the corpus registers.
+// Split across the bridge's top level they read as unrelated files; together they
+// are the single place that knows the wire, which is the property every family above
+// depends on. The roles are listed rather than counted: a family lands a module here
+// in a diff that never touches this header, and a cardinal is what it would forget.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
 // rule this follows. `bridge/index.ts` stays the one door the rest of the console

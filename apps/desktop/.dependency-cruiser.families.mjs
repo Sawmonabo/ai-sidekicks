@@ -13,9 +13,11 @@
 /** Console family homes, low to high. A family may import any home below it and none above. */
 export const CONSOLE = "^src/renderer/src/console";
 
-// `core/` is the DAG floor: `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`,
-// `emitter.ts`, `clock.ts`. Nothing below it, so its rule below is the only one that forbids
-// every other family at once.
+// `core/` is the DAG floor: the caps and tripwires, the refusal vocabulary, the clock, the
+// keyed registry, the emitter, the wire-string readers. Nothing below it, so its rule below
+// is the only one that forbids every other family at once. The residents are read off the
+// directory rather than listed here — a roster in a comment is a closed set whose second
+// home nothing keeps current.
 export const CORE = `${CONSOLE}/core/`;
 export const TOKENS = `${CONSOLE}/tokens/`;
 export const ROUTING = `${CONSOLE}/routing/`;
@@ -92,6 +94,18 @@ export const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
  * in — and which landed in the same change as the one import it made legal.
  */
 export const TEST_SUPPORT_MODULES = "\\.test-support\\.(ts|tsx)$";
+
+/**
+ * The one cross-process leaf: types and pure functions main, preload and the renderer
+ * all need.
+ *
+ * Named here because two rules scope to it and they say opposite things — what it may
+ * import, and who may import it. The console reaches it through the layer family that
+ * owns the concern, never from a view family: `core/` is where a wire string, a
+ * refusal code or a stringifier lands, so one console module knows the shared shape
+ * and everything above it reads the console's own.
+ */
+export const CROSS_PROCESS_SHARED = "^src/shared/";
 
 /** Every family door, and only a family door — a sub-module door is one segment deeper. */
 export const CONSOLE_FAMILY_DOORS = `${CONSOLE}/[^/]+/index\\.ts$`;

@@ -22,6 +22,11 @@
 // the only site in `console/**` doing the scaling. If a component needs a byte
 // figure, it calls `formatByteQuantity`.
 //
+// WHAT IS NOT HERE: the `Intl` instances. Which formatter object is kept alive, on
+// which key, and how many there may be is `intl-formatter-cache.ts` beside this file
+// — a different question with a different failure mode, and the module that answers
+// it holds the two caches this one reads through.
+//
 // The two time readings below take their instant from `core/instant.ts` rather than
 // from `Date.parse`, so DISPLAY and ORDERING read a wire stamp the same way. They did
 // not before, and the two disagreements were both invisible: `Date.parse` normalizes
@@ -31,6 +36,7 @@
 // rest of this module uses for a figure it cannot stand behind.
 
 import { parseInstant } from "../core/index.js";
+import { currencyMinorUnitDigits, relativeTimeFormatFor } from "./intl-formatter-cache.js";
 
 /**
  * The closed unit set, ascending; the index IS the power of 1024.
@@ -166,53 +172,6 @@ export function formatRate(perSecond: number, unitLabel: string, locale?: string
 }
 
 /**
- * The console's `Intl.RelativeTimeFormat` instances, one per locale asked for.
- *
- * A CLASS WITH A PRIVATE FIELD rather than a module-level `Map`, per
- * `apps/desktop/AGENTS.md` §State and views — and it holds state at all because
- * constructing an `Intl` formatter resolves a locale and builds a message table,
- * which is the expensive half, while formatting with one is cheap. A relative time
- * is the console's most repeated figure: every ledger row carrying an age
- * re-renders on the reading tick, so a formatter minted per call is one locale
- * resolution per row per tick.
- *
- * Bounded by construction rather than by an eviction policy, which is why it needs
- * none: the only key is the `locale` a caller passes, callers pass the host locale
- * or nothing, and no wire value reaches this parameter. A `Map` keyed on
- * `string | undefined` holds the absent case as itself, so "no locale" is one entry
- * rather than a sentinel that a caller could collide with — `""` would have been
- * exactly such a collision, since `new Intl.RelativeTimeFormat("")` throws and this
- * cache must not turn that into a silent host default.
- */
-class RelativeTimeFormatters {
-  readonly #byLocale = new Map<string | undefined, Intl.RelativeTimeFormat>();
-
-  /** The formatter for `locale`, minted on first ask and kept. */
-  public formatterFor(locale: string | undefined): Intl.RelativeTimeFormat {
-    const cached = this.#byLocale.get(locale);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-    this.#byLocale.set(locale, formatter);
-    return formatter;
-  }
-}
-
-const relativeTimeFormatters = new RelativeTimeFormatters();
-
-/**
- * The one `Intl.RelativeTimeFormat` this console holds for `locale`.
- *
- * Exported so the claim is checkable by identity — two asks for one locale answer
- * with the same object, which is what "constructed once" means and the only thing
- * that distinguishes this from the per-call mint it replaced.
- */
-export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat {
-  return relativeTimeFormatters.formatterFor(locale);
-}
-
-/**
  * A relative time, through `Intl.RelativeTimeFormat`.
  *
  * The unit is chosen by magnitude, not by arithmetic on a wire figure: the input is
@@ -260,69 +219,6 @@ export function formatClockTime(iso: string, locale?: string): string {
 }
 
 /**
- * Currency codes whose minor-unit precision the formatter remembers.
- *
- * A receipt spans the currencies its paying accounts bill in — a handful, never
- * dozens — so the bound sits far above any real render and exists for the other
- * case: the code is a WIRE string, and a cache keyed on one that nothing bounds
- * grows for as long as the wire cares to send codes nobody asked for.
- */
-const CURRENCY_MINOR_UNIT_CACHE_CAP = 32;
-
-/**
- * How many fractional digits a currency's own minor unit has.
- *
- * A class holding its own map rather than a module-level one, and a cache at all
- * because the answer is obtained by CONSTRUCTING an `Intl.NumberFormat` and
- * reading back what it resolved — cheap once per code, wasteful once per ledger
- * row.
- *
- * Keyed on the code alone even though the probe takes a locale: the minor unit is
- * a property of the currency, not of the locale rendering it, so one remembered
- * reading serves every locale the console renders in.
- */
-class CurrencyMinorUnitRegistry {
-  readonly #digitsByCurrencyCode = new Map<string, number>();
-
-  /**
-   * Throws `RangeError` for a code `Intl` will not accept — the same throw
-   * `formatMoney`'s fallback arm already handles, which is why the call sits
-   * inside that `try` and why an unusable code never reaches the cache.
-   */
-  public digitsFor(currency: string, locale: string | undefined): number {
-    const currencyCode = currency.toUpperCase();
-    const remembered = this.#digitsByCurrencyCode.get(currencyCode);
-    if (remembered !== undefined) {
-      return remembered;
-    }
-    const { maximumFractionDigits } = new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: currencyCode,
-    }).resolvedOptions();
-    // The member is optional on the resolved-options type, and an absent reading
-    // is not "zero digits" — it is the platform declining to name a bound at all.
-    // Reading it as 0 is what makes it mean that: `Math.max` then leaves the
-    // console's own floor deciding the precision, exactly as it did before this
-    // lookup existed.
-    const minorUnitDigits = maximumFractionDigits ?? 0;
-    if (this.#digitsByCurrencyCode.size >= CURRENCY_MINOR_UNIT_CACHE_CAP) {
-      // Insertion order, so what is dropped is the code seen longest ago. Recency
-      // would need a touch on every hit to be true, and the cost of dropping the
-      // wrong one is a single constructor call the next time it is asked for.
-      const oldestCurrencyCode = this.#digitsByCurrencyCode.keys().next();
-      if (oldestCurrencyCode.done !== true) {
-        this.#digitsByCurrencyCode.delete(oldestCurrencyCode.value);
-      }
-    }
-    this.#digitsByCurrencyCode.set(currencyCode, minorUnitDigits);
-    return minorUnitDigits;
-  }
-}
-
-/** The console's one reader of currency precision. */
-const currencyMinorUnits = new CurrencyMinorUnitRegistry();
-
-/**
  * A money figure the accountant supplied, in its own currency.
  *
  * Two fractional digits is a FLOOR, not the precision. A currency whose minor
@@ -352,7 +248,7 @@ export function formatMoney(amount: number, currency: string, locale?: string): 
       minimumFractionDigits,
       maximumFractionDigits: Math.max(
         floorFractionDigits,
-        currencyMinorUnits.digitsFor(currency, locale),
+        currencyMinorUnitDigits(currency, locale),
       ),
     }).format(amount);
   } catch {

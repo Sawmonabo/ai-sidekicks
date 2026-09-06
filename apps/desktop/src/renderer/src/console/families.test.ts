@@ -225,6 +225,23 @@ function seatBoardHeader(): string {
   return firstImport === -1 ? seatBoardSource : seatBoardSource.slice(0, firstImport);
 }
 
+/**
+ * Every spelled cardinal in a header that names a number other than the seat count.
+ *
+ * The one home for the rule, read by the claim below and by its control, so a change
+ * to what counts as a stray moves both. Values below two are not strays: "one" and
+ * "zero" are ordinary English in prose about a single seat or an empty board, and
+ * neither reads as a count of families. The seat count's own spelling is not a stray
+ * either — repeating it names the same number, which is what the header is for; what
+ * the defect looked like was a SECOND, DIFFERENT number standing beside it.
+ */
+function straySpelledCardinals(header: string, seatCount: number): readonly string[] {
+  return SPELLED_CARDINALS.filter(
+    (word, value) =>
+      value > 1 && value !== seatCount && new RegExp(`\\b${word}\\b`, "iu").test(header),
+  );
+}
+
 describe("console families — the header states the seat count, once", () => {
   it("spells the number of reserved seats and no other number", () => {
     // The defect this replaces: the header opened with "Seven surface families" and
@@ -235,34 +252,47 @@ describe("console families — the header states the seat count, once", () => {
     //
     // So the rule is one count in one place, and this is what makes it one: the seat
     // count is DERIVED by counting the lines, the header has to spell that number,
-    // and any OTHER cardinal in the header is an offence — which is what a second
-    // spelling would be, whether or not it agreed on the day it was written.
+    // and any cardinal in the header naming a DIFFERENT number is an offence.
     const seatCount = [...seatBoardSource.matchAll(RESERVED_SEAT_LINE)].length;
     expect(seatCount).toBe(7);
     const header = seatBoardHeader();
     const spelled = SPELLED_CARDINALS[seatCount];
     expect(header.toLowerCase()).toContain(`${spelled ?? "?"} surface families`);
-    const strays = SPELLED_CARDINALS.filter(
-      (word, value) =>
-        value > 1 && value !== seatCount && new RegExp(`\\b${word}\\b`, "iu").test(header),
-    );
-    expect(strays).toStrictEqual([]);
+    expect(straySpelledCardinals(header, seatCount)).toStrictEqual([]);
   });
 
-  it("negative control: a second spelling of the count is an offence, agreeing or not", () => {
-    // Without this the clean result above could come from a regex that matches
-    // nothing. Both directions are planted: a header naming a different number, and
-    // one naming the same number twice in different words — the second is the shape
-    // the defect actually took, and it is caught because the rule is about the
-    // SPELLING being alone rather than about the numbers agreeing.
-    const strayIn = (header: string): readonly string[] =>
-      SPELLED_CARDINALS.filter(
-        (word, value) => value > 1 && value !== 7 && new RegExp(`\\b${word}\\b`, "iu").test(header),
-      );
-    expect(strayIn("// Seven surface families, and six branches that build them.")).toStrictEqual([
-      "six",
-    ]);
-    expect(strayIn("// Seven surface families. Seven branches, seven diffs.")).toStrictEqual([]);
-    expect(strayIn(seatBoardHeader())).toStrictEqual([]);
+  it("negative control: a header spelling a second, different count is an offence", () => {
+    // Without this the clean result above could come from a predicate that reports
+    // nothing at all. It plants the shape the defect actually took — a header opening
+    // on one number and naming another three lines down — and drives the SHIPPED
+    // predicate the claim above evaluates, so emptying that predicate reddens this
+    // case rather than leaving it green over a hand-copied rule.
+    //
+    // The other direction is planted too, and it is deliberately NOT an offence: the
+    // seat count spelled twice is still one number, and a rule that reported it would
+    // forbid a header from using its own count in a sentence.
+    //
+    // The number here is the one the PLANTED headers spell, not a second copy of the
+    // board's: the last assertion is the one that reads the real header, and it takes
+    // the same derived count the claim above does.
+    const plantedSeatCount = 7;
+    expect(
+      straySpelledCardinals(
+        "// Seven surface families, and six branches that build them.",
+        plantedSeatCount,
+      ),
+    ).toStrictEqual(["six"]);
+    expect(
+      straySpelledCardinals(
+        "// Seven surface families. Seven branches, seven diffs.",
+        plantedSeatCount,
+      ),
+    ).toStrictEqual([]);
+    expect(
+      straySpelledCardinals(
+        seatBoardHeader(),
+        [...seatBoardSource.matchAll(RESERVED_SEAT_LINE)].length,
+      ),
+    ).toStrictEqual([]);
   });
 });

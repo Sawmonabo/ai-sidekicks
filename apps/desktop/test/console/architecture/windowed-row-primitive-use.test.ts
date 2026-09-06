@@ -37,10 +37,16 @@
 //      element declares where it sits: an explicit `tabIndex`, or the spread of the
 //      row's own target props. Anything else is an offence.
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  type ConsoleSourceModule,
   ConsoleSourceTree,
+  consoleSourceModules,
   moduleNamed,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
@@ -93,6 +99,32 @@ const CONSOLE_READING_ALLOWANCE_MS = 30_000;
 const SCAN_ALLOWANCE_MS = 10_000;
 
 vi.setConfig({ testTimeout: SCAN_ALLOWANCE_MS, hookTimeout: CONSOLE_READING_ALLOWANCE_MS });
+
+/**
+ * Row modules planted on disk, so the sibling lookup resolves against a real read.
+ *
+ * `rowComponentDelegates` answers by NAME against the module set and then reads what
+ * that name resolves to, so driving its true arm needs a `<Name>.tsx` that exists and
+ * reaches the primitive. No production module does yet — the primitive's first caller
+ * is the task its door line names — and a hand-built module record would prove only
+ * that the filter runs, not that the resolution does. So the case plants the two
+ * shapes it needs and reads them back through the same walk the tree reading uses.
+ */
+function plantRowSiblingModules(sources: Readonly<Record<string, string>>): {
+  readonly modules: readonly ConsoleSourceModule[];
+  readonly remove: () => void;
+} {
+  const plantRoot = mkdtempSync(join(tmpdir(), "windowed-row-siblings-"));
+  for (const [name, source] of Object.entries(sources)) {
+    writeFileSync(join(plantRoot, name), source, "utf8");
+  }
+  return {
+    modules: consoleSourceModules({ roots: [plantRoot] }),
+    remove: () => {
+      rmSync(plantRoot, { recursive: true, force: true });
+    },
+  };
+}
 
 const tree = new ConsoleSourceTree();
 
@@ -172,14 +204,21 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
     ).toBe(false);
   });
 
-  it("negative control: rows extracted into a sibling component are admitted", () => {
-    // The other direction the substring test got wrong, and the ordinary answer once a
-    // row grows: the windowing module names no primitive, and its rows do go through
-    // one. The sibling is resolved by name against the real module set, so the
-    // admission is a fact about the tree rather than a shape in this file.
+  it("negative control: a map that reaches the primitive itself is admitted", () => {
+    // The early arm: the primitive is inside the `.map(`, so no row was placed for it
+    // to have been placed instead of, and the sibling lookup is never asked. Both
+    // spellings, because a row that wraps its content and one that self-closes are the
+    // same answer to the claim.
     const composed = [
       "export const list = entryWindow.getVirtualItems().map((virtualRow) => (",
       "  <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
+      "));",
+    ].join("\n");
+    const wrapped = [
+      "export const list = entryWindow.getVirtualItems().map((virtualRow) => (",
+      "  <li key={virtualRow.key}>",
+      "    <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
+      "  </li>",
       "));",
     ].join("\n");
     const rowsOwnModule = moduleNamed(
@@ -188,19 +227,54 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
       "the row primitive",
     );
     expect(readConsoleSourceModule(rowsOwnModule)).toContain(WINDOWED_ROW_PRIMITIVE);
-    const delegating = [
-      "export const list = entryWindow.getVirtualItems().map((virtualRow) => (",
-      "  <li key={virtualRow.key}>",
-      "    <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
-      "  </li>",
-      "));",
-    ].join("\n");
     expect(windowsWithoutTheRowPrimitive(composed, "Composed.tsx", tree.reading.modules)).toBe(
       false,
     );
-    expect(windowsWithoutTheRowPrimitive(delegating, "Delegating.tsx", tree.reading.modules)).toBe(
-      false,
-    );
+    expect(windowsWithoutTheRowPrimitive(wrapped, "Wrapped.tsx", tree.reading.modules)).toBe(false);
+  });
+
+  it("negative control: rows extracted into a sibling component are admitted", () => {
+    // The other direction the substring test got wrong, and the ordinary answer once a
+    // row grows: the windowing module names no primitive at all, its `.map(` places a
+    // bare `<li>`, and the row inside it is a sibling component that DOES reach the
+    // primitive. This is the case that executes `rowComponentDelegates`' true arm —
+    // the map above never reaches it, because a primitive inside the map answers the
+    // claim before the siblings are looked at.
+    const delegating = [
+      'import { useVirtualizer } from "@tanstack/react-virtual";',
+      "const virtualRows = entryWindow.getVirtualItems();",
+      "export const list = (",
+      '  <ul className="meridian-diff-files__list">',
+      "    {virtualRows.map((virtualRow) => (",
+      "      <li key={entry.path} data-index={virtualRow.index}>",
+      "        <DiffFileRow entry={entry} />",
+      "      </li>",
+      "    ))}",
+      "  </ul>",
+      ");",
+    ].join("\n");
+    expect(delegating).not.toContain(WINDOWED_ROW_PRIMITIVE);
+
+    const planted = plantRowSiblingModules({
+      // The delegating sibling: a row of its own that renders the primitive.
+      "DiffFileRow.tsx": `export const DiffFileRow = () => <${WINDOWED_ROW_PRIMITIVE} as="li">{entry.path}</${WINDOWED_ROW_PRIMITIVE}>;`,
+      // The sibling `HAND_ROLLED_LIST` names, so that corpus's row RESOLVES here and is
+      // still an offence — which separates "no module of that name" from "a module that
+      // does not reach the primitive", the two ways the false arm is reached.
+      "DiffFileEntryButton.tsx":
+        'export const DiffFileEntryButton = () => <button type="button">{entry.path}</button>;',
+    });
+    try {
+      const modules = [...tree.reading.modules, ...planted.modules];
+      expect(
+        planted.modules.map((module) => module.displayPath.split("/").at(-1)).sort(),
+      ).toStrictEqual(["DiffFileEntryButton.tsx", "DiffFileRow.tsx"]);
+
+      expect(windowsWithoutTheRowPrimitive(delegating, "DiffFileList.tsx", modules)).toBe(false);
+      expect(windowsWithoutTheRowPrimitive(HAND_ROLLED_LIST, "HandRolled.tsx", modules)).toBe(true);
+    } finally {
+      planted.remove();
+    }
   });
 
   it("planted violation: a sibling that only MENTIONS the primitive does not delegate", () => {
