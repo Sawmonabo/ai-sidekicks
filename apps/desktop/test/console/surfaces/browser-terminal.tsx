@@ -36,6 +36,7 @@ import {
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { releaseQueuedPaneFrames } from "../../../src/renderer/src/console/browser/pane/BrowserPane.test-support.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
@@ -103,7 +104,7 @@ function paneBinding(
   return {
     frameStore: new FrameStore(),
     uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore(),
+    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     linkedSourcePaneId: undefined,
     focusHue: undefined,
     ...overrides,

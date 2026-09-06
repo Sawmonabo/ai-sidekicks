@@ -30,8 +30,11 @@ export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.j
 // a string that reaches disk through this family's own value walk, so a boundary
 // parse that admitted a whitespace-, NUL-, or path-bearing id would accept what the
 // durable path refuses — one value, two boundaries, disagreeing. The alternative was
-// a second grammar in `seats/`, which is how two sources of truth start.
-export { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "./identifier-grammar.js";
+// a second grammar in `seats/`, which is how two sources of truth start. The LENGTH
+// half of that grammar is a bound and lives in `core/constants.ts` with the console's
+// other bounds; both boundaries read it from there, so this door publishes the shape
+// test and not the number.
+export { isSingleNameIdentifierShaped } from "./identifier-grammar.js";
 
 // The console's one byte measurement, published for the caps ABOVE this family. It
 // lives here because the durable path's own cap is measured with it and a ruler

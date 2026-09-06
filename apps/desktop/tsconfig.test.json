@@ -63,13 +63,17 @@
     "node_modules",
     "src/renderer/**",
     "test/console/console-harness.tsx",
-    "test/console/surfaces/**",
     "test/console/phase-graph-settled.ts",
     // The architecture tier moved to `tsconfig.console-architecture-test.json` when
     // its wire-truth test started IMPORTING console source rather than reading it:
     // that pulls `store/hooks.ts` into the program, which reaches `window`. Same
     // split, and the same reason, as the browser and Electron tiers below.
     "test/console/architecture/**",
+    // The browser tiers' shared surface scaffolding, excluded with the tiers that
+    // read it: it is typechecked by `tsconfig.console-browser-test.json` under the
+    // renderer's own options, and a `.tsx` fixture landing there would fail here
+    // exactly as the tiers do.
+    "test/console/surfaces/**",
     "test/console/browser/**",
     "test/console/screenshot/**",
     "test/console/accessibility/**",

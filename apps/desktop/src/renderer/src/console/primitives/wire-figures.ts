@@ -250,6 +250,29 @@ export function formatDateTime(iso: string, locale?: string): string {
 }
 
 /**
+ * A ratio as a percentage, through `Intl`.
+ *
+ * The input is a FRACTION and not a percentage, because that is what
+ * `Intl.NumberFormat`'s percent style takes — a caller holding a 0-to-100 wire
+ * figure divides at the call site, which is one visible division rather than a
+ * hidden convention this function would have to be read to discover.
+ *
+ * It lives here for the reason every other formatter does: the `%` sign is a unit
+ * label, and `formatRate` is beside it precisely because a unit composed at a call
+ * site is a second formatter. Out-of-range and non-finite inputs answer the same em
+ * dash as its siblings rather than rendering a percentage nobody can act on.
+ */
+export function formatPercent(fraction: number, locale?: string): string {
+  if (!Number.isFinite(fraction) || fraction < 0) {
+    return "—";
+  }
+  return new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: 0,
+  }).format(fraction);
+}
+
+/**
  * A money figure the accountant supplied, in its own currency.
  *
  * Two fractional digits is a FLOOR, not the precision. A currency whose minor

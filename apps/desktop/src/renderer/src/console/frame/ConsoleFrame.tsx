@@ -39,6 +39,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 import { type ConsoleBridge } from "../bridge/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { CONSOLE_CHORD_PLATFORM, PaletteOverlay, consoleCommands } from "../palette/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
@@ -89,7 +90,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // A ref is right for this one: a draft store owns a `Map` and nothing outside its
   // own memory, so the window dropping it is the whole of its teardown.
   const draftStoreRef = useRef<DraftStore>(undefined);
-  draftStoreRef.current ??= new DraftStore();
+  draftStoreRef.current ??= new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
   const draftStore = draftStoreRef.current;
 
   // The window's stores fold with what the composition in `ConsoleRoot.tsx`
@@ -151,6 +152,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     route,
     lastOpenedSessionId,
     frameStore,
+    uiStateStore,
     chooseScheme,
   });
 

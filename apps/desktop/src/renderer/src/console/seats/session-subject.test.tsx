@@ -115,6 +115,15 @@ describe("isCurrentSessionSubject — both live objects, neither reduced to a na
     ).toBe(false);
   });
 
+  it("negative control: comparing the session ids would call both of those current", () => {
+    // Without this, the two cases above would prove nothing about WHICH comparison
+    // the predicate performs — every object in them names one session throughout, so
+    // a predicate that read the name would answer `true` where these answer `false`.
+    const rebuilt = new SessionStore({ sessionId: "session-one" });
+    expect(rebuilt.sessionId).toBe(sessionStore.sessionId);
+    expect(createFixture().bridge).not.toBe(bridge);
+  });
+
   it("answers false where nothing is held, or where either side is unresolved", () => {
     expect(isCurrentSessionSubject(undefined, bridge, sessionStore)).toBe(false);
     expect(isCurrentSessionSubject({ bridge, sessionStore }, undefined, sessionStore)).toBe(false);

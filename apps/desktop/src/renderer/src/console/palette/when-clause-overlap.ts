@@ -6,22 +6,12 @@
 // `when-clause.ts` defines, run once per chord collision at install time and
 // never on the input path.
 
+import { WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS } from "../core/index.js";
 import {
   collectWhenClauseIdentifiers,
   evaluateWhenClause,
   type WhenClauseNode,
 } from "./when-clause.js";
-
-/**
- * How many distinct context keys a pair of clauses may name before
- * `whenClausesCanOverlap` stops enumerating.
- *
- * Twelve keys is 4096 assignments per pair, checked only for bindings that share
- * a chord — microseconds, once, at install. It is set by what a human writes: a
- * console clause names two or three keys, and a pair naming thirteen is a design
- * smell long before it is a performance problem.
- */
-export const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;
 
 /** What `whenClausesCanOverlap` could establish about two scopes. */
 export type WhenClauseOverlap = "overlap" | "disjoint" | "undecided";

@@ -17,6 +17,7 @@
 // one file that six families then need to widen. What is shared is the DECLARATION,
 // which is what drifts when it is prose.
 
+// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * What a plan-owned slot says about itself.
  *

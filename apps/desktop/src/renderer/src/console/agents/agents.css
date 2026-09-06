@@ -1,0 +1,392 @@
+/* The agents family's own styles: the card, the shared composition, and the grant.
+ *
+ * WHAT IS HERE AND WHAT IS NOT. Three sub-modules carry their own sheets beside
+ * their components — `provider-switch/provider-switch.css`,
+ * `run-console/run-console.css`, and `definitions/sidekick-definitions-page.css` — so a
+ * reader looking for one surface's rules is not scrolling past three others'. What
+ * stays here is the family's: the agent card, the axis field both forms draw, the
+ * attach dialog, the peer-invocation grant, and the grouped rules that give the
+ * card, both forms, and the linkage one button and one label.
+ *
+ * Those grouped rules are deliberately NOT split along with their surfaces. A
+ * selector list naming a card action, an attach arm, a switch apply, and a linkage
+ * open is one decision about how a control in this family looks; copying it into
+ * four sheets is four decisions that agree until one of them stops.
+ *
+ * Hand-authored composition over generated values, like every other console sheet —
+ * no literal colour below, and the only literal lengths are the hairlines that
+ * separate rows and the two indents that make a nested list read as nested.
+ *
+ * Three decisions the design forces:
+ *
+ *   • **The effective line and the pending line are different lines, and they look
+ *     it.** The effective binding is body text on the card's own ground; a pending
+ *     switch is set off by a leading edge, because it is a promise rather than a
+ *     fact and the eye has to be able to tell them apart at a glance.
+ *   • **An absent axis is text, never a gap.** Every absence carries a sentence, so
+ *     the row keeps its rhythm and a reader never has to work out whether a blank
+ *     means "default" or "nobody asked".
+ *   • **A caution is one arm and one arm only.** The failed settlement takes the red
+ *     mark; the memo settlement does not, because it is a real switch with a real
+ *     loss and decorating it as a failure would be false.
+ */
+
+.meridian-agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding-block: var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-agent-card:last-child {
+  border-block-end: 0;
+}
+
+.meridian-agent-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  flex-wrap: wrap;
+}
+
+.meridian-agent-card__name {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-agent-card__state {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  flex-wrap: wrap;
+}
+
+.meridian-agent-card__state-reason,
+.meridian-agent-card__observed-reason,
+.meridian-agent-card__axis-absent {
+  color: var(--meridian-text-muted);
+}
+
+/* A figure the console derived rather than one the wire carried: it reads as text
+   at full weight, so a restriction somebody chose is never mistaken for an absence. */
+.meridian-agent-card__axis-derived {
+  color: var(--meridian-text);
+}
+
+.meridian-agent-card__effective,
+.meridian-agent-card__observed,
+.meridian-agent-card__pending {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-agent-card__pending {
+  border-inline-start: 2px solid var(--meridian-amber-mark);
+  padding-inline-start: var(--meridian-space-3);
+}
+
+.meridian-agent-card__line-label,
+.meridian-agent-card__axis-label,
+.meridian-axis-field__label {
+  font-size: var(--meridian-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-agent-card__axis {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-agent-card__pending-when,
+.meridian-agent-card__pending-superseded {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-agent-card__disclosure-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-agent-card__disclosure-summary:focus-visible,
+.meridian-linkage__refusals-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-agent-card__resolved {
+  margin: var(--meridian-space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-agent-card__resolved-row {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-agent-card__resolved-row dt {
+  min-width: 9ch;
+  font-size: var(--meridian-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-agent-card__resolved-row dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-agent-card__snapshot-note,
+.meridian-attach__snapshot,
+.meridian-attach__catalog-note,
+.meridian-switch__cache-note,
+.meridian-peer__visibility {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-agent-card__actions,
+.meridian-attach__actions,
+.meridian-switch__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  flex-wrap: wrap;
+}
+
+.meridian-agent-card__action,
+.meridian-attach__arm,
+.meridian-attach__submit,
+.meridian-switch__apply,
+.meridian-peer__action,
+.meridian-linkage__open,
+.meridian-attach__definition-button {
+  font: inherit;
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-agent-card__action:focus-visible,
+.meridian-attach__arm:focus-visible,
+.meridian-attach__submit:focus-visible,
+.meridian-switch__apply:focus-visible,
+.meridian-peer__action:focus-visible,
+.meridian-linkage__open:focus-visible,
+.meridian-attach__definition-button:focus-visible,
+.meridian-axis-field__trigger:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-attach__arm[aria-pressed="true"],
+.meridian-attach__definition-button[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-attach__submit:disabled,
+.meridian-attach__arm:disabled,
+.meridian-agent-card__action:disabled,
+.meridian-switch__apply:disabled {
+  cursor: not-allowed;
+  color: var(--meridian-text-faint);
+}
+
+/* ------------------------------------------------------------- axis fields */
+
+.meridian-axis-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-axis-field__overridden {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-axis-field__trigger,
+.meridian-axis-field__text,
+.meridian-axis-field__input {
+  font: inherit;
+  color: var(--meridian-text);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  min-width: 0;
+  text-align: start;
+}
+
+.meridian-axis-field__popup {
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  padding: var(--meridian-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-axis-field__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.meridian-axis-field__option {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-axis-field__option[data-highlighted] {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-axis-field__empty,
+.meridian-axis-field__advisory {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* ----------------------------------------------------------------- attaching */
+
+.meridian-attach__backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--meridian-surface-sunken);
+  opacity: 0.7;
+}
+
+.meridian-attach__popup {
+  position: fixed;
+  inset-block-start: 12vh;
+  inset-inline: 50%;
+  translate: -50% 0;
+  width: min(38rem, 92vw);
+  max-height: 76vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  padding: var(--meridian-space-5);
+}
+
+.meridian-attach__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+.meridian-attach__arms {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attach__definitions,
+.meridian-attach__resolved,
+.meridian-peer__tools,
+.meridian-linkage__links,
+.meridian-linkage__refusal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attach__definition-button {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+}
+
+.meridian-attach__definition-summary,
+.meridian-attach__incomplete {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attach__confirmation {
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attach__confirmation-head,
+.meridian-attach__resolved-prose {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-attach__resolved-axis {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+/* ----------------------------------------------------------- peer invocation */
+
+.meridian-peer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-peer__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-peer__switch {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  cursor: pointer;
+}
+
+.meridian-peer__meaning {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-peer__tool {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}

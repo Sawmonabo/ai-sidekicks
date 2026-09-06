@@ -16,6 +16,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../../core/index.js";
 import { DraftStore, UiStateStore } from "../../../../persistence/index.js";
 import { WORKFLOW_DRAFT_SLOT, WORKFLOW_GRAPH_SLOT } from "../../../owner-slots.js";
 import { DraftsSlot, type DraftsMount } from "./DraftsSlot.js";
@@ -53,7 +54,7 @@ function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
       <DraftsSlot
         key="drafts"
         workflowDefinitionId={DEFINITION_ID}
-        draftStore={new DraftStore()}
+        draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       />,
     ],
   ];
@@ -109,7 +110,7 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
   });
 
   it("hands the drafts the definition and the window store, and no durable store", () => {
-    const draftStore = new DraftStore();
+    const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
     const body = vi.fn((_mount: DraftsMount) => <p>inspector body</p>);
     render(<DraftsSlot workflowDefinitionId={DEFINITION_ID} draftStore={draftStore} body={body} />);
     // The durable store is absent by design and not by omission: a draft that

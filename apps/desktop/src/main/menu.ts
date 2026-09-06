@@ -19,9 +19,9 @@
 // 1C's T-023p-1C-2 / T-023p-1C-4. An entry offered before its route exists opens
 // a hardened window onto a hash route with nothing behind it — a blank frame the
 // user has to close, from a menu that claimed it did something. So
-// `IMPLEMENTED_AUXILIARY_ROUTES` is empty at Phase 1B and this menu renders no
-// auxiliary entry, and each entry appears as its own route body lands in the
-// same commit as its entry in that list. That list is shared rather than a
+// `IMPLEMENTED_AUXILIARY_ROUTES` carries only the routes whose bodies have
+// shipped, and each entry appears as its own route body lands in the same commit
+// as its entry in that list. That list is shared rather than a
 // main-process registry for the reason its own header gives: a renderer route
 // module cannot register itself into main-process state, so a registry is a gate
 // nothing ever opens.

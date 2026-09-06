@@ -1,0 +1,194 @@
+/* The chrome every settings page body is drawn inside.
+ *
+ * A sibling of `settings.css` rather than a block inside it: the rail and the pane
+ * belong to the surface, while the block, the lede, the fact grid, the action row and
+ * the wire-vocabulary list are the shape a PAGE takes — shared by every page and
+ * owned by none of them, which is why this sheet lives beside the two shared page
+ * components rather than in any one page's directory.
+ */
+
+/* --- Page bodies --------------------------------------------------------- */
+/* Appended by the page lanes; the rail and pane above are the surface's. Every
+   page composes the same three shapes — a lede, a block with a title, and rows —
+   so the classes are named for those rather than for any one page. */
+
+.meridian-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  min-width: 0;
+}
+
+.meridian-settings-page__lede {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+.meridian-settings-page__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-settings-page__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  min-width: 0;
+}
+
+.meridian-settings-page__block-title {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.meridian-settings-page__aside,
+.meridian-settings-page__state {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}
+
+.meridian-settings-page__state--failed {
+  color: var(--meridian-red-text);
+}
+
+.meridian-settings-page__prose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}
+
+.meridian-settings-page__prose p {
+  margin: 0;
+}
+
+.meridian-settings-page__list {
+  margin: 0;
+  padding-left: var(--meridian-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-settings-page__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--meridian-space-3);
+  margin: 0;
+}
+
+.meridian-settings-page__fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-settings-page__fact dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.meridian-settings-page__fact dd {
+  margin: 0;
+}
+
+.meridian-settings-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-settings-page__action {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings-page__action:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-settings-page__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-settings-page__action--primary {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent);
+}
+
+.meridian-settings-page__progress-label {
+  color: var(--meridian-text);
+}
+
+.meridian-settings-page__progress {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  height: 4px;
+  margin: var(--meridian-space-2) 0;
+}
+
+/* --- A wire vocabulary: the closed set a page's rows will speak ----------- */
+/* Two columns rather than the `__facts` grid, because a term here is a value the
+   daemon sends and `__facts` upper-cases its terms — which would re-case a wire
+   string, and rule 4 is that a wire string renders verbatim. The term column sizes
+   to its content so the definitions share one left edge and read as a list. */
+
+.meridian-settings-page__vocabulary {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+  align-items: baseline;
+}
+
+/* The grid is two columns and each entry is a `dt`/`dd` pair, so the wrapper is
+   `display: contents`: the pair lands in the grid's own tracks rather than in a
+   box of its own, which is what keeps every definition on one left edge. */
+.meridian-settings-page__vocabulary-entry {
+  display: contents;
+}
+
+.meridian-settings-page__vocabulary dt {
+  margin: 0;
+  min-width: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-settings-page__vocabulary dd {
+  margin: 0;
+  min-width: 0;
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}

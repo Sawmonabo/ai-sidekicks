@@ -137,6 +137,18 @@ export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
   },
   {
     // Tier: assets. Generated artifacts byte-identical to their sources.
+    //
+    // The define is here for the architecture tier's reason, reached the same way:
+    // this tier imports the generator, and a token module that reaches its own
+    // family door for a value — the enumeration row ceiling, whose home is
+    // `core/constants.ts` — pulls `core/index.ts` in with it, and that door
+    // re-exports `core/tripwires.ts`, which reads this identifier at MODULE scope.
+    // Without it the whole file aborts at import with a bare `ReferenceError`
+    // naming something that is not a variable in any process. `false`, because the
+    // process generating a stylesheet to compare is not a fixture build.
+    define: {
+      __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+    },
     test: {
       name: "console-assets",
       environment: "node",

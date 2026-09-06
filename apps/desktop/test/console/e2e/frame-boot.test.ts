@@ -116,15 +116,25 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // build with no producer shows) and a read still in flight renders
       // `not-loaded`. Waited for rather than counted immediately, because the read
       // is asynchronous and a bare count would race it into the `not-loaded` arm.
-      await consoleWindow.locator(".meridian-sessions .meridian-nothing--empty").waitFor({
+      //
+      // Scoped to the list region rather than to the whole surface: the aside
+      // beside it puts two OTHER reads on screen — the invitations shelf and the
+      // attention panel — and each renders its own honest absence, so an unscoped
+      // exclusion would be asserting that those reads had answered rather than
+      // that this one had.
+      await consoleWindow.locator(".meridian-sessions__list .meridian-nothing--empty").waitFor({
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
       });
       expect(
-        await consoleWindow.locator(".meridian-sessions .meridian-nothing--not-checked").count(),
+        await consoleWindow
+          .locator(".meridian-sessions__list .meridian-nothing--not-checked")
+          .count(),
       ).toBe(0);
       expect(
-        await consoleWindow.locator(".meridian-sessions .meridian-nothing--not-loaded").count(),
+        await consoleWindow
+          .locator(".meridian-sessions__list .meridian-nothing--not-loaded")
+          .count(),
       ).toBe(0);
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
@@ -133,8 +143,15 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // that had stopped rendering that arm altogether. And the absence must be
       // the COMPOSED one, not a bare line, because a bare line at the top-left of
       // a real window is what a half-painted page looks like.
+      //
+      // `#/workflows` rather than `#/settings`: the settings destination has an
+      // owner now — the collaboration family's settings frame — so probing there
+      // would assert the reserved arm against a slot that is filled, and would fail
+      // for the RIGHT reason on a console that was working. The reserved probe has
+      // to name a slot nobody has claimed, and it must be re-pointed again the day
+      // the workflows family lands rather than deleted.
       await consoleWindow.evaluate(() => {
-        window.location.hash = "#/settings";
+        window.location.hash = "#/workflows";
       });
       await consoleWindow.locator(".meridian-surface-absence .meridian-nothing--empty").waitFor({
         state: "visible",

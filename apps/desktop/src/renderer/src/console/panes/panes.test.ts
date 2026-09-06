@@ -23,8 +23,8 @@
 //
 // `node:fs` is banned in renderer programs (`Spec-023 §Trust Stance`), so the
 // source arrives inlined at transform time through Vite's raw glob — the form
-// `runtime-node-attach/__tests__/NodeRoster.test.tsx` established for CP-003-3's
-// source-text reads.
+// `runtime-node-attach/__tests__/runtime-node-source.test-support.ts` established
+// for CP-003-3's source-text reads, and where that directory's glob now lives.
 
 import { describe, expect, it } from "vitest";
 

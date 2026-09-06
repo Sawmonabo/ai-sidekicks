@@ -18,7 +18,7 @@
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
 // and never reach the engine's teardown rules or its held-reply queue.
 
-import type { MembershipRole } from "@ai-sidekicks/contracts";
+import type { MembershipRole, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
@@ -27,6 +27,30 @@ import type { WireErrorEnvelope } from "../../core/index.js";
 export interface ScenarioBeat {
   readonly atMs: number;
   readonly event: ConsoleSessionEvent;
+}
+
+/**
+ * One reading of a session's runtime-node roster, and the tick it becomes current.
+ *
+ * A frame rather than a single roster, and rather than a scripted reply, because a
+ * roster CHANGES: the registered `runtimenode.roster` read is the source of truth
+ * for the rendered set and a `runtime_node.*` beat only says WHEN to re-read, so a
+ * fixture whose roster could not move would answer every re-read with the same rows
+ * and make the whole snapshot-plus-signal discipline untestable. Mirrors
+ * {@link ScenarioBeat} deliberately — same `atMs` measured from scenario start,
+ * same "data, never code" posture — so a reader who has understood one has
+ * understood the other.
+ *
+ * `nodes` is the registered `RuntimeNodeRosterEntry` set verbatim, so a scenario
+ * carries BOTH health axes the wire carries — the slot axis `state` and the
+ * sweep-owned `healthState` / `lastHeartbeatAt` pair — and no collapsed scalar,
+ * which the wire does not have either. Reconciling them is the client's render-time
+ * concern and a fixture that pre-reconciled them would answer a question the
+ * surface exists to ask.
+ */
+export interface ScenarioRuntimeNodeRosterFrame {
+  readonly atMs: number;
+  readonly nodes: readonly RuntimeNodeRosterEntry[];
 }
 
 /** What every canned reply carries, whichever way it settles. */
@@ -176,6 +200,23 @@ export interface ConsoleScenario {
   readonly membershipRoleByParticipantId?: Readonly<Record<string, MembershipRole>>;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
+  /**
+   * The session's runtime-node roster as it reads over scenario time.
+   *
+   * OPTIONAL, and the optionality is the answer rather than a gap: a scenario that
+   * names no roster has not been asked, so the read refuses with the "not checked"
+   * absence instead of resolving with an empty set. Those are different facts — "no
+   * machine is attached" is a session state a surface draws, and "nobody asked" is
+   * not — and a fixture that conflated them would train the roster to render an
+   * empty table for a read that never happened.
+   *
+   * It is a scenario member rather than a `replies` row because the reply table is
+   * keyed by call name and answers each call with one fixed value, which cannot
+   * express a roster that moves. A scenario needing latency or a scripted daemon
+   * refusal for some other call still uses `replies`; this member is the one read
+   * whose ANSWER is a function of the clock.
+   */
+  readonly runtimeNodeRoster?: readonly ScenarioRuntimeNodeRosterFrame[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
 }

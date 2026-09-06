@@ -1,11 +1,11 @@
 // Plan-003 Phase 5 T5.1 (Tier 3) — renderer NodeRoster component.
 //
-// A thin bridge projection over `window.sidekicks`: it renders the SET of
-// runtime nodes attached to the active session — one `RuntimeNodeRosterEntry`
-// per `runtime_node_attachments` row, exactly as the registered
-// `runtimenode.roster` read returns it — and visually distinguishes the three
-// status facets the wire entry carries (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`;
-// `packages/contracts/src/runtime-node.ts#RuntimeNodeRosterEntry`):
+// A thin projection over the read seam `node-roster-reads.ts` beside this file
+// declares: it renders the SET of runtime nodes attached to the active session — one
+// `RuntimeNodeRosterEntry` per `runtime_node_attachments` row, exactly as the
+// registered `runtimenode.roster` read returns it (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`;
+// `packages/contracts/src/runtime-node.ts#RuntimeNodeRosterEntry`) — and visually
+// distinguishes the three status facets the wire entry carries:
 //   • `state: NodeState` — the SLOT axis (registering|online|degraded|offline|
 //     revoked — `packages/contracts/src/runtime-node.ts#NodeState`),
 //     `runtime_node_attachments.state` carried
@@ -79,72 +79,14 @@
 // admit-not-eject guarantee and break the AC2 distinguishability this view
 // exists to provide.
 //
-// THE DESIGN — controlPlane.call snapshot + daemon.subscribe trigger:
-//
-//   This mirrors the shipped `session-members/participant-roster.tsx` Option-C
-//   flow exactly (snapshot-read + subscribe-as-change-signal), with two
-//   transport differences appropriate to runtime-node state:
-//     • The DECODED roster snapshot is read through the GENERIC control-plane
-//       surface `window.sidekicks.controlPlane.call(...)` — the roster is
-//       control-plane-owned cross-node coordination state (`Spec-003 §Required Behavior`;
-//       shared-postgres-schema.md `runtime_node_attachments` /
-//       `runtime_node_presence`), NOT `daemon.call`: `runtimenode.roster` is
-//       registered control-plane tRPC ONLY (a daemon knows only itself), per
-//       the registry row (`docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`).
-//     • Live health TRANSITIONS arrive on `window.sidekicks.daemon.subscribe(
-//       <runtime_node.* event>, handler)` — the daemon authors the
-//       daemon-reachable `runtime_node.*` lifecycle events (the registered
-//       7-name set `packages/contracts/src/runtime-node.ts#RUNTIME_NODE_EVENT_NAMES`;
-//       the 5 V1 daemon-reachable producers, its
-//       `Runtime-node event PAYLOAD-shape schemas` banner). Each pushed event
-//       is treated as an OPAQUE change-signal that RE-INVOKES the snapshot
-//       read; we deliberately do NOT decode the event payload into accumulated
-//       client state (the same posture participant-roster takes for
-//       `PresenceUpdate` — see its header). A maintainer's instinct to "merge
-//       the event payload into the roster" is wrong here: the control-plane
-//       read is the source of truth for the rendered set; the event only says
-//       WHEN to re-read. (Tier 8 MAY decode + merge to avoid the re-read round
-//       trip; the chattiness is a noted Tier-8 optimization, not a Tier-3
-//       concern.)
-//
-//   Subscribe-BEFORE-initial-read ordering is deliberate (identical rationale
-//   to participant-roster): a node-state change landing AFTER the snapshot but
-//   BEFORE the subscription installs would otherwise be lost, leaving the
-//   roster stale until the next change. Installing the subscription first
-//   makes the worst case a redundant re-read (collapsed by the out-of-order
-//   guard), not an unrecoverable missed update.
-//
-// REGISTERED roster-read transport (T5.0a–T5.0d scope expansion, PR #150) —
-//
-//   `runtimenode.roster` is a REGISTERED wire contract, not a deferral. The
-//   Runtime-Node Method-Name Registry exposes five `runtimenode.*` methods —
-//   four mutations (`attach`/`heartbeat`/`capabilityupdate`/`detach`) plus
-//   this namespace-first `query` (the registry table, roster row, and
-//   procedure-type paragraph in
-//   `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`)
-//   — with the request/response wire shapes at
-//   `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)` and the contract pinned in
-//   `Spec-003 §Interfaces And Contracts`. Server truth:
-//   `packages/control-plane/src/runtime-nodes/attach-service.ts#readRoster`,
-//   mounted as the router's first `.query()` (the `roster` procedure on
-//   `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#createRuntimeNodeRouter`);
-//   the Node-side SDK arm (the `roster` method on
-//   `packages/client-sdk/src/runtimeNodeClient.ts#createControlPlaneRuntimeNodeClient`,
-//   T5.0d) proves the procedure end-to-end against the real services.
-//
-//   This renderer still routes the read through the GENERIC
-//   `controlPlane.call(...)` bridge surface with the hardcoded registered wire
-//   string below (the same registered-name-as-local-const idiom as
-//   `apps/desktop/src/renderer/src/session-members/participant-roster.tsx#PRESENCE_READ_METHOD`,
-//   the `presence.read` name): the bridge's `CpProcedure`
-//   brand is still `never`-shaped at Tier 1 (desktop-bridge.ts:99), so no
-//   typed per-procedure surface exists to bind yet. At Tier 1 every bridge
-//   method throws `NotImplementedAtTier1Error` (desktop-bridge.ts:334-336,
-//   `tier1Throw`; the `controlPlane.call` stub at :353), so the component's
-//   REJECTED render branch is the production-observable path until Plan-023
-//   Tier 8 wires the real IPC handler through the main process onto the
-//   SHIPPED SDK arm (CP-003-3). The remaining gap is the bridge WIRING, not
-//   the contract.
+// WHERE THE READ LIVES, AND WHY IT IS NOT HERE. The snapshot-plus-change-signal
+// design — subscribe first, then read; every push an OPAQUE trigger to re-read
+// rather than a payload to merge; the out-of-order guard; the subject stamp that
+// substitutes the not-read answer the moment the session or the transport moves — is
+// `node-roster-reads.ts`. This file holds the RENDER, which is a total function over
+// the three-state union that hook settles into. The seam itself names no wire: the
+// registered procedure name and the presence event set are declared once in
+// `console/bridge/runtime-nodes/runtime-node-roster.ts` and reach this view already resolved.
 //
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports ONLY:
 //   • `react` — the renderer's UI engine; explicitly allowed.
@@ -152,6 +94,8 @@
 //     renderer-safe (no `node:*`, `electron`, or `fs`/`path`/`process` runtime
 //     imports); the type-only form emits NO JS runtime import, so only the
 //     type-graph view of the wire shapes reaches the renderer.
+//   • The read seam beside it, which reaches `window.sidekicks` through no path of
+//     its own either — a host composes the pair and hands it in.
 // No `electron`, no `node:*`, no `./src/main/**`, no `./src/preload/**`, and no
 // `@ai-sidekicks/client-sdk` (the Node-side `runtimeNodeClient.ts` SDK) —
 // statically enforced via the `no-restricted-imports` rule in
@@ -160,311 +104,42 @@
 // manifest — the specifier no longer resolves here, per the SessionBootstrap
 // header.)
 
-import { useEffect, useState } from "react";
+import type { SessionId } from "@ai-sidekicks/contracts";
 
-import type {
-  RuntimeNodeRosterEntry,
-  RuntimeNodeRosterResponse,
-  SessionId,
-  Unsubscribe,
-} from "@ai-sidekicks/contracts";
-
-// The wire-rejection normalizer is shared across every renderer surface and
-// both Electron processes, so it lives in `src/shared/` rather than being
-// written a fourth time here (Plan-023 Phase 1B). It renders ANY code+message
-// envelope with the wire `code` as `Error.name`, which is exactly what this
-// view's below-floor labeling needed and is strictly wider: a
-// `version.floor_exceeded` read refusal still surfaces as
-// `version.floor_exceeded: <server message>`, and every OTHER typed
-// `runtimenode.*` refusal now surfaces by its own code instead of collapsing
-// to `[object Object]`. The code-specific recognizer this file used to carry
-// therefore bought nothing on the render path and is gone; the compile-time
-// binding to the contracts literal survives in the one view that BRANCHES on
-// the code (`MixedVersionStatus.tsx#VERSION_FLOOR_EXCEEDED_WIRE_CODE`).
-import { wireRejectionToError } from "../../../shared/wire-errors.js";
-
-// The `window.sidekicks` ambient type lives in the renderer-wide
-// `sidekicks-bridge.d.ts` (Plan-002 Phase 6 T6.0; part of the renderer
-// typecheck graph via its `include`), so `window.sidekicks` below is
-// `SidekicksBridge`-typed without an import here. The bridge exposes exactly
-// six GENERIC capability surfaces (Spec-023; desktop-bridge.ts:265-314) —
-// there is no `runtimeNode` namespace and no per-procedure typing yet, so the
-// registered `runtimenode.roster` name rides the generic
-// `controlPlane.call(...)` / `daemon.subscribe(...)` pair below.
-
-// Wire procedure / event / error-code names.
-//
-// `ROSTER_READ_PROCEDURE` — the REGISTERED control-plane procedure for the
-// reconciled roster read (presence × slot): registry row
-// `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)` (`query`, control-plane tRPC ONLY — the
-// namespace's first and only query; its four siblings are mutations), served
-// by `AttachService.readRoster` via the router's first `.query()` (the
-// `roster` procedure on
-// `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#createRuntimeNodeRouter`).
-// Hardcoded as a local `const` per the shipped renderer idiom
-// (`apps/desktop/src/renderer/src/session-members/participant-roster.tsx#PRESENCE_READ_METHOD`):
-// the bridge surface is generic, so the registered
-// name is the single greppable coupling point the Plan-023 Tier 8 IPC wiring
-// binds. The name lives in the `runtimenode.*` METHOD namespace
-// (error.ts:106-109 — the namespace deliberately uses no separator, distinct
-// from the `runtime_node.*` EVENT names). The response is typed end-to-end via
-// the imported `RuntimeNodeRosterResponse` DTO on the `readRoster` cast below.
-const ROSTER_READ_PROCEDURE = "runtimenode.roster";
-
-// `runtime_node.online` — one of the 7 registered `runtime_node.*` lifecycle
-// event names (`packages/contracts/src/runtime-node.ts#RUNTIME_NODE_EVENT_NAMES`),
-// and one of the 5
-// daemon-reachable V1 producers (`registered`, `online`, `offline`,
-// `capability_declared`, `capability_updated` — its
-// `Runtime-node event PAYLOAD-shape schemas` banner; `degraded`/`revoked`
-// are V1.1-gated server-derived events with no V1 author). We subscribe to
-// the liveness-transition signal and treat each push as an OPAQUE "node state
-// changed" trigger to re-read the snapshot — we do NOT decode the payload
-// (same change-signal posture as participant-roster's `PresenceUpdate`).
-// `online` is the canonical liveness-transition event for AC2's health
-// distinguishability; the Tier-8 wiring may broaden the subscription to the
-// full `runtime_node.*` family once the bridge's `DaemonEvent` brand narrows
-// to the event union (Plan-007) and the subscribe surface carries
-// per-subscription params (the DECIDED bridge-shape gap documented on
-// participant-roster).
-const RUNTIME_NODE_ONLINE_EVENT = "runtime_node.online";
+import { useNodeRosterRead, type NodeRosterReads } from "./node-roster-reads.js";
 
 /**
  * Props for {@link NodeRoster}.
  *
- * `sessionId` is the branded {@link SessionId} of the session whose node roster
- * to render. It matches `RuntimeNodeRosterRequest.sessionId`
+ * `sessionId` is the branded {@link SessionId} of the session whose node roster to
+ * render. It matches `RuntimeNodeRosterRequest.sessionId`
  * (`packages/contracts/src/runtime-node.ts#RuntimeNodeRosterRequest`), so
- * `{ sessionId }` constructs a valid roster-read request with no cast. The roster read is scoped to this id, and the roster
- * NEVER mutates it — adding nodes changes the rendered set, not the session
- * identity (AC3). The id arrives as a prop (supplied by a future Plan-023
- * router/deep-link; exercised by the T5.4 manual smoke), not from
- * renderer-side discovery — the same prop-contract posture as
- * `ParticipantRoster`.
+ * `{ sessionId }` constructs a valid roster-read request with no cast. The read is
+ * scoped to this id, and the roster NEVER mutates it — adding nodes changes the
+ * rendered set, not the session identity (AC3). The id arrives as a prop (supplied by
+ * the console's own mount), not from renderer-side discovery — the same prop-contract
+ * posture as `ParticipantRoster`.
+ *
+ * `reads` is REQUIRED. This view resolves no transport of its own: a mount hands it
+ * the pair it already resolved, which is what keeps the wire names in one production
+ * home and this component out of the `window.sidekicks` business entirely.
  */
 export interface NodeRosterProps {
   sessionId: SessionId;
+  reads: NodeRosterReads;
 }
-
-// Discriminated-union view state — identical three-state shape to
-// `ParticipantRoster`'s `RosterState`. Mount-triggered, so it STARTS in
-// `loading` (the read fires on mount; there is no button). Each variant maps
-// 1:1 to a rendered `<section>` branch below, so the render is a total
-// function over the union. The `loaded` variant carries the verbatim
-// `RuntimeNodeRosterEntry[]` set from the read — the SHIPPED T5.0b wire DTO
-// (`packages/contracts/src/runtime-node.ts#RuntimeNodeRosterEntry`), not a
-// local view-model — so the render binds to the real contract axes by
-// construction.
-//
-// No-flicker contract (same as participant-roster): `loading` is set in only
-// two RENDER-PHASE places — the `useState` initializer (MOUNT) and the
-// `previousSessionId` guard (every `sessionId` CHANGE). It is NOT set on a
-// same-session subscribe-triggered re-read: `refreshSnapshot` setStates ONLY
-// to `loaded`/`error`, so a live-health re-read updates the node set IN PLACE
-// and never flashes back to the loading branch.
-type RosterViewState =
-  | { kind: "loading" }
-  | { kind: "loaded"; nodes: RuntimeNodeRosterEntry[] }
-  | { kind: "error"; error: Error };
 
 /**
  * Renders the live roster of runtime nodes attached to a session: a loading
- * indicator while the initial snapshot is in flight, one row per node (id +
- * slot `state` + liveness `healthState`/`lastHeartbeatAt` +
- * read-only/below-floor status) once loaded, or the error envelope on failure.
- * The roster refreshes itself as node health transitions — see the
- * controlPlane.call-snapshot + daemon.subscribe-trigger design note in the
- * file header.
- *
- * State primitive — manual `useState` discriminated union (NOT React 19
- * `useTransition`/`useActionState`), matching the shipped
- * `ParticipantRoster`/`SessionBootstrap` precedent: it keeps the renderer
- * consumers structurally consistent and fits the Tier-1 sync-throw
- * normalization (which needs explicit `try/catch` around the bridge calls).
+ * indicator while the initial snapshot is in flight, one row per node (id + slot
+ * `state` + liveness `healthState`/`lastHeartbeatAt` + read-only/below-floor status)
+ * once loaded, or the error envelope on failure — with a control that opens the
+ * conversation again, which is the only path back from a subscription that never
+ * opened. The roster refreshes itself as node health transitions — see the read
+ * seam's own notes for the ordering.
  */
-export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
-  const [rosterViewState, setRosterViewState] = useState<RosterViewState>({ kind: "loading" });
-
-  // Session-identity prop reset (React's "Adjusting some state when a prop
-  // changes" pattern — the SAME render-phase mechanism `ParticipantRoster`
-  // uses). On a `sessionId` change it resets to `loading` render-phase (BEFORE
-  // commit), so a future Plan-023 router reusing this instance across sessions
-  // never paints the prior session's `loaded` roster for a frame. It touches
-  // ONLY `rosterViewState`; the effect-scoped guards re-init inside the
-  // effect, which re-runs on the same `[sessionId]` change. The complete fix
-  // for instance reuse is the Tier-8 parent keying the roster per session
-  // (`key={sessionId}`); this render-phase reset is the narrower fallback
-  // until that keying lands.
-  const [previousSessionId, setPreviousSessionId] = useState(sessionId);
-  if (sessionId !== previousSessionId) {
-    setPreviousSessionId(sessionId);
-    setRosterViewState({ kind: "loading" });
-  }
-
-  useEffect(() => {
-    // Strict-mode-safe mount (same posture as participant-roster /
-    // SessionBootstrap). The closure-scoped `let cancelled`, flipped in
-    // cleanup, makes any in-flight read resolution (initial OR
-    // subscribe-triggered) a no-op after this effect run is torn down — so we
-    // never `setState` on an unmounted (or about-to-be-remounted) tree under
-    // StrictMode's double-invoke. The `let` RESETS per effect run, which is
-    // what neutralizes the double-invoke (a persisting `useRef` would not).
-    let cancelled = false;
-
-    // Effect-scoped monotonic read sequence — the out-of-order guard. Multiple
-    // `refreshSnapshot()` calls can be IN FLIGHT at once (rapid subscribe
-    // pushes each kick off a read), and the bridge gives no
-    // resolution-ordering guarantee; without this counter an OLDER read
-    // resolving AFTER a NEWER one would overwrite fresh data with stale. Each
-    // `refreshSnapshot` captures the value AFTER incrementing; a resolution
-    // whose captured sequence is no longer the latest bails without setState.
-    // RESETS per effect run (same rationale as `cancelled`).
-    let latestRequestSequence = 0;
-
-    // Held so cleanup can release the daemon subscription. `undefined` until
-    // the synchronous `subscribeNodeHealth(...)` below succeeds — at Tier 1 it
-    // throws synchronously, so `unsubscribe` stays `undefined` and
-    // `unsubscribe?.()` in cleanup is a safe no-op.
-    let unsubscribe: Unsubscribe | undefined;
-
-    // `CpProcedure` brand cast (Plan-002/Plan-008 follow-up), tightened to the
-    // real types — the control-plane analog of the `DaemonMethod` brand cast
-    // in participant-roster. The bridge declares
-    // `controlPlane.call<P extends CpProcedure>(procedure: P, input: CpInput<P>):
-    // Promise<CpOutput<P>>` where `CpProcedure` is a `never`-shaped brand at
-    // Tier 1 (desktop-bridge.ts:99) — no string literal is structurally
-    // assignable to it until the control-plane tRPC surface narrows the brand
-    // to the real procedure union. The procedure-name string stays loosely
-    // `string` (the genuinely untypeable part), but we PIN input →
-    // `{ sessionId: SessionId }`
-    // (`packages/contracts/src/runtime-node.ts#RuntimeNodeRosterRequest`,
-    // built from the branded prop) and return →
-    // `Promise<RuntimeNodeRosterResponse>` (the SHIPPED T5.0b response DTO —
-    // no local view-model), so the request object is type-checked at the call
-    // site and the resolved value needs no downstream cast. Same
-    // single-documented-cast posture as participant-roster's `readPresence`
-    // (an improvement over `SessionBootstrap`'s loose `unknown`/`unknown`).
-    const readRoster = window.sidekicks.controlPlane.call as (
-      procedure: string,
-      input: { sessionId: SessionId },
-    ) => Promise<RuntimeNodeRosterResponse>;
-
-    // `DaemonEvent` brand cast (Plan-007 follow-up), same posture as
-    // participant-roster's `subscribePresence`. The bridge declares
-    // `daemon.subscribe<E extends DaemonEvent>(event: E, handler: (payload:
-    // DaemonEventPayload<E>) => void): Unsubscribe` where `DaemonEvent` is a
-    // `never`-shaped brand (desktop-bridge.ts:81) and `DaemonEventPayload<E>`
-    // is `unknown` (desktop-bridge.ts:87). We pin the event name to `string`
-    // (the untypeable part) and the handler payload to `unknown` — we do NOT
-    // decode it (it is an opaque change-signal; see the header), so a tighter
-    // payload type would be a fiction here. This single brand bypass lifts
-    // when Plan-007 lands the narrowed `DaemonEvent` union + event-to-payload
-    // map.
-    const subscribeNodeHealth = window.sidekicks.daemon.subscribe as (
-      event: string,
-      handler: (payload: unknown) => void,
-    ) => Unsubscribe;
-
-    // Shared decoded-snapshot read. Used for BOTH the initial read and every
-    // subscribe-triggered refresh. The async-IIFE shape funnels a SYNCHRONOUS
-    // Tier-1 stub throw (`() => tier1Throw("controlPlane.call")`,
-    // desktop-bridge.ts:353) AND a future async rejection into the same
-    // `catch`: a bare `readRoster(...).then(...).catch(...)` would evaluate
-    // `readRoster(...)` first, and the sync throw would escape before `.then`
-    // is reached and crash the effect callback (React does not catch
-    // effect-callback throws). This function NEVER setStates to
-    // `{ kind: "loading" }` — only `loaded`/`error` — so subscribe-triggered
-    // re-reads never flash back to the loading branch (the no-flicker
-    // contract).
-    //
-    // Each invocation captures a fresh `requestSequence` AFTER incrementing
-    // the effect-scoped counter, so the LATEST in-flight read always owns the
-    // highest sequence. Both branches bail when EITHER the effect was torn
-    // down (`cancelled`) OR a newer read has since started
-    // (`requestSequence !== latestRequestSequence`) — two independent guards
-    // (unmount vs out-of-order), both required.
-    const refreshSnapshot = (): void => {
-      const requestSequence = ++latestRequestSequence;
-      void (async () => {
-        try {
-          const rosterResponse = await readRoster(ROSTER_READ_PROCEDURE, { sessionId });
-          if (cancelled || requestSequence !== latestRequestSequence) return;
-          // No cast — the tightened brand cast above already types the
-          // resolved value as the shipped `RuntimeNodeRosterResponse`. The
-          // full node set is rendered (admit-not-eject, I-003-1): no
-          // `.filter(...)` drops a node by `state`, `healthState`, or
-          // `readOnly`.
-          setRosterViewState({ kind: "loaded", nodes: rosterResponse.nodes });
-        } catch (bridgeError: unknown) {
-          if (cancelled || requestSequence !== latestRequestSequence) return;
-          // Tier-3 production branch: at Tier 1 every bridge method throws
-          // `NotImplementedAtTier1Error` (desktop-bridge.ts
-          // `createTier1Bridge`), so this is the production-observable path
-          // until Plan-023 Tier 8 wires the real IPC handler onto the shipped
-          // SDK arm. We do not narrow on `instanceof` for the render decision
-          // — any `Error` shape renders the same envelope; non-`Error`
-          // rejections are wrapped so the render branch always holds a real
-          // `Error`. A TYPED refusal envelope keeps its wire code as the
-          // rendered `Error.name` — including the below-floor
-          // `version.floor_exceeded` verdict a `readOnly` node's writes
-          // return, which is the read reflection of AC2's at-floor vs
-          // below-floor distinguishability. The bare (non-`total`) wrap is
-          // correct here: this is a bridge CATCH binding, so the value came
-          // off the IPC surface and a ToPrimitive-failing shape is not
-          // realistically reachable. A re-read failure flips the whole roster
-          // to `error` (the Tier-3 posture, matching the initial-read
-          // failure); a resilient "keep last snapshot" is a Tier-8 polish, not
-          // a Tier-3 requirement.
-          const normalizedError = wireRejectionToError(bridgeError);
-          setRosterViewState({ kind: "error", error: normalizedError });
-        }
-      })();
-    };
-
-    // 1. Subscribe to the change-signal stream FIRST, BEFORE the initial read
-    //    (same ordering rationale as participant-roster: a change landing
-    //    after the snapshot but before the subscription installs would
-    //    otherwise be lost). The synchronous `subscribeNodeHealth(...)` call
-    //    gets its OWN `try/catch` because at Tier 1 it throws synchronously
-    //    (`() => tier1Throw("daemon.subscribe")`, desktop-bridge.ts:350); an
-    //    uncaught throw here would crash the effect callback and strand the
-    //    view. On the throw we drive the error state, same envelope as the
-    //    read. The initial `refreshSnapshot()` sits INSIDE this `try` (step 2)
-    //    so a subscribe-throw skips it rather than clobbering the error with a
-    //    channel-less snapshot; a READ failure is still owned by the IIFE's
-    //    own `catch`. The handler re-invokes `refreshSnapshot` (which closes
-    //    over `cancelled` + the sequence guard, so a re-read kicked off the
-    //    instant before unmount cannot `setState` after cleanup); we do NOT
-    //    consume the event payload — it is an opaque change-signal.
-    try {
-      unsubscribe = subscribeNodeHealth(RUNTIME_NODE_ONLINE_EVENT, () => {
-        refreshSnapshot();
-      });
-
-      // 2. Initial decoded snapshot — INSIDE this `try`, AFTER the subscribe
-      //    assignment, so it runs ONLY when the subscription actually
-      //    installed (ordering + honesty: a subscribe-throw jumps to the
-      //    `catch` below and SKIPS this read, so we never CLOBBER the error
-      //    with a stale `loaded` that has no live channel — the same posture
-      //    as participant-roster).
-      refreshSnapshot();
-    } catch (subscribeError: unknown) {
-      if (!cancelled) {
-        setRosterViewState({ kind: "error", error: wireRejectionToError(subscribeError) });
-      }
-    }
-
-    return () => {
-      cancelled = true;
-      // Idempotent per the `Unsubscribe` contract (desktop-bridge.ts:115-118);
-      // `?.()` no-ops when the Tier-1 subscribe threw before assigning.
-      unsubscribe?.();
-    };
-    // `[sessionId]` (not `[]`): the effect reads and subscribes for a specific
-    // session, so changing the prop must tear down the old subscription and
-    // re-run for the new one. `SessionId` is a string brand, so referential
-    // equality holds and the effect does not re-run on unrelated re-renders.
-  }, [sessionId]);
+export function NodeRoster({ sessionId, reads }: NodeRosterProps): React.JSX.Element {
+  const { viewState: rosterViewState, retry } = useNodeRosterRead(sessionId, reads);
 
   if (rosterViewState.kind === "loading") {
     // `aria-busy` announces the in-flight initial snapshot to assistive tech.
@@ -493,8 +168,8 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
     // No `.filter(...)` — every node the read returned is rendered
     // (admit-not-eject). `data-node-state` / `data-health-state` /
     // `data-read-only` expose the facets for the T5.4 manual smoke and for the
-    // BL-131 component suite in `__tests__/NodeRoster.test.tsx` to assert
-    // distinguishability without scraping prose. `data-health-state` is ABSENT exactly when the wire
+    // BL-131 component suite in `__tests__/` to assert distinguishability without
+    // scraping prose. `data-health-state` is ABSENT exactly when the wire
     // value is `null` (React omits null-valued attributes) — the DOM mirrors
     // the LEFT-JOIN nullability verbatim rather than inventing a fourth enum
     // token.
@@ -523,11 +198,22 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
   }
 
   // role="alert" so assistive tech announces the failure.
+  //
+  // The control beside it is the way back. A failed READ recovers on its own — the
+  // subscription that survived pushes again — but a presence subscription that could
+  // not be opened at all leaves nothing to push, and the read seam deliberately skips
+  // the snapshot in that arm rather than rendering rows behind a dead channel. So
+  // without this button the column stood on one line of error text until the session
+  // or the transport changed, and a cap that clears in thirty seconds looked exactly
+  // like a permanent refusal.
   return (
     <section aria-label="node-roster-error" role="alert">
       <p>
         {rosterViewState.error.name}: {rosterViewState.error.message}
       </p>
+      <button type="button" onClick={retry}>
+        Try again
+      </button>
     </section>
   );
 }

@@ -33,6 +33,7 @@
 // number measured is the number painted, and a request whose chroma sRGB cannot
 // hold at its lightness is served at the chroma it can (see `color.ts`).
 
+import { BOUNDED_ENUMERATION_MAX_ROWS } from "../core/index.js";
 import type { OklchColor } from "./color.js";
 
 /** A token whose value differs between the light and dark schemes. */
@@ -287,23 +288,14 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
   2 * scaleStep(SPACE_SCALE_REM, "space-2");
 
 /**
- * Rows a bounded enumeration shows before it scrolls.
- *
- * Six, and the number is a ceiling rather than a preference. The shortest window
- * the console ships is 720 px tall (the agent-console auxiliary geometry), which
- * is 45 rem at the 16 px root; an enumeration allowed to take more than a third of
- * that would leave the surface holding it with nothing else on screen. Six rows is
- * 13.875 rem and clears that third; seven is 16.1875 rem and does not.
- */
-export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
-
-/**
  * The height a bounded enumeration scrolls past, in rem.
  *
- * A named multiple of the row height rather than a literal length, so a stylesheet
+ * The row ceiling is a BOUND and lives in `core/constants.ts` with the console's
+ * other bounds; the row height is a consequence of the type and space scales and
+ * lives here. This is their product, computed where the two meet, so a stylesheet
  * writes `max-height: var(--meridian-enumeration-max-height)` and never multiplies.
- * A list that grows past this scrolls inside its own box instead of pushing the
- * rest of its surface off screen.
+ * A list that grows past it scrolls inside its own box instead of pushing the rest
+ * of its surface off screen.
  */
-export const BOUNDED_ENUMERATION_MAX_HEIGHT_REM: number =
+export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
   BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;

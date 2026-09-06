@@ -20,12 +20,12 @@
 //     `console/bridge/**`. A surface that cannot import a validator cannot write a
 //     second, different reading of a seam the registry already binds.
 //
-// AND ONE CENSUS, BECAUSE THE CALL SIDE IS VACUOUS UNTIL A SURFACE CALLS. Both
-// claims are true of an empty set on this branch: the door has no consumers yet, so
-// "no module outside the bridge family reaches it" reports compliance without
-// distinguishing that from "every caller goes through it", which is what this file's
-// title claims. The consumer count is therefore PINNED rather than left implicit —
-// see `CALL_DOOR_CONSUMER_COUNT`.
+// AND ONE CENSUS, BECAUSE THE CALL SIDE IS VACUOUS OVER AN EMPTY SET. "No module
+// outside the bridge family reaches it" reports compliance over a console where
+// nothing calls the daemon at all, and cannot be told apart from "every caller goes
+// through the door", which is what this file's title claims. The consumer count is
+// therefore PINNED rather than left implicit — see `CALL_DOOR_CONSUMER_COUNT`, which
+// also fails on a surface quietly LEAVING the door.
 //
 // The lint half is driven through the REAL ESLint engine over the REAL config, never
 // re-implemented — a test carrying its own copy of the pattern list would stay green
@@ -120,21 +120,21 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * ZERO, and PINNED rather than left as a floor, because zero is the whole reading:
- * the two reach claims above are satisfied by an empty set here — no surface reaches
- * the daemon call door because no surface calls the daemon at all — and a scan that
- * reports the tree compliant for that reason is not making the claim this file's
- * title makes.
+ * FIVE, and PINNED rather than left as a floor. It was zero while no surface called
+ * the daemon at all, and zero made the two reach claims above vacuous: a scan reports
+ * an unrebound tree compliant for the same reason it reports a fully rebound one, and
+ * only a number tells them apart.
  *
- * A pinned count is what makes that visible without shipping a red gate on
- * `develop`. It fails the moment the number moves in either direction, so the family
- * lane that binds the first surface to a registered method — the composer's send
- * router and the runs pane's run controls are the two nearest, both T-023p-1C-3 —
- * moves this constant in its own PR, and a reader learns from that diff that the
- * claim has stopped being vacuous. It cannot silently stay at zero once the console
- * has consumers, and it cannot be raised by accident either.
+ * The five are the collaboration family's rebinding — `agent-console-reads.ts`,
+ * `channel-model.ts`, `mutation-coordinator.ts`, `presence-model.ts`, and
+ * `settings/pages/mounts/mount-inventory.ts` — every surface in this family that reaches a
+ * method the registry binds. The count fails the moment it moves in either
+ * direction, so the next family lane that binds a surface moves this constant in its
+ * own PR and a reader learns from that diff which surfaces joined; and a surface
+ * QUIETLY LEAVING the door, which is the regression this pin exists for, fails it
+ * just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 0;
+const CALL_DOOR_CONSUMER_COUNT = 5;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
@@ -188,9 +188,9 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
   });
 
   it("negative control: the consumer needle sees an ordinary import of the door", () => {
-    // Without this, the pinned zero above would be reporting a broken needle rather
-    // than an unrebound console, and the count would stay at zero — green, and
-    // saying nothing — on the day the first surface starts calling the daemon.
+    // Without this, the pinned count above would be reporting a broken needle rather
+    // than the tree, and a needle that matched nothing would read the console as
+    // having no consumers at all — green, and saying nothing.
     expect(importsCallDoor(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
     expect(
       importsCallDoor(
@@ -201,7 +201,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
     ).toBe(true);
     // An alias is still a consumption, and the local name it takes is not the door's.
     expect(importsCallDoor('import { callDaemon as send } from "../bridge/index.js";')).toBe(true);
-    // And not on the door merely named in prose, which is all the tree carries today.
+    // And not on the door merely named in prose, which several modules do carry.
     expect(importsCallDoor("// a surface reaches the wire through `callDaemon`")).toBe(false);
     // The false-positive direction the text needle was narrowed twice to survive: this
     // sentence contains the word `import`, and a scan over text spanned the newlines

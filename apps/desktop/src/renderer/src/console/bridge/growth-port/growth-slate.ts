@@ -28,6 +28,7 @@ export type GrowthSlateRowId =
   | "invites-list"
   | "health-subscribe"
   | "agent-snapshot-axes"
+  | "child-run-linkage"
   | "gitflow-actions"
   | "artifact-ingest-and-crud"
   | "artifact-allowlist-and-abort"
@@ -164,9 +165,20 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "agent-snapshot-axes": {
     id: "agent-snapshot-axes",
-    wire: "agent-list projection of the four attach-time snapshot axes (optional members)",
+    wire: "the four `agent.*` verbs (roster read, attach, configuration update, detach) and the agent-list projection of the four attach-time snapshot axes (optional members)",
     owningDocument: "Spec-030, Spec-016",
     consumingSurface: "agent console, cast bar",
+    wireRegistered: false,
+  },
+  // The linkage read is its own row rather than a member of the agent row above,
+  // because it is a different namespace with a different owner: an agent is a
+  // participant in a session and a child run is a relationship between two RUNS, and
+  // the refusal fold it carries has no counterpart on any agent read.
+  "child-run-linkage": {
+    id: "child-run-linkage",
+    wire: "one parent run's child-run links and the fold of the creates that were refused",
+    owningDocument: "Spec-016",
+    consumingSurface: "agent console run-linkage panel",
     wireRegistered: false,
   },
   "gitflow-actions": {
@@ -317,10 +329,10 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "sidekick-definition-registry": {
     id: "sidekick-definition-registry",
-    wire: "four of the five sidekick method strings — the definition list, create, update, and delete — with the saved-definition shape and the five definition-plane refusal codes they carry",
+    wire: "all five sidekick method strings — the definition list, create, update, and delete, plus the per-session peer-invocation grant — with the saved-definition shape and the five definition-plane refusal codes they carry",
     owningDocument:
       "Spec-030 §Interfaces And Contracts; Plan-030 §API And Transport Changes (the shapes are registered in api-payload-contracts.md and the codes in error-contracts.md, and no code package carries either)",
-    consumingSurface: "sidekick-definitions page",
+    consumingSurface: "sidekick-definitions page, agent console peer-invocation control",
     wireRegistered: false,
   },
   "hydrated-event-read": {

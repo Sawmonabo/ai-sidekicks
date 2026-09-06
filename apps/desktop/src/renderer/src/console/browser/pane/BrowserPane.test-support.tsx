@@ -12,7 +12,7 @@ import { expect } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
 import { consoleClockFor, createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { ManualClock } from "../../core/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT, ManualClock } from "../../core/index.js";
 // Both deep, and both because the bridge door publishes neither: the console
 // resolves the live bridge inside that family, and the transport marker's readers
 // are this module and the two suites beside it.
@@ -136,7 +136,7 @@ export function paneContext(
       frameStore: new FrameStore(),
       sessionStore: undefined,
       uiStateStore: UiStateStore.opening(),
-      draftStore: new DraftStore(),
+      draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
       linkedSourcePaneId: undefined,
       focusHue: undefined,
     },

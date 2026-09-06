@@ -21,18 +21,20 @@
 // `steady-state.test.ts` — the assertion that fails the day either one goes back
 // to naming the shell.
 //
-// Both are production markup. `Spec-023 §Console Design (Meridian)` rule 8's five
-// kinds of nothing carry a per-kind class, and the two routes this tier walks
-// render different kinds today: the settings slot has no registered surface, so
-// the frame says the surface is reserved rather than stubbed (`empty`), while the
-// session workspace mounts a shipped Tier-1 family that reads the installed
-// bridge, which under the fixture is a question nobody put (`not-checked`). No
-// test-only attribute is added to the renderer to make this observable.
+// Both are production markup, and neither is a test-only attribute added to the
+// renderer to make this observable.
 //
-// When either surface ships for real, its locator stops matching and this tier
-// fails on a wait timeout naming the selector. That is the right direction: a
-// driver that can no longer see the surface it drives should stop, not continue
-// measuring an unobserved loop.
+// The settings destination HAS shipped — the collaboration family's settings frame
+// owns the slot — so its locator is the frame's own structure, the section rail
+// that only that surface renders. It was the frame's reserved-slot absence until
+// that surface landed, and the wait timing out on the old selector is exactly how
+// this tier reported that it had: a driver that can no longer see the surface it
+// drives should stop, not continue measuring an unobserved loop.
+//
+// The session workspace still mounts a shipped Tier-1 family that reads the
+// installed bridge, which under the fixture is a question nobody put, so its
+// locator is still `Spec-023 §Console Design (Meridian)` rule 8's `not-checked`
+// class. When that surface ships for real, this one gets the same treatment.
 
 import { expect } from "vitest";
 
@@ -83,12 +85,18 @@ export const SETTINGS_ROUTE: string = "#/settings";
 /**
  * What the settings route renders and the session workspace does not.
  *
- * Anchored under the frame's surface slot, so a `Nothing` of the same kind
- * mounted in the rail, a banner, or an overlay cannot satisfy the wait for a
- * surface that never mounted.
+ * Anchored under the frame's surface slot, so an element of the same class mounted
+ * in the rail, a banner, or an overlay cannot satisfy the wait for a surface that
+ * never mounted.
+ *
+ * The section rail rather than one of the surface's absences: the pages inside the
+ * settings frame render absences of their own — several of them `not-checked`,
+ * because the reads behind them are unregistered — so an absence-kind selector here
+ * would no longer be route-exclusive against the workspace's. The rail is the one
+ * piece of markup that exists if and only if this surface mounted.
  */
 export const SETTINGS_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-nothing--block.meridian-nothing--empty";
+  ".meridian-frame__surface .meridian-settings__rail";
 
 /** What the session workspace renders and the settings route does not. */
 export const WORKSPACE_SURFACE_SELECTOR: string =

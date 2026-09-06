@@ -92,19 +92,10 @@ export {
   type GrowthPrPreparationState,
 } from "./gitflow.js";
 
-export type {
-  GrowthBudgetState,
-  GrowthCostReceipt,
-  // Consumed by T-023p-1C-4
-  GrowthCostReceiptAccountRow,
-  // Consumed by T-023p-1C-4
-  GrowthCostReceiptCausedByRow,
-  // Consumed by T-023p-1C-4
-  GrowthCostReceiptRunRow,
-  // Consumed by T-023p-1C-4
-  GrowthCostStatus,
-  // Consumed by T-023p-1C-4
-  GrowthEffectivePrincipal,
-  // Consumed by T-023p-1C-4
-  GrowthUnpricedFamilyCap,
-} from "./cost-receipts.js";
+// The receipt's row shapes, its status vocabulary, its principal and its cap are
+// deliberately NOT forwarded here. Each carried a line naming the cost page as the
+// reader that would import it, and that page has landed: it derives every one of them
+// off `GrowthCostReceipt` — which is the closed set's one home, reached through the
+// reply type the port already publishes — so the claim could never be retired by the
+// task it named. A door line with no reader is deleted rather than re-dated.
+export type { GrowthBudgetState, GrowthCostReceipt } from "./cost-receipts.js";

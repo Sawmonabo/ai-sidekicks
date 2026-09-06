@@ -1,0 +1,277 @@
+/* The sidekicks page's own sheet: its frame, its saved-row ledger, and its controls.
+ *
+ * ONE BEM BLOCK, ONE HOME. `.meridian-sidekicks` was split across two sheets — the
+ * page's frame, its head, its rules grid, and its two columns in the family sheet,
+ * and everything the record read added here — so a rule about this page could be in
+ * either file and a reader had to know which. The whole block is here now, and the
+ * family door has one edge into it instead of two.
+ *
+ * Beside the module rather than appended to `agents.css`, on the
+ * `agents/agent-console/agent-console.css` precedent: a page's styles belong with the
+ * page, and a family-wide sheet is where several surfaces' rules end up interleaved.
+ *
+ * Meridian tokens throughout. No literal colour, no literal length outside the
+ * space scale. */
+
+/* A page rather than a section: it stands alone, so it carries its own measure and
+ * its own padding instead of inheriting a sidebar's. The two columns are the design's
+ * "one row per definition with the full record open beside it" — expressed as a grid
+ * that collapses to one column under the narrow measure, because the detail side is
+ * the wider of the two and a 2-up layout in a torn-off window would leave both
+ * unreadable. */
+
+.meridian-sidekicks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  padding: var(--meridian-space-6);
+  min-width: 0;
+}
+
+.meridian-sidekicks__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 68ch;
+}
+
+.meridian-sidekicks__title {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-sidekicks__lede {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/* The standing facts read as a ledger, not as a callout: a hairline between rows,
+ * no fill, no border box. They are things that are true rather than things that
+ * need attention, and a tinted panel would spend colour saying otherwise. */
+
+.meridian-sidekicks__rules {
+  display: grid;
+  grid-template-columns: minmax(10rem, auto) minmax(0, 1fr);
+  gap: 0 var(--meridian-space-4);
+  margin: 0;
+  max-width: 76ch;
+}
+
+.meridian-sidekicks__rule {
+  display: contents;
+}
+
+.meridian-sidekicks__rule-term,
+.meridian-sidekicks__rule-statement {
+  padding-block: var(--meridian-space-2);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-sidekicks__rule-term {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-sidekicks__rule-statement {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-sidekicks__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: var(--meridian-space-5);
+  align-items: start;
+}
+
+@media (width <= 60rem) {
+  .meridian-sidekicks__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.meridian-sidekicks__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+/* The same treatment the agent console gives its column titles, because it is the
+ * same construct — a quiet label over a column, not a heading competing with the
+ * page's own. A third uppercase scale in one family would be a third for no reason. */
+.meridian-sidekicks__column-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+/* A ledger of records, not a set of cards: one hairline-bounded block per row, no
+ * fill of its own, so a list of eight does not read as eight competing panels. */
+
+.meridian-sidekicks__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.meridian-sidekick-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  min-width: 0;
+}
+
+/* The label leads and the identifier follows it, because the label is what a person
+ * is scanning for and the id is what they copy when something has gone wrong. */
+.meridian-sidekick-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-sidekick-row__name {
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-sidekick-row__description {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+  max-width: 68ch;
+}
+
+/* Two tracks, the label quiet and narrow, the reading taking the rest — the same
+ * shape the standing-facts grid uses one block up, because it is the same
+ * construct: a term and what it says. */
+.meridian-sidekick-row__axes {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+  gap: 0 var(--meridian-space-3);
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-sidekick-row__axis {
+  display: contents;
+}
+
+.meridian-sidekick-row__axis-label,
+.meridian-sidekick-row__axis-reading {
+  padding-block: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-sidekick-row__axis-label {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-sidekick-row__axis-reading {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  overflow-wrap: anywhere;
+}
+
+.meridian-sidekick-row__actions,
+.meridian-sidekick-row__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* The question sits with the two answers rather than above them, and takes the whole
+ * first line so a person reads what they are about to delete before the control they
+ * would press to do it. */
+.meridian-sidekick-row__question {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  max-width: 68ch;
+}
+
+.meridian-sidekick-row__action {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-sidekick-row__action:hover:enabled {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-sidekick-row__action:disabled {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+/* Destructive is marked in the red the palette already carries for it, on the text
+ * and the edge only — a filled red control reads as the primary act of the row,
+ * which deleting a saved record is not. */
+.meridian-sidekick-row__action--destructive {
+  color: var(--meridian-red-text);
+  border-color: var(--meridian-red-mark);
+}
+
+/* The create control sits with the page's own heading rather than over the list,
+ * because what it makes is a record and not a list entry, and it aligns to the end
+ * so the lede keeps its measure. */
+.meridian-sidekicks__new {
+  align-self: flex-start;
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-sidekicks__new:hover {
+  border-color: var(--meridian-edge-strong);
+}
+
+/* Focus is visible on every control on this page, with one rule rather than one per
+ * class, so a control added later cannot arrive without it. */
+.meridian-sidekicks :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The row the detail column is holding. A left edge in the accent rather than a
+ * fill, so the tie between the two columns is visible at a glance without the row
+ * becoming the loudest thing on the page. */
+.meridian-sidekick-row--open {
+  border-inline-start: 2px solid var(--meridian-accent);
+}

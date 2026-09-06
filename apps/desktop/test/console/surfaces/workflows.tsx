@@ -75,6 +75,7 @@ import {
   type ConsoleSurfaceContext,
 } from "../../../src/renderer/src/console/seats/surface-registry.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
@@ -140,7 +141,7 @@ function paneContext(
     ...address,
     frameStore: new FrameStore(),
     uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore(),
+    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     // Nothing opened these panes from another: each tier mounts one body directly.
     linkedSourcePaneId: undefined,
     focusHue: undefined,
@@ -225,7 +226,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
     // opens a run from the destination reaches the body this file registered.
     paneRegistry: familyPaneRegistry(),
     uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore(),
+    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
   };
 }
 

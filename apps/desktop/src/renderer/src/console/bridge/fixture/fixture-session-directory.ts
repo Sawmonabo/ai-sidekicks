@@ -16,13 +16,9 @@
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError, refuse } from "../../core/index.js";
+import { ConsoleRefusalError, isWireRecord, refuse } from "../../core/index.js";
 import type { GrowthSessionSummary } from "../growth-values/index.js";
-import {
-  readUnknownMember,
-  readUnknownStringMember,
-  type ConsoleScenario,
-} from "../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 /** The subsystem a directory-derivation refusal names as its author. */
 const DIRECTORY_ORIGIN = "fixture-session-directory";
@@ -136,5 +132,14 @@ function declaredSessionState(scenario: ConsoleScenario): string | undefined {
   // beat's payload: a scenario's `result` is deliberately untyped so a scenario can
   // carry any registered reply, and a cast here would assert a shape the type system
   // was never given.
-  return readUnknownStringMember(readUnknownMember(sessionRead?.result, "session"), "state");
+  return readSessionState(readMember(readMember(sessionRead?.result, "session"), "state"));
+}
+
+/** One member of a value that may not be a record at all. */
+function readMember(value: unknown, member: string): unknown {
+  return isWireRecord(value) ? value[member] : undefined;
+}
+
+function readSessionState(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

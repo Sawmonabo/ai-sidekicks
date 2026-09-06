@@ -1,0 +1,54 @@
+/* The notifications page's own styles: the stored preference set, under its own names.
+ *
+ * A page-local sheet rather than an addition to the settings family's, on the
+ * `agents/agent-console/agent-console.css` precedent: these rules serve one page and a
+ * family-wide sheet is the file every page lane edits at once.
+ *
+ * ONE RULE HERE REACHES INTO A SHARED ROW, AND ONLY ONE. A stored member's label is a
+ * name the daemon sent, and rule 4 puts every wire-true string in mono — but the
+ * label a settings row renders is a plain string prop, so the signature is applied
+ * where these rows are mounted rather than by giving the shared component a second
+ * mode. The selector is descendant-scoped to this list, so no other page's rows move.
+ */
+
+.meridian-attention-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-attention-preferences__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-attention-preferences__key {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+/* A value shown for reading. It wraps rather than scrolls: it is a record and not a
+   column of figures, so a break mid-record is easier to read than a sideways scroll. */
+.meridian-attention-preferences__opaque {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.meridian-attention-preferences .meridian-settings-row__label {
+  font-family: var(--meridian-font-mono);
+  /* Mono runs optically larger at the same px; a hair under one em keeps the label
+     and the sentence under it on the same visual weight, as the figure rule does. */
+  font-size: 0.93em;
+}

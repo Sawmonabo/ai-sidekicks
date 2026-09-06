@@ -26,6 +26,15 @@
 // is armed at construction and cleared the first time a composer is focused, so the
 // participant is told once that unsent text does not survive a restart — which is
 // what makes the non-persistence a stated property rather than a silent loss.
+//
+// EVICTION IS THE SECOND WAY TEXT GOES, AND IT IS DISCLOSED THE SAME WAY. The live
+// ceiling drops the least-recently-typed draft, and a composer mounted on that key
+// used to watch its text vanish mid-session with no notice and no record — which is
+// the silent loss the header above is written against, reached by a different door.
+// So an eviction ARMS a notice keyed to the composer that lost the text, cleared the
+// moment that composer is typed in again or acknowledges it. The set of armed keys
+// carries the same ceiling the drafts do, for the same reason: a bound nothing
+// enforces is a leak with a comment on it.
 
 /** One composer's unsent text, keyed by the surface that owns the composer. */
 export interface DraftEntry {
@@ -50,24 +59,44 @@ export interface DraftStoreOptions {
    * restart. True for a real window; a test that does not care passes false.
    */
   readonly restartNoticePending?: boolean;
-  /** Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded. */
-  readonly maximumDraftCount?: number;
+  /**
+   * Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded.
+   *
+   * Required, and supplied by the caller rather than defaulted here: the bound's
+   * home is `core/constants.ts` and this module imports nothing at all, so a
+   * default in this file would be the console's second home for one number.
+   *
+   * At least one, checked at construction. Zero makes every write evict its own
+   * entry and notify `undefined`, so no draft ever sticks and every keystroke is
+   * lost — a store that silently holds nothing, which is the opposite of what this
+   * class is for. Unreachable from the frame today, and the option is public.
+   */
+  readonly maximumDraftCount: number;
 }
-
-/** The default ceiling: more composers than a person has open, and still bounded. */
-export const MAXIMUM_LIVE_DRAFT_COUNT = 64;
 
 export class DraftStore {
   readonly #draftsByKey = new Map<string, DraftEntry>();
   readonly #subscribersByKey = new Map<string, Set<(draft: DraftEntry | undefined) => void>>();
   readonly #now: () => number;
   readonly #maximumDraftCount: number;
+  /**
+   * Composers whose text the ceiling dropped, in eviction order.
+   *
+   * A `Set` because insertion order is the eviction order and a key evicted twice
+   * without being typed in between is one loss to disclose, not two.
+   */
+  readonly #evictedKeys = new Set<string>();
   #restartNoticePending: boolean;
 
-  public constructor(options: DraftStoreOptions = {}) {
+  public constructor(options: DraftStoreOptions) {
+    if (!Number.isInteger(options.maximumDraftCount) || options.maximumDraftCount < 1) {
+      throw new RangeError(
+        `DraftStore needs room for at least one draft, and was given ${String(options.maximumDraftCount)}.`,
+      );
+    }
     this.#now = options.now ?? (() => Date.now());
     this.#restartNoticePending = options.restartNoticePending ?? true;
-    this.#maximumDraftCount = options.maximumDraftCount ?? MAXIMUM_LIVE_DRAFT_COUNT;
+    this.#maximumDraftCount = options.maximumDraftCount;
   }
 
   /**
@@ -87,6 +116,29 @@ export class DraftStore {
     this.#restartNoticePending = false;
   }
 
+  /**
+   * Whether this composer's unsent text was dropped to keep the window bounded.
+   *
+   * The composer already learns that its draft is GONE — the eviction notifies its
+   * subscribers with `undefined`, exactly as a clear does — and that is precisely
+   * why the notice is needed: cleared, sent, and evicted are three different facts
+   * arriving through one signal, and only one of them is a loss the participant did
+   * not ask for.
+   */
+  public evictionNoticePendingFor(draftKey: string): boolean {
+    return this.#evictedKeys.has(draftKey);
+  }
+
+  /** The sentence the composer shows. Fixed text; no participant content in it. */
+  public get evictionNoticeText(): string {
+    return "Unsent text here was dropped to keep this window bounded, because other composers were used more recently.";
+  }
+
+  /** Stop showing the eviction notice for one composer. */
+  public acknowledgeEvictionNotice(draftKey: string): void {
+    this.#evictedKeys.delete(draftKey);
+  }
+
   public read(draftKey: string): DraftEntry | undefined {
     return this.#draftsByKey.get(draftKey);
   }
@@ -97,12 +149,19 @@ export class DraftStore {
       this.clear(draftKey);
       return;
     }
+    // Typing here is the participant answering the notice: there is text in this
+    // composer again, so there is nothing left to disclose about the text that went.
+    this.#evictedKeys.delete(draftKey);
     this.#draftsByKey.set(draftKey, { draftKey, text, updatedAt: this.#now() });
     this.#evictOldestBeyondCeiling();
     this.#notify(draftKey);
   }
 
   public clear(draftKey: string): void {
+    // A clear is the participant's own act — sending, or emptying the box — so it
+    // retires any notice standing on this key rather than leaving one beside text
+    // that went for a reason they chose.
+    this.#evictedKeys.delete(draftKey);
     if (this.#draftsByKey.delete(draftKey)) {
       this.#notify(draftKey);
     }
@@ -135,6 +194,7 @@ export class DraftStore {
   public dispose(): void {
     this.#draftsByKey.clear();
     this.#subscribersByKey.clear();
+    this.#evictedKeys.clear();
   }
 
   #evictOldestBeyondCeiling(): void {
@@ -151,7 +211,26 @@ export class DraftStore {
         return;
       }
       this.#draftsByKey.delete(oldestKey);
+      this.#armEvictionNotice(oldestKey);
       this.#notify(oldestKey);
+    }
+  }
+
+  /**
+   * Record one loss to disclose, under the same ceiling the drafts carry.
+   *
+   * Re-added rather than left in place, so the set's insertion order stays the
+   * eviction order and the oldest notice is the one dropped when the bound bites.
+   */
+  #armEvictionNotice(draftKey: string): void {
+    this.#evictedKeys.delete(draftKey);
+    this.#evictedKeys.add(draftKey);
+    while (this.#evictedKeys.size > this.#maximumDraftCount) {
+      const oldestNotice = this.#evictedKeys.values().next();
+      if (oldestNotice.done === true) {
+        return;
+      }
+      this.#evictedKeys.delete(oldestNotice.value);
     }
   }
 

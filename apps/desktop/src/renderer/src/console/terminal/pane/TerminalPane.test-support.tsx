@@ -15,6 +15,7 @@ import { fixtureSessionSnapshot } from "../../bridge/fixture/fixture-session-sna
 import { growthUnavailable } from "../../bridge/growth-port/growth-port.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../core/index.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import type { PaneContextOf } from "../../seats/index.js";
 import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
@@ -225,7 +226,7 @@ export function terminalPaneContext(
     frameStore: new FrameStore(),
     sessionStore,
     uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore(),
+    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     linkedSourcePaneId: undefined,
     focusHue: undefined,
   };

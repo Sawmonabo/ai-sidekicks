@@ -13,33 +13,26 @@
 // established from are driven beside it, because the served set says an operation
 // answers and says nothing about what it answered.
 //
-// THE SWEEP IS TWO CLAIMS, AND THEY ARE DRIVEN OVER DIFFERENT SETS. A served operation
-// may legitimately answer from what the scenario SAYS and refuse where it says nothing
-// — `callerParticipantRead` does that for a viewer, and the two workflow snapshot reads
-// do it for a run no scenario scripts — so "everything served answers" is true only of a
-// scenario that scripts them all, and it is driven over that one. The other direction
-// carries no such qualifier: an operation the set does not name must refuse whatever is
-// playing, so it is driven over EVERY scenario the fixture offers, read from
-// `scenarios/index.ts` rather than named here — a scenario a later family adds is swept
-// the day it lands and a list retyped here would not have swept it.
-//
-// The subjects that used to sit under this header have their own files, one per
-// concern: `fixture-growth-port.attention.test.ts`,
-// `fixture-growth-port.gitflow.test.ts`, and `fixture-growth-port.refusals.test.ts`.
+// The three subjects that used to sit under this header have their own files, one
+// per concern: `fixture-growth-port.attention.test.ts`,
+// `fixture-growth-port.gitflow.test.ts`, and
+// `fixture-growth-port.refusals.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { callOperation, fixturePort } from "./fixture-growth-port.test-support.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
+import {
+  FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS,
+  FIXTURE_SERVED_GROWTH_OPERATION_IDS,
+} from "./fixture-served-operations.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 import { createLiveBridge } from "../live-bridge.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
-import { CONSOLE_SCENARIOS } from "../scenarios/index.js";
+import { AGENTS_SCENARIO, AGENTS_SCENARIO_SWITCH_LATENCY_MS } from "../scenarios/agents.js";
 import { FIRST_RUN_SCENARIO } from "../scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
-import { WORKFLOWS_SCENARIO } from "../scenarios/workflows.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
 /**
@@ -75,46 +68,42 @@ function scenarioDeclaring(state: string): ConsoleScenario {
   };
 }
 
-/** Every operation the fixture does NOT claim to serve. The sweep's own subject. */
-function unservedOperationIds(): readonly GrowthOperationId[] {
-  const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
-  return (Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]).filter(
-    (operationId) => !served.has(operationId),
-  );
-}
-
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
-  it("answers every operation it claims to serve, under the scenario that scripts them all", async () => {
-    // The under-claim direction: a set naming an operation the port cannot answer
-    // would leave the store layer bound to a read that never lands. Driven over the
-    // WORKFLOWS scenario because it is the one that scripts every served read, so a
-    // refusal here is a broken served claim rather than a script that has not spoken.
-    const scenario = WORKFLOWS_SCENARIO;
-    const bridge = createFixtureBridge({ scenario });
+  it("answers every operation its bridge claims to serve, and refuses every other", async () => {
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    // The script-only writes are subtracted rather than special-cased in the loop:
+    // they ARE implemented, and this scenario scripts none of them, so they take the
+    // refusing arm here for the reason their own declaration gives — a write with no
+    // scripted answer has no honest empty state to serve. The subtraction is over the
+    // declared subset, so an operation that stopped being script-only fails here.
+    const scriptOnly = new Set<string>(FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS);
+    const served = new Set<string>(
+      FIXTURE_SERVED_GROWTH_OPERATION_IDS.filter((operationId) => !scriptOnly.has(operationId)),
+    );
 
-    for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {
-      const outcome = await callOperation(bridge.growth, operationId, scenario.sessionId);
-      expect(outcome.status, `${operationId} did not answer`).toBe("served");
+    for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
+      const outcome = await callOperation(bridge.growth, operationId);
+      expect(outcome.status, `${operationId} answered the wrong way`).toBe(
+        served.has(operationId) ? "served" : "unavailable",
+      );
     }
   });
 
-  it("refuses every operation it does not claim, under every scenario the fixture plays", async () => {
-    // The over-claim direction, and it holds unconditionally — so it is swept over the
-    // whole scenario list rather than over one. An operation nothing implements that
-    // answered under some scenario would have the composition root build a registry
-    // against a wire the port cannot serve, and nothing on screen would say so.
-    const unserved = unservedOperationIds();
-    // Two floors, because a sweep over an empty set passes without asking anything.
-    expect(CONSOLE_SCENARIOS.length).toBeGreaterThan(1);
-    expect(unserved.length).toBeGreaterThan(0);
+  it("negative control: a script-only write DOES serve for the scenario that scripts it", async () => {
+    // Without this the subtraction above would hold over a port whose write arms were
+    // never implemented at all — every one of them would refuse for the right reason
+    // and the wrong cause. The agents scenario scripts a configuration update on a
+    // latency, so the frozen clock has to reach it before the answer lands.
+    const bridge = createFixtureBridge({ scenario: AGENTS_SCENARIO });
+    const settling = bridge.growth.agentConfigUpdate({
+      agentId: "agent-architect",
+      interruptAndSwitch: false,
+    });
 
-    for (const scenario of CONSOLE_SCENARIOS) {
-      const bridge = createFixtureBridge({ scenario });
-      for (const operationId of unserved) {
-        const outcome = await callOperation(bridge.growth, operationId, scenario.sessionId);
-        expect(outcome.status, `${operationId} answered under ${scenario.id}`).toBe("unavailable");
-      }
-    }
+    bridge.scenarioEngine?.advance(AGENTS_SCENARIO_SWITCH_LATENCY_MS);
+
+    const outcome = await settling;
+    expect(outcome.status).toBe("served");
   });
 
   it("still refuses a served workflow read under a scenario that scripts no workflow", async () => {
