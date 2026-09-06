@@ -37,8 +37,7 @@ import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../../seats/index.js";
 import { routeSessionId } from "../../routing/index.js";
-import { ConsolePaneChrome, paneBodyForKind, type ConsolePaneRegistry } from "../../seats/index.js";
-import { AgentConsoleBody } from "./AgentConsoleBody.js";
+import { type ConsolePaneRegistry } from "../../seats/index.js";
 import { AgentConsoleWindow } from "./AgentConsoleWindow.js";
 
 /** The owner string both of this body's claims carry, so a hot reload replaces. */
@@ -71,23 +70,13 @@ export function registerAgentConsolePane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "agent-console",
     owner: AGENT_CONSOLE_OWNER,
-    render: paneBodyForKind("agent-console", (context) =>
-      // `children` is passed as a PROP rather than as this call's third argument: the
-      // chrome declares it required, and `createElement`'s variadic overload does not
-      // satisfy a required `children` — it type-checks the props object on its own.
-      createElement(ConsolePaneChrome, {
-        kind: "agent-console",
-        sessionId: context.sessionStore?.sessionId,
-        entity: context.entity,
-        focusHue: context.focusHue,
-        children: createElement(AgentConsoleBody, {
-          sessionId: context.sessionStore?.sessionId,
-          agentId: context.entity?.id,
-          bridge: context.bridge,
-          sessionStore: context.sessionStore,
-        }),
-      }),
-    ),
+    // A LOADER AND NOT A `render`, so the deck's mount of this body is not on the
+    // initial import graph. The SURFACE mount below is a different question and keeps
+    // its static registration: an auxiliary window loads the renderer bundle at a
+    // window route and the agent console IS that window's first paint, so making it
+    // lazy there would trade a launch cost the main window does not pay for a fallback
+    // frame the window it belongs to would.
+    body: () => import("./agent-console-pane-body.js"),
   });
 }
 

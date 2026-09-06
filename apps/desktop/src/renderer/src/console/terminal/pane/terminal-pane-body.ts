@@ -1,10 +1,15 @@
-// The terminal pane's descriptor — what the deck mounts, and on what terms.
+// The terminal pane's body, as the deck's registry loads it.
 //
-// Split from the component beside it for `browser/pane/pane-descriptor.ts`'s reason:
-// the registration terms are assertable without rendering anything, and a module
-// rather than a sub-module door for that file's reason too.
+// A LOADER-BACKED BODY for `browser/pane/browser-pane-body.ts`'s reason, and this pane
+// is the one that makes the case hardest to argue with: the emulator chunk was already
+// lazy, and everything around it — the lease line, the pane, the focus ring — was not,
+// so the initial graph carried the whole terminal surface for every session that never
+// opens one.
+//
+// Split from the component beside it for that file's reason too: the registration terms
+// are assertable without rendering anything, and a module rather than a sub-module door.
 
-import { paneBodyForKind, type ConsolePaneDescriptor } from "../../seats/index.js";
+import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 /**
@@ -19,13 +24,12 @@ import { TerminalPane } from "./TerminalPane.js";
  * through `isDetachablePaneKind`, so the reason is recorded here and the answer is
  * given once there.
  *
- * `render` goes through `paneBodyForKind` for `browser/pane/pane-descriptor.ts`'s
+ * `render` goes through `paneBodyForKind` for `browser/pane/browser-pane-body.ts`'s
  * reason, and it bites harder here: this body opens a subscription on the session's
  * one shared shell, so a mount at another kind's address would put a second surface on
  * that shell rather than merely drawing the wrong head.
  */
-export const TERMINAL_PANE_DESCRIPTOR: ConsolePaneDescriptor = {
-  kind: "terminal",
-  owner: "terminal",
-  render: paneBodyForKind("terminal", TerminalPane),
-};
+export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+  "terminal",
+  TerminalPane,
+);

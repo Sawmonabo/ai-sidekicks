@@ -23,7 +23,11 @@
 // module-named subtraction to tolerate it. The move deletes the subtraction, and
 // `console-cross-family-deep-import` now covers the whole console with no exception.
 
+import { createElement } from "react";
+
 import { KeyedRegistry } from "../core/index.js";
+import { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body.js";
+import { PendingSurfaceBody } from "./PendingSurfaceBody.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { type FrameStore, type SessionStore, type SessionStoreRegistry } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
@@ -97,6 +101,33 @@ export interface ConsoleSurfaceDescriptor {
   readonly render: (context: ConsoleSurfaceContext) => React.ReactNode;
 }
 
+/** What every registration carries, whichever form it takes. */
+interface ConsoleSurfaceRegistrationBase {
+  readonly slot: ConsoleSurfaceSlot;
+  readonly owner: string;
+}
+
+/**
+ * What a family hands `register`, in one of exactly two forms.
+ *
+ * The pane board's own union, applied to routes, and decided by the same product fact:
+ * a surface that is painted before a person acts belongs in the entry graph, and a
+ * surface reached by pressing a rail destination or opening an auxiliary window does
+ * not. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
+ *
+ * The rail's OWN destination is the case that decides itself: whichever surface the
+ * console opens on is the flagship first paint and keeps `render`.
+ */
+export type ConsoleSurfaceRegistration =
+  | (ConsoleSurfaceRegistrationBase & {
+      readonly render: (context: ConsoleSurfaceContext) => React.ReactNode;
+      readonly body?: never;
+    })
+  | (ConsoleSurfaceRegistrationBase & {
+      readonly body: LazyBodyLoader<ConsoleSurfaceContext>;
+      readonly render?: never;
+    });
+
 export class ConsoleSurfaceRegistry {
   // `"owner-scoped"`: re-registering under the same owner replaces (a hot reload
   // re-runs a family's module), and a different owner claiming a taken slot is a
@@ -108,13 +139,68 @@ export class ConsoleSurfaceRegistry {
     ownerOf: (descriptor) => descriptor.owner,
   });
 
+  /**
+   * The loader-backed surfaces, so `preload` has something to resolve.
+   *
+   * A second table rather than a member on the descriptor, for the pane board's reason:
+   * the descriptor is what every MOUNT site reads and none of them has business knowing
+   * whether the surface it is about to render arrived as a chunk.
+   */
+  readonly #loadedBodiesBySlot = new Map<
+    ConsoleSurfaceSlot,
+    LoadedLazyBody<ConsoleSurfaceContext>
+  >();
+
   /** Claim a slot. A second claim by a different owner is an error, not a swap. */
-  public register(descriptor: ConsoleSurfaceDescriptor): void {
-    this.#descriptorsBySlot.register(descriptor.slot, descriptor);
+  public register(registration: ConsoleSurfaceRegistration): void {
+    if (registration.body === undefined) {
+      this.#loadedBodiesBySlot.delete(registration.slot);
+      this.#descriptorsBySlot.register(registration.slot, {
+        slot: registration.slot,
+        owner: registration.owner,
+        render: registration.render,
+      });
+      return;
+    }
+    // The fallback is the route's own absence frame, empty. Supplied here rather than by
+    // the generic machinery, because what a route reserves while it loads is a
+    // route-shaped question.
+    const loadedBody = new LoadedLazyBody(registration.body, (context: ConsoleSurfaceContext) =>
+      createElement(PendingSurfaceBody, { context }),
+    );
+    // Registered BEFORE the loader table is written, so a `register` the keyed registry
+    // refuses — a different owner claiming a taken slot — cannot leave a loader behind
+    // for a surface that is not the one mounting. The refusal throws past this line.
+    this.#descriptorsBySlot.register(registration.slot, {
+      slot: registration.slot,
+      owner: registration.owner,
+      render: loadedBody.render,
+    });
+    this.#loadedBodiesBySlot.set(registration.slot, loadedBody);
   }
 
   public unregister(slot: ConsoleSurfaceSlot): void {
     this.#descriptorsBySlot.unregister(slot);
+    this.#loadedBodiesBySlot.delete(slot);
+  }
+
+  /**
+   * Start this slot's surface loading, without navigating to it.
+   *
+   * The pane board's own `preload`, with its reasoning unchanged: idempotent by
+   * construction, and a component-form or unregistered slot settles immediately with
+   * nothing to do, so a caller preloading a destination it has not opened never has to
+   * ask first whether that slot is loader-backed.
+   */
+  public async preload(slot: ConsoleSurfaceSlot): Promise<void> {
+    await this.#loadedBodiesBySlot.get(slot)?.load();
+  }
+
+  /** Which registered slots have a surface still to load, in declaration order. */
+  public unloadedKeys(): readonly ConsoleSurfaceSlot[] {
+    return CONSOLE_SURFACE_SLOTS.filter(
+      (slot) => this.#loadedBodiesBySlot.get(slot)?.isResolved === false,
+    );
   }
 
   public descriptorFor(slot: ConsoleSurfaceSlot): ConsoleSurfaceDescriptor | undefined {
@@ -129,9 +215,9 @@ export class ConsoleSurfaceRegistry {
 /** The process-wide registry the families call at module scope. */
 export const consoleSurfaceRegistry: ConsoleSurfaceRegistry = new ConsoleSurfaceRegistry();
 
-/** The call a 1C surface family makes to claim its slot. */
-export function registerConsoleSurface(descriptor: ConsoleSurfaceDescriptor): void {
-  consoleSurfaceRegistry.register(descriptor);
+/** The call a 1C surface family makes to claim its slot, in either registration form. */
+export function registerConsoleSurface(registration: ConsoleSurfaceRegistration): void {
+  consoleSurfaceRegistry.register(registration);
 }
 
 /** Which slot a route mounts. `undefined` for routes that mount no surface. */

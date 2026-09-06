@@ -131,7 +131,22 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
   type ConsolePaneOpener,
+  type ConsolePaneRegistration,
 } from "./pane-registry.js";
+
+// The idle warm and its scheduler. Published because the composition that owns a
+// window's first frame is the one that starts the walk, and that composition is
+// `frame/`, a family above this one — the seam a view family never touches.
+export { LazyBodyIdleWarm, idleWarmScheduler } from "./lazy-body-warm.js";
+
+// The loader contract itself, for the boards' own registrations and for a family that
+// names the type on a loader it declares apart from its registration.
+export type { LazyBodyBoard, LazyBodyLoader, LazyBodyModule } from "./lazy-body.js";
+
+// The pending marker's reader, for the screenshot tier's capture helper. It leaves the
+// family because the refusal to photograph a half-loaded pane is a claim about the whole
+// window, and the tier that makes it sits outside `console/` entirely.
+export { pendingPaneBodiesIn, pendingPaneKindsIn } from "./pending-pane-body.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */

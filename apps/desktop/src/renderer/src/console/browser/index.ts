@@ -27,7 +27,7 @@
 //     (`BrowserPane.tsx`), its chrome control and address field, the act sequence the
 //     wire is driven through, the geometry binding, the reported-navigation read,
 //     the keyboard handback, the pane's addressing triple, and the descriptor the
-//     door below registers (`pane-descriptor.ts`).
+//     door below registers (`pane/browser-pane-body.ts`, loaded as its own chunk).
 //   • `geometry/` — the rect the main-process view host is positioned by, and every
 //     reading that makes it honest: the publisher, the motion and animation samplers,
 //     the ancestry watch, the occlusion registry, and the host resolution. It renders
@@ -66,7 +66,6 @@ import "./pane/pane.css";
 import "./bounds/bounds.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { BROWSER_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
 
 /**
  * Claim the browser family's pane kinds.
@@ -76,5 +75,14 @@ import { BROWSER_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
  * auxiliary window composes a different subset without a second code path.
  */
 export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
-  registry.register(BROWSER_PANE_DESCRIPTOR);
+  registry.register({
+    kind: "browser",
+    owner: "browser",
+    // A LOADER AND NOT A `render`. Nothing this family draws is on the flagship first
+    // paint — the pane opens from the sidebar or the palette — so the whole subtree
+    // travels as its own chunk and the launch does not pay for it. The specifier is
+    // written here, at the registration, so the boundary is visible where the claim is
+    // made rather than hidden inside the body module.
+    body: () => import("./pane/browser-pane-body.js"),
+  });
 }

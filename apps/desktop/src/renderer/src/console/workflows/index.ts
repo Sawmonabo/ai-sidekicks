@@ -45,13 +45,10 @@ import { createElement } from "react";
 // substrate hoisted both boards down to `seats/`, which sits below every view family,
 // so this is one edge through one door and the config carries no exemption for it.
 import {
-  paneBodyForKind,
-  type ConsolePaneDescriptor,
+  type ConsolePaneRegistration,
   type ConsolePaneRegistry,
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
-import { WorkflowBuilderPane } from "./pane/builder/index.js";
-import { WorkflowRunPane } from "./pane/run/index.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**
@@ -83,20 +80,21 @@ const WORKFLOWS_OWNER = "workflows";
  * surface standing. Six families answering that once each is six sentences for one
  * case, which is what `paneBodyForKind` exists to prevent.
  */
-const WORKFLOW_PANES: readonly ConsolePaneDescriptor[] = [
+const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
-    render: paneBodyForKind("workflow-run", (context) =>
-      createElement(WorkflowRunPane, { context }),
-    ),
+    // BOTH KINDS ARE LOADER-BACKED. Neither is on the flagship first paint — the run
+    // pane opens from the sidebar or the workflows browser, the builder from the rail's
+    // own destination — so both travel as their own chunks and the launch pays for
+    // neither. The phase graph stays a nested lazy chunk inside the run pane's, so
+    // opening a run does not fetch the graph either.
+    body: () => import("./pane/workflow-run-pane-body.js"),
   },
   {
     kind: "workflow-builder",
     owner: WORKFLOWS_OWNER,
-    render: paneBodyForKind("workflow-builder", (context) =>
-      createElement(WorkflowBuilderPane, { context }),
-    ),
+    body: () => import("./pane/workflow-builder-pane-body.js"),
   },
 ];
 

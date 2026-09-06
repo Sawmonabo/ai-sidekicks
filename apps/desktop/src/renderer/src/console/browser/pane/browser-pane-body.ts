@@ -1,9 +1,17 @@
-// The browser pane's descriptor — what the deck mounts, and on what terms.
+// The browser pane's body, as the deck's registry loads it.
+//
+// A LOADER-BACKED BODY, so none of this pane reaches the initial import graph. The
+// family door registers it as `body: () => import("./pane/browser-pane-body.js")`, and
+// the bundler splits everything this module reaches — the pane, its geometry, its
+// bounds bridge, its policy rows — into a chunk that is fetched when the pane is about
+// to open or on the idle warm after the first frame, whichever comes first. The rule is
+// in `apps/desktop/AGENTS.md`: a pane body not on the flagship first paint registers
+// through a loader.
 //
 // Separate from the component beside it because the two answer different questions
-// and change at different times: the component is what renders, the descriptor is
-// what the deck is allowed to do with it. Splitting them is what lets the
-// registration terms below be asserted without rendering anything.
+// and change at different times: the component is what renders, this module is the
+// registry's entry point into it. Splitting them is what lets the registration terms
+// below be asserted without rendering anything.
 //
 // A MODULE AND NOT A SUB-MODULE DOOR. It was a pane-directory barrel until the
 // pane body came home to the family that owns it, and an `index.ts` here would be a
@@ -12,11 +20,15 @@
 // `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
 // outside itself. The family door imports this module by name instead.
 
-import { paneBodyForKind, type ConsolePaneDescriptor } from "../../seats/index.js";
+import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";
 
 /**
  * The browser pane, as the deck holds it.
+ *
+ * Named `Body` because `seats/lazy-body.ts` fixes the export name a loader
+ * module publishes: the registry composes one specifier shape, and a body module is
+ * recognisable as one by reading its exports rather than by where it sits.
  *
  * IT ADVERTISES NO DETACH, because a descriptor cannot. Whether this kind may be
  * torn off into a window of its own is `seats/pane-kinds.ts`'s
@@ -41,8 +53,7 @@ import { BrowserPane } from "./BrowserPane.js";
  * the trail, and the focus hue rule 2 attributes the pane with — so no argument is
  * rebuilt here.
  */
-export const BROWSER_PANE_DESCRIPTOR: ConsolePaneDescriptor = {
-  kind: "browser",
-  owner: "browser",
-  render: paneBodyForKind("browser", BrowserPane),
-};
+export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+  "browser",
+  BrowserPane,
+);

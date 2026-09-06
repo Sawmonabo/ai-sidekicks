@@ -38,7 +38,7 @@
 //     participant mark, and withheld-claim control.
 //   • `pane/` — the deck's terminal body and the reads only it makes: the pane
 //     (`TerminalPane.tsx`) and its bound half (`BoundTerminalPane.tsx`), the
-//     descriptor the door below registers (`pane-descriptor.ts`), the host-presence
+//     body the door below loads (`pane/terminal-pane-body.ts`), the host-presence
 //     fold (`node-presence-model.ts`), and the output subscription
 //     (`output-stream.ts`).
 //
@@ -76,7 +76,6 @@ import "./emulator/emulator.css";
 import "./focus-ring.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { TERMINAL_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
 
 /**
  * Claim the terminal family's pane kinds.
@@ -86,5 +85,12 @@ import { TERMINAL_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
  * makes a second claim on this kind an error rather than a swap.
  */
 export function registerTerminalPanes(registry: ConsolePaneRegistry): void {
-  registry.register(TERMINAL_PANE_DESCRIPTOR);
+  registry.register({
+    kind: "terminal",
+    owner: "terminal",
+    // A loader, for `browser/index.ts`'s reason. The emulator was already a lazy chunk
+    // of its own and everything around it was not, so a session that never opens a
+    // terminal still carried the pane, the lease line, and their rules.
+    body: () => import("./pane/terminal-pane-body.js"),
+  });
 }
