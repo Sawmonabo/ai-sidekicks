@@ -1,4 +1,4 @@
-// Every console stylesheet enters through its own family's door, and through one.
+// Every console stylesheet enters through the door of the directory that owns it.
 //
 // `apps/desktop/AGENTS.md` §Module shape states it in one line — "A family's CSS is
 // imported from that family's barrel and from nowhere else" — and until this file
@@ -26,15 +26,15 @@
 // component does not import a sheet would have been counted as the import it was
 // explaining the absence of.
 //
-// AND A SUB-MODULE BARREL IS NOT A DOOR. `repos/artifact-pane/index.ts` is a barrel
-// too, and it is the shape this gate was extended to catch: it publishes to its own
-// family alone and is reached by deep intra-family specifiers, so a sheet imported
-// from one arrives on the paths that reach THAT barrel and on no other. The artifact
-// pane shipped exactly that way, which meant a surface composing the pane through the
-// repos family door alone drew it unstyled — and no count of edges reports it, since
-// there is still exactly one. The two barrel kinds are told apart by DEPTH, because
-// depth is what tells them apart: a family door is one directory below the console
-// root, and anything deeper is a sub-module barrel.
+// AND A SUB-MODULE BARREL IS A DOOR TOO. `repos/artifact-pane/index.ts` is a barrel,
+// and `apps/desktop/AGENTS.md` gives it the same standing as a family's: the rule keys
+// on the directory that OWNS a sheet, and a directory carrying a door owns itself. So
+// the question this gate asks is never how deep a barrel sits — it is whether the
+// module importing a sheet is the barrel of the directory that holds it. This suite
+// asked the depth question for a while and hoisted two pane sheets up into the repos
+// family door to satisfy it, which is the reach the rule names in its own words: it
+// makes one directory the reason another is styled. No count of edges reports either
+// arrangement, since both are exactly one — the predicate is the whole of the ruling.
 //
 // A LIBRARY'S OWN SHEET IS NOT A FAMILY'S SHEET, so only RELATIVE specifiers are
 // read. `terminal/emulator/xterm-adapter.ts` imports `@xterm/xterm/css/xterm.css` from the
@@ -105,19 +105,22 @@ const STYLESHEET_PATHS: readonly string[] = Object.keys(
   .map((specifier) => consoleRelative(resolve(HERE, specifier)))
   .sort();
 
-/** The one file in a family that may carry a stylesheet import. */
+/** The one file in a directory that may carry a stylesheet import. */
 const FAMILY_DOOR = "index.ts";
 
 /**
- * Whether a console-relative path is its family's DOOR.
+ * Whether a console-relative path is a DOOR — the barrel a directory is entered by.
  *
- * One directory below the console root and named `index.ts`. A deeper `index.ts` is a
- * sub-module barrel and answers false; the console root's own `index.ts`, were it to
- * carry a sheet, is not a family's door either and answers false with it.
+ * Keyed on OWNERSHIP and never on depth. `apps/desktop/AGENTS.md` puts a sheet through
+ * the barrel of the directory that owns it: a sub-directory carrying no `index.ts` is
+ * owned by its parent, and one carrying a door owns itself. So `sessions/notifications`
+ * and `repos/diff-pane` are each where their own sheet enters, and a family door
+ * reaching down for either is the shape the rule forbids rather than the tidier form
+ * of it — a depth predicate reads that exactly backwards, and this one was one before
+ * a sub-module barrel with a sheet of its own arrived to say so.
  */
-function isFamilyDoor(consoleRelativePath: string): boolean {
-  const segments = consoleRelativePath.split("/");
-  return segments.length === 2 && segments[1] === FAMILY_DOOR;
+function isDoorModule(consoleRelativePath: string): boolean {
+  return consoleRelativePath === FAMILY_DOOR || consoleRelativePath.endsWith(`/${FAMILY_DOOR}`);
 }
 
 /** The extension that makes an import a stylesheet edge. */
@@ -164,7 +167,7 @@ function stylesheetImportsOf(consoleRelativePath: string): readonly string[] {
   );
 }
 
-describe("stylesheet edges — a family's CSS enters at that family's door", () => {
+describe("stylesheet edges — a sheet enters at the door of the directory that owns it", () => {
   const stylesheets = STYLESHEET_PATHS;
   const modules = consoleRelativePaths(CONSOLE_MODULES);
 
@@ -175,9 +178,9 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     expect(modules.length).toBeGreaterThan(100);
   });
 
-  it("is imported by no module but a family door", () => {
+  it("is imported by no module but a door", () => {
     const offenders = modules
-      .filter((module) => !isFamilyDoor(module))
+      .filter((module) => !isDoorModule(module))
       .flatMap((module) => stylesheetImportsOf(module).map((sheet) => `${module} -> ${sheet}`));
     expect(offenders).toStrictEqual([]);
   });
@@ -186,7 +189,7 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     // A submodule reaching for a sibling family's sheet is the same defect one level
     // out: the sheet then arrives on whichever chunk that family lands in.
     const crossFamilyEdges = modules
-      .filter((module) => isFamilyDoor(module))
+      .filter((module) => isDoorModule(module))
       .flatMap((door) =>
         stylesheetImportsOf(door)
           .filter((sheet) => familyOf(sheet) !== familyOf(door))
@@ -236,18 +239,23 @@ describe("stylesheet edges — a family's CSS enters at that family's door", () 
     ).toStrictEqual(["./browser.css"]);
   });
 
-  it("negative control: a sub-module barrel is not a door", () => {
-    // The shape `repos/artifact-pane/index.ts` shipped in, planted as text so the
-    // control keeps biting after the real module is fixed. An edge count cannot see
-    // it — there is exactly one — so the depth predicate is what rules on it, and the
-    // legitimate case is asserted beside it: a family door reaching into a sub-module
-    // directory for a sheet, which the repos door does seven times.
-    expect(isFamilyDoor("repos/artifact-pane/index.ts")).toBe(false);
-    expect(isFamilyDoor("repos/mounts/RepoSection.tsx")).toBe(false);
-    expect(isFamilyDoor(`repos/${FAMILY_DOOR}`)).toBe(true);
-    expect(
-      stylesheetSpecifiersIn("repos/index.ts", 'import "./artifact-pane/artifact.css";'),
-    ).toStrictEqual(["./artifact-pane/artifact.css"]);
+  it("negative control: a sub-module barrel IS a door, and a component is not", () => {
+    // Planted as text so the two verdicts keep being made after the real modules move.
+    // An edge count cannot separate them — a sheet reached from a family door and one
+    // reached from its own sub-module barrel are both exactly one edge — so the
+    // predicate is the whole of the ruling, and it is the half this suite got wrong:
+    // `repos/artifact-pane/index.ts` answered false under a depth rule, which ordered
+    // the sheet UP into the family door and called the violation the fix.
+    expect(isDoorModule("repos/artifact-pane/index.ts")).toBe(true);
+    expect(isDoorModule("sessions/notifications/index.ts")).toBe(true);
+    expect(isDoorModule(`repos/${FAMILY_DOOR}`)).toBe(true);
+    expect(isDoorModule("repos/mounts/RepoSection.tsx")).toBe(false);
+    expect(isDoorModule("repos/diff-pane/diff-bounds.ts")).toBe(false);
+    // And the legitimate reach a door still has: `repos/mounts/` carries no barrel, so
+    // the family door is what owns its sheet.
+    expect(stylesheetSpecifiersIn("repos/index.ts", 'import "./mounts/mounts.css";')).toStrictEqual(
+      ["./mounts/mounts.css"],
+    );
   });
 
   it("negative control: the two forms a line-anchored pattern could not see", () => {

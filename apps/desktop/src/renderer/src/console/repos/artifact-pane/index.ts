@@ -3,19 +3,20 @@
 // Same shape and same reason as `repos/diff-pane/index.ts`: one directory, one barrel, the
 // bodies reached only through it.
 //
-// NO STYLESHEET IS IMPORTED HERE, and that is the same rule this directory's sibling
-// keeps. This directory and `repos/diff-pane/` are two of the repos family's seven
-// sub-modules, and a family's CSS is imported from that family's DOOR — which is
-// `repos/index.ts`, not this sub-module barrel. That door imports every one of the
-// family's eight sheets, this directory's own `artifact.css` included, so all of them
-// arrive together whenever any sub-module renders. Imported from here instead, the
-// sheet arrived only on the paths that reach THIS barrel, so a surface composing the
-// pane through the family door alone would draw it unstyled.
+// THE SHEET ENTERS HERE, and that is the same rule this directory's sibling keeps.
+// `apps/desktop/AGENTS.md` keys it on the directory that OWNS a sheet rather than on
+// depth, and a directory carrying a door owns itself. The fear that put `artifact.css`
+// on the family door instead — that a surface composing the pane through that door
+// alone would draw it unstyled — does not survive reading the graph: nothing composes
+// this pane from `repos/index.ts`, which reaches the bodies through
+// `repos/family-bodies.ts`, and that module imports this barrel statically.
 //
 // The two inline cards ship as their REGISTRATIONS rather than as components, for the
 // diff card's reason: the seat is filled by a call, and a family barrel that exported
 // the component would invite a sibling to mount it directly — which is the import
 // across view families the seats exist to prevent.
+
+import "./artifact.css";
 
 export { ArtifactPane } from "./ArtifactPane.js";
 

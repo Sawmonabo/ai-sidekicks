@@ -5,10 +5,10 @@
  * A sibling stylesheet rather than a block inside `repos/repos.css`, on the
  * `repos/artifact-pane/artifact.css` precedent: `repos/diff-pane/` is the diff half of the
  * repos family's seven sub-modules, and this file holds everything that belongs to it and
- * to no surface outside it. It is imported by `repos/index.ts` — the family's one
- * door and its only stylesheet importer — beside `repos.css` itself, and by nothing
- * else. A second importer would land these rules twice and their cascade order would
- * depend on which door the bundler reached first.
+ * to no surface outside it. It is imported by `repos/diff-pane/index.ts` — this
+ * directory's own door, which is what owns it — and by nothing else. A second importer
+ * would land these rules twice and their cascade order would depend on which door the
+ * bundler reached first.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every colour is read back out of a custom property.
@@ -17,7 +17,7 @@
  * asks for does not exist here. `apps/desktop/AGENTS.md`'s rule splits a sheet BY
  * DIRECTORY, and `repos/diff-pane/` is one directory; a second sheet beside this one
  * would put two files in the cascade whose order is decided by the order of two
- * adjacent lines in `repos/index.ts`, which is a coupling this file's own
+ * adjacent lines in `repos/diff-pane/index.ts`, which is a coupling this file's own
  * single-importer rule exists to prevent. The reading cost the bound protects is
  * already paid by the section banners below — a reader looking for the changed-file
  * list or the rows finds them by heading, not by scrolling. THE TRIGGER THAT SPLITS

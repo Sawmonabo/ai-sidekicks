@@ -5,12 +5,15 @@
 // family composes it into a `ConsolePaneDescriptor` in its own barrel, so the
 // registration and the component never have to know about each other.
 //
-// The stylesheet is NOT imported here. This directory and `repos/artifact-pane/` are
-// two of the family's seven sub-modules, and the family is reached through one door:
-// `repos/index.ts` imports all eight of the family's sheets, this directory's own
-// `diff.css` among them. A sheet imported from each sub-module door would land several
-// times in the graph and its presence would depend on which door the bundler reached
-// first.
+// THE SHEET ENTERS HERE, because this directory owns it. `apps/desktop/AGENTS.md`
+// keys that rule on ownership rather than on depth: a directory carrying a door owns
+// itself, and this one does. The family door imported `diff.css` for a while instead,
+// which read as the tidier shape and was the one thing the rule names — one directory
+// being the reason another is styled. Nothing about the graph turns on the move:
+// `repos/family-bodies.ts` reaches this barrel statically, so the sheet is present
+// whenever the family door is, and it still lands once.
+
+import "./diff.css";
 
 export { DiffPane } from "./DiffPane.js";
 

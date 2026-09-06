@@ -10,13 +10,15 @@
 // section id, and a family that owned bodies in both key spaces would otherwise need
 // two doors. This is the one door: everything the family registers is registered here.
 //
-// THE FAMILY'S SHEETS ARE IMPORTED HERE AND NOWHERE ELSE. One family, one door for
-// its stylesheets — the rule every console family obeys — and the family's styling is
-// spread over eight files: the root sheet and one per sub-module. This module is what
-// both pane barrels are reached through, so every sheet is present whenever any of
-// the sub-modules renders, and each lands in the graph once.
+// THE SHEETS THIS DIRECTORY OWNS ARE IMPORTED HERE. `apps/desktop/AGENTS.md` keys
+// that rule on the directory that OWNS a sheet rather than on how deep the sheet sits:
+// a sub-directory carrying no barrel of its own is owned by this one, and a
+// sub-directory carrying a door owns itself. The family's styling is spread over eight
+// files — the root sheet and one per sub-module — and six of them are owned here. The
+// two pane sub-modules have barrels, so `diff.css` and `artifact.css` enter through
+// those and are named here only to say where they went.
 //
-// WHAT IS HERE AND WHAT IS BELOW. This module imports the family's eight sheets,
+// WHAT IS HERE AND WHAT IS BELOW. This module imports the six sheets it owns,
 // publishes the two registration entry points the console calls, and publishes the
 // two cross-family seams at the bottom. The BODIES are all in `family-bodies.ts`,
 // whose header says why a door that read the two pane barrels and the sidebar
@@ -24,24 +26,24 @@
 
 import "./repos.css";
 // The five subject sheets, in the order their rules held inside `repos.css` before
-// that file outgrew a reader. Imported after the root sheet and before the two pane
-// sheets, which is the order the rules were in, so nothing about the cascade turns on
-// the split. Each is imported HERE for the same reason the pane sheets are: a sheet
-// imported from the directory it styles arrives only on the paths that reach that
-// directory, and this family is reached through several.
+// that file outgrew a reader. Imported after the root sheet, which is the order the
+// rules were in, so nothing about the cascade turns on the split. Each is imported
+// HERE because none of these five directories carries a barrel: they are owned by
+// this one, and a sheet enters through its owner's door.
+//
+// The two pane sheets are NOT here. `repos/diff-pane/` and `repos/artifact-pane/`
+// each carry a door, so each owns its own sheet and imports it there. Nothing about
+// the graph changes: `family-bodies.ts` reaches both barrels statically, so both
+// sheets are present whenever this door is, and each still lands once. What changes
+// is which directory is the reason the other is styled — and a CSS `@import` from
+// `repos.css` is not the alternative it looks like, because the browser tiers inject
+// a sheet as a `<style>` element and a relative `@import` inside one resolves against
+// the document rather than against the sheet, so the rules silently do not arrive.
 import "./mounts/mounts.css";
 import "./proposals/proposals.css";
 import "./restore/restore.css";
 import "./artifacts/artifacts.css";
 import "./attachments/attachments.css";
-// The two pane sub-modules' own sheets, imported HERE and not from their barrels, so
-// this door stays the family's only stylesheet importer. A CSS `@import` from
-// `repos.css` would have kept the file count the same and lost the rules: the
-// browser tiers inject a sheet as a `<style>` element, and a relative `@import`
-// inside one resolves against the document rather than against the sheet, so the
-// rules silently do not arrive and the pane is screenshotted unstyled.
-import "./diff-pane/diff.css";
-import "./artifact-pane/artifact.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import {
