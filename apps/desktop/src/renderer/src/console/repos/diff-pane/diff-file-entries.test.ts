@@ -8,8 +8,11 @@
 import { describe, expect, it } from "vitest";
 
 import { diffFileListReading, selectedEntryRow } from "./diff-file-entries.js";
-import { buildDiffFixture } from "./diff-fixture.js";
-import { EXTENDED_HEADER_FIXTURE_FILES, SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
+import {
+  EXTENDED_HEADER_FIXTURE_FILES,
+  SMALL_DIFF_SHAPE,
+} from "./diff-fixture-shapes.test-support.js";
 
 const DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 const FIRST_PATH = DIFF.files[0]?.path ?? "";

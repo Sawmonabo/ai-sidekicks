@@ -46,6 +46,7 @@
     "test/console/browser/**/*",
     "test/console/screenshot/**/*",
     "test/console/accessibility/**/*",
+    "test/console/surfaces/**/*",
     "src/renderer/src/**/*.d.ts",
     "src/renderer/src/console/console-env.d.ts"
   ],

@@ -7,18 +7,17 @@
 // long to mount, an entry reached past the mounted slice, and the row that names the
 // slice it is in.
 
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
-import { buildDiffFixture } from "./diff-fixture.js";
-import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
 } from "./diff-layout-fixture.test-support.js";
-import { DiffFileList } from "./DiffFileList.js";
-import { type ConsoleDiffModel } from "./diff-model.js";
+import { filterTo, fixtureFileAt, renderFileList } from "./diff-file-list.test-support.js";
 
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
@@ -47,44 +46,6 @@ beforeEach(() => {
 afterEach(() => {
   layout.restore();
 });
-
-function renderFileList(diff: ConsoleDiffModel, selectedFilePath?: string): HTMLElement {
-  return render(
-    <DiffFileList
-      diff={diff}
-      selectedFilePath={selectedFilePath}
-      onSelectFilePath={() => undefined}
-    />,
-  ).container;
-}
-
-/** The entry for one path, as the list drew it. */
-/**
- * One file of a change set, by index.
- *
- * Thrown for rather than answered as optional, because a fixture shorter than a case
- * assumes is a broken case and not a state to assert about — and a `function`
- * declaration below carries no narrowing a guard beside the fixture would have made.
- */
-function fixtureFileAt(
-  diff: ConsoleDiffModel,
-  fileIndex: number,
-): ConsoleDiffModel["files"][number] {
-  const file = diff.files[fileIndex];
-  if (file === undefined) {
-    throw new Error(`the generated change set has no file at ${String(fileIndex)}`);
-  }
-  return file;
-}
-
-/** Type into the list's own filter, which is how every filtering case narrows it. */
-function filterTo(container: HTMLElement, filterText: string): void {
-  const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
-  if (filter === null) {
-    throw new Error("the list drew no filter input");
-  }
-  fireEvent.change(filter, { target: { value: filterText } });
-}
 
 /** The change note on one path's entry, or `undefined` where it drew none. */
 describe("diff file list — a change set too long to mount", () => {
@@ -172,6 +133,14 @@ describe("diff file list — reaching an entry the window has not mounted", () =
     // A window mounts the rows a scroll position needs, so tabbing reaches those and
     // no others. The list is one tab stop with the arrows inside it, which is what
     // keeps every entry reachable however few of them are mounted.
+    //
+    // THIS TIER CANNOT SEE WHETHER THE RING ACTUALLY MOVED. happy-dom focuses any
+    // element it is asked to, an `<li>` with no `tabindex` included, so this case
+    // passed over a list whose row marked itself as the focus target and whose ring
+    // therefore never moved in a browser. `test/console/browser/
+    // repos-windowed-focus.test.tsx` is where that claim is made, in Chromium, with
+    // the engine's refusal as its own control. What is asserted here is the INDEX
+    // arithmetic, which is this tier's to own.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     firstEntry(container).focus();
 

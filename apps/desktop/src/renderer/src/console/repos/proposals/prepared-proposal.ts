@@ -22,11 +22,38 @@
 // `ONE_CUMULATIVE_PROPOSAL_COPY` says out loud, and it is the whole of this module's
 // position on how many proposals a worktree can have.
 
-/** Whether the host would publish this proposal or hold it. The wire's own two words. */
-export const PROPOSAL_STATES = ["draft", "ready"] as const;
+import { GROWTH_PR_PREPARATION_STATES, type GrowthPrPreparationState } from "../../bridge/index.js";
 
-/** One proposal state. Derived, so the vocabulary is declared exactly once. */
-export type ProposalState = (typeof PROPOSAL_STATES)[number];
+/**
+ * One proposal state, and the wire's vocabulary rather than a second copy of it.
+ *
+ * `bridge/growth-values/gitflow.ts` declares the two words the registered
+ * `gitflowPrPrepare` reply carries and derives its own union from them; this family
+ * used to declare a member-for-member twin under a comment claiming to be the one
+ * home, which is two closed sets that agree until the wire moves one. An ALIAS rather
+ * than a re-derivation, so the gate's `state` member and the reply's are the same type
+ * by construction and a member the wire drops stops being assignable here.
+ */
+export type ProposalState = GrowthPrPreparationState;
+
+/**
+ * Whether a served preparation reply's state is one this console can render.
+ *
+ * THE ALIAS IS A COMPILE-TIME CLAIM AND THE PORT IS A PROCESS BOUNDARY. The signature
+ * table types `gitflowPrPrepare`'s reply, and what arrives is whatever was sent — so a
+ * state outside the two words reaches `PROPOSAL_STATE_SUMMARY_LINE` as a missing key
+ * and `proposal-actions.ts`'s `=== "ready"` as a silent `false`, which withholds the
+ * remote act and prints no summary line while nothing fails. The gate refuses the
+ * reply instead, which is the reader-side code it already has a place for.
+ *
+ * Reads the wire's own enumeration, so the guard and the type cannot disagree about
+ * which words exist.
+ */
+export function isProposalState(value: unknown): value is ProposalState {
+  return (
+    typeof value === "string" && (GROWTH_PR_PREPARATION_STATES as readonly string[]).includes(value)
+  );
+}
 
 /**
  * What a prepared proposal puts on screen, before any remote mutation.

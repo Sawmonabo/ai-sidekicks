@@ -89,7 +89,7 @@ const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
  * Every registered frame that names an artifact.
  *
  * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed, on
- * `repos/repo-lifecycle-events.ts`'s shape and for its reason: the three kinds this
+ * `REPO_LIFECYCLE_EVENT_KINDS`'s shape above, and for its reason: the three kinds this
  * used to spell out are a snapshot of a registry that grows, so a fourth
  * `artifact.*` kind — a retention sweep, a re-publication — would have reached this
  * pane and been ignored, with the list on screen going stale and nothing anywhere

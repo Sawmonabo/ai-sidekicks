@@ -80,6 +80,72 @@ describe("ProposalGateActions — the acts", () => {
     expect(reader.performCount).toBe(2);
   });
 
+  it("refuses a preparation served in a state the vocabulary does not carry", async () => {
+    // The port is a process boundary and the signature table is a compile-time claim.
+    // Held, a third word reaches the summary line as a missing key and the remote
+    // act's `=== "ready"` as a silent `false`: the act withheld, no sentence saying
+    // why, nothing failing. The cast is the wire the type system cannot police.
+    const clock = new ManualClock();
+    const reader = readers.open(
+      gateBridgeAnswering({
+        branchContext: SERVED_CONTEXT,
+        prepare: {
+          status: "served",
+          value: {
+            prPreparationId: "019b7b30-0280-7c11-8420-b1a5c0de2402",
+            state: "merged" as unknown as "ready",
+            proposalBlob: { summary: "the rate limiter" },
+          },
+        },
+      }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction("prepare-proposal");
+    await settleAct(clock, reader);
+
+    // No proposal held — the arm is the CONTEXT's and stays `prepared` — and the
+    // refusal names the word that came back.
+    expect(publishedProposalOf(reader)).toBeUndefined();
+    const refusal = reader.snapshot.actionRefusals.get("prepare-proposal");
+    expect(refusal?.code).toBe("prepared-state-unreadable");
+    expect(refusal?.detail).toContain("merged");
+  });
+
+  it("negative control: a state the vocabulary does carry is held, not refused", async () => {
+    // Without this the case above would pass over a guard that refused every reply.
+    const clock = new ManualClock();
+    const reader = readers.open(
+      gateBridgeAnswering({
+        branchContext: SERVED_CONTEXT,
+        prepare: {
+          status: "served",
+          value: {
+            prPreparationId: "019b7b30-0280-7c11-8420-b1a5c0de2403",
+            state: "draft",
+            proposalBlob: {},
+          },
+        },
+      }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction("prepare-proposal");
+    await settleAct(clock, reader);
+
+    expect(publishedProposalOf(reader)).toStrictEqual({
+      baseBranch: "develop",
+      headBranch: "feat/rate-limit-wiring",
+      state: "draft",
+      blob: {},
+    });
+    expect(reader.snapshot.actionRefusals.has("prepare-proposal")).toBe(false);
+  });
+
   it("renders a refused act beside the control pressed and changes no arm", async () => {
     const clock = new ManualClock();
     const reader = readers.open(

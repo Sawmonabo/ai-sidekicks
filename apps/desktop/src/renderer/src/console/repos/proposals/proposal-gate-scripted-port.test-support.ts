@@ -81,7 +81,8 @@ export const REPLY_ABANDONED: GrowthUnavailable = {
 };
 
 /**
- * One served branch context, in the wire's own member names.
+ * One served branch context, in the wire's own member names — the value alone, so a
+ * case reading one member does not narrow the outcome first.
  *
  * FLAT, exactly as `BranchContextReadResponse` returns it: the context's fields ARE
  * the reply, and there is no envelope member to reach through.
@@ -91,7 +92,6 @@ export const REPLY_ABANDONED: GrowthUnavailable = {
  * reaches through an import, so the shape is stated here and the ids stay the
  * fixture's rather than being respelled.
  */
-/** The context itself, so a case reading one member does not narrow the outcome first. */
 export const SERVED_CONTEXT_VALUE: GrowthServedValue<"gitflowBranchContextRead"> = {
   branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
   workspaceId: GIT_WORKSPACE_ID,
@@ -101,6 +101,7 @@ export const SERVED_CONTEXT_VALUE: GrowthServedValue<"gitflowBranchContextRead">
   worktreeId: IMPLEMENTER_WORKTREE_ID,
 };
 
+/** That context as the port answers it, which is what a scripted arm serves. */
 export const SERVED_CONTEXT: GrowthPortAnswer<"gitflowBranchContextRead"> = {
   status: "served",
   value: SERVED_CONTEXT_VALUE,

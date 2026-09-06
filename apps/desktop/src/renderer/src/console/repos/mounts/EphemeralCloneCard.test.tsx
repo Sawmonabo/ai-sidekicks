@@ -6,16 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import { formatRelativeTime } from "../../primitives/index.js";
 import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
-import {
-  CLONE_EXPIRY_COPY,
-  EPHEMERAL_CLONE_STATE_PRESENTATION,
-  type EphemeralCloneStatusRecord,
-} from "./worktree-model.js";
+import { CLONE_EXPIRY_COPY, EPHEMERAL_CLONE_STATE_PRESENTATION } from "./worktree-model.js";
 import {
   EPHEMERAL_CLONE_ABSENT_COLUMN_COPY,
   EPHEMERAL_CLONE_COLUMN_LABELS,
   EPHEMERAL_CLONE_DETAIL_COLUMNS,
 } from "./worktree-columns.js";
+import { cloneRecord } from "./repo-mounts.test-support.js";
 
 const EXPIRES_AT = "2026-01-01T12:00:00.000Z";
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
@@ -25,22 +22,6 @@ const AFTER_EXPIRY = Date.UTC(2026, 0, 1, 13, 0, 0);
 
 /** The sweep's own stamp, in the one arm where it decides what the row says. */
 const CLEANED_AT = "2026-01-01T09:45:00.000Z";
-
-function cloneRecord(
-  overrides: Partial<EphemeralCloneStatusRecord> = {},
-): EphemeralCloneStatusRecord {
-  return {
-    cloneId: "clone-01",
-    workspaceId: "workspace-sidekicks",
-    cloneRoot: "/Users/dev/.sidekicks/clones/clone-01",
-    branchName: "run-9f2c1a",
-    state: "ready",
-    cleanupPolicy: "on_run_complete",
-    expiresAt: EXPIRES_AT,
-    createdAt: "2026-01-01T09:00:00.000Z",
-    ...overrides,
-  } as EphemeralCloneStatusRecord;
-}
 
 describe("EphemeralCloneCard — the face", () => {
   it("names the branch, the state, the root, the age, and the disposal time", () => {

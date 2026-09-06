@@ -25,7 +25,7 @@
 // model "lands with the first caller that has patch bytes to give it, in the PR that
 // adds that dependency". The dependency is added here. The caller that hands it daemon bytes is `gitflow.diffArtifactCreate`,
 // a `Plan-023 §Console growth slate` row (`gitflow-actions`, owned by Spec-011) that
-// no namespace serves yet — so today the callers are `diff-fixture.ts`, which builds
+// no namespace serves yet — so today the callers are `diff-fixture.test-support.ts`, which builds
 // the surfaces' and the endurance tier's subjects THROUGH this module rather than
 // beside it, and this module's own tests. That ordering is the point: when the wire
 // lands it calls a parser the tiers have already been exercising, rather than a

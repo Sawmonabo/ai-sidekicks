@@ -34,9 +34,6 @@ import {
   PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
-  RESTORE_PATH_ROW_HEIGHT_PX,
-  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
-  RESTORE_PATH_VISIBLE_ROW_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
   TRIPWIRE_REPORT_CAP,
@@ -62,9 +59,6 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["INGEST_STREAM_LIFETIME_CEILING_MS", INGEST_STREAM_LIFETIME_CEILING_MS],
   ["INGEST_STALL_DISCLOSURE_MS", INGEST_STALL_DISCLOSURE_MS],
   ["BASE64_ENCODE_STRIDE_BYTES", BASE64_ENCODE_STRIDE_BYTES],
-  ["RESTORE_PATH_VIRTUALIZATION_THRESHOLD", RESTORE_PATH_VIRTUALIZATION_THRESHOLD],
-  ["RESTORE_PATH_VISIBLE_ROW_CAP", RESTORE_PATH_VISIBLE_ROW_CAP],
-  ["RESTORE_PATH_ROW_HEIGHT_PX", RESTORE_PATH_ROW_HEIGHT_PX],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -240,24 +234,5 @@ describe("console bounds — the attachment bounds against their wire sources", 
     // is still time to act. At or above the ceiling it would fire on a stream the
     // daemon has already terminated, which is a disclosure with nothing to disclose.
     expect(INGEST_STALL_DISCLOSURE_MS).toBeLessThan(INGEST_STREAM_LIFETIME_CEILING_MS);
-  });
-});
-
-describe("console bounds — the restore enumeration's three bounds describe one list", () => {
-  it("windows only an enumeration longer than the window would show", () => {
-    // Below the threshold the whole list is shorter than the container, so windowing
-    // would add a scrollbar and a focus stop and remove no node. A threshold at or
-    // under the visible-row cap would make the scroll container decorative.
-    expect(RESTORE_PATH_VIRTUALIZATION_THRESHOLD).toBeGreaterThan(RESTORE_PATH_VISIBLE_ROW_CAP);
-  });
-
-  it("keeps the window shorter than the enumeration that opens it", () => {
-    // The height cap is the row height times the visible-row cap, and the point of it
-    // is that a threshold-length enumeration does not fit: if it did, the first
-    // windowed list would render whole and the window would never be exercised.
-    const windowHeightPx = RESTORE_PATH_VISIBLE_ROW_CAP * RESTORE_PATH_ROW_HEIGHT_PX;
-    const thresholdListHeightPx =
-      RESTORE_PATH_VIRTUALIZATION_THRESHOLD * RESTORE_PATH_ROW_HEIGHT_PX;
-    expect(windowHeightPx).toBeLessThan(thresholdListHeightPx);
   });
 });

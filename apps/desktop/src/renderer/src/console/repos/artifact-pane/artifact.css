@@ -7,45 +7,55 @@
 
    Meridian tokens only. A raw colour here would be a second palette. */
 
-/* The header's trailing group: the re-read control, and one line saying what the
-   read serves.
+/* The body inside the chrome's box.
 
-   A group rather than two siblings because the pane header is a single-line flex
-   row that does not wrap, so a note placed beside the control would sit on the
-   baseline next to it instead of under it. The group takes the auto inline margin
-   the control used to take, and stacks. */
-.meridian-artifact-pane__read-scope {
+   The chrome's `__body` deliberately carries no padding — a feed pane wants none and
+   a form pane wants some — so this pane's own inset is stated here, which is where
+   the family that wants it lives. */
+.meridian-artifact-pane {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: var(--meridian-space-1);
-  margin-inline-start: auto;
-  text-align: end;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-4);
 }
 
-/* The two acts, side by side above the line that says what each asks for.
+/* The two acts, side by side in the chrome's `actions` slot.
 
-   Their own row inside the column group: a control with a neighbour has to be at
-   least a 24px target and separated from it, which a lone text button never had to
-   be. The size is given here rather than on the shared control class, because every
-   other pane draws exactly one of those and would gain the padding for nothing. */
-.meridian-artifact-pane__read-actions {
-  display: flex;
+   Their own group inside that strip: a control with a neighbour has to be at least a
+   24px target and separated from it, which a lone text button never had to be. The
+   size is given here rather than on the chrome's own control class, because every
+   other pane draws icon controls at the chrome's size and would gain the padding for
+   nothing. */
+.meridian-artifact-pane__acts {
+  display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-2);
 }
 
-.meridian-artifact-pane__read-actions .meridian-repos-pane__control {
+/* Quiet chrome at text weight — one primary action per surface is the panel's fetch,
+   so these read as words rather than as two filled buttons. */
+.meridian-artifact-pane__act {
   min-block-size: 24px;
   min-inline-size: 24px;
-  margin-inline-start: 0;
-  padding-inline: var(--meridian-space-1);
+  padding: 0 var(--meridian-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
 }
 
-/* What the two controls ask for, stated where they are.
+.meridian-artifact-pane__act:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
 
-   The row's act is named for what its read serves and the pane's for the bytes it
-   asks for; this line says which reply arm a payload of either size comes back on,
+/* What the two acts ask for, stated at the top of the body.
+
+   Not beside them: the chrome's control strip is one line of controls and takes no
+   prose. The first act is named for what its read serves and the second for the bytes
+   it asks for; this line says which reply arm a payload of either size comes back on,
    so a handle is met as an answer rather than as a failure. */
 .meridian-artifact-pane__read-scope-note {
   max-inline-size: 44ch;

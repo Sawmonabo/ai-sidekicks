@@ -75,7 +75,7 @@ import {
   type GenerationClaim,
 } from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
-import { proposalContextKeysMatch } from "./prepared-proposal.js";
+import { isProposalState, proposalContextKeysMatch } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
 import { repoCallRefusal } from "../repo-reads.js";
 import {
@@ -91,6 +91,7 @@ import {
   clearActionRefusal,
   contextSupersededRefusal,
   noServedContextRefusal,
+  preparedStateUnreadableRefusal,
   recordActionRefusal,
 } from "./proposal-gate-refusals.js";
 import { GATE_SETTLEMENT_COPY } from "./proposal-gate-model.js";
@@ -252,11 +253,26 @@ export class ProposalGateActions {
       recordActionRefusal(this.#host, "prepare-proposal", outcome);
       return;
     }
+    // THE REPLY IS TYPED AND THE PORT IS A PROCESS BOUNDARY. The signature table says
+    // this member is one of the wire's two words; what arrives is whatever was sent,
+    // and a third word held here would reach the summary line as a missing key and the
+    // remote act's `=== "ready"` as a silent `false` — the act withheld, no sentence
+    // saying why, and nothing failing. Refused at the boundary instead, which is what
+    // makes the state vocabulary one home rather than one home and an assumption.
+    const servedState: unknown = outcome.value.state;
+    if (!isProposalState(servedState)) {
+      recordActionRefusal(
+        this.#host,
+        "prepare-proposal",
+        preparedStateUnreadableRefusal(servedState),
+      );
+      return;
+    }
     this.#host.holdPreparedProposal(
       {
         baseBranch: context.baseBranch,
         headBranch: context.headBranch,
-        state: outcome.value.state,
+        state: servedState,
         blob: outcome.value.proposalBlob,
       },
       context,

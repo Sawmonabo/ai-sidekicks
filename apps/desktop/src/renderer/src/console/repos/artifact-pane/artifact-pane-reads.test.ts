@@ -25,6 +25,7 @@ import {
   SESSION_ID,
   artifactBridgeAnswering,
   type ArtifactPortScript,
+  type GrowthPortAnswer,
 } from "./artifact-pane.test-support.js";
 
 /** The bounds read served, so a case can assert the leg that DID answer. */
@@ -231,5 +232,85 @@ describe("artifact pane reads — one leg that did not come back", () => {
     expect(artifacts.kind).toBe("listed");
     expect(allowlist.source).toBe("effective");
     expect(allowlist.refusal).toBeUndefined();
+  });
+});
+
+/**
+ * A served envelope around a value the port's own type forbids.
+ *
+ * THE CAST AT EACH USE IS THE CASE AND NOT A CONVENIENCE. `GrowthPortAnswer` is a
+ * claim about what the daemon SENDS, the fixture bridge is assembled behind a cast of
+ * its own, and the live port is a process boundary away — so the type guards the
+ * CALLER and nothing guards what arrives. A case that could not express a reply
+ * off-contract could not drive the guard that reads one. Written as a helper so the
+ * `value` is `unknown` at the assertion rather than each site needing two of them.
+ */
+function servedOffContract(value: unknown): {
+  readonly status: "served";
+  readonly value: unknown;
+} {
+  return { status: "served", value };
+}
+
+/** A served list reply whose value is an envelope rather than the list itself. */
+const SERVED_NOT_A_LIST = servedOffContract({
+  rows: [SERVED_SUMMARY],
+}) as GrowthPortAnswer<"artifactList">;
+
+/** A served bounds reply carrying neither of the two members that leg reads. */
+const SERVED_WITHOUT_BOUNDS = servedOffContract({
+  limits: { maximumBytes: 42 },
+}) as GrowthPortAnswer<"artifactAllowlistRead">;
+
+describe("artifact pane reads — a served value neither leg can use", () => {
+  it("refuses the list and leaves the bounds the reply says nothing about", async () => {
+    // The counterexample this guard exists for: the served value went to `.map`, the
+    // leg REJECTED, and `Promise.all` in the reader's one read rejected with it — so a
+    // bounds reply that had come back perfectly well was thrown away and the pane kept
+    // the previous reading's. `bothLegs` joins the two exactly as the reader does, so
+    // an unguarded leg fails this case by rejecting rather than by asserting.
+    const { artifacts, allowlist } = await bothLegs({
+      listAnswer: SERVED_NOT_A_LIST,
+      allowlistAnswer: SERVED_ALLOWLIST,
+    });
+
+    expect(artifacts.kind).toBe("refused");
+    expect(artifacts.kind === "refused" ? artifacts.refusal.code : undefined).toBe(
+      "reply-unreadable",
+    );
+    expect(artifacts.kind === "refused" ? artifacts.refusal.detail : "").toContain(
+      "The artifact list",
+    );
+    // The leg that answered is untouched, which is the property the join rests on.
+    expect(allowlist.source).toBe("effective");
+    expect(allowlist.mediaTypes).toStrictEqual(["image/svg+xml"]);
+    expect(allowlist.refusal).toBeUndefined();
+  });
+
+  it("shows the shipped bounds when the served reply carries none, and still lists", async () => {
+    const { artifacts, allowlist } = await bothLegs({
+      listAnswer: { status: "served", value: [SERVED_SUMMARY] },
+      allowlistAnswer: SERVED_WITHOUT_BOUNDS,
+    });
+
+    expect(allowlist.source).toBe("shipped-default");
+    expect(allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
+    expect(allowlist.refusal?.code).toBe("reply-unreadable");
+    // The bounds are the shipped ones and the reply's own number is NOT half-used: a
+    // reply carrying a cap under another name is a reply this leg cannot read at all.
+    expect(allowlist.maximumByteLength).not.toBe(42);
+    expect(artifacts.kind).toBe("listed");
+  });
+
+  it("negative control: a served reply carrying both members reads as effective", async () => {
+    // Without this the case above would pass against a leg that had stopped reading a
+    // served bounds reply at all and always answered the shipped defaults.
+    const { allowlist } = await bothLegs({
+      listAnswer: { status: "served", value: [SERVED_SUMMARY] },
+      allowlistAnswer: SERVED_ALLOWLIST,
+    });
+
+    expect(allowlist.source).toBe("effective");
+    expect(allowlist.maximumByteLength).toBe(42);
   });
 });

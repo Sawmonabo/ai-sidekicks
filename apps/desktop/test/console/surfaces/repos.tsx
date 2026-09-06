@@ -180,7 +180,11 @@ export async function mountDiffPane(): Promise<MountedFamilySurface> {
       diff={extendedHeaderChangeSet()}
     />,
   );
-  return { element: requireLabelledRegion(container, "Diff"), bridge };
+  // Anchored at the kind rather than spelled whole: the chrome names the pane by its
+  // trail, so the full name carries the scenario's session id and the workspace this
+  // diff is a view of — both stated by the fixture, and neither this module's to
+  // restate.
+  return { element: requireLabelledRegion(container, /Diff$/u), bridge };
 }
 
 /**

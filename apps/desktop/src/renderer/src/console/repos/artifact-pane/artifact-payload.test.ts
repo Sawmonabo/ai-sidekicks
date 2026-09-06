@@ -14,6 +14,15 @@ import type { GrowthArtifactRead } from "../../bridge/index.js";
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 import { artifactPayloadReadingFrom } from "./artifact-payload.js";
 
+/** Those bytes as the wire carries them, built rather than transcribed. */
+function base64Of(bytes: readonly number[]): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
 describe("artifact payload reading — the served union has two arms and each splits", () => {
   const ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2201";
   const MANIFEST = {
@@ -98,6 +107,65 @@ describe("artifact payload reading — the served union has two arms and each sp
       payloadEncoding: "base64",
     });
     expect(reading.status === "opaque" ? reading.reason : "").toBe("undecodable");
+  });
+
+  it("decodes only the prefix a bounded preview can draw", () => {
+    // The defect: the whole inline payload was decoded — a full binary string, one
+    // closure call per byte, a `Uint8Array` and a whole decoded string — and only then
+    // sliced to two thousand characters. The arm is bounded by nothing on this side
+    // and by nothing named on the wire, so a served log costs its whole length on the
+    // renderer's one thread to draw a screenful and a half of it.
+    //
+    // ASSERTED BY WHAT THE DECODER NEVER REACHED. This payload is a long run of ASCII
+    // followed by bytes that are not UTF-8 at all: a decode of the whole reply lands
+    // `opaque`, and a decode of only what is drawn lands `text`. On the pre-fix code
+    // the first assertion below reads "opaque".
+    const drawable = "a".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP * 8);
+    const payload = base64Of(
+      [...drawable].map((character) => character.charCodeAt(0)).concat([255, 255]),
+    );
+
+    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
+      manifest: MANIFEST,
+      payload,
+      payloadEncoding: "base64",
+    });
+
+    expect(reading.status).toBe("text");
+    expect(reading.status === "text" ? reading.text.length : 0).toBe(
+      ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
+    );
+    expect(reading.status === "text" ? reading.truncated : false).toBe(true);
+  });
+
+  it("keeps a multi-byte code point whole across the bound it decoded to", () => {
+    // The bound is a BYTE prefix, so it can land inside a multi-byte sequence — and
+    // the fatal decoder rejects one, which would report a payload that is perfectly
+    // good text as bytes that are not text. Every code point here is four bytes and
+    // the payload is twice the input bound, so the prefix ends one byte inside one.
+    const astral = "\u{1F600}".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP * 2);
+    const payload = base64Of([...new TextEncoder().encode(astral)]);
+
+    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
+      manifest: MANIFEST,
+      payload,
+      payloadEncoding: "base64",
+    });
+
+    expect(reading.status).toBe("text");
+    expect(reading.status === "text" ? reading.text.startsWith("\u{1F600}") : false).toBe(true);
+    expect(reading.status === "text" ? reading.text.includes("\uFFFD") : true).toBe(false);
+  });
+
+  it("negative control: a payload inside the bound is still held to being text", () => {
+    // Without this the two cases above would pass against a decode that had simply
+    // stopped checking. A short reply that is not UTF-8 still says so.
+    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
+      manifest: MANIFEST,
+      payload: base64Of([0x61, 0xff, 0xff]),
+      payloadEncoding: "base64",
+    });
+    expect(reading.status === "opaque" ? reading.reason : "").toBe("not-utf8");
   });
 
   it("negative control: nothing about the arm is inferred from the bytes", () => {

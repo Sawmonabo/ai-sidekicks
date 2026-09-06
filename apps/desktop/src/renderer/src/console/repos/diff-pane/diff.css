@@ -3,8 +3,8 @@
  * and the inline timeline card.
  *
  * A sibling stylesheet rather than a block inside `repos/repos.css`, on the
- * `repos/artifact-pane/artifact.css` precedent: `repos/diff-pane/` is the third of the repos
- * family's three directories, and this file holds everything that belongs to it and
+ * `repos/artifact-pane/artifact.css` precedent: `repos/diff-pane/` is the diff half of the
+ * repos family's seven sub-modules, and this file holds everything that belongs to it and
  * to no surface outside it. It is imported by `repos/index.ts` — the family's one
  * door and its only stylesheet importer — beside `repos.css` itself, and by nothing
  * else. A second importer would land these rules twice and their cascade order would
@@ -112,6 +112,23 @@
 .meridian-diff__gap-button:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
+}
+
+/* The three bands inside the chrome's body box: the attribution strip, the toolbar,
+   and the list-and-rows pair that takes the rest of the height. The chrome's `__body`
+   carries no padding and no direction of its own, so both are stated here. */
+.meridian-diff-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+/* The arm with no diff in it. It is prose rather than a grid, so it takes the inset
+   the bands above deliberately do not. */
+.meridian-diff-pane__absence {
+  padding: var(--meridian-space-4);
 }
 
 .meridian-diff-pane__content {

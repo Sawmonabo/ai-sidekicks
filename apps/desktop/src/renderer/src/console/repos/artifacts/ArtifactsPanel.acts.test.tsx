@@ -8,37 +8,14 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  REPOS_IMPLEMENTER_RUN_ID,
-  REPOS_SESSION_ID,
-  REPOS_VIEWING_PARTICIPANT_ID,
-} from "../../bridge/scenarios/repos.js";
 import { refuse } from "../../core/index.js";
+import { artifactRow } from "./artifacts.test-support.js";
 import { ArtifactsPanel } from "./ArtifactsPanel.js";
-import { type ArtifactManifestRow } from "./artifact-model.js";
 import { ARTIFACT_DELETE_CONSEQUENCE, ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "./artifact-copy.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
-
-function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
-  return {
-    id: "artifact-01",
-    sessionId: REPOS_SESSION_ID,
-    runId: REPOS_IMPLEMENTER_RUN_ID,
-    createdBy: REPOS_VIEWING_PARTICIPANT_ID,
-    artifactType: "file",
-    digest: "sha256:3b1f0c",
-    size: 4096,
-    annotations: {},
-    visibility: "local-only",
-    state: "published",
-    metadata: {},
-    createdAt: "2026-01-01T09:00:00.000Z",
-    ...overrides,
-  };
-}
 
 describe("ArtifactsPanel — the acts", () => {
   it("offers only the acts the mount wired", () => {
@@ -167,6 +144,71 @@ describe("ArtifactsPanel — delete states the consequence before the act", () =
     expect(within(container).getByRole("button", { name: "Keep it" })).toBeDefined();
     fireEvent.click(within(container).getByRole("button", { name: "Delete permanently" }));
     expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes an armed confirm when the pane is re-pointed and the list comes back", () => {
+    // The defect: the confirm register was a bare `useState`, scoped to nothing. A
+    // participant armed Delete on one artifact, the deck re-pointed the pane at
+    // another — the reader is re-minted per subject, so the reading returns to its
+    // unread absence and the rows unmount — and this component stayed mounted at the
+    // same tree position. When the new subject's list landed carrying the same session
+    // rows, the row came back with a destructive act armed and one click from firing,
+    // with its consequence text having been off screen in between. On that code the
+    // second assertion below is false.
+    const onDelete = vi.fn();
+    const listed = { kind: "listed", rows: [artifactRow()] } as const;
+    const { container, rerender } = render(
+      <ArtifactsPanel state={listed} nowMilliseconds={NOW_MILLISECONDS} onDelete={onDelete} />,
+    );
+    fireEvent.click(within(container).getByRole("button", { name: "Delete" }));
+    expect(container.textContent).toContain(ARTIFACT_DELETE_CONSEQUENCE);
+
+    // The re-point: the fresh reader's unread absence, then the same session's rows.
+    rerender(
+      <ArtifactsPanel
+        state={{ kind: "not-checked" }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        onDelete={onDelete}
+      />,
+    );
+    rerender(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow()] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        onDelete={onDelete}
+      />,
+    );
+
+    expect(container.textContent).not.toContain(ARTIFACT_DELETE_CONSEQUENCE);
+    expect(within(container).queryByRole("button", { name: "Delete permanently" })).toBeNull();
+  });
+
+  it("negative control: a refresh that lists the same rows holds the confirm open", () => {
+    // Without this the case above would pass against a register cleared on every
+    // republish — which would take a confirmation away under a participant's cursor
+    // because an unrelated session frame arrived, and leave the control they were
+    // about to press replaced by whatever the row draws instead.
+    const onDelete = vi.fn();
+    const { container, rerender } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow()] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(within(container).getByRole("button", { name: "Delete" }));
+
+    // A fresh reading object carrying the same rows, which is what every refresh is.
+    rerender(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow()] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        onDelete={onDelete}
+      />,
+    );
+
+    expect(container.textContent).toContain(ARTIFACT_DELETE_CONSEQUENCE);
+    expect(within(container).getByRole("button", { name: "Delete permanently" })).toBeDefined();
   });
 
   it("negative control: keeping it cancels without calling through", () => {

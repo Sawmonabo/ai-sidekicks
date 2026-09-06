@@ -39,6 +39,17 @@ function closeArtifactPaneReader(reader: ArtifactPaneReader): void {
   reader.dispose();
 }
 
+/**
+ * Whether a reader's disposal has already ended it. Declared beside its `close`.
+ *
+ * THE SEAM'S FIFTH ARGUMENT AND NOT A PREDICATE IN AN EFFECT, on
+ * `useAttachmentCarrier`'s reason: `close` here is terminal, and a terminal disposal
+ * is what `isClosed` exists to be told about.
+ */
+function artifactPaneReaderIsClosed(reader: ArtifactPaneReader): boolean {
+  return reader.isDisposed;
+}
+
 /** What the hook hands the pane: the reading, and the acts it can put to the port. */
 export interface ArtifactPaneBinding {
   readonly reading: ArtifactPaneReading;
@@ -75,14 +86,15 @@ export interface ArtifactPaneBinding {
  * render, so a subject keyed on it would mint a reader — and a read pair — every time
  * the deck re-rendered.
  *
- * A RE-MINT ARM, on `useAttachmentCarrier`'s shape and for both of its reasons. The
- * seam's disposal followed by a replayed setup on the same committed reader is what
- * React's development double-mount does, and a disposed reader's `start()` returns at
- * once — the pane inert with nothing on screen to say so. The store is the second
- * reason: it is not part of the seam's key, so a projection replaced across a
- * reconnect is caught by asking the reader rather than by keying on it. The
- * replacement is PUBLISHED through the seam, so it is closed on the seam's own terms
- * rather than by a cleanup of this effect's.
+ * A RE-MINT ARM SPLIT BY OWNER, on `useAttachmentCarrier`'s shape. The seam's
+ * disposal followed by a replayed setup on the same committed reader is what React's
+ * development double-mount does, and a disposed reader's `start()` returns at once —
+ * the pane inert with nothing on screen to say so. That half is the seam's, declared
+ * as `isClosed` beside `close`; re-derived in an effect it left the corpse committed
+ * and disposed twice. The store is the half that stays here: it is not part of the
+ * seam's key, so a projection replaced across a reconnect is caught by asking the
+ * reader rather than by keying on it, and that replacement is PUBLISHED through the
+ * seam, so it too is closed on the seam's own terms.
  */
 export function useArtifactPaneReading(
   bridge: ConsoleBridge,
@@ -103,9 +115,11 @@ export function useArtifactPaneReading(
     subjectArtifactId,
     () => new ArtifactPaneReader({ bridge, sessionStore, clock }),
     closeArtifactPaneReader,
+    artifactPaneReaderIsClosed,
   );
   useEffect(() => {
-    if (!reader.isCurrentFor(sessionStore)) {
+    // THE STORE AXIS, AND ONLY IT. The disposal axis is `isClosed`'s, above.
+    if (!reader.isReadingFor(sessionStore)) {
       settle()(new ArtifactPaneReader({ bridge, sessionStore, clock }));
       return;
     }

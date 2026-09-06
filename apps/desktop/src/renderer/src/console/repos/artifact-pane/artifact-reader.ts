@@ -204,26 +204,33 @@ export class ArtifactPaneReader {
   }
 
   /**
-   * Whether this reader is still the right one for a render holding that store.
+   * Whether this reader's disposal has already ended it.
    *
-   * ASKED RATHER THAN REMEMBERED, on `AttachmentCarrier.isDisposed`'s reason: the
-   * binding that owns this reader's lifetime has exactly one question before it calls
-   * `start()`, and a flag kept beside the reader would be a copy of what the reader
-   * already knows.
+   * ASKED RATHER THAN REMEMBERED, on `AttachmentCarrier.isDisposed`'s reason: a flag
+   * kept beside the reader would be a copy of what the reader already knows.
    *
-   * TWO CONJUNCTS, AND THEY ARE TWO DIFFERENT FACTS. A DISPOSED reader is terminal —
-   * `start()` returns at once — and React's development double-mount produces exactly
-   * one, by running the seam's disposal and then replaying the setup on the same
-   * committed value; without this the pane would come back from that replay having
-   * read nothing, forever. A reader built against a DIFFERENT store is not broken,
-   * it is looking at a projection this render has replaced: the subject-scoped seam
-   * keys on the artifact, which names its session and so cannot separate two readings
-   * of one session, and a store rebuilt across a reconnect is exactly that. Both
-   * answers mean the same act — mint a fresh reader — which is why one question
-   * carries them.
+   * SPLIT FROM THE STORE AXIS BELOW, which for a while it was not: the two were one
+   * `isCurrentFor` conjunction, and both answers did mean the same act — mint a fresh
+   * reader — but they do not have the same OWNER. A disposed reader is terminal and
+   * `useSubjectScopedResource` takes that fact as `isClosed`, minting the replacement
+   * itself and leaving the corpse uncommitted; fused into one question the binding had
+   * to re-derive it, publish the replacement itself, and the corpse was committed and
+   * then disposed a second time.
    */
-  public isCurrentFor(sessionStore: SessionStore | undefined): boolean {
-    return !this.#disposed && this.#sessionStore === sessionStore;
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
+  /**
+   * Whether this reader's reads are taken against `sessionStore`.
+   *
+   * `RepoMountsReader.isReadingFor`'s name and its reason, one directory over. The
+   * subject-scoped seam keys on the artifact, which names its session and so cannot
+   * separate two readings of one session; a store rebuilt across a reconnect is
+   * exactly that, and this is the axis the key cannot carry.
+   */
+  public isReadingFor(sessionStore: SessionStore | undefined): boolean {
+    return this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ArtifactPaneReading) => void): Unsubscribe {

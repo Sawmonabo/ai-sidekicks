@@ -10,24 +10,27 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
-import { buildDiffFixture } from "./diff-fixture.js";
+import { buildDiffFixture } from "./diff-fixture.test-support.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   EXTENDED_HEADER_DIFF_SHAPE,
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
   TERMINAL_NEWLINE_FIXTURE_FILE,
-} from "./diff-fixture-shapes.js";
+} from "./diff-fixture-shapes.test-support.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
   type DiffGrownRow,
 } from "./diff-layout-fixture.test-support.js";
 import { DiffRenderer } from "./DiffRenderer.js";
-import { expandGap, type DiffGapExpansion } from "./diff-row-model.js";
-
-const SMALL_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
-const NO_EXPANSION: DiffGapExpansion = new Map();
+import {
+  SMALL_DIFF,
+  diffRendererProps,
+  renderDiff,
+  reportedRowCount,
+} from "./diff-renderer.test-support.js";
+import { expandGap } from "./diff-row-model.js";
 
 /** The row the wrapped cases grow, and how tall a three-line wrap makes it. */
 const WRAPPED_ROW: DiffGrownRow = { rowIndex: 3, heightPx: DIFF_ROW_HEIGHT_PX * 3 };
@@ -53,11 +56,6 @@ function firstRenderedRowIndex(container: HTMLElement): number {
   return Number(container.querySelector(".meridian-diff__row")?.getAttribute("data-index"));
 }
 
-/** The row count the scroller reports for the whole diff. */
-function reportedRowCount(container: HTMLElement): number {
-  return Number(container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount"));
-}
-
 /** The height the scroller holds open for the whole diff, in CSS pixels. */
 function contentHeightPx(container: HTMLElement): number {
   return Number(
@@ -65,29 +63,6 @@ function contentHeightPx(container: HTMLElement): number {
       .querySelector<HTMLElement>(".meridian-diff__content")
       ?.style.blockSize.replace("px", ""),
   );
-}
-
-/** The renderer's props for a case, with whatever that case cares about replaced. */
-function diffRendererProps(
-  overrides: Partial<React.ComponentProps<typeof DiffRenderer>> = {},
-): React.ComponentProps<typeof DiffRenderer> {
-  return {
-    model: SMALL_DIFF,
-    viewMode: "unified",
-    showAttributionMarks: true,
-    wrapLongLines: false,
-    showWhitespaceChanges: true,
-    expansion: NO_EXPANSION,
-    onExpandGap: () => undefined,
-    label: "Diff, main to feat/rate-limit-wiring",
-    ...overrides,
-  };
-}
-
-function renderDiff(
-  overrides: Partial<React.ComponentProps<typeof DiffRenderer>> = {},
-): HTMLElement {
-  return render(<DiffRenderer {...diffRendererProps(overrides)} />).container;
 }
 
 describe("diff renderer — a wrapped row and the offsets under it", () => {

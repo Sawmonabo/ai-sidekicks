@@ -70,8 +70,9 @@ export const PROPOSAL_GATE_REFUSAL_ORIGIN = "proposal-gate";
  * verbatim. These name the failures that are the reader's own to describe: an act
  * pressed with no served context behind it, an act the daemon answered without
  * accepting, an act pressed while another one is still unanswered, a root the
- * registered request has no arm this console can fill for, and an act whose context
- * the gate read again while that act was still waiting to go on the wire.
+ * registered request has no arm this console can fill for, an act whose context the
+ * gate read again while that act was still waiting to go on the wire, and a served
+ * preparation whose state is not a word the wire's own vocabulary carries.
  */
 export const PROPOSAL_GATE_REFUSAL_CODES = [
   "no-served-context",
@@ -79,6 +80,7 @@ export const PROPOSAL_GATE_REFUSAL_CODES = [
   "action-in-flight",
   "subject-not-addressable",
   "context-superseded",
+  "prepared-state-unreadable",
 ] as const;
 
 /** One reader-side refusal code. Derived, so the vocabulary is declared exactly once. */

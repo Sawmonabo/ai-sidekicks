@@ -106,6 +106,15 @@ export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 // the structure rules exist to prevent. It leaves through `artifacts.js` — the
 // module that DECLARES it — on the rule the paragraph above states.
 export type { GrowthArtifactSummary } from "./growth-values/artifacts.js";
+// The PR-preparation vocabulary, through the same door and for the reason the
+// artifact vocabularies below are here: the repos family's prepared proposal carries
+// this state and used to DECLARE a second copy of the two words, member for member,
+// each under a comment claiming to be the one home. The family aliases this one now,
+// so a member the wire drops stops being assignable in the gate.
+export {
+  GROWTH_PR_PREPARATION_STATES,
+  type GrowthPrPreparationState,
+} from "./growth-values/gitflow.js";
 // The read's own reply union and the encoding a reader switches on, for the same
 // reason and through the same module: the artifact pane consumes both arms of a
 // served payload read, and the arm it lands on is what it draws.

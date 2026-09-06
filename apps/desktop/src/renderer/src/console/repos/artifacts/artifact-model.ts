@@ -194,7 +194,7 @@ export function artifactTypeCounts(
 /**
  * Read one served manifest summary as a row.
  *
- * THIS FUNCTION USED TO BE A REFUSAL. `console/bridge/growth-values.ts` once answered
+ * THIS FUNCTION USED TO BE A REFUSAL. `console/bridge/growth-values/artifacts.ts` once answered
  * `artifactList` with a four-member payload summary — `artifactId`, `name`,
  * `byteLength`, `contentType` — and a reader that had mapped those four into the
  * envelope below would have put a `state` and a `visibility` on screen that no read
@@ -256,6 +256,14 @@ function renderableMetadata(
   metadata: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, string>> {
   const rendered: Record<string, string> = {};
+  // `Object.entries` THROWS on `null` and on `undefined`, and the member is typed
+  // present rather than proven present: a summary is whatever crossed the process
+  // boundary. A row missing its provenance draws no entries, which is what a row
+  // whose metadata is empty draws too — and is the only reading available, where the
+  // alternative is the whole list read rejecting over one row.
+  if (typeof metadata !== "object" || metadata === null) {
+    return rendered;
+  }
   for (const [key, value] of Object.entries(metadata)) {
     rendered[key] = typeof value === "string" ? value : renderableMetadataValue(value);
   }

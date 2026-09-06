@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef } from "react";
+import { useSubjectScopedState } from "../../store/index.js";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph, WindowedListRow, useWindowedRovingIndex } from "../../primitives/index.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD, DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
@@ -20,7 +21,18 @@ export interface DiffFileListProps {
 
 export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   const filterId = useId();
-  const [filterText, setFilterText] = useState("");
+  // SCOPED TO THE MODEL, on `diff-view-state.ts`'s rule and for its reason: this is a
+  // predicate over the change set's own file PATHS, so it means nothing about another
+  // one. A bare register survived a re-point — the list is not keyed, so it is not
+  // remounted — and the new change set opened saying no file matches a filter that was
+  // typed against the previous one, over a diff that has files. The subject is the
+  // model reference and the key is `undefined`, exactly as the selection and the gap
+  // expansion are addressed.
+  const { value: filterText, publish: publishFilterText } = useSubjectScopedState<string>(
+    props.diff,
+    undefined,
+    () => "",
+  );
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const { entries, matchCount } = useMemo(
@@ -86,7 +98,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
           placeholder="Filter files"
           value={filterText}
           onChange={(changeEvent) => {
-            setFilterText(changeEvent.target.value);
+            publishFilterText(changeEvent.target.value);
           }}
         />
       </label>
@@ -112,25 +124,31 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
               // set is as long as the window happens to be. The primitive writes that
               // pair and the index the roving move is resolved against.
               //
-              // THE TAB STOP IS THE BUTTON INSIDE, NOT THE ROW, so `isTabbable` is
-              // withheld here on purpose: a row is a list item and the control is
-              // what activates a file, and a stop on the `<li>` would answer Enter
-              // with nothing. The roving index focuses the focusable inside the row
-              // it moved to, which is that button.
+              // THE TAB STOP IS THE BUTTON INSIDE, NOT THE ROW — a row is a list item
+              // and the control is what activates a file, so a stop on the `<li>`
+              // would answer Enter with nothing. The row is TOLD which row is active
+              // and DELEGATES the stop through the renderer form, so the element the
+              // roving effect focuses and the element that holds `tabindex` are one
+              // element. Passing the flag to the button instead left the row marking
+              // itself as the focus target while the stop sat on the button, and
+              // `focus()` on an `<li>` with no `tabindex` is a no-op in Chromium.
               <WindowedListRow
                 as="li"
                 key={entry.kind === "all-files" ? "all-files" : `file:${entry.path}`}
                 className="meridian-diff-files__row"
                 rowIndex={virtualRow.index}
                 totalRowCount={entries.length}
+                isTabbable={virtualRow.index === activeIndex}
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
-                <DiffFileEntryButton
-                  entry={entry}
-                  isSelected={virtualRow.index === currentIndex}
-                  isTabbable={virtualRow.index === activeIndex}
-                  onSelectFilePath={props.onSelectFilePath}
-                />
+                {(targetProps) => (
+                  <DiffFileEntryButton
+                    entry={entry}
+                    isSelected={virtualRow.index === currentIndex}
+                    onSelectFilePath={props.onSelectFilePath}
+                    {...targetProps}
+                  />
+                )}
               </WindowedListRow>
             );
           })}

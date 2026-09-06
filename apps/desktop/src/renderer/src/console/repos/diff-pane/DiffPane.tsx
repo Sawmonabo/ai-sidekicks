@@ -1,6 +1,14 @@
-import { useId } from "react";
-import { Glyph, Nothing } from "../../primitives/index.js";
-import { type ConsolePaneContext } from "../../seats/index.js";
+// The diff pane: a change set, the files it touches, and the rows inside them.
+//
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// the kind glyph, the breadcrumb, the control strip, and the body box for every pane
+// kind in the console; what this file returns is the BODY that goes inside it. The
+// section, its tab stop, its accessible name, and the actor's hue all arrive from
+// there, which is why none of them is set here and why the pane is named by its whole
+// address trail rather than by the word "Diff".
+
+import { Nothing } from "../../primitives/index.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import { DiffFileList } from "./DiffFileList.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { DiffToolbar, useDiffViewControls } from "./DiffToolbar.js";
@@ -11,13 +19,13 @@ import { DiffSubjectBar } from "./DiffSubjectBar.js";
 /**
  * This body's own address arm, narrowed off the union the deck hands every pane.
  *
- * `ConsolePaneContext` is a discriminated union over the pane kind, so a body typed
- * on the whole union can read an entity of a kind it cannot render — which is the
- * defect the union was minted to close. Narrowing here is what makes `entity`
- * required and its kind one of the five a diff is opened over, by the compiler
- * rather than by this file remembering.
+ * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
+ * here: one registry holds every kind and a body does not, so the narrowing is stated
+ * once where the chrome states it. It is what makes `entity` required and its kind one
+ * of the five a diff is opened over, by the compiler rather than by this file
+ * remembering.
  */
-type DiffPaneContext = Extract<ConsolePaneContext, { readonly kind: "diff" }>;
+type DiffPaneContext = PaneContextOf<"diff">;
 
 /**
  * The entity kinds a diff can be a view of, READ OFF the address rather than listed.
@@ -87,7 +95,6 @@ export interface DiffPaneProps {
 
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
-  const headingId = useId();
   const viewControls = useDiffViewControls({ showAttributionMarks: true });
   // This pane's own density: it opens on the changed-file list with the first
   // file expanded. Selecting a file narrows the rows to it; selecting none reads
@@ -102,34 +109,19 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const modelViewState = useDiffModelViewState(diff);
 
   return (
-    <section
-      className="meridian-repos-pane meridian-repos-pane--diff"
-      aria-labelledby={headingId}
-      data-pane-id={context.paneId}
+    <ConsolePaneChrome
+      kind="diff"
+      sessionId={context.sessionStore?.sessionId}
+      // Unconditional: a diff address carries its entity, so the arm this body is
+      // narrowed to has no shape in which the subject is absent. The trail renders the
+      // id wire-verbatim, which is what the pane's own subject line used to say — and
+      // it is never shortened, because two workspaces whose ids differ in their tail
+      // read identically once a renderer abbreviates them.
+      entity={context.entity}
+      focusHue={context.focusHue}
     >
-      <header className="meridian-repos-pane__header">
-        <h2 className="meridian-repos-pane__heading" id={headingId}>
-          <Glyph name="diff" />
-          Diff
-        </h2>
-        {/*
-          Wire-verbatim and never shortened: two workspaces whose ids differ in their
-          tail read identically once a renderer abbreviates them, and this is the only
-          place the pane says which one it is a view of. The full string stays
-          recoverable through the title even where the measure truncates the display
-          copy. Unconditional now, because a diff address carries its entity: the arm
-          this body is narrowed to has no shape in which the subject is absent.
-        */}
-        <span
-          className="meridian-repos-pane__subject"
-          title={context.entity.id}
-          aria-label={`Subject: ${context.entity.kind} ${context.entity.id}`}
-        >
-          {context.entity.id}
-        </span>
-      </header>
       {diff === undefined ? (
-        <div className="meridian-repos-pane__body">
+        <div className="meridian-diff-pane__absence">
           <Nothing
             kind="not-checked"
             placement="surface"
@@ -138,7 +130,10 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
           />
         </div>
       ) : (
-        <>
+        // A column of its own inside the chrome's body box, because the body scrolls
+        // as one and this surface has three bands: the attribution strip, the
+        // toolbar, and the list-and-rows pair that takes the rest of the height.
+        <div className="meridian-diff-pane">
           <DiffSubjectBar diff={diff} />
           <DiffToolbar controls={viewControls} />
           <div className="meridian-diff-pane__content">
@@ -159,8 +154,8 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
               label={`Diff, ${diff.baseRef} to ${diff.headRef}`}
             />
           </div>
-        </>
+        </div>
       )}
-    </section>
+    </ConsolePaneChrome>
   );
 }

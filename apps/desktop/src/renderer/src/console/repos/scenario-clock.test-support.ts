@@ -19,7 +19,31 @@
 import { act } from "@testing-library/react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { REFRESH_DEBOUNCE_MS } from "../core/index.js";
+import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
+
+/**
+ * The frozen clock a fixture bridge hands every subsystem a surface composes.
+ *
+ * `consoleClockFor` reads the running scenario engine's clock, so this is the same
+ * object the readers, schedulers and refresh triggers under a mounted surface are
+ * running on — which is what lets a case move their debounce window WITHOUT
+ * delivering a scenario beat, the distinction {@link advanceScenarioOneInterval}
+ * exists on the other side of.
+ *
+ * Narrowed by `instanceof` rather than cast: a bridge whose clock cannot be moved is
+ * a case that would otherwise wait on a still picture until its budget ran out, and
+ * the throw names that at the line that asked rather than at the assertion that
+ * failed.
+ */
+export function scenarioManualClock(bridge: ConsoleBridge): ManualClock {
+  const clock = bridge.scenarioEngine?.clock;
+  if (!(clock instanceof ManualClock)) {
+    throw new Error(
+      "this bridge is not running a scenario on a manual clock, so a case cannot move its time",
+    );
+  }
+  return clock;
+}
 
 /**
  * How many debounce intervals a case may drive before giving up.

@@ -24,9 +24,11 @@ import {
   registerInlineAttachmentCardBody,
 } from "./artifact-pane/index.js";
 import { DiffPane, registerInlineDiffCardBody } from "./diff-pane/index.js";
-import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { RefusalCard } from "../primitives/index.js";
-import { registerSidebarSection, type ConsolePaneContext, type PaneKind } from "../seats/index.js";
+import {
+  paneBodyForKind,
+  registerSidebarSection,
+  type ConsolePaneContext,
+} from "../seats/index.js";
 import { AttachmentCarrierSection } from "./attachments/AttachmentCarrierSection.js";
 import { RepoSection } from "./mounts/RepoSection.js";
 
@@ -42,53 +44,30 @@ import { RepoSection } from "./mounts/RepoSection.js";
  */
 export const REPOS_FAMILY_OWNER = "repos";
 
-/** The subsystem a misaddressed-pane refusal names as its author. */
-const REPOS_PANES_ORIGIN = "repos-panes";
-
-/**
- * What a pane body renders when the deck opens it at another kind's address.
- *
- * A REFUSAL RATHER THAN A THROW, on `core/refusal.ts`'s terms and for the deck's
- * sake: one misrouted pane in a restored layout takes this card and every other pane
- * in the deck still mounts, where an exception raised inside a render would take the
- * whole surface down with it.
- *
- * Reachable only through a defect above this family — the registry resolves a
- * descriptor BY kind and hands it the context it resolved on — which is exactly why
- * it is a rendered sentence rather than a comment: `ConsolePaneAddress` narrows the
- * entity with the kind, so a body cannot be typed on its own arm without the compiler
- * asking what the other arms do here, and answering "nothing" would put a blank
- * region on screen for a state a person cannot otherwise explain.
- */
-function misaddressedPaneRefusal(expected: PaneKind, received: PaneKind): ConsoleRefusal {
-  return refuse(
-    REPOS_PANES_ORIGIN,
-    "pane-kind-mismatch",
-    `this body renders the ${expected} pane and the deck opened it at a ${received} address, so it has nothing to be a view of`,
-  );
-}
-
 /**
  * The diff pane, at an address the deck resolved to this kind.
  *
- * The comparison narrows the address union to this kind's arm, which is what gives
- * the body a required `entity` of the kinds a diff is opened over. It is a literal
- * rather than a captured variable deliberately: a generic renderer shared by both
- * kinds would need a cast to narrow, and the cast is the thing the union was minted
- * to remove.
+ * `paneBodyForKind` is the seat's own narrowing and the one answer to the arm that
+ * cannot be served: it compares the kind, hands the body its own arm, and renders the
+ * chrome's typed refusal otherwise. Six families writing that comparison themselves is
+ * six answers to one question — which is what this family had, in a refusal it minted
+ * and a card it drew — so the narrowing is consumed rather than restated.
+ *
+ * A MISMATCH IS STILL A RENDERED REFUSAL AND NEVER A THROW, for the reason it always
+ * was: the deck looks a body up BY kind, so the arm is reachable only through a
+ * restored layout row or a typed route, and one bad row must lose that row rather than
+ * take the whole deck down with it.
  */
-export function renderDiffPaneBody(context: ConsolePaneContext): ReactNode {
-  return context.kind === "diff"
-    ? createElement(DiffPane, { context })
-    : createElement(RefusalCard, misaddressedPaneRefusal("diff", context.kind));
-}
+export const renderDiffPaneBody: (context: ConsolePaneContext) => ReactNode = paneBodyForKind(
+  "diff",
+  (context) => createElement(DiffPane, { context }),
+);
 
 /** The artifact pane, on the narrowing the diff body above explains. */
-export function renderArtifactPaneBody(context: ConsolePaneContext): ReactNode {
-  return context.kind === "artifact"
-    ? createElement(ArtifactPane, { context })
-    : createElement(RefusalCard, misaddressedPaneRefusal("artifact", context.kind));
-}
+export const renderArtifactPaneBody: (context: ConsolePaneContext) => ReactNode = paneBodyForKind(
+  "artifact",
+  (context) => createElement(ArtifactPane, { context }),
+);
 
 /**
  * Fill the sidebar's two repos-family sections and the ledger row's three cards.

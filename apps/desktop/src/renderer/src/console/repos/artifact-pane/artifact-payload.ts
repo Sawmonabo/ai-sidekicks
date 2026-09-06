@@ -93,7 +93,12 @@ export function artifactPayloadReadingFrom(
   if (decoded.status === "opaque") {
     return { status: "opaque", artifactId, encoding, reason: decoded.reason };
   }
-  const truncated = decoded.text.length > ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP;
+  // TRUNCATION IS TWO FACTS, AND EITHER ONE IS ENOUGH: the decoder was handed a prefix
+  // of the reply, or what it answered with is longer than the preview draws. The first
+  // is the only one a bounded decode can report, and the second still happens whenever
+  // a payload that fit under the input bound decodes to more than the cap.
+  const truncated =
+    decoded.inputBounded || decoded.text.length > ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP;
   return {
     status: "text",
     artifactId,
@@ -103,29 +108,82 @@ export function artifactPayloadReadingFrom(
   };
 }
 
-/** One payload's bytes as text, or why they are not text. */
+/** Base64 carries three bytes in every four characters, and pads to a whole group. */
+const BASE64_GROUP_CHARACTERS = 4;
+const BASE64_GROUP_BYTES = 3;
+
+/** The most bytes one code point can occupy in UTF-8. */
+const UTF8_MAX_BYTES_PER_CODE_POINT = 4;
+
+/**
+ * Base64 characters that can hold `characterCap` code points of UTF-8 text.
+ *
+ * A CEILING AND NOT AN ESTIMATE. Four bytes is the widest a code point gets, so this
+ * many characters decode to at least the cap however the payload is written — an ASCII
+ * log yields four times the cap and is cut back to it, and a payload of astral code
+ * points yields exactly the cap. Rounded up to a whole group, so the slice never lands
+ * inside one: a partial group is not decodable base64 and would report a served reply
+ * as undecodable.
+ */
+function base64PrefixLengthFor(characterCap: number): number {
+  const byteCap = characterCap * UTF8_MAX_BYTES_PER_CODE_POINT;
+  return Math.ceil(byteCap / BASE64_GROUP_BYTES) * BASE64_GROUP_CHARACTERS;
+}
+
+/**
+ * One payload's bytes as text, or why they are not text — decoding only what is drawn.
+ *
+ * BOUNDED BEFORE THE DECODE AND NOT AFTER IT. The inline arm is bounded by nothing on
+ * this side and by nothing named on the wire: `artifactRead` registers no size member,
+ * and the reply's own words are "present when `includePayload` was set and the size
+ * permitted" — a daemon-side threshold no constant here mirrors, while the ingest cap
+ * beside it is a hundred mebibytes. Decoding the whole reply first cost a full binary
+ * string, a call per byte, a `Uint8Array`, and a whole decoded string on the renderer's
+ * one thread, and then discarded all but two thousand characters of it. The cap's own
+ * rationale is about what is DRAWN; this is what makes the cost match it.
+ *
+ * THE STREAMING DECODE IS WHAT MAKES THE SLICE SAFE, and it is used exactly when the
+ * input was sliced. A byte prefix can end inside a multi-byte sequence, which the
+ * fatal decoder rejects — so a payload that is perfectly good text would have been
+ * reported as `not-utf8` because of where the bound fell. In streaming mode an
+ * incomplete trailing sequence is held back instead of thrown for, and the held-back
+ * bytes are past the cap in any case. A payload read WHOLE is decoded without it, so a
+ * reply that really does end mid-sequence is still reported as what it is.
+ */
 function decodedPayloadText(
   payload: string,
   encoding: GrowthArtifactPayloadEncoding,
 ):
-  | { readonly status: "text"; readonly text: string }
+  | { readonly status: "text"; readonly text: string; readonly inputBounded: boolean }
   | { readonly status: "opaque"; readonly reason: "not-utf8" | "undecodable" } {
   if (encoding === "utf8") {
-    return { status: "text", text: payload };
+    // Already a string: there is nothing to decode, and the caller's own cap is what
+    // bounds what is drawn from it.
+    return { status: "text", text: payload, inputBounded: false };
   }
+  const prefixLength = base64PrefixLengthFor(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP);
+  const inputBounded = payload.length > prefixLength;
+  const bounded = inputBounded ? payload.slice(0, prefixLength) : payload;
   let bytes: Uint8Array;
   try {
     // RFC 4648 §4, which is what the ingest side encodes with — the two sides of one
     // seam, and `atob` is the platform's own decoder for it.
-    const binary = atob(payload);
-    bytes = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
+    const binary = atob(bounded);
+    // A written loop rather than `Uint8Array.from(binary, mapper)`: the mapper is one
+    // closure call per byte, and `atob` answers with code units in 0-255, which is
+    // what `charCodeAt` reads directly.
+    bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
   } catch {
     return { status: "opaque", reason: "undecodable" };
   }
   try {
     // `fatal` so a payload that is not text SAYS so. The lenient decoder answers with
     // replacement characters, which a preview would draw as though they were content.
-    return { status: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: inputBounded });
+    return { status: "text", text, inputBounded };
   } catch {
     return { status: "opaque", reason: "not-utf8" };
   }

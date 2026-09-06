@@ -23,7 +23,7 @@
 // `.test-support.ts` suffix the claim stops being a sentence in a header: the shared
 // source walk every architecture gate reads excludes these modules, and the layering
 // gate admits them as roots precisely because their only legitimate dependents are
-// the suites it removes from the graph. The rule `diff-fixture.ts` keeps by hand, this
+// the suites it removes from the graph. The rule `diff-fixture.test-support.ts` keeps by hand, this
 // one keeps by name.
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";

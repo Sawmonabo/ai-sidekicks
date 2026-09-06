@@ -4,7 +4,6 @@
 // hardest claims: the resolved root is never shortened in the STRING, the two status
 // axes are never one chip, and no detach control exists anywhere on the surface.
 
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,24 +19,7 @@ import { MountCard } from "./MountCard.js";
 import { NO_WORKSPACE_REFUSALS } from "./repo-mounts-model.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
-
-const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
-const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
-
-function mount(overrides: Partial<RepoMountReadResponse> = {}): RepoMountReadResponse {
-  return {
-    id: "mount-sidekicks",
-    sessionId: "session-repos",
-    nodeId: "node-workstation",
-    localPath: ENTERED_PATH,
-    canonicalRoot: CANONICAL_ROOT,
-    vcsType: "git",
-    state: "attached",
-    health: { status: "healthy", checkedAt: "2026-01-01T09:05:01.000Z" },
-    attachedAt: "2026-01-01T09:05:00.200Z",
-    ...overrides,
-  } as RepoMountReadResponse;
-}
+import { CANONICAL_ROOT, ENTERED_PATH, mount } from "./repo-mounts.test-support.js";
 
 const WORKSPACE: RepoWorkspaceRow = {
   id: "workspace-sidekicks",

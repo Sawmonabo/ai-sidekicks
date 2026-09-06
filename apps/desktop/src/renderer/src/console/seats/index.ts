@@ -182,17 +182,13 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
-// named by all six pane-body tasks; `PaneControls` and its context are named by the one
-// that builds the deck, which is the only host that provides them.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  ConsolePaneChrome,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  paneBodyForKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  type PaneContextOf,
-} from "./ConsolePaneChrome.js";
+// The pane chrome and the seam its two host controls travel on. All three chrome lines
+// carry no claim any more — this family's two pane bodies import all three, which is
+// the event the claims named, and a tag that suppresses nothing fails the dead-code run
+// under `--treat-tag-hints-as-errors`. The five pane-body tasks still to land are
+// consumers of an export that already has one. `PaneControls` and its context are still
+// claimed by the task that builds the deck, which is the only host that provides them.
+export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */

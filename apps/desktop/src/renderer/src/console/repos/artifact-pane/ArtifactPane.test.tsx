@@ -17,11 +17,14 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import { SessionStore } from "../../store/index.js";
+import { scenarioManualClock } from "../scenario-clock.test-support.js";
 import {
+  type GrowthPortAnswer,
   LISTED_ONE_ROW,
   SESSION_ID,
   artifactBridgeAnswering,
@@ -35,6 +38,7 @@ import {
   paneTree,
   renderPane,
 } from "./artifact-pane-mount.test-support.js";
+import { paneSubjectCrumb, paneTrailCrumbs } from "../pane-chrome.test-support.js";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -44,27 +48,40 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("artifact pane — chrome", () => {
-  it("names itself as a region", () => {
-    const { getByRole } = renderPane(contextFor(ARTIFACT_ENTITY));
-    expect(getByRole("region", { name: "Artifact" })).toBeDefined();
+describe("artifact pane — the chrome it wears", () => {
+  it("is named by the whole trail, not by the word Artifact", () => {
+    // The claim the binding exists for. A body drawing its own header named every
+    // artifact pane in a deck "Artifact"; the chrome names it by where it is, so two
+    // panes of one kind are told apart by the subjects they are views of. The name
+    // ENDS in the kind and is longer than it, which a pre-binding pane fails on both
+    // counts.
+    const { getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, { sessionId: "session-artifact-chrome" }),
+    );
+    const region = getByRole("region", { name: /Artifact$/u });
+    const accessibleName = region.getAttribute("aria-labelledby");
+    expect(accessibleName).not.toBeNull();
+    expect(region.textContent).toContain(ARTIFACT_ENTITY.id);
+    expect(() => getByRole("region", { name: "Artifact" })).toThrow();
   });
 
-  it("renders the subject verbatim, with the full string recoverable", () => {
-    const { container } = renderPane(contextFor(ARTIFACT_ENTITY));
-    const subject = container.querySelector(".meridian-repos-pane__subject");
-    expect(subject?.textContent).toBe(ARTIFACT_ENTITY.id);
-    expect(subject?.getAttribute("title")).toBe(ARTIFACT_ENTITY.id);
+  it("puts the session and the subject in the trail, in that order", () => {
+    const { container } = renderPane(
+      contextFor(ARTIFACT_ENTITY, { sessionId: "session-artifact-chrome" }),
+    );
+    expect(paneTrailCrumbs(container)).toStrictEqual([
+      "session-artifact-chrome",
+      ARTIFACT_ENTITY.id,
+      "Artifact",
+    ]);
   });
 
-  it("negative control: the subject is read from the address, not fixed", () => {
-    // Without this, the case above would pass over a chrome that rendered a constant.
+  it("negative control: the subject crumb is read from the address, not fixed", () => {
+    // Without this, the cases above would pass over a chrome that rendered a constant.
     // An artifact address always carries its artifact — the arm has no shape in which
     // it is absent — so the honest control is a second subject rather than none.
     const { container } = renderPane(contextFor(OTHER_ARTIFACT_ENTITY));
-    const subject = container.querySelector(".meridian-repos-pane__subject");
-    expect(subject?.textContent).toBe(OTHER_ARTIFACT_ENTITY.id);
-    expect(subject?.getAttribute("title")).toBe(OTHER_ARTIFACT_ENTITY.id);
+    expect(paneSubjectCrumb(container)).toBe(OTHER_ARTIFACT_ENTITY.id);
   });
 
   it("offers one re-read control, keyboard-reachable and named", () => {
@@ -73,7 +90,7 @@ describe("artifact pane — chrome", () => {
   });
 
   it("names the reply members a payload fetch is waiting on", () => {
-    // The read serves a manifest. Saying so beside the control is what keeps a
+    // The read serves a manifest. Saying so at the top of the body is what keeps a
     // participant from waiting for a download that no registered reply carries.
     const { container } = renderPane(contextFor(ARTIFACT_ENTITY));
     const note = container.querySelector(".meridian-artifact-pane__read-scope-note");
@@ -132,22 +149,24 @@ describe("artifact pane — the ingest bounds disclosure", () => {
     // published a `read-threw` refusal whose sentence was a `TypeError`. So both
     // halves are asserted: the disclosure shows the refusal on its designed
     // shipped-default arm, and the list beside it still read.
-    const { container } = renderPane(
+    const { paneClock, container } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: {
-          growth: {
-            artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => ({
+        bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+          artifactList: async () => LISTED_ONE_ROW,
+          // THE CAST IS ON THE ANSWER AND NOT ON THE BRIDGE. This shape is deliberately
+          // outside the port's own union — that is the whole case — so the arm serving
+          // it says so in one place, while every other namespace stays the fixture's.
+          artifactAllowlistRead: async () =>
+            ({
               code: "wire-unregistered",
               detail: "Not checked — the artifact CRUD method strings are not registered yet.",
               origin: "growth-port",
-            }),
-          },
-        } as unknown as ConsoleBridge,
+            }) as unknown as GrowthPortAnswer<"artifactAllowlistRead">,
+        }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     expect(container.querySelector(".meridian-ingest-bounds__source")?.textContent).toContain(
       "shipped default",
     );
@@ -171,29 +190,28 @@ describe("artifact pane — the ingest bounds disclosure", () => {
 
 describe("artifact pane — the instant a row's age is read against", () => {
   it("renders an age from the reader's clock, so a frozen scenario renders one text", async () => {
-    // The defect: the pane read `Date.now()` in its render body. `test/console/repos-surfaces.tsx`
+    // The defect: the pane read `Date.now()` in its render body. `test/console/surfaces/repos.tsx`
     // recorded the consequence in its own words — the pane built a clock behind the
     // binding and no surface could hand it one — so a screenshot subject that listed a
     // row pinned text derived from real wall-clock time against a fixture `createdAt`,
     // and the same subject rendered differently the next month.
     //
     // The reading now carries the instant the READER took, off the window's own clock.
-    // Under the fixture that clock is frozen at the scenario's epoch, so the row's age
-    // is a fixed distance from a fixed `createdAt`: `SERVED_SUMMARY` is stamped in 2026
-    // and this clock starts at zero, so the row says the artifact is twenty thousand
-    // days in the future — a text no wall clock can produce.
-    const clock = new ManualClock();
-    const { container } = renderPane(
+    // Under the fixture that clock is frozen at the scenario's declared start, so the
+    // row's age is a fixed distance between two fixed stamps — the scenario's
+    // 2026-01-01 against `SERVED_SUMMARY`'s September `createdAt` — and the row says
+    // the artifact is most of a year in the FUTURE, which no wall clock can produce.
+    const { paneClock, container } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, clock }),
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough(clock);
+    await readThrough(paneClock);
     await settleAct();
 
     const age = container.querySelector(".meridian-artifact-row")?.textContent ?? "";
-    expect(age).toContain("in 20,698 days");
+    expect(age).toContain("in 244 days");
   });
 
   it("holds that age still while the pane re-renders under it", async () => {
@@ -201,9 +219,9 @@ describe("artifact pane — the instant a row's age is read against", () => {
     // occasion. A body reading the wall clock moves it on any unrelated re-render —
     // and one that advanced on a timer would be the interval poll the budget forbids,
     // wearing a clock face.
-    const clock = new ManualClock();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    const bridge = artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, clock });
+    const bridge = artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW });
+    const clock = scenarioManualClock(bridge);
     const announcerClock = new ManualClock();
     const { container, rerender } = render(
       paneTree(contextFor(ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock),

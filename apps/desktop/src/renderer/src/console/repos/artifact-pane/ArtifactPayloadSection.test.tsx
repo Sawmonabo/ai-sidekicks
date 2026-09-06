@@ -13,7 +13,6 @@
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
 import { growthUnavailable } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
@@ -37,6 +36,7 @@ import {
   renderPane,
   type ArtifactPaneContext,
 } from "./artifact-pane-mount.test-support.js";
+import { paneSubjectCrumb } from "../pane-chrome.test-support.js";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -51,41 +51,27 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     // A payload is bounded only by the ingest cap, so a fetch that ran on mount would
     // spend a hundred megabytes of somebody's link on a pane they passed through.
     const artifactRead = vi.fn(async () => growthUnavailable("artifactRead"));
-    renderPane(
+    const { paneClock } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: {
-          growth: {
-            artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-            artifactRead,
-            artifactDelete: async () => growthUnavailable("artifactDelete"),
-          },
-        } as unknown as ConsoleBridge,
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, artifactRead }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     expect(artifactRead).not.toHaveBeenCalled();
   });
 
   it("asks the read for the bytes, by the member the wire discriminates on", async () => {
     const artifactRead = vi
-      .fn<(request: { readonly includePayload?: boolean }) => Promise<unknown>>()
+      .fn<(request: unknown) => Promise<GrowthPortAnswer<"artifactRead">>>()
       .mockResolvedValue(readAnswering("published"));
-    const { getByRole } = renderPane(
+    const { paneClock, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: {
-          growth: {
-            artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-            artifactRead,
-            artifactDelete: async () => growthUnavailable("artifactDelete"),
-          },
-        } as unknown as ConsoleBridge,
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, artifactRead }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
@@ -96,7 +82,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   });
 
   it("draws a deferred handle as what it is, and asks nothing further of it", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({
           listAnswer: LISTED_ONE_ROW,
@@ -105,7 +91,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
@@ -115,7 +101,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   });
 
   it("previews inline bytes as text, decoding by the encoding the reply declared", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         // "diff --git a/one b/one" in RFC 4648 base64.
         bridge: artifactBridgeAnswering({
@@ -125,7 +111,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
@@ -136,7 +122,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
 
   it("takes a utf8 payload as it stands, and truncates past the preview cap", async () => {
     const wide = "x".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP + 50);
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({
           listAnswer: LISTED_ONE_ROW,
@@ -145,7 +131,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
@@ -158,7 +144,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   });
 
   it("reports bytes that are not text rather than drawing replacement characters", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         // Two bytes that are not valid UTF-8.
         bridge: artifactBridgeAnswering({
@@ -168,7 +154,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
@@ -179,13 +165,13 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   });
 
   it("renders the daemon's refusal when the fetch is turned down", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
@@ -199,27 +185,20 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     // settles is a second download of the same bytes — and the reader refuses it. The
     // control is held so a participant never meets that refusal by pressing something
     // the pane was offering, and the arm the reading is on is what holds it.
-    let releaseRead: (answer: unknown) => void = () => undefined;
+    let releaseRead: (answer: GrowthPortAnswer<"artifactRead">) => void = () => undefined;
     const artifactRead = vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<GrowthPortAnswer<"artifactRead">>((resolve) => {
           releaseRead = resolve;
         }),
     );
-    const { getByRole } = renderPane(
+    const { paneClock, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: {
-          growth: {
-            artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-            artifactRead,
-            artifactDelete: async () => growthUnavailable("artifactDelete"),
-          },
-        } as unknown as ConsoleBridge,
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, artifactRead }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     const control = getByRole("button", { name: "Fetch payload" });
     fireEvent.click(control);
     await settleAct();
@@ -235,13 +214,13 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   });
 
   it("negative control: nothing is drawn before the fetch, and no old copy survives", async () => {
-    const { container } = renderPane(
+    const { paneClock, container } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
     // The sentence the pane used to close its header with, which said the members the
     // port now declares were unavailable.
@@ -254,13 +233,13 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     const artifactList = vi
       .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ artifactList }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     confirmDelete(getByRole);
     await settleAct();
 
@@ -269,7 +248,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     expect(row.textContent).toContain("wire-unregistered");
 
     // And no re-read was asked for: nothing changed, so there is nothing to re-read.
-    await readThrough();
+    await readThrough(paneClock);
     expect(artifactList).toHaveBeenCalledTimes(1);
   });
 });
@@ -311,8 +290,8 @@ describe("artifact pane — the reader is stamped to its subject", () => {
       }),
       sessionId: SESSION_ID,
     });
-    const { container, getByRole, rerender } = renderPane(context);
-    await readThrough();
+    const { paneClock, container, getByRole, rerender } = renderPane(context);
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
     expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(
@@ -320,11 +299,9 @@ describe("artifact pane — the reader is stamped to its subject", () => {
     );
 
     renderReAddressed(context, rerender);
-    await readThrough();
+    await readThrough(paneClock);
 
-    expect(container.querySelector(".meridian-repos-pane__subject")?.textContent).toBe(
-      OTHER_ARTIFACT_ENTITY.id,
-    );
+    expect(paneSubjectCrumb(container)).toBe(OTHER_ARTIFACT_ENTITY.id);
     // `not-checked` renders no payload section at all, which is the honest absence
     // for a subject nobody has asked about — not an empty preview.
     expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
@@ -335,25 +312,21 @@ describe("artifact pane — the reader is stamped to its subject", () => {
     // to an artifact this pane is no longer addressed to — so a participant met a
     // disabled Fetch on a subject nothing had ever been asked about.
     const context = contextFor(ARTIFACT_ENTITY, {
-      bridge: {
-        growth: {
-          artifactList: async () => LISTED_ONE_ROW,
-          artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-          // Never answers: the fetch stays on the wire for the rest of the case.
-          artifactRead: () => new Promise<unknown>(() => undefined),
-          artifactDelete: async () => growthUnavailable("artifactDelete"),
-        },
-      } as unknown as ConsoleBridge,
+      bridge: artifactBridgeAnswering({
+        listAnswer: LISTED_ONE_ROW,
+        // Never answers: the fetch stays on the wire for the rest of the case.
+        artifactRead: () => new Promise<GrowthPortAnswer<"artifactRead">>(() => undefined),
+      }),
       sessionId: SESSION_ID,
     });
-    const { getByRole, rerender } = renderPane(context);
-    await readThrough();
+    const { paneClock, getByRole, rerender } = renderPane(context);
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
     expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(true);
 
     renderReAddressed(context, rerender);
-    await readThrough();
+    await readThrough(paneClock);
 
     expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(false);
   });
@@ -373,8 +346,8 @@ describe("artifact pane — the reader is stamped to its subject", () => {
       }),
       sessionId: SESSION_ID,
     });
-    const { container, getByRole, rerender } = renderPane(context);
-    await readThrough();
+    const { paneClock, container, getByRole, rerender } = renderPane(context);
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Fetch payload" }));
     await settleAct();
 
@@ -383,7 +356,7 @@ describe("artifact pane — the reader is stamped to its subject", () => {
         <ArtifactPane context={{ ...context }} />
       </LiveAnnouncerProvider>,
     );
-    await readThrough();
+    await readThrough(paneClock);
 
     expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(
       "diff --git a/one b/one",

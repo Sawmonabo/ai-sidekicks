@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import {
@@ -31,11 +32,6 @@ import {
   type AttachmentIngestRecord,
 } from "./attachment-shapes.js";
 
-/** Long enough for every continuation these cases start to come back. */
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 /**
  * Whether this entry is still carrying bytes — read as a PROPERTY of the object.
  *
@@ -52,7 +48,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await settle();
+    await drainMicrotasks();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("complete");
@@ -77,10 +73,10 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const client = clientOver(port);
     port.refuseChunksWith("wire-unregistered");
     client.attach(SMALL_SOURCE);
-    await settle();
+    await drainMicrotasks();
 
     client.abandon("attachment-1");
-    await settle();
+    await drainMicrotasks();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("abandoned");
@@ -95,7 +91,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const client = clientOver(port);
     port.refuseChunksWith("artifact.ingest_capacity_exhausted");
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await settle();
+    await drainMicrotasks();
 
     const [refused] = client.snapshot;
     expect(refused?.state).toBe("refused");
@@ -105,7 +101,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     // nothing could read, so the proof is a second chunk on the wire.
     port.refuseChunksWith(undefined);
     client.retry("attachment-two");
-    await settle();
+    await drainMicrotasks();
 
     expect(client.snapshot[0]?.state).toBe("complete");
     expect(port.chunkCalls).toHaveLength(3);
@@ -124,7 +120,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
-    await settle();
+    await drainMicrotasks();
     expect(client.snapshot[0]?.state).toBe("complete");
 
     let publishCount = 0;
@@ -132,7 +128,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
       publishCount += 1;
     });
     client.retry("attachment-1");
-    await settle();
+    await drainMicrotasks();
 
     expect(publishCount).toBe(0);
     expect(client.snapshot[0]?.state).toBe("complete");
@@ -191,7 +187,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const client = clientOver(port);
     port.holdChunks();
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
-    await settle();
+    await drainMicrotasks();
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("ingesting");

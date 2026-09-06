@@ -24,6 +24,19 @@ function closeRepoMountsReader(reader: RepoMountsReader): void {
   reader.dispose();
 }
 
+/**
+ * Whether a reader's disposal has already ended it. Declared beside its `close`.
+ *
+ * THE SEAM'S FIFTH ARGUMENT AND NOT A PREDICATE IN AN EFFECT, on
+ * `useAttachmentCarrier`'s reason: `close` here is terminal, and a terminal disposal
+ * is what `isClosed` exists to be told about. Re-derived in the effect below it left
+ * the corpse recorded as committed and disposed a second time when the caller's own
+ * replacement retired it.
+ */
+function repoMountsReaderIsClosed(reader: RepoMountsReader): boolean {
+  return reader.isDisposed;
+}
+
 /** What the hook hands a surface: the reading, and the one mutation the picker sends. */
 export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
@@ -55,17 +68,18 @@ export function useRepoMounts(
     sessionStore.sessionId,
     () => new RepoMountsReader({ bridge, sessionStore, clock }),
     closeRepoMountsReader,
+    repoMountsReaderIsClosed,
   );
   useEffect(() => {
-    // THE RE-MINT ARM, on `useAttachmentCarrier`'s pattern and for its two reasons.
-    // Strict mode runs the seam's cleanup and then this setup again on the SAME
-    // committed reader, and `dispose` is terminal — `start()` on it returns early, so
-    // the section sat unread with nothing on screen to say why. And the seam holds one
-    // resource per `(subject, key)`, which here is `(bridge, session id)`: a store
-    // replaced under the same id retires every read taken against the old one, and the
-    // key cannot carry that axis, so the reader is asked instead. Either way the
-    // replacement is PUBLISHED through the seam, so it is closed on the seam's terms.
-    if (reader.isDisposed || !reader.isReadingFor(sessionStore)) {
+    // THE STORE AXIS, AND ONLY IT. The seam holds one resource per `(subject, key)`,
+    // which here is `(bridge, session id)`: a store replaced under the same id retires
+    // every read taken against the old one, and the key cannot carry that axis, so the
+    // reader is asked instead. The replacement is PUBLISHED through the seam, so it is
+    // closed on the seam's terms. The DISPOSAL axis that used to sit beside it —
+    // strict mode running the seam's cleanup and then this setup again on the same
+    // committed reader — is `isClosed`'s, above, and re-deriving it here disposed that
+    // reader twice.
+    if (!reader.isReadingFor(sessionStore)) {
       settle()(new RepoMountsReader({ bridge, sessionStore, clock }));
       return;
     }

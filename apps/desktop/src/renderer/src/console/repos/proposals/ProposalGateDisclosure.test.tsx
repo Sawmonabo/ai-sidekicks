@@ -11,7 +11,8 @@
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
-import { PROPOSAL_STATES, type ProposalState } from "./prepared-proposal.js";
+import { GROWTH_PR_PREPARATION_STATES } from "../../bridge/index.js";
+import { type ProposalState } from "./prepared-proposal.js";
 import { gateSummaryLine } from "./ProposalGateDisclosure.js";
 import { SUBJECT_NOT_ADDRESSABLE } from "./proposal-gate-model.js";
 import type { ProposalGateReading } from "./proposal-gate-reader.js";
@@ -93,8 +94,12 @@ describe("gateSummaryLine — a proposal that is not finished", () => {
   it("gives every state the wire serves a line of its own", () => {
     // Over the closed set rather than the two spelled above, so a third state cannot
     // arrive and quietly read as one of them.
-    const lines = PROPOSAL_STATES.map((state) => gateSummaryLine(preparedWithProposal(state)));
-    expect(new Set(lines).size).toBe(PROPOSAL_STATES.length);
+    // Enumerated from the WIRE's vocabulary, which is where the two words live: a
+    // list written here would go on covering two states after the wire grew a third.
+    const lines = GROWTH_PR_PREPARATION_STATES.map((state) =>
+      gateSummaryLine(preparedWithProposal(state)),
+    );
+    expect(new Set(lines).size).toBe(GROWTH_PR_PREPARATION_STATES.length);
     for (const line of lines) {
       expect(line).not.toBe("");
     }

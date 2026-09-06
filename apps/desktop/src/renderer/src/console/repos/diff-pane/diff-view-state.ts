@@ -18,6 +18,12 @@
 // PANE and not over one model. Resetting them would undo a person's toggle every
 // time the subject moved, which is a different defect in the same place.
 //
+// AND ONE MORE THAT IS, HELD SOMEWHERE ELSE. `DiffFileList`'s filter text is a
+// predicate over the model's own file PATHS, so it is in the first list rather
+// than the second — but it belongs to the list that draws the input and never
+// reaches this module's holder, so it takes the same subject and the same
+// `undefined` key from `useSubjectScopedState` directly, beside its own register.
+//
 // THE IDENTITY IS THE PROP REFERENCE, and there is no other candidate.
 // `ConsoleDiffModel` carries no id (`diff-model.ts` says why its producer does
 // not exist yet), and a key derived from `baseRef` / `headRef` / attribution

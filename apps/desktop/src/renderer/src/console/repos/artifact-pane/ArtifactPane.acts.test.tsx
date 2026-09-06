@@ -46,13 +46,13 @@ describe("artifact pane — reading one row's manifest", () => {
   it("offers the row's manifest re-read beside the pane's own payload fetch", async () => {
     // Two acts over one method, told apart by `includePayload`. The row's control is
     // named for what its read serves; the pane's is named for the bytes it asks for.
-    const { getByRole } = renderPane(
+    const { paneClock, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     expect(getByRole("button", { name: "Read manifest" })).toBeDefined();
     expect(getByRole("button", { name: "Fetch payload" })).toBeDefined();
   });
@@ -60,7 +60,7 @@ describe("artifact pane — reading one row's manifest", () => {
   it("puts the served manifest on the row it was read for", async () => {
     // The case a discarded result fails: the read answers with a state the list did
     // not carry, and the row has to move to it.
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({
           listAnswer: LISTED_ONE_ROW,
@@ -69,7 +69,7 @@ describe("artifact pane — reading one row's manifest", () => {
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     const row = container.querySelector(".meridian-artifact-row") as HTMLElement;
     expect(within(row).getByText("published")).toBeDefined();
 
@@ -82,7 +82,7 @@ describe("artifact pane — reading one row's manifest", () => {
   });
 
   it("says once that the manifest was re-read", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({
           listAnswer: LISTED_ONE_ROW,
@@ -91,7 +91,7 @@ describe("artifact pane — reading one row's manifest", () => {
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     // Nothing settled yet, so nothing has been said.
     expect(container.querySelector('[role="status"]')?.textContent).toBe("");
 
@@ -102,13 +102,13 @@ describe("artifact pane — reading one row's manifest", () => {
   });
 
   it("renders the refusal beside the control and leaves the row where it was", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     fireEvent.click(getByRole("button", { name: "Read manifest" }));
     await settleAct();
 
@@ -130,8 +130,8 @@ describe("artifact pane — reading one row's manifest", () => {
     // this is a re-render rather than a remount.
     const bridge = artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW });
     const context = contextFor(ARTIFACT_ENTITY, { bridge, sessionId: SESSION_ID });
-    const { container, getByRole, rerender } = renderPane(context);
-    await readThrough();
+    const { paneClock, container, getByRole, rerender } = renderPane(context);
+    await readThrough(paneClock);
     rerender(
       <LiveAnnouncerProvider clock={new ManualClock()}>
         <ArtifactPane context={context} />
@@ -151,7 +151,7 @@ describe("artifact pane — deleting one row", () => {
       .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValueOnce(LISTED_ONE_ROW)
       .mockResolvedValue({ status: "served", value: [] });
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({
           listAnswer: LISTED_ONE_ROW,
@@ -161,7 +161,7 @@ describe("artifact pane — deleting one row", () => {
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(1);
 
     confirmDelete(getByRole);
@@ -169,12 +169,12 @@ describe("artifact pane — deleting one row", () => {
     expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(0);
 
     // One re-read, coalesced through the same scheduler the pane's own control uses.
-    await readThrough();
+    await readThrough(paneClock);
     expect(artifactList).toHaveBeenCalledTimes(2);
   });
 
   it("says what the delete reported, in the daemon's own two facts", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({
           listAnswer: LISTED_ONE_ROW,
@@ -183,7 +183,7 @@ describe("artifact pane — deleting one row", () => {
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     confirmDelete(getByRole);
     await settleAct();
 
@@ -197,7 +197,7 @@ describe("artifact pane — deleting one row", () => {
   });
 
   it("draws the receipt on the panel as well as announcing it", async () => {
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({
           listAnswer: LISTED_ONE_ROW,
@@ -206,7 +206,7 @@ describe("artifact pane — deleting one row", () => {
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     confirmDelete(getByRole);
     await settleAct();
 
@@ -222,18 +222,18 @@ describe("artifact pane — deleting one row", () => {
     const artifactList = vi
       .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
-    const { container, getByRole } = renderPane(
+    const { paneClock, container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ artifactList, deleteAnswer: SERVED_DELETE }),
         sessionId: SESSION_ID,
       }),
     );
-    await readThrough();
+    await readThrough(paneClock);
     confirmDelete(getByRole);
     await settleAct();
     expect(container.querySelector(".meridian-artifacts__receipt")).not.toBeNull();
 
-    await readThrough();
+    await readThrough(paneClock);
     expect(container.querySelector(".meridian-artifacts__receipt")).toBeNull();
   });
 });
