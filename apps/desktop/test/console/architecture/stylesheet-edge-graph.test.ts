@@ -14,12 +14,12 @@ import { describe, expect, it } from "vitest";
 import {
   collectStylesheetEdges,
   isOwningBarrel,
+  lazyChunkRoots,
   resolveStylesheet,
   stylesheetEdgeOffences,
-  moduleStylesheetImports,
-  stylesheetAtImports,
   syntheticStylesheetTree,
 } from "./stylesheet-edge-graph.js";
+import { moduleStylesheetImports, stylesheetAtImports } from "./stylesheet-specifiers.js";
 
 describe("the stylesheet edge walk", () => {
   it("a clean tree offends nobody", () => {
@@ -273,6 +273,77 @@ describe("the stylesheet edge walk", () => {
     expect(
       moduleStylesheetImports("index.ts", 'import styles from "./surface.css";\n'),
     ).toStrictEqual([]);
+  });
+
+  it("walks out of a lazily imported chunk root, and owns its sheet to the barrel", () => {
+    // THE SHAPE THE CONSOLE NOW HAS. `body.css` is named by nothing but `body.ts`, and
+    // `body.ts` is named by nothing but the barrel's `import()`. A walk that started
+    // only at barrels reported that sheet as rules that never paint, which is the
+    // false verdict this control exists to pin: the sheet is reached, exactly once,
+    // and the chunk root is not a neighbour reaching in — it answers to the same
+    // barrel the sheet does.
+    const lazyTree = syntheticStylesheetTree(
+      new Map([
+        [
+          join("family", "index.ts"),
+          'import "./family.css";\nexport const body = () => import("./pane/body.js");\n',
+        ],
+        [join("family", "family.css"), "\n"],
+        [join("family", "pane", "body.ts"), 'import "./body.css";\nexport const Body = 1;\n'],
+        [join("family", "pane", "body.css"), ".body {\n  color: red;\n}\n"],
+      ]),
+    );
+
+    expect([...lazyChunkRoots(lazyTree)]).toStrictEqual([join("family", "pane", "body.ts")]);
+    expect(stylesheetEdgeOffences(lazyTree, collectStylesheetEdges(lazyTree))).toStrictEqual({
+      unreached: [],
+      duplicatePaths: [],
+      duplicateBarrels: [],
+      misowned: [],
+    });
+  });
+
+  it("negative control: a module nothing lazily imports is no door, whatever it is named", () => {
+    // THE WHOLE REASON THE SET IS DERIVED FROM THE GRAPH. This tree is the one above
+    // with the `import()` made static, so the module keeps the name and loses the
+    // property — and the sheet it imports is then reached by nothing the rule admits.
+    // A predicate keyed on a `-body` suffix would report this tree clean and put the
+    // sheet on the initial document with nothing to say so.
+    const staticTree = syntheticStylesheetTree(
+      new Map([
+        [
+          join("family", "index.ts"),
+          'import "./family.css";\nimport { Body } from "./pane/body.js";\nexport const body = Body;\n',
+        ],
+        [join("family", "family.css"), "\n"],
+        [join("family", "pane", "body.ts"), 'import "./body.css";\nexport const Body = 1;\n'],
+        [join("family", "pane", "body.css"), ".body {\n  color: red;\n}\n"],
+      ]),
+    );
+
+    expect([...lazyChunkRoots(staticTree)]).toStrictEqual([]);
+    expect(
+      stylesheetEdgeOffences(staticTree, collectStylesheetEdges(staticTree)).unreached,
+    ).toStrictEqual([join("family", "pane", "body.css")]);
+  });
+
+  it("negative control: a chunk root is read from the parse and not from the text", () => {
+    // `import(` inside a comment or a string is not a call expression, and the same
+    // reasoning that put the stylesheet readers on the parser puts this one there: a
+    // header explaining why a family does NOT lazily load a body would otherwise mint
+    // a door out of the sentence explaining its absence.
+    const proseTree = syntheticStylesheetTree(
+      new Map([
+        [
+          join("family", "index.ts"),
+          '// This family does not import("./pane/body.js") — it paints on first frame.\nconst specifier = \'import("./pane/body.js")\';\nimport "./family.css";\nexport const named = specifier;\n',
+        ],
+        [join("family", "family.css"), "\n"],
+        [join("family", "pane", "body.ts"), "export const Body = 1;\n"],
+      ]),
+    );
+
+    expect([...lazyChunkRoots(proseTree)]).toStrictEqual([]);
   });
 
   it("negative control: a bare specifier resolves to nothing this tree can place", () => {

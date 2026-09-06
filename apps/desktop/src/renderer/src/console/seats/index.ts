@@ -96,9 +96,16 @@ export {
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
   surfaceSlotFor,
-  type ConsoleSurfaceContext,
   type ConsoleSurfaceDescriptor,
 } from "./surface-registry.js";
+
+// The two contexts come off their own modules rather than off the boards that hand them
+// out. They were hoisted there to break a cycle — a board reaches the reserved frame it
+// mounts while a loader-backed body is in flight, and that frame names the context — and
+// re-exporting them from the boards here would put this door's readers back on a
+// specifier the declaration no longer lives at.
+export type { ConsolePaneContext } from "./pane-context.js";
+export type { ConsoleSurfaceContext } from "./surface-context.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -126,7 +133,6 @@ export {
   consolePaneRegistry,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  type ConsolePaneContext,
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
@@ -137,16 +143,18 @@ export {
 // The idle warm and its scheduler. Published because the composition that owns a
 // window's first frame is the one that starts the walk, and that composition is
 // `frame/`, a family above this one — the seam a view family never touches.
-export { LazyBodyIdleWarm, idleWarmScheduler } from "./lazy-body-warm.js";
+export { LazyBodyIdleWarm, idleWarmScheduler, type IdleWarmScheduler } from "./lazy-body-warm.js";
 
-// The loader contract itself, for the boards' own registrations and for a family that
-// names the type on a loader it declares apart from its registration.
-export type { LazyBodyBoard, LazyBodyLoader, LazyBodyModule } from "./lazy-body.js";
-
-// The pending marker's reader, for the screenshot tier's capture helper. It leaves the
-// family because the refusal to photograph a half-loaded pane is a claim about the whole
-// window, and the tier that makes it sits outside `console/` entirely.
-export { pendingPaneBodiesIn, pendingPaneKindsIn } from "./pending-pane-body.js";
+// NO DOOR LINE FOR THE PENDING MARKER, and the reason is what a door line is FOR. This
+// barrel is the family's production surface, and `pendingPaneKindsIn` — with
+// `pendingPaneBodiesIn` beside it — has exactly one reader outside this directory: the
+// screenshot tier's capture helper, which refuses to photograph a half-loaded pane. A
+// door line whose only consumer is a test is a specifier no shipped module reaches, which
+// `architecture/barrel-census.test.ts` fails rather than tolerates, so that helper takes
+// the leaf directly. `LazyBodyBoard` / `LazyBodyLoader` / `LazyBodyModule` are absent for
+// the same reason — named only by the two boards and the walk in this directory — and a
+// family declaring a loader apart from its registration writes
+// `body: () => import("./x-body.js")` inline, which names no type at all.
 
 export {
   /** @consumedBy T-023p-1C-2 */

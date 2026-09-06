@@ -149,6 +149,27 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
     [handleOpenChange, registry, context],
   );
 
+  // The highlighted row's own warm.
+  //
+  // THE HIGHLIGHT AND NOT THE HOVER, and not the query: the highlight is where a
+  // person's intent is legible before they act — arrow keys move it, `autoHighlight`
+  // puts it on the best match as they type, and Enter runs whatever is under it. A
+  // command that opens a loader-backed body declares `preload`, and this is the moment
+  // to call it: the chunk is in flight while the row is still being read.
+  //
+  // THE HIGHLIGHTED RESULT ARRIVES WHOLE, and that is a fact about the combobox rather
+  // than a convenience. `items` is handed the GROUPS, so what the root highlights is an
+  // element of a group's own `items` — a `CommandSearchResult` — and not the string a
+  // `Combobox.Item` carries as its `value`. A first version of this took the id and
+  // looked the result up in `results`; the lookup compared a string against an object
+  // and matched nothing, so every warm was silently skipped and the boundary bought
+  // nothing at the one moment it was for.
+  //
+  // A COMMAND WITHOUT `preload` IS THE COMMON CASE and costs one optional call.
+  const warmHighlighted = useCallback((highlighted: CommandSearchResult | undefined): void => {
+    highlighted?.command.preload?.();
+  }, []);
+
   useEffect(() => {
     const parsed = parseChord(COMMAND_PALETTE_OPEN_CHORD);
     if (!parsed.ok) {
@@ -189,6 +210,7 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
       filter={null}
       inputValue={query}
       onInputValueChange={setQuery}
+      onItemHighlighted={warmHighlighted}
     >
       <Dialog.Root open={open} onOpenChange={handleOpenChange} modal="trap-focus">
         <Dialog.Portal container={overlayContainer}>

@@ -270,7 +270,7 @@ function scenarioSeededStore(
  */
 export async function mountRunsPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
-  const RunsPaneBody = paneBodyComponent("runs", registerRunsPane);
+  const RunsPaneBody = await paneBodyComponent("runs", registerRunsPane);
   const container = await mountSurfaceSettled(
     bridge,
     <RunsPaneBody
@@ -310,7 +310,7 @@ export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
   const projectorRegistry = new ConsoleEntityProjectorRegistry();
   registerApprovalFlowProjectors(projectorRegistry);
   const sessionStore = scenarioSeededStore(APPROVALS_SCENARIO, projectorRegistry.snapshot());
-  const ApprovalsPaneBody = paneBodyComponent("approvals", registerApprovalsPane);
+  const ApprovalsPaneBody = await paneBodyComponent("approvals", registerApprovalsPane);
   const container = await mountSurfaceSettled(
     bridge,
     <ApprovalsPaneBody
@@ -343,17 +343,26 @@ export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
  * and letting a tier compare an empty box against a baseline. The descriptor's
  * `render` is handed back for React to MOUNT rather than called here: the body holds
  * hooks, and a plain call outside a render would run them against no dispatcher.
+ *
+ * ASYNCHRONOUS BECAUSE THE BODY MAY BE A CHUNK. A registration off the flagship first
+ * paint declares its body as a loader, so `descriptorFor` hands back a component that
+ * renders the pending fallback until the module lands. `preload` is that same loader,
+ * awaited before the descriptor is read, which makes the mount below deterministic: the
+ * tier renders the body rather than racing it and then reading a frame with nothing in
+ * it. Awaiting is also cheaper than a wider settle — a statically registered kind has
+ * nothing to load and settles immediately.
  */
-function paneBodyComponent(
+async function paneBodyComponent(
   kind: PaneKind,
   registerPane: (registry: ConsolePaneRegistry) => void,
-): FunctionComponent<ConsolePaneContext> {
+): Promise<FunctionComponent<ConsolePaneContext>> {
   // Built per call rather than shared: the registry is owner-scoped state, and two
   // tiers holding one instance would make the second tier's mount depend on whether
   // the first had run. The family's own registrar is passed in rather than every
   // family being registered here, so a mount composes the one body it captures.
   const registry = new ConsolePaneRegistry();
   registerPane(registry);
+  await registry.preload(kind);
   const descriptor = registry.descriptorFor(kind);
   if (descriptor === undefined) {
     throw new Error(`no console pane is registered for the \`${kind}\` kind`);

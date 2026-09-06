@@ -25,7 +25,7 @@
 // the screenshot tier can refuse to photograph this frame.
 
 import { ConsolePaneChrome } from "./ConsolePaneChrome.js";
-import type { ConsolePaneContext } from "./pane-registry.js";
+import type { ConsolePaneContext } from "./pane-context.js";
 import { PENDING_PANE_BODY_ATTRIBUTE } from "./pending-pane-body.js";
 
 export interface PendingPaneBodyProps {

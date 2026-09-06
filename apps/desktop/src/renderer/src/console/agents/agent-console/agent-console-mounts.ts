@@ -33,12 +33,8 @@
 // which is where it always belonged — it answers "which machines can this session's
 // agents run on", and that is a column of an agent console rather than a window.
 
-import { createElement } from "react";
-
 import type { ConsoleSurfaceRegistry } from "../../seats/index.js";
-import { routeSessionId } from "../../routing/index.js";
 import { type ConsolePaneRegistry } from "../../seats/index.js";
-import { AgentConsoleWindow } from "./AgentConsoleWindow.js";
 
 /** The owner string both of this body's claims carry, so a hot reload replaces. */
 const AGENT_CONSOLE_OWNER = "collaboration-agent-console";
@@ -71,29 +67,24 @@ export function registerAgentConsolePane(registry: ConsolePaneRegistry): void {
     kind: "agent-console",
     owner: AGENT_CONSOLE_OWNER,
     // A LOADER AND NOT A `render`, so the deck's mount of this body is not on the
-    // initial import graph. The SURFACE mount below is a different question and keeps
-    // its static registration: an auxiliary window loads the renderer bundle at a
-    // window route and the agent console IS that window's first paint, so making it
-    // lazy there would trade a launch cost the main window does not pay for a fallback
-    // frame the window it belongs to would.
+    // initial import graph. The SURFACE mount below is a loader for the same reason
+    // read from the other side: no main window routes to it at all.
     body: () => import("./agent-console-pane-body.js"),
   });
 }
 
-/** Claim the `agent-console` surface slot — the same body, under a window's heading. */
+/**
+ * Claim the `agent-console` surface slot — the same body, under a window's heading.
+ *
+ * A LOADER, like the pane above it. The slot is reachable only at the auxiliary route,
+ * so no main window ever mounts it, and a static registration would put the whole
+ * binding surface on every window's initial import graph to spare one window a frame.
+ * `agent-console-surface-body.ts` says what that window pays instead.
+ */
 export function registerAgentConsoleSurface(registry: ConsoleSurfaceRegistry): void {
   registry.register({
     slot: "agent-console",
     owner: AGENT_CONSOLE_OWNER,
-    render: (context) =>
-      createElement(AgentConsoleWindow, {
-        sessionId: routeSessionId(context.route),
-        agentId:
-          context.route.kind === "auxiliary" && "agentId" in context.route
-            ? context.route.agentId
-            : undefined,
-        bridge: context.bridge,
-        sessionStore: context.sessionStore,
-      }),
+    body: () => import("./agent-console-surface-body.js"),
   });
 }

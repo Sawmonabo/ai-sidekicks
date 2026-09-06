@@ -48,6 +48,7 @@ import {
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
 import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
+import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -123,7 +124,7 @@ describe("screenshot — the composer, runs, and approvals surfaces", () => {
       await emulateSystemScheme(reference.scheme);
       const mounted = await reference.mount();
 
-      await expect(mounted.element).toMatchScreenshot(reference.referenceName);
+      await captureSettled(mounted.element, reference.referenceName);
     });
   }
 });

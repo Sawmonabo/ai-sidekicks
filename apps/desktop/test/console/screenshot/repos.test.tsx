@@ -45,7 +45,7 @@
 // A local run on any other host skips; a local run on a developer Mac is advisory in
 // the small, measured way `frame.test.tsx` records.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
@@ -61,6 +61,7 @@ import {
 } from "../surfaces/repos-artifact.js";
 import { type MountedFamilySurface } from "../surfaces/repos-mount-harness.js";
 import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
+import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -114,7 +115,7 @@ describe("screenshot — the repos, diff, artifact, and proposal surfaces", () =
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
 
-        await expect(mounted.element).toMatchScreenshot(`${surface.referenceName}-${scheme}`);
+        await captureSettled(mounted.element, `${surface.referenceName}-${scheme}`);
       });
     }
   }

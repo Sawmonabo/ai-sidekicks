@@ -21,6 +21,7 @@
 // can never be shown in an order nobody declared.
 
 import { RAIL_DESTINATIONS, type ConsoleRoute, type RailDestination } from "../routing/index.js";
+import { surfaceSlotFor, type ConsoleSurfaceRegistry } from "../seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./IconRail.js";
 
 /**
@@ -53,4 +54,37 @@ export function routeForDestination(destination: RailDestination): ConsoleRoute 
     case "settings":
       return { kind: "settings", page: undefined };
   }
+}
+
+/**
+ * Start loading the surface a destination would mount, without navigating to it.
+ *
+ * BEFORE THE ROUTE COMMITS, which is the whole of what this is for. Both of the
+ * console's ways into a destination call it at the moment the intent is legible and the
+ * act has not happened — the rail's press, just before it navigates, and the palette's
+ * highlighted row, while a person is still reading it. By the time the route resolves,
+ * the chunk is either in flight or already there, so the reserved frame the surface
+ * would otherwise show is one a person never sees.
+ *
+ * ONE FUNCTION AND NOT TWO CALL SITES' WORTH, because the destination-to-slot step is
+ * the thing that could go wrong twice: `surfaceSlotFor` is the map, and a second
+ * open-coded reading of it would drift the first time a destination changed slots.
+ *
+ * A destination whose surface is component-form, or not registered at all, settles
+ * immediately with nothing done — so no caller has to ask first whether the thing it is
+ * about to open is loader-backed.
+ */
+export function warmDestination(
+  surfaceRegistry: ConsoleSurfaceRegistry,
+  destination: RailDestination,
+): void {
+  const slot = surfaceSlotFor(routeForDestination(destination));
+  if (slot === undefined) {
+    return;
+  }
+  // Fire-and-forget, and the rejection is dropped on the idle warm's own reasoning: a
+  // speculative fetch has nobody waiting on it, and a chunk that will not load is a
+  // damaged install whose honest surface is the mount, where the console's error
+  // boundary can say so.
+  void surfaceRegistry.preload(slot).catch(() => undefined);
 }

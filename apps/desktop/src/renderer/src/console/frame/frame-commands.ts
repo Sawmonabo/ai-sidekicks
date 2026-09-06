@@ -55,7 +55,8 @@ import type { UiStateStore } from "../persistence/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
-import { routeForDestination } from "./rail-navigation.js";
+import { type ConsoleSurfaceRegistry } from "../seats/index.js";
+import { routeForDestination, warmDestination } from "./rail-navigation.js";
 
 /** What the frame's own commands are built against: this window's store and acts. */
 export interface FrameCommandSurfaceInput {
@@ -77,6 +78,14 @@ export interface FrameCommandSurfaceInput {
    */
   readonly uiStateStore: UiStateStore;
   readonly chooseScheme: (preference: SchemePreference) => void;
+  /**
+   * The surface board this window mounts through, for the destinations' own warm.
+   *
+   * A parameter rather than the module-scope singleton, on the composition site's rule:
+   * a window handed a board of its own must warm that one, and a suite driving this
+   * surface must not reach production's.
+   */
+  readonly surfaceRegistry: ConsoleSurfaceRegistry;
 }
 
 /** Everything the palette overlay is rendered with, and nothing else. */
@@ -89,7 +98,8 @@ export interface FrameCommandSurface {
 }
 
 export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCommandSurface {
-  const { route, lastOpenedSessionId, frameStore, uiStateStore, chooseScheme } = input;
+  const { route, lastOpenedSessionId, frameStore, uiStateStore, chooseScheme, surfaceRegistry } =
+    input;
 
   // What a command's `when` clause is evaluated against. Derived from the route
   // rather than stored, so there is one answer to "where am I" and the palette
@@ -156,7 +166,7 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   // collide with the first registration.
   useEffect(() => {
     const windowCommands: readonly ConsoleCommand[] = [
-      ...buildFrameCommands(frameStore, chooseScheme),
+      ...buildFrameCommands(frameStore, chooseScheme, surfaceRegistry),
       ...bridgeCommands,
     ];
     // Through the family door rather than through the registry, so there is one
@@ -273,6 +283,7 @@ export function describeScope(route: ConsoleRoute): string {
 function buildFrameCommands(
   frameStore: FrameStore,
   chooseScheme: (preference: SchemePreference) => void,
+  surfaceRegistry: ConsoleSurfaceRegistry,
 ): readonly FrameCommand[] {
   return [
     ...RAIL_DESTINATIONS.map((destination) => ({
@@ -282,6 +293,13 @@ function buildFrameCommands(
       keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
       run: () => {
         frameStore.navigate(routeForDestination(destination));
+      },
+      // Every destination warms the surface it would mount, while its row is
+      // highlighted. Written on the walk rather than on three commands, for the
+      // reason the walk itself exists: a destination added to the rail acquires this
+      // without anyone remembering to give it one.
+      preload: () => {
+        warmDestination(surfaceRegistry, destination);
       },
     })),
     {
@@ -294,6 +312,9 @@ function buildFrameCommands(
       title: "Go to Workspace",
       group: "Navigate",
       when: "sessionActive",
+      preload: () => {
+        void surfaceRegistry.preload("workspace");
+      },
       run: () => {
         // Read at RUN time, not closed over: this list is built once per window and
         // the session it returns to changes with every navigation.

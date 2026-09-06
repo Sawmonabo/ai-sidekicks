@@ -45,16 +45,23 @@
 // read from the corpus's SOURCE rather than imported from it, because this project's lib
 // is Node's and a scenario module reaches the DOM — the same constraint the fixture-global
 // import below is already written around.
+//
+// AND THAT READ IS WHY THE BUILT TREE IS WALKED NEXT DOOR. Reading the corpus means
+// reaching renderer SOURCE, and `architecture/source-walk-chokepoint.test.ts` holds that
+// a module which does that may not also walk a directory of its own — one admission for
+// what counts as console source, and no second opinion drifting from it. Build output is
+// a different subject with no such admission, so its walk lives in
+// `built-renderer-tree.ts`, which reaches no renderer path and is admitted by that gate's
+// derived escape rather than by a name on a list.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 import ts from "typescript";
 
 import { describe, expect, it } from "vitest";
 
 import { FIXTURE_GLOBAL_NAMES } from "../../../src/renderer/src/console/core/fixture-globals.js";
-import { DEFAULT_RENDERER_OUTPUT_DIRECTORY } from "../../../scripts/budget/measure-bundle.mjs";
+import { readBuiltTextOrFailLoudly, type BuiltFile } from "./built-renderer-tree.js";
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
@@ -126,12 +133,6 @@ function scenarioCorpusMarkers(): readonly string[] {
 
 const SCENARIO_CORPUS_MARKERS: readonly string[] = scenarioCorpusMarkers();
 
-/** One built file: where it sits in the output tree, and what it holds. */
-interface BuiltFile {
-  readonly relativePath: string;
-  readonly text: string;
-}
-
 /**
  * Which built files carry a marker.
  *
@@ -141,47 +142,6 @@ interface BuiltFile {
  */
 function carriersOf(marker: string, files: readonly BuiltFile[]): readonly string[] {
   return files.filter((file) => file.text.includes(marker)).map((file) => file.relativePath);
-}
-
-/** Text files in the built tree, excluding source maps, which are not shipped. */
-function readBuiltText(): BuiltFile[] {
-  const found: { relativePath: string; text: string }[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory)) {
-      const absolutePath = join(directory, entry);
-      if (statSync(absolutePath).isDirectory()) {
-        walk(absolutePath);
-        continue;
-      }
-      if (!/\.(?:js|cjs|mjs|html?|css)$/i.test(entry)) {
-        continue;
-      }
-      found.push({
-        relativePath: relative(DEFAULT_RENDERER_OUTPUT_DIRECTORY, absolutePath),
-        text: readFileSync(absolutePath, "utf8"),
-      });
-    }
-  };
-  walk(DEFAULT_RENDERER_OUTPUT_DIRECTORY);
-  return found;
-}
-
-function readBuiltTextOrFailLoudly(): readonly BuiltFile[] {
-  try {
-    const files = readBuiltText();
-    if (files.length > 0) {
-      return files;
-    }
-  } catch {
-    // Fall through to the same message: a missing directory and an empty one are
-    // one situation from this tier's point of view — there is no build to read.
-  }
-  throw new Error(
-    `No renderer build to read at ${DEFAULT_RENDERER_OUTPUT_DIRECTORY}.\n` +
-      "Run `pnpm --filter @ai-sidekicks/desktop build` first. This gate does not " +
-      "skip when its subject is missing: a release-absence check that passes " +
-      "because it read nothing is worse than no check at all.",
-  );
 }
 
 describe("release bundle — the fixture surface is absent, not merely unreachable", () => {

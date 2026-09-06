@@ -66,7 +66,7 @@ import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "../tokens
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./pane-controls.js";
 import { isDetachablePaneKind, type PaneKind } from "./pane-kinds.js";
-import { type ConsolePaneContext } from "./pane-registry.js";
+import { type ConsolePaneContext } from "./pane-context.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set.

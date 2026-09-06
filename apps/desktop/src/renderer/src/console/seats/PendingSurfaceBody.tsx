@@ -17,7 +17,7 @@
 // layout is nothing.
 
 import { SurfaceAbsence } from "../primitives/index.js";
-import type { ConsoleSurfaceContext } from "./surface-registry.js";
+import type { ConsoleSurfaceContext } from "./surface-context.js";
 import { PENDING_PANE_BODY_ATTRIBUTE } from "./pending-pane-body.js";
 
 export interface PendingSurfaceBodyProps {

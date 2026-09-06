@@ -94,9 +94,21 @@ function familyPaneRegistry(): ConsolePaneRegistry {
  * A throw rather than an optional return, so a family that stopped registering its
  * kind fails here — where the message names the kind — instead of rendering nothing
  * and letting a tier compare an empty box against a baseline.
+ *
+ * ASYNCHRONOUS BECAUSE THE BODY MAY BE A CHUNK. A registration off the flagship first
+ * paint declares its body as a loader, so `descriptorFor` hands back a component that
+ * renders the pending fallback until the module lands. `preload` is that same loader,
+ * awaited before the descriptor is read, which makes the mount below deterministic: the
+ * tier renders the body rather than racing it and then reading a frame with nothing in
+ * it. Awaiting is also cheaper than a wider settle — a statically registered kind has
+ * nothing to load and settles immediately.
  */
-export function paneBodyComponent(kind: PaneKind): (context: ConsolePaneContext) => ReactNode {
-  const descriptor = familyPaneRegistry().descriptorFor(kind);
+export async function paneBodyComponent(
+  kind: PaneKind,
+): Promise<(context: ConsolePaneContext) => ReactNode> {
+  const registry = familyPaneRegistry();
+  await registry.preload(kind);
+  const descriptor = registry.descriptorFor(kind);
   if (descriptor === undefined) {
     throw new Error(`no console pane is registered for the \`${kind}\` kind`);
   }

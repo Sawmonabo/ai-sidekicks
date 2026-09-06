@@ -6,7 +6,7 @@
 //
 // WHAT USED TO BE HERE AND IS NOT. The twelve page registrars, the page-registry
 // composition, and every stylesheet in this family moved to
-// `settings-surface-body.tsx`, the root of the chunk the registrar's loader fetches.
+// `settings-surface-body.ts`, the root of the chunk the registrar's loader fetches.
 // The reason is the initial import graph: this door is reached before any route
 // resolves, so anything it imports is paid for by a session that never opens settings —
 // and the settings pages are the largest thing in this family by a wide margin. The
@@ -45,7 +45,7 @@ import type { ConsoleSurfaceRegistry } from "../seats/index.js";
  * A LOADER AND NOT A `render`. Settings is reached by pressing a rail destination, so
  * nothing paints it before a person asks for it, and every page it composes — twelve
  * forms, their tables, the combobox stack two of them mount, and eight stylesheets —
- * rides the chunk `settings-surface-body.tsx` roots rather than the initial import
+ * rides the chunk `settings-surface-body.ts` roots rather than the initial import
  * graph. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
  *
  * The page registry moved behind that boundary with them and is composed there, per

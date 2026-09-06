@@ -21,8 +21,9 @@
 import { describe, expect, it } from "vitest";
 
 import { RAIL_DESTINATIONS, railDestinationFor, type RailDestination } from "../routing/index.js";
+import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntryTemplate } from "./IconRail.js";
-import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
+import { RAIL_ENTRIES, routeForDestination, warmDestination } from "./rail-navigation.js";
 
 /** The same entries, written in a different key order. The control's subject. */
 const REORDERED_TABLE: Readonly<Record<RailDestination, RailEntryTemplate>> = {
@@ -84,5 +85,99 @@ describe("the rail and the router answer from one set", () => {
       "workflows",
       "settings",
     ]);
+  });
+});
+
+describe("warmDestination — the surface a press is about to mount", () => {
+  /** A board of loader-backed surfaces, and a record of which chunks were asked for. */
+  function boardOverDestinations(): {
+    readonly surfaceRegistry: ConsoleSurfaceRegistry;
+    readonly loaded: string[];
+  } {
+    const loaded: string[] = [];
+    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    for (const destination of RAIL_DESTINATIONS) {
+      surfaceRegistry.register({
+        slot: destination,
+        owner: `${destination}-family`,
+        body: () => {
+          loaded.push(destination);
+          return Promise.resolve<{ Body: (context: ConsoleSurfaceContext) => React.ReactNode }>({
+            Body: () => null,
+          });
+        },
+      });
+    }
+    return { surfaceRegistry, loaded };
+  }
+
+  it("resolves each destination through the route table to its own slot", async () => {
+    // The step that could go wrong twice: a second open-coded reading of
+    // `surfaceSlotFor` would drift the first time a destination changed slots, so the
+    // walk holds every destination to the slot its own route resolves to.
+    for (const destination of RAIL_DESTINATIONS) {
+      const { surfaceRegistry, loaded } = boardOverDestinations();
+      warmDestination(surfaceRegistry, destination);
+      await Promise.resolve();
+      expect(loaded, destination).toStrictEqual([destination]);
+    }
+  });
+
+  it("warms one destination and not the board", async () => {
+    const { surfaceRegistry, loaded } = boardOverDestinations();
+    warmDestination(surfaceRegistry, "workflows");
+    await Promise.resolve();
+    expect(loaded).toStrictEqual(["workflows"]);
+    expect(surfaceRegistry.unloadedKeys()).toStrictEqual(["sessions", "settings"]);
+  });
+
+  it("costs one fetch however often a person passes over the same entry", async () => {
+    // Highlight moves with every arrow key and a press follows a hover, so this runs
+    // far more often than a navigation does.
+    const { surfaceRegistry, loaded } = boardOverDestinations();
+    warmDestination(surfaceRegistry, "settings");
+    warmDestination(surfaceRegistry, "settings");
+    warmDestination(surfaceRegistry, "settings");
+    await Promise.resolve();
+    expect(loaded).toStrictEqual(["settings"]);
+  });
+
+  it("does nothing for a destination whose surface is component-form", () => {
+    // A caller must not have to ask first whether what it is about to open is
+    // loader-backed, or every call site carries a copy of that question.
+    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    surfaceRegistry.register({ slot: "sessions", owner: "sessions-family", render: () => null });
+    expect(() => {
+      warmDestination(surfaceRegistry, "sessions");
+    }).not.toThrow();
+    expect(surfaceRegistry.unloadedKeys()).toStrictEqual([]);
+  });
+
+  it("swallows a chunk that will not load rather than raising it here", async () => {
+    // A speculative fetch has nobody waiting on it; a chunk that cannot be fetched is a
+    // damaged install, and the honest surface for that is the mount, where the console's
+    // error boundary can say so. An unhandled rejection from a hover would be a crash
+    // report for a destination nobody entered.
+    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    surfaceRegistry.register({
+      slot: "workflows",
+      owner: "workflows-family",
+      body: () => Promise.reject(new Error("chunk unavailable")),
+    });
+    expect(() => {
+      warmDestination(surfaceRegistry, "workflows");
+    }).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it("negative control: an empty board is warmed without complaint and stays empty", () => {
+    // Without this, the cases above would pass over a `warmDestination` that registered
+    // something of its own on the way past.
+    const surfaceRegistry = new ConsoleSurfaceRegistry();
+    for (const destination of RAIL_DESTINATIONS) {
+      warmDestination(surfaceRegistry, destination);
+    }
+    expect(surfaceRegistry.registeredSlots()).toStrictEqual([]);
   });
 });

@@ -75,9 +75,19 @@ function familyPaneRegistry(): ConsolePaneRegistry {
  * here. Both bodies are function components holding hooks, and a plain call outside
  * a render would run those hooks against no dispatcher — the deck mounts them, so a
  * tier that wants the deck's own body has to mount it the same way.
+ *
+ * ASYNCHRONOUS BECAUSE THE BODY MAY BE A CHUNK. A registration off the flagship first
+ * paint declares its body as a loader, so `descriptorFor` hands back a component that
+ * renders the pending fallback until the module lands. `preload` is that same loader,
+ * awaited before the descriptor is read, which makes the mount below deterministic: the
+ * tier renders the body rather than racing it and then reading a frame with nothing in
+ * it. Awaiting is also cheaper than a wider settle — a statically registered kind has
+ * nothing to load and settles immediately.
  */
-function paneBodyComponent(kind: PaneKind): FunctionComponent<ConsolePaneContext> {
-  const descriptor = familyPaneRegistry().descriptorFor(kind);
+async function paneBodyComponent(kind: PaneKind): Promise<FunctionComponent<ConsolePaneContext>> {
+  const registry = familyPaneRegistry();
+  await registry.preload(kind);
+  const descriptor = registry.descriptorFor(kind);
   if (descriptor === undefined) {
     throw new Error(`no console pane is registered for the \`${kind}\` kind`);
   }
@@ -182,7 +192,7 @@ function paneTrailName(sessionId: string | undefined, paneWord: string): string 
 /** The browser pane, mounted with its navigation subscription settled. */
 export async function mountBrowserPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
-  const BrowserPaneBody = paneBodyComponent("browser");
+  const BrowserPaneBody = await paneBodyComponent("browser");
   const { container } = await renderSettled(
     <BrowserPaneBody
       kind="browser"
@@ -206,7 +216,7 @@ export async function mountBrowserPane(): Promise<MountedFamilySurface> {
  */
 export async function mountTerminalPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
-  const TerminalPaneBody = paneBodyComponent("terminal");
+  const TerminalPaneBody = await paneBodyComponent("terminal");
   const { container } = await renderSettled(
     <TerminalPaneBody
       kind="terminal"

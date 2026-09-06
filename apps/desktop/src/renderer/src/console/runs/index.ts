@@ -17,22 +17,15 @@
 // refuses a second owner on one kind, and a refusal that named a whole family would
 // leave a reader hunting three directories for which body is already there.
 
-// THE STYLESHEET IS IMPORTED HERE, and here only. This is the subtree's door —
-// every runs surface is reached through the body this file registers — so the
-// bundler sees one edge into the sheet rather than one per component, and a runs
-// surface can no more arrive without its CSS than a primitive can. `seats/index.ts`
-// records the same reasoning for the frame every pane wears.
+// THE STYLESHEETS ARE NOT IMPORTED HERE, and that is the one thing this door does
+// differently from the shape it was written in. The pane is loader-backed, so the
+// directory that owns its sheets is the one carrying the chunk —
+// `pane/runs-pane-body.ts` — and a sheet on this door would put an unopened pane's
+// rules on the initial document of every session. `apps/desktop/AGENTS.md` keys the
+// rule on ownership rather than on depth, which is what makes the chunk root the
+// owner here.
 
-import { createElement } from "react";
-
-import { paneBodyForKind, type ConsolePaneRegistry } from "../seats/index.js";
-import { RunsPane } from "./pane/RunsPane.js";
-
-import "./pane/runs.css";
-// The intervention surfaces carry their own sheet beside the pane's, split at the
-// same seam their components are; rules addressing selectors in both sheets stay
-// in `runs.css` as a single declaration.
-import "./pane/interventions/run-interventions.css";
+import { type ConsolePaneRegistry } from "../seats/index.js";
 
 /**
  * Claim the `runs` kind.
@@ -45,10 +38,10 @@ export function registerRunsPane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "runs",
     owner: "runs-pane",
-    // Narrowed to this kind's own address arm before the body sees it, so the body
-    // reads the entity its kind admits and nothing else. `createElement` rather than
-    // JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a single
-    // PascalCase component per file.
-    render: paneBodyForKind("runs", (context) => createElement(RunsPane, context)),
+    // A LOADER AND NOT A `render`: this pane is not on the flagship first paint, so
+    // its body, its readers, and its sheets ride the chunk the specifier below names
+    // rather than the initial import graph. `apps/desktop/AGENTS.md` states the rule
+    // beside the seat-board one.
+    body: () => import("./pane/runs-pane-body.js"),
   });
 }

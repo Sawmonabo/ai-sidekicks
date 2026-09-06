@@ -77,6 +77,11 @@ export interface WorkflowsPaneHostProps {
 /** The workflows slot: its destination, or the pane that destination opened. */
 export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Element {
   const { context } = props;
+  // The board THIS composition registered its bodies into, off the surface context
+  // rather than the process-wide singleton — the context carries it for exactly this
+  // reason, and a host that reached for the singleton would warm production's board
+  // from a window that had been handed its own.
+  const { paneRegistry } = context;
   // Addressed by the port and by nothing else, which is the whole of what either choice
   // is about — there is no second key, because a person choosing a session and opening
   // a pane from it is answering one daemon.
@@ -88,9 +93,18 @@ export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Elem
   // back moves exactly when the port does, which is when they should be.
   const openPane = useCallback(
     (address: ConsolePaneAddress) => {
+      // Warmed BEFORE the address is published, which is what makes this a preload
+      // rather than a second load: publishing re-renders this host and mounts the pane,
+      // and a loader-backed body reached at that mount would show its reserved frame
+      // first. One statement earlier, the fetch is already in flight.
+      //
+      // Fire-and-forget: the mount is what waits for the body, and a speculative warm
+      // that could not fetch its chunk has nobody to tell — the console's surface error
+      // boundary reports that at the mount, where somebody is looking.
+      void paneRegistry.preload(address.kind).catch(() => undefined);
       setOpenAddress(address);
     },
-    [setOpenAddress],
+    [paneRegistry, setOpenAddress],
   );
   const closePane = useCallback(() => {
     setOpenAddress(undefined);

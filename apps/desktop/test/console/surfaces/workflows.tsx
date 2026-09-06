@@ -70,10 +70,10 @@ import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/sce
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-definitions.js";
 import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-ids.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "../../../src/renderer/src/console/seats/surface-registry.js";
+import { ConsoleSurfaceRegistry } from "../../../src/renderer/src/console/seats/surface-registry.js";
+// The context comes off its own module: it was hoisted out of the board to break the
+// cycle a loader-backed surface's reserved frame would otherwise close.
+import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface-context.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
@@ -116,9 +116,21 @@ function familyPaneRegistry(): ConsolePaneRegistry {
  * The descriptor's `render` is handed back for React to MOUNT rather than called
  * here: both bodies hold hooks, and a plain call outside a render would run them
  * against no dispatcher.
+ *
+ * ASYNCHRONOUS BECAUSE THE BODY MAY BE A CHUNK. A registration off the flagship first
+ * paint declares its body as a loader, so `descriptorFor` hands back a component that
+ * renders the pending fallback until the module lands. `preload` is that same loader,
+ * awaited before the descriptor is read, which makes the mount below deterministic: the
+ * tier renders the body rather than racing it and then reading a frame with nothing in
+ * it. Awaiting is also cheaper than a wider settle — a statically registered kind has
+ * nothing to load and settles immediately.
  */
-function paneBodyComponent(kind: PaneKind): FunctionComponent<{ context: ConsolePaneContext }> {
-  const descriptor = familyPaneRegistry().descriptorFor(kind);
+async function paneBodyComponent(
+  kind: PaneKind,
+): Promise<FunctionComponent<{ context: ConsolePaneContext }>> {
+  const registry = familyPaneRegistry();
+  await registry.preload(kind);
+  const descriptor = registry.descriptorFor(kind);
   if (descriptor === undefined) {
     throw new Error(`no console pane is registered for the \`${kind}\` kind`);
   }
@@ -289,7 +301,7 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const WorkflowRunPaneBody = paneBodyComponent("workflow-run");
+  const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
     <WorkflowRunPaneBody
       context={paneContext(
@@ -346,7 +358,7 @@ function scenarioDefinitionId(): string {
  */
 export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const WorkflowBuilderPaneBody = paneBodyComponent("workflow-builder");
+  const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
     <WorkflowBuilderPaneBody
       context={paneContext(

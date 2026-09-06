@@ -28,7 +28,7 @@ import "./pages/keyboard/keyboard.css";
 import "./pages/mounts/mounts.css";
 import "./pages/notifications/notifications.css";
 
-import { useState } from "react";
+import { createElement, useState } from "react";
 
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { registerAppearancePage } from "./pages/appearance/AppearancePage.js";
@@ -87,6 +87,13 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
  * `useState` with a lazy initialiser rather than a construction in the render body: the
  * registry is state whose identity the surface reads across every re-render, and the
  * package standard puts a construction in a hook rather than beside the JSX.
+ *
+ * A `.ts` MODULE COMPOSING WITH `createElement`, like every other chunk root beside it.
+ * This file is an entry point rather than a component — it names no component of its
+ * own, it holds the family's page roster and its stylesheet edges — and
+ * `architecture/one-component-per-module.test.ts` reads a `.tsx` extension as the claim
+ * that a module DECLARES the component its filename names. One element in one return is
+ * not worth making that claim falsely.
  */
 export function Body(context: ConsoleSurfaceContext): React.ReactNode {
   const [pages] = useState(() => {
@@ -94,5 +101,5 @@ export function Body(context: ConsoleSurfaceContext): React.ReactNode {
     registerSettingsPages(registry);
     return registry;
   });
-  return <SettingsSurface context={context} pages={pages} />;
+  return createElement(SettingsSurface, { context, pages });
 }
