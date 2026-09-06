@@ -9,14 +9,14 @@
 // place that knows the wire, which is the property every family above depends on.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
-// rule this follows. `bridge/fixture/index.ts` stays the one door the rest of the console
+// rule this follows. `bridge/index.ts` stays the one door the rest of the console
 // comes through and re-exports from the module that DECLARES each name, because
 // `console-no-barrel-chain` fails a forward through this file. What this door is for
 // is the bridge's OWN modules: a fixture door or a stream projection binds to the
 // daemon seam as a set rather than to the file layout underneath it.
 //
 // WHAT IS PUBLISHED IS WHAT A SIBLING TAKES, and nothing held in reserve. A name
-// whose only reader is outside this family leaves through `bridge/fixture/index.ts` and is
+// whose only reader is outside this family leaves through `bridge/index.ts` and is
 // deliberately absent here: a specifier no sibling reaches is a dead export the
 // barrel census fails, and adding one "for symmetry" is how a door stops describing
 // the tree.

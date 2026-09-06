@@ -12,7 +12,7 @@
 // merge conflict in every family branch at once.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
-// rule. `bridge/fixture/index.ts` re-exports from the declaring module, never through here.
+// rule. `bridge/index.ts` re-exports from the declaring module, never through here.
 //
 // AND THE MANIFEST AND THE SELECTION ARE DELIBERATELY NOT PUBLISHED HERE. A door is
 // an edge to every module it re-exports from, so publishing `scenario-manifest.ts`

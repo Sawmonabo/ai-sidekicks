@@ -8,7 +8,7 @@
 // projection runs.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
-// rule. `bridge/fixture/index.ts` re-exports from the declaring module, never through here.
+// rule. `bridge/index.ts` re-exports from the declaring module, never through here.
 
 export { RUN_QUEUE_ROW_READ } from "./queue-row-source.js";
 
