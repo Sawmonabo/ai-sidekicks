@@ -78,7 +78,14 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
   });
 
   it("boots the frame with its rail, a mounted surface, and a reserved one", async () => {
-    await withLaunchedConsole({}, async (consoleApplication) => {
+    // The scenario is NAMED rather than defaulted, and that is this case's premise
+    // rather than a detail of it: every claim below is about the first-run
+    // composition — an empty directory, a readable session, an unowned pane kind —
+    // and a window that names no scenario now plays the demo and opens into it, which
+    // is the first-launch rule doing exactly what it was built to do. Naming the
+    // scenario is also what stands that rule down, on the same principle the rule
+    // applies to an explicit hash: a launch that said what it wanted is not overridden.
+    await withLaunchedConsole({ scenarioId: FIRST_RUN_SCENARIO.id }, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // The rail exists and carries the destinations the frame declares. Read as

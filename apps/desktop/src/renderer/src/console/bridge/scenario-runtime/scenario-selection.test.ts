@@ -10,6 +10,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_SCENARIO_ID,
   SCENARIO_FIXTURE_GLOBAL,
   SCENARIO_QUERY_PARAMETER,
   SCENARIO_SELECTION_REFUSAL_CODE,
@@ -40,16 +41,26 @@ describe("ScenarioSelection — the id a window opened with", () => {
 
   it("negative control: a named scenario is not silently replaced by the default", () => {
     // The whole point of the case above. A selection that always answered the
-    // first-run id would pass every other assertion in this file that does not
+    // default id would pass every other assertion in this file that does not
     // name a scenario, so the inequality is asserted rather than implied.
     expect(
       new ScenarioSelection(`?${SCENARIO_QUERY_PARAMETER}=${FLAGSHIP_SCENARIO_ID}`).scenarioId,
-    ).not.toBe(FIRST_RUN_SCENARIO_ID);
+    ).not.toBe(DEFAULT_SCENARIO_ID);
   });
 
-  it("plays the first-run scenario when the query carries none", () => {
-    expect(new ScenarioSelection("").scenarioId).toBe(FIRST_RUN_SCENARIO_ID);
+  it("plays the designed opening when the query carries none, and refuses nothing", () => {
+    // Nobody said, which is a launch to be designed for rather than a mistake to
+    // recover from — so it is the demo, and it carries no refusal.
+    expect(new ScenarioSelection("").scenarioId).toBe(DEFAULT_SCENARIO_ID);
     expect(new ScenarioSelection("").refusal).toBeUndefined();
+  });
+
+  it("negative control: the unnamed default and the unknown-id fallback are different", () => {
+    // The two used to be one constant, and folding them back together is the defect
+    // this pins: "nobody said" is answered with a live scripted session, and a typo
+    // must not be, or a misspelled fixture id would open a room full of agents and
+    // look like a successful launch.
+    expect(DEFAULT_SCENARIO_ID).not.toBe(FIRST_RUN_SCENARIO_ID);
   });
 
   it("ignores a query that names some other parameter", () => {
@@ -57,7 +68,7 @@ describe("ScenarioSelection — the id a window opened with", () => {
     // A reader that took the first value of any parameter would pass the case
     // above and select a scenario here.
     const selection = new ScenarioSelection(`?scenarioId=${FLAGSHIP_SCENARIO_ID}`);
-    expect(selection.scenarioId).toBe(FIRST_RUN_SCENARIO_ID);
+    expect(selection.scenarioId).toBe(DEFAULT_SCENARIO_ID);
     expect(selection.requestedScenarioId).toBeUndefined();
   });
 
@@ -107,7 +118,7 @@ describe("ScenarioSelection — the id a window opened with", () => {
 
   it("negative control: the document read answers the default with no query", () => {
     // Pins that the case above read the document rather than returning a constant.
-    expect(ScenarioSelection.fromDocumentLocation().scenarioId).toBe(FIRST_RUN_SCENARIO_ID);
+    expect(ScenarioSelection.fromDocumentLocation().scenarioId).toBe(DEFAULT_SCENARIO_ID);
   });
 });
 

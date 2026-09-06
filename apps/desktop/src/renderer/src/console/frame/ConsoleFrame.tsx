@@ -51,6 +51,7 @@ import {
   useLocationHash,
 } from "../store/index.js";
 import { AppFrame } from "./AppFrame.js";
+import { useFirstLaunchOpening } from "./first-launch-opening.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
@@ -80,6 +81,12 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   const frameStoreRef = useRef<FrameStore>(undefined);
   frameStoreRef.current ??= new FrameStore({ initialRoute: parseRoute(hash) });
   const frameStore = frameStoreRef.current;
+
+  // The hash the window was BORN at, held for the one consumer that needs it after
+  // the first render. `hash` above is a subscription and moves with every
+  // navigation, and the first-launch rule turns on what the window was ASKED for
+  // rather than on where it has since been.
+  const openedAtHashRef = useRef(hash);
 
   // A hook rather than a ref, because this store owns a database connection and a
   // ref has nowhere to close one from. `ui-state-lifecycle.ts` says what an unclosed
@@ -114,6 +121,16 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // The route follows the hash and the hash follows the route, both through one
   // owner. `hash-route-binding.ts` says why one owner and not two effects here.
   useHashRouteBinding(frameStore, hash);
+
+  // And the one opening that is not the hash's: the very first launch of an install
+  // goes into the scripted session rather than to the sessions list. It navigates
+  // through the same store, so the binding above publishes it like any other move.
+  useFirstLaunchOpening({
+    bridge: props.bridge,
+    frameStore,
+    uiStateStore,
+    openedAtHash: openedAtHashRef.current,
+  });
 
   // Window focus is a refresh reason, not a poll.
   //

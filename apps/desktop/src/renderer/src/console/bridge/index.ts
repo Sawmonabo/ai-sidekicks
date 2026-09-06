@@ -327,6 +327,12 @@ export type {
 // another process that imports the module directly.
 export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 
+// What a window plays when the launch named no scenario. Through the same door and
+// from the module that declares it, because the first-launch rule in `frame/` asks
+// whether the composition it is about to open into is the one nobody chose — and a
+// named scenario is an ask that rule must not override.
+export { DEFAULT_SCENARIO_ID } from "./scenario-runtime/scenario-selection.js";
+
 // The decode boundary for a delivered session-event envelope. Through the door
 // because the frame's binder is the reader and the parse is this family's job: the
 // wire's own shapes are read here and nowhere above.
