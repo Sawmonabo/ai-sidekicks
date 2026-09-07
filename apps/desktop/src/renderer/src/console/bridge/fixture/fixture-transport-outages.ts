@@ -1,10 +1,14 @@
 // The fixture's half of the transport-reconnect signal: a scenario's scripted outages,
 // played on the frozen clock.
 //
-// The live half is an observation — `frame/session-event-binder.ts` reports what
-// happened to the one subscription this window takes. There is nothing to observe under
-// the fixture, because the fixture's `daemon.subscribe` cannot fail, so a scenario
-// SCRIPTS the outage instead and this module walks the script.
+// The live half is an observation — `../transport/observed-subscription.ts` reports what
+// happened when a subscription was opened. There is no LOSS to observe under the
+// fixture, because the fixture's `daemon.subscribe` cannot fail, so a scenario SCRIPTS
+// the outage instead and this module walks the script. The script is the fixture's
+// authority: a fixture open reports `reachable` like any other, so a scenario that opened
+// a stream inside its own outage would contradict itself until the next advance re-asserts
+// the script — none does, because fixture streams open when a surface composes and the one
+// scripted outage in the tree begins well after that.
 //
 // WHY IT RIDES THE ENGINE'S ADVANCE AND NOT ITS BEATS
 //

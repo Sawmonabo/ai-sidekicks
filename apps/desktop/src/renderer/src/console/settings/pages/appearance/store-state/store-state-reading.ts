@@ -1,4 +1,4 @@
-// What this window's durable store says about itself, and when it is asked again.
+// What this window's durable store says about itself, as a reading a block can draw.
 //
 // Plan-023 §Target Areas states the obligation in terms: until the durable adapter
 // ships, the console "runs on an in-memory adapter and reports that state in its own
@@ -6,32 +6,16 @@
 // choice is "remembered for the next start", which on the in-memory adapter is
 // false — and the only way to find that out was to restart and see it gone.
 //
-// THIS IS A READ AND NOT A SUBSCRIPTION. `UiStateStore.health()` answers at one
-// instant, refreshing the quota gauge as it goes, so it is wired to the two triggers
-// that belong to the WINDOW: the mount, and the window regaining focus. Not the two
-// session-scoped ones — the store is per window and no session's timeline says
-// anything about how much room a disk has — and not a timer, which the console's
-// budget forbids on a question nothing is asking on a person's behalf.
-//
-// THE STORE IS THE SUBJECT. The reading is held per store rather than per window, so
-// a composition that replaced the store — an auxiliary window, a test moving between
-// two — reads the new store's own answer on the first pass rather than the previous
-// store's for one frame.
+// WHAT THIS FILE IS AND WHAT IT IS NOT. It is the reading's VOCABULARY: the three
+// things the block can be looking at, and the incidents worth drawing from one of
+// them. How a reading is TAKEN — the schedule that decides what a burst of triggers
+// costs, and the round that decides which answer installs — is `store-state-read.ts`
+// beside it. They were one file, and the split is the reason the read stopped racing
+// itself: a module that also held the union had no obvious place to put a scheduler,
+// so each trigger called the store directly.
 
-import { useMemo } from "react";
-
-import { NO_TRANSPORT_RECONNECT, type ConsoleRefusal } from "../../../../core/index.js";
-import { consoleRefusalFrom } from "../../../../seats/index.js";
-import { type PersistenceHealth, type UiStateStore } from "../../../../persistence/index.js";
-import {
-  NO_TRIGGERING_EVENT_KINDS,
-  useSubjectScopedState,
-  useWindowReadTriggers,
-  type ReadTriggerTarget,
-} from "../../../../store/index.js";
-
-/** Names a read that produced no answer at all, where the thrown value named none. */
-const STORE_STATE_ORIGIN = "ui-state-store";
+import type { ConsoleRefusal } from "../../../../core/index.js";
+import { type PersistenceHealth } from "../../../../persistence/index.js";
 
 /**
  * The three things this block can be looking at.
@@ -46,43 +30,6 @@ export type StoreStateReading =
   | { readonly kind: "unread" }
   | { readonly kind: "read"; readonly health: PersistenceHealth }
   | { readonly kind: "unreadable"; readonly refusal: ConsoleRefusal };
-
-/** Ask the store how it is, at mount and whenever this window comes back. */
-export function useStoreStateReading(uiStateStore: UiStateStore): StoreStateReading {
-  const { value: reading, publish: publishReading } = useSubjectScopedState<StoreStateReading>(
-    uiStateStore,
-    undefined,
-    () => ({ kind: "unread" }),
-  );
-
-  const readTarget = useMemo<ReadTriggerTarget>(
-    () => ({
-      // Empty, and the emptiness is the claim: this answer is the WINDOW's storage
-      // and no session event bears on it.
-      triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
-      requestRead: () => {
-        void uiStateStore.health().then(
-          (health) => {
-            publishReading({ kind: "read", health });
-          },
-          (rejection: unknown) => {
-            publishReading({
-              kind: "unreadable",
-              refusal: consoleRefusalFrom(rejection, STORE_STATE_ORIGIN),
-            });
-          },
-        );
-      },
-    }),
-    [uiStateStore, publishReading],
-  );
-  // The one reading in the console that takes no reconnect signal: it asks the
-  // WINDOW's storage adapter how it is, so the transport coming back moves nothing
-  // in its answer. Stated rather than defaulted — see `NO_TRANSPORT_RECONNECT`.
-  useWindowReadTriggers(readTarget, NO_TRANSPORT_RECONNECT);
-
-  return reading;
-}
 
 /** One counted thing that has gone wrong, and the sentence naming it. */
 export interface StoreIncident {

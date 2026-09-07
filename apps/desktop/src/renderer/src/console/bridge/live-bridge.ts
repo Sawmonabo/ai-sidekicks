@@ -62,12 +62,12 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
     // mints no main-process host, so a pane in a live window reports its rectangle
     // to nothing and renders the sentence that says so.
     paneViewHostScript: undefined,
-    // Minted here and REPORTED INTO from above: the console's one subscriber to the
-    // wire is `frame/session-event-binder.ts`, and what it observes about
-    // `daemon.subscribe` is the only connection state a live renderer has. Built
-    // fresh per window rather than shared, on the served-set rule beside it: a
-    // module-level signal would make two windows in one process share a transport
-    // reading only one of them observed.
+    // Minted here and REPORTED INTO by every subscription this window opens, through
+    // `transport/observed-subscription.ts`: whether `daemon.subscribe` returned or
+    // threw is the only connection state a live renderer has. Built fresh per window
+    // rather than shared, on the served-set rule beside it: a module-level signal
+    // would make two windows in one process share a transport reading only one of
+    // them observed.
     transportReconnect: new TransportReconnectSignal(),
     source: "live",
     scenarioEngine: undefined,

@@ -291,11 +291,17 @@ export {
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
 // The window's one transport-reconnect signal, published as the CLASS rather than as
-// the floor's subscribe-only view: the observers that report into it — the frame's
-// session-event binder — reach the bridge through this door, and a door publishing
-// only `TransportReconnectObservable` would leave them able to subscribe and unable to
+// the floor's subscribe-only view: the doors that report into it — this family's own
+// stream door, the seat every view family subscribes through, and the frame's
+// session-event binder — reach the bridge through here, and a door publishing only
+// `TransportReconnectObservable` would leave them able to subscribe and unable to
 // report. A reading takes the floor's view instead, off `core/index.js`.
 export { TransportReconnectSignal } from "./transport/transport-reconnect.js";
+// The rule for what an OPEN observed, published beside the signal because the two
+// callers outside this family — `seats/wire-access.ts` and the frame's session-event
+// binder — each take a daemon subscription of their own and would otherwise each
+// decide what taking one proves.
+export { openObservedSubscription } from "./transport/observed-subscription.js";
 
 // The `invitesList` outcome and its served row. Published because TWO sibling view
 // families read that one operation — the sent ledger and the received shelf — and a
