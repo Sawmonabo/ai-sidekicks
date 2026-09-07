@@ -325,6 +325,25 @@ export {
 } from "./session-directory.js";
 export type { SessionDirectoryState } from "./session-directory.js";
 
+// Whether a first send pins the session it was sent into: the rule, and the record
+// the two families that own its halves meet on.
+//
+// In this family because the halves are in two families that may not import each
+// other. Only the sessions destination can say where a session came from — it
+// authored the one origin this console reports in full — and only the composer knows
+// a send is the first one, because the send path is the composer's; the composer
+// lives outside the console entirely and reaches it through family doors alone. The
+// rule itself imports nothing at all, so `seats/` is simply the lowest family both
+// readers can take it from.
+//
+// `AutoPinRefusalReason` and `SessionAutoPinAuthority` are deliberately absent. The
+// first is read only by the port beside the rule, and the second is met structurally
+// by the object the sessions destination composes at a settled start — so a door line
+// for either would be a specifier no cross-family import uses.
+export { autoPinDecision } from "./auto-pin.js";
+export type { AutoPinDecision, SessionOriginEvidence } from "./auto-pin.js";
+export { recordConsoleStartedSession, settleFirstSendAutoPin } from "./session-auto-pin.js";
+
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
 // chokepoint, never a flicker. It sits here rather than in the family that wrote it

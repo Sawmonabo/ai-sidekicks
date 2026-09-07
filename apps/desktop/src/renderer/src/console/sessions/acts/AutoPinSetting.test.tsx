@@ -13,10 +13,16 @@ import { refuse } from "../../core/index.js";
 import type { SessionPreferenceBinding } from "../rows/session-preferences.js";
 
 function binding(overrides: Partial<SessionPreferenceBinding> = {}): SessionPreferenceBinding {
+  const isEnabled = overrides.isAutoPinOnFirstSendEnabled ?? true;
   return {
-    isAutoPinOnFirstSendEnabled: true,
+    isAutoPinOnFirstSendEnabled: isEnabled,
     lastRefusal: undefined,
     setAutoPinOnFirstSend: () => undefined,
+    // The live read answers the same switch the rendered field does, because a
+    // binding whose two readings disagreed would be a shape the real hook cannot
+    // produce: both resolve one store, one through the subscribed snapshot and one
+    // through the acquirer.
+    readAutoPinOnFirstSend: () => isEnabled,
     ...overrides,
   };
 }

@@ -15,6 +15,12 @@
 // would promise a person that everything gets pinned; saying neither would leave a
 // switch whose effect is a mystery.
 //
+// THE FIRST OF THE TWO IS IMPORTED FROM THE ACT THAT ASSERTS IT rather than written
+// here. This surface DESCRIBES what a start press produces; `session-start.ts` is
+// what produces it, and stamps those four markers against the real session so a
+// first send has something to read. Two spellings would be a promise on screen and a
+// record on the wire, free to disagree the first time a marker moved.
+//
 // THE REFUSAL IS THE STORE'S. A switch that could not be written is a durable write
 // that failed, and it renders as itself rather than as a control that silently
 // snapped back.
@@ -24,22 +30,9 @@ import {
   autoPinDecision,
   type AutoPinDecision,
   type SessionOriginEvidence,
-} from "../rows/auto-pin.js";
+} from "../../seats/index.js";
+import { STARTED_IN_THIS_WINDOW } from "./session-start.js";
 import type { SessionPreferenceBinding } from "../rows/session-preferences.js";
-
-/**
- * A session this window started: every marker known, none of them an exclusion.
- *
- * Stated once here rather than at each reader, because it is the ONE origin the
- * console can report in full — it authored the session — and a second spelling of it
- * would be a second claim about what a start press produces.
- */
-const STARTED_IN_THIS_WINDOW: SessionOriginEvidence = {
-  isDraftPlaceholder: true,
-  arrivedByImport: false,
-  openedForChildWork: false,
-  startedByWorkflow: false,
-};
 
 /** A session the console did not author: the directory read carries no origin marker. */
 const ORIGIN_NOT_REPORTED: SessionOriginEvidence = {};

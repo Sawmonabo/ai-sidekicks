@@ -23,6 +23,15 @@
 // to the composer, and the act that would perform it is the pin store's. This is the
 // PREDICATE, so the rule has one home and the surfaces that consult it cannot each
 // carry four of its five conjuncts.
+//
+// IN `seats/` RATHER THAN IN THE SESSIONS FAMILY, WHERE IT WAS WRITTEN. Two parties
+// consult it now — the sessions destination's own explanatory switch, and
+// `session-auto-pin.ts` beside this file, which the composer reaches on a first send
+// — and one of them is a LAYER family, so an edge from there into `sessions/` is the
+// upward edge `console-layering-view-families` forbids. This module imports nothing
+// at all, so its home is decided entirely by who needs it: `seats/` is the lowest
+// family both readers can import, and the hoist is what keeps the five conjuncts in
+// one place rather than in a second copy the composer could reach.
 
 /**
  * What is known about how a session came to exist, as the wire reports it.
