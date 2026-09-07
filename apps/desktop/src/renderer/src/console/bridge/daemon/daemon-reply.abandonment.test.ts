@@ -7,6 +7,15 @@
 // than a wire failure — while a call carrying no signal at all is untouched by any
 // of it.
 //
+// "PARSES NOTHING" IS TWO CLAIMS AND NOT ONE, so the cases below make it twice. A
+// reply arriving AFTER the abandonment loses the door's race and never reaches the
+// parse. A reply arriving JUST BEFORE it WINS that race — so the
+// settlement reads `settled`, the door's abort listener is already retired, and the
+// departure lands one microtask later while the door's own frame is still waiting to
+// be resumed. The second is invisible to every assertion the first can make, because
+// the door was handed a settlement rather than an abandonment, and it is produced by
+// an interleaving rather than by an event.
+//
 // EVERY CASE DRIVES THE REAL DOOR OVER A REAL BRIDGE, with `daemon.call` replaced by
 // an arm the case decides and RECORDS. The record is what makes the strongest claim
 // here checkable rather than asserted: "nothing was sent" is a statement about the
@@ -20,9 +29,10 @@
 // it was not handed.
 
 import type { RunId } from "@ai-sidekicks/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { callDaemon } from "./daemon-reply.js";
+import { CONSOLE_DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
 import { refusalOf, SESSION_ID } from "./daemon-reply.test-support.js";
 import { bridgeAnswering } from "../fixture/fixture-bridge.test-support.js";
 
@@ -58,6 +68,44 @@ function heldReply(): { readonly promise: Promise<unknown>; readonly release: ()
     release = () => resolve(servedPresenceReply());
   });
   return { promise, release };
+}
+
+/**
+ * The registered reply schema the door itself resolves for the method these cases
+ * send, named once so the spy below watches the real parser rather than a lookalike.
+ */
+const PRESENCE_REPLY_SCHEMA = CONSOLE_DAEMON_METHOD_BINDINGS["presence.read"].responseSchema;
+
+/**
+ * A reply that fulfils, and queues the abandonment BEHIND its own fulfilment.
+ *
+ * A HAND-WRITTEN THENABLE rather than a promise and a counted number of turns, and
+ * the reason is that the interleaving under test is one microtask wide: the reply has
+ * to win the door's race — retiring its abort listener as it settles — and the abort
+ * has to land before the door's own `await` is resumed. Adopting a thenable calls
+ * this `then` with the adopting promise's own resolver, so `settle` IS that
+ * fulfilment and the `queueMicrotask` beside it is the first job queued after it.
+ * Spelled instead as a resolved promise and some number of awaited turns, the same
+ * case would be asserting how many microtasks a runtime spends adopting a promise,
+ * which is a claim about the runtime rather than about this door — and one that
+ * lands on the wrong arm the moment the answer changes.
+ *
+ * The cast is the seam every thenable needs: the bridge's call arm answers
+ * `Promise<unknown>`, and `then` is the whole of that contract the language uses to
+ * adopt one.
+ */
+function replyFulfillingAheadOfTheAbandonment(
+  reply: unknown,
+  line: AbortController,
+): Promise<unknown> {
+  return {
+    then: (settle: (value: unknown) => void): void => {
+      settle(reply);
+      queueMicrotask(() => {
+        line.abort();
+      });
+    },
+  } as unknown as Promise<unknown>;
 }
 
 describe("callDaemon — a read whose owner has gone", () => {
@@ -137,6 +185,59 @@ describe("callDaemon — a read whose owner has gone", () => {
 
     expect(refusalOf(reply).code).toBe(READ_ABANDONED);
     expect(refusalOf(reply).detail).not.toContain("the transport went away");
+  });
+
+  it("parses nothing when the abandonment lands between the settlement and the resume", async () => {
+    const line = readLine();
+    const replyParse = vi.spyOn(PRESENCE_REPLY_SCHEMA, "safeParse");
+    // A reply the schema ADMITS, on purpose: the case above proves the parse never
+    // ran by handing over a reply the schema would refuse, and that evidence is only
+    // available while the reply is refusable. Here the reply is one the door would
+    // have served, so nothing about the ANSWER could distinguish a door that parsed
+    // it from one that did not — which is what the spy is for.
+    const underTest = bridgeAnswering(() =>
+      replyFulfillingAheadOfTheAbandonment(servedPresenceReply(), line),
+    );
+
+    try {
+      const reply = await callDaemon(
+        underTest.bridge,
+        "presence.read",
+        { sessionId: SESSION_ID },
+        { signal: line.signal },
+      );
+
+      expect(refusalOf(reply).code).toBe(READ_ABANDONED);
+      expect(replyParse).not.toHaveBeenCalled();
+      // The interleaving really was the one this case is about: the call was made,
+      // and the line was abandoned after the reply had already settled the race.
+      expect(underTest.calls.map((call) => call.method)).toStrictEqual(["presence.read"]);
+      expect(line.signal.aborted).toBe(true);
+    } finally {
+      replyParse.mockRestore();
+    }
+  });
+
+  it("negative control: that same spy sees the parse when the line stays live", async () => {
+    // Without this the assertion above would be satisfied by a spy watching a schema
+    // the door never reaches — a green result about the wrong object.
+    const line = readLine();
+    const replyParse = vi.spyOn(PRESENCE_REPLY_SCHEMA, "safeParse");
+    const underTest = bridgeAnswering(async () => servedPresenceReply());
+
+    try {
+      const reply = await callDaemon(
+        underTest.bridge,
+        "presence.read",
+        { sessionId: SESSION_ID },
+        { signal: line.signal },
+      );
+
+      expect(reply.status).toBe("served");
+      expect(replyParse).toHaveBeenCalledTimes(1);
+    } finally {
+      replyParse.mockRestore();
+    }
   });
 
   it("serves a read whose line is still live", async () => {

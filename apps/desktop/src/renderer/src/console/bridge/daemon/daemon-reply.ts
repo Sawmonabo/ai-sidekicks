@@ -196,9 +196,11 @@ function abandonedRead(method: string): DaemonReply<never> {
  * wrapper would put that throw outside the promise and past every `.catch` the
  * console has.
  *
- * AN ABANDONED READ IS CHECKED AT THREE POINTS AND PARSED AT NONE. Before the send,
+ * AN ABANDONED READ IS CHECKED AT FOUR POINTS AND PARSED AT NONE. Before the send,
  * so an abandoned line puts nothing on the wire; racing the call, so a reply that
- * never arrives cannot hold its caller for the life of the window; and on the
+ * never arrives cannot hold its caller for the life of the window; again after that
+ * race and before the parse, because the race answers which of two events came
+ * first and not whether anybody is still waiting once both have; and on the
  * rejection arm, so a read whose owner is gone reports the departure rather than a
  * wire failure nobody asked about. What the abandonment actually saves is the two
  * lines below it — `safeParse` over the whole reply, and the projection the caller
@@ -268,6 +270,21 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
         detail: `${method} was rejected.`,
       }),
     };
+  }
+
+  if (isAbandoned(signal)) {
+    // THE INTERLEAVING THE RACE ABOVE CANNOT ANSWER, and the reason this check is
+    // here rather than folded into it. `settleUnlessAbandoned` reports which of the
+    // two racers WON; it resolves the instant the reply does, retiring its abort
+    // listener as it goes. An abort that lands after that resolution and before this
+    // frame is resumed therefore finds no listener to reach, and the settlement says
+    // `settled` while nobody is waiting — one microtask apart, which is exactly the
+    // gap a fulfilment and a pane teardown scheduled in the same tick fall into.
+    // Reading the signal again is what makes "an abandoned reply is never parsed" a
+    // property of the door instead of a property of the microtask order, and it is
+    // read HERE, adjacent to the parse it guards, so no `await` can ever be
+    // introduced between the guarantee and the line it is about.
+    return abandonedRead(method);
   }
 
   const readable = binding.responseSchema.safeParse(reply);

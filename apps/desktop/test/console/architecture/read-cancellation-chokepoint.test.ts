@@ -17,13 +17,23 @@
 // Neither suite subsumes the other: this one would pass over a scheduler that handed
 // out a dead round, and that one would pass over a scheduler that accepted one.
 //
-// THE MUTATION CLAIM IS DERIVED, NOT LISTED. A hand-written roster of run-control
-// modules is a roster that goes stale the first time a control moves, and the gate
-// would keep passing while the module it was written about no longer exists. So the
-// set is computed from the tree: a module that names one of the run-control wire
-// methods AND calls the daemon door is a dispatcher, and every dispatcher found this
-// way is held to the claim. The floor assertion below is what keeps that derivation
-// from quietly reporting on nothing.
+// THE MUTATION CLAIM IS DERIVED, NOT LISTED — IN BOTH OF ITS HALVES. A hand-written
+// roster of run-control modules is a roster that goes stale the first time a control
+// moves, and the gate would keep passing while the module it was written about no
+// longer exists. So the set is computed from the tree: a module that names one of the
+// run-changing wire methods AND calls the daemon door is a dispatcher, and every
+// dispatcher found this way is held to the claim. The floor assertion below is what
+// keeps that derivation from quietly reporting on nothing.
+//
+// The METHODS were a hand-written roster too, and that half went stale exactly as the
+// other half would have. It enumerated `run.*` and nothing else, so the composer's
+// stop — which reaches the wire as the registered run control `driver.interruptRun` —
+// counted only because the module that dispatches it happens to name two other
+// controls beside it. Split that one function into its own module and the tripwire
+// goes blind to it, silently. So the needles are now derived from
+// `RUN_CHANGING_DAEMON_METHODS`, the registry's own classification of which methods
+// change a run, which is total over the method set and cannot omit a method the
+// contract names.
 //
 // THE HONEST LIMIT, the one every source-text tripwire has. This reads text, so an
 // alias defeats it — a module that re-exported the controller under another name, or
@@ -42,6 +52,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { RUN_CHANGING_DAEMON_METHODS } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply-registry.js";
 import {
   consoleSourceModules,
   moduleNamed,
@@ -61,18 +72,21 @@ const DAEMON_CALL_FORM = "callDaemon(";
 /**
  * The wire methods that change a run, as a dispatcher writes them.
  *
+ * DERIVED FROM THE REGISTRY'S OWN CLASSIFICATION and never written out here. The
+ * roster this replaced named five `run.*` methods and omitted `driver.interruptRun`,
+ * which is the composer's stop and every bit as much a run control as `run.pause`;
+ * the omission cost the gate nothing only because the module dispatching it also
+ * names two methods that were on the list. A list in a test is a claim about a set
+ * that lives somewhere else, and this is the somewhere else.
+ *
  * Quoted, so the enumeration in the method registry — which names every method the
- * console can call, mutating and reading alike — is not mistaken for a dispatch. What
+ * console can call, changing and reading alike — is not mistaken for a dispatch. What
  * separates the two is the second conjunct below: a registry declares, a dispatcher
  * calls.
  */
-const RUN_CONTROL_METHODS: readonly string[] = [
-  '"run.pause"',
-  '"run.resume"',
-  '"run.intervene"',
-  '"run.queueCancel"',
-  '"run.queueCreate"',
-];
+const RUN_CHANGING_METHOD_LITERALS: readonly string[] = RUN_CHANGING_DAEMON_METHODS.map(
+  (method) => `"${method}"`,
+);
 
 /**
  * How a module shows it can stop a read, in the forms a call site writes.
@@ -103,7 +117,7 @@ function readCancellationSignatures(source: string): readonly string[] {
 function dispatchesRunControl(source: string): boolean {
   return (
     source.includes(DAEMON_CALL_FORM) &&
-    RUN_CONTROL_METHODS.some((method) => source.includes(method))
+    RUN_CHANGING_METHOD_LITERALS.some((method) => source.includes(method))
   );
 }
 
@@ -254,6 +268,48 @@ describe("read cancellation — a run control is never handed one", () => {
     expect(dispatchers.map((module) => module.displayPath)).toContain(
       "console/runs/pane/controls/run-control-dispatch.ts",
     );
+  });
+
+  it("takes the composer's stop as a run control, because the registry does", () => {
+    // The needles' own floor, and the one the hand-written roster failed. The stop is
+    // a run control that does not spell `run.` — it reaches the wire on the driver
+    // plane — so a needle list written by hand from the `run.*` namespace omits it
+    // while looking complete. Asserted against the derived set rather than against
+    // the modules, so it holds on a branch where the shell subtree is absent.
+    expect(RUN_CHANGING_DAEMON_METHODS).toContain("driver.interruptRun");
+    expect(RUN_CHANGING_METHOD_LITERALS).toContain('"driver.interruptRun"');
+    // The other half of the same claim: a read stays off the set, so the predicate
+    // below is still classifying rather than matching everything.
+    expect(RUN_CHANGING_DAEMON_METHODS).not.toContain("presence.read");
+  });
+
+  it("classifies a module that dispatches only the stop", () => {
+    // The regression this file exists to prevent from returning, written as the
+    // module it would be. `dispatchInterrupt` is one function and splitting it out is
+    // an ordinary refactor; under the old roster the module it moved to would have
+    // dispatched a run control and been invisible to every assertion here.
+    const stopOnly = [
+      'import { callDaemon } from "../../../console/bridge/index.js";',
+      "export async function dispatchInterrupt(bridge, params) {",
+      '  return await callDaemon(bridge, "driver.interruptRun", params);',
+      "}",
+    ].join("\n");
+    expect(dispatchesRunControl(stopOnly)).toBe(true);
+    expect(abortSignatures(stopOnly)).toStrictEqual([]);
+  });
+
+  it("negative control: a signal on the stop would be caught", () => {
+    // Both conjuncts, driven over the one planted source: the module is classified a
+    // dispatcher AND the round it was handed is named. Either one alone lets the
+    // change through — which is exactly how the old roster let it through.
+    const stopWithRound = [
+      'import { callDaemon } from "../../../console/bridge/index.js";',
+      "export async function dispatchInterrupt(bridge, params, round) {",
+      '  return await callDaemon(bridge, "driver.interruptRun", params, { signal: round.signal });',
+      "}",
+    ].join("\n");
+    expect(dispatchesRunControl(stopWithRound)).toBe(true);
+    expect(abortSignatures(stopWithRound)).toContain("signal");
   });
 
   it("no dispatcher names an abort at all", () => {
