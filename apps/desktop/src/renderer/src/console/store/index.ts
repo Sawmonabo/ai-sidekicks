@@ -110,11 +110,17 @@ export {
   useLocationHash,
   useOpenSessionIds,
   useOpenSessionStore,
+  useSessionPartition,
+} from "./hooks.js";
+// The readings ABOUT a projection, from the module that holds them. Declared in a
+// second line rather than folded into the one above because they come from a second
+// module — a door re-exports a symbol from the module that DECLARES it, never through
+// a sibling that happens to re-export it.
+export {
   useSessionDegraded,
   useSessionInitialised,
-  useSessionPartition,
   useSessionProjectionRevision,
-} from "./hooks.js";
+} from "./session-projection-hooks.js";
 
 // The peer-invocation grant, read off the session partition. Through this door
 // because its two readers are VIEW families and siblings cannot reach each other:
@@ -188,13 +194,14 @@ export { useCallerMembershipRole } from "./hooks.js";
 export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
 
 // The resume reading. Its consumer is the ledger surface that mounts a session's
-// workspace: the refused arm is what a console talking to a responder with no cursor
-// floor is PERMANENTLY in, and a refusal nothing renders is a version skew a person
-// meets as an ordinary-looking session that quietly never resumes. Through this door
-// rather than a deep import, on the family's one-subscription-path rule.
+// workspace: the refused arm says the position this session was last read up to could
+// not be resolved and the log was re-read from the beginning of its window, which is a
+// real degradation of what the console remembered and reaches nobody unless a surface
+// renders it. Through this door rather than a deep import, on the family's
+// one-subscription-path rule.
 //
 // The DECISION TYPE is deliberately not published beside it: the hook's return type
 // is inferred at every call site, so a door line for the name would be a line with no
 // reader — which is the dead export the census fails, and the type is reached deep
 // inside this family by the registry that forwards it.
-export { useTimelineResume } from "./hooks.js";
+export { useTimelineResume } from "./session-projection-hooks.js";

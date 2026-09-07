@@ -183,3 +183,14 @@ export { readWireString } from "./wire-strings.js";
 // view families reached five directories up past `core/` to the declaration and the
 // layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";
+
+// The leaf's code-scoped envelope reader, re-published on exactly the reasoning above.
+//
+// `store/timeline-resume.ts` asks one question of a rejected read — is this the daemon
+// refusing a cursor this console submitted — and the honest instrument for it is the
+// guarded reader, not a `rejection.code === …` comparison: a rejection is whatever a
+// producer threw, its `code` may be an accessor, and an accessor that throws would
+// propagate out of the `catch` that exists to classify the failure. The store family
+// sits below `bridge/` and may not reach `src/shared/` itself, so it takes the reader
+// through the floor that already owns this leaf's vocabulary.
+export { readWireErrorEnvelopeWithCode } from "../../../../shared/wire-errors.js";

@@ -46,17 +46,36 @@ export interface SessionRegistryChange {
 /**
  * Construction inputs.
  *
- * An alias rather than a second declaration: the registry hands its options
- * straight through to every entry it opens, so the two shapes are one shape and
- * this name exists to keep the public one a caller reaches for. Declaring the
+ * Derived from the entry's shape rather than declared a second time: the registry
+ * hands its options straight through to every entry it opens, so the two are one shape
+ * and this name exists to keep the public one a caller reaches for. Declaring the
  * fields again here would be a copy that can drift.
+ *
+ * ONE MEMBER IS SUBTRACTED, and it is subtracted rather than overridden.
+ * `onTimelineResumeSettled` is this registry's own wiring — it is how an entry tells
+ * the set that a decision moved — so a caller supplying one would be handed straight
+ * to the entry and silently replace the fan-out every reading subscribes through. A
+ * member a caller may not usefully pass is not on the shape a caller fills in.
  */
-export type SessionStoreRegistryOptions = OpenSessionEntryOptions;
+export type SessionStoreRegistryOptions = Omit<OpenSessionEntryOptions, "onTimelineResumeSettled">;
 
 export class SessionStoreRegistry {
   readonly #options: SessionStoreRegistryOptions;
   readonly #entriesBySessionId = new Map<string, OpenSessionEntry>();
   readonly #changes = new Emitter<SessionRegistryChange>("session registry change");
+  /**
+   * Fan-out for "one session's resume decision settled", carrying whose.
+   *
+   * A SECOND emitter beside the change one, and the two are deliberately not merged:
+   * one says the open SET moved, the other says something a read decided about one
+   * session. A reading of either would otherwise be woken by the other's traffic, and
+   * `useOpenSessionIds` is subscribed for the life of every window.
+   *
+   * It exists because the store's revision bump is not a sound notification for this
+   * fact — `open-session-entry.ts` states the case where a read settles a decision and
+   * the store admits no snapshot, so the revision does not move.
+   */
+  readonly #resumeSettlements = new Emitter<string>("session resume settlement");
   // The open set as an array, rebuilt only when the set itself changes.
   //
   // Load-bearing rather than a micro-optimisation: `useSyncExternalStore` compares
@@ -94,7 +113,12 @@ export class SessionStoreRegistry {
         ),
       );
     }
-    const entry = new OpenSessionEntry(sessionId, this.#options);
+    const entry = new OpenSessionEntry(sessionId, {
+      ...this.#options,
+      onTimelineResumeSettled: () => {
+        this.#resumeSettlements.emit(sessionId);
+      },
+    });
     this.#entriesBySessionId.set(sessionId, entry);
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "opened" });
@@ -205,6 +229,21 @@ export class SessionStoreRegistry {
   }
 
   /**
+   * Be told when any open session settles a resume decision.
+   *
+   * Not keyed by session, and that is the cheaper shape rather than the lazier one. A
+   * subscription taken per session would have to survive that session opening AFTER
+   * the subscriber mounted, which is the ordinary order the workspace mounts in — so
+   * it would need its own registration bookkeeping for a fact the reader answers by
+   * asking {@link timelineResumeFor} anyway. A reading woken for another session
+   * re-reads its own decision, gets the identical object back, and React's own
+   * comparison ends the pass without a render.
+   */
+  public subscribeToTimelineResume(onSettled: (sessionId: string) => void): Unsubscribe {
+    return this.#resumeSettlements.subscribe(onSettled);
+  }
+
+  /**
    * How many reads a session's scheduler has performed. The coalescing assertion.
    *
    * An assertion seam: its readers are tests, and no surface renders it. Said here
@@ -279,6 +318,10 @@ export class SessionStoreRegistry {
       this.close(sessionId);
     }
     this.#changes.clear();
+    // Both fan-outs, because a window is going away and either one left holding a
+    // sink keeps that sink's closure — and every one of them closes over a React
+    // subscription belonging to a tree that has already unmounted.
+    this.#resumeSettlements.clear();
     this.#disposed = true;
   }
 

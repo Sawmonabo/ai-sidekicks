@@ -1,156 +1,103 @@
-// The resume rule, driven directly.
+// The resume rule, decided against the shape the wire actually carries.
 //
-// Every case here is the contract's own sentence turned into an assertion, and every
-// clean result has the negative control the rule needs to mean anything: a predicate
-// that answered "resume from earliest" for every input would satisfy half of these
-// on its own, and one that refused everything would satisfy the other half.
-//
-// The suite also pins what this module DOES NOT do. It orders no cursors, so a pair
-// a retired leading-integer decoder would have called a loss is resumed from — and
-// the negative control drives that with cursors of the shape actually on the wire.
+// Every case here reads a cursor block of the SHIPPED form — `{ latest }` with an
+// optional `acknowledged`, and no third member — because that is what
+// `SessionReadResponseSchema` is `.strict()` over. The suite this replaced asserted
+// the opposite: it required a floor member that schema forbids, so its passing arms
+// described a reply no daemon can send and its refusing arm was the state every real
+// read is in.
 
 import { describe, expect, it } from "vitest";
 
-import { isConsoleRefusal } from "../core/index.js";
 import {
+  isUnresolvableCursorRejection,
+  refuseUnresolvableResume,
   resolveTimelineResume,
+  RESUME_CURSOR_UNRESOLVABLE_CODE,
   TIMELINE_RESUME_ORIGIN,
   TIMELINE_RESUME_REFUSAL_CODES,
 } from "./timeline-resume.js";
 
-/** The V1 floor, spelled the way the contract states it: `encode(-1)`. */
-const EARLIEST = "-1_1723291400000000000";
-/** A position above the floor. */
-const ACKNOWLEDGED = "41_1723291480000000000";
-const LATEST = "42_1723291500000000000";
+const LATEST = "9_1723291500000000000";
+const ACKNOWLEDGED = "7_1723291480000000000";
 
-describe("the resume rule takes `acknowledged ?? earliest`", () => {
+describe("resolveTimelineResume — where the next read starts", () => {
   it("resumes from the acknowledged position when the read carries one", () => {
-    const decision = resolveTimelineResume({
-      earliest: EARLIEST,
-      latest: LATEST,
-      acknowledged: ACKNOWLEDGED,
-    });
+    const decision = resolveTimelineResume({ latest: LATEST, acknowledged: ACKNOWLEDGED });
 
     expect(decision.outcome).toBe("resume");
     expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(ACKNOWLEDGED);
   });
 
-  it("falls back to the floor when nothing has been acknowledged", () => {
-    // The first read of a session, which is the ordinary case and deliberately not a
-    // reset: nothing was acknowledged because nothing had been read, not because
-    // anything was lost.
-    const decision = resolveTimelineResume({ earliest: EARLIEST, latest: LATEST });
+  it("restarts from the beginning when nothing has been acknowledged", () => {
+    // The ordinary FIRST read, and the case the retired rule refused outright: a
+    // participant who has been acknowledged nowhere has no position to resume from,
+    // and the beginning of the window is where a reader with no position starts.
+    const decision = resolveTimelineResume({ latest: LATEST });
 
-    expect(decision.outcome).toBe("resume");
-    expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(EARLIEST);
-  });
-});
-
-describe("no lost-event arm exists, because no ordering is published", () => {
-  it("resumes from an acknowledged cursor that a leading-integer scan would rank below the floor", () => {
-    // The retired decoder read a leading integer run and called 120 < 900 a loss.
-    // The contract publishes no `decode`, and `earliest` is the V1-constant floor
-    // nothing acknowledged can be below — so this pair resumes, and a rule that
-    // reset here would be discarding a live projection on an invented ordering.
-    const decision = resolveTimelineResume({
-      earliest: "900_1723291400000000000",
-      latest: "1200_1723291500000000000",
-      acknowledged: "120_1723200000000000000",
-    });
-
-    expect(decision.outcome).toBe("resume");
-    expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(
-      "120_1723200000000000000",
-    );
+    expect(decision.outcome).toBe("restart");
   });
 
-  it("negative control: two arbitrary opaque cursors are resumed from, never reset", () => {
-    // The cursors on the wire TODAY are UUIDs the client SDK synthesizes from an
-    // event id, so a leading-integer scan ordered them by whichever hex digit each
-    // happened to start with — one pair refusing, the next resetting, on nothing.
-    // Every one of these resumes from its own acknowledged cursor, unchanged.
-    const opaquePairs = [
-      ["4f2ab8c1-6d3e-4a11-9f70-1c2d3e4f5a6b", "0b9c7d21-8e4f-4c22-8a31-9d8e7f6a5b4c"],
-      ["0b9c7d21-8e4f-4c22-8a31-9d8e7f6a5b4c", "4f2ab8c1-6d3e-4a11-9f70-1c2d3e4f5a6b"],
-      ["ledger-cursor-0", "ledger-cursor-12"],
-      ["ledger-cursor-12", "ledger-cursor-0"],
-      ["-1_1723291400000000000", "ac9f1e77-2b40-4d55-b6c8-0e1f2a3b4c5d"],
-    ] as const;
-
-    for (const [earliest, acknowledged] of opaquePairs) {
-      const decision = resolveTimelineResume({ earliest, latest: LATEST, acknowledged });
-
-      expect(decision.outcome).toBe("resume");
-      expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(acknowledged);
+  it("restarts rather than refusing when the reply carries no cursor block at all", () => {
+    // Undecidable in the same direction and for the same reason: nothing names a
+    // position. Reporting it apart from the case above would report a difference no
+    // caller can act on — both submit no cursor.
+    for (const block of [undefined, null, "cursors", [], {}, { latest: "" }, { latest: 4 }]) {
+      expect(resolveTimelineResume(block).outcome).toBe("restart");
     }
   });
 
-  it("negative control: the floor is still taken when nothing was acknowledged", () => {
-    // Without this, a rule that answered `acknowledged` for every input would pass
-    // every case above — including the first read, which has none to answer with.
-    const decision = resolveTimelineResume({ earliest: EARLIEST, latest: LATEST });
-
-    expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(EARLIEST);
-  });
-});
-
-describe("an absent floor refuses the whole resume cycle, SDK-locally", () => {
-  it("refuses a read whose cursor block carries no earliest position", () => {
-    const decision = resolveTimelineResume({ latest: LATEST, acknowledged: ACKNOWLEDGED });
-
-    expect(decision.outcome).toBe("refused");
-    const refusal = decision.outcome === "refused" ? decision.refusal : undefined;
-    expect(refusal === undefined ? false : isConsoleRefusal(refusal)).toBe(true);
-    expect(refusal?.origin).toBe(TIMELINE_RESUME_ORIGIN);
-    expect(refusal?.code).toBe("earliest-cursor-absent");
+  it("ignores an acknowledged member that is not a cursor", () => {
+    // A block whose `acknowledged` arrived as a number or an empty string names no
+    // position either, and submitting one would send the daemon a value it must
+    // refuse. It restarts, exactly as an absent member does.
+    for (const acknowledged of [undefined, null, "", 7, {}]) {
+      expect(resolveTimelineResume({ latest: LATEST, acknowledged }).outcome).toBe("restart");
+    }
   });
 
-  it("refuses a read that carried no cursor block at all", () => {
-    const decision = resolveTimelineResume(undefined);
-
-    expect(decision.outcome).toBe("refused");
-    expect(decision.outcome === "refused" ? decision.refusal.code : undefined).toBe(
-      "cursors-absent",
+  it("negative control: a well-formed block with a position does NOT restart", () => {
+    // Without this every case above is satisfied by a resolver that answers `restart`
+    // for everything — which is a console that never resumes and always looks right.
+    expect(resolveTimelineResume({ latest: LATEST, acknowledged: ACKNOWLEDGED }).outcome).toBe(
+      "resume",
     );
   });
 
-  it("refuses a block with no `latest`, which is not a cursor block at all", () => {
-    // `latest` is the one required member of the registered shape. A record without
-    // it is something else, and reporting it as a skewed responder would name the
-    // wrong fact.
-    const decision = resolveTimelineResume({ earliest: EARLIEST });
+  it("takes the acknowledged position verbatim, whatever it looks like beside `latest`", () => {
+    // No ordering is taken over an opaque cursor: the console holds no `decode`, so a
+    // position that LOOKS lower than the head is still the position the daemon issued.
+    // A resolver that compared them would discard a live projection on a loss nothing
+    // established — and would mis-order two UUID-derived cursors while doing it.
+    const decision = resolveTimelineResume({
+      latest: LATEST,
+      acknowledged: "-4_1723200000000000000",
+    });
 
-    expect(decision.outcome === "refused" ? decision.refusal.code : undefined).toBe(
-      "cursors-absent",
+    expect(decision.outcome === "resume" ? decision.fromCursor : undefined).toBe(
+      "-4_1723200000000000000",
     );
-  });
-
-  it("negative control: the complete block is not refused", () => {
-    // Without this, a rule that refused everything would pass every case above.
-    expect(
-      resolveTimelineResume({ earliest: EARLIEST, latest: LATEST, acknowledged: ACKNOWLEDGED })
-        .outcome,
-    ).not.toBe("refused");
   });
 });
 
-describe("the refusal set is closed, in both directions", () => {
-  /** Every input that refuses, paired with nothing but its own shape. */
-  const REFUSING_READS: readonly unknown[] = [
-    undefined,
-    { earliest: EARLIEST },
-    { latest: LATEST },
-    { latest: LATEST, acknowledged: ACKNOWLEDGED },
-  ];
+describe("the refused arm — the one refusal left", () => {
+  it("raises exactly the code it declares, under this module's own origin", () => {
+    const decision = refuseUnresolvableResume();
 
-  it("raises every code it declares, and declares every code it raises", () => {
-    // The compiler already closes one direction — a refusal reaches its code through
-    // a parameter typed by the enumeration, so an unlisted code does not build. This
-    // closes the other: a member nothing can raise is a code a surface would have to
-    // handle and never see, and it goes stale silently.
+    expect(decision.outcome).toBe("refused");
+    if (decision.outcome !== "refused") {
+      throw new Error("the refusal builder answered some other arm");
+    }
+    expect(decision.refusal.origin).toBe(TIMELINE_RESUME_ORIGIN);
+    expect(TIMELINE_RESUME_REFUSAL_CODES).toContain(decision.refusal.code);
+  });
+
+  it("raises every code it declares, so the enumeration is a set and not a comment", () => {
+    // The closed-set claim, both directions: what the module can raise and what it
+    // says it can raise are the same list. A member nothing raises is a code a surface
+    // could branch on and never reach.
     const raised = new Set(
-      REFUSING_READS.map((read) => resolveTimelineResume(read)).flatMap((decision) =>
+      [refuseUnresolvableResume()].flatMap((decision) =>
         decision.outcome === "refused" ? [decision.refusal.code] : [],
       ),
     );
@@ -158,12 +105,61 @@ describe("the refusal set is closed, in both directions", () => {
     expect([...raised].sort()).toStrictEqual([...TIMELINE_RESUME_REFUSAL_CODES].sort());
   });
 
-  it("negative control: the reads driving that set really do all refuse", () => {
-    // Without this the case above would pass over a set built from nothing, since an
-    // empty set of raised codes would only fail against a non-empty enumeration.
-    expect(REFUSING_READS.length).toBeGreaterThan(0);
-    for (const read of REFUSING_READS) {
-      expect(resolveTimelineResume(read).outcome).toBe("refused");
+  it("says what the console did about it, and never carries a cursor", () => {
+    // `core/refusal.ts`: a detail is one actionable sentence and never the refused
+    // value. The value here is a position, and a position pasted into a banner is a
+    // wire string nobody can act on.
+    const decision = refuseUnresolvableResume();
+    const detail = decision.outcome === "refused" ? decision.refusal.detail : "";
+
+    expect(detail).toMatch(/re-read from the beginning/u);
+    expect(detail).not.toContain(ACKNOWLEDGED);
+    expect(detail).not.toContain(LATEST);
+  });
+});
+
+describe("isUnresolvableCursorRejection — reading the daemon's answer", () => {
+  it("recognises the registered wire code on a plain envelope and on an Error", () => {
+    class WireError extends Error {
+      public readonly code = RESUME_CURSOR_UNRESOLVABLE_CODE;
     }
+
+    expect(
+      isUnresolvableCursorRejection({
+        code: RESUME_CURSOR_UNRESOLVABLE_CODE,
+        message: "cursor could not be decoded",
+      }),
+    ).toBe(true);
+    expect(isUnresolvableCursorRejection(new WireError("cursor could not be decoded"))).toBe(true);
+  });
+
+  it("negative control: any other rejection is not this one", () => {
+    // Without this, a recognizer that answered `true` for everything would satisfy the
+    // case above — and the entry would then treat every failed read as a lost position
+    // and re-read the window twice for each one.
+    for (const rejection of [
+      undefined,
+      null,
+      "event.cursor_unresolvable",
+      new Error("event.cursor_unresolvable"),
+      { code: "session.not_found", message: "no such session" },
+      { code: RESUME_CURSOR_UNRESOLVABLE_CODE },
+    ]) {
+      expect(isUnresolvableCursorRejection(rejection)).toBe(false);
+    }
+  });
+
+  it("answers rather than throwing for a rejection whose own code throws", () => {
+    // A rejection is whatever a producer threw, and this arm runs inside the `catch`
+    // that exists to classify it — so a throwing accessor here would propagate out of
+    // the one place that can report the failure.
+    const hostile = {
+      get code(): string {
+        throw new Error("this getter is the hazard");
+      },
+      message: "unreadable",
+    };
+
+    expect(isUnresolvableCursorRejection(hostile)).toBe(false);
   });
 });

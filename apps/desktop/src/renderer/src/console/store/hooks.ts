@@ -17,6 +17,13 @@
 //     narrows further to one row, so a row re-renders when its own entity changes
 //     and not when its neighbour does.
 //
+// WHAT IS NOT HERE. `session-projection-hooks.ts` holds the readings that answer a
+// question ABOUT a session's projection rather than out of it — whether a base state
+// landed, whether the projection moved, whether it is known incomplete, and what the
+// newest read said about resuming the stream. This file resolves stores and selects
+// content; that one reports on the read behind the content, and it is the half whose
+// inputs stop being "a store and a selector".
+//
 // zustand v5's `useStore` compares with `Object.is` and does no shallow-equality
 // pass, which is exactly what these selectors want: the store merges immutably, so
 // an untouched partition keeps its identity and the comparison is a pointer check.
@@ -34,7 +41,6 @@ import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js"
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities.js";
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
 import type { SessionStoreRegistry } from "./session-store-registry.js";
-import type { TimelineResumeDecision } from "./timeline-resume.js";
 import { selectEntity, selectPartition, type SessionStore } from "./session-store.js";
 import type { SessionStoreState } from "./session-store.js";
 
@@ -327,86 +333,6 @@ interface CallerIdentityReading {
  * a stamp mismatch is what produces it.
  */
 const NOT_LOADED_IDENTITY: CallerIdentityState = { status: "not-loaded" };
-
-/** Whether the store has been initialised, so a surface can tell "not loaded" apart. */
-export function useSessionInitialised(store: SessionStore): boolean {
-  return useStore(store.readable, readInitialised);
-}
-
-function readInitialised(state: SessionStoreState): boolean {
-  return state.initialised;
-}
-
-/**
- * The store's monotonic transition counter — "the projection moved", and nothing more.
- *
- * For the one consumer that cannot name a partition: a surface which asks other
- * families to REPORT off their own projections during render, and so has no selector
- * to narrow to. The counter says a transition happened without saying which kind moved,
- * which is exactly the claim such a surface needs and the widest one this family
- * offers, so a caller reaching for it is saying it could not be narrower.
- *
- * A number, so `Object.is` still decides the re-render and an unchanged store still
- * costs a pointer comparison.
- */
-export function useSessionProjectionRevision(store: SessionStore): number {
-  return useStore(store.readable, readRevision);
-}
-
-function readRevision(state: SessionStoreState): number {
-  return state.revision;
-}
-
-/**
- * Whether this session's projection is known-incomplete — the store's own sticky
- * flag, SUBSCRIBED rather than sampled.
- *
- * Two sidebar sections read this fact beside a read of their own and each of them
- * sampled `snapshot().degradedCause` in its render body, which is a read with no
- * subscription behind it: a store entering or leaving its degraded state without
- * that section's read settling — a sequence gap in an unrelated partition, a closed
- * subscription — moved the flag and re-rendered nothing, so the warning stayed
- * absent, or stayed on screen after a re-pull had cleared it.
- *
- * A boolean rather than the cause, because both readers ask only whether one is
- * standing, and a primitive is compared by value under zustand v5's `Object.is` —
- * so a transition between two causes costs no render to a surface that renders
- * neither. A reader that renders the cause itself takes {@link useSessionStore} with
- * a selector that returns the stored value.
- */
-export function useSessionDegraded(store: SessionStore): boolean {
-  return useStore(store.readable, readDegraded);
-}
-
-function readDegraded(state: SessionStoreState): boolean {
-  return state.degradedCause !== undefined;
-}
-
-/**
- * What one session's newest completed read said about resuming its stream, or
- * `undefined` before one has landed.
- *
- * SUBSCRIBED THROUGH THE STORE, SAMPLED OFF THE REGISTRY, and the pairing that makes
- * that sound is stated in `open-session-entry.ts`: a completed read writes the
- * decision and calls `initialise` in the same tick, so the store's own revision bump
- * is the notification a new decision has landed. There is no third emitter to
- * subscribe to and no interval anywhere in this path — the revision read below IS the
- * subscription, and the value it returns is deliberately discarded, because what a
- * caller renders is the decision and not how many transitions preceded it.
- *
- * The registry rather than the store holds the decision because the store is the
- * PROJECTION and this is a fact about the READ that produced it — a store that never
- * initialises still has a refusal to report, which is precisely the version-skew case
- * this reading exists for.
- */
-export function useTimelineResume(
-  registry: SessionStoreRegistry,
-  store: SessionStore,
-  sessionId: string,
-): TimelineResumeDecision | undefined {
-  useSessionProjectionRevision(store);
-  return registry.timelineResumeFor(sessionId);
-}
 
 /** Select from the frame store. */
 export function useFrameStore<TSelected>(

@@ -18,10 +18,10 @@ import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js
 import {
   useOpenSessionStore,
   useSessionEntity,
-  useSessionInitialised,
   useSessionPartition,
   useSessionStore,
 } from "./hooks.js";
+import { useSessionInitialised } from "./session-projection-hooks.js";
 import { type SessionSnapshotReader } from "./open-session-entry.js";
 import { eventOfKind } from "./session-event.test-support.js";
 import { SessionStoreRegistry } from "./session-store-registry.js";
