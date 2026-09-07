@@ -45,9 +45,92 @@ export const TEST_TERMINATION_WAIT_MS = 5;
  */
 export const TEST_OVERLONG_TERMINATION_WAIT_MS = 500;
 
+/**
+ * A clock a case advances by hand, so a probe can "spend" its ceiling for free.
+ *
+ * Hoisted here on the third suite that wanted one — the probe-budget cases, the
+ * terminator-forwarding cases, and the slice derivation beside them — because a
+ * clock is a ROLE and this package keeps one home per role. It is a class rather
+ * than a closure for the reason every stateful helper here is: `read` is handed
+ * to `BoundedCleanup` as its clock seam while `advance` stays the case's, and a
+ * pair of closures over a shared `let` would be the module-level mutable state
+ * the package rejects.
+ */
+export class SteppedClock {
+  #nowMs: number;
+
+  constructor(startMs = 1_000_000) {
+    this.#nowMs = startMs;
+  }
+
+  readonly read = (): number => this.#nowMs;
+
+  advance(byMs: number): void {
+    this.#nowMs += byMs;
+  }
+}
+
+/** What each seam member was handed, in the order it was handed it. */
+export interface RecordedBudgets {
+  readonly terminate: number[];
+  readonly isRunning: number[];
+}
+
+/**
+ * A terminator that refuses every kill and records the budget it was charged.
+ *
+ * `spendPerProbe` is what each reading costs the clock, which is how a case
+ * makes a host query "spend its ceiling" without waiting five real seconds for
+ * one — the state that motivated the whole charge and the one no real runner
+ * produces on demand.
+ */
+export function budgetRecordingTerminator(
+  clock: SteppedClock,
+  recorded: RecordedBudgets,
+  spendPerProbe: number,
+): ProcessTerminator {
+  return {
+    terminate: (_processId: number, remainingBudgetMilliseconds: number) => {
+      recorded.terminate.push(remainingBudgetMilliseconds);
+      clock.advance(spendPerProbe);
+      return false;
+    },
+    isRunning: (_processId: number, remainingBudgetMilliseconds: number) => {
+      recorded.isRunning.push(remainingBudgetMilliseconds);
+      clock.advance(spendPerProbe);
+      return true;
+    },
+  };
+}
+
 /** An application whose close never settles, and whose process has a pid. */
 export function applicationThatNeverCloses(processId: number | undefined): ClosableApplication {
   return { close: () => new Promise<void>(() => undefined), processId: () => processId };
+}
+
+/**
+ * An application whose close never settles AND has already spent `spendMs`.
+ *
+ * The state the cleanup slice is sized for, and the one `applicationThatNeverCloses`
+ * cannot produce against an injected clock: a close that hangs costs REAL time
+ * while the stepped clock the phases are measured on does not move, so a case
+ * driving the termination phase would see the close phase priced at zero. The
+ * spend is charged when `close()` is CALLED, which is after `BoundedCleanup` has
+ * read its own start instant and before it races anything — exactly where a
+ * close that ran out its budget leaves the clock.
+ */
+export function applicationSpendingItsCloseBudget(
+  clock: SteppedClock,
+  spendMs: number,
+  processId: number,
+): ClosableApplication {
+  return {
+    close: () => {
+      clock.advance(spendMs);
+      return new Promise<void>(() => undefined);
+    },
+    processId: () => processId,
+  };
 }
 
 /**

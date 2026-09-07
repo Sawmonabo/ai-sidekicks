@@ -154,21 +154,26 @@ describe("process termination — a claimant that predates the root was never th
 describe("process termination — an unreadable refresh must not erase the capture", () => {
   // THE FINDING. The refresh that runs at the root's `exit` is the last chance
   // this tree has to record what it is made of, and it reads the host to do it.
-  // A read that times out or will not start answers with an EMPTY table — and
-  // assigning that answer replaced a verified capture with nothing at precisely
-  // the moment it became the only handle: the launcher is gone, the browser it
-  // started is alive, and the rootless arm is handed no member to address, so it
-  // refuses every attempt and the browser outlives the run.
+  // A read that times out or will not start answers with the unreadable
+  // SENTINEL — and assigning that answer replaced a verified capture with
+  // nothing at precisely the moment it became the only handle: the launcher is
+  // gone, the browser it started is alive, and the rootless arm is handed no
+  // member to address, so it refuses every attempt and the browser outlives the
+  // run.
   //
-  // A host always lists the process doing the reading, so an empty listing is
-  // unreadability and never an emptied tree. Stale and addressable beats
-  // verified and erased; a member that has since exited is filtered by the
-  // caller's own liveness pass either way.
+  // The sentinel is what makes that separable at all, and it is the same value
+  // the verdict path fails closed on: a listing that RAN and named no
+  // descendant is a reading and does shrink the set, while one that did not run
+  // is no reading. Stale and addressable beats verified and erased; a member
+  // that has since exited is filtered by the caller's own liveness pass either
+  // way.
 
   const capturedTree = [{ processId: CAPTURED_CHILD_PID, startStamp: CHILD_STAMP }];
 
   /** A verified identity holding one captured descendant, over a swappable table. */
-  function identityAfterAVerifiedCapture(readTable: () => ReadonlyMap<number, ProcessTableRow>): {
+  function identityAfterAVerifiedCapture(
+    readTable: () => ReadonlyMap<number, ProcessTableRow> | undefined,
+  ): {
     readonly identity: SpawnedTreeIdentity;
   } {
     const identity = new SpawnedTreeIdentity(
@@ -183,11 +188,11 @@ describe("process termination — an unreadable refresh must not erase the captu
   }
 
   it("keeps the last verified set when the refresh cannot read the host", () => {
-    let table: ReadonlyMap<number, ProcessTableRow> = CAPTURED_TREE_TABLE;
+    let table: ReadonlyMap<number, ProcessTableRow> | undefined = CAPTURED_TREE_TABLE;
     const { identity } = identityAfterAVerifiedCapture(() => table);
 
     // The root exits, and the listing taken to record its tree does not answer.
-    table = processTableOf([]);
+    table = undefined;
     identity.captureLiveDescendants();
 
     expect(
@@ -205,13 +210,19 @@ describe("process termination — an unreadable refresh must not erase the captu
     // Without this the case above is ambiguous between "an unreadable refresh is
     // ignored" and "the capture only ever grows", and the second would keep
     // addressing a tree the host has demonstrably reported as gone — turning
-    // every later disposal into a walk over pids nothing claims.
-    let table: ReadonlyMap<number, ProcessTableRow> = CAPTURED_TREE_TABLE;
-    const { identity } = identityAfterAVerifiedCapture(() => table);
+    // every later disposal into a walk over pids nothing claims. Both foils are
+    // driven, because the sentinel is what separates them: a listing carrying
+    // an unrelated row, and one carrying no row at all. The second passed only
+    // while emptiness was being read as unreadability, which is the inference
+    // the sentinel replaces.
+    for (const readableListing of [processTableOf([[9999, 1, "unrelated"]]), processTableOf([])]) {
+      let table: ReadonlyMap<number, ProcessTableRow> | undefined = CAPTURED_TREE_TABLE;
+      const { identity } = identityAfterAVerifiedCapture(() => table);
 
-    table = processTableOf([[9999, 1, "unrelated"]]);
-    identity.captureLiveDescendants();
+      table = readableListing;
+      identity.captureLiveDescendants();
 
-    expect(identity.capturedDescendants).toStrictEqual([]);
+      expect(identity.capturedDescendants).toStrictEqual([]);
+    }
   });
 });

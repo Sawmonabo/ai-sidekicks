@@ -32,21 +32,11 @@ import { type ProcessTerminator } from "../cleanup-contract.js";
 import {
   applicationThatNeverCloses,
   profileSpy,
+  SteppedClock,
   TEST_BUDGET_MS,
   TEST_PROFILE_DIRECTORY,
   TEST_TERMINATION_WAIT_MS,
 } from "./bounded-cleanup.test-support.js";
-
-/** A clock the case advances by hand, so a probe can "spend" its ceiling for free. */
-class SteppedClock {
-  #nowMs = 1_000_000;
-
-  readonly read = (): number => this.#nowMs;
-
-  advance(byMs: number): void {
-    this.#nowMs += byMs;
-  }
-}
 
 /**
  * A terminator that refuses every kill and charges each probe its full ceiling.

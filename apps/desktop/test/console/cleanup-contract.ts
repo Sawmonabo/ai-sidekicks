@@ -52,6 +52,12 @@ export interface ProcessTerminator {
    * `taskkill` itself — each held to `HOST_QUERY_TIMEOUT_MS` on its own and to
    * nothing collectively. The shared door takes the smaller of that ceiling and
    * this, and spawns nothing at all once it reaches zero.
+   *
+   * It is a REMAINDER AT THE MOMENT OF THE CALL and not an allowance for each of
+   * those commands: the implementation turns it into one deadline and subtracts
+   * afresh before every one of them, so this figure bounds the whole call rather
+   * than each step of it. A caller may therefore charge what it hands over here
+   * against its own clock exactly once.
    */
   readonly terminate: (processId: number, remainingBudgetMilliseconds: number) => boolean;
   /**

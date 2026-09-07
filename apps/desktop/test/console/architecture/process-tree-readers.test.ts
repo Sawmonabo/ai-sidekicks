@@ -72,7 +72,7 @@ describe("the process table — parsed as the platform emits it", () => {
   it("reads this very process out of the table, through the real platform arm", () => {
     // The half the parser cannot claim: that the command emits the shape it is
     // parsed as. This process is the one row whose answer is already known.
-    expect(readProcessTable().get(process.pid)?.parentProcessId).toBe(process.ppid);
+    expect(readProcessTable()?.get(process.pid)?.parentProcessId).toBe(process.ppid);
   });
 
   it("reads a stamp for this very process out of the table, and the same one twice", () => {
@@ -80,10 +80,26 @@ describe("the process table — parsed as the platform emits it", () => {
     // whose stamp is guaranteed to be legible. Stability is the property rather
     // than the format: a stamp that moved between two reads would convict every
     // captured member of being somebody else and disarm the rootless arm.
-    const stamp = readProcessTable().get(process.pid)?.startStamp;
+    const stamp = readProcessTable()?.get(process.pid)?.startStamp;
     expect(stamp).toBeTypeOf("string");
     expect(stamp).not.toBe("");
-    expect(readProcessTable().get(process.pid)?.startStamp).toBe(stamp);
+    expect(readProcessTable()?.get(process.pid)?.startStamp).toBe(stamp);
+  });
+
+  it("answers the unreadable sentinel rather than an empty table when it cannot look", () => {
+    // THE DISCRIMINATOR THE VERDICT PATH SPENDS. A listing that ran and named
+    // nothing beneath a dead pid is positive evidence nothing survives it; a
+    // query that never ran is evidence of nothing at all, and returning an
+    // empty map for the second let `terminateExternalTree` report a live
+    // browser under a reaped launcher as a terminated tree. An exhausted
+    // budget is the one way to reach that state without breaking the host:
+    // the shared door spawns nothing at or below zero.
+    expect(readProcessTable(0)).toBeUndefined();
+    // The foil, and what makes the sentinel a reading rather than the only
+    // answer: a real listing on this host is a table, and it is not empty.
+    const readable = readProcessTable();
+    expect(readable).toBeDefined();
+    expect(readable?.size).toBeGreaterThan(0);
   });
 });
 

@@ -97,9 +97,10 @@ export interface CapturedTreeMember {
  *   • Either stamp is missing — no comparison was possible, so the member is
  *     kept. A row absent from the table is the ordinary shape for a descendant
  *     that has already exited, and such a member is filtered by the caller's own
- *     liveness reading before anything is signalled; an EMPTY table is an
- *     unreadable listing, and reading it as "everything has exited" would disarm
- *     the rootless arm on exactly the host whose readings do not work.
+ *     liveness reading before anything is signalled; a listing that could not be
+ *     read at all never reaches here as a table, because `readers.ts` answers
+ *     that with its own sentinel — so "the host would not answer" can never be
+ *     mistaken here for "everything has exited".
  *   • Both stamps read and they AGREE — the member is still itself.
  */
 export function verifyCapturedMembers(
@@ -246,9 +247,11 @@ export class SpawnedTreeIdentity {
    * handed a pid by Playwright rather than by a spawn of its own and so has no
    * moment at which the capture would mean anything.
    *
-   * It captures no descendants either — its table reader is empty by
-   * construction, so `captureLiveDescendants` is a no-op on it however often it
-   * is called — and the consequence is named rather than
+   * It captures no descendants either — its table reader answers the unreadable
+   * sentinel by construction, so `captureLiveDescendants` is a no-op on it
+   * however often it is called, and a reader that answered an EMPTY table would
+   * instead claim this host lists nothing, which is a reading it never took —
+   * and the consequence is named rather than
    * hidden: once such a root is GONE there is nothing this package may address,
    * because the only remaining evidence is a parent table whose rows under a dead
    * pid cannot be told from a stranger's. That arm therefore reports whatever the
@@ -258,7 +261,7 @@ export class SpawnedTreeIdentity {
     return new SpawnedTreeIdentity(
       processId,
       () => undefined,
-      () => new Map<number, ProcessTableRow>(),
+      () => undefined,
     );
   }
 
@@ -322,16 +325,19 @@ export class SpawnedTreeIdentity {
    * caller's own liveness pass before anything is signalled.
    *
    * ONLY A READABLE LISTING MAY REPLACE IT. `readProcessTable` answers an
-   * unreadable host with an EMPTY map — a query that would not start, or spent
-   * its bound — and a host always lists at least the process doing the reading,
-   * so empty is unreadability and never an emptied tree. Replacing the capture
-   * there would exchange a verified set for nothing at exactly the moment it
-   * becomes the only handle this tree has: the root has just exited, the browser
-   * under it is alive, and the arm would be handed no member to address and
-   * would refuse every attempt. So an unreadable refresh KEEPS the last verified
-   * set — stale by then, and stale-and-addressable beats verified-and-erased —
-   * and a member of it that has since exited is filtered by the caller's own
-   * liveness pass, exactly as a member of a fresh capture is.
+   * unreadable host with its own SENTINEL — a query that would not start, spent
+   * its bound, or exited non-zero — rather than with an empty map, so the two
+   * are told apart here by what arrived and not by counting rows. Replacing the
+   * capture on the sentinel would exchange a verified set for nothing at exactly
+   * the moment it becomes the only handle this tree has: the root has just
+   * exited, the browser under it is alive, and the arm would be handed no member
+   * to address and would refuse every attempt. So an unreadable refresh KEEPS
+   * the last verified set — stale by then, and stale-and-addressable beats
+   * verified-and-erased — and a member of it that has since exited is filtered
+   * by the caller's own liveness pass, exactly as a member of a fresh capture
+   * is. A listing that RAN and named no descendant is the opposite reading and
+   * does shrink the set, which is the whole reason the two answers are distinct
+   * values.
    *
    * AND WHAT IS CAPTURED IS THE TREE THIS ROOT COULD HAVE FATHERED. Rows the
    * listing hangs off this pid that PREDATE the root are pruned before the walk,
@@ -341,7 +347,7 @@ export class SpawnedTreeIdentity {
    */
   captureLiveDescendants(remainingBudgetMilliseconds?: number): void {
     const processTable = this.#readProcessTable(remainingBudgetMilliseconds);
-    if (processTable.size === 0) {
+    if (processTable === undefined) {
       return;
     }
     const fatherable = this.#rowsThisRootCouldHaveFathered(processTable);

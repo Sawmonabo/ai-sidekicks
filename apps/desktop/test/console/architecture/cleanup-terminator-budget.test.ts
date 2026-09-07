@@ -29,60 +29,19 @@ import { describe, expect, it } from "vitest";
 
 import { HOST_QUERY_TIMEOUT_MS } from "../../helpers/process-tree/readers.js";
 import { BoundedCleanup } from "../bounded-cleanup.js";
-import { ELECTRON_PROCESS_TERMINATOR, type ProcessTerminator } from "../cleanup-contract.js";
+import { ELECTRON_PROCESS_TERMINATOR } from "../cleanup-contract.js";
 import {
   applicationThatNeverCloses,
+  budgetRecordingTerminator,
   profileSpy,
+  SteppedClock,
   TEST_BUDGET_MS,
   TEST_TERMINATION_WAIT_MS,
+  type RecordedBudgets,
 } from "./bounded-cleanup.test-support.js";
 
 /** A pid no process holds, well above this host's allocation. */
 const UNHELD_PROCESS_ID = 0x7ff_ffff;
-
-/** A clock the case advances by hand, so a probe can "spend" its ceiling for free. */
-class SteppedClock {
-  #nowMs = 2_000_000;
-
-  readonly read = (): number => this.#nowMs;
-
-  advance(byMs: number): void {
-    this.#nowMs += byMs;
-  }
-}
-
-/** What each seam member was handed, in the order it was handed it. */
-interface RecordedBudgets {
-  readonly terminate: number[];
-  readonly isRunning: number[];
-}
-
-/**
- * A terminator that refuses every kill and records the budget it was charged.
- *
- * `spendPerProbe` is what each reading costs the clock, which is how a case
- * makes a host query "spend its ceiling" without waiting five real seconds for
- * one — the state that motivated the whole charge and the one no real runner
- * produces on demand.
- */
-function budgetRecordingTerminator(
-  clock: SteppedClock,
-  recorded: RecordedBudgets,
-  spendPerProbe: number,
-): ProcessTerminator {
-  return {
-    terminate: (_processId: number, remainingBudgetMilliseconds: number) => {
-      recorded.terminate.push(remainingBudgetMilliseconds);
-      clock.advance(spendPerProbe);
-      return false;
-    },
-    isRunning: (_processId: number, remainingBudgetMilliseconds: number) => {
-      recorded.isRunning.push(remainingBudgetMilliseconds);
-      clock.advance(spendPerProbe);
-      return true;
-    },
-  };
-}
 
 describe("bounded cleanup — the remaining budget reaches both host-query seams", () => {
   it("charges each probe what the termination deadline has left when it runs", async () => {

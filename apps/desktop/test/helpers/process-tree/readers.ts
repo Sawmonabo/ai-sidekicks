@@ -70,7 +70,13 @@ export interface ProcessTableRow {
 }
 
 /**
- * This host's process table, as one injectable reading.
+ * This host's process table, or `undefined` when it would not answer.
+ *
+ * THE SENTINEL IS THE WHOLE POINT OF THE UNION. An unreadable listing used to
+ * arrive as an EMPTY map, which is a reading — "nothing on this host claims that
+ * pid" — and every consumer that took it as one was reading a failure as
+ * evidence. The two answers owe opposite behaviour: an empty table is what
+ * clears a rootless verdict, and an unreadable one is what must refuse it.
  *
  * The optional budget is what is LEFT of the caller's own deadline, and it is
  * optional because most callers hold none: the capture taken at a spawn is not
@@ -79,7 +85,7 @@ export interface ProcessTableRow {
  */
 export type ProcessTableReader = (
   remainingBudgetMilliseconds?: number,
-) => ReadonlyMap<number, ProcessTableRow>;
+) => ReadonlyMap<number, ProcessTableRow> | undefined;
 
 /** How one root's per-instance start stamp is read, as one injectable reading. */
 export type ProcessStartStampReader = (
@@ -250,7 +256,7 @@ export function parseProcessTable(tableText: string): Map<number, ProcessTableRo
 }
 
 /**
- * This host's process table, or an empty one if it could not be read.
+ * This host's process table, or `undefined` when it could not be read.
  *
  * Platform-dispatched rather than Windows-only, even though the arm that
  * consumes it is Windows'. A reader nothing on this runner ever executes is a
@@ -258,15 +264,19 @@ export function parseProcessTable(tableText: string): Map<number, ProcessTableRo
  * command emits the shape it is parsed as is the other half, and the POSIX
  * branch is what makes it checkable here.
  *
- * An empty table is the honest answer to an unreadable one: it names no
- * descendant, so the arm above reports a refusal rather than inventing pids.
- * It is deliberately NOT read as "every captured member has exited" either —
- * `identity.ts` refuses a captured pid only on a stamp that disagrees, never on
- * a row that is missing, so an unreadable listing disarms nothing.
+ * AN UNREADABLE HOST ANSWERS WITH THE SENTINEL AND NEVER WITH AN EMPTY TABLE.
+ * It answered with one until this round, and the two are opposite readings: a
+ * listing that ran and named no row under a dead pid is the positive evidence a
+ * rootless verdict CLEARS on — Windows does not reparent, so a live descendant
+ * would still be recording that pid — while a query that would not start, spent
+ * its bound, or exited non-zero is evidence of nothing at all. Handed the same
+ * empty map, `terminateExternalTree` read a host it could not question as a tree
+ * that was gone. The distinction cannot be recovered downstream by counting
+ * rows, so it is carried rather than inferred.
  */
 export function readProcessTable(
   remainingBudgetMilliseconds?: number,
-): Map<number, ProcessTableRow> {
+): Map<number, ProcessTableRow> | undefined {
   const listing =
     process.platform === "win32"
       ? runBoundedHostQuery(
@@ -280,7 +290,7 @@ export function readProcessTable(
           remainingBudgetMilliseconds,
         )
       : runBoundedHostQuery("ps", ["-Ao", "pid=,ppid=,lstart="], remainingBudgetMilliseconds);
-  return listing === undefined ? new Map<number, ProcessTableRow>() : parseProcessTable(listing);
+  return listing === undefined ? undefined : parseProcessTable(listing);
 }
 
 /**

@@ -57,9 +57,11 @@ export type TreeMode = "signal" | "external";
 /**
  * What is still able to run once the kill has been issued.
  *
- * `unobservable` is not "nothing": it is a tree whose root pid belongs to
- * somebody else and of which nothing was captured while it did not, so there is
- * no reading to take in either direction. `unverifiable-claimant` is the other
+ * `unobservable` is not "nothing": it is a tree there is no reading to take of
+ * in either direction, which happens two ways — a root pid that belongs to
+ * somebody else with nothing captured while it did not, and a host whose process
+ * listing will not answer at all, which leaves a live descendant real and
+ * unnameable. `unverifiable-claimant` is the other
  * side of that coin — a live process this host hangs off the former root pid
  * that this tree cannot vouch for, which must be neither killed (it may be a
  * stranger) nor ignored (it may be ours). Both owe a refusal, because absence of

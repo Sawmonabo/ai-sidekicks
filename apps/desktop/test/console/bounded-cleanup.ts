@@ -239,10 +239,17 @@ export class BoundedCleanup {
    * registered figure the close was held to, restarted at the first attempt. It
    * cannot be the close's REMAINING budget, which on that path is already zero —
    * refusing the first kill after a hung close would trade a bounded overrun for
-   * a live Electron still holding its profile. And it cannot be left unstated,
-   * because a tier reserves only figures that are written down. Giving up an ask
-   * never gives up the removal: `close()` above removes the profile on every
-   * settlement this returns into.
+   * a live Electron still holding its profile.
+   *
+   * WHICH MAKES THIS PHASE THE SECOND ONE THE TIER RESERVES FOR, and a restart
+   * left unstated is a restart nothing waits for: the tier's slice held ONE such
+   * figure, so this loop's whole deadline sat outside it and vitest could fire
+   * before the `unterminable` verdict or the removal existed. `CLEANUP_PHASES`
+   * in `launch-deadline.ts` is where that count lives, and
+   * `architecture/cleanup-slice-derivation.test.ts` measures this class's own
+   * end-to-end spend against it rather than trusting the two to agree. Giving up
+   * an ask never gives up the removal: `close()` above removes the profile on
+   * every settlement this returns into.
    */
   async #terminateUntilGone(processId: number, startedAt: number): Promise<boolean> {
     const terminationStartedAt = this.#readClock();
