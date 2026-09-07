@@ -40,6 +40,20 @@
 // replaced transport retires the request just as surely as a replaced run does — and
 // remounting the prompt by run identity would say only the second of those, through a
 // second mechanism for a rule this console already has one door for.
+//
+// AND A RECEIPT IS THE ONE MOMENT NO REFRESH SIGNAL NAMES. The readings above this
+// prompt refresh on focus, on reconnect, and on the three run terminals — and a
+// `retry` the node accepted moves a stuck run back to a LIVE state, so it changes no
+// subject and sends no terminal. Without this the page held its old `stuck-suspected`
+// inspection and every recovery control beside a receipt reporting the run resumed.
+// So a receipt is reported upward, and the read-out sends it through its own scheduler
+// — never a re-read raised here, which would be a second reader of four wires this
+// component does not own.
+//
+// A RECEIPT AND NOT A REFUSAL. A request the node declined moved nothing, so re-reading
+// after one would ask four wires to confirm that nothing happened. A receipt naming the
+// same state twice IS reported: the node acted, and what its readings say afterwards is
+// the node's to answer rather than this surface's to infer from a state pair.
 
 import type { ReactNode } from "react";
 
@@ -55,11 +69,21 @@ import {
   type RecoveryOutcome,
 } from "./recovery-request.js";
 
-export function RecoveryPrompt(props: {
+export interface RecoveryPromptProps {
   readonly bridge: ConsoleBridge;
   readonly runId: string;
-}): ReactNode {
-  const { bridge, runId } = props;
+  /**
+   * The node answered a recovery request with a RECEIPT.
+   *
+   * Raised on that arm alone, and named for what happened rather than for what the
+   * caller does with it: whoever owns the readings decides whether that is a re-read
+   * and which scheduler it goes through, which is not this prompt's to know.
+   */
+  readonly onRecoveryReceipt: () => void;
+}
+
+export function RecoveryPrompt(props: RecoveryPromptProps): ReactNode {
+  const { bridge, onRecoveryReceipt, runId } = props;
   const { value: outcome, settle: captureVisit } = useSubjectScopedState<RecoveryOutcome>(
     bridge,
     runId,
@@ -98,7 +122,17 @@ export function RecoveryPrompt(props: {
                 // now on screen.
                 const publishSettlement = captureVisit();
                 publishSettlement({ kind: "pending", action });
-                void requestRecovery(bridge, runId, action).then(publishSettlement);
+                void requestRecovery(bridge, runId, action).then((settlement) => {
+                  publishSettlement(settlement);
+                  if (settlement.kind === "settled") {
+                    // Reported even where the publish above was dropped as retired.
+                    // What the reading answers is addressed by the subjects the page
+                    // holds NOW, so the question a re-read puts is the current one
+                    // either way — and a run this window stopped watching is still a
+                    // run this node has just acted on.
+                    onRecoveryReceipt();
+                  }
+                });
               }}
             />
           );

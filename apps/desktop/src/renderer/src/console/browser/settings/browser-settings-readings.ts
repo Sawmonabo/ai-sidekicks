@@ -94,6 +94,47 @@ export function policyReadingFromRejection(rejection: unknown): BrowserPolicyRea
 }
 
 /**
+ * How one policy write settled, and whether the node's record may have moved anyway.
+ *
+ * THE THIRD ARM IS THE WHOLE REASON THIS IS A UNION. A write the node RETURNED a
+ * refusal for is settled: it answered, and it answered no, so the position on screen
+ * is still the position the record holds. A write whose call REJECTED answered
+ * nothing — the request may have been applied and lost its reply, or never arrived at
+ * all — and the two are indistinguishable from this side of the wire. Folding them
+ * together left the refused sentence on screen beside a switch drawn at whichever
+ * position the last read had, with nothing asking the node which one it is now.
+ *
+ * The reading each failing arm carries is the SAME shape, because what a person reads
+ * is the refuser's own words either way. What differs is what the carrier does next,
+ * which is why the disposition rides the arm rather than being re-derived from the
+ * reading.
+ */
+export type PolicyWriteSettlement =
+  | { readonly kind: "served" }
+  | { readonly kind: "declined"; readonly reading: BrowserPolicyReading }
+  | { readonly kind: "ambiguous"; readonly reading: BrowserPolicyReading };
+
+/** A write the node took. */
+export const SERVED_POLICY_WRITE: PolicyWriteSettlement = { kind: "served" };
+
+/** A write the node ANSWERED and declined. Definite: nothing moved. */
+export function declinedPolicyWrite(refusal: ConsoleRefusal): PolicyWriteSettlement {
+  return { kind: "declined", reading: { kind: "refused", reading: refusedSwitchReading(refusal) } };
+}
+
+/**
+ * A write whose call rejected. Ambiguous: the record may have moved regardless.
+ *
+ * Through {@link policyReadingFromRejection} — and so through the console's one
+ * rejection normalizer — rather than a classification written here: what the thrown
+ * value carries is the substrate's question, and a second reader of it in this family
+ * would be a second vocabulary for one seam.
+ */
+export function ambiguousPolicyWrite(rejection: unknown): PolicyWriteSettlement {
+  return { kind: "ambiguous", reading: policyReadingFromRejection(rejection) };
+}
+
+/**
  * The served partition list, as the page's own listing.
  *
  * A pure mapping and therefore a function of its own rather than an expression inside

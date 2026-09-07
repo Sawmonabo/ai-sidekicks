@@ -9,9 +9,15 @@
 // THE THREE SIGNALS ARE BOUND HERE AND NOWHERE ELSE. Focus is the window's, reconnect
 // is the transport's, and the run terminals are the session's — bound by the read
 // itself, because only it knows which kinds matter. Each goes through the read's own
-// scheduler, so a burst costs one pass over four wires. There is no fourth signal and
+// scheduler, so a burst costs one pass over four wires. There is no fourth SIGNAL and
 // no timer: `Spec-023 §Console Design (Meridian)` §Diagnostics and health forbids a
 // health subscription outright and forbids polling in the next clause.
+//
+// A RECEIPT IS NOT A FOURTH SIGNAL. It is this page's own act coming back — the one
+// mutation it offers, answered — and it re-reads for the reason the browser settings
+// carrier re-reads after a write: a surface that acted on the subject it is reporting
+// holds a reading taken before the act. It arms nothing, it listens to nothing, and it
+// reaches the same scheduler the three signals do.
 //
 // EVERY REGION RENDERS ITS OWN ANSWER. The reads settle independently, so a refused
 // policy read leaves the banner standing and a stall question nobody could address
@@ -19,7 +25,7 @@
 // run to address it to, whatever the other three said — the section's refusal state
 // requires exactly that.
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useConsoleClock, type ConsoleBridge } from "../../../bridge/index.js";
 import { Nothing } from "../../../primitives/index.js";
@@ -93,6 +99,17 @@ export function DiagnosticsReadOut(props: {
       }),
     [bridge, diagnosticsRead],
   );
+
+  // THE FOURTH THING THAT MOVES THESE READINGS, and the only one a person causes. A
+  // recovery request the node answered with a receipt acted on the run these readings
+  // are about, and it sends no terminal event where it moved a stuck run back to a
+  // live state — so without this the page kept its pre-request inspection beside a
+  // receipt saying the run had resumed. Through the read's own scheduler, exactly as
+  // the three signals above are, so a press costs one coalesced pass over four wires
+  // and never a read of its own.
+  const onRecoveryReceipt = useCallback(() => {
+    diagnosticsRead.refresh("participant-request");
+  }, [diagnosticsRead]);
 
   const state = usePushDrivenRead(diagnosticsRead);
   if (state.kind === "not-loaded") {
@@ -173,7 +190,11 @@ export function DiagnosticsReadOut(props: {
           <ArmAbsence arm={reading.stall} unaskedTitle="No run was inspected." />
         )}
         {reading.stalledCandidateRunId === undefined ? null : (
-          <RecoveryPrompt bridge={bridge} runId={reading.stalledCandidateRunId} />
+          <RecoveryPrompt
+            bridge={bridge}
+            runId={reading.stalledCandidateRunId}
+            onRecoveryReceipt={onRecoveryReceipt}
+          />
         )}
       </DiagnosticsRegion>
 
