@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   addressesMatch,
+  carveSplitFrom,
   DECK_TOTAL_PERMILLE,
   normalise,
   paneAddressKey,
@@ -153,5 +154,58 @@ describe("paneAddressKey", () => {
     expect(addressesMatch(pane, { kind: "runs", entity: { kind: "run", id: "run-01" } })).toBe(
       false,
     );
+  });
+});
+
+describe("carveSplitFrom", () => {
+  /** A pane with no width of its own yet — the arriving half of a split. */
+  const arriving: DeckPane = {
+    paneId: "pane-arriving",
+    kind: "browser",
+    entity: undefined,
+    sizePermille: DECK_TOTAL_PERMILLE,
+    isEphemeral: true,
+    sourcePaneId: "pane-2",
+  };
+
+  it("takes the arriving pane's width from the source alone", () => {
+    // The claim the split act rests on: splitting the middle of a deck a person
+    // arranged leaves the panes on either side of it exactly as they were. The rule
+    // `distributeEvenly` applies — equalise everything — would answer [333,333,333,
+    // 333] here and destroy the arrangement while the sum stayed right, so the sum
+    // alone is not the assertion.
+    const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
+    expect(widthsOf(split ?? [])).toStrictEqual([200, 250, 250, 300]);
+    expect(sumOf(split ?? [])).toBe(DECK_TOTAL_PERMILLE);
+  });
+
+  it("seats the arriving pane immediately right of its source", () => {
+    const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
+    expect((split ?? []).map((pane) => pane.paneId)).toStrictEqual([
+      "pane-1",
+      "pane-2",
+      "pane-arriving",
+      "pane-3",
+    ]);
+  });
+
+  it("leaves an odd remainder with the pane that was already there", () => {
+    const split = carveSplitFrom(panesWithWidths([501, 499]), 0, arriving);
+    expect(widthsOf(split ?? [])).toStrictEqual([251, 250, 499]);
+    expect(sumOf(split ?? [])).toBe(DECK_TOTAL_PERMILLE);
+  });
+
+  it("refuses a source too narrow to halve, and an index the deck does not hold", () => {
+    // Both arms answer `undefined` rather than a row: a half of nothing is a column
+    // the panel group cannot grab, and a position outside the deck names no source.
+    expect(carveSplitFrom(panesWithWidths([1, 999]), 0, arriving)).toBeUndefined();
+    expect(carveSplitFrom(panesWithWidths([500, 500]), 5, arriving)).toBeUndefined();
+  });
+
+  it("negative control: a source of two permille is wide enough and does split", () => {
+    // Without this the refusal above would pass over an implementation that refused
+    // every split, which is the failure the whole act would then have.
+    const split = carveSplitFrom(panesWithWidths([2, 998]), 0, arriving);
+    expect(widthsOf(split ?? [])).toStrictEqual([1, 1, 998]);
   });
 });

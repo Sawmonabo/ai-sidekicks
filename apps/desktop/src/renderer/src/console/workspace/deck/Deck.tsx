@@ -56,6 +56,8 @@ import { useConsoleClock } from "../../bridge/index.js";
 import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../primitives/index.js";
 import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
+import { deckActsOn } from "./commands/deck-acts.js";
+import { useMountedDeck } from "./commands/deck-command-seat.js";
 import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./deck-model.js";
 import { type DeckDensity } from "../workspace-bounds.js";
 import { minimumPaneWidthPx } from "./density.js";
@@ -146,6 +148,13 @@ export function Deck(props: DeckProps): React.JSX.Element {
   useDeckDragMonitor(dragCoordinator, layout, announce);
   const dropIndicator = useDeckDropIndicator(dragCoordinator);
 
+  // The five acts, built once per (layout, announcer) pair and shared by the two
+  // things that dispatch them: this component's own key handler below, and the
+  // palette rows `commands/deck-command-seat.ts` contributes. One implementation, so
+  // a chord and a palette row can never mean two different moves.
+  const acts = useMemo(() => deckActsOn(layout, announce), [layout, announce]);
+  useMountedDeck(acts);
+
   /**
    * The density floor as a share of the deck, in permille, right now.
    *
@@ -182,25 +191,31 @@ export function Deck(props: DeckProps): React.JSX.Element {
       if (isEditableTarget(event.target)) {
         return;
       }
-      const focused = state.focusedPaneId;
       switch (event.key) {
         case "ArrowRight":
         case "ArrowLeft": {
-          const step = event.key === "ArrowRight" ? 1 : -1;
+          const goingRight = event.key === "ArrowRight";
           if (event.shiftKey) {
-            if (focused !== undefined) {
-              layout.movePane(focused, step);
+            if (goingRight) {
+              acts.moveFocusedPaneRight();
+            } else {
+              acts.moveFocusedPaneLeft();
             }
+          } else if (goingRight) {
+            acts.focusNextPane();
           } else {
-            layout.focusAdjacent(step);
+            acts.focusPreviousPane();
           }
           event.preventDefault();
           return;
         }
         case "Backspace":
         case "Delete": {
-          if (focused !== undefined) {
-            layout.close(focused);
+          // Consumed only where there is a pane to close, so a deck focusing nothing
+          // leaves Backspace to whatever else wanted it rather than eating the key
+          // and saying so — the same rule the window's binding table follows.
+          if (state.focusedPaneId !== undefined) {
+            acts.closeFocusedPane();
             event.preventDefault();
           }
           return;
@@ -209,7 +224,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
           return;
       }
     },
-    [layout, state.focusedPaneId],
+    [acts, state.focusedPaneId],
   );
 
   const focusPane = useCallback(

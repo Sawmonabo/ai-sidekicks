@@ -61,6 +61,7 @@ import { CastBar } from "./cast-bar/CastBar.js";
 import { WorkspaceBannerRow } from "./banners/WorkspaceBannerRow.js";
 import { useAuxiliaryPanes } from "./auxiliary/auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
+import { registerDeckCommands } from "./deck/commands/deck-command-seat.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
 import type { DeckPane } from "./deck/deck-model.js";
 import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
@@ -83,6 +84,18 @@ import {
   workspaceBannerKey,
   type WorkspaceBanner,
 } from "./banners/workspace-banners.js";
+
+/**
+ * The deck's five palette rows, contributed the moment this module is evaluated.
+ *
+ * Composition time, for the reason stated below the sidebar's own call: a family's
+ * commands are in the palette from the first frame rather than arriving on the first
+ * navigation into a session. The rows claim no chord — the deck binds its own five
+ * keystrokes on its own element, where the wide editable-target guard is, and
+ * `deck/commands/deck-command-seat.ts` records why a window-table binding on the same
+ * keystrokes would take a listbox's arrow keys.
+ */
+registerDeckCommands(consoleCommandSurface);
 
 /**
  * The sidebar's two palette rows, contributed the moment this module is evaluated.

@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import { DeckLayout } from "./deck-layout.js";
 import { DECK_TOTAL_PERMILLE } from "./deck-model.js";
 
@@ -171,4 +172,64 @@ describe("DeckLayout — adopting what the panel group settled on", () => {
     expect(layout.snapshot().revision).toBe(revisionBefore);
   });
 });
-import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+
+describe("DeckLayout — the split act", () => {
+  it("splits the source pane and leaves every other pane's width alone", () => {
+    // Three panes at a third each, then a browser opened beside the FIRST. The split
+    // rule takes the arriving pane's width from that pane and nothing else, so the
+    // two panes the person was not splitting keep the widths they had.
+    const layout = emptyLayout();
+    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "runs", entity: undefined });
+    layout.open({ kind: "approvals", entity: undefined });
+    const before = layout.snapshot().panes.map((pane) => pane.sizePermille);
+    const source = layout.snapshot().panes[0];
+    if (source === undefined) {
+      throw new Error("the fixture opened no panes");
+    }
+
+    layout.open({ kind: "browser", entity: undefined, sourcePaneId: source.paneId });
+
+    const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
+    expect(after).toStrictEqual([
+      (before[0] ?? 0) - Math.floor((before[0] ?? 0) / 2),
+      Math.floor((before[0] ?? 0) / 2),
+      before[1],
+      before[2],
+    ]);
+    expect(after.reduce((total, size) => total + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+  });
+
+  it("negative control: an open naming no source re-divides the whole deck", () => {
+    // Without this the case above would pass over a deck that never equalised at
+    // all, and the list seating — the sidebar's and the palette's — is the common one.
+    const layout = emptyLayout();
+    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "runs", entity: undefined });
+    layout.open({ kind: "approvals", entity: undefined });
+    expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([334, 333, 333]);
+  });
+
+  it("falls back to the list seating when the source is too narrow to halve", () => {
+    // A pane at one permille has no width to give. The person still asked for a pane,
+    // so they get one and the deck re-divides rather than the open being refused.
+    const layout = emptyLayout();
+    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "runs", entity: undefined });
+    const [first, second] = layout.snapshot().panes;
+    if (first === undefined || second === undefined) {
+      throw new Error("the fixture opened too few panes");
+    }
+    layout.applyLayout({ [first.paneId]: 0.1, [second.paneId]: 99.9 }, 0);
+    expect(layout.snapshot().panes[0]?.sizePermille).toBe(1);
+
+    layout.open({ kind: "browser", entity: undefined, sourcePaneId: first.paneId });
+
+    expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
+      "timeline",
+      "browser",
+      "runs",
+    ]);
+    expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([334, 333, 333]);
+  });
+});
