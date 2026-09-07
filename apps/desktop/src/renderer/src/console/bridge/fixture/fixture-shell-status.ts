@@ -22,6 +22,17 @@
 // nothing. The channel below owns the current report; the frames drive it and the
 // controls override it, and an override wins because it happened later.
 //
+// WHICH IS WHY "LATER" IS MEASURED AND NOT ASSUMED. An override used to win forever:
+// `current()` answered it before it ever looked at the clock, so the first control a
+// person pressed silenced the rest of the script — a restart published `starting` and
+// the scenario's own eventual `connected` could never be emitted, leaving the frame
+// reconnecting for the whole run. The override is therefore STAMPED with the scenario
+// time it was published at, and a scripted frame that falls due after that stamp is
+// the scenario speaking later still and takes the channel back. The stamp is kept
+// rather than cleared once it has been superseded: the frozen clock only ever moves
+// forward, so a superseded override can never win again, and clearing it would make
+// `current()` a read that writes.
+//
 // WHAT A CONTROL NEVER DOES IS CLAIM IT WORKED. Restart and start publish
 // `starting` and stop there. The supervisor's next report is what says the runtime
 // came back, and a fixture that jumped to `connected` would train the console
@@ -72,6 +83,18 @@ function frameDueAt(
 }
 
 /**
+ * A report a control published, and the scenario tick it was published at.
+ *
+ * The stamp is the whole of what makes an override supersedable. Without it the
+ * channel holds a report with no place in the scenario's own order, and the only
+ * comparison left — "is there an override?" — answers yes forever.
+ */
+interface StampedShellOverride {
+  readonly report: ShellReport;
+  readonly publishedAtMs: number;
+}
+
+/**
  * The shell's condition for one running fixture port, and the controls that move it.
  *
  * A class rather than a closure over a `let`, because it owns three things that have
@@ -83,7 +106,7 @@ export class FixtureShellChannel {
   readonly #engine: ScenarioEngine;
   readonly #listeners = new Set<() => void>();
   #engineRelease: (() => void) | undefined;
-  #override: ShellReport | undefined;
+  #override: StampedShellOverride | undefined;
 
   public constructor(engine: ScenarioEngine) {
     this.#engine = engine;
@@ -95,18 +118,31 @@ export class FixtureShellChannel {
     return frames !== undefined && frames.length > 0;
   }
 
-  /** What the shell is saying now, or `undefined` before anything has been said. */
+  /**
+   * What the shell is saying now, or `undefined` before anything has been said.
+   *
+   * The scripted frame is resolved FIRST and the override is compared against it,
+   * rather than the other way round: an override that short-circuits the clock is an
+   * override the script can never answer. A frame due strictly after the stamp is the
+   * scenario speaking later than the control did; one due at or before it is the state
+   * the control replaced, so `>` and not `>=` — a control pressed on the same tick as
+   * a frame still happened after that frame became current.
+   */
   public current(): ShellReport | undefined {
-    if (this.#override !== undefined) {
-      return this.#override;
-    }
     const frames = this.#engine.scenario.shellStatus ?? [];
-    return frameDueAt(frames, this.#engine.progress.elapsedMs)?.report;
+    const scriptedFrame = frameDueAt(frames, this.#engine.progress.elapsedMs);
+    const override = this.#override;
+    if (override === undefined) {
+      return scriptedFrame?.report;
+    }
+    return scriptedFrame !== undefined && scriptedFrame.atMs > override.publishedAtMs
+      ? scriptedFrame.report
+      : override.report;
   }
 
-  /** Publish a report a control produced. Wakes every open stream. */
+  /** Publish a report a control produced, stamped with now. Wakes every open stream. */
   public publish(report: ShellReport): void {
-    this.#override = report;
+    this.#override = { report, publishedAtMs: this.#engine.progress.elapsedMs };
     for (const listener of [...this.#listeners]) {
       listener();
     }
