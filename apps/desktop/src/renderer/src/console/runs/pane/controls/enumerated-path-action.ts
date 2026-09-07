@@ -26,11 +26,26 @@ export const ENUMERATED_PATH_ACTION_LABEL = "Copy path";
 /** The subsystem every refusal this action raises is attributed to. */
 const ENUMERATED_PATH_REFUSAL_ORIGIN = "runs-pane";
 
+/**
+ * One refusal, with the surface that raised it.
+ *
+ * The pair is the whole point. One hook serves every enumeration a list renders,
+ * because one host call is in flight at a time — but a refusal handed to every row
+ * draws the same failure under each of them, telling a person that actions they
+ * never took had failed. So the answer carries WHOSE it is, and a row renders it
+ * only where the id is its own.
+ */
+export interface EnumeratedPathRefusal {
+  /** The row that offered the path, in whatever identity that list keys rows by. */
+  readonly sourceId: string;
+  readonly refusal: ConsoleRefusal;
+}
+
 /** One path action, and the last refusal the host answered it with. */
 export interface EnumeratedPathAction {
-  readonly copyPath: (path: string) => void;
-  /** Present only where the host refused; rendered beside the enumeration. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly copyPath: (sourceId: string, path: string) => void;
+  /** Present only where the host refused; rendered beside the enumeration it failed. */
+  readonly refusal: EnumeratedPathRefusal | undefined;
 }
 
 /**
@@ -39,11 +54,16 @@ export interface EnumeratedPathAction {
  * The refusal is held rather than thrown: the path is still on screen and still
  * readable, so what the person needs to know is that the copy did not happen — not
  * to lose the surface that was showing it.
+ *
+ * It is the answer to the LAST press and not an accumulation, so a second press
+ * moves it rather than adding to it — which is why it is one holder keyed by source
+ * rather than one holder per row: a per-row copy would be as many identical pieces
+ * of state as the list has entries, and every one of them stale but the newest.
  */
 export function useEnumeratedPathAction(bridge: ConsoleBridge): EnumeratedPathAction {
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const [refusal, setRefusal] = useState<EnumeratedPathRefusal | undefined>(undefined);
   const copyPath = useCallback(
-    (path: string) => {
+    (sourceId: string, path: string) => {
       setRefusal(undefined);
       bridge.sidekicks.native.copyToClipboard(path).catch((rejection: unknown) => {
         // WHAT THE HOST SAID, NEVER THE CONSOLE'S PARAPHRASE OF IT. The `catch` used
@@ -68,13 +88,14 @@ export function useEnumeratedPathAction(bridge: ConsoleBridge): EnumeratedPathAc
         //
         // The path itself is deliberately not in the fallback sentence: it is a wire
         // string of unbounded length and a refusal is not the place to repeat it.
-        setRefusal(
-          normalizeWireRejection(ENUMERATED_PATH_REFUSAL_ORIGIN, rejection, {
+        setRefusal({
+          sourceId,
+          refusal: normalizeWireRejection(ENUMERATED_PATH_REFUSAL_ORIGIN, rejection, {
             code: "call-rejected" satisfies DaemonReplyRefusalCode,
             detail:
               "native.copyToClipboard was rejected, so the path was not copied. It is still shown above and can be selected by hand.",
           }),
-        );
+        });
       });
     },
     [bridge],

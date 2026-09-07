@@ -214,12 +214,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       return undefined;
     }
     const own = surface.records.find((record) => record.recordId === pendingDispatch.dispatchToken);
-    // The record's own `composite` flag travels WITH its outcome, because the answer
-    // cannot supply it: a rollback response echoes `replacementSend` nowhere, so the
-    // settlement alone cannot tell a composite from a bare rewind — and the guard
-    // reading below is the composite's, whose remedies name acts a bare rollback or a
-    // rejected steer never asked anyone to perform.
-    return own === undefined ? undefined : readComposerSettlement(own.outcome, own.composite);
+    return own === undefined ? undefined : readComposerSettlement(own.outcome);
   }, [pendingDispatch, surface.records, composedIdentity]);
 
   const isSending = pendingDispatch !== undefined && settlement === undefined;
@@ -246,9 +241,8 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       // whether anything had been sent.
       const dispatch = (
         perform: (dispatcher: RunControlDispatcher) => Promise<RunControlOutcome>,
-        composite: boolean,
       ): void => {
-        const admission = surface.dispatch(run.runId, control, perform, { composite });
+        const admission = surface.dispatch(run.runId, control, perform);
         if (!admission.admitted) {
           publishForm((held) => ({ ...held, localRefusal: admissionRefusal(admission.reason) }));
           return;
@@ -272,7 +266,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         }
         const steer = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
           dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, { content: body });
-        dispatch(steer, false);
+        dispatch(steer);
         return;
       }
       const reading = parseRewindPosition(targetPosition);
@@ -307,14 +301,14 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         );
         return;
       }
-      // Composed once and read twice, so the flag the record carries is derived from
-      // the request actually sent rather than from a second `isReplacementBlank` test.
+      // Composed once rather than branched twice, so what is sent is decided by a
+      // single reading of the field.
       const rollbackRequest: RollbackRequest = isReplacementBlank
         ? { targetPosition: reading.position }
         : { targetPosition: reading.position, replacementSend: { content: body } };
       const rollback = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
         dispatcher.rollback({ runId: run.runId, expectedRunVersion: comparand }, rollbackRequest);
-      dispatch(rollback, rollbackRequest.replacementSend !== undefined);
+      dispatch(rollback);
     },
     [
       control,

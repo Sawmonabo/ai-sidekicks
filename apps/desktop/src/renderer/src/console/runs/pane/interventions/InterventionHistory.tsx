@@ -25,7 +25,7 @@
 // history that showed only what worked would be the wrong shape of the same claim.
 //
 // A DEGRADED SETTLEMENT IS NEVER A SUCCESS. The rollback arm renders through
-// `rollback-result.ts`'s exhaustive reading, so a degraded disposition arrives with
+// `controls/rollback/`'s exhaustive reading, so a degraded disposition arrives with
 // its own words, its own daemon-supplied positions, and — on the three arms that
 // carry them — both never-silent file enumerations.
 //
@@ -53,6 +53,12 @@ export function InterventionHistory(props: InterventionHistoryProps): React.JSX.
   // Held for the whole history rather than per row: one host call is in flight at a
   // time and one refusal is the answer to the last one, so a per-row copy would be
   // as many identical pieces of state as the run has interventions.
+  //
+  // AND THE ANSWER IS KEYED, WHICH IS WHAT MAKES ONE HOLDER HONEST. The action is
+  // handed down whole and each row asks it about ITSELF, so a failed copy draws its
+  // refusal under the disclosure that offered the path and under no other. Passing
+  // the bare refusal to every row drew the same failure beneath every rollback's
+  // paths, which told a person that actions they never took had failed.
   const pathAction = useEnumeratedPathAction(props.bridge);
   const rows = props.records.filter((record) => record.runId === props.runId);
   if (rows.length === 0) {
@@ -68,12 +74,7 @@ export function InterventionHistory(props: InterventionHistoryProps): React.JSX.
   return (
     <ol className="meridian-interventions">
       {rows.map((record) => (
-        <InterventionRow
-          key={record.recordId}
-          record={record}
-          onPathAction={pathAction.copyPath}
-          pathActionRefusal={pathAction.refusal}
-        />
+        <InterventionRow key={record.recordId} record={record} pathAction={pathAction} />
       ))}
     </ol>
   );

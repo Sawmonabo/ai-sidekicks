@@ -186,13 +186,11 @@ export function RunsPaneBody(props: {
                 <RunRow
                   key={seated.runId}
                   run={seated.projection}
-                  // One arrival path for the daemon's stamp: the durable entry the
-                  // approvals pane reads, with this row's own stream projection as
-                  // the named fallback for a run the partition has not caught up to.
-                  posture={settledRunPosture(
-                    knownRuns[seated.runId],
-                    seated.projection.executionPosture,
-                  )}
+                  // One arrival path for the daemon's stamp, scoped to the run that
+                  // is executing under it: this row's own stream projection, with the
+                  // durable entry the approvals pane reads as the named fallback for
+                  // a run whose start this subscription never saw.
+                  posture={settledRunPosture(knownRuns[seated.runId], seated.projection)}
                   surface={surface}
                   bridge={context.bridge}
                   driverCapabilities={driverCapabilities}

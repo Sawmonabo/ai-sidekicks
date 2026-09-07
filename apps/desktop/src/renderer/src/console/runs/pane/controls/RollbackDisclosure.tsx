@@ -30,7 +30,10 @@ import {
   InlineRefusal,
   WireFigure,
 } from "../../../primitives/index.js";
-import { resendSettlementSentence, type RollbackDispositionReading } from "./rollback-result.js";
+import {
+  resendSettlementSentence,
+  type RollbackDispositionReading,
+} from "./rollback/disposition-reading.js";
 import { ENUMERATED_PATH_ACTION_LABEL } from "./enumerated-path-action.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
 import type { ConsoleRefusal } from "../../../core/index.js";

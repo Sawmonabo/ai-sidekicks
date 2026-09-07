@@ -16,6 +16,9 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 
 const A_PATH = "/Users/dev/code/one/.env.local";
 
+/** The row a press is recorded against. One row here; the keying is the list's case. */
+const A_SOURCE_ID = "run-1:rollback:1";
+
 /** A bridge whose only reachable member is the clipboard call this action makes. */
 function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
   return {
@@ -29,15 +32,18 @@ async function copyThrough(
 ): Promise<{ code: string | undefined; detail: string | undefined }> {
   const mounted = renderHook(() => useEnumeratedPathAction(bridge));
   await act(async () => {
-    mounted.result.current.copyPath(A_PATH);
+    mounted.result.current.copyPath(A_SOURCE_ID, A_PATH);
     // A boundary and not a counted microtask: the rejection travels through the
     // normalizer and a `setRefusal`, and a chain one link deeper would leave this
     // reading the state from before the answer landed — silently, since every case
     // below would then be asserting about an absent refusal.
     await crossMacrotaskBoundary();
   });
-  const refusal = mounted.result.current.refusal;
-  return { code: refusal?.code, detail: refusal?.detail };
+  const held = mounted.result.current.refusal;
+  // The source id travels with every refusal, so a case asserting about the code is
+  // also asserting that the pair was keyed at all.
+  expect(held?.sourceId).toBe(A_SOURCE_ID);
+  return { code: held?.refusal.code, detail: held?.refusal.detail };
 }
 
 describe("a host refusal reaches the surface as the host's own words", () => {
