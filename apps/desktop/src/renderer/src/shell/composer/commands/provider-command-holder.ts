@@ -26,9 +26,25 @@
 // addressed to the same session and agent, and a key of session and agent alone reads
 // that as "nothing moved" — so the surface was served the OLD bridge's catalog, which
 // is the routing invariant this holder exists to keep. The key is therefore compared
-// by bridge identity as well, and an outstanding read is guarded by a GENERATION
-// rather than by the key: a key can be re-entered after a close, and a reply from the
-// previous occupancy would pass an identity guard that only compares values.
+// by bridge identity as well, and an outstanding read is guarded by the ROUND it was
+// issued on rather than by the key: a key can be re-entered after a close, and a reply
+// from the previous occupancy would pass an identity guard that only compares values.
+//
+// THE ROUND IS ALSO WHAT STOPS THE READ, and that is the half a private generation
+// counter could never have. A counter says which reply may be PUBLISHED; it says
+// nothing to the call itself, so a popover that closed while `driver.listProviderCommands`
+// was in flight went on waiting for the bindings and parsing them against their
+// registered schema for an owner who had left, and then discarded the answer. A round
+// from `console/store`'s read line answers both questions as one value — `settle`
+// orders the settlement, `signal` ends the read — so the enumeration cannot be
+// superseded without also being stopped.
+//
+// ONE SCOPE PER ADDRESS, which is what a scope IS: one surface's reads of one subject,
+// living exactly as long as that pairing does. Opening at a new key abandons the
+// previous line and mints a fresh one, and closing abandons the line outright — the
+// terminal ending, because nothing on it will be read again. `close()` stays
+// non-terminal for the HOLDER: a surface that comes back opens at its key again and
+// gets a new line, exactly as `read-cancellation.ts` describes a returning surface.
 //
 // LAZY, STILL. The read runs when the discovery surface opens, not when the composer
 // mounts: a person who never types a slash never spends a provider round trip.
@@ -36,6 +52,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 
 import { settleEnumeration, type ProviderCommandReadState } from "./provider-command-read.js";
+import { ReadScope } from "../../../console/store/index.js";
 import {
   composeCatalog,
   selectAddressedBindingGroup,
@@ -81,9 +98,10 @@ const NOT_CHECKED: ProviderCommandReadState = { phase: "not-checked" };
 export class ProviderCommandEnumeration {
   #state: ProviderCommandReadState = NOT_CHECKED;
   #openKey: ProviderCommandReadKey | undefined = undefined;
-  // Advanced by every open at a new key and by every close, so an outstanding read
-  // knows whether the occupancy it was issued under is still the one on screen.
-  #readGeneration = 0;
+  // The line the open key's read is on, or `undefined` while no key is open. Replaced
+  // by every open at a new key and abandoned by every close, so an outstanding read is
+  // both superseded and stopped when the occupancy it was issued under ends.
+  #readLine: ReadScope | undefined = undefined;
   readonly #listeners = new Set<() => void>();
 
   /** The reading as it stands. Stable between changes. */
@@ -112,15 +130,22 @@ export class ProviderCommandEnumeration {
       return;
     }
     this.#openKey = key;
-    this.#readGeneration += 1;
-    const readGeneration = this.#readGeneration;
+    // The previous address's line is over, not superseded: this is a different
+    // pairing, so it gets a different line rather than a further round on that one.
+    this.#endReadLine();
+    const readLine = new ReadScope();
+    this.#readLine = readLine;
+    const round = readLine.openRound();
     this.#publish({ phase: "not-loaded" });
-    void settleEnumeration(key.bridge, key.sessionId, key.agentId).then((settled) => {
-      if (this.#readGeneration === readGeneration) {
-        this.#publish(settled);
-      }
+    void settleEnumeration(key.bridge, key.sessionId, key.agentId, round.signal).then((settled) => {
       // A reply from a superseded occupancy has nowhere to go: writing it would put
-      // one binding's commands under another binding's address.
+      // one binding's commands under another binding's address. `settle` is what says
+      // so, and it answers for the abandoned line as well as the replaced one — an
+      // abandonment landing after the door settled but before this callback runs is
+      // the microtask gap no signal check placed earlier could have covered.
+      round.settle(() => {
+        this.#publish(settled);
+      });
     });
   }
 
@@ -130,10 +155,12 @@ export class ProviderCommandEnumeration {
       return;
     }
     this.#openKey = undefined;
-    // Closing supersedes an outstanding read too. Without this a reply issued before
-    // the close could land after the surface re-opened at the same key and present a
-    // reading nobody asked for as the current one.
-    this.#readGeneration += 1;
+    // Closing ENDS an outstanding read rather than only ignoring what it settles as.
+    // Without this the reply went on being waited for and parsed for a surface that
+    // had gone, and — before the round guarded it — a reply issued before the close
+    // could land after the surface re-opened at the same key and present a reading
+    // nobody asked for as the current one.
+    this.#endReadLine();
     this.#publish(NOT_CHECKED);
   }
 
@@ -170,6 +197,19 @@ export class ProviderCommandEnumeration {
       (entry): entry is ProviderCatalogEntry =>
         entry.source === "provider" && entry.name === commandName,
     );
+  }
+
+  /**
+   * Abandon whatever line this holder holds, and hold none.
+   *
+   * One private path so the two endings — re-addressed and closed — are the same act
+   * on the line and differ only in what the holder does next. Dropping the reference
+   * is what makes the next `open` mint a fresh scope rather than reach for an
+   * abandoned one, which can open no live round again.
+   */
+  #endReadLine(): void {
+    this.#readLine?.abandon();
+    this.#readLine = undefined;
   }
 
   #publish(state: ProviderCommandReadState): void {
