@@ -1,11 +1,16 @@
-// The scaffolding the child-lifetime suite drives, and the reasons it exists.
+// The scaffolding the child-lifetime suites drive, and the reasons it exists.
 //
 // Split out of the suite rather than written inside it because the suite reached
 // the size at which a file is doing two jobs: these are the STAND-INS — a real
 // child with a real grandchild, a settlement this file can cause, a platform
-// that refuses a kill on demand, a bounded reading of whether anything is left
-// running — and the suite is the claims made with them. Nothing here asserts a
-// lifetime rule; everything here makes one observable.
+// that refuses a kill on demand — and the suite is the claims made with them.
+// Nothing here asserts a lifetime rule; everything here makes one causable.
+//
+// The bounded READINGS of what a stand-in did — whether a pid is gone, when a
+// terminal event arrived, and the reaper every negative control owes — sit in
+// `electron-child-liveness.test-support.js` beside this, for the reason this
+// file exists at all: causing a lifetime and observing one are two jobs, and
+// two suites now read the second half.
 //
 // It is a `.test-support` module, so its only legitimate dependents are the
 // suites beside it, which is what `test-support-has-no-shipping-reader` in
@@ -18,22 +23,15 @@ import { expect, onTestFinished } from "vitest";
 import {
   spawnManagedElectronChild,
   TEST_TIMEOUT_SLACK_MS,
-  type ManagedElectronChild,
-  type ProcessTreeTerminator,
   type SettleTimeDisposer,
   type SettleTimeRegistrar,
 } from "../../helpers/electron-child.js";
-import { processHasTerminated, terminateProcessTree } from "../../helpers/process-tree.js";
-
-/**
- * How long a settled kill is given to leave nothing running.
- *
- * Generous against the work it bounds — a group SIGKILL and a reap — because
- * the figure that matters is that it is BOUNDED, not that it is tight: an
- * assertion that waits forever on a zombie an init will not reap is the shape
- * this reading was introduced to stop producing.
- */
-export const TERMINATION_OBSERVATION_MS = 2_000;
+import type {
+  ManagedElectronChild,
+  ProcessTreeTerminator,
+} from "../../helpers/managed-electron-child.js";
+import { terminateProcessTree } from "../../helpers/process-tree.js";
+import { TERMINATION_OBSERVATION_MS } from "./electron-child-liveness.test-support.js";
 
 /** What the spawn and its grandchild announcement are given. */
 const SPAWN_ANNOUNCEMENT_BUDGET_MS = 5_000;
@@ -254,6 +252,30 @@ const CHILD_PROGRAM = [
   "setInterval(() => {}, 60000);",
 ].join("\n");
 
+/**
+ * A child that hands its stdout to a grandchild and then exits on its own.
+ *
+ * The shape `close` exists for, and the one an exit code cannot see: the parent
+ * is gone — `exit` fired, `exitCode` set, the pid reaped — while the pipe this
+ * process reads is still held open by a descendant that inherited it. That is
+ * the Electron shim exactly, one step smaller: the launcher exits and the
+ * browser process it started keeps the inherited write end. The grandchild is
+ * spawned ATTACHED for the same reason the pair above is, so it sits in the
+ * group a tree kill addresses.
+ *
+ * The exit is deferred to the write callback because `process.exit` does not
+ * flush an asynchronous pipe write, and the announcement is what the caller is
+ * waiting for.
+ */
+const STDIO_HOLDING_CHILD_PROGRAM = [
+  "const { spawn } = require('node:child_process');",
+  "const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], " +
+    "{ stdio: ['ignore', 'inherit', 'inherit'] });",
+  "process.stdout.write(JSON.stringify({ grandchildPid: grandchild.pid }) + '\\n', () => {",
+  "  process.exit(0);",
+  "});",
+].join("\n");
+
 /** The two pids a spawned pair occupies. */
 export interface SpawnedPids {
   readonly childPid: number;
@@ -271,6 +293,8 @@ export interface SpawnPairOptions {
   readonly onSpawned?: (pids: SpawnedPids) => void;
   /** Throw instead of returning, the way a setup that fails mid-way does. */
   readonly abandonAfterAnnouncement?: boolean;
+  /** Spawn the child that exits leaving its stdout held open by the grandchild. */
+  readonly exitHoldingStdio?: boolean;
 }
 
 /** Spawn the pair and wait until the grandchild has announced its pid. */
@@ -280,7 +304,7 @@ export async function spawnChildWithGrandchild(
 ): Promise<SpawnedPair> {
   const managed = spawnManagedElectronChild({
     command: process.execPath,
-    args: ["-e", CHILD_PROGRAM],
+    args: ["-e", options.exitHoldingStdio === true ? STDIO_HOLDING_CHILD_PROGRAM : CHILD_PROGRAM],
     cwd: process.cwd(),
     env: process.env,
     registerSettleTimeTermination: registrar.register,
@@ -293,8 +317,8 @@ export async function spawnChildWithGrandchild(
 
   const announcement = await new Promise<string>((resolve, reject) => {
     let buffered = "";
-    // One flag rather than listener removal: the `exit` listener stays attached
-    // for the life of the child, and it MUST be inert once the announcement has
+    // One flag rather than listener removal: the failure listeners stay attached
+    // for the life of the child, and they MUST be inert once the announcement has
     // arrived, because every case in the suite then kills that child on purpose.
     let settled = false;
     managed.child.stdout.on("data", (chunk: Buffer) => {
@@ -310,10 +334,15 @@ export async function spawnChildWithGrandchild(
       settled = true;
       reject(error);
     });
-    managed.child.once("exit", () => {
+    // `close` and not `exit`, because one of these programs exits ON PURPOSE
+    // right after announcing and `exit` may be delivered before the pipe this
+    // promise reads has been drained — which would reject a spawn that in fact
+    // announced. `close` cannot: it arrives only once every stdio stream is
+    // done, so by then the announcement has either been read or does not exist.
+    managed.child.once("close", () => {
       if (settled) return;
       settled = true;
-      reject(new Error("the child exited before it announced its grandchild"));
+      reject(new Error("the child closed before it announced its grandchild"));
     });
   });
   const { grandchildPid } = JSON.parse(announcement) as { grandchildPid: number };
@@ -327,50 +356,4 @@ export async function spawnChildWithGrandchild(
     throw new Error(ABANDONED_SETUP_MESSAGE);
   }
   return { managed, childPid, grandchildPid };
-}
-
-/** Resolves when the child has exited, carrying the signal that ended it. */
-export function exitOf(managed: ManagedElectronChild): Promise<NodeJS.Signals | null> {
-  return new Promise<NodeJS.Signals | null>((resolve) => {
-    managed.child.once("exit", (_code, signal) => {
-      resolve(signal);
-    });
-  });
-}
-
-/**
- * Wait, bounded, until `processId` will never run another instruction.
- *
- * A single read taken the instant the parent's `exit` fired is the wrong
- * instrument twice over: the grandchild's own death races that event, and a
- * grandchild that has died may sit unreaped, which `processExists` reports as
- * alive for as long as its new parent takes. `processHasTerminated` counts that
- * state as gone, and the poll is what makes the wait bounded rather than a
- * sleep whose length is a guess about someone else's init.
- */
-export async function expectTerminatedWithin(processId: number, subject: string): Promise<void> {
-  await expect
-    .poll(() => processHasTerminated(processId), {
-      timeout: TERMINATION_OBSERVATION_MS,
-      message: `${subject} was still running ${String(TERMINATION_OBSERVATION_MS)} ms after the kill`,
-    })
-    .toBe(true);
-}
-
-/**
- * Reap a pid the suite is responsible for, whatever state it is in.
- *
- * The negative controls deliberately produce survivors, and a control that
- * proves a leak by leaking is not a control — it is the defect with a passing
- * assertion beside it.
- *
- * The guard is load-bearing rather than defensive: a pid that was never
- * recorded is `0`, and on POSIX `0` addresses the CALLER's own process group,
- * so passing it on would take this runner down with it.
- */
-export function reap(processId: number): void {
-  if (processId <= 0 || processHasTerminated(processId)) {
-    return;
-  }
-  terminateProcessTree(processId, "SIGKILL");
 }

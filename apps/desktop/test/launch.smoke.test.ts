@@ -153,7 +153,8 @@ import {
 // The two bounds the spawner shares with every other Electron harness: the
 // SIGTERM-to-SIGKILL grace, and the reserve that keeps a spawner's own deadline
 // ahead of vitest's per-test budget.
-import { TERMINATION_GRACE_MS, TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
+import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 
 // Doc references for this suite (Plan-023 Phase 1 T-023p-1-7,
 // Spec-023 §Security Hardening Baseline / §Acceptance Criteria) are in the

@@ -30,11 +30,8 @@ import { fileURLToPath } from "node:url";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import { cleanUpAfterChildAtSettleTime } from "./electron-child-cleanup.js";
-import {
-  spawnManagedElectronChild,
-  TERMINATION_GRACE_MS,
-  TEST_TIMEOUT_SLACK_MS,
-} from "./electron-child.js";
+import { spawnManagedElectronChild, TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
+import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -913,10 +910,11 @@ export function spawnElectron(): Promise<SpawnResult> {
     // does — vitest's own timeout being the one that left profiles behind.
     const settle = (result: SpawnResult): void => {
       clearTimeout(spawnDeadline);
-      // Releases the escalation timer and, on a `close` that already happened,
-      // signals a group that is already gone — which `terminateProcessTree`
-      // reports as the success it is. On the spawn-`error` path it is the only
-      // thing that runs at all.
+      // Releases the escalation timer and, on the ordinary `close` path, signals
+      // NOTHING: by then the child is reaped and its pid — and the group it led
+      // — are the operating system's to reissue, which is why disposal reads the
+      // `close` `ManagedElectronChild` recorded rather than asking for a kill.
+      // On the spawn-`error` path it is the only thing that runs at all.
       managed.dispose();
       removeProfileDirectory();
       resolve(result);

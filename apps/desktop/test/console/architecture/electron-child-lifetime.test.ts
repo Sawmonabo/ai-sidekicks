@@ -43,17 +43,15 @@ import { PROCESS_TREE_TERMINATION_MODE, readProcessLiveness } from "../../helper
 import {
   AbandonedPair,
   ABANDONED_SETUP_MESSAGE,
-  exitOf,
-  expectTerminatedWithin,
   LIFETIME_TEST_TIMEOUT_MS,
   NON_TERMINATING_PROGRAM,
   ObservedTreeTerminator,
-  reap,
   RecordingSettleRegistrar,
   RefusedRegistrationSpawn,
   REGISTRAR_REFUSAL_MESSAGE,
   spawnChildWithGrandchild,
 } from "./electron-child-lifetime.test-support.js";
+import { exitOf, expectTerminatedWithin, reap } from "./electron-child-liveness.test-support.js";
 
 describe("a spawned Electron child does not outlive the test that spawned it", () => {
   it(
@@ -334,18 +332,15 @@ describe("the two shapes that leave an Electron running — negative controls", 
       // SIGKILL and so answers the same for both orderings — an assertion that
       // cannot fail on a known-bad input is not a control.
       //
-      // Registered BEFORE the disposer so this listener runs first when `close`
-      // is delivered, which makes the flag true for the disposer that waited and
-      // false for one that removed in the same turn as the kill.
-      let childHadClosed = false;
-      managed.child.once("close", () => {
-        childHadClosed = true;
-      });
+      // Read off the managed child rather than a listener of this case's own:
+      // it records the delivery from its constructor, so it is already true when
+      // the disposer that waited runs, and still false for one that removed in
+      // the same turn as the kill.
       let closedWhenRemoved: boolean | null = null;
       cleanUpAfterChildAtSettleTime(
         managed,
         () => {
-          closedWhenRemoved = childHadClosed;
+          closedWhenRemoved = managed.hasClosed;
           rmSync(profileDirectory, { recursive: true, force: true });
         },
         registrar.register,

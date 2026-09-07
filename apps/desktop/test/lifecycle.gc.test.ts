@@ -111,11 +111,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../src/main/window-reveal.js";
-import {
-  spawnManagedElectronChild,
-  TERMINATION_GRACE_MS,
-  TEST_TIMEOUT_SLACK_MS,
-} from "./helpers/electron-child.js";
+import { spawnManagedElectronChild, TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
+import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -270,11 +267,12 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
     });
 
     const cleanup = (): void => {
-      // Releases the escalation timer and signals a group that, on the ordinary
-      // `close` path, is already gone — which `terminateProcessTree` reports as
-      // the success it is. On the spawn-`error` path it is the only kill there
-      // is, and the pid it would need does not exist, so the direct handle is
-      // what it reaches.
+      // Releases the escalation timer and, on the ordinary `close` path, signals
+      // NOTHING: by then the child is reaped and its pid — and the group it led
+      // — are the operating system's to reissue, which is why disposal reads the
+      // `close` `ManagedElectronChild` recorded rather than asking for a kill.
+      // On the spawn-`error` path it is the only kill there is, and the pid it
+      // would need does not exist, so the direct handle is what it reaches.
       managed.dispose();
       try {
         rmSync(userDataDir, { recursive: true, force: true });

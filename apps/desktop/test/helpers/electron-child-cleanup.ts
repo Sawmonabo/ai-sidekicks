@@ -34,12 +34,8 @@
 
 import { onTestFinished } from "vitest";
 
-import {
-  disposeWhenTestFinishes,
-  TERMINATION_GRACE_MS,
-  type ManagedElectronChild,
-  type SettleTimeRegistrar,
-} from "./electron-child.js";
+import { disposeWhenTestFinishes, type SettleTimeRegistrar } from "./electron-child.js";
+import { TERMINATION_GRACE_MS, type ManagedElectronChild } from "./managed-electron-child.js";
 
 /**
  * Kill `managed` when the test ends, wait until it is gone, then run `cleanUp`.
@@ -71,18 +67,31 @@ export function cleanUpAfterChildAtSettleTime(
 /**
  * Resolve once the child has closed, or once the bound is spent — whichever first.
  *
- * The already-settled arm is not an optimisation: `close` has fired by then and
- * will not fire again, so a listener registered here would wait out the whole
- * bound on the ordinary path and make every teardown pay for it.
+ * `close` IS THE EVENT, AND AN EXIT CODE IS NOT A PROXY FOR IT. This read
+ * `child.exitCode !== null || child.signalCode !== null` and returned on it,
+ * which is a different fact and a weaker one: `exit` fires when the process
+ * ends, `close` when every stdio stream inherited from it has been released as
+ * well. Between the two, a descendant that inherited the child's stdout is
+ * still running — the shim-and-browser shape `electron-child.ts`'s header
+ * describes, and the ordinary shape here, since a launcher is what this package
+ * spawns. Removing the profile directory in that window races processes still
+ * holding files inside it; on POSIX the unlink mostly succeeds anyway and hides
+ * the bug, and on Windows an open handle makes the removal fail outright and
+ * the directory outlives the run. So the wait is for `close`.
+ *
+ * The already-fired arm is not an optimisation: `close` is delivered at most
+ * once, so a listener registered after it would wait out the whole bound on
+ * every ordinary teardown. `ManagedElectronChild` records the delivery from its
+ * own constructor-registered handler, which is what makes the question
+ * answerable at all after the fact — a listener cannot ask it.
  */
 async function whenChildIsGone(managed: ManagedElectronChild, exitWaitMs: number): Promise<void> {
-  const child = managed.child;
-  if (child.exitCode !== null || child.signalCode !== null) {
+  if (managed.hasClosed) {
     return;
   }
   await new Promise<void>((resolve) => {
     const bound = setTimeout(resolve, exitWaitMs);
-    child.once("close", () => {
+    managed.child.once("close", () => {
       clearTimeout(bound);
       resolve();
     });

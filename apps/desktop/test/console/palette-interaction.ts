@@ -35,7 +35,7 @@
 // race with a nicer name on a slower runner, and a retry would hide a palette
 // that never took focus at all — which is a real defect this now reports as one.
 
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect } from "vitest";
 
 import type { ConsoleApplication } from "./electron-harness.js";
@@ -55,6 +55,46 @@ export const PALETTE_INPUT_ACCESSIBLE_NAME = "Search commands";
 const PALETTE_OPEN_CHORD = "ControlOrMeta+KeyK";
 
 /**
+ * What one look at the palette input can find, named so a failure says which.
+ *
+ * Three states and not a boolean, because the two ways of not being focused are
+ * different defects with different first questions: an input that is not there
+ * is a palette that did not render its combobox or that renamed it, and one
+ * that is there and unfocused is the frame race this module exists for.
+ */
+type PaletteInputFocus = "absent" | "present-unfocused" | "focused";
+
+/**
+ * Read, in one page turn, whether the palette input exists and holds focus.
+ *
+ * `page.evaluate` AND NOT `Locator.evaluate`, which is the whole point of the
+ * function. A locator operation resolves its element first, and that resolution
+ * waits out Playwright's own locator timeout when nothing matches — so inside
+ * the poll below, whose bound is the body's remaining allowance, the poll could
+ * not interrupt it: an absent combobox or a regressed accessible name overran
+ * the enclosing budget and reported a locator timeout in place of the focus
+ * diagnostic this module is here to give. This returns on the turn it is asked,
+ * in all three states, so the poll's bound is the only clock.
+ *
+ * The selector is the same contract the locator states, spelled the way a page
+ * can ask it: `PaletteOverlay.tsx` publishes the accessible name as
+ * `aria-label`, and Base UI's combobox root sets `role="combobox"` on the input
+ * explicitly rather than leaning on an implicit role. A change to either is
+ * reported as `absent`, which is a true reading and a nameable one.
+ */
+async function readPaletteInputFocus(consoleWindow: Page): Promise<PaletteInputFocus> {
+  return await consoleWindow.evaluate((accessibleName): PaletteInputFocus => {
+    const paletteInput = document.querySelector(
+      `[role="combobox"][aria-label="${accessibleName}"]`,
+    );
+    if (paletteInput === null) {
+      return "absent";
+    }
+    return paletteInput === document.activeElement ? "focused" : "present-unfocused";
+  }, PALETTE_INPUT_ACCESSIBLE_NAME);
+}
+
+/**
  * Open the palette and return its input, once that input holds focus.
  *
  * Two waits, in the order the two facts become true, so whichever is missing is
@@ -71,19 +111,14 @@ export async function openPalette(consoleApplication: ConsoleApplication): Promi
     timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
   });
 
-  const paletteInput = consoleWindow.getByRole("combobox", {
-    name: PALETTE_INPUT_ACCESSIBLE_NAME,
-  });
   await expect
-    .poll(
-      async () => await paletteInput.evaluate((element) => element === document.activeElement),
-      {
-        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-        message: "the palette opened but never moved focus into its input",
-      },
-    )
-    .toBe(true);
-  return paletteInput;
+    .poll(async () => await readPaletteInputFocus(consoleWindow), {
+      timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      message:
+        "the palette opened but never moved focus into its input — the reading names whether the input was absent or present and unfocused",
+    })
+    .toBe("focused");
+  return consoleWindow.getByRole("combobox", { name: PALETTE_INPUT_ACCESSIBLE_NAME });
 }
 
 /**
