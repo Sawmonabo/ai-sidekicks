@@ -6,6 +6,12 @@
 // implementation gets wrong — holding the last report after the stream closed leaves
 // a window reading "connected" on the strength of a message that arrived before the
 // process carrying it went away.
+//
+// The retry beside them is here for a third honesty claim, about a rule it is the
+// EXCEPTION to: the shell's mutation block closes every daemon-bound write while the
+// supervisor is reconnecting, incompatible, offline, or stopped, and the runtime's own
+// lifecycle controls are how a person gets out of that state. So the case below drives
+// this action in exactly the state that raises the block.
 
 import { act, render, waitFor } from "@testing-library/react";
 
@@ -15,10 +21,15 @@ import { describe, expect, it } from "vitest";
 import { SidekicksBridgeProvider, type ConsoleBridge } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import type { GrowthStream } from "../../bridge/growth-port/growth-outcome.js";
-import { FrameStore, SessionStoreRegistry, type ShellReport } from "../../store/index.js";
+import {
+  FrameStore,
+  SessionStoreRegistry,
+  shellMutationBlock,
+  type ShellReport,
+} from "../../store/index.js";
 import { SHELL_SCENARIO } from "../../bridge/scenarios/shell.js";
 import { createFixtureBridge } from "../../bridge/index.js";
-import { useShellStateBinding } from "./shell-status-binding.js";
+import { useDaemonStartAction, useShellStateBinding } from "./shell-status-binding.js";
 import { ShellChrome } from "./ShellChrome.js";
 
 const CONNECTED: ShellReport = {
@@ -91,6 +102,30 @@ function emptyRegistry(): SessionStoreRegistry {
   return new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
 }
 
+/** A bridge whose only served growth operation is the spawn, recorded per call. */
+function bridgeRecordingStarts(starts: string[]): ConsoleBridge {
+  return {
+    ...createFixtureBridge({ scenario: SHELL_SCENARIO }),
+    growth: {
+      ...createRefusingGrowthPort(),
+      daemonStart: async () => {
+        starts.push("daemonStart");
+        return await Promise.resolve({ status: "served", value: undefined });
+      },
+    },
+  };
+}
+
+/** The retry, mounted the way the frame's offline banner mounts it. */
+function RetryHarness(props: { readonly store: FrameStore }): React.JSX.Element {
+  const start = useDaemonStartAction(props.store);
+  return (
+    <button type="button" onClick={start}>
+      Start the local runtime
+    </button>
+  );
+}
+
 function Harness(props: {
   readonly store: FrameStore;
   readonly registry: SessionStoreRegistry;
@@ -160,5 +195,60 @@ describe("useShellStateBinding", () => {
     });
     expect(store.getState().shellState.connection.kind).toBe("unreported");
     expect(container.querySelector(".meridian-shell-state")).toBeNull();
+  });
+});
+
+describe("useDaemonStartAction", () => {
+  /** A window told the runtime is gone: every mutating act is closed. */
+  function stoppedStore(): FrameStore {
+    const store = new FrameStore({ initialRoute: { kind: "sessions" } });
+    store.publishShellReport({ ...CONNECTED, connection: { kind: "stopped" } });
+    return store;
+  }
+
+  it("spawns the runtime in exactly the state that blocks every daemon call", async () => {
+    // The rule this pins: the shell's mutation block closes daemon-bound writes, and
+    // the runtime's OWN lifecycle controls are the way back from the state that
+    // raised it. A block applied to this action would leave a stopped runtime with no
+    // control that could start it.
+    const store = stoppedStore();
+    expect(shellMutationBlock(store.getState().shellState)).toBeDefined();
+
+    const starts: string[] = [];
+    const { getByRole } = render(
+      <SidekicksBridgeProvider bridge={bridgeRecordingStarts(starts)}>
+        <RetryHarness store={store} />
+      </SidekicksBridgeProvider>,
+    );
+    await act(async () => {
+      getByRole("button", { name: "Start the local runtime" }).click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(starts).toStrictEqual(["daemonStart"]);
+    // And it claimed nothing about the outcome: the supervisor's next report is what
+    // says whether the runtime came back.
+    expect(store.getState().shellState.connection.kind).toBe("stopped");
+  });
+
+  it("raises the port's refusal on the frame's banner stack — the control", async () => {
+    // Without this the case above passes for an action that swallowed every answer:
+    // a press that resolves in silence is indistinguishable from one that is broken.
+    const store = stoppedStore();
+    const refusing: ConsoleBridge = {
+      ...createFixtureBridge({ scenario: SHELL_SCENARIO }),
+      growth: createRefusingGrowthPort(),
+    };
+    const { getByRole } = render(
+      <SidekicksBridgeProvider bridge={refusing}>
+        <RetryHarness store={store} />
+      </SidekicksBridgeProvider>,
+    );
+    await act(async () => {
+      getByRole("button", { name: "Start the local runtime" }).click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(store.getState().banners).toHaveLength(1);
   });
 });

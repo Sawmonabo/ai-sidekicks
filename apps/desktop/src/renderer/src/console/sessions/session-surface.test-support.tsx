@@ -20,7 +20,12 @@ import { SidekicksBridgeProvider } from "../bridge/index.js";
 import { SessionAttentionBinding } from "./SessionAttentionBinding.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 import { openStore } from "./sessions.test-support.js";
-import { SessionStore } from "../store/index.js";
+import {
+  SessionStore,
+  UNREPORTED_SHELL_STATE,
+  type ShellConnection,
+  type ShellState,
+} from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 
 /**
@@ -155,8 +160,26 @@ export function contextWith(options: {
   readonly activeSessionId?: string;
   /** Every route the surface navigated to, appended in order. */
   readonly navigations?: unknown[];
+  /**
+   * Where this window stands with its local runtime. Unreported unless a case says
+   * otherwise, which is what a shipped window holds and therefore the default every
+   * case that is not about the shell inherits: nothing is blocked on the strength of
+   * a supervisor nobody asked.
+   */
+  readonly shellConnection?: ShellConnection;
 }): ConsoleSurfaceContext {
   const directorySessionIds = options.directorySessionIds;
+  // Whole, rather than the connection alone: the surface reads it through the store's
+  // own `shellMutationBlock`, which is total over the state, so a partial value here
+  // would be a shape the real store never produces.
+  const shellState: ShellState = {
+    ...UNREPORTED_SHELL_STATE,
+    connection: options.shellConnection ?? UNREPORTED_SHELL_STATE.connection,
+  };
+  const frameStoreState = {
+    isWindowFocused: options.isWindowFocused ?? true,
+    shellState,
+  };
   return {
     route: { kind: "sessions" },
     bridge: {
@@ -215,7 +238,16 @@ export function contextWith(options: {
       },
       // Read imperatively by the emitter, exactly as the real store is: what decides
       // a banner is where the window was when the item arrived.
-      getState: () => ({ isWindowFocused: options.isWindowFocused ?? true }),
+      getState: () => frameStoreState,
+      // The read-only face `useShellState` subscribes through. A constant snapshot
+      // with a no-op subscription, because a case names the shell state it wants and
+      // nothing here moves it — and the identity is held rather than minted per read,
+      // which is what `useSyncExternalStore` compares.
+      readable: {
+        getState: () => frameStoreState,
+        getInitialState: () => frameStoreState,
+        subscribe: () => () => undefined,
+      },
       activeSessionId: options.activeSessionId,
       publishRailAttentionCount: () => undefined,
     },

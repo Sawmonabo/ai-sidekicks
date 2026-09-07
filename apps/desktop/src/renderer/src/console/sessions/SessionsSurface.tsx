@@ -33,6 +33,14 @@
 // from the store's own fold, so the disabled control and the line explaining it cannot
 // disagree.
 //
+// AND WHILE THE SHELL ITSELF CANNOT BE WRITTEN TO, the same thing happens for a
+// different reason. The two causes are separate facts — a lost stream is this window's,
+// a reconnecting or stopped supervisor is the shell's — and the shell's is the stronger
+// one, so it is the sentence a control carries when both stand. Neither cause is
+// derived here: `store/shell-state.ts` owns the one that is the shell's, which is what
+// keeps this destination's disabled controls and the palette's read-only line from
+// naming two different reasons for one state.
+//
 // STARTING A SESSION IS AN ACT, NEVER A SIDE EFFECT OF LOOKING AT THE LIST
 //
 // `session.create` and `session.join` are live now, and one shipped Tier-1
@@ -73,7 +81,7 @@ import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/
 import { NotificationCenter, useAttentionSettlementAnnouncement } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
 import { renderAbsorbedSessionProbe } from "../seats/index.js";
-import { useOpenSessionIds } from "../store/index.js";
+import { shellMutationBlock, useOpenSessionIds, useShellState } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionProjection } from "./rows/open-session-rows.js";
 import { useSessionPreferences } from "./rows/session-preferences.js";
@@ -118,6 +126,24 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // sentences are composed once from the cause — a control deciding for itself
   // whether it is allowed would be a second source of truth for the store's fact.
   const degradation = sessionListDegradation(openSessions.degradedCause);
+  // Whether this window may write to the local runtime at all, from the shell state
+  // the frame publishes. `store/shell-state.ts` owns the derivation and every reader
+  // shares it — the palette's read-only line and every control disabled here name one
+  // cause, because a destination that decided for itself would be a second answer to a
+  // question the store already answers.
+  //
+  // ONE READ FOR ALL THREE ACTS. `shellBlockForMethod` is the per-method seam, for a
+  // surface whose controls mix reads and writes; every act this destination offers is
+  // a write — `session.create` behind the start control, `session.join` behind the
+  // form, and the provider import, which is the same class of act on a wire the growth
+  // slate still owes — so the whole-window derivation answers for all of them.
+  //
+  // THE DAEMON'S OWN LIFECYCLE CONTROLS ARE NOT ON THIS RULE, and must not be: stopping
+  // and restarting the local runtime are how a stopped shell is recovered, and they are
+  // shell acts rather than daemon calls. Blocking them because the shell is stopped
+  // would close the only way back. `frame/shell-state/shell-status-binding.ts` says the
+  // same thing from the side that performs one.
+  const shellBlock = shellMutationBlock(useShellState(context.frameStore));
   // Said once per settlement, here rather than inside the center: this destination is
   // where the read lives, and the center is handed a reading and mounted in two other
   // harnesses that render it with no announcer above them. The panel draws the same
@@ -175,15 +201,31 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     openSession(item.sessionId);
   };
 
+  // Why no act may be put right now, in the words the control carries.
+  //
+  // THE SHELL'S CAUSE OUTRANKS THE LIST'S. A window that cannot reach the runtime
+  // cannot put the act at all; a degraded list is a window that lost the stream and
+  // could still send. Both are real, one sentence fits on a control, and the stronger
+  // fact is the one a person needs in order to know what to do next.
+  const blockedActSentence = shellBlock?.detail ?? degradation.blockedActSentence;
+
   const startControl = (
     <SessionActs
       bridge={context.bridge}
       preferences={preferences}
       onStart={() => {
+        // Fail-closed at the dispatch site, not only on the control. The button is
+        // disabled from the same sentence, so this is the guard rather than the
+        // affordance: an enable predicate is a projection of the rule and a press that
+        // reached here anyway must still put nothing, because what it mounts creates a
+        // session from its own mount effect.
+        if (blockedActSentence !== undefined) {
+          return;
+        }
         setStartRequestCount((previous) => previous + 1);
       }}
       onJoined={openSession}
-      blockedReason={degradation.blockedActSentence}
+      blockedReason={blockedActSentence}
     />
   );
 

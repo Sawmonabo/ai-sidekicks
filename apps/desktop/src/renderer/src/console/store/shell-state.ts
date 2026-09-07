@@ -29,6 +29,7 @@
 // So the arm exists, it renders as the _not checked_ kind of nothing, and it blocks
 // nothing.
 
+import type { ConsoleRoute } from "../routing/index.js";
 import type { SessionDegradedCause } from "./degradation.js";
 
 /**
@@ -353,4 +354,52 @@ export const UNREPORTED_SHELL_NOTICE: { readonly title: string; readonly detail:
   title: "Local runtime",
   detail:
     "This build has no channel carrying the supervisor's state, so this window has not been told whether the local runtime is running.",
+};
+
+/**
+ * Where the supervisor's own detail lives, and what a control opening it promises.
+ *
+ * Named rather than written inline on the constant below, and deliberately NOT
+ * exported: nothing outside this module names the shape, and a door line for a type
+ * with no production reader is the dead export the barrel census fails.
+ */
+interface ShellDetailDestination {
+  /** The settings section id, which the settings rail lists and this console owns. */
+  readonly section: "daemon";
+  /** That section as a route value — what a control navigates to, never a hash. */
+  readonly route: ConsoleRoute;
+  /** What the control opening it says it will do, for its accessible name. */
+  readonly openLabel: string;
+}
+
+/** The section id, bound once so the route and the rail entry cannot spell it twice. */
+const SHELL_DETAIL_SECTION = "daemon";
+
+/**
+ * The supervisor's detail page, as one value every reader of it shares.
+ *
+ * HERE FOR THE REASON ITS NEIGHBOURS ABOVE ARE HERE. The frame's chip navigates to
+ * this page, and `frame/` may not import a view family at all — so the destination
+ * cannot live beside the settings rail that renders it, and a literal spelled at the
+ * chip would be one more surface deciding for itself where the supervisor lives.
+ * `store/` is the lowest family the readers can reach and already owns the two
+ * sentences both sides say.
+ *
+ * ITS COUPLING TO THE SETTINGS RAIL IS PINNED BY A TEST AND NOT BY AN IMPORT, which
+ * is the direction the DAG leaves open: `settings/settings-sections.ts` is the closed
+ * enumeration of section ids and it is deliberately a leaf, while consuming this
+ * constant from there would make an exported `as const` tuple carry a property access
+ * that `--isolatedDeclarations` cannot type. So `frame/shell-state/ShellChrome.test.tsx`
+ * asserts that this section is one the rail lists, and a rename on either side fails
+ * there rather than shipping a chip that opens a page nothing answers for.
+ *
+ * A ROUTE AND NOT AN ADDRESS. `#/settings/daemon` composed by hand would be a second
+ * implementation of `routing/`'s own formatter, and the one place a segment could be
+ * escaped differently from every other; a route value goes through the frame store,
+ * and the hash follows from there.
+ */
+export const SHELL_DETAIL_DESTINATION: ShellDetailDestination = {
+  section: SHELL_DETAIL_SECTION,
+  route: { kind: "settings", page: SHELL_DETAIL_SECTION },
+  openLabel: "open the local runtime page",
 };

@@ -15,7 +15,9 @@
 // asked. Where the absence itself is the subject — the daemon settings page — the
 // chip is mounted directly and names it.
 
-import { useShellState, type FrameStore } from "../../store/index.js";
+import { useCallback } from "react";
+
+import { SHELL_DETAIL_DESTINATION, useShellState, type FrameStore } from "../../store/index.js";
 import { DaemonChip } from "./DaemonChip.js";
 import { ShellBanners } from "./ShellBanners.js";
 import { ShellNotices } from "./ShellNotices.js";
@@ -28,7 +30,15 @@ export interface ShellChromeProps {
 
 /** Everything the frame says about the shell it is running against. */
 export function ShellChrome(props: ShellChromeProps): React.JSX.Element | null {
-  const shellState = useShellState(props.frameStore);
+  const { frameStore, onRetry } = props;
+  const shellState = useShellState(frameStore);
+  // The chip's destination, resolved here because this is the level that holds the
+  // store. An in-window navigation through the route value the shell vocabulary
+  // declares — never a hash composed by hand, which would be a second implementation
+  // of the routing family's own formatter.
+  const openShellDetail = useCallback(() => {
+    frameStore.navigate(SHELL_DETAIL_DESTINATION.route);
+  }, [frameStore]);
   const hasReport =
     shellState.connection.kind !== "unreported" ||
     shellState.transport !== undefined ||
@@ -40,9 +50,9 @@ export function ShellChrome(props: ShellChromeProps): React.JSX.Element | null {
   return (
     <div className="meridian-shell-state">
       <div className="meridian-shell-state__status">
-        <DaemonChip connection={shellState.connection} />
+        <DaemonChip connection={shellState.connection} onOpenDetail={openShellDetail} />
       </div>
-      <ShellBanners state={shellState} onRetry={props.onRetry} />
+      <ShellBanners state={shellState} onRetry={onRetry} />
       <ShellNotices transport={shellState.transport} keystore={shellState.keystore} />
     </div>
   );
