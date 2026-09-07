@@ -62,9 +62,26 @@ describe("the pane's tool-call feed", () => {
       kind: "refused",
       scope: "whole-answer",
       refusal: refuse("browser-tool-relay", "tool-relay-failed", "The relay stopped."),
+      calls: [],
     });
     expect(screen.getByText(/The relay stopped\./)).toBeTruthy();
     expect(screen.queryByText("No tool calls yet")).toBeNull();
+  });
+
+  it("keeps the calls a broken relay had already made, beside its refusal", () => {
+    // The stream breaking is a fact about the SUBSCRIPTION. Every call in this list
+    // was made and stays made, and a feed that swapped them for the error would erase
+    // the session's tool history at the one moment a person most needs to see what
+    // the agent had already done to the page in front of them.
+    renderFeed({
+      kind: "refused",
+      scope: "beside-an-answer",
+      refusal: refuse("browser-tool-relay", "tool-relay-failed", "The relay stopped."),
+      calls: [SECOND_RELAYED_CALL, RELAYED_CALL],
+    });
+    expect(screen.getByText(/The relay stopped\./)).toBeTruthy();
+    expect(screen.getByText("browser_capture")).toBeTruthy();
+    expect(screen.getByText("browser_navigate")).toBeTruthy();
   });
 
   it("says no call has been made where the relay is live and empty", () => {

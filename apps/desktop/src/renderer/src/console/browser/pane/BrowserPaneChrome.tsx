@@ -127,8 +127,15 @@ export function BrowserPaneChrome(context: PaneContextOf<"browser">): React.JSX.
   });
   const captured = useCapturedObjects(bridge, paneId, paneActs);
   // The shelf's membership, which is the daemon's answer and not this window's
-  // register: the acts below produce only some of what the browser produces.
-  const producedObjects = useBrowserProducedObjects(bridge, sessionId, captured.cardsByArtifactId);
+  // register: the acts below produce only some of what the browser produces. The
+  // STORE and not the id, because the daemon's answer goes stale the moment the
+  // browser produces something else and the session's own artifact beats are what say
+  // so — a read taken once at mount could only ever cover what already existed.
+  const producedObjects = useBrowserProducedObjects(
+    bridge,
+    sessionStore,
+    captured.cardsByArtifactId,
+  );
   const admittedRoots = useAdmittedRoots(bridge, sessionId);
   const toolCalls = useRelayedToolCalls(bridge, sessionId);
   const paneRootRef = useRef<HTMLDivElement | null>(null);
