@@ -42,7 +42,7 @@ function rowOf(rowId: string): TimelineRow {
 function recordingActs(): {
   readonly performed: string[];
   readonly clearFilter: () => void;
-  readonly openChapterOfRow: (row: TimelineRow) => void;
+  readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly endReplay: () => void;
   readonly requestJump: (rowId: string) => void;
 } {
@@ -50,7 +50,7 @@ function recordingActs(): {
   return {
     performed,
     clearFilter: () => performed.push("clear-filter"),
-    openChapterOfRow: () => performed.push("open-chapter"),
+    openFoldsHoldingRow: () => performed.push("open-folds"),
     endReplay: () => performed.push("end-replay"),
     requestJump: (rowId: string) => performed.push(`request-jump:${rowId}`),
   };
@@ -68,7 +68,7 @@ function reachFor(
       foldedWindow: foldChapterHeaders(LOADED_WINDOW, openedTerminalRunIds).window,
       openedTerminalRunIds,
       clearFilter: acts.clearFilter,
-      openChapterOfRow: acts.openChapterOfRow,
+      openFoldsHoldingRow: acts.openFoldsHoldingRow,
       endReplay: acts.endReplay,
       requestJump: acts.requestJump,
     }),
@@ -114,7 +114,7 @@ describe("the act an absence offers", () => {
 
     expect(reach?.label).toBe("Open that chapter and go to it");
     reach?.perform();
-    expect(acts.performed).toStrictEqual(["open-chapter", `request-jump:${FOLDED_ROW.id}`]);
+    expect(acts.performed).toStrictEqual(["open-folds", `request-jump:${FOLDED_ROW.id}`]);
   });
 
   it("withholds the chapter act while that chapter is already open", () => {

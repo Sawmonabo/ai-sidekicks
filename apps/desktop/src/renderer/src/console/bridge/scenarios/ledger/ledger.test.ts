@@ -13,11 +13,18 @@
 
 import { describe, expect, it } from "vitest";
 
+import { RUN_ARCHITECT_CHILD, RUN_IMPLEMENTER, SUBAGENT_REVIEWER } from "./ledger-cast.js";
 import { LEDGER_FIRST_SIXTY_SCENARIO, LEDGER_FIRST_SIXTY_SPAN_MS } from "./ledger-first-sixty.js";
 import { LEDGER_QUIET_SCENARIO } from "./ledger-quiet.js";
 import { LEDGER_SCENARIO } from "./ledger.js";
 import { findScenarioWireTruthDefects } from "../wire-truth.js";
 import type { ConsoleScenario, ScenarioBeat } from "../../scenario-runtime/index.js";
+// The ledger family's own readers, reached deeply rather than through its door: this
+// is a claim about what THIS SCENARIO reaches, so the three treatments it has to
+// reach are named by the modules that derive them.
+import { projectFixtureShellRows } from "../../../ledger/cards/shell/fixture-shell-projection.js";
+import { ChildRunIndex } from "../../../ledger/structure/child-runs/child-run-entries.js";
+import { deriveSupersededBands } from "../../../ledger/structure/seams/superseded-bands.js";
 
 const LEDGER_SCENARIOS: readonly ConsoleScenario[] = [
   LEDGER_SCENARIO,
@@ -92,13 +99,21 @@ describe("the ledger scenarios", () => {
   });
 });
 
+/** Every row this scenario's whole script projects to, in log order. */
+function ledgerScenarioRows(): ReturnType<typeof projectFixtureShellRows>["rows"] {
+  return projectFixtureShellRows(LEDGER_SCENARIO.beats.map((beat) => beat.event)).rows;
+}
+
 describe("the three-lane ledger scenario", () => {
-  it("ends its three runs in three different conditions at once", () => {
-    expect([...finalRunStates(LEDGER_SCENARIO).values()].sort()).toStrictEqual([
-      "completed",
-      "paused",
-      "running",
-    ]);
+  it("ends its three LANES in three different conditions at once", () => {
+    // The child run under the architect is a fourth run and not a fourth lane: the
+    // ledger folds it into its parent's chapter as a summary rather than drawing it
+    // beside the three, so it is subtracted here rather than counted as one of them.
+    const laneStates = [...finalRunStates(LEDGER_SCENARIO)]
+      .filter(([runId]) => runId !== RUN_ARCHITECT_CHILD)
+      .map(([, state]) => state)
+      .sort();
+    expect(laneStates).toStrictEqual(["completed", "paused", "running"]);
   });
 
   it("reaches the block state a seam renders, and returns through `run.running`", () => {
@@ -166,6 +181,71 @@ describe("the three-lane ledger scenario", () => {
         .map((beat) => runIdOf(beat)),
     );
     expect(streamingRunsBefore.size).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("the ledger scenario's folded bodies", () => {
+  it("summarizes the architect's child run, and marks it incomplete", () => {
+    const entries = new ChildRunIndex(ledgerScenarioRows()).childRunEntries();
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.summary.runId).toBe(RUN_ARCHITECT_CHILD);
+    // The compaction inside the child is what makes the count a floor, and it is the
+    // one incompleteness cause a log can state on its own.
+    expect(entries[0]?.summary.completeness.state).toBe("incomplete");
+    // Anchored at the birth row and re-summarized nowhere: the child's later rows say
+    // nothing about a parent, so filing them as re-summarizations would be a claim the
+    // wire did not make.
+    expect(entries[0]?.resummarizedRowIds).toStrictEqual([]);
+  });
+
+  it("draws the subagent's start as a handoff and suppresses its completion", () => {
+    const rows = ledgerScenarioRows();
+    const handoffs = new ChildRunIndex(rows).handoffEntries();
+    const subagentRowIds = rows
+      .filter((row) => row.type.startsWith("subagent."))
+      .map((row) => row.id);
+
+    // Both halves are in the log, and exactly one of them draws a card: the anchor is
+    // first-wins, so a completion, a resume, or a compaction inside the child all
+    // leave the handoff where the start put it.
+    expect(subagentRowIds).toHaveLength(2);
+    const subagentHandoffs = handoffs.filter((handoff) => subagentRowIds.includes(handoff.rowId));
+    expect(subagentHandoffs).toHaveLength(1);
+    expect(subagentHandoffs[0]?.wireType).toBe("subagent.started");
+    expect(subagentHandoffs[0]?.rowId).toBe(subagentRowIds[0]);
+    // Four in all: the three agent attachments this session always carried, each
+    // naming no subagent identity and so anchored by nothing, plus the one anchor the
+    // pair above draws. The attachments are why a handoff row was reachable from this
+    // scenario before it carried a subagent — what was not reachable was suppression.
+    expect(handoffs).toHaveLength(4);
+  });
+
+  it("names the subagent's identity, without which the pair could not be keyed", () => {
+    // The whole reason the completion is suppressed rather than drawn beside the
+    // start: both rows carry the same `(runId, provider, subagentId)` triple. A pair
+    // missing the provider or the id is two unrelated handoffs, which is what this
+    // scenario used to script.
+    const subagentPayloads = LEDGER_SCENARIO.beats
+      .filter((beat) => beat.event.kind.startsWith("subagent."))
+      .map((beat) => beat.event.payload);
+
+    expect(subagentPayloads).toHaveLength(2);
+    for (const payload of subagentPayloads) {
+      expect(payload?.["subagentId"]).toBe(SUBAGENT_REVIEWER);
+      expect(typeof payload?.["provider"]).toBe("string");
+    }
+  });
+
+  it("folds a superseded band over the rows the rewind left behind", () => {
+    const bands = deriveSupersededBands(ledgerScenarioRows());
+
+    expect(bands).toHaveLength(1);
+    expect(bands[0]?.runId).toBe(RUN_IMPLEMENTER);
+    // The band is the rewound run's FIRST epoch — the boundary belongs to the epoch it
+    // ended — and it holds the rows whose position exceeds the cutoff the wire named.
+    expect(bands[0]?.epoch).toBe(0);
+    expect(bands[0]?.rowIds.length).toBeGreaterThan(0);
   });
 });
 

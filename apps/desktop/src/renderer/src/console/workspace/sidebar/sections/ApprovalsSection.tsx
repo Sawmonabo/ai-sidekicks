@@ -40,10 +40,17 @@ import {
   groupSectionRows,
   groupedRowCount,
   normaliseFilterQuery,
+  type ConsolePaneAddress,
   type SectionListGroup,
+  type SidebarRollupGroup,
+  type SidebarRollupNode,
   type SidebarSectionContext,
 } from "../../../seats/index.js";
 import { type SidebarSectionAttention } from "../model/sidebar-model.js";
+import { readSectionRollup, sectionRowDragBinding } from "./section-rollup-nodes.js";
+
+/** The pane every row of this section opens, whether pressed or dropped. */
+const APPROVALS_PANE: ConsolePaneAddress = { kind: "approvals" };
 
 /** The groups this section renders, in render order. Closed, declared once. */
 const APPROVAL_GROUPS = ["waiting", "settled", "unrecognized"] as const;
@@ -88,6 +95,25 @@ const GROUP_TONE: Readonly<Record<ApprovalGroup, ChipTone>> = {
   // A state this build does not know is a defect somewhere, not an approval in
   // trouble — the same reading the runs section gives its own unrecognized group.
   unrecognized: "failure",
+};
+
+/**
+ * Which of the column's four rollup groups each of this section's groups reports as.
+ *
+ * `waiting` is the one that is calling for a person, so it is the column's
+ * `needs-attention`. `settled` and `unrecognized` both report as `rest`: neither is
+ * running and neither is waiting on anybody, and inventing a fifth column-level group
+ * for a state no build should be meeting would reopen a shared enumeration for one
+ * section's benefit. The body still draws unrecognized under its own heading.
+ *
+ * `running` and `pinned` are unreachable from here, and that is a fact about approvals
+ * rather than an omission: an approval is a question waiting on a person, so nothing
+ * about it runs, and nothing in the corpus pins one.
+ */
+const ROLLUP_GROUP_BY_APPROVAL_GROUP: Readonly<Record<ApprovalGroup, SidebarRollupGroup>> = {
+  waiting: "needs-attention",
+  settled: "rest",
+  unrecognized: "rest",
 };
 
 export function ApprovalsSection(context: SidebarSectionContext): React.JSX.Element {
@@ -149,8 +175,18 @@ export function ApprovalsSection(context: SidebarSectionContext): React.JSX.Elem
         // an approval is not among them — so a row opens the surface that holds
         // every request rather than an address the deck would have to refuse.
         open: () => {
-          context.openPane({ kind: "approvals" });
+          context.openPane(APPROVALS_PANE);
         },
+        // The drag opens what the press opens, through the column's own binder — the
+        // same seam the runs section binds its rows through, and optional on both sides
+        // for the same reason: a composition that hands down no binder has rows nobody
+        // bound rather than a no-op invented here.
+        ...sectionRowDragBinding(context.dragRow, {
+          sectionId: "approvals",
+          entityId: approval.id,
+          label: `approval ${approval.id}`,
+          opens: APPROVALS_PANE,
+        }),
       })),
     });
   }
@@ -159,38 +195,37 @@ export function ApprovalsSection(context: SidebarSectionContext): React.JSX.Elem
 }
 
 /**
- * What the approvals section is asking for, read without mounting it.
+ * This session's requests as the tree the sidebar folds while this section is shut.
  *
  * A PULL, for the reason the seat states: a collapsed section is not mounted, so a
  * section in trouble could never report from inside itself and the rule that opens it
  * could never fire. Called during the sidebar's own render over state this family
  * already holds — never a read, never a subscription.
  *
- * ONLY AN ANSWERED READ MAY RAISE A MARK. A store that has not loaded, or one the
- * daemon has told us is incomplete, knows nothing about whether anybody is waiting,
- * and a mark raised from that would be the badge the sidebar refuses to synthesise.
+ * THE TREE RATHER THAN A LEVEL, which is the seat's own precedence: a section that
+ * supplies a rollup has its level folded from it, and answers `attention` as well only
+ * where it knows something the fold cannot reach. This one does not, and the tree
+ * additionally carries the grouped counts the shut header draws.
  *
  * `failure` is deliberately unreachable. A pending approval is a session waiting on a
  * person, which is `attention`; `failure` names this section's own read having broken,
- * and a broken read is the `error` arm the body renders rather than a level the rollup
- * can answer with.
- *
- * The filter is not consulted, and the omission is the claim: a pending approval
- * hidden by a filter is still pending, and a rollup answered from the filtered list
- * would go quiet exactly when somebody typed.
+ * and a broken read supplies no nodes at all rather than a level.
  */
-export function approvalsSectionAttention(
+export function approvalsSectionRollup(
   context: Omit<SidebarSectionContext, "isOpen" | "openPane">,
-): SidebarSectionAttention | undefined {
-  const state = context.sessionStore.snapshot();
-  if (!state.initialised || state.degradedCause !== undefined) {
-    return undefined;
-  }
-  return Object.values(state.partitions.approval).some(
-    (approval) => groupOf(approval.state) === "waiting",
-  )
-    ? "attention"
-    : undefined;
+): readonly SidebarRollupNode[] {
+  return readSectionRollup(context, {
+    partition: "approval",
+    group: (approval) => ROLLUP_GROUP_BY_APPROVAL_GROUP[groupOf(approval.state)],
+    attention: (approval) => attentionOf(approval.state),
+    label: (approval) => `approval ${approval.id}`,
+    opens: APPROVALS_PANE,
+  });
+}
+
+/** What one request is calling for: the waiting group, and nothing else. */
+function attentionOf(state: string | undefined): SidebarSectionAttention | undefined {
+  return groupOf(state) === "waiting" ? "attention" : undefined;
 }
 
 /**

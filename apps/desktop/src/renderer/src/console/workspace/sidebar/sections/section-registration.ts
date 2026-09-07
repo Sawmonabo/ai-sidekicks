@@ -26,8 +26,8 @@ import {
   type SidebarSectionDescriptor,
   type SidebarSectionRegistry,
 } from "../../../seats/index.js";
-import { ApprovalsSection, approvalsSectionAttention } from "./ApprovalsSection.js";
-import { RunsSection, runsSectionAttention } from "./RunsSection.js";
+import { ApprovalsSection, approvalsSectionRollup } from "./ApprovalsSection.js";
+import { RunsSection, runsSectionRollup } from "./RunsSection.js";
 
 /**
  * The descriptors this family contributes.
@@ -49,7 +49,13 @@ const COMPOSER_SIDEBAR_SECTIONS: readonly SidebarSectionDescriptor[] = [
     // the rule that opens it has to decide. Seated here beside the body rather than
     // reached for from the sidebar, so one registration carries both halves of what
     // this family owns about its section.
-    attention: runsSectionAttention,
+    //
+    // THE TREE AND NOT ALSO AN `attention` CLAIM. The seat takes an explicit level as
+    // the section's own answer and the fold as its fallback, so a section that supplied
+    // both would be answering one question twice — and the two would disagree the first
+    // time either was edited alone. The fold over these nodes reaches the same level,
+    // and the tree carries the grouped counts a single level cannot.
+    rollup: runsSectionRollup,
   },
   {
     id: "approvals",
@@ -57,9 +63,9 @@ const COMPOSER_SIDEBAR_SECTIONS: readonly SidebarSectionDescriptor[] = [
     render: (context) => createElement(ApprovalsSection, context),
     // Its rollup, seated beside its body for the reason the runs row gives: one
     // registration carries both halves of what this family owns about its section,
-    // and the sidebar reads the rollup while the section is COLLAPSED, which is when
-    // the rule that opens it has to decide.
-    attention: approvalsSectionAttention,
+    // the sidebar reads it while the section is COLLAPSED, which is when the rule that
+    // opens it has to decide, and it is the tree rather than also an explicit level.
+    rollup: approvalsSectionRollup,
   },
 ];
 

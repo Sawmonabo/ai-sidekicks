@@ -29,9 +29,9 @@
 // a cheaper synthetic row would be measuring a rendering path the product does not
 // have.
 
+import { ledgerOpeningEntries } from "./ledger-opening-entries.js";
 import {
   assistantOutputEntry,
-  ledgerOpeningEntries,
   runTransitionEntry,
   scriptLedgerBeats,
   toolActivityEntry,
