@@ -7,6 +7,7 @@
 // those as success would put a person in front of a signed-in console on the
 // strength of nothing.
 
+import type { ParticipantId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -20,11 +21,14 @@ import { encodeCeremonyResolution } from "./ceremony-resolution.js";
 
 const HANDOFF = { verificationUri: "http://127.0.0.1:8419/callback", userCode: "JQPD-4KTM" };
 
+/** The identity claims an authenticated arm carries. A real participant id, branded. */
+const CLAIMS = { participantId: "019b78c9-0a80-79a4-8110-cca0117a3301" as ParticipantId };
+
 describe("the ceremony reader — what it accepts", () => {
   it("round-trips every arm the fixture can write", () => {
     const written: readonly ProducedCeremonyOutcome[] = [
-      { kind: "authenticated", custody: "durable" },
-      { kind: "authenticated", custody: "memory-only" },
+      { kind: "authenticated", custody: "durable", claims: CLAIMS },
+      { kind: "authenticated", custody: "memory-only", claims: CLAIMS },
       { kind: "fallback-required", probeResult: "no-prf", handoff: HANDOFF },
       { kind: "refused", reason: "cancelled" },
     ];
@@ -38,8 +42,10 @@ describe("the ceremony reader — what it accepts", () => {
     // a test is a second closed set, and the first one to go stale.
     for (const custody of WEB_AUTHN_CUSTODY_STATES) {
       expect(
-        readCeremonyOutcome(encodeCeremonyResolution({ kind: "authenticated", custody })),
-      ).toStrictEqual({ kind: "authenticated", custody });
+        readCeremonyOutcome(
+          encodeCeremonyResolution({ kind: "authenticated", custody, claims: CLAIMS }),
+        ),
+      ).toStrictEqual({ kind: "authenticated", custody, claims: CLAIMS });
     }
     for (const probeResult of WEB_AUTHN_PROBE_RESULTS) {
       const resolution = encodeCeremonyResolution({
@@ -69,6 +75,51 @@ describe("the ceremony reader — what it refuses to read", () => {
     ["an arm this build does not know", { ceremonyOutcome: { kind: "enrolled" } }],
     ["an unknown custody state", { ceremonyOutcome: { kind: "authenticated", custody: "disk" } }],
     ["a custody state that is missing", { ceremonyOutcome: { kind: "authenticated" } }],
+    // The identity half of the same claim, and the reason the arm is the strictest
+    // one: `Spec-023 §WebAuthn Credential Flow` step 7 makes the participant claims
+    // the whole of what crosses the bridge, so an authenticated resolution that names
+    // nobody is an authentication with no subject. Reading it as success would sign a
+    // person in as whoever the surface happened to be showing.
+    [
+      "an authenticated arm carrying no claims at all",
+      { ceremonyOutcome: { kind: "authenticated", custody: "durable" } },
+    ],
+    [
+      "claims that are not a record",
+      {
+        ceremonyOutcome: {
+          kind: "authenticated",
+          custody: "durable",
+          claims: "019b78c9-0a80-79a4-8110-cca0117a3301",
+        },
+      },
+    ],
+    [
+      "claims naming no participant",
+      { ceremonyOutcome: { kind: "authenticated", custody: "durable", claims: {} } },
+    ],
+    [
+      "a participant the contract's own schema refuses",
+      {
+        ceremonyOutcome: {
+          kind: "authenticated",
+          custody: "durable",
+          // Not a participant id: the brand is a UUID, and a label is what a
+          // hand-written `typeof value === "string"` narrowing would have admitted.
+          claims: { participantId: "you" },
+        },
+      },
+    ],
+    [
+      "a participant present as an empty string",
+      {
+        ceremonyOutcome: {
+          kind: "authenticated",
+          custody: "durable",
+          claims: { participantId: "" },
+        },
+      },
+    ],
     [
       "a fallback with no hand-off",
       { ceremonyOutcome: { kind: "fallback-required", probeResult: "no-prf" } },

@@ -61,6 +61,14 @@ function bridgeServing(stream: GrowthStream<ShellReport> | undefined): ConsoleBr
   };
 }
 
+/** A build that carries no shell wire at all: every growth operation refuses. */
+function refusingBridge(): ConsoleBridge {
+  return {
+    ...createFixtureBridge({ scenario: SHELL_SCENARIO }),
+    growth: createRefusingGrowthPort(),
+  };
+}
+
 /** A registry holding no session: this file's subject is the report, not the fold. */
 function emptyRegistry(): SessionStoreRegistry {
   return new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
@@ -190,14 +198,110 @@ describe("useShellStateBinding", () => {
     expect(store.getState().shellState.connection.kind).toBe("connected");
   });
 
+  it("clears the previous bridge's report when a replacement refuses", async () => {
+    // THE DEFECT THIS PINS. A report is a claim ONE supervisor made, and a window
+    // addressed at a different one was holding it: the retired drain's own settlement
+    // is refused so it cannot clear it, and a refused subscribe publishes nothing at
+    // all, so the window read "connected" about a bridge that had never answered.
+    const stream = new DrivenGrowthStream<ShellReport>();
+    const store = new FrameStore({ initialRoute: { kind: "sessions" } });
+    const registry = emptyRegistry();
+    const { rerender } = render(
+      <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+        <Harness store={store} registry={registry} />
+      </SidekicksBridgeProvider>,
+    );
+    await act(async () => {
+      stream.emit(CONNECTED);
+      await crossMacrotaskBoundary();
+    });
+    await waitFor(() => {
+      expect(store.getState().shellState.connection.kind).toBe("connected");
+    });
+
+    await act(async () => {
+      rerender(
+        <SidekicksBridgeProvider bridge={refusingBridge()}>
+          <Harness store={store} registry={registry} />
+        </SidekicksBridgeProvider>,
+      );
+      await crossMacrotaskBoundary();
+    });
+
+    expect(store.getState().shellState.connection.kind).toBe("unreported");
+  });
+
+  it("publishes the replacement's own report — the control", async () => {
+    // Without this the case above passes for a binding that reset the window and then
+    // never wrote again, which is a different way of saying nothing true.
+    const first = new DrivenGrowthStream<ShellReport>();
+    const second = new DrivenGrowthStream<ShellReport>();
+    const store = new FrameStore({ initialRoute: { kind: "sessions" } });
+    const registry = emptyRegistry();
+    const { rerender } = render(
+      <SidekicksBridgeProvider bridge={bridgeServing(first)}>
+        <Harness store={store} registry={registry} />
+      </SidekicksBridgeProvider>,
+    );
+    await act(async () => {
+      first.emit(CONNECTED);
+      await crossMacrotaskBoundary();
+    });
+
+    await act(async () => {
+      rerender(
+        <SidekicksBridgeProvider bridge={bridgeServing(second)}>
+          <Harness store={store} registry={registry} />
+        </SidekicksBridgeProvider>,
+      );
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      second.emit({ ...CONNECTED, transport: "loopback" });
+      await crossMacrotaskBoundary();
+    });
+
+    expect(store.getState().shellState.transport).toBe("loopback");
+    expect(store.getState().shellState.connection.kind).toBe("connected");
+  });
+
+  it("discards a frame from the bridge it replaced", async () => {
+    // The other half of the claim, driven at the one moment it is reachable: the swap
+    // lands while the previous port's subscribe is still in flight, so that drain
+    // acquires its stream after its own claim is gone. It lets the handle go rather
+    // than draining it, and the frame it would have published reaches nothing.
+    const retired = new DrivenGrowthStream<ShellReport>();
+    const store = new FrameStore({ initialRoute: { kind: "sessions" } });
+    const registry = emptyRegistry();
+    const { rerender } = render(
+      <SidekicksBridgeProvider bridge={bridgeServing(retired)}>
+        <Harness store={store} registry={registry} />
+      </SidekicksBridgeProvider>,
+    );
+    act(() => {
+      rerender(
+        <SidekicksBridgeProvider bridge={bridgeServing(new DrivenGrowthStream<ShellReport>())}>
+          <Harness store={store} registry={registry} />
+        </SidekicksBridgeProvider>,
+      );
+    });
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+
+    expect(retired.closeCount).toBe(1);
+    await act(async () => {
+      retired.emit({ ...CONNECTED, connection: { kind: "stopped" } });
+      await crossMacrotaskBoundary();
+    });
+
+    expect(store.getState().shellState.connection.kind).toBe("unreported");
+  });
+
   it("leaves the window unreported where the port refuses", async () => {
     const store = new FrameStore({ initialRoute: { kind: "sessions" } });
-    const refusing: ConsoleBridge = {
-      ...createFixtureBridge({ scenario: SHELL_SCENARIO }),
-      growth: createRefusingGrowthPort(),
-    };
     const { container } = render(
-      <SidekicksBridgeProvider bridge={refusing}>
+      <SidekicksBridgeProvider bridge={refusingBridge()}>
         <Harness store={store} registry={emptyRegistry()} />
       </SidekicksBridgeProvider>,
     );
@@ -246,12 +350,8 @@ describe("useDaemonStartAction", () => {
     // Without this the case above passes for an action that swallowed every answer:
     // a press that resolves in silence is indistinguishable from one that is broken.
     const store = stoppedStore();
-    const refusing: ConsoleBridge = {
-      ...createFixtureBridge({ scenario: SHELL_SCENARIO }),
-      growth: createRefusingGrowthPort(),
-    };
     const { getByRole } = render(
-      <SidekicksBridgeProvider bridge={refusing}>
+      <SidekicksBridgeProvider bridge={refusingBridge()}>
         <RetryHarness store={store} />
       </SidekicksBridgeProvider>,
     );
