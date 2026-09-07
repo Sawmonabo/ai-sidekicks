@@ -95,3 +95,31 @@ export const DETACHABLE_PANE_KINDS: readonly PaneKind[] = AUXILIARY_ROUTE_NAMES;
 export function isDetachablePaneKind(kind: PaneKind): boolean {
   return DETACHABLE_PANE_KINDS.includes(kind);
 }
+
+/**
+ * The pane kinds a layout snapshot never carries.
+ *
+ * `Spec-023 §Console Design (Meridian)` 12.1 makes the browser pane EPHEMERAL: it is
+ * opened for a task and it is not part of the workspace a person comes back to. The
+ * consequence is mechanical rather than aesthetic — restoring one would ask the main
+ * process to attach a view host, load a page, and spend a paying account's memory for
+ * a session nobody has opened yet, on every cold start, forever.
+ *
+ * A PROPERTY OF THE KIND, for the reason stated above `isDetachablePaneKind`: a
+ * per-descriptor boolean lets each view family answer for itself a question the layout
+ * model settles, and six answers to one question is how a snapshot ends up holding a
+ * pane one family thought was durable. The annotation is load-bearing the same way —
+ * a name here that stops being a pane kind is a compile error.
+ */
+export const EPHEMERAL_PANE_KINDS: readonly PaneKind[] = ["browser"];
+
+/**
+ * Whether a pane of this kind is dropped from a layout snapshot rather than written.
+ *
+ * Both sides of the seam consult it — `layout-snapshot.ts` filters the write with it
+ * and drops against it on the read — so a snapshot written by an older build that did
+ * not have this rule still does not re-open the pane.
+ */
+export function isEphemeralPaneKind(kind: PaneKind): boolean {
+  return EPHEMERAL_PANE_KINDS.includes(kind);
+}

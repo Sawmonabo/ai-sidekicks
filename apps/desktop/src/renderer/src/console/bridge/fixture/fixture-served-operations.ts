@@ -181,6 +181,24 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE TWO LEASE OPERATIONS ARE SERVED, AND WHY THAT IS ABOUT REFUSALS
+//
+// The terminal's write lease is the one surface in the console whose interesting
+// states are all REFUSALS. `pty.permission_denied` before any lease comparison,
+// `pty.control_held_by_other` carrying the holder, `pty.control_not_held` on a release
+// by a non-holder — every one of them is the rejection of a CALL, and while these two
+// operations were outside the served set no scenario could reach any of them: the
+// refusing port answered `unavailable` by name and no script was ever consulted. So
+// the surfaces that render them — the inline refusal, and the holder line beside it —
+// were reachable from no scenario, no screenshot, and no bridge-driven test.
+//
+// AND THE SERVED ARM IS WHY THEY ARE WRITES RATHER THAN READS. Taking the shell moves
+// it; a fixture that answered a take nobody scripted would be reporting a transition
+// the scenario's own beats never made, and the pane's fold reads the holder off
+// `pty.control_changed` and never off this reply. So both sit in the script-only
+// subset below and refuse by name under a scenario that scripts neither, which is the
+// `agentAttach` disposition and for the same reason.
+//
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -223,6 +241,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -265,6 +285,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // terminal lease — the two calls whose interesting answers are all refusals, served
+  // so a scenario can script one. See the lease section of the header.
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -298,4 +322,6 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
 ];

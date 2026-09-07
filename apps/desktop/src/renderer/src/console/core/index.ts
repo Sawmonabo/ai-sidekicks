@@ -22,6 +22,7 @@ export {
   AWAITING_RUN_IDS_NAMED_CAP,
   BOUNDED_ENUMERATION_MAX_ROWS,
   BROAD_ALLOW_LIST_THRESHOLD,
+  CAPTURED_OBJECT_ROW_CAP,
   COMPOSING_NAMED_CAP,
   COMPOSING_RECEIVED_STALE_MS,
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
@@ -36,6 +37,8 @@ export {
   INTERVENTION_OUTCOME_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
+  LOAD_PROGRESS_MAX,
+  LOAD_PROGRESS_MIN,
   MAXIMUM_LIVE_DRAFT_COUNT,
   MAX_REPAIRABLE_SEQUENCE_GAP,
   MOUNT_INVENTORY_READ_CAP,
@@ -54,6 +57,7 @@ export {
   QUEUE_ROWS_RENDERED_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  RELAYED_TOOL_CALL_ROW_CAP,
   RESOLVED_PROSE_INLINE_CAP,
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
@@ -131,6 +135,7 @@ export {
   refuse,
   refusedMemberPaths,
   type ConsoleRefusal,
+  type NarrowedRefusal,
 } from "./refusal.js";
 // The registered widenings of that shape. Through the door because a family rendering
 // a refusal's ledger reads the members, and a family that widened a refusal without
@@ -138,7 +143,6 @@ export {
 export {
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type ConsoleRefusalExtensions,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type ExtendedConsoleRefusal,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
@@ -164,3 +168,15 @@ export { readWireNumber, readWireString } from "./wire-strings.js";
 // it, so two view families reached five directories up past `core/` to the declaration
 // and the layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";
+// The console's one airspace: which overlays are on screen in a window, so a native
+// view yields to them (`Spec-023 §Console Design (Meridian)` 12.3, §4.3). At the DAG
+// floor because its registrants are `primitives/` and its reader is a view family,
+// and this is the only rung both of them stand above.
+export {
+  AirspaceRegistry,
+  type AirspaceMotionObserver,
+  type AirspaceOverlayElement,
+  type AirspaceOverlayKind,
+  type AirspaceRect,
+} from "./airspace-registry.js";
+export { airspaceRegistryFor } from "./airspace-registries.js";

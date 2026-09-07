@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isConsoleRefusal } from "../../core/index.js";
+import { isConsoleRefusal } from "../../../core/index.js";
 import { CLOSE_TAB_CHORD } from "./chord-claim.js";
 import { KEYBOARD_HANDBACK_REFUSAL_ORIGIN } from "./keyboard-handback.js";
 import { attachedPaneRoot, chord, handbackOver } from "./keyboard-handback.test-support.js";

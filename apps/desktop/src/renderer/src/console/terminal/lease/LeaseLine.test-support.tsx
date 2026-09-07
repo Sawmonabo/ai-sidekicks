@@ -9,10 +9,14 @@
 // does a SERVED lease reply look like", and the two would drift the first time the
 // registered reply grew a member.
 //
-// The wire calls run against the real bridge — the fixture's growth port, which
-// refuses `terminalAcquireWriteLease` by name because `Plan-023 §Console growth
-// slate` has not registered it. A hand-rolled stub would let the refusal render
-// pass against a shape the port does not produce.
+// The wire calls run against the real bridge — the fixture's growth port, which now
+// SERVES both lease operations from the playing scenario's script. So there are two
+// refusing bridges here rather than one, and the difference is the whole of what each
+// drives: the terminal scenario scripts the contested take, so its refusal is the
+// DAEMON's and carries a holder; the flagship scripts neither call, so its refusal is
+// the fixture's own `reply-unscripted` — the port saying the scenario never answered.
+// A hand-rolled stub would let either render pass against a shape the port does not
+// produce.
 //
 // The lease STATE is a value here, built directly rather than folded from a
 // scenario, because `lease-model.test.ts` already holds the fold to the wire and
@@ -58,6 +62,18 @@ export const OTHER_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
 
 export function refusingBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+}
+
+/**
+ * A bridge whose lease calls are SERVED and whose scenario scripts neither of them.
+ *
+ * The port's own refusal rather than a daemon's: the flagship models no shared shell,
+ * so a take against it reaches the `reply-unscripted` arm — which is what a served
+ * operation with nothing to answer from says, and the arm a surface has to render
+ * without inventing a sentence for it.
+ */
+export function scriptlessLeaseBridge(): ConsoleBridge {
+  return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 }
 
 /** A bridge whose lease calls are SERVED, to prove the holder still does not move. */
@@ -238,6 +254,7 @@ export function renderLease(
   bridge: ConsoleBridge = refusingBridge(),
   viewerIdentity: TerminalViewerIdentity = VIEWER_IDENTITY_READ,
   callerRole: CallerMembershipRoleResult = CALLER_ROLE_COLLABORATOR,
+  hasSteppableRun = true,
 ): RenderResult {
   return render(
     <LeaseLine
@@ -247,6 +264,7 @@ export function renderLease(
       markFor={markFor}
       viewerIdentity={viewerIdentity}
       callerRole={callerRole}
+      hasSteppableRun={hasSteppableRun}
     />,
   );
 }

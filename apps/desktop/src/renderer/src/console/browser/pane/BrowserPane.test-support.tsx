@@ -295,6 +295,7 @@ export function reportedState(
     isLoading: false,
     canGoBack: false,
     canGoForward: false,
+    loadProgress: null,
     ...overrides,
   };
 }

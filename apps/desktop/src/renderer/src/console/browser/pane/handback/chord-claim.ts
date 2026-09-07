@@ -43,7 +43,7 @@ import {
   splitChordTokens,
   type ChordModifierToken,
   type ChordPlatform,
-} from "../../primitives/index.js";
+} from "../../../primitives/index.js";
 
 /** The key token the platform close-tab chord carries, in its layout-independent form. */
 const CLOSE_TAB_KEY_TOKEN = "W";

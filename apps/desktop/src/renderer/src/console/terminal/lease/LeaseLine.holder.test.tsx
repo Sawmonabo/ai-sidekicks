@@ -70,6 +70,7 @@ describe("the holder line — every state 8.8 names", () => {
         markFor={named}
         viewerIdentity={VIEWER_IDENTITY_READ}
         callerRole={CALLER_ROLE_COLLABORATOR}
+        hasSteppableRun
       />,
     );
     expect(container.textContent).toContain("Priya holds the shell.");

@@ -47,6 +47,7 @@ import {
   formatCount,
   type ChipTone,
 } from "../../primitives/index.js";
+import { ClaimRefusalHolder } from "./ClaimRefusalHolder.js";
 import { HolderName } from "./HolderName.js";
 import { LeaseTransitionLedger } from "./LeaseTransitionLedger.js";
 import { OfflineNodeLine } from "./OfflineNodeLine.js";
@@ -99,6 +100,14 @@ export interface LeaseLineProps {
    * pane reads both and hands both in; this surface mixes neither into the other.
    */
   readonly callerRole: CallerMembershipRoleResult;
+  /**
+   * Whether the session has a run a person could step into right now.
+   *
+   * Handed in rather than folded here, because the pane already holds the timeline
+   * and this surface holds none: a second read of the log from a component would be
+   * a second answer to a question the fold beside the pane already answers.
+   */
+  readonly hasSteppableRun: boolean;
 }
 
 /**
@@ -215,13 +224,29 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
       )}
 
       {claim.refusal === undefined ? null : (
-        <InlineRefusal code={claim.refusal.code} detail={claim.refusal.detail} />
+        <InlineRefusal
+          code={claim.refusal.code}
+          detail={claim.refusal.detail}
+          action={
+            claim.refusal.holderParticipantId === undefined ? undefined : (
+              <ClaimRefusalHolder
+                holderParticipantId={claim.refusal.holderParticipantId}
+                mark={markFor(claim.refusal.holderParticipantId)}
+              />
+            )
+          }
+        />
       )}
 
-      <p className="meridian-lease-line__aside">
-        Stepping in pauses a run and hands you the conversation. It never moves the keyboard —
-        taking the shell is the claim above, and stopping an agent is a run control.
-      </p>
+      {/* 8.9's clarification, and only where there is something to clarify: the
+          sentence is about a control, and a control nobody can reach is not worth a
+          paragraph on every idle terminal. */}
+      {props.hasSteppableRun ? (
+        <p className="meridian-lease-line__aside">
+          Stepping in pauses a run and hands you the conversation. It never moves the keyboard —
+          taking the shell is the claim above, and stopping an agent is a run control.
+        </p>
+      ) : null}
 
       {isLedgerOpen ? <LeaseTransitionLedger state={state} markFor={markFor} /> : null}
     </div>

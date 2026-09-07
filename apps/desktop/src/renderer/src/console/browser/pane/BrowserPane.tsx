@@ -5,6 +5,22 @@
 // and the strip derives nothing: back and forward are enabled from the view's own
 // REPORTED history state, never from a count the renderer kept.
 //
+// THIS SUBTREE CARRIES NO DOOR, AND THAT IS THE DOOR RULE APPLIED RATHER THAN SKIPPED.
+// `pane/` groups its modules under `chrome/`, `file/`, and `handback/`, and none of the
+// three holds an `index.ts`. `apps/desktop/AGENTS.md` puts a sub-module door where a
+// SIBLING reads across, which these do — `chrome/PaneOverflow.tsx` reads `../file/` and
+// `../handback/`, and `file/FileControl.tsx` reads `../chrome/` — but `chrome/` and
+// `file/` read each OTHER, so a door on each would make `chrome/index.ts →
+// file/index.ts → chrome/index.ts` a cycle `no-circular` fails. The remedy that rule
+// names for exactly this shape is the deep specifier, which is what those six
+// cross-reads are written as, and the doorless form is already this family's:
+// `bounds/`, `cards/`, and `geometry/` are the same shape for the simpler reason that
+// no sibling reads across them at all. The sheets follow that same ownership rather
+// than depth — a directory with no door is owned by the family barrel — so
+// `chrome/chrome.css` and `file/file.css` enter beside `pane/pane.css` at
+// `pane/browser-pane-body.ts`, the chunk root every one of this family's sheets
+// enters at.
+//
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
 // kind in the console; what this file returns is the BODY that goes inside it. The
@@ -12,31 +28,44 @@
 // there, which is why none of them is set here and why the pane is named by its whole
 // address trail rather than by the word "Browser".
 //
-// WHAT IS BUILT AND WHAT RENDERS ITS ABSENCE. The console's growth port carries five
-// pane-keyed navigation verbs and one navigation subscription, and nothing else —
-// `Plan-023 §Console growth slate` row `browser-pane-namespace` still owes the rest. So
-// the destination field, back, forward, the reload/stop slot, and the escape to the
-// system browser are BUILT, each dispatching a registered operation and rendering the
-// refusal it gets back today; the tab strip, the page picker, capture, pick element,
-// developer tools, and site-data reset are not drawn as dead buttons. They render the
-// not-checked absence, because rule 8 forbids saying "no pages" when the truth is
-// "nobody asked".
+// SIX CONTROLS PLUS THE FIELD, WHICH IS THE DENSITY RULE COUNTED RATHER THAN CLAIMED.
+// 12.1 and 12.2 both fix it: back, forward, the reload/stop slot, new page, open
+// externally, and the overflow control. The page picker, capture, pick element,
+// developer tools, the file control, the produced-object shelf, the tool-call feed,
+// and site-data reset are all one click away inside that last one.
+//
+// WHAT IS BUILT AND WHAT RENDERS ITS ABSENCE. Every control here dispatches a growth
+// operation, and `Plan-023 §Console growth slate` row `browser-pane-namespace` still
+// owes the whole namespace — so what a person sees today is each control's own honest
+// refusal rather than a dead button or a blank strip. Rule 8 is the reason the tab
+// strip says "pages not read" instead of "no pages": nobody asked, and a surface that
+// said the second would be making a claim about the session nothing checked.
 //
 // The close-tab chord IS wired, because of what happens if it is not: the platform
 // chord reaching the window closes the WINDOW. The pane captures it, prevents the
-// default, and renders the refusal naming the missing verb — the difference between an
-// unbuilt feature and a destroyed session.
+// default, and dispatches the close against the selected page — or, where no page is
+// selected, refuses locally rather than letting the window take it.
 //
-// Three surfaces beside the chrome, all from this family: `navigation-state.ts` is the
-// single reading the chrome derives nothing beyond, the geometry publisher keeps the
-// eventual native view exactly inside this pane's rectangle (12.3), and the budget
-// meter is the resource ceiling one click away (12.10, rule 7). They are imported by
-// module rather than through `browser/index.js`, which re-exports this component — a
-// barrel import here would close a cycle the layering gate refuses.
+// FIVE READINGS AND ONE ACT SEQUENCE. Navigation, the page list, the admitted roots,
+// the relayed tool calls, and the keyboard handback are each their own module, each
+// held for its own subject, and the chrome derives nothing beyond them. The single act
+// sequence is what makes one refusal banner correct: an older act can never overwrite
+// a newer one's answer, so the banner shows what the person last did.
+//
+// AND THE BANNER ANSWERS AN ACT, WHICH IS WHY THE HANDBACK IS NOT IN IT. Both halves
+// of 12.4 run unprompted — the mirror publishes itself when the chord table changes,
+// the subscription opens at mount — so routing their refusal to the banner opened
+// every browser pane with a dismissible error about a wire nobody asked for, and a
+// person who then pressed a control and was served watched their answer replaced by
+// it. A standing degradation is a state of the pane and not the answer to anything, so
+// it reads where the pane keeps its other standing readings, in the overflow control,
+// where it can also say what the mirror claims and how much has come back through it.
 
-import { useCallback, useId } from "react";
+import { useCallback, useId, useRef } from "react";
 
 import { BudgetMeter } from "../bounds/BudgetMeter.js";
+import { useCapturedObjects } from "../cards/captured-objects.js";
+import { useRelayedToolCalls } from "../cards/tool-call-relay.js";
 import type { PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
 import {
   addressFieldSubmission,
@@ -44,60 +73,61 @@ import {
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
 } from "./address-field-model.js";
-import { describeChordEvent, isCloseTabChord } from "./chord-claim.js";
+import { describeChordEvent, isCloseTabChord } from "./handback/chord-claim.js";
+import { useBrowserChromeActs } from "./chrome/chrome-acts.js";
+import { useAdmittedRoots } from "./file/file-boundary.js";
+import { useKeyboardHandbackBinding } from "./handback/handback-binding.js";
+import { LoadHairline } from "./chrome/LoadHairline.js";
 import {
   isFilesystemDestination,
   useReportedNavigation,
-  type NavigationActOutcome,
   type NavigationReading,
 } from "./navigation-state.js";
+import { pagesOf, useReportedPages } from "./page-state.js";
+import { PaneOverflow } from "./chrome/PaneOverflow.js";
+import { TabStrip } from "./chrome/TabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";
 import { useGeometryPublisher } from "./geometry-binding.js";
 import { usePaneAddressField } from "./pane-address-field.js";
-import { ChromeControl } from "./ChromeControl.js";
+import { ChromeControl } from "./chrome/ChromeControl.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
-
-/** What a navigation act that never answered says, where the rejection carries no code. */
-const NAVIGATION_CALL_FALLBACK = {
-  code: "navigation-call-failed",
-  detail:
-    "The page could not be reached from this window, because the call into the browser never answered.",
-} as const;
+import type { BrowserPaneRejectionFallback } from "./pane-refusals.js";
 
 /** The same, for the one control that leaves this window entirely. */
-const OPEN_EXTERNAL_FALLBACK = {
+const OPEN_EXTERNAL_FALLBACK: BrowserPaneRejectionFallback = {
   code: "open-external-failed",
   detail: "The system browser could not be reached from this window.",
-} as const;
+};
 
 export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Element {
   const { bridge, paneId, focusHue, sessionStore } = context;
+  const sessionId = sessionStore?.sessionId;
   const navigation = useReportedNavigation(bridge, paneId);
+  const pages = useReportedPages(bridge, paneId);
   const geometry = useGeometryPublisher(bridge, paneId);
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
-  const {
-    refusal: actRefusal,
-    run: runAct,
-    refuseLocally,
-    dismiss: dismissActRefusal,
-  } = useBrowserPaneActs(bridge, paneId);
+  const paneActs = useBrowserPaneActs(bridge, paneId);
+  const { refusal: actRefusal, run: runAct, refuseLocally, dismiss: dismissActRefusal } = paneActs;
+  const openPages = pagesOf(pages);
+  const acts = useBrowserChromeActs({
+    bridge,
+    paneId,
+    sessionId,
+    acts: paneActs,
+    pageCount: openPages.length,
+  });
+  const captured = useCapturedObjects(bridge, paneId, paneActs);
+  const admittedRoots = useAdmittedRoots(bridge, sessionId);
+  const toolCalls = useRelayedToolCalls(bridge, sessionId);
+  const paneRootRef = useRef<HTMLDivElement | null>(null);
+  const handback = useKeyboardHandbackBinding(bridge, paneId, paneRootRef);
   const addressFieldId = useId();
   // Only the REPORTING arm is a reading. An ended subscription's last frame is not
   // one, so it reaches nothing here: every history control falls back to disabled and
   // the address field stops following a location nobody is reporting any more.
   const reported = navigation.kind === "served" ? navigation.state : undefined;
   const reportedUrl = reported?.url;
-
-  const dispatch = useCallback(
-    (act: () => Promise<NavigationActOutcome>): void => {
-      runAct(async () => {
-        const outcome = await act();
-        return outcome.status === "unavailable" ? outcome : undefined;
-      }, NAVIGATION_CALL_FALLBACK);
-    },
-    [runAct],
-  );
 
   const onCloseTabChord = useCallback(
     (event: React.KeyboardEvent<HTMLElement>): void => {
@@ -106,12 +136,17 @@ export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Elemen
       }
       event.preventDefault();
       event.stopPropagation();
-      refuseLocally(
-        "close-unregistered",
-        "Closing a page needs the browser namespace's close action, which is not registered yet. The chord was caught here so it could not close this window instead.",
-      );
+      const selected = openPages.find((page) => page.isSelected);
+      if (selected === undefined) {
+        refuseLocally(
+          "no-selected-page",
+          "There is no selected page to close. The chord was caught here so it could not close this window instead.",
+        );
+        return;
+      }
+      acts.closePage(selected.pageId);
     },
-    [refuseLocally],
+    [acts, openPages, refuseLocally],
   );
 
   const openInSystemBrowser = useCallback((): void => {
@@ -144,19 +179,22 @@ export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Elemen
         return;
       }
       setAddressField(FOLLOWING_ADDRESS_FIELD);
-      dispatch(() => bridge.growth.browserNavigate({ paneId, url: submitted }));
+      acts.navigate(submitted);
     },
-    [addressField, bridge, dispatch, paneId, refuseLocally, reportedUrl],
+    [acts, addressField, refuseLocally, reportedUrl, setAddressField],
   );
 
   /** Escape abandons the edit. The field goes back to reporting where the page is. */
-  const onAddressKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key !== "Escape") {
-      return;
-    }
-    event.preventDefault();
-    setAddressField(FOLLOWING_ADDRESS_FIELD);
-  }, []);
+  const onAddressKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      setAddressField(FOLLOWING_ADDRESS_FIELD);
+    },
+    [setAddressField],
+  );
 
   const isLoading = reported?.isLoading ?? false;
 
@@ -168,25 +206,32 @@ export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Elemen
     // for exactly that reason, so the handler goes on it directly.
     <ConsolePaneChrome
       kind="browser"
-      sessionId={sessionStore?.sessionId}
+      sessionId={sessionId}
       focusHue={focusHue}
       onKeyDownCapture={onCloseTabChord}
     >
-      <div className="meridian-browser-pane">
+      {/* The replay target. A chord claimed from the page is dispatched here and
+        bubbles out through the same handlers a keystroke raised in this window would
+        reach, which is what makes the handback behave like every other keystroke. */}
+      <div className="meridian-browser-pane" ref={paneRootRef} tabIndex={-1}>
+        <TabStrip
+          reading={pages}
+          onSelect={acts.selectPage}
+          onClose={acts.closePage}
+          onCreate={acts.createPage}
+          onReorder={acts.reorderPage}
+        />
+
         <form onSubmit={submitDestination} className="meridian-browser-chrome">
           <ChromeControl
             label="Back"
             disabled={reported?.canGoBack !== true}
-            onActivate={() => {
-              dispatch(() => bridge.growth.browserGoBack({ paneId }));
-            }}
+            onActivate={acts.goBack}
           />
           <ChromeControl
             label="Forward"
             disabled={reported?.canGoForward !== true}
-            onActivate={() => {
-              dispatch(() => bridge.growth.browserGoForward({ paneId }));
-            }}
+            onActivate={acts.goForward}
           />
           {/* One slot, two acts: 12.2 puts reload and stop in the same place and swaps
             them on the view's reported load state, so the control is where a person's
@@ -195,13 +240,7 @@ export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Elemen
             label={isLoading ? "Stop" : "Reload"}
             glyph={isLoading ? "stop" : undefined}
             disabled={reported === undefined}
-            onActivate={() => {
-              dispatch(() =>
-                isLoading
-                  ? bridge.growth.browserStopLoading({ paneId })
-                  : bridge.growth.browserReload({ paneId }),
-              );
-            }}
+            onActivate={isLoading ? acts.stopLoading : acts.reload}
           />
           <label htmlFor={addressFieldId} className="meridian-visually-hidden">
             Destination
@@ -227,6 +266,9 @@ export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Elemen
           />
         </form>
 
+        {/* Under the address field, and only while something is loading. */}
+        <LoadHairline isLoading={isLoading} progress={reported?.loadProgress ?? null} />
+
         {/* The subscription's own end, said once and where the controls are. It is a
           receipt rather than a refusal — the producer finished cleanly — so it takes
           the quiet reading line and the polite live region, not the banner. */}
@@ -236,15 +278,6 @@ export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Elemen
             the pane is opened again.
           </p>
         ) : null}
-
-        <div className="meridian-browser-pane__strip">
-          <Nothing
-            kind="not-checked"
-            placement="inline"
-            title="Pages not read"
-            detail="The tab strip, the page picker, capture, pick element, and developer tools all need the browser namespace, which is not registered yet. Nothing here says this session owns no pages — only that no question was put."
-          />
-        </div>
 
         {actRefusal === undefined ? null : (
           <RefusalBanner {...actRefusal} onDismiss={dismissActRefusal} />
@@ -262,6 +295,22 @@ export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Elemen
             detail={viewportDetail(geometry.outcome, navigation)}
           />
         </div>
+
+        <PaneOverflow
+          acts={acts}
+          pages={pages}
+          // 12.2's degraded state: developer tools on a view the host could not create
+          // is ABSENT rather than disabled. The pane is what knows whether it has a
+          // host, so the pane is what answers.
+          canOpenDevtools={geometry.outcome?.status !== "suppressed"}
+          roots={admittedRoots}
+          refusal={actRefusal}
+          sessionStore={sessionStore}
+          producedCards={captured.cardsByArtifactId}
+          toolCalls={toolCalls}
+          handback={handback}
+          onCapture={captured.capture}
+        />
 
         {/* No `readings` at all, and that is the honest prop rather than an omission.
           Nothing in this window meters a browser bound — the namespace that would

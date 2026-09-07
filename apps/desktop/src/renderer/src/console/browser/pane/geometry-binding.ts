@@ -13,9 +13,10 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
-import { consoleOcclusionRegistryFor } from "../geometry/occlusion-registry.js";
+import { overlayMotionObserver } from "../geometry/overlay-observation.js";
 import { resolvePaneViewHost, type PaneViewHost } from "../geometry/view-host.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
+import { airspaceRegistryFor, type AirspaceRegistry, type Unsubscribe } from "../../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 
 /**
@@ -48,27 +49,38 @@ export interface PaneSubject {
  * pane's viewport is describing this pane's host" a fact rather than two lookups that
  * agree today.
  *
- * THE CLOCK AND THE OVERLAY REGISTRY BOTH COME OFF THE BRIDGE, which is the same rule
- * twice. `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock
- * is the only clock the renderer reads in fixture mode", and the console has one answer
- * to which clock a window reads. A privately minted `RealClock` here was invisible to
- * `ManualClock` — the instrument the budgets are counted with — so under a frozen
- * scenario this publisher's frame and its `sampledAtMs` ran on wall time while every
- * other timer in the same pane was stopped, and whether a screenshot caught the first
- * publish was decided by how fast the runner was.
+ * THE CLOCK COMES OFF THE BRIDGE. `Spec-023 §Console Design (Meridian)` §The fixture
+ * bridge: "the fixture clock is the only clock the renderer reads in fixture mode", and
+ * the console has one answer to which clock a window reads. A privately minted
+ * `RealClock` here was invisible to `ManualClock` — the instrument the budgets are
+ * counted with — so under a frozen scenario this publisher's frame and its
+ * `sampledAtMs` ran on wall time while every other timer in the same pane was stopped,
+ * and whether a screenshot caught the first publish was decided by how fast the runner
+ * was.
  *
- * Pure: it arms nothing.
+ * THE AIRSPACE COMES OFF THE DOCUMENT, and that is the same rule read the other way.
+ * The overlay set is `core/`'s so that the overlay primitives — which sit below
+ * `bridge/` and cannot name a bridge — can register into the same one this pane reads.
+ * A document is what an overlay element and this pane's host already share when they
+ * are in one window and do not share when they are not, so it is the key both sides can
+ * name (`core/airspace-registries.ts`).
+ *
+ * IT ALSO INSTALLS THE MOTION OBSERVATION, which is why the binding holds a detacher.
+ * The registrants arm the size seam; only a consumer drawing a native view needs an
+ * overlay carried across the screen sampled per frame, and installing it here is what
+ * keeps that frame loop off a window that is drawing no view at all.
+ *
+ * Pure: it arms nothing beyond the observation it installs and detaches.
  */
 export function createGeometryBinding(subject: PaneSubject): BoundGeometryPublisher {
   const host = resolvePaneViewHost(subject);
+  const clock = consoleClockFor(subject.bridge);
+  const airspace: AirspaceRegistry = airspaceRegistryFor(document);
   return {
     ...subject,
     host,
-    publisher: new PaneGeometryPublisher({
-      host,
-      clock: consoleClockFor(subject.bridge),
-      occlusion: consoleOcclusionRegistryFor(subject.bridge),
-    }),
+    detachOverlayMotion: airspace.installMotionObserver(overlayMotionObserver(clock)),
+    publisher: new PaneGeometryPublisher({ host, clock, occlusion: airspace }),
   };
 }
 
@@ -90,6 +102,7 @@ function restingGeometryOutcome(host: PaneViewHost): PaneGeometryOutcome | undef
 
 /** Ends a binding. Terminal: `dispose` is what the publisher documents it as. */
 function closeGeometryBinding(bound: BoundGeometryPublisher): void {
+  bound.detachOverlayMotion();
   bound.publisher.dispose();
 }
 
@@ -191,4 +204,6 @@ export function useGeometryPublisher(
 export interface BoundGeometryPublisher extends PaneSubject {
   readonly host: PaneViewHost;
   readonly publisher: PaneGeometryPublisher;
+  /** Stops watching this window's overlays move. Runs with the publisher's disposal. */
+  readonly detachOverlayMotion: Unsubscribe;
 }

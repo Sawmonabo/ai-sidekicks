@@ -19,6 +19,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { normalizeWireRejection } from "../../core/index.js";
 import type { ReadingState } from "../../primitives/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
+import type { BrowserPaneRejectionFallback } from "./pane-refusals.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
 const NAVIGATION_REFUSAL_ORIGIN = "browser-navigation";
@@ -50,7 +51,7 @@ const NAVIGATION_REFUSAL_ORIGIN = "browser-navigation";
  * bare `ConsoleRefusal` travelling as a rejection was re-coded under this module's
  * own name.
  */
-const SUBSCRIPTION_FAILURE_FALLBACK = {
+const SUBSCRIPTION_FAILURE_FALLBACK: BrowserPaneRejectionFallback = {
   code: "navigation-subscription-failed",
   detail:
     "The page's navigation state is no longer being reported to this window. Closing the pane and opening it again starts a new subscription.",
@@ -62,8 +63,6 @@ type NavigationStream = Extract<NavigationOutcome, { readonly status: "served" }
 type NavigationState = NavigationStream extends { readonly events: AsyncIterable<infer Event> }
   ? Event
   : never;
-/** What any one navigation act answers with. Every chrome control dispatches one. */
-export type NavigationActOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserGoBack"]>>;
 
 /**
  * What the pane knows about the page right now.

@@ -132,10 +132,33 @@ const RETIRED_SINCE_SPLIT: readonly string[] = [
   "GrowthUnpricedFamilyCap",
 ];
 
-/** What the barrel is expected to publish today: the split's surface, less the retired. */
-const CURRENT_EXPORTS: readonly string[] = PRE_SPLIT_EXPORTS.filter(
-  (name) => !RETIRED_SINCE_SPLIT.includes(name),
-);
+/**
+ * Names the barrel has published SINCE the split, each with a reader that took it.
+ *
+ * The third list the record needs, and it is not the same fact as either of the two
+ * above: those say what the surface was and what left it deliberately, and a name that
+ * arrived afterwards is neither. Folding a new name into the pre-split census instead
+ * would make the transcription a lie about what the single module published — which is
+ * the one property that census exists to hold — and leaving it out entirely would mean
+ * a barrel could never grow without the census failing, so the census would be edited
+ * away rather than kept.
+ *
+ * The page shapes are the browser strip and picker's one reading — a list of pages and
+ * the context name that heads it, both named by the signature table next door on the
+ * page subscription's reply — and the chord frame is the keyboard handback's, the
+ * keystroke a page host claimed and handed back.
+ */
+const ADDED_SINCE_SPLIT: readonly string[] = [
+  "GrowthAcceleratorChord",
+  "GrowthBrowserPage",
+  "GrowthBrowserPageList",
+];
+
+/** What the barrel is expected to publish today: the split's surface, less the retired, plus the added. */
+const CURRENT_EXPORTS: readonly string[] = [
+  ...PRE_SPLIT_EXPORTS.filter((name) => !RETIRED_SINCE_SPLIT.includes(name)),
+  ...ADDED_SINCE_SPLIT,
+];
 
 /** The tail of the gitflow re-export clause, which the negative control cuts out. */
 const GITFLOW_CLAUSE_TAIL = '} from "./gitflow.js";';
@@ -182,6 +205,16 @@ describe("the growth-values barrel's export surface", () => {
       RETIRED_SINCE_SPLIT.filter((name) => exportedNames(barrelSource).includes(name)),
     ).toStrictEqual([]);
     expect(RETIRED_SINCE_SPLIT.length).toBeGreaterThan(0);
+  });
+
+  it("adds only names the split did not publish", () => {
+    // The mirror of the retirement guard, and it catches the same drift from the other
+    // side: an added name that WAS in the pre-split census is a name being counted
+    // twice, which would let a genuinely dropped export pass unnoticed.
+    expect(ADDED_SINCE_SPLIT.filter((name) => PRE_SPLIT_EXPORTS.includes(name))).toStrictEqual([]);
+    expect(
+      ADDED_SINCE_SPLIT.filter((name) => !exportedNames(barrelSource).includes(name)),
+    ).toStrictEqual([]);
   });
 
   it("names each export once — a re-export chain would publish two of one name", () => {

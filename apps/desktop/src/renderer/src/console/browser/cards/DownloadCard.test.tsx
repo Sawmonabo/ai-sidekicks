@@ -12,6 +12,7 @@ import { refuse } from "../../core/index.js";
 import { BrowserDownloadCard, type BrowserDownloadCardProps } from "./DownloadCard.js";
 
 const BASE: BrowserDownloadCardProps = {
+  artifactId: "artifact-91cd",
   proposedFileName: "quarterly-report.pdf",
   sourcePageLabel: "Staging dashboard",
   ingest: { status: "stored", artifactId: "artifact-91cd", byteLength: 5242880 },

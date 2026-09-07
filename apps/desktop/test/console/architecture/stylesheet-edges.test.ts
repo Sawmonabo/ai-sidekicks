@@ -315,8 +315,8 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
     // shapes it is looking for. Read out of the real tree rather than asserted about
     // it, and read at BOTH kinds of door now that a family's sheets may enter at a
     // lazy chunk root instead: the repos family's door carries several sheets, the
-    // browser family's pane body carries the five that used to sit on the browser
-    // door, and the component beside that body carries none. The browser door itself
+    // browser family's pane body carries the seven that sit at that chunk root now,
+    // and the component beside that body carries none. The browser door itself
     // is deliberately not the sample any more — it carries no sheet at all, so a
     // reader that had stopped seeing imports would still pass there.
     const doorEdges = stylesheetImportsOf(`repos/${FAMILY_DOOR}`);

@@ -204,6 +204,27 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       await answerScriptedWrite(engine, "agent.configUpdate", "agentConfigUpdate", request),
     agentDetach: async (request) =>
       await answerScriptedWrite(engine, "agent.detach", "agentDetach", request),
+    // terminal lease — the two calls whose interesting answers are all refusals. Both
+    // route through the write seam rather than the read one: a take that nobody
+    // scripted has no honest served form, since taking the shell MOVES it and the
+    // pane's holder comes from the `pty.control_changed` beat rather than from this
+    // reply. A scenario that scripts a refusal reaches the caller's own `catch`
+    // exactly as a live rejection does, which is what makes the refusal renderings
+    // reachable at all.
+    terminalAcquireWriteLease: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "session.takeControl",
+        "terminalAcquireWriteLease",
+        request,
+      ),
+    terminalReleaseWriteLease: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "session.releaseControl",
+        "terminalReleaseWriteLease",
+        request,
+      ),
     orchestrationChildRunLinkRead: async (request) =>
       answerFromScriptedReply(
         engine,

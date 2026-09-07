@@ -68,6 +68,18 @@ const DESTINATION_NOTES: Readonly<Record<BrowserIngestState["status"], string | 
 
 export interface BrowserDownloadCardProps {
   /**
+   * Which produced object this card is about, wire-verbatim.
+   *
+   * The SHELF's key, and not a display value: `ProducedObjects.tsx` looks a card up by
+   * the artifact id the log's own fold carries, so a card whose identity reader
+   * answered anything else would never be found and would always render as the
+   * identity-only row. The capture arm is accidentally correct without this member
+   * because its register assigns the artifact id into the name it renders; this arm
+   * had no such coincidence, and a proposed file name is a page's suggestion rather
+   * than an identity at all.
+   */
+  readonly artifactId: string;
+  /**
    * The name the page proposed. Rendered as text and used as a locator by nothing —
    * the browser writes no file to a path a page chose.
    */
