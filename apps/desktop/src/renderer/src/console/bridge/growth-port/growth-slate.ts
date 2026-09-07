@@ -351,6 +351,15 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "repos surface (the mount card's health chip and the re-attach control the permanent verdict carries); settings mounts page (the mount row's verdict)",
     wireRegistered: false,
   },
+  "workflow-definition-authoring": {
+    id: "workflow-definition-authoring",
+    wire: "the three remaining registered workflow method strings — workflow.definitionRead, workflow.versionRead, and the single workflow.definitionCreate all five authoring acts ride — with the definition body they carry: the phase records, the four phase types and four gate types, the entry record, and the reference-only tool bindings. Three of the four rows the run-control row deliberately leaves out; the fourth is the draft save, which is declared with no V1 handler and so has nothing to reach. The write additionally carries a copy-on-write parent pointer no read reply returns, which is this row's own type-member prerequisite",
+    owningDocument:
+      "Spec-017 §Interfaces And Contracts (the definition read, the version read, and the create) + Spec-017 §Definition scope in the builder (SA-36) (the copy-on-write consequence and the operator-scope authorization a shared-target create clears) + Spec-017 §Definition file form — export and import (C-17) (the canonical file form export serializes into and import parses from); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
+    consumingSurface:
+      "workflow-builder pane (the definition detail and its authoring acts), definitions browser",
+    wireRegistered: false,
+  },
 };
 
 /**

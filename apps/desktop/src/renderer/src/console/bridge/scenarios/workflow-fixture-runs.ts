@@ -133,8 +133,10 @@ export const WORKFLOWS_PARKED_RUN: WorkflowRunSnapshot = {
  * WHAT THIS TABLE CANNOT SAY. A phase's readable NAME. `WorkflowPhaseState` carries
  * `phaseId` and no name, and neither the run read nor the definition enumeration
  * carries one — the name lives in the definition BODY that `workflow.versionRead`
- * serves, which is one of the four registered workflow methods the growth row does
- * not carry. A surface needing a phase name today has an id and an honest absence.
+ * serves, which `workflow-fixture-bodies.ts` now states and the growth port now
+ * routes. A run surface reading one would be reading the definition as well as the
+ * run, which nothing in this build does, so a surface holding only a run still has an
+ * id and an honest absence.
  */
 export const WORKFLOWS_SCENARIO_RUNS: readonly WorkflowRunSnapshot[] = [
   {

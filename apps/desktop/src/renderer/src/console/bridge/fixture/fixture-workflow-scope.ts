@@ -54,12 +54,13 @@ export function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkfl
 /**
  * What a workflow read is addressed by, where each refuses differently.
  *
- * Three, because three reads on this seam are addressed by a subject that can be
- * absent: a run, a phase of one, and the version a run is pinned to. The last is
- * reached only from a computed reply — the chain read scopes itself — so it appears
- * in the refusal below and never in the FIXED-reply derivation above it.
+ * Four, because four reads on this seam are addressed by a subject that can be absent:
+ * a run, a phase of one, the version a run is pinned to or a body was asked for, and
+ * the definition a browser row opens. Only the first two are reachable from a FIXED
+ * reply and so appear in the derivation above; the other two are reached from computed
+ * replies that scope themselves, so they appear in the refusal below and nowhere else.
  */
-export type WorkflowSubjectKind = "run" | "phase" | "version";
+export type WorkflowSubjectKind = "run" | "phase" | "version" | "definition";
 
 /**
  * The refusal for a workflow subject a scenario holds nothing for.

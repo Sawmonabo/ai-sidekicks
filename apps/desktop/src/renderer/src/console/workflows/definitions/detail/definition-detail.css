@@ -1,0 +1,192 @@
+/*
+ * The definition detail, inside the builder pane's body box.
+ *
+ * Owned by `DefinitionDetail.tsx` and its two siblings, and imported from this
+ * directory's own door, `detail/index.ts`, which is its one edge. The door is reached
+ * only from `pane/builder/WorkflowBuilderPane.tsx`, which arrives on the builder's own
+ * lazily-loaded chunk — so these rules land with the pane a person opened and are
+ * charged to no session that never opens one.
+ *
+ * EVERY SELECTOR IS THIS SURFACE'S OWN BLOCK. `meridian-definition-detail` appears in
+ * no other family; the browser's row block one directory up is `meridian-definition-row`
+ * and is deliberately untouched, so no bundle boundary decides how either looks.
+ * `test/console/architecture/stylesheet-selector-owners.test.ts` is the census that
+ * keeps a collision from landing unnoticed.
+ */
+
+.meridian-definition-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-inline-size: 0;
+}
+
+.meridian-definition-detail__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The identity block and the version block share one description-list shape, because
+ * they are the same kind of thing — a labelled wire value — and two layouts for one
+ * shape is how a surface starts looking like two surfaces.
+ */
+.meridian-definition-detail__facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  align-items: baseline;
+}
+
+.meridian-definition-detail__facts dt {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-definition-detail__facts dd {
+  margin: 0;
+  min-inline-size: 0;
+  /*
+   * A hash is 70 characters of mono with no break opportunity in it, and the pane's
+   * body box does not widen. Anywhere-breaking is what keeps it inside its own column
+   * rather than pushing the label out of the pane.
+   */
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-definition-detail__version,
+.meridian-definition-detail__chain,
+.meridian-definition-detail__acts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-definition-detail__phases,
+.meridian-definition-detail__chain-list,
+.meridian-definition-detail__outcomes,
+.meridian-definition-detail__bindings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+.meridian-definition-detail__phase,
+.meridian-definition-detail__chain-list li,
+.meridian-definition-detail__bindings li,
+.meridian-definition-detail__outcome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+  align-items: baseline;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-definition-detail__phase-name,
+.meridian-definition-detail__outcome-act {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text-primary);
+}
+
+.meridian-definition-detail__phase-failure,
+.meridian-definition-detail__phase-join {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The bindings sit under their phase rather than beside it: a server and tool pair is
+ * a wire string of its own length, and inline it would push the phase's own chips off
+ * the row it names. */
+.meridian-definition-detail__bindings {
+  flex-basis: 100%;
+  padding-inline-start: var(--meridian-space-3);
+}
+
+.meridian-definition-detail__act-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * Rule 3 spends the accent on interactive affordances, and these are the surface's
+ * own: a bordered control on the surface ground, so the acts read as pressable beside
+ * the facts they act on.
+ */
+.meridian-definition-detail__act {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-primary);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-border-subtle);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  cursor: pointer;
+}
+
+.meridian-definition-detail__act:hover {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-definition-detail__import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-definition-detail__import-label {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * Both boxes are mono, because both hold a file rather than prose: what a person
+ * pastes in and what an export writes out are the same bytes in the same form, and a
+ * proportional face would make one of them look like something else.
+ */
+.meridian-definition-detail__import-box,
+.meridian-definition-detail__file {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-primary);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-border-subtle);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-2);
+  inline-size: 100%;
+  min-inline-size: 0;
+  resize: vertical;
+}
+
+.meridian-definition-detail__outcome {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

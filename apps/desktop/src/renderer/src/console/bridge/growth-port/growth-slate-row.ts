@@ -58,7 +58,8 @@ export type GrowthSlateRowId =
   | "cost-receipt-read"
   | "workflow-version-chain"
   | "workspace-execution-context"
-  | "mount-health-identity-verdict";
+  | "mount-health-identity-verdict"
+  | "workflow-definition-authoring";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
