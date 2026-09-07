@@ -2549,11 +2549,13 @@ type InterventionRequestResponse =
       interventionType: "rollback";
       state: "applied"; // full-effect terminal — MANDATORY applied-class disposition (round 5)
       result: RollbackAppliedResult & RollbackAppliedResendOutcome;
+      rejectionGuard?: never; // the guard is the `rejected` arm's alone (Codex PR #449 round 4): `?: never` on every other arm so a producer-side variable carrying it fails at its construction site, not at the client's strict parse
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "degraded"; // partial / zero-effect terminal — MANDATORY degraded-class disposition (round 5)
       result: RollbackDegradedResult & RollbackDegradedResendOutcome;
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
@@ -2565,11 +2567,13 @@ type InterventionRequestResponse =
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "requested" | "accepted" | "expired";
-      result?: never; // no disposition exists on these states
+      result?: never;
+      rejectionGuard?: never; // no disposition exists on these states, and no guard
     })
   | (InterventionResponseBase & {
       interventionType: "steer" | "interrupt" | "cancel";
       result?: Record<string, unknown>;
+      rejectionGuard?: never; // only a rollback request can be a composite
     });
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the

@@ -726,11 +726,18 @@ export type InterventionRequestResponse =
       interventionType: "rollback";
       state: "applied";
       result: RollbackAppliedResult & RollbackAppliedResendOutcome;
+      // The guard is the `rejected` arm's alone. Declared `?: never` on every
+      // other arm for the same reason `result?: never` is below: structural
+      // assignability lets a producer-side variable carry a stray member that
+      // compiles and then fails the client's strict parse. `runControl.test-d.ts`
+      // pins this at compile time off a non-fresh variable.
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "degraded";
       result: RollbackDegradedResult & RollbackDegradedResendOutcome;
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
@@ -749,10 +756,13 @@ export type InterventionRequestResponse =
       interventionType: "rollback";
       state: "requested" | "accepted" | "expired";
       result?: never;
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "steer" | "interrupt" | "cancel";
       result?: Record<string, unknown> | undefined;
+      // Only a rollback request can be a composite.
+      rejectionGuard?: never;
     });
 
 // The base members every arm carries. Spread rather than composed through
@@ -768,9 +778,10 @@ const interventionResponseBaseShape = {
 } as const;
 
 // The non-disposition states (`requested` / `accepted` / `expired`) and the
-// `rejected` arm carry the doc's `result?: never` in the exported type (so a
-// stray `result` fails at compile time), while `.strict()` is what turns it
-// into a parse refusal at runtime.
+// `rejected` arm carry the doc's `result?: never` in the exported type, and
+// every arm but `rejected` carries `rejectionGuard?: never` (so a stray member
+// fails at compile time), while `.strict()` is what turns either into a parse
+// refusal at runtime.
 export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> =
   z.discriminatedUnion("interventionType", [
     z.discriminatedUnion("state", [
