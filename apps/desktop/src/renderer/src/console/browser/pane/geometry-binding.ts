@@ -13,10 +13,9 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
-import { overlayMotionObserver } from "../geometry/overlay-observation.js";
 import { resolvePaneViewHost, type PaneViewHost } from "../geometry/view-host.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
-import { airspaceRegistryFor, type AirspaceRegistry, type Unsubscribe } from "../../core/index.js";
+import { airspaceRegistryFor, type AirspaceRegistry } from "../../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 
 /**
@@ -65,12 +64,17 @@ export interface PaneSubject {
  * are in one window and do not share when they are not, so it is the key both sides can
  * name (`core/airspace-registries.ts`).
  *
- * IT ALSO INSTALLS THE MOTION OBSERVATION, which is why the binding holds a detacher.
- * The registrants arm the size seam; only a consumer drawing a native view needs an
- * overlay carried across the screen sampled per frame, and installing it here is what
- * keeps that frame loop off a window that is drawing no view at all.
+ * AND THE MOTION OBSERVATION IS THE PUBLISHER'S, not this function's. Only a consumer
+ * drawing a native view needs an overlay carried across the screen sampled per frame,
+ * and the publisher is that consumer: it arms the observation with its other five
+ * invalidation sources and retires it with them, so an unavailable host arms none and
+ * a self-disposal after a `pane-gone` rejection ends the frame loop rather than
+ * leaving it running under a binding nothing will dispose until the mount ends. The
+ * airspace still comes from here because the publisher is handed it as its overlay
+ * source, which is the one reading of it both halves share.
  *
- * Pure: it arms nothing beyond the observation it installs and detaches.
+ * Pure: it arms nothing at all. Every source this binding costs is armed by the
+ * publisher's own `observe` and retired by its own `dispose`.
  */
 export function createGeometryBinding(subject: PaneSubject): BoundGeometryPublisher {
   const host = resolvePaneViewHost(subject);
@@ -79,7 +83,6 @@ export function createGeometryBinding(subject: PaneSubject): BoundGeometryPublis
   return {
     ...subject,
     host,
-    detachOverlayMotion: airspace.installMotionObserver(overlayMotionObserver(clock)),
     publisher: new PaneGeometryPublisher({ host, clock, occlusion: airspace }),
   };
 }
@@ -102,7 +105,6 @@ function restingGeometryOutcome(host: PaneViewHost): PaneGeometryOutcome | undef
 
 /** Ends a binding. Terminal: `dispose` is what the publisher documents it as. */
 function closeGeometryBinding(bound: BoundGeometryPublisher): void {
-  bound.detachOverlayMotion();
   bound.publisher.dispose();
 }
 
@@ -204,6 +206,4 @@ export function useGeometryPublisher(
 export interface BoundGeometryPublisher extends PaneSubject {
   readonly host: PaneViewHost;
   readonly publisher: PaneGeometryPublisher;
-  /** Stops watching this window's overlays move. Runs with the publisher's disposal. */
-  readonly detachOverlayMotion: Unsubscribe;
 }

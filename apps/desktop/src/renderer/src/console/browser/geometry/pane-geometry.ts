@@ -20,7 +20,11 @@
 // overlay primitive registers into, reached through the narrow `PaneOverlaySource`
 // port so the two do not cycle.
 
-import { type AirspaceRect, type Unsubscribe } from "../../core/index.js";
+import {
+  type AirspaceMotionObserver,
+  type AirspaceRect,
+  type Unsubscribe,
+} from "../../core/index.js";
 
 /** Two-decimal rounding, as the factor: a `toFixed` round trip would be a second
  *  number formatter, which `apps/desktop/AGENTS.md` names a chokepoint breach. */
@@ -143,6 +147,18 @@ export interface PaneOverlaySource {
   liveRects(): readonly PaneRect[];
   /** Fires when an overlay opens or closes, so a publisher re-samples immediately. */
   subscribeToChanges(sink: () => void): Unsubscribe;
+  /**
+   * Watch every registered overlay ELEMENT for movement, until the answer is called.
+   *
+   * ON THE PORT RATHER THAN LEFT TO WHOEVER MINTS THE PUBLISHER, because an
+   * observation armed outside the publisher outlives every terminal the publisher
+   * has. The registry deliberately arms no frame of its own — the only consumer that
+   * needs an overlay sampled while a transition carries it is the one drawing a
+   * native view — so the consumer installs it, and the consumer is this publisher:
+   * the observation is an invalidation source like the other five, armed by `observe`
+   * and retired by `dispose` beside them.
+   */
+  installMotionObserver(observe: AirspaceMotionObserver): Unsubscribe;
 }
 
 /** What a sample is computed from. Pure inputs, so the arithmetic is testable. */

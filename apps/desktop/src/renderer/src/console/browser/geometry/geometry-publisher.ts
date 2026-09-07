@@ -27,6 +27,7 @@ import {
 import { observeElementResize } from "../../primitives/index.js";
 import { SCHEME_ATTRIBUTE } from "../../tokens/index.js";
 import { observeElementPosition } from "./element-motion.js";
+import { overlayMotionObserver } from "./overlay-observation.js";
 import {
   composePaneGeometrySample,
   type GeometryInvalidationReason,
@@ -90,7 +91,8 @@ export class PaneGeometryPublisher {
    *
    * On an unavailable host it arms NOTHING and records why: 12.3's empty state is "no
    * view attached, publishes are suppressed", and rectangles a host cannot take are
-   * work thrown away.
+   * work thrown away. The overlay MOTION observation is inside that guarantee rather
+   * than beside it, which is what the overlay-source arm below records.
    */
   public observe(hostElement: HTMLElement): Unsubscribe {
     if (this.#disposed) {
@@ -105,11 +107,7 @@ export class PaneGeometryPublisher {
     this.#armPositionObserver(hostElement);
     this.#armViewportListeners();
     this.#armThemeObserver();
-    this.#detachers.push(
-      this.#occlusion.subscribeToChanges(() => {
-        this.invalidate("overlay-change");
-      }),
-    );
+    this.#armOverlaySources();
     this.invalidate("attach");
     return () => {
       this.dispose();
@@ -246,6 +244,28 @@ export class PaneGeometryPublisher {
   #recordOutcome(outcome: PaneGeometryOutcome): void {
     this.#lastOutcome = outcome;
     this.#outcomeEmitter.emit();
+  }
+
+  /**
+   * The two overlay sources: the set's own change stream, and the per-frame motion
+   * observation only a consumer drawing a native view needs.
+   *
+   * BOTH ARMED HERE, AND THAT IS THE CORRECTION. The observation used to be installed
+   * by whoever minted this publisher, which put it outside every terminal this class
+   * has: a window with no view host armed a document listener and a frame sampler per
+   * moving overlay while `observe` was suppressing every publish, the self-disposal
+   * after a `pane-gone` rejection left it running for the life of the mount, and each
+   * pane paid for it whether or not it was drawing anything. Armed beside the other
+   * invalidation sources it is retired by `dispose` on every path there is, and a
+   * window drawing no view samples nothing.
+   */
+  #armOverlaySources(): void {
+    this.#detachers.push(
+      this.#occlusion.subscribeToChanges(() => {
+        this.invalidate("overlay-change");
+      }),
+      this.#occlusion.installMotionObserver(overlayMotionObserver(this.#clock)),
+    );
   }
 
   /**
