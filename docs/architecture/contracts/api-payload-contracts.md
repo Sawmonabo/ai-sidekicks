@@ -2496,7 +2496,7 @@ type RollbackInterventionResult =
 // Spec-004 §Required Behavior states all four and this registry previously settled them as `rejected`
 // results carrying `rejectionReason` alone. That member is a machine-readable CAUSE and never prose (its
 // own comment below, and the shipped console renders it verbatim in a refusal `code` slot that is "never
-// prose, never localized, never reworded" — `apps/desktop/src/renderer/src/console/core/refusal.ts`) —
+// prose, never localized, never reworded" — `apps/desktop/src/renderer/src/console/core/refusal.ts#ConsoleRefusal`) —
 // what it is not is a CLOSED VOCABULARY: [error-contracts.md §Intervention](./error-contracts.md#intervention)
 // deliberately registers no code for an intervention OUTCOME (`rejected` / `expired` / `degraded` "are
 // states, not error codes"; that namespace covers only request-level refusals producing no intervention
