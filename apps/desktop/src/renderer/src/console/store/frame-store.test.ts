@@ -22,10 +22,22 @@
 //     which makes what the cell PUBLISHES the whole contract, and the control below
 //     is the one that matters: an unchanged write must publish nothing, because the
 //     writer is an effect that re-runs on inputs the cell does not depend on.
+//   • **The focus seed.** `isWindowFocused` was `true` at construction and moved only
+//     on a transition, so a window that opened without focus received no `blur` to
+//     correct it and claimed an audience it never had. It is read from the document
+//     now, and the cases below drive both readings the store conjoins — the last of
+//     them is the negative control, since a seed that answered `false` everywhere
+//     would satisfy the first two and be just as wrong.
 
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
+import {
+  FOCUSED_DOCUMENT,
+  HIDDEN_DOCUMENT,
+  UNFOCUSED_DOCUMENT,
+  underDocumentFocus,
+} from "./document-focus.test-support.js";
 import { FrameStore } from "./frame-store.js";
 
 const SESSION_ROUTE_HASH = "#/session/session-alpha";
@@ -190,5 +202,51 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
     store.dismissBanner(raised?.id ?? "");
 
     expect(store.getState().banners).toStrictEqual([]);
+  });
+});
+
+describe("FrameStore — window focus is seeded from the window's own document", () => {
+  it("opens unfocused where the document does not hold the keyboard", () => {
+    // The defect: seeded `true`, this window never received a `blur` — it was never
+    // focused to lose it — so every consumer read an audience that was not there.
+    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+
+    expect(store.getState().isWindowFocused).toBe(false);
+  });
+
+  it("opens unfocused where the document is not on screen at all", () => {
+    // The second reading, and it is not the first one twice: a minimised window that
+    // had focus when it went down reports hidden, and a shell that creates a window
+    // without showing it reports hidden before anything is ever focused.
+    const store = underDocumentFocus(HIDDEN_DOCUMENT, () => new FrameStore());
+
+    expect(store.getState().isWindowFocused).toBe(false);
+  });
+
+  it("opens focused where the document is visible and holds the keyboard — the control", () => {
+    const store = underDocumentFocus(FOCUSED_DOCUMENT, () => new FrameStore());
+
+    expect(store.getState().isWindowFocused).toBe(true);
+  });
+
+  it("reads the document once, at construction, and not on every read", () => {
+    // What makes this a SEED rather than a subscription: the frame's focus and blur
+    // listeners are what move the cell afterwards, and a store that re-read the
+    // document on every access would be a second answer free to disagree with them.
+    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+
+    store.setWindowFocused(true);
+
+    expect(store.getState().isWindowFocused).toBe(true);
+  });
+
+  it("gives two windows built under different documents different answers", () => {
+    // I-023-12: an auxiliary window shares no store with the main one, and each one's
+    // document is the only thing that says whether anybody is looking at IT.
+    const background = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+    const foreground = underDocumentFocus(FOCUSED_DOCUMENT, () => new FrameStore());
+
+    expect(background.getState().isWindowFocused).toBe(false);
+    expect(foreground.getState().isWindowFocused).toBe(true);
   });
 });

@@ -103,7 +103,12 @@ export interface FrameStoreState {
    */
   readonly isModalSurfaceOpen: boolean;
   readonly banners: readonly FrameBanner[];
-  /** True while the window has focus; the refresh scheduler's `window-focus` reason. */
+  /**
+   * True while the window has focus; the refresh scheduler's `window-focus` reason.
+   *
+   * SEEDED FROM THE DOCUMENT AND NEVER ASSUMED — {@link documentReportsWindowFocus}
+   * states why — and moved afterwards by the frame's focus and blur listeners.
+   */
   readonly isWindowFocused: boolean;
   /**
    * What the shell has reported about itself, folded with this window's own
@@ -145,6 +150,38 @@ export interface FrameStoreOptions {
   readonly initialSchemePreference?: SchemePreference;
 }
 
+/**
+ * Whether somebody is looking at this window right now, asked of its own document.
+ *
+ * THE ONE READING OF THAT QUESTION, and it is a seed rather than a subscription: what
+ * keeps the cell current afterwards is the frame's focus and blur pair, and a second
+ * reader here would be a second answer free to disagree with the transitions.
+ *
+ * IT IS READ RATHER THAN ASSUMED, which is the whole of why it exists. The cell was
+ * seeded `true` and moved only on a later transition, so a window that opened WITHOUT
+ * focus — an auxiliary window placed behind the one a person is in, a main window
+ * restored minimised, any window opened while the person was in another application —
+ * never received the `blur` that would have corrected it and spent its whole life
+ * claiming an audience it did not have. That is not cosmetic: the attention emitter
+ * withholds a banner about the session a FOCUSED window is already showing, so every
+ * new item of such a window's active session was dropped and nobody was told.
+ *
+ * BOTH READINGS, CONJOINED, because neither implies the other and the audience rule
+ * means both. `hasFocus()` answers whether this document holds the keyboard —
+ * a visible window beside a focused one does not — and `visibilityState` answers
+ * whether it is on screen at all, which a minimised window that had focus when it went
+ * down is not. The conjunction also fails in the safer direction: a banner about
+ * something already on screen is a smaller harm than silence about something that is
+ * not.
+ *
+ * PER WINDOW BY CONSTRUCTION. An auxiliary window is its own renderer process with its
+ * own document and its own store (I-023-12), so this reads that window's own state and
+ * no other's — there is no window identifier to thread and nothing to key on.
+ */
+function documentReportsWindowFocus(): boolean {
+  return document.hasFocus() && document.visibilityState === "visible";
+}
+
 export class FrameStore {
   readonly #store: StoreApi<FrameStoreState>;
 
@@ -161,7 +198,7 @@ export class FrameStore {
       isPaletteOpen: false,
       isModalSurfaceOpen: false,
       banners: [],
-      isWindowFocused: true,
+      isWindowFocused: documentReportsWindowFocus(),
       shellState: UNREPORTED_SHELL_STATE,
       railAttentionCount: undefined,
     }));

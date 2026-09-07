@@ -13,110 +13,17 @@
 // cases below drive a settled control and a supervisor transition — and the control
 // drives an advancing retry ATTEMPT, which changes the state object and must change
 // nothing else.
+//
+// WHAT THE PORT DOES WHEN IT BREAKS ITS OWN CONTRACT is `DaemonPage.rejections.test.tsx`
+// beside this, over the same mount from `daemon-page.test-support.tsx`. Every case here
+// drives a port that keeps it: it answers, and the answer is served or refused.
 
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
 import { settle } from "../../../core/settle.test-support.js";
-import { UNREPORTED_SHELL_STATE, type ShellState } from "../../../store/index.js";
-import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";
-import { DaemonPage } from "./DaemonPage.js";
-
-/** The calls a case wants to see, in the order they were made. */
-interface ControlLedger {
-  readonly calls: string[];
-  /**
-   * One entry per status read, carrying the version THAT read answered with.
-   *
-   * A list and not a count, because both halves of the fifth claim are read off it:
-   * how many reads there were, and which answer is the one on screen.
-   */
-  readonly statusReads: string[];
-}
-
-/** How a case wants the port underneath the page to behave. */
-interface PortScript {
-  readonly servesStatus: boolean;
-  /**
-   * Whether a dispatched control is recorded and then never answered.
-   *
-   * The two double-press cases are about the window BETWEEN the dispatch and its
-   * settlement, and a port that answers on the next microtask closes that window
-   * before an assertion can read it — so those cases hold it open instead of racing.
-   */
-  readonly holdsControls: boolean;
-}
-
-function bridgeWith(ledger: ControlLedger, script: PortScript): ConsoleBridge {
-  const holdOpen = async (): Promise<void> => {
-    if (script.holdsControls) {
-      await new Promise<void>(() => undefined);
-    }
-  };
-  const growth = {
-    ...createRefusingGrowthPort(),
-    // A DIFFERENT VERSION EVERY TIME, so a case can tell a re-read from a re-render:
-    // an answer that never changes cannot distinguish a page that asked again from one
-    // that kept the first reply.
-    daemonStatusRead: async () => {
-      if (!script.servesStatus) {
-        return await createRefusingGrowthPort().daemonStatusRead({});
-      }
-      const version = `2026-04-30-read-${ledger.statusReads.length + 1}`;
-      ledger.statusReads.push(version);
-      return { status: "served", value: { state: "connected", version } } as const;
-    },
-    daemonStop: async () => {
-      ledger.calls.push("stop");
-      await holdOpen();
-      return { status: "served", value: undefined } as const;
-    },
-    daemonRestart: async () => {
-      ledger.calls.push("restart");
-      await holdOpen();
-      return await createRefusingGrowthPort().daemonRestart({});
-    },
-  };
-  return { growth } as unknown as ConsoleBridge;
-}
-
-/** One mounted page, and the supervisor state a case can move under it. */
-interface MountedDaemonPage {
-  readonly container: HTMLElement;
-  readonly ledger: ControlLedger;
-  /** Re-render the page under a different supervisor state, over the SAME bridge. */
-  readonly showShellState: (next: ShellState) => void;
-}
-
-function renderPage(options: {
-  readonly shellState?: ShellState;
-  readonly servesStatus?: boolean;
-  readonly holdsControls?: boolean;
-  readonly ledger?: ControlLedger;
-}): MountedDaemonPage {
-  const ledger = options.ledger ?? { calls: [], statusReads: [] };
-  // Built ONCE and reused across every re-render. The status answer is held against
-  // the growth port that produced it, so a bridge rebuilt per render would re-address
-  // the holder on every pass and make every case below read as a re-read.
-  const bridge = bridgeWith(ledger, {
-    servesStatus: options.servesStatus ?? true,
-    holdsControls: options.holdsControls ?? false,
-  });
-  const pageUnder = (shellState: ShellState): ReactNode => (
-    <DaemonPage context={settingsPageContextWith(bridge, undefined, undefined, shellState)} />
-  );
-  const { container, rerender } = render(pageUnder(options.shellState ?? UNREPORTED_SHELL_STATE));
-  return {
-    container,
-    ledger,
-    showShellState: (next) => {
-      rerender(pageUnder(next));
-    },
-  };
-}
+import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";
+import { getButton, renderPage } from "./daemon-page.test-support.js";
 
 describe("DaemonPage — the supervisor's numbers", () => {
   it("says nothing was reported rather than inventing a state", () => {
@@ -328,14 +235,3 @@ describe("DaemonPage — the two controls", () => {
     expect(labels).not.toContain("Start the local runtime");
   });
 });
-
-/** The button a case presses, found by its own label. */
-function getButton(container: HTMLElement, label: string): HTMLButtonElement {
-  const button = [...container.querySelectorAll("button")].find(
-    (candidate) => candidate.textContent === label,
-  );
-  if (button === undefined) {
-    throw new Error(`no button labelled ${label}`);
-  }
-  return button;
-}
