@@ -66,8 +66,10 @@ import type { RuntimeNodeRosterEntry, SessionId } from "@ai-sidekicks/contracts"
 
 import type { ConsoleBridge, ConsoleBridgeSource } from "../bridge/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
+import { nodeAttachDraftFor, nodeAttachReadsFor } from "./node-attach-seam.js";
 import { nodeRosterReadsFor } from "./node-roster-seam.js";
 import {
+  AttachFlow,
   CapabilityDeclaration,
   MixedVersionStatus,
   NodeRoster,
@@ -149,6 +151,54 @@ export function renderAbsorbedNodeRoster(
   return createElement(NodeRoster, {
     sessionId: resolvedSessionId,
     reads: nodeRosterReadsFor(bridge),
+  });
+}
+
+/**
+ * The attach flow, mounted wherever a node declaration is actually available.
+ *
+ * TAKES THE BRIDGE AND NEVER A DRAFT, which is the whole trust decision made once, in
+ * the module that can make it. `Spec-023 §Trust Stance` puts the declaration a machine
+ * makes about itself — its identity, the contract version it speaks, its self-reported
+ * health, and what it can run — in the main process, off the node registry. A caller
+ * that could pass a draft in would be a caller that could compose one, and a renderer
+ * composing one is a renderer vouching for a machine on its own word. So the draft is
+ * RESOLVED here and invented nowhere: `node-attach-seam.ts` asks the running scenario
+ * under the fixture, and answers nothing under the live bridge, where no registered
+ * read delivers such a declaration to this renderer yet.
+ *
+ * The absence it renders is therefore a statement about THIS window rather than about
+ * attaching: a machine attaches itself, and no reading here claims otherwise.
+ */
+export function renderAbsorbedAttachFlow(
+  bridge: ConsoleBridge | undefined,
+  sessionId: string | undefined,
+): ReactNode {
+  if (bridge === undefined) {
+    return centredAbsence({
+      kind: "not-checked",
+      title: "This surface was not handed a bridge to attach through.",
+      detail:
+        "An attach is one call against a session, and this mount resolved nothing to perform it with. Nothing was asked.",
+    });
+  }
+  const resolvedSessionId = brandedSessionId(sessionId);
+  if (resolvedSessionId === undefined) {
+    return noSessionAbsence();
+  }
+  const attachDraft = nodeAttachDraftFor(bridge);
+  if (attachDraft === undefined) {
+    return centredAbsence({
+      kind: "not-checked",
+      title: "A machine attaches itself, and this window is not that machine.",
+      detail:
+        "Attaching carries the declaration a node makes about itself — its identity, the contract version it speaks, its own health reading, and what it can run. That declaration is composed where the node registry lives and never in a renderer, which may not vouch for a machine on its own word. Nothing was asked here, and nothing was assumed.",
+    });
+  }
+  return createElement(AttachFlow, {
+    sessionId: resolvedSessionId,
+    attachDraft,
+    reads: nodeAttachReadsFor(bridge),
   });
 }
 

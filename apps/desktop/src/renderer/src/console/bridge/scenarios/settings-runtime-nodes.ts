@@ -14,10 +14,12 @@ import type {
   EventEnvelopeVersion,
   NodeId,
   ParticipantId,
+  RuntimeNodeAttachResponse,
   RuntimeNodeRosterEntry,
 } from "@ai-sidekicks/contracts";
 
-import type { ScenarioRuntimeNodeRosterFrame } from "../scenario-runtime/index.js";
+import type { RuntimeNodeAttachDraft } from "../../../runtime-node-attach/index.js";
+import type { ScenarioReply, ScenarioRuntimeNodeRosterFrame } from "../scenario-runtime/index.js";
 
 // Wire identifiers, spelled as the wire spells them — UUID v7 values whose leading
 // bytes are this scenario's own start instant, so a rendered id still tells one
@@ -33,6 +35,11 @@ export const SESSION_ID = "019b7892-1c00-75e5-8510-ada11a5a55a5";
 export const PARTICIPANT_YOU = "019b7892-1c00-79a4-8110-cca0117a0550" as ParticipantId;
 const NODE_WORKSTATION = "node-workstation" as NodeId;
 const NODE_BUILDER = "node-builder" as NodeId;
+// The machine the attach control is offered FOR, and it is deliberately not one of
+// the two above: an attach is a machine arriving, so pointing the declaration at a
+// node already in the roster would script a control whose success changes nothing a
+// reader can see.
+const NODE_LAPTOP = "node-laptop" as NodeId;
 
 // The MAJOR.MINOR wire-contract version each daemon reported at attach, which is
 // what the below-floor verdict is derived from — deliberately NOT the node's
@@ -160,9 +167,16 @@ function rosterRow(fields: {
  * just before. The two axes have different owners and are not reconciled anywhere on
  * the wire, so a page that renders one collapsed health scalar has to pick which of
  * these two true readings to report and is wrong whichever it picks.
+ *
+ * `controlHolder` carries both of its readings across the four frames. Nobody holds
+ * the session's shared shell while the machines are still registering, and this
+ * participant holds it from 160 on — so the page renders an advertised holder and a
+ * free lease without a scenario swap. A `null` here is deliberately undecomposable:
+ * a free lease and a holder suppressed behind an offline producer arrive the same
+ * way, and no client is entitled to tell them apart.
  */
 export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame[] = [
-  { atMs: 0, nodes: [] },
+  { atMs: 0, nodes: [], controlHolder: null },
   {
     // Both machines admitted, neither one heartbeating yet. `healthState` and
     // `lastHeartbeatAt` are NULL together here, which is not a gap in the script:
@@ -171,6 +185,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
     // axis has nothing to say, and a page that rendered it as "offline" would be
     // reporting a verdict the sweep has not reached.
     atMs: 60,
+    controlHolder: null,
     nodes: [
       rosterRow({
         nodeId: NODE_WORKSTATION,
@@ -194,6 +209,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
   },
   {
     atMs: 160,
+    controlHolder: PARTICIPANT_YOU,
     nodes: [
       rosterRow({
         nodeId: NODE_WORKSTATION,
@@ -220,6 +236,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
   },
   {
     atMs: 320,
+    controlHolder: PARTICIPANT_YOU,
     nodes: [
       rosterRow({
         nodeId: NODE_WORKSTATION,
@@ -242,3 +259,57 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
     ],
   },
 ];
+
+/**
+ * The declaration a third machine makes about itself, for the attach control to review.
+ *
+ * A NODE'S OWN CLAIM, AND THE FIXTURE IS STANDING IN FOR THE PROCESS THAT MAKES IT.
+ * `Spec-023 §Trust Stance` puts the composition of an attach draft in the main
+ * process, off the node registry, because identity, contract version, health, and
+ * capability set are things a machine asserts and a renderer may not assert on its
+ * behalf. So the console resolves this and composes nothing: the deck supplies it the
+ * way the deck supplies every other reading, and under the live bridge no read
+ * delivers one and the mount says so.
+ *
+ * It reports `online` at a CURRENT contract version, which is what makes the control
+ * worth rendering here: the roster beside it already carries a below-floor machine
+ * admitted read-only, so the page shows the admitted-not-ejected rule and an ordinary
+ * arrival in one view.
+ */
+export const SETTINGS_RUNTIME_NODE_ATTACH_DRAFT: RuntimeNodeAttachDraft = {
+  participantId: PARTICIPANT_YOU,
+  nodeId: NODE_LAPTOP,
+  clientVersion: CLIENT_VERSION_CURRENT,
+  // The same one-capability shape the roster rows carry, and typed `unknown` on the
+  // wire for the same reason: no source enumerates what a node may declare.
+  capabilities: { "provider-driver": { available: true } },
+  healthState: "online",
+};
+
+/** What the daemon answers that attach with, at the registered response shape. */
+const SETTINGS_RUNTIME_NODE_ATTACH_RESPONSE: RuntimeNodeAttachResponse = {
+  attachmentId: "019b7892-1c00-7ea1-8190-cca0117a0559",
+  // `registering` and not `online`: the attach records the machine, and the liveness
+  // axis is the sweep's to answer once a heartbeat lands. A fixture that answered
+  // `online` here would teach the flow that attaching proves a node is up.
+  state: "registering",
+  // The permission axis, derived from the declared contract version against the
+  // session floor. This machine reports the current version, so it is admitted with
+  // the session's full write surface.
+  readOnly: false,
+  attachedAt: occurredAt(420),
+};
+
+/**
+ * The attach reply this scenario scripts, on a latency a person can watch.
+ *
+ * `afterMs` is what makes the flow's pending arm reachable at all: an attach that
+ * settled in the same tick it was issued would leave the in-flight state unrendered
+ * in the whole deck, and that state is the one a slow control plane spends the most
+ * time in.
+ */
+export const SETTINGS_RUNTIME_NODE_ATTACH_REPLY: ScenarioReply = {
+  call: "runtimenode.attach",
+  afterMs: 60,
+  result: SETTINGS_RUNTIME_NODE_ATTACH_RESPONSE,
+};

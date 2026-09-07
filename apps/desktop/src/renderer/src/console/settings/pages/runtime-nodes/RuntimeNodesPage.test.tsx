@@ -15,6 +15,10 @@ import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-p
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { unscriptedScenario } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
+import {
+  PARTICIPANT_YOU,
+  SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
+} from "../../../bridge/scenarios/settings-runtime-nodes.js";
 import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 
@@ -26,6 +30,16 @@ import { settle } from "../../../core/settle.test-support.js";
  * per-axis assertions below are what pin the tick.
  */
 const BOTH_MACHINES_ONLINE_MS = 200;
+
+/**
+ * A tick inside the scenario's second roster frame, before the write lease is taken.
+ *
+ * Its first two frames carry a `null` holder and its last two carry this participant,
+ * so one scenario reaches both readings of the shared-shell line and neither needs a
+ * deck of its own. The frame's rows are what pin it: at this tick both machines are
+ * admitted and neither has heartbeated.
+ */
+const BEFORE_THE_LEASE_IS_TAKEN_MS = 90;
 
 function contextFor(
   bridge: ConsoleBridge,
@@ -125,17 +139,64 @@ describe("runtime nodes page", () => {
     expect(screen.queryByRole("alert", { name: "node-roster-error" })).toBeNull();
   });
 
-  it("offers no attachment it cannot compose", async () => {
-    const { container } = render(
+  it("offers the attach control against the declaration the deck supplies", async () => {
+    // The control is REVIEW BEFORE SEND: the machine's whole claim is on screen and
+    // the button is the participant's own act. A mount that fired on render would
+    // pass a text assertion and be the wrong surface, so the declaration and the
+    // un-fired state are asserted together.
+    render(
       <RuntimeNodesPage context={contextFor(bridgeWithRoster(), SETTINGS_SCENARIO.sessionId)} />,
     );
-    const text = container.textContent ?? "";
-    expect(text).toContain("A machine attaches itself");
-    expect(container.querySelectorAll("button")).toHaveLength(0);
+
+    const control = await screen.findByLabelText("runtime-node-attach-idle");
+    expect(control.getAttribute("data-attach-state")).toBe("idle");
+    const declaration = control.querySelector('ul[aria-label="attach-node-declaration"]');
+    expect(declaration?.textContent).toContain(SETTINGS_RUNTIME_NODE_ATTACH_DRAFT.nodeId);
+    expect(declaration?.textContent).toContain(SETTINGS_RUNTIME_NODE_ATTACH_DRAFT.clientVersion);
+    expect(screen.getByRole("button", { name: "Attach runtime node" })).not.toBeNull();
     // The assertions are the case and they are taken first. This mount put a roster
     // read on the wire, and a case that ends before it answers leaves the arrival to
     // land outside React's scope on a tree already coming down — an unwrapped-update
     // warning charged to whichever file ran next. Nothing above is waiting for it.
+    await settle();
+  });
+
+  it("negative control: a scenario naming no declaration offers no attach control", async () => {
+    // Without this the case above would pass over a page that composed a draft of its
+    // own, which is the one thing `Spec-023 §Trust Stance` forbids this renderer to do.
+    const scenario = unscriptedScenario("nodes-page-no-attach-draft");
+    const { container } = render(
+      <RuntimeNodesPage
+        context={contextFor(createFixtureBridge({ scenario }), scenario.sessionId)}
+      />,
+    );
+
+    expect(container.textContent ?? "").toContain("A machine attaches itself");
+    expect(screen.queryByRole("button", { name: "Attach runtime node" })).toBeNull();
+    await settle();
+  });
+
+  it("reports who holds the shared shell, off the roster the rows came from", async () => {
+    render(
+      <RuntimeNodesPage context={contextFor(bridgeWithRoster(), SETTINGS_SCENARIO.sessionId)} />,
+    );
+
+    const holderLine = await screen.findByText("Held by");
+    const block = holderLine.closest("p");
+    expect(block?.textContent).toContain(PARTICIPANT_YOU);
+    await settle();
+  });
+
+  it("says the lease is unheld while the scenario's holder is null", async () => {
+    // The frame before the holder takes it. Rendering "unheld" here and "held" above
+    // from ONE read is the property the block exists for: a second `runtimenode.roster`
+    // could answer a holder the rows beside it disagree with.
+    const bridge = createFixtureBridge({ scenario: SETTINGS_SCENARIO });
+    bridge.scenarioEngine?.advance(BEFORE_THE_LEASE_IS_TAKEN_MS);
+    render(<RuntimeNodesPage context={contextFor(bridge, SETTINGS_SCENARIO.sessionId)} />);
+
+    expect(await screen.findByText("Unheld")).not.toBeNull();
+    expect(screen.queryByText("Held by")).toBeNull();
     await settle();
   });
 

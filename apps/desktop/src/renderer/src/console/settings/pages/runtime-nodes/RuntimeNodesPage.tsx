@@ -35,21 +35,30 @@
 // forbids. What this page raises instead is the presence signal its contract already
 // takes, on window focus, and the view re-reads through its own path.
 //
-// WHAT THIS PAGE CANNOT OFFER, AND WHY IT SAYS SO
+// AND WHO HOLDS THE SHARED SHELL, WHICH IS NOT A COLUMN. `controlHolder` rides the
+// roster RESPONSE rather than a row, because one write lease exists per session — so
+// it renders as one line beside the node list, out of the same recorded read, and the
+// page offers no lease control: taking and releasing belong to the terminal deck,
+// against the daemon that owns the lease record.
+//
+// WHAT THIS PAGE OFFERS, AND WHAT DECIDES WHETHER IT CAN
 //
 // The section names three controls: the roster read, an attach, and a capability
-// snapshot refresh. The roster is session-scoped and the settings address carries
-// no session, so the page asks for the session the console has open and renders the
-// absence when there is none. The attach and refresh controls take an attach draft
-// — a node identity plus its declared capability map, and the node's own health
-// self-report — that no address and no registered read supplies to this renderer;
-// `seats/absorbed-surfaces.ts` states the same fact about the same component. Composing
-// one here would be inventing the declaration a node makes about itself, so the page
-// renders the absence and names what is missing instead.
+// snapshot refresh. The roster is session-scoped and the settings address carries no
+// session, so the page asks for the session the console has open and renders the
+// absence when there is none. The attach control mounts the shipped flow through
+// `seats/absorbed-surfaces.ts`, which resolves the attach draft rather than accepting
+// one: that draft is a machine's claim about its own identity, contract version,
+// health and capability set, and `Spec-023 §Trust Stance` puts its composition in the
+// main process, off the node registry. So the page names the control and the SEAT
+// decides whether there is a declaration to review — a scenario's under the fixture,
+// nothing under the live bridge until a registered read delivers one — and the absence
+// it renders is a statement about this window rather than about attaching.
 
 import type { ReactNode } from "react";
 
-import { renderAbsorbedNodeRoster } from "../../../seats/index.js";
+import { renderAbsorbedAttachFlow, renderAbsorbedNodeRoster } from "../../../seats/index.js";
+import { ControlHolderBlock } from "./ControlHolderBlock.js";
 import { NodeDeclarationsBlock } from "./NodeDeclarationsBlock.js";
 import { Chip, Nothing } from "../../../primitives/index.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
@@ -58,7 +67,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 const OWNER = "collaboration-settings-nodes";
 
 export function RuntimeNodesPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const { bridge, retainedSessionId } = props.context;
+  const { bridge, retainedSessionId, retainedSessionStore } = props.context;
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
@@ -92,17 +101,28 @@ export function RuntimeNodesPage(props: { readonly context: SettingsPageContext 
       </section>
 
       {retainedSessionId === undefined ? null : (
+        <ControlHolderBlock
+          bridge={bridge}
+          sessionId={retainedSessionId}
+          sessionStore={retainedSessionStore}
+        />
+      )}
+
+      {retainedSessionId === undefined ? null : (
         <NodeDeclarationsBlock bridge={bridge} sessionId={retainedSessionId} />
       )}
 
-      <section className="meridian-settings-page__block" aria-label="Managing an attachment">
+      <section
+        className="meridian-settings-page__block meridian-node-attach"
+        aria-label="Managing an attachment"
+      >
         <h3 className="meridian-settings-page__block-title">Attaching a node</h3>
-        <Nothing
-          kind="not-checked"
-          placement="inline"
-          title="A machine attaches itself, and this window is not that machine."
-          detail="Attaching and refreshing a capability snapshot both carry the declaration a node makes about itself — its identity, the contract version it speaks, and what it can run. That declaration is composed where the node registry lives and never in a renderer, which may not vouch for a machine on its own word. Nothing was asked here, and nothing was assumed."
-        />
+        <p className="meridian-settings-page__aside">
+          An attach is one deliberate act, and the declaration it carries is reviewed before it is
+          sent — never fired because something rendered. Refreshing a capability snapshot carries
+          the same declaration and is the node&rsquo;s own act for the same reason.
+        </p>
+        {renderAbsorbedAttachFlow(bridge, retainedSessionId)}
       </section>
     </div>
   );
@@ -130,6 +150,9 @@ export function registerRuntimeNodesPage(registry: SettingsPageRegistry): void {
       "capabilities",
       "version floor",
       "read-only",
+      "terminal control",
+      "shared shell",
+      "lease",
     ],
     render: (context) => <RuntimeNodesPage context={context} />,
   });

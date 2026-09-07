@@ -64,6 +64,12 @@ describe("the settings scenario", () => {
     // growth port's refusal, which is exactly what the shipped build does.
     expect(scriptedCalls).toStrictEqual([
       "agent.list",
+      // The one MUTATION on this deck, and the only reply here that is a control-plane
+      // procedure rather than a daemon method: the nodes page mounts the shipped attach
+      // flow against the declaration this scenario supplies, and a control whose click
+      // reached an unscripted call would render the fixture's own authoring refusal in
+      // place of the settled verdict a person is meant to review.
+      "runtimenode.attach",
       "health.statusRead",
       "health.stuckRunInspect",
       "health.failureDetailRead",

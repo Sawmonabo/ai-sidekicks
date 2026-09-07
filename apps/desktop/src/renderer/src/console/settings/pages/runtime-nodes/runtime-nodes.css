@@ -187,3 +187,147 @@
 .meridian-node-declarations__version p {
   margin: 0;
 }
+
+/* --- Who holds the shared shell ----------------------------------------- */
+
+/* The holder's identity is drawn as a MARK and never as coloured text — rule 2 puts
+ * the participant hue on a mark, and rule 3 keeps the one accent for the interactive
+ * thing, of which this block has none. The mark is 2 px, which is rule 1's
+ * attribution width carried onto an element that is not a row edge.
+ *
+ * The four fills are the wheel's four ring treatments, which is what tells two people
+ * sharing a step apart. They are spelled here rather than reached for, because a class
+ * defined in another family is that family's private vocabulary; what the two surfaces
+ * genuinely share is the hue TOKEN, and that is what both read. */
+.meridian-control-holder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-control-holder__mark {
+  align-self: center;
+  flex: none;
+  inline-size: 2px;
+  block-size: 1.1em;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-control-holder-hue);
+}
+
+/* A holder the session's hue wheel never admitted, and the free-lease line. Neither
+ * borrows a colour: the neutral control boundary is the fail-closed answer. */
+.meridian-control-holder__mark--unattributed {
+  background: var(--meridian-edge-strong);
+}
+
+.meridian-control-holder__mark--dashed {
+  background: repeating-linear-gradient(
+    var(--meridian-control-holder-hue) 0 4px,
+    transparent 4px 7px
+  );
+}
+
+.meridian-control-holder__mark--double {
+  background: repeating-linear-gradient(
+    var(--meridian-control-holder-hue) 0 2px,
+    transparent 2px 3px,
+    var(--meridian-control-holder-hue) 3px 5px,
+    transparent 5px 8px
+  );
+}
+
+.meridian-control-holder__mark--dotted {
+  background: repeating-linear-gradient(
+    var(--meridian-control-holder-hue) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+/* --- Attaching a machine ------------------------------------------------- */
+
+/* The shipped attach flow, scoped from this page's side exactly as the roster above
+ * is. Its four branches all carry `data-attach-state`, and the declaration list is
+ * rendered on every one of them, so the layout below is written once against the
+ * section and not per branch — which is also the honest shape: what changes between
+ * branches is the verdict under the declaration, never the declaration itself. */
+.meridian-node-attach section[data-attach-state] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-node-attach section[data-attach-state] ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22ch, 1fr));
+  gap: var(--meridian-space-1) var(--meridian-space-4);
+  inline-size: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.meridian-node-attach section[data-attach-state] p {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+/* The one interactive thing in this block takes the one accent, per rule 3. It is
+ * absent from the pending branch by construction — the shipped view removes it rather
+ * than disabling it — so no rule here has to hide it. */
+.meridian-node-attach section[data-attach-state] button {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-accent);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-node-attach section[data-attach-state] button:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* An attach in flight, marked on the ground rather than by replacing the declaration:
+ * the machine's claim is what a person is still reading while the call is out. */
+.meridian-node-attach section[data-attach-state="pending"] {
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+}
+
+/* The settled arms. A refusal is the daemon's, rendered in its own words by the
+ * shipped view; this only gives it the standing the other refusals on the page have. */
+.meridian-node-attach section[data-attach-state="rejected"] {
+  border-left: 3px solid var(--meridian-red-mark);
+}
+
+.meridian-node-attach section[data-attach-state="rejected"] > p {
+  color: var(--meridian-red-text);
+}
+
+.meridian-node-attach section[data-attach-state="resolved"] {
+  border-left: 3px solid var(--meridian-accent);
+}
+
+/* Admitted below the floor is still admitted, and the mark says degraded and never
+ * refused — the same amber the roster's own below-floor row carries. */
+.meridian-node-attach section[data-attach-state="resolved"][data-read-only="true"] {
+  border-left-color: var(--meridian-amber-mark);
+}

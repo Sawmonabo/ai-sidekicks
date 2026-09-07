@@ -30,9 +30,15 @@ import { COLLABORATION_SCENARIO } from "../bridge/scenarios/collaboration.js";
 import { unscriptedScenario } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { ConsoleRefusalError } from "../core/index.js";
 import { SurfaceAbsence } from "../primitives/index.js";
-import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
+import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
+import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../bridge/scenarios/settings-runtime-nodes.js";
+import { AttachFlow, NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
-import { renderAbsorbedNodeRoster, renderAbsorbedSessionProbe } from "./absorbed-surfaces.js";
+import {
+  renderAbsorbedAttachFlow,
+  renderAbsorbedNodeRoster,
+  renderAbsorbedSessionProbe,
+} from "./absorbed-surfaces.js";
 
 /** The element a helper produced, or a failure that names what came back instead. */
 function renderedElement(node: ReactNode): { type: unknown; props: Record<string, unknown> } {
@@ -118,6 +124,50 @@ describe("absorbed surfaces — the families a console surface mounts", () => {
     // failed: none was performed.
     const element = centredAbsence(renderAbsorbedNodeRoster(undefined, "session-9"));
     expect(element.type).not.toBe(NodeRoster);
+    expect(element.props["kind"]).toBe("not-checked");
+  });
+});
+
+describe("absorbed surfaces — the attach flow and the declaration it reviews", () => {
+  /** A bridge over the one scenario whose deck supplies a node declaration. */
+  function bridgeWithDeclaration(): ConsoleBridge {
+    return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
+  }
+
+  it("mounts the flow with the resolved declaration and this bridge's transport", () => {
+    const element = renderedElement(
+      renderAbsorbedAttachFlow(bridgeWithDeclaration(), SETTINGS_SCENARIO.sessionId),
+    );
+    expect(element.type).toBe(AttachFlow);
+    expect(element.props["sessionId"]).toBe(SETTINGS_SCENARIO.sessionId);
+    expect(element.props["attachDraft"]).toBe(SETTINGS_RUNTIME_NODE_ATTACH_DRAFT);
+    // The transport is what makes this renderable at all: without a seam the view
+    // reaches the installed preload, which under a fixture build is either absent or
+    // the live daemon answering beside fixture data in the same window.
+    expect(element.props["reads"]).not.toBe(undefined);
+  });
+
+  it("composes no declaration where the deck supplies none", () => {
+    // The trust decision, made once here rather than at each caller: a helper that
+    // could be handed a draft is a helper whose callers could compose one.
+    const element = centredAbsence(
+      renderAbsorbedAttachFlow(fixtureBridge(), COLLABORATION_SCENARIO.sessionId),
+    );
+    expect(element.type).not.toBe(AttachFlow);
+    expect(element.props["kind"]).toBe("not-checked");
+  });
+
+  it("asks for a session before it offers to attach into one", () => {
+    const element = centredAbsence(renderAbsorbedAttachFlow(bridgeWithDeclaration(), undefined));
+    expect(element.type).not.toBe(AttachFlow);
+    expect(element.props["kind"]).toBe("empty");
+  });
+
+  it("says nothing was asked when the mount resolved no bridge to attach through", () => {
+    const element = centredAbsence(
+      renderAbsorbedAttachFlow(undefined, SETTINGS_SCENARIO.sessionId),
+    );
+    expect(element.type).not.toBe(AttachFlow);
     expect(element.props["kind"]).toBe("not-checked");
   });
 });
