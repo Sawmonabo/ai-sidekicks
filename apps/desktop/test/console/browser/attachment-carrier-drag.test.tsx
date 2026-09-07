@@ -27,6 +27,7 @@ import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/m
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
+import { SHIPPED_DEFAULT_ALLOWLIST } from "../../../src/renderer/src/console/repos/attachments/attachment-bounds.js";
 import { CarrierList } from "../../../src/renderer/src/console/repos/attachments/CarrierList.js";
 import {
   CARRIER_ENTRY_MILLISECONDS,
@@ -36,9 +37,6 @@ import {
 // stylesheets behind its own barrel and nowhere else, and two of the cases below are
 // about what those rules compute to.
 import "../../../src/renderer/src/console/repos/index.js";
-
-/** The per-attachment bound these rows are measured against — none of them is near it. */
-const ADMITTED_BYTES = 1_000_000;
 
 /** What the list reported, so a case can assert the move the gesture asked for. */
 interface DraggedCarrier {
@@ -55,7 +53,13 @@ async function mountCarrier(): Promise<DraggedCarrier> {
       <CarrierList
         entries={threeAttachmentCarrier()}
         publishedAtMilliseconds={CARRIER_ENTRY_MILLISECONDS}
-        maximumByteLength={ADMITTED_BYTES}
+        // The reading the console itself mounts, rather than a bound invented here:
+        // no wire answers the effective allow-list, so `AttachmentCarrierSection`
+        // passes this same value on every build, and a tier that exists to drive the
+        // REAL layout and the REAL cascade should lay out the rows a person sees.
+        // None of the three entries is near the bound, so no row draws its
+        // over-allowance region and the geometry the hit test reads is unchanged.
+        allowlist={SHIPPED_DEFAULT_ALLOWLIST}
         onRetry={() => undefined}
         onAbandon={() => undefined}
         onReorder={(localId, toPosition) => {
