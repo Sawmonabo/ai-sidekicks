@@ -26,7 +26,7 @@
 // up on the first pass, and resolving in an effect would mean the first paint has
 // already said the page is missing.
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFrameStore, useOpenSessionStore, useShellState } from "../store/index.js";
 import { settingsSelection } from "../routing/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
@@ -69,6 +69,13 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   const selection = settingsSelection(route);
   const selectedSection = requestedSection(requestedPage);
   const [searchQuery, setSearchQuery] = useState("");
+  // ONE-SHOT, AND A COUNTER RATHER THAN A BOOLEAN. A search hit has to land the
+  // reader in the pane and settle there — "a match names where it landed, scrolls
+  // into the pane, and settles with one brief highlight" — and the second hit on the
+  // SAME section has to settle again. A boolean cannot express that: it is already
+  // true, so nothing downstream changes and the second press does nothing at all. The
+  // ordinal moves on every hit, which is what makes each one an act.
+  const [settleOrdinal, setSettleOrdinal] = useState(0);
   // SUBSCRIBED, not snapshotted. A getter read during render answers whatever the
   // store held on that pass and nothing re-renders when it changes, so a session
   // opened in another destination would reach these pages only on the next
@@ -76,24 +83,41 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   // does this one, which is also why the settings family holds no copy of the id.
   const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
 
-  const openSection = (section: SettingsSectionId): void => {
-    // WARMED BEFORE THE ROUTE COMMITS, which is `frame/rail-navigation.ts`'s rule one
-    // level down: this is the moment the intent is legible and the act has not happened.
-    // It sits in the SHARED callback rather than beside either control, because the rail's
-    // row, a search hit, and a page that navigates to a sibling section all reach a section
-    // through this one line — so none of them can be the path that forgot, and a person who
-    // clicks a deferred page cold does not watch its reservation after an explicit act.
-    //
-    // A `render:`-form or unregistered section settles immediately with nothing done, so
-    // the line asks no question about how the page it is opening was registered.
-    //
-    // Fire-and-forget with the rejection dropped, on the idle walk's own reasoning: a chunk
-    // that will not load is a damaged install, and the honest place to say so is the mount,
-    // inside the surface error boundary, where somebody is waiting for it. Awaiting here
-    // would stall a navigation the person has already made.
-    void pages.preload(section).catch(() => undefined);
-    context.frameStore.navigate({ kind: "settings", page: section });
-  };
+  const openSection = useCallback(
+    (section: SettingsSectionId): void => {
+      // WARMED BEFORE THE ROUTE COMMITS, which is `frame/rail-navigation.ts`'s rule one
+      // level down: this is the moment the intent is legible and the act has not
+      // happened. It sits in the SHARED callback rather than beside either control,
+      // because the rail's row, a search hit, and a page that navigates to a sibling
+      // section all reach a section through this one line — so none of them can be the
+      // path that forgot, and a person who clicks a deferred page cold does not watch
+      // its reservation after an explicit act.
+      //
+      // A `render:`-form or unregistered section settles immediately with nothing done,
+      // so the line asks no question about how the page it is opening was registered.
+      //
+      // Fire-and-forget with the rejection dropped, on the idle walk's own reasoning: a
+      // chunk that will not load is a damaged install, and the honest place to say so is
+      // the mount, inside the surface error boundary, where somebody is waiting for it.
+      // Awaiting here would stall a navigation the person has already made.
+      void pages.preload(section).catch(() => undefined);
+      context.frameStore.navigate({ kind: "settings", page: section });
+    },
+    [context.frameStore, pages],
+  );
+
+  /**
+   * Open a section from a SEARCH HIT, which is a different act from pressing a rail
+   * entry: the rail already tells a person where they are, and a hit has to say
+   * where it landed them.
+   */
+  const openSearchHit = useCallback(
+    (section: SettingsSectionId): void => {
+      openSection(section);
+      setSettleOrdinal((held) => held + 1);
+    },
+    [openSection],
+  );
 
   // The RETAINED session, never the route's projection. Every settings address is
   // `kind: "settings"` and names no session, so the projection is `undefined` on all
@@ -117,6 +141,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
     retainedSessionId,
     retainedSessionStore,
     shellState,
+    uiStateStore: context.uiStateStore,
   };
 
   // Warmed at idle, before any of that: the board's lifetime begins when this destination
@@ -143,7 +168,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
             query={searchQuery}
             matches={matches}
             selectedSection={selectedSection}
-            onOpenSection={openSection}
+            onOpenSection={openSearchHit}
           />
         ) : (
           <SettingsSectionRail selectedSection={selectedSection} onOpenSection={openSection} />
@@ -155,6 +180,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
           attempted={requestedPage}
           context={pageContext}
           pages={pages}
+          settleOrdinal={settleOrdinal}
         />
       </div>
     </section>

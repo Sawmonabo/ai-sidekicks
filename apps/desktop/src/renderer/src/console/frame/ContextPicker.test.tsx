@@ -20,6 +20,7 @@ import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { SessionStoreRegistry } from "../store/index.js";
 import { ContextPicker } from "./ContextPicker.js";
+import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 
 /** The dotted code a daemon envelope carries, which has to reach the screen. */
 const DAEMON_REFUSAL_CODE = "session.list_unavailable";
@@ -51,6 +52,7 @@ async function renderPicker(growth: GrowthPort): Promise<void> {
       route="timeline"
       registry={emptyRegistry()}
       growth={growth}
+      transportReconnect={NO_TRANSPORT_RECONNECT}
       onChoose={() => {
         throw new Error("nothing is offerable, so nothing can be chosen");
       }}

@@ -386,3 +386,27 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
  */
 export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
   BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;
+
+/**
+ * The narrowest viewport the console lays out in, in CSS px.
+ *
+ * WCAG 2.2 SC 1.4.10 (Reflow) asks that vertically scrolling content be usable
+ * without scrolling in two dimensions at a width equivalent to 320 CSS px — the
+ * width a 1280 px window reaches at 400% zoom, which is how an operator with low
+ * vision actually arrives here rather than by narrowing a window to a phone.
+ *
+ * It is a FLOOR the frame declares, not a breakpoint anything switches on. The
+ * console's answer to the criterion is one fluid layout that holds down to this
+ * width — `frame.css` spends it as the frame's `min-width`, so a viewport below it
+ * scrolls the whole document horizontally instead of squeezing every surface
+ * inside an unbounded amount further. Above it every surface sizes off its own
+ * content; the four width-conditional rules the console has are each written to
+ * collapse toward this end of the range, so no surface needs a second layout to
+ * reach it.
+ *
+ * A px value rather than a rem one, and that is the criterion's own unit: a CSS px
+ * is fixed against the reference pixel, while a rem tracks the root font size the
+ * operator may also have raised, so a floor written in rem would move under
+ * exactly the person it exists for.
+ */
+export const REFLOW_MIN_WIDTH_PX = 320;

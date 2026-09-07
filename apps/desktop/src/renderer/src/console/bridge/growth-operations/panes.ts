@@ -139,12 +139,6 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "method",
     "open a local file, subject to the daemon's mount-envelope containment check",
   ),
-  browserClearSiteData: op(
-    "browserClearSiteData",
-    "browser-pane-namespace",
-    "method",
-    "close every page in the session, then clear its partition store and profile directory",
-  ),
   browserRevealPageFile: op(
     "browserRevealPageFile",
     "browser-pane-namespace",
@@ -174,6 +168,30 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "browser-pane-namespace",
     "subscription",
     "claimed keystrokes handed back from a page for the renderer to replay",
+  ),
+  browserPolicyRead: op(
+    "browserPolicyRead",
+    "browser-pane-namespace",
+    "method",
+    "the two node-wide browser switches — the file boundary and the page-tool grant",
+  ),
+  browserPolicyWrite: op(
+    "browserPolicyWrite",
+    "browser-pane-namespace",
+    "method",
+    "flip one node-wide browser switch",
+  ),
+  browserSiteDataList: op(
+    "browserSiteDataList",
+    "browser-pane-namespace",
+    "method",
+    "the per-session site-data partitions this node holds, with the bytes each one stores",
+  ),
+  browserSiteDataClear: op(
+    "browserSiteDataClear",
+    "browser-pane-namespace",
+    "method",
+    "clear one session's stored site data, after its browser panes have been closed",
   ),
   terminalSubscribeOutput: op(
     "terminalSubscribeOutput",

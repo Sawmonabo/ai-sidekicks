@@ -49,7 +49,7 @@
 //     would fire on a change this console has no standing to refuse.
 //   • Nothing. The `shell/` subtree IS scanned — the package's own structure rules
 //     place it beside the console as a `console-unit` resident, and three of the
-//     eleven modules that consume the call door live in it.
+//     fourteen modules that consume the call door live in it.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -188,11 +188,14 @@ function isBridgeFamilyModule(module: string): boolean {
  *      starts.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
- * none around it. The composer's half was six until its target chip stopped taking a
- * `providerAccount.list` of its own to join a paying account's label: that registry is
- * node-scoped and `console/bridge/quotas/provider-account-quota.ts` already reads it
- * once per window, so the label rows are folded off that reading and the chip joins
- * them.
+ * none around it. TWICE now the number has come DOWN because a surface stopped taking
+ * a `providerAccount.list` of its own: the composer's half was six until its target
+ * chip joined the node's reading for a paying account's label, and the settings
+ * accounts shell was the twelfth row until it did the same for the registry it
+ * renders. That registry is node-scoped and `console/bridge/quotas/`
+ * `provider-account-quota.ts` already reads it once per window behind the one
+ * `providerAccount.subscribe` this console opens, so a second reader was a second
+ * snapshot of one node's accounts with nothing on screen saying the two disagreed.
  *
  * Two more modules NAME the door in prose and are deliberately not among them:
  * `workspace/new-session/NewSessionControl.tsx` and the send module's own test both

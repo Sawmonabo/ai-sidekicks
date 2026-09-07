@@ -11,9 +11,14 @@
  * when they changed the zoom.
  */
 
+/* The reflow floor is declared here, on the one box every console window lays out
+   inside, so no surface below it has to hold the criterion on its own. Below the
+   floor the document scrolls horizontally, which is what WCAG 2.2 SC 1.4.10 permits
+   below 320 CSS px; at and above it the frame is fluid and nothing switches. */
 .meridian-frame {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
+  min-width: var(--meridian-reflow-min-width);
   height: 100%;
   min-height: 0;
   background: var(--meridian-ground);

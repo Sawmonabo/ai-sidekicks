@@ -143,6 +143,15 @@
   color: var(--meridian-accent);
 }
 
+/* An act whose consequence is not undone by pressing it again — an abandoned run, a
+   restart mid-turn. Toned rather than shaped: it is the same button as its neighbours
+   because it sits in the same row, and what marks it is the colour the palette
+   reserves for a loss. */
+.meridian-settings-page__action--destructive {
+  border-color: var(--meridian-red-mark);
+  color: var(--meridian-red-text);
+}
+
 .meridian-settings-page__progress-label {
   color: var(--meridian-text);
 }
@@ -189,6 +198,12 @@
   min-width: 0;
   max-width: 62ch;
   color: var(--meridian-text-muted);
+  /* The term column sizes to its content, so at the reflow floor the definition is
+     what is left of a 170 px row — narrower than some of the words in it. Breaking
+     one word is the only disposition that keeps the definition both complete and
+     inside the page; the alternative measured at that width is a page that scrolls
+     sideways, which SC 1.4.10 is exactly about. */
+  overflow-wrap: break-word;
   font-size: var(--meridian-text-sm);
   line-height: 1.5;
 }

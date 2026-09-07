@@ -14,64 +14,26 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, growthUnavailable } from "../bridge/index.js";
-import type { ScenarioEngine } from "../bridge/scenario-runtime/scenario-engine.js";
-import type { ConsoleScenario } from "../bridge/scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
 import { consoleTripwires } from "../core/tripwires.js";
-import { SessionStoreRegistry, type ConsoleSessionEvent } from "../store/index.js";
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, SessionEventBinder } from "./session-event-binder.js";
-import type { ConsoleSessionDiagnostics } from "./session-event-binder.js";
-
-const SESSION_ID = FLAGSHIP_SCENARIO.sessionId;
-
-/**
- * The frozen time that delivers the whole scenario, and the time that delivers its
- * opening only — both read off the script rather than restated beside it.
- *
- * Literals here were copies of the flagship's own timings, and they went stale the
- * first time it grew: the "whole scenario" advance stopped part-way through and the
- * partial-delivery count named beats the re-timed opening no longer put in reach.
- */
-const PAST_EVERY_BEAT_MS = (FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) + 100;
+import { SessionStoreRegistry } from "../store/index.js";
+import {
+  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
+  type ConsoleSessionDiagnostics,
+} from "./session-diagnostics-handle.js";
+import { SessionEventBinder } from "./session-event-binder.js";
+import {
+  PAST_EVERY_BEAT_MS,
+  SESSION_ID,
+  createHarness,
+  type BinderHarness,
+} from "./session-event-binder.test-support.js";
 
 const THROUGH_THIRD_BEAT_MS = FLAGSHIP_SCENARIO.beats[2]?.atMs ?? 0;
 const BEATS_THROUGH_THIRD_BEAT = FLAGSHIP_SCENARIO.beats.filter(
   (beat) => beat.atMs <= THROUGH_THIRD_BEAT_MS,
 ).length;
-
-interface BinderHarness {
-  readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventBinder;
-  readonly engine: ScenarioEngine;
-}
-
-/**
- * A registry, a fixture bridge, and a binder over both.
- *
- * The registry is given the ENGINE's clock rather than one of its own, because
- * there is exactly one clock in fixture mode and a second one would let the apply
- * queue's coalescing window and the scenario's beats drift apart — which would make
- * every timing assertion below a measurement of the harness.
- */
-function createHarness(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): BinderHarness {
-  const bridge = createFixtureBridge({ scenario });
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
-  }
-  const registry = new SessionStoreRegistry({
-    // A REGISTERED read that happens to find nothing — the transient miss, which
-    // is what a session whose wire exists looks like between reads. It has to be
-    // registered for the binder to bind at all (the suppressed arm is its own case
-    // below), and it has to resolve `undefined` rather than a snapshot, because a
-    // snapshot would initialise the stores and change what `applyBatch` does with
-    // every event these cases deliver.
-    read: () => Promise.resolve(undefined),
-    clock: engine.clock,
-  });
-  return { registry, binder: new SessionEventBinder({ registry, bridge }), engine };
-}
 
 /** The same three pieces, over a registry that has no read to perform at all. */
 function createUnreadableHarness(): BinderHarness {
@@ -243,101 +205,6 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     // remounting frame would leave the previous window's binder subscribed.
     binder.attach();
     expect(registry.listenerCount).toBe(0);
-  });
-
-  it("refuses a delivered payload that is not a session event, and counts it", () => {
-    const malformed: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
-      id: "flagship-malformed-payload-probe",
-      beats: [
-        {
-          atMs: 0,
-          // Deliberately not a session event. The cast is the point of the case:
-          // the wire hands the console an `unknown`, and the boundary is the only
-          // thing standing between a shape like this and a store that would hold
-          // it at a type saying its fields are readable.
-          event: { sequence: 1 } as unknown as ConsoleSessionEvent,
-        },
-      ],
-    };
-    const { registry, binder, engine } = createHarness(malformed);
-    binder.attach();
-    registry.open(SESSION_ID);
-
-    engine.advance(1);
-
-    expect(binder.unreadableDeliveryCount).toBe(1);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
-    // Counted, and deliberately not reported: an unfamiliar payload is a fact
-    // about the wire, and a tripwire would name it a defect in the console.
-    expect(consoleTripwires.totalFiringCount).toBe(0);
-
-    binder.dispose();
-  });
-
-  it("refuses a delivery that carries every member but the canonical event id", () => {
-    // The id is what a later read of this event's body is keyed by, so a payload
-    // without one is not an envelope the console can hold. Without this case the
-    // boundary could admit it and leave a row in the store that no surface could
-    // ever open — and the alternative fix, composing an id from the members that
-    // ARE present, would look identical from every other assertion in this file.
-    const idless: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
-      id: "flagship-idless-payload-probe",
-      beats: [
-        {
-          atMs: 0,
-          event: {
-            sessionId: SESSION_ID,
-            sequence: 1,
-            kind: "run.starting",
-            occurredAt: "2026-01-01T14:20:00.400Z",
-          } as unknown as ConsoleSessionEvent,
-        },
-      ],
-    };
-    const { registry, binder, engine } = createHarness(idless);
-    binder.attach();
-    registry.open(SESSION_ID);
-
-    engine.advance(1);
-
-    expect(binder.unreadableDeliveryCount).toBe(1);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
-
-    binder.dispose();
-  });
-
-  it("negative control: the same delivery carrying an id is admitted", () => {
-    // Without it, a boundary that refused every delivery would pass the case
-    // above — and a console that admits nothing looks exactly like a quiet
-    // session.
-    const withId: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
-      id: "flagship-idful-payload-probe",
-      beats: [
-        {
-          atMs: 0,
-          event: {
-            id: "019b79ee-0280-7ea1-8110-e5e0d1150901",
-            sessionId: SESSION_ID,
-            sequence: 1,
-            kind: "run.starting",
-            occurredAt: "2026-01-01T14:20:00.400Z",
-          },
-        },
-      ],
-    };
-    const { registry, binder, engine } = createHarness(withId);
-    binder.attach();
-    registry.open(SESSION_ID);
-
-    engine.advance(1);
-
-    expect(binder.unreadableDeliveryCount).toBe(0);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(1);
-
-    binder.dispose();
   });
 
   it("exposes the fixture diagnostics while attached, and removes them on dispose", () => {

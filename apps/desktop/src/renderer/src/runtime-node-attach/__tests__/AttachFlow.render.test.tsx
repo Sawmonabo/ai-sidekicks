@@ -17,8 +17,10 @@
 // Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react` —
 // see `ADR-022 §Decision Log` (2026-08-25).
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { RuntimeNodeAttachResponse } from "@ai-sidekicks/contracts";
 
 import { AttachFlow } from "../AttachFlow.js";
 import {
@@ -30,9 +32,14 @@ import {
   READ_WRITE_ATTACH_RESPONSE,
   TARGET_SESSION_ID,
   clickAttach,
+  createAttachTransport,
   installMockBridge,
   removeMockBridge,
 } from "./attach-flow.test-support.js";
+// The manually-resolvable promise, taken from the roster suite's scaffolding rather
+// than written a second time here: `apps/desktop/AGENTS.md` gives one role one home,
+// and holding a reply in flight while a prop moves is the same role in both suites.
+import { createDeferred } from "./node-roster.test-support.js";
 
 describe("AttachFlow — what it renders", () => {
   afterEach(() => {
@@ -171,6 +178,124 @@ describe("AttachFlow — what it renders", () => {
 
       expect(screen.getByLabelText("runtime-node-attach-idle")).toBeDefined();
       expect(screen.getByText(`target session: ${OTHER_SESSION_ID}`)).toBeDefined();
+    });
+  });
+
+  describe("transport re-addressing", () => {
+    // The half a (session, node) comparison cannot see. The console's bridge provider
+    // REPLACES its resolution for the same session and the same node without
+    // remounting its children, so neither branded string moves and both facts on
+    // screen become false at once: the receipt describes an attachment made over a
+    // bridge this view has left, and a request the retired bridge is still carrying is
+    // about that same departed address.
+    it("returns to idle when the transport is replaced for the same target", async () => {
+      const firstTransport = createAttachTransport(
+        async () => await Promise.resolve(READ_WRITE_ATTACH_RESPONSE),
+      );
+      const replacementTransport = createAttachTransport(
+        async () => await Promise.resolve(READ_ONLY_ATTACH_RESPONSE),
+      );
+
+      const { rerender } = render(
+        <AttachFlow
+          sessionId={TARGET_SESSION_ID}
+          attachDraft={ATTACH_DRAFT}
+          reads={firstTransport.reads}
+        />,
+      );
+      clickAttach();
+      await screen.findByLabelText("runtime-node-attach-resolved");
+
+      rerender(
+        <AttachFlow
+          sessionId={TARGET_SESSION_ID}
+          attachDraft={ATTACH_DRAFT}
+          reads={replacementTransport.reads}
+        />,
+      );
+
+      expect(screen.getByLabelText("runtime-node-attach-idle")).toBeDefined();
+      expect(
+        screen.queryByText(`attachment id: ${READ_WRITE_ATTACH_RESPONSE.attachmentId}`),
+      ).toBeNull();
+      // The replacement is not asked anything by the re-render itself: attach is a
+      // click, and re-addressing must not perform one.
+      expect(replacementTransport.attachNode).not.toHaveBeenCalled();
+    });
+
+    it("discards a settlement from the transport it has been replaced with", async () => {
+      // The receipt is never rendered at all, which is the assertion: a late reply
+      // from a retired bridge installs NOWHERE rather than briefly and then being
+      // cleaned up. Nothing cancels the call — the seam offers no cancellation — so
+      // the reply really does arrive; what changes is that it is published for an
+      // address this view no longer holds.
+      const heldAttach = createDeferred<RuntimeNodeAttachResponse>();
+      const firstTransport = createAttachTransport(async () => await heldAttach.promise);
+      const replacementTransport = createAttachTransport(
+        async () => await Promise.resolve(READ_ONLY_ATTACH_RESPONSE),
+      );
+
+      const { rerender } = render(
+        <AttachFlow
+          sessionId={TARGET_SESSION_ID}
+          attachDraft={ATTACH_DRAFT}
+          reads={firstTransport.reads}
+        />,
+      );
+      clickAttach();
+      expect(screen.getByLabelText("runtime-node-attach-pending")).toBeDefined();
+
+      rerender(
+        <AttachFlow
+          sessionId={TARGET_SESSION_ID}
+          attachDraft={ATTACH_DRAFT}
+          reads={replacementTransport.reads}
+        />,
+      );
+      expect(screen.getByLabelText("runtime-node-attach-idle")).toBeDefined();
+
+      await act(async () => {
+        heldAttach.resolve(READ_WRITE_ATTACH_RESPONSE);
+        await heldAttach.promise;
+      });
+
+      expect(screen.getByLabelText("runtime-node-attach-idle")).toBeDefined();
+      expect(screen.queryByLabelText("runtime-node-attach-resolved")).toBeNull();
+      expect(
+        screen.queryByText(`attachment id: ${READ_WRITE_ATTACH_RESPONSE.attachmentId}`),
+      ).toBeNull();
+    });
+
+    it("keeps the receipt while the transport object is the same one", async () => {
+      // The negative half of the rule, and what keeps the two cases above from
+      // passing under a view that simply reset on every render: an unchanged
+      // transport re-rendered is the SAME address, so the receipt stands.
+      const transport = createAttachTransport(
+        async () => await Promise.resolve(READ_WRITE_ATTACH_RESPONSE),
+      );
+
+      const { rerender } = render(
+        <AttachFlow
+          sessionId={TARGET_SESSION_ID}
+          attachDraft={ATTACH_DRAFT}
+          reads={transport.reads}
+        />,
+      );
+      clickAttach();
+      await screen.findByLabelText("runtime-node-attach-resolved");
+
+      rerender(
+        <AttachFlow
+          sessionId={TARGET_SESSION_ID}
+          attachDraft={ATTACH_DRAFT}
+          reads={transport.reads}
+        />,
+      );
+
+      expect(screen.getByLabelText("runtime-node-attach-resolved")).toBeDefined();
+      expect(
+        screen.getByText(`attachment id: ${READ_WRITE_ATTACH_RESPONSE.attachmentId}`),
+      ).toBeDefined();
     });
   });
 });

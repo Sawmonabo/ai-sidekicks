@@ -14,6 +14,7 @@ import {
 } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { ApplicationPage, registerApplicationPage } from "./ApplicationPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
+import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
 import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";
 
 const SCENARIO = unscriptedScenario("application-page-test");
@@ -50,6 +51,7 @@ function contextFor(): SettingsPageContext {
     retainedSessionStore: undefined,
     shellState: UNREPORTED_SHELL_STATE,
     selection: undefined,
+    uiStateStore: consoleTestUiStateStore(),
   };
 }
 

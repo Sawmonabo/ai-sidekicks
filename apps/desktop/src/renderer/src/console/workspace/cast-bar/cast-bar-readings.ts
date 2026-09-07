@@ -80,7 +80,7 @@ export function useCastBarHealth(
       value: {
         overall: outcome.value.overall,
         unwellComponentCount: unwell.length,
-        unwellComponentNames: unwell.map((component) => component.component),
+        unwellComponentNames: unwell.map((component) => component.name),
       },
     };
   });

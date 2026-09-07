@@ -51,8 +51,9 @@ function bridgeResolvingPerSession(): ReturnType<typeof bridgeWith> {
 
 describe("the notifications page — whose switches are on screen", () => {
   it("commits no frame carrying the previous session's person under the new one", async () => {
-    const page = renderMovableNotificationsPage(bridgeResolvingPerSession(), SESSION_ID);
-    await settle();
+    const bridge = bridgeResolvingPerSession();
+    const page = renderMovableNotificationsPage(bridge, SESSION_ID);
+    await settle(bridge);
     expect(page.container.textContent ?? "").toContain("participant-ana");
 
     page.forgetFrames();
@@ -67,17 +68,19 @@ describe("the notifications page — whose switches are on screen", () => {
     // Without this, the case above would hold for a recorder that captured nothing,
     // and the frame it exists to inspect would go unexamined while the suite stayed
     // green.
-    const page = renderMovableNotificationsPage(bridgeResolvingPerSession(), SESSION_ID);
-    await settle();
+    const bridge = bridgeResolvingPerSession();
+    const page = renderMovableNotificationsPage(bridge, SESSION_ID);
+    await settle(bridge);
 
     expect(page.frames.filter((frame) => frame.includes("participant-ana"))).not.toStrictEqual([]);
   });
 
   it("reads the new session's person once the frames after it settle", async () => {
-    const page = renderMovableNotificationsPage(bridgeResolvingPerSession(), SESSION_ID);
-    await settle();
+    const bridge = bridgeResolvingPerSession();
+    const page = renderMovableNotificationsPage(bridge, SESSION_ID);
+    await settle(bridge);
     page.showSession(OTHER_SESSION_ID);
-    await settle();
+    await settle(bridge);
 
     expect(page.container.textContent ?? "").toContain("participant-bo");
   });

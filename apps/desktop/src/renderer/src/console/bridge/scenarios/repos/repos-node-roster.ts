@@ -76,7 +76,14 @@ const REPOS_NODES: readonly RuntimeNodeRosterEntry[] = [
   },
 ];
 
-/** One frame, from tick zero, so the dialog has nodes whenever it is opened. */
+/**
+ * One frame, from tick zero, so the dialog has nodes whenever it is opened.
+ *
+ * `controlHolder` is a decided `null` rather than an omission the frame shape would
+ * not have accepted anyway: this deck scripts no shared terminal and no
+ * `pty.control_changed` beat, so nobody holds the write lease at any tick of it. The
+ * lease's own story is the terminal deck's, where the holder moves.
+ */
 export const REPOS_RUNTIME_NODE_ROSTER: readonly ScenarioRuntimeNodeRosterFrame[] = [
-  { atMs: 0, nodes: REPOS_NODES },
+  { atMs: 0, nodes: REPOS_NODES, controlHolder: null },
 ];

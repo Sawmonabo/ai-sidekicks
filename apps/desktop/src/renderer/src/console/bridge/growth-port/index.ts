@@ -19,8 +19,9 @@
 // DECLARES each name, because `console-no-barrel-chain` fails a forward through here.
 //
 // AND THE PLANE TABLES DO NOT READ THIS DOOR. A door is an edge to every module it
-// re-exports from, and this one re-exports `growth-port.ts`, which imports
-// `growth-operations/index.js` and `growth-signatures/index.js`. So a plane table
+// re-exports from, and this one re-exports `growth-port.ts` and `growth-refusals.ts`,
+// which between them import `growth-operations/index.js` and
+// `growth-signatures/index.js`. So a plane table
 // reaching this door closes `growth-operations/index.ts → growth-port/index.ts →
 // growth-port.ts → growth-operations/index.ts`, which `no-circular` fails. Every
 // `growth-operations/*` and `growth-signatures/*` reader therefore takes
@@ -36,17 +37,17 @@ export type {
 
 export { mapGrowthServed, type GrowthOutcome } from "./growth-outcome.js";
 
-// `settledGrowthCall` is deliberately absent: its only readers are the workspace's
-// auxiliary hand-off and pane-error watch, which take it from `bridge/index.ts` like
-// every other family. A name no SIBLING of this sub-module reaches is a dead export
-// the barrel census fails, so this door is never widened for symmetry.
+// `settledGrowthCall` is deliberately absent: every reader of it is a view family or
+// the frame, which take it from `bridge/index.ts` like every other family name. A name
+// no SIBLING of this sub-module reaches is a dead export the barrel census fails, so
+// this door is never widened for symmetry.
+export { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
+
 export {
-  createRefusingGrowthPort,
   growthScriptedReplyUnavailable,
   growthUnavailable,
   growthUnscriptedReply,
-  type GrowthPort,
-} from "./growth-port.js";
+} from "./growth-refusals.js";
 
 export { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
 

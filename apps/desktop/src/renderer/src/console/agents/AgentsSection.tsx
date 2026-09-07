@@ -111,6 +111,7 @@ export function AgentsSection(props: {
       [roster],
     ),
     sessionStore,
+    bridge.transportReconnect,
   );
 
   const state = usePushDrivenRead(roster);

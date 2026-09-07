@@ -84,6 +84,7 @@ export {
 // a validator. Seven surfaces used to reach for the schema themselves, which is one
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
+  isLiveRunState,
   readChannelId,
   readProviderAccountId,
   readQueueItemId,
@@ -193,11 +194,26 @@ export type { QueueFeed } from "./queue/queue-reading.js";
 // Three modules, and the door re-exports each symbol from the one that DECLARES it:
 // `provider-quota-fold.ts` owns which reading is current and what a surface renders
 // for it, `provider-account-quota.ts` owns the wire that feeds it, and
-// `provider-quota-feed.ts` owns how many readings there are and how long each lives.
-export { useProviderQuotas } from "./quotas/provider-quota-feed.js";
-export type { ProviderQuotaReadout } from "./quotas/provider-account-quota.js";
+// `provider-quota-feed.ts` owns how many readings there are and how long each lives —
+// and, beside the three window triggers, the fourth moment that owes one a re-read: a
+// settled sign-in or a registered token changes what the registry says and neither is
+// a window fact, so the surface that caused one asks rather than reading for itself.
+export { useProviderAccountRefresh, useProviderQuotas } from "./quotas/provider-quota-feed.js";
+export type { ProviderQuotaReadout } from "./quotas/provider-quota-readout.js";
 export { remainingPercentOf } from "./quotas/provider-quota-fold.js";
 export type { ProviderQuotaReading } from "./quotas/provider-quota-fold.js";
+
+// This machine's OS notification permission: one read, one scheduler, one latch.
+//
+// Here for the quotas' reason and one more of its own. The answer is the MACHINE's, so
+// it is not a session's or a page's to hold; and its two consumers — the notification
+// centre and the notifications settings page — are view families, which may not import
+// each other. Each folds the three wire arms differently and both are right, so what
+// leaves this door is the reading and never a verdict.
+export {
+  useOsNotificationPermission,
+  type OsNotificationPermissionReading,
+} from "./os-notification-permission.js";
 
 export {
   SidekicksBridgeProvider,
@@ -267,8 +283,8 @@ export { heldIdAsWireId } from "./daemon/wire-ids.js";
 export {
   growthUnavailable,
   growthUnavailableFromRejection,
-  settledGrowthCall,
-} from "./growth-port/growth-port.js";
+} from "./growth-port/growth-refusals.js";
+export { settledGrowthCall } from "./growth-port/growth-port.js";
 // `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
 // what the port's own refusal arms are written in, and nothing outside
 // `growth-port/growth-outcome.ts` names it at all, so a door line for it would
@@ -306,6 +322,18 @@ export {
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
+// The window's one transport-reconnect signal, published as the CLASS rather than as
+// the floor's subscribe-only view: the doors that report into it — this family's own
+// stream door, the seat every view family subscribes through, and the frame's
+// session-event binder — reach the bridge through here, and a door publishing only
+// `TransportReconnectObservable` would leave them able to subscribe and unable to
+// report. A reading takes the floor's view instead, off `core/index.js`.
+export { TransportReconnectSignal } from "./transport/transport-reconnect.js";
+// The rule for what an OPEN observed, published beside the signal because the two
+// callers outside this family — `seats/wire-access.ts` and the frame's session-event
+// binder — each take a daemon subscription of their own and would otherwise each
+// decide what taking one proves.
+export { openObservedSubscription } from "./transport/observed-subscription.js";
 
 // The `invitesList` outcome and its served row. Published because TWO sibling view
 // families read that one operation — the sent ledger and the received shelf — and a
@@ -400,6 +428,32 @@ export {
 // names and neither was the port's.
 export { GROWTH_PORT_REFUSAL_ORIGIN } from "./growth-port/growth-outcome.js";
 export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
+// The diagnostics plane's shapes, from the module that DECLARES them rather than
+// through the inner values door — the barrel-chain rule the `GrowthSessionSummary`
+// line above states. The settings family renders every one of these: a health banner
+// keyed on the state, a stuck badge keyed on the signal, a recovery prompt whose
+// control set IS the action vocabulary, and a retention table keyed on the bucket. A
+// view family derives from the shape the wire declares or it drifts from it silently.
+//
+// ONE VALUE VOCABULARY LEAVES, AND THE OTHER TWO DELIBERATELY DO NOT.
+// `GROWTH_RECOVERY_ACTIONS` is here because the prompt's control set is built by
+// mapping it, so the page would otherwise re-spell a closed set the wire owns. The
+// state and bucket arrays are read by nothing outside this family: their members
+// reach the page through the union TYPES beside them, which is what a keyed lookup
+// needs, and a door line no production module imports is a dead export the barrel
+// census fails.
+export {
+  GROWTH_RECOVERY_ACTIONS,
+  type GrowthFailureDetail,
+  type GrowthHealthComponent,
+  type GrowthHealthState,
+  type GrowthHealthStatus,
+  type GrowthRecoveryAction,
+  type GrowthRecoveryReceipt,
+  type GrowthRedactionBucket,
+  type GrowthRedactionPolicy,
+  type GrowthStuckRunInspection,
+} from "./growth-values/diagnostics.js";
 
 // Which kind of nothing a growth refusal IS — the console never asked, or the asking
 // failed. Every surface that offers the node's sessions has to answer it before it
@@ -542,3 +596,30 @@ export {
 // inputs.
 export type { SessionGoalProjection } from "./session-goal.js";
 export { clearSessionGoal, foldSessionGoal, updateSessionGoal } from "./session-goal.js";
+
+// The MCP governance plane's shapes, from the module that DECLARES them rather than
+// through the inner values door — the barrel-chain rule the `GrowthSessionSummary` line
+// above states. The settings family renders every one of these: an inventory row per
+// binding, the per-session legs behind it, the tool overrides pinned on it, and the
+// per-leg outcomes a mutation answers with. `GrowthMcpServerStatus` travels with them
+// because the page's status-to-tone table is a `Record` total over it, which is what
+// makes a sixth status a compile error at the page rather than a blank cell.
+//
+// The status ARRAY is deliberately absent, and so is every other vocabulary in that
+// module. Nothing above this family enumerates one — the surfaces render the value that
+// arrived and key a total record on the type — and a door line no production module
+// reaches is a dead export the barrel census fails rather than a convenience.
+export type {
+  GrowthMcpBindingRef,
+  GrowthMcpInventoryEntry,
+  GrowthMcpLiveApplicationResult,
+  GrowthMcpMutationResult,
+  GrowthMcpServerLegStatus,
+  GrowthMcpServerStatus,
+  GrowthMcpToolOverride,
+} from "./growth-values/mcp.js";
+// And the identity those rows are keyed by, from the same declaring module. It leaves
+// this family because the operator page keys one settlement per binding by it, and it
+// lives beside the shapes because the fixture's own inventory ledger keys by it too:
+// one binding, one identity, whichever height of the DAG is asking.
+export { mcpBindingKeyOf } from "./growth-values/mcp.js";

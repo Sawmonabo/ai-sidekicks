@@ -42,6 +42,7 @@ import {
   MOTION_DURATIONS_MS,
   MOTION_EASE_SETTLE,
   RADIUS_SCALE_REM,
+  REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
   TYPE_SCALE_REM,
@@ -106,6 +107,13 @@ function invariantBlock(): string {
   }
   lines.push(declaration("attribution-edge", `${ATTRIBUTION_EDGE_WIDTH_PX}px`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
+  // The reflow floor. Emitted rather than written into `frame.css` as a literal
+  // because it is the palette's number and the frame is only the first thing to
+  // spend it — a surface that has to declare the same floor reads the property
+  // instead of copying the figure. It cannot be a media-query condition (custom
+  // properties do not reach one), and it is not meant to be: the console holds this
+  // width with one fluid layout rather than with a breakpoint.
+  lines.push(declaration("reflow-min-width", `${REFLOW_MIN_WIDTH_PX}px`));
 
   lines.push("");
   lines.push("  /* Motion — settles, never bounces. */");

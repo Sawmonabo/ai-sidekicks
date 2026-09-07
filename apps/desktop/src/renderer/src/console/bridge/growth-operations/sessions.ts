@@ -24,7 +24,6 @@ type SessionOperationId = Extract<
   | `providerSessionImport${string}`
   | "invitesList"
   | "healthSubscribe"
-  | "healthStatusRead"
 >;
 
 /** The session and shell rows, in the order the single table carried them. */
@@ -186,13 +185,6 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "node health for the strip and the park banner",
       "health.subscribe",
     ),
-    healthStatusRead: op(
-      "healthStatusRead",
-      "health-status-read",
-      "method",
-      "read the node's overall health category and its per-component readings once, for the compact form a session header carries",
-      "health.statusRead",
-    ),
     sessionSearch: op(
       "sessionSearch",
       "session-search",
@@ -230,7 +222,7 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "shellNotificationPermissionRead",
       "notification-permission-read",
       "method",
-      "whether this machine will display an OS notification, so the notification centre can say when it is the only surface",
+      "whether this machine will display an OS notification, so the notification centre can say when it is the only surface and the notifications page can say what the machine has answered",
     ),
     shellStatusSubscribe: op(
       "shellStatusSubscribe",

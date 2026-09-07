@@ -85,7 +85,7 @@ describe("the cost page — what it says out loud", () => {
         <CostReceiptPage context={context} />
       </LiveAnnouncerProvider>,
     );
-    await settle();
+    await settle(answered.bridge);
     expect(answered.readReceipt).toHaveBeenCalledTimes(1);
 
     await act(async () => {

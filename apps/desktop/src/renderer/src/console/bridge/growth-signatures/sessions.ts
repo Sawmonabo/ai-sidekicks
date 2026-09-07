@@ -152,13 +152,6 @@ export interface SessionGrowthSignatures {
   shellConfigWrite: { request: { readonly key: string; readonly enabled: boolean }; value: void };
   invitesList: { request: { readonly sessionId: string }; value: readonly GrowthInviteSummary[] };
   healthSubscribe: { request: Record<string, never>; value: GrowthStream<GrowthHealthReading> };
-  // The one-shot read's reply, typed inline rather than as a named growth value: it
-  // is this operation's own answer and nothing else names it, and the per-component
-  // rows ARE `GrowthHealthReading`, which the stream beside it already publishes.
-  healthStatusRead: {
-    request: { readonly scope?: string };
-    value: { readonly overall: string; readonly components: readonly GrowthHealthReading[] };
-  };
   sessionSearch: { request: { readonly query: string }; value: readonly GrowthSessionSummary[] };
   // session goals — two operations and never one. `session.goalUpdate` sets and
   // `session.goalClear` clears; an update carrying no goal is malformed rather than
