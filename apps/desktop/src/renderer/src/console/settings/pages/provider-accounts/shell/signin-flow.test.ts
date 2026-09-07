@@ -5,21 +5,11 @@
 // refusal is asserting on the code and sentence a release build produces rather than
 // on an envelope written here.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import type {
-  ProviderAccountId,
-  ProviderAccountLoginCancelResponse,
-  ProviderAccountLoginResponse,
-  ProviderAccountRegisterResponse,
-} from "@ai-sidekicks/contracts";
+import type { ProviderAccountId, ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts";
 
-import {
-  createFixtureBridge,
-  growthUnavailable,
-  type ConsoleBridge,
-  type GrowthOutcome,
-} from "../../../../bridge/index.js";
+import { bridgeAnswering, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
 import {
   cancelSignIn,
   startSignIn,
@@ -28,13 +18,6 @@ import {
 } from "./signin-flow.js";
 
 const ACCOUNT_ID = "pa-0001" as ProviderAccountId;
-
-const ATTEMPT: ProviderAccountLoginResponse = {
-  attemptId: "attempt-1",
-  verificationUri: "https://provider.example.test/device",
-  userCode: "WXYZ-1234",
-  expiresAt: "2026-01-01T08:15:00.000Z",
-};
 
 const REGISTERED: ProviderAccountRegisterResponse = {
   account: {
@@ -53,57 +36,21 @@ const REGISTERED: ProviderAccountRegisterResponse = {
   },
 };
 
-/** A scenario that scripts nothing: each case overrides the operation it drives. */
-const EMPTY_SCENARIO: Parameters<typeof createFixtureBridge>[0]["scenario"] = {
-  id: "collaboration-accounts-test",
-  label: "Accounts, with nothing scripted",
-  purpose: "Drives the account-plane calls against overridden growth operations.",
-  sessionId: "session-accounts",
-  participantIdsInJoinOrder: [],
-  beats: [],
-  replies: [],
-  startedAtIso: "2026-01-01T08:00:00.000Z",
-};
-
-/** The fixture bridge with the three account verbs answering what a case asked for. */
-function bridgeAnswering(script: {
-  readonly login?: GrowthOutcome<ProviderAccountLoginResponse>;
-  readonly cancel?: GrowthOutcome<ProviderAccountLoginCancelResponse>;
-  readonly register?: GrowthOutcome<ProviderAccountRegisterResponse>;
-}): ConsoleBridge {
-  const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-  return {
-    ...fixture,
-    growth: {
-      ...fixture.growth,
-      providerAccountLogin: vi.fn(
-        async () =>
-          await Promise.resolve(script.login ?? growthUnavailable("providerAccountLogin")),
-      ),
-      providerAccountLoginCancel: vi.fn(
-        async () =>
-          await Promise.resolve(script.cancel ?? growthUnavailable("providerAccountLoginCancel")),
-      ),
-      providerAccountRegister: vi.fn(
-        async () =>
-          await Promise.resolve(script.register ?? growthUnavailable("providerAccountRegister")),
-      ),
-    },
-  };
-}
-
 /** The sentence one settled flow state carries, or the empty string where it has none. */
 function endedBecause(state: SignInFlowState): string {
   return state.kind === "ended" ? state.because : "";
 }
 
 describe("startSignIn", () => {
-  it("answers a live flow carrying the provider's own attempt", async () => {
+  it("answers a live flow carrying the provider's own attempt and the account it is for", async () => {
     const state = await startSignIn(
-      bridgeAnswering({ login: { status: "served", value: ATTEMPT } }),
+      bridgeAnswering({ login: { status: "served", value: SIGN_IN_ATTEMPT } }),
       ACCOUNT_ID,
     );
-    expect(state).toEqual({ kind: "live", attempt: ATTEMPT });
+    // The account rides the outcome because the plane is what disables the OTHER rows,
+    // and a flow that recorded only its own progress could say something was running
+    // without saying which account was running it.
+    expect(state).toEqual({ kind: "live", accountId: ACCOUNT_ID, attempt: SIGN_IN_ATTEMPT });
   });
 
   it("answers a refusal rather than throwing", async () => {
@@ -122,7 +69,7 @@ describe("cancelSignIn", () => {
   it("says the sign-in was cancelled when the daemon cancelled one", async () => {
     const state = await cancelSignIn(
       bridgeAnswering({ cancel: { status: "served", value: { status: "cancelled" } } }),
-      ATTEMPT,
+      SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).toContain("was cancelled");
   });
@@ -130,7 +77,7 @@ describe("cancelSignIn", () => {
   it("says there was nothing to cancel when the daemon found none", async () => {
     const state = await cancelSignIn(
       bridgeAnswering({ cancel: { status: "served", value: { status: "notFound" } } }),
-      ATTEMPT,
+      SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).toContain("no sign-in left to cancel");
   });
@@ -141,7 +88,7 @@ describe("cancelSignIn", () => {
   it("does not report a notFound as a cancellation", async () => {
     const state = await cancelSignIn(
       bridgeAnswering({ cancel: { status: "served", value: { status: "notFound" } } }),
-      ATTEMPT,
+      SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).not.toContain("was cancelled");
   });
@@ -149,7 +96,7 @@ describe("cancelSignIn", () => {
   it("never claims the account is authenticated", async () => {
     const state = await cancelSignIn(
       bridgeAnswering({ cancel: { status: "served", value: { status: "cancelled" } } }),
-      ATTEMPT,
+      SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).not.toMatch(/authenticated/iu);
   });

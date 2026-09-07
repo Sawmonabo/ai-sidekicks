@@ -199,3 +199,19 @@ export function announcementFor(outcome: CostReceiptOutcome): string {
   const { runs, causedBy, byAccount } = outcome.value;
   return `Cost receipt read. Rows: ${formatCount(runs.length)} by run, ${formatCount(causedBy.length)} by party, ${formatCount(byAccount.length)} by account.`;
 }
+
+/**
+ * What one reading says out loud, or `undefined` while nothing has settled.
+ *
+ * The scalar the console's one settlement announcer takes, composed from the whole
+ * reading rather than from an outcome: the page has TWO settled arms — the port
+ * answering, and a call that produced no answer at all — and only the first has an
+ * outcome to describe. `undefined` is the "still reading" arm and is deliberately not
+ * an empty string, which is what the announcer publishes to CLEAR a region.
+ */
+export function settlementSentenceFor(reading: CostReceiptReading | undefined): string | undefined {
+  if (reading === undefined) {
+    return undefined;
+  }
+  return reading.kind === "unreadable" ? reading.refusal.detail : announcementFor(reading.outcome);
+}

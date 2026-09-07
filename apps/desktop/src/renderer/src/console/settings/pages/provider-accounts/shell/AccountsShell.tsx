@@ -14,8 +14,13 @@
 // window — were reachable from nowhere at all while this slot rendered its reservation,
 // which means nobody had drawn them.
 
+// AND THE SIGN-IN PLANE IS ONE FLOW, NOT ONE PER ROW. This machine runs one brokered
+// sign-in at a time, so every start control is disabled — with its reason, never
+// hidden — while one is running, and `signin-plane.ts` beside this module owns both
+// that rule and where a refused start lands.
+
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { useConsoleClock, type ConsoleBridge } from "../../../../bridge/index.js";
 import { Nothing } from "../../../../primitives/index.js";
@@ -26,13 +31,9 @@ import { createAccountRegistryRead } from "./accounts-reading.js";
 import { foldAccountQuotaRows, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./QuotaTable.js";
 import { ReadinessRow } from "./ReadinessRow.js";
+import { cancelSignIn, startSignIn } from "./signin-flow.js";
 import { SignInCard } from "./SignInCard.js";
-import {
-  IDLE_SIGN_IN_FLOW,
-  cancelSignIn,
-  startSignIn,
-  type SignInFlowState,
-} from "./signin-flow.js";
+import { SignInPlane, signInHeldSentence, signInPlaneHolder } from "./signin-plane.js";
 import { TokenRegistrationForm } from "./TokenRegistrationForm.js";
 
 export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactNode {
@@ -43,10 +44,43 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
   const clock = useConsoleClock();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
-  const [signInFlow, setSignInFlow] = useState<SignInFlowState>(IDLE_SIGN_IN_FLOW);
   const registryRead = useMemo(
     () => createAccountRegistryRead({ bridge, clock }),
     [bridge, clock, openingOrdinal],
+  );
+  // Rebuilt with the read it re-reads through, which is the honest lifetime: the only
+  // thing that mints a new read is the failed arm's "Try again", and that arm replaces
+  // this whole page — sign-in card included — so a flow could not have survived it
+  // anyway. Constructed in a memo and DISPOSED in an effect, the split every carrier in
+  // this console takes: building it owns nothing, and a memo React discards costs a
+  // discarded object rather than a call in flight.
+  const signInPlane = useMemo(
+    () =>
+      new SignInPlane({
+        // The two calls are bound HERE and the plane holds no bridge, so it stays a
+        // mutation carrier rather than becoming a reading the console would then owe
+        // a scheduler and the trigger contract — see the header beside the class.
+        startSignIn: async (accountId) => await startSignIn(bridge, accountId),
+        cancelSignIn: async (attempt) => await cancelSignIn(bridge, attempt),
+        // A flow ending says nothing about the account — the daemon reads nothing the
+        // provider's login binary writes — so the page asks the registry rather than
+        // assuming, which is the whole of what "completion is not a verdict" means.
+        onFlowSettled: () => {
+          registryRead.refresh("terminal-event");
+        },
+      }),
+    [bridge, registryRead],
+  );
+  useEffect(
+    () => () => {
+      signInPlane.dispose();
+    },
+    [signInPlane],
+  );
+  const signIn = useSyncExternalStore(
+    (onStoreChange: () => void) => signInPlane.subscribe(onStoreChange),
+    () => signInPlane.snapshot(),
+    () => signInPlane.snapshot(),
   );
   useEffect(() => {
     registryRead.start();
@@ -110,6 +144,12 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
   const selected =
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
     registry.accounts[0];
+  const holdingAccountId = signInPlaneHolder(signIn);
+  const holdingAccountLabel =
+    holdingAccountId === undefined
+      ? undefined
+      : (registry.accounts.find((account) => account.accountId === holdingAccountId)
+          ?.displayLabel ?? holdingAccountId);
 
   return (
     <>
@@ -120,28 +160,29 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
             <ReadinessRow
               key={readiness.provider}
               readiness={readiness}
+              startBlockedReason={
+                holdingAccountId === undefined
+                  ? undefined
+                  : signInHeldSentence({
+                      isTheSameAccount: holdingAccountId === readiness.resolvedAccountId,
+                      holdingAccountLabel,
+                    })
+              }
+              startRefusal={
+                readiness.resolvedAccountId === undefined
+                  ? undefined
+                  : signIn.refusalByAccountId.get(readiness.resolvedAccountId)
+              }
               onStartSignIn={(accountId) => {
-                setSignInFlow({ kind: "starting" });
-                void startSignIn(bridge, accountId).then(setSignInFlow);
+                signInPlane.start(accountId);
               }}
             />
           ))}
         </ul>
         <SignInCard
-          flow={signInFlow}
+          flow={signIn.flow}
           onCancel={() => {
-            if (signInFlow.kind !== "live") {
-              return;
-            }
-            const { attempt } = signInFlow;
-            setSignInFlow({ kind: "cancelling", attempt });
-            void cancelSignIn(bridge, attempt).then((settled) => {
-              setSignInFlow(settled);
-              // A flow that ended tells us nothing about the account, so the page asks
-              // the registry rather than assuming — which is the whole of what
-              // "completion is not a verdict" means in practice.
-              registryRead.refresh("terminal-event");
-            });
+            signInPlane.cancel();
           }}
         />
       </section>

@@ -125,12 +125,12 @@ function bridgeThenRefusing(
   };
 }
 
-async function refocusWindow(): Promise<void> {
+async function refocusWindow(bridge: ConsoleBridge): Promise<void> {
   await act(async () => {
     window.dispatchEvent(new Event("focus"));
     await crossMacrotaskBoundary();
   });
-  await settle();
+  await settle(bridge);
 }
 
 describe("the cost page — what it keeps when the read goes away", () => {
@@ -141,7 +141,7 @@ describe("the cost page — what it keeps when the read goes away", () => {
       refusal,
     );
     const container = await renderSettledPage(bridge, SESSION_ID);
-    await refocusWindow();
+    await refocusWindow(bridge);
 
     expect(readReceipt.mock.calls.length).toBeGreaterThan(1);
     const text = container.textContent ?? "";
@@ -162,7 +162,7 @@ describe("the cost page — what it keeps when the read goes away", () => {
     const refusal = growthUnavailable("orchestrationCostReceiptRead");
     const { bridge } = bridgeThenRefusing(refusal, refusal);
     const container = await renderSettledPage(bridge, SESSION_ID);
-    await refocusWindow();
+    await refocusWindow(bridge);
 
     expect(container.textContent ?? "").not.toContain("last receipt this session was served");
     expect(container.querySelector(".meridian-cost-receipt__figure")).toBeNull();

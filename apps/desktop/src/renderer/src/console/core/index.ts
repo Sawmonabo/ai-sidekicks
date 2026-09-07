@@ -148,6 +148,11 @@ export {
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
 } from "./refusal-extensions.js";
+// The one tuple-to-key encoder. At the floor because its two readers sit at different
+// heights on the DAG — `bridge/quotas/`'s `(accountId, limitId)` reading key and
+// `settings/`'s scope-qualified MCP binding key — and neither family may reach the
+// other, so the floor is the only home both can take it from.
+export { structuralKey } from "./structural-key.js";
 // The subscribe view of the console's one transport-reconnect signal. Declared at
 // the floor because its producer is `bridge/` and its consumer is `store/`, and the
 // DAG puts the consumer below the producer — so the floor is the only home both can

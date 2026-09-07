@@ -96,6 +96,29 @@ describe("bindingOutcomeKey", () => {
     );
   });
 
+  // Both halves of the tuple are free-form wire strings — a checkout path an operator
+  // chose and a server name an operator typed — so a separator that either of them may
+  // contain is not a separator. Under a space join these two bindings are one key: the
+  // rows share a React identity, and whichever mutation settles last writes its outcome
+  // onto both controls.
+  it("keys two bindings apart when a space moves across the scope/name boundary", () => {
+    expect(
+      bindingOutcomeKey({ ...PROJECT_BINDING, scopeRef: "/repo one", serverName: "server" }),
+    ).not.toBe(
+      bindingOutcomeKey({ ...PROJECT_BINDING, scopeRef: "/repo", serverName: "one server" }),
+    );
+  });
+
+  // The `user` arm carries no `scopeRef`, and the encoding says so by carrying one
+  // segment fewer rather than by substituting a stand-in value for the member that arm
+  // does not have — which is what keeps the two arms apart on their own shape and not
+  // on the scope word alone.
+  it("keys a user binding apart from a project binding rooted at the empty string", () => {
+    expect(bindingOutcomeKey(USER_BINDING)).not.toBe(
+      bindingOutcomeKey({ ...PROJECT_BINDING, scopeRef: "", serverName: USER_BINDING.serverName }),
+    );
+  });
+
   // The negative control for the three above: the server NAME alone is equal across
   // every one of those pairs, so a key built from it would have collapsed them.
   it("does not key on the server name", () => {

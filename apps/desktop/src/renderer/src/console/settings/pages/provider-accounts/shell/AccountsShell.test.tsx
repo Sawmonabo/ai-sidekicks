@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   SidekicksBridgeProvider,
   createFixtureBridge,
+  growthUnavailable,
   type ConsoleBridge,
 } from "../../../../bridge/index.js";
 import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
@@ -47,6 +48,20 @@ async function renderSettledShell(bridge: ConsoleBridge): Promise<HTMLElement> {
 
 function fixtureBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
+}
+
+/** Every start-sign-in control the readiness list is currently offering. */
+function startControls(): HTMLButtonElement[] {
+  return screen.getAllByRole<HTMLButtonElement>("button", { name: /start sign-in/iu });
+}
+
+/** Press the first of them, the way a person reaching the remedy does. */
+function pressFirstStartControl(): void {
+  const [control] = startControls();
+  if (control === undefined) {
+    throw new Error("the readiness list offered no sign-in control to press");
+  }
+  fireEvent.click(control);
 }
 
 /** Open one account's detail the way a person does — by pressing its row. */
@@ -124,6 +139,66 @@ describe("AccountsShell", () => {
     const container = await renderSettledShell(fixtureBridge());
     expect(container.querySelectorAll('input[type="password"]')).toHaveLength(1);
     expect(container.querySelectorAll('input[type="text"]').length).toBeGreaterThan(0);
+  });
+
+  // The daemon runs at most one brokered flow per account and answers a second start
+  // with `provideraccount.signin_in_flight`. A page that went on offering the control
+  // sends that second start, and its refusal replaces the live attempt's verification
+  // details and its cancel control — so the operator loses the code they were typing
+  // and the only way to stop the flow, over a press the page should not have accepted.
+  it("stops offering a start while a sign-in is running, and says what is holding it", async () => {
+    const bridge = fixtureBridge();
+    const container = await renderSettledShell(bridge);
+    pressFirstStartControl();
+    await settleScriptedRead(bridge);
+
+    // The flow the press started is on screen, with its code and its way out...
+    expect(container.textContent).toContain("auth.example.test/device");
+    expect(screen.getAllByRole("button", { name: /cancel sign-in/iu })).toHaveLength(1);
+    // ...and no row offers a second start, with the reason where the control was
+    // rather than the control being taken away.
+    for (const control of startControls()) {
+      expect(control.disabled).toBe(true);
+    }
+    expect(container.textContent).toContain("already running");
+  });
+
+  // The negative control for the case above: before anything is started the same
+  // controls are pressable, so the assertion is about the flow rather than about a
+  // page that never offered a sign-in at all.
+  it("offers a pressable start before anything is running", async () => {
+    await renderSettledShell(fixtureBridge());
+    expect(startControls().length).toBeGreaterThan(0);
+    for (const control of startControls()) {
+      expect(control.disabled).toBe(false);
+    }
+  });
+
+  // A start the daemon refused never became a flow, so it belongs on the row that
+  // asked and not in the card that watches one. The card is shared across every
+  // readiness row, so a refusal shown there is a refusal about no particular account.
+  it("puts a refused start on the row that asked, and leaves the shared card empty", async () => {
+    const refusal = growthUnavailable("providerAccountLogin");
+    const bridge = fixtureBridge();
+    const refusing: ConsoleBridge = {
+      ...bridge,
+      growth: {
+        ...bridge.growth,
+        providerAccountLogin: async () => await Promise.resolve(refusal),
+      },
+    };
+    const container = await renderSettledShell(refusing);
+    pressFirstStartControl();
+    await settleScriptedRead(refusing);
+
+    const readinessRows = [...container.querySelectorAll(".meridian-accounts__readiness")];
+    const rowsCarryingTheRefusal = readinessRows.filter((row) =>
+      (row.textContent ?? "").includes(refusal.code),
+    );
+    expect(rowsCarryingTheRefusal).toHaveLength(1);
+    expect(container.querySelector('[aria-label="Sign-in in progress"]')).toBeNull();
+    // And the control is offered again: nothing is running, so nothing is holding it.
+    expect(startControls().every((control) => control.disabled)).toBe(false);
   });
 
   it("draws the daemon's own refusal where the read could not be put", async () => {

@@ -27,12 +27,28 @@ import type {
 import { settleGrowthRead, type ConsoleBridge } from "../../../../bridge/index.js";
 import type { ConsoleRefusal } from "../../../../core/index.js";
 
-/** Where a brokered sign-in has got to. */
+/**
+ * Where a brokered sign-in has got to.
+ *
+ * THE THREE HELD ARMS CARRY THE ACCOUNT, and that is what makes the plane sayable. A
+ * flow that recorded only its own progress could tell a surface that something was
+ * running and never which account was running it — so a second row's control could be
+ * disabled with no reason a person could act on, which is worse than one that stays
+ * pressable and refuses.
+ */
 export type SignInFlowState =
   | { readonly kind: "idle" }
-  | { readonly kind: "starting" }
-  | { readonly kind: "live"; readonly attempt: ProviderAccountLoginResponse }
-  | { readonly kind: "cancelling"; readonly attempt: ProviderAccountLoginResponse }
+  | { readonly kind: "starting"; readonly accountId: ProviderAccountId }
+  | {
+      readonly kind: "live";
+      readonly accountId: ProviderAccountId;
+      readonly attempt: ProviderAccountLoginResponse;
+    }
+  | {
+      readonly kind: "cancelling";
+      readonly accountId: ProviderAccountId;
+      readonly attempt: ProviderAccountLoginResponse;
+    }
   | { readonly kind: "ended"; readonly because: string }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
 
@@ -40,19 +56,76 @@ export type SignInFlowState =
 export const IDLE_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
 
 /**
+ * Whether the daemon is running a flow of this window's making, per kind.
+ *
+ * THE CLOSED SET, DECLARED ONCE. A `Record` over the union's own discriminant rather
+ * than a list of the three kinds that hold: the compiler refuses a missing key and
+ * refuses an unknown one, so a seventh arm added to the state above is a compile error
+ * here rather than a control that silently stays pressable through it. A predicate
+ * spelled at each call site is how two surfaces come to disagree about what "running"
+ * means, which for this plane is the difference between one flow and two.
+ */
+const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boolean>> = {
+  idle: false,
+  starting: true,
+  live: true,
+  cancelling: true,
+  ended: false,
+  refused: false,
+};
+
+/** Whether this flow is holding the plane. The one reading of the table above. */
+export function isSignInPlaneHeld(flow: SignInFlowState): boolean {
+  return SIGN_IN_PLANE_HELD_BY_KIND[flow.kind];
+}
+
+/**
+ * The account this flow is about, where the arm carries one.
+ *
+ * Reads the union's own arms rather than a second list of which kinds have an account:
+ * the three that do are the three that hold, and stating that twice is how the two
+ * come apart. A caller wanting "held, and by whom" asks both questions.
+ */
+export function signInPlaneHolderAccountId(flow: SignInFlowState): ProviderAccountId | undefined {
+  return "accountId" in flow ? flow.accountId : undefined;
+}
+
+/**
+ * What one start attempt answered.
+ *
+ * NARROWER THAN THE FLOW STATE, AND THE NARROWING IS THE RULE. A start either produced
+ * a flow or it did not, and a refusal is the second — so it cannot be installed as the
+ * tracked flow, because there is no flow to track and the card that renders one is
+ * shared across every readiness row. The caller routes the refused arm to the row that
+ * asked; the type is what stops it going anywhere else.
+ */
+export type SignInStartOutcome =
+  | {
+      readonly kind: "live";
+      readonly accountId: ProviderAccountId;
+      readonly attempt: ProviderAccountLoginResponse;
+    }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/** What one cancel answered. Both arms ARE about the tracked flow, so both install. */
+export type SignInCancelOutcome =
+  | { readonly kind: "ended"; readonly because: string }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
  * Start a brokered sign-in for one account.
  *
- * Answers the next flow state rather than throwing, so every arm — including the
- * daemon's own refusal, which is what `provideraccount.signin_unsupported` and
+ * Answers an outcome rather than throwing, so every arm — including the daemon's own
+ * refusal, which is what `provideraccount.signin_unsupported` and
  * `provideraccount.signin_in_flight` arrive as — renders on the control that raised it.
  */
 export async function startSignIn(
   bridge: ConsoleBridge,
   accountId: ProviderAccountId,
-): Promise<SignInFlowState> {
+): Promise<SignInStartOutcome> {
   const settlement = await settleGrowthRead(bridge.growth.providerAccountLogin({ accountId }));
   return settlement.status === "served"
-    ? { kind: "live", attempt: settlement.value }
+    ? { kind: "live", accountId, attempt: settlement.value }
     : { kind: "refused", refusal: settlement };
 }
 
@@ -68,7 +141,7 @@ export async function startSignIn(
 export async function cancelSignIn(
   bridge: ConsoleBridge,
   attempt: ProviderAccountLoginResponse,
-): Promise<SignInFlowState> {
+): Promise<SignInCancelOutcome> {
   const settlement = await settleGrowthRead(
     bridge.growth.providerAccountLoginCancel({ attemptId: attempt.attemptId }),
   );
