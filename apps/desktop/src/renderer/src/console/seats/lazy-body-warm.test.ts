@@ -99,11 +99,11 @@ describe("the warm scheduler — the pair is detected together", () => {
 class RecordingBoard implements LazyBodyBoard<string> {
   #unloaded: string[];
   public readonly preloaded: string[] = [];
-  #rejectOn: string | undefined;
+  readonly #rejectingKeys: ReadonlySet<string>;
 
-  public constructor(unloaded: readonly string[], rejectOn?: string) {
+  public constructor(unloaded: readonly string[], rejectingKeys: readonly string[] = []) {
     this.#unloaded = [...unloaded];
-    this.#rejectOn = rejectOn;
+    this.#rejectingKeys = new Set(rejectingKeys);
   }
 
   public readonly unloadedKeys = (): readonly string[] => this.#unloaded;
@@ -113,7 +113,11 @@ class RecordingBoard implements LazyBodyBoard<string> {
     // A real board's memo is written synchronously by `preload`, which is what stops the
     // next step re-selecting this key — so the fake drops it synchronously too.
     this.#unloaded = this.#unloaded.filter((unloadedKey) => unloadedKey !== key);
-    if (key === this.#rejectOn) {
+    if (this.#rejectingKeys.has(key)) {
+      // AND A REAL BOARD RELEASES THAT MEMO WHEN THE LOAD REJECTS, so the key is offered
+      // back to `unloadedKeys` — which is exactly the state the walk has to bound and
+      // the reason this fake re-adds it rather than leaving it dropped.
+      this.#unloaded.push(key);
       throw new Error(`chunk for ${key} could not be fetched`);
     }
   };
@@ -237,7 +241,7 @@ describe("the warm walk — a chunk that will not load", () => {
     // The walk is speculative: nobody asked for this pane, so the honest place for the
     // failure is the mount, where the surface error boundary can say so. An unhandled
     // rejection here would surface as a crash report for a pane nobody opened.
-    const board = new RecordingBoard(["diff", "artifact"], "diff");
+    const board = new RecordingBoard(["diff", "artifact"], ["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
     expect(() => {
@@ -246,6 +250,32 @@ describe("the warm walk — a chunk that will not load", () => {
     expect(board.preloaded).toStrictEqual(["diff", "artifact"]);
     // Let the rejected promise settle inside the case, so an unswallowed rejection is
     // this case's failure rather than the next file's.
+    await Promise.resolve();
+  });
+
+  it("asks for each key once and ends, when every chunk fails", async () => {
+    // THE SPIN THE ATTEMPTED SET EXISTS TO STOP. A released memo makes a failed key
+    // indistinguishable from one never asked for, so a walk selecting on the board alone
+    // alternates between two such keys forever — one background refetch per idle
+    // callback, for surfaces nobody has opened, on exactly the damaged install that can
+    // least afford it. The retry a failed chunk gets is the one a person asks for.
+    const board = new RecordingBoard(["diff", "artifact"], ["diff", "artifact"]);
+    const scheduler = new ManualIdleWarmScheduler();
+    new LazyBodyIdleWarm(board, scheduler).start();
+    scheduler.runToQuiescence();
+    expect(board.preloaded).toStrictEqual(["diff", "artifact"]);
+    expect(scheduler.pendingCount).toBe(0);
+    await Promise.resolve();
+  });
+
+  it("negative control: a key still unloaded and never attempted is still warmed", async () => {
+    // Without this, the case above would pass over a walk that stopped at its first
+    // failure — and one broken chunk would leave every later body cold.
+    const board = new RecordingBoard(["diff", "artifact", "runs"], ["diff"]);
+    const scheduler = new ManualIdleWarmScheduler();
+    new LazyBodyIdleWarm(board, scheduler).start();
+    scheduler.runToQuiescence();
+    expect(board.preloaded).toStrictEqual(["diff", "artifact", "runs"]);
     await Promise.resolve();
   });
 });

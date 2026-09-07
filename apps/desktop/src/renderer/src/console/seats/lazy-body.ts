@@ -83,17 +83,31 @@ export interface LazyBodyBoard<TKey> {
 export class LoadedLazyBody<TContext extends object> {
   readonly #loader: LazyBodyLoader<TContext>;
   readonly #fallback: (context: TContext) => React.ReactNode;
-  /** The one in-flight or settled load. `undefined` until something asks for it. */
+  /**
+   * The one in-flight or fulfilled load.
+   *
+   * `undefined` until something asks for it, and `undefined` again once a load has
+   * rejected — see {@link load} for why that second state exists.
+   */
   #pending: Promise<LazyBodyModule<TContext>> | undefined;
   /**
-   * The mounted form, built once.
+   * The mounted form, built once per load that can still succeed.
    *
    * Built in the constructor rather than on first render, because its IDENTITY is what
    * React reconciles the body by and a getter minting one per call would remount on
    * every render. Constructing it starts no load: `lazy` calls its argument on first
    * render and not before, which is precisely why a preload has to exist beside it.
+   *
+   * REBUILT WHEN A LOAD REJECTS, AND ONLY THEN. `lazy` marks its payload rejected the
+   * first time the initializer's promise fails and never calls that initializer again —
+   * so clearing the memo below would leave the retry unreachable from a MOUNT, which is
+   * the one path the boundary's "Try again" takes: it would re-throw the cached
+   * rejection without asking this registration for anything. A fresh `lazy` is a fresh
+   * payload, and the identity change lands on a subtree the boundary is remounting
+   * anyway — `LazyBody` re-derives its pin from it, which is the same path a
+   * re-registration takes and the reason that path exists.
    */
-  readonly #component: LazyExoticComponent<(context: TContext) => React.ReactNode>;
+  #component: LazyExoticComponent<(context: TContext) => React.ReactNode>;
 
   /**
    * The body itself, once a load has settled — the thing a warmed mount renders.
@@ -116,34 +130,79 @@ export class LoadedLazyBody<TContext extends object> {
   ) {
     this.#loader = loader;
     this.#fallback = fallback;
-    this.#component = lazy(async () => ({ default: (await this.load()).Body }));
+    this.#component = this.#mintComponent();
   }
 
   /**
-   * Resolve the module, at most once per registration.
+   * Resolve the module, at most once per load that succeeds.
    *
    * Memoised on the PROMISE rather than on the settled value, so a caller arriving while
    * the first load is in flight joins it instead of starting a second: the palette
    * highlighting an entry and the idle warm walking the board are exactly that race.
    *
-   * A REJECTED LOAD IS NOT RETRIED, and that is deliberate rather than an omission. The
-   * promise stays memoised, so a caller that asks again gets the same rejection rather
-   * than a second request for a chunk the renderer could not fetch. What a failed chunk
-   * load means in an Electron window served from local disk is a damaged install, and
-   * re-requesting it in a loop turns a broken install into a spinning one. The rejection
-   * surfaces at the mount, through the console's own surface error boundary, which is
-   * where somebody is actually waiting for it.
+   * A FULFILLED LOAD IS MEMOISED FOREVER. A REJECTED ONE IS NOT, and keeping it was a
+   * defect rather than a policy. The memo outlives every mount — the registration is the
+   * board's and the board is the window's — so a retained rejection poisoned the
+   * registration for the life of the window: `SurfaceErrorBoundary`'s "Try again"
+   * remounted the subtree onto the same dead promise without the loader ever being asked
+   * again, and navigating away and back arrived at it too. Clearing it is what makes the
+   * next ask a real request.
+   *
+   * AND CLEARING IS NOT RETRYING, which is what keeps the spin the old rule feared —
+   * a damaged install re-fetching a chunk in a loop — off this path. Nothing here
+   * re-asks; the clear only decides what the next ASK does. The one caller that walks a
+   * board unasked is `lazy-body-warm.ts`, and it takes each key at most once per walk,
+   * so a chunk that will not load is re-requested when a person opens that surface again
+   * and at no other moment.
    */
   public async load(): Promise<LazyBodyModule<TContext>> {
-    this.#pending ??= this.#loader();
-    const loaded = await this.#pending;
+    const pending = this.#pending ?? this.#mintPendingLoad();
+    this.#pending = pending;
+    const loaded = await pending;
     this.#resolvedBody = loaded.Body;
     return loaded;
   }
 
-  /** Has this body's module been asked for yet? Read by the warm walk, never by a render. */
+  /**
+   * Has this body's module been asked for, and is that ask still good?
+   *
+   * Read by the warm walk, never by a render. False again after a rejection, because
+   * what the boards ask it — which registered keys still have a body to load — is true
+   * of this one again once the memo is gone.
+   */
   public get isResolved(): boolean {
     return this.#pending !== undefined;
+  }
+
+  /**
+   * Start one load and arrange for its rejection to release the memo.
+   *
+   * ATTACHED WHERE THE PROMISE IS MINTED, not inside `load`. `load` is called by every
+   * caller that joins an in-flight load, so a continuation attached there would be
+   * attached once per CALLER: on a rejection they would fire in turn, and the second
+   * would clear the memo the first caller's retry had already installed — a load in
+   * flight, thrown away, and a third fetch started for a body two callers were waiting
+   * on. One mint, one continuation.
+   *
+   * The identity comparison is what makes that rule total rather than argued: only the
+   * promise that is STILL the memo may clear it, so an older rejection landing after
+   * anything else has installed a newer load leaves that newer load alone.
+   */
+  #mintPendingLoad(): Promise<LazyBodyModule<TContext>> {
+    const pending = this.#loader();
+    void pending.catch(() => {
+      if (this.#pending !== pending) {
+        return;
+      }
+      this.#pending = undefined;
+      this.#component = this.#mintComponent();
+    });
+    return pending;
+  }
+
+  /** The `lazy()` form over this registration's memo, whichever load is current. */
+  #mintComponent(): LazyExoticComponent<(context: TContext) => React.ReactNode> {
+    return lazy(async () => ({ default: (await this.load()).Body }));
   }
 
   /**

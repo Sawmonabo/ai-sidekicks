@@ -97,17 +97,19 @@ export function LazyBody<TContext extends object>(
   // suspends and a mount that started cold keeps the lazy element it began with and swaps
   // nothing when the module lands.
   //
-  // AND THE PIN IS RELEASED WHEN THE REGISTRATION ITSELF CHANGES, which is the half a
-  // `useState` initializer alone cannot do. `Body` is the `lazy()` a registration builds
-  // once and holds, so its identity IS the registration's: a board re-registering the
-  // same kind under the same owner — a hot reload, a suite recomposing a family, a
-  // window swapping a fixture — replaces the `LoadedLazyBody` and hands this component a
-  // different `Body`. The element type and its position do not change, so React keeps
-  // this instance and the initializer never runs again; the pin then held a lazy
-  // component over a loader nothing would ever call, and the surface went on rendering
-  // the module the OLD registration named. Re-derived on the render that sees the new
-  // registration instead — React's own adjust-state-during-render, which re-renders
-  // before committing anything, so no frame shows the stale arm.
+  // AND THE PIN IS RELEASED WHEN THE `Body` IT WAS GIVEN CHANGES, which is the half a
+  // `useState` initializer alone cannot do. A registration holds one `lazy()` at a time,
+  // so that component's identity is the identity of the load it stands for, and exactly
+  // two things replace it: a board re-registering the same kind under the same owner — a
+  // hot reload, a suite recomposing a family, a window swapping a fixture — which
+  // replaces the whole `LoadedLazyBody`, and a load that REJECTED, which rebuilds the
+  // `lazy()` over a fresh memo because React never re-runs a rejected one's initializer
+  // (`lazy-body.ts` states that at the field). The element type and its position do not
+  // change through either, so React keeps this instance and the initializer never runs
+  // again; the pin then held a lazy component over a loader nothing would ever call, and
+  // the surface went on rendering the module the OLD registration named. Re-derived on
+  // the render that sees the new one instead — React's own adjust-state-during-render,
+  // which re-renders before committing anything, so no frame shows the stale arm.
   const [held, setPinned] = useState(() => pinBody(Body, resolvedBody));
   // The SAME object is both rendered and stored, so the re-render this schedules settles
   // on the first pass rather than minting a second pin nobody reads. The reveal record
