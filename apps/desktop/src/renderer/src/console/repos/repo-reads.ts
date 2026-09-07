@@ -153,8 +153,9 @@ export async function readExecutionModeCapabilities(
 export async function readMountExecutionModeCapabilities(
   bridge: ConsoleBridge,
   repoMountId: RepoMountId,
+  signal: AbortSignal,
 ): Promise<DaemonReply<WorkspaceExecutionModeCapabilitiesReadResponse>> {
-  return callDaemon(bridge, "repo.executionModeCapabilitiesRead", { repoMountId });
+  return callDaemon(bridge, "repo.executionModeCapabilitiesRead", { repoMountId }, { signal });
 }
 
 /**
@@ -281,8 +282,9 @@ export async function checkWorktreeReuse(
   bridge: ConsoleBridge,
   repoMountId: RepoMountId,
   branchName: string,
+  signal: AbortSignal,
 ): Promise<DaemonReply<WorktreeReuseCheckResponse>> {
-  return callDaemon(bridge, "repo.worktreeReuseCheck", { repoMountId, branchName });
+  return callDaemon(bridge, "repo.worktreeReuseCheck", { repoMountId, branchName }, { signal });
 }
 
 /**

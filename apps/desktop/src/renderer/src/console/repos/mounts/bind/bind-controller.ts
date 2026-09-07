@@ -144,11 +144,22 @@ export class BindWorkspaceController extends ActSurfaceController<
     );
   }
 
-  /** The pre-bind capabilities call, asked for the mount this controller is scoped to. */
-  protected override async readPrerequisite(): Promise<
-    ActOutcome<WorkspaceExecutionModeCapabilitiesReadResponse>
-  > {
-    return await readMountExecutionModeCapabilities(this.#bridge, this.#repoMountId as RepoMountId);
+  /**
+   * The pre-bind capabilities call, asked for the mount this controller is scoped to.
+   *
+   * The round's signal goes straight to the call door: a dialog closed while this read
+   * is on the wire drops the reply there, unparsed, rather than folding an answer for
+   * a form nobody is filling in.
+   */
+  protected override async readPrerequisite(
+    _question: string,
+    signal: AbortSignal,
+  ): Promise<ActOutcome<WorkspaceExecutionModeCapabilitiesReadResponse>> {
+    return await readMountExecutionModeCapabilities(
+      this.#bridge,
+      this.#repoMountId as RepoMountId,
+      signal,
+    );
   }
 }
 
