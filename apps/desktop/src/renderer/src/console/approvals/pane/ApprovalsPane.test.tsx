@@ -147,18 +147,18 @@ describe("the sections whose wire this pane does not open", () => {
     ).not.toBeNull();
   });
 
-  it("says the driver's capability flags have not been read, ahead of the registry", async () => {
+  it("reports why the capability read failed, ahead of the registry", async () => {
     const bridge = await mountPane();
     await settle(bridge);
     // The section reports the FIRST unread fact and not the second. Whether a
-    // registry exists at all is a driver flag, and this build has read none — so a
-    // sentence about the registry would report a registry whose existence is itself
-    // unknown. The registry's own unread arms are asserted in `CallbackTools.test.tsx`.
-    expect(
-      within(section("Daemon-hosted tools")).getByText(
-        "The bound driver's capability flags have not been read.",
-      ),
-    ).not.toBeNull();
+    // registry exists at all is a driver flag, and this scenario scripts no reply for
+    // the call that reads one — so what the section says is the daemon's own code and
+    // sentence rather than the generic "nobody has read the flags", which is true of a
+    // refused read and drops the only thing on it an operator can act on. The
+    // registry's own unread arms are asserted in `CallbackTools.test.tsx`.
+    const tools = within(section("Daemon-hosted tools"));
+    expect(tools.getByText("reply-unscripted")).not.toBeNull();
+    expect(tools.queryByText("The bound driver's capability flags have not been read.")).toBeNull();
   });
 });
 

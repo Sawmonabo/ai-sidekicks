@@ -155,6 +155,7 @@ export type { DriverCapabilityReadout } from "./driver-capabilities/driver-capab
 // and the questions asked of its answer are two subjects, and a door line pointing at
 // whichever file used to hold both would say otherwise.
 export {
+  readingAcrossRuns,
   readingForDriver,
   readingForRun,
   withRunDriverBindings,
