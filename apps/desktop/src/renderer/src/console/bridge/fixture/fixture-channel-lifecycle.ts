@@ -33,8 +33,22 @@
 // store goes, so a late subscriber is replayed it and a subscribed one is handed it
 // now. A namespace that emitted onto a feed of its own would be a second delivery path
 // into stores the engine already owns.
+//
+// AND THE READ SIDE OF THE SAME LIFECYCLE IS HERE, which is the half that was missing
+// on both of its faces. `channel.list` was answered with the scenario's scripted reply
+// verbatim for the whole playback, so a scenario whose script archives a channel at a
+// tick reported it archived at tick ZERO — future state, exposed to every read before
+// the beat — and the refresh that beat triggers then produced no transition, because
+// the reply had not moved either. The same fixed answer swallowed the moves published
+// above: a person archived a channel, the receipt settled, the frame landed, and the
+// directory's re-read served the row's old state back. One fold answers both, because
+// they are one question — what has this session's log actually said about this channel
+// — and the scripted reply is its opening term rather than its whole answer.
+
+import type { ChannelState, SessionEventType } from "@ai-sidekicks/contracts";
 
 import { answerScriptedWrite } from "./fixture-scripted-write.js";
+import { isWireRecord, readWireString } from "../../core/index.js";
 import type { GrowthChannelLifecycleReceipt } from "../growth-values/index.js";
 import type { GrowthOutcome, GrowthPort } from "../growth-port/index.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
@@ -117,4 +131,99 @@ export class FixtureChannelLifecycle {
       payload: { sessionId, channelId },
     });
   }
+}
+
+/**
+ * The state each `channel.*` transition puts a channel in.
+ *
+ * The key set is the census's own `channel.` root less the CREATION, which announces
+ * a channel's existence rather than a move on one — derived rather than listed, so a
+ * lifecycle kind the corpus registers later fails this file instead of being folded as
+ * nothing. The value is the registered `ChannelState` the transition leaves behind,
+ * which is why `channel.unmuted` reads `active`: the wire has no `unmuted` state, and
+ * unmuting is a return to the ordinary one.
+ *
+ * Read off the EVENT rather than off the receipt the move answered with. The receipt
+ * is what the scenario scripts and the event is what the session was told, and a
+ * directory that folded receipts would answer a reader about a move no other reader of
+ * that session saw.
+ */
+type ChannelLifecycleKind = Exclude<
+  Extract<SessionEventType, `channel.${string}`>,
+  "channel.created"
+>;
+
+const CHANNEL_STATE_BY_LIFECYCLE_KIND: Readonly<Record<ChannelLifecycleKind, ChannelState>> =
+  Object.freeze({
+    "channel.muted": "muted",
+    "channel.unmuted": "active",
+    "channel.archived": "archived",
+  } satisfies Record<ChannelLifecycleKind, ChannelState>);
+
+/**
+ * The scripted directory, moved by every lifecycle frame this playback has delivered.
+ *
+ * The scripted reply is the state the directory OPENS in and the log is what has
+ * happened to it since, so the answer is the second applied to the first — never the
+ * first alone, which exposes state the script has not reached, and never the log
+ * alone, which knows nothing about a channel no beat has moved.
+ *
+ * UNTYPED IN AND UNTYPED OUT, and it narrows rather than asserting. A scenario's reply
+ * is authored by hand and reaches here before the call door has held it to the
+ * registered shape, so a value that is not a directory is returned untouched for that
+ * door to refuse — folding a state into a shape nothing recognised would replace a
+ * legible contract failure with a mystery.
+ */
+export function foldChannelDirectoryOverLog(engine: ScenarioEngine, scripted: unknown): unknown {
+  if (!isWireRecord(scripted)) {
+    return scripted;
+  }
+  const channels: unknown = scripted["channels"];
+  if (!Array.isArray(channels)) {
+    return scripted;
+  }
+  const stateByChannelId = deliveredChannelStates(engine);
+  if (stateByChannelId.size === 0) {
+    return scripted;
+  }
+  return {
+    ...scripted,
+    channels: channels.map((channel: unknown) => {
+      const channelId = isWireRecord(channel) ? readWireString(channel["id"]) : undefined;
+      const delivered = channelId === undefined ? undefined : stateByChannelId.get(channelId);
+      return delivered === undefined || !isWireRecord(channel)
+        ? channel
+        : { ...channel, state: delivered };
+    }),
+  };
+}
+
+/**
+ * The state each channel is left in by the frames delivered so far.
+ *
+ * A walk in log order with a plain overwrite, because the log IS the order: the last
+ * transition a channel received is the state it is in, and a fold that picked by kind
+ * rather than by position would decide that an archived channel unmuted afterwards is
+ * still archived — or the reverse — depending on which kind it happened to prefer.
+ */
+function deliveredChannelStates(engine: ScenarioEngine): ReadonlyMap<string, ChannelState> {
+  const stateByChannelId = new Map<string, ChannelState>();
+  for (const event of engine.deliveredEvents()) {
+    const state = readLifecycleState(event.kind);
+    const channelId = isWireRecord(event.payload)
+      ? readWireString(event.payload["channelId"])
+      : undefined;
+    if (state === undefined || channelId === undefined) {
+      continue;
+    }
+    stateByChannelId.set(channelId, state);
+  }
+  return stateByChannelId;
+}
+
+/** The state this kind announces, or `undefined` for any kind that announces none. */
+function readLifecycleState(eventKind: string): ChannelState | undefined {
+  return Object.hasOwn(CHANNEL_STATE_BY_LIFECYCLE_KIND, eventKind)
+    ? CHANNEL_STATE_BY_LIFECYCLE_KIND[eventKind as ChannelLifecycleKind]
+    : undefined;
 }

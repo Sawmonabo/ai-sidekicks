@@ -8,6 +8,7 @@
 
 import { daemonMethodBindingFor } from "../daemon/index.js";
 import { FixtureBridgeError } from "./fixture-refusal.js";
+import { projectScriptedReplyOverLog } from "./fixture-log-projected-reads.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
 import { settleScriptedReply } from "../scenario-runtime/index.js";
 
@@ -34,6 +35,12 @@ import { settleScriptedReply } from "../scenario-runtime/index.js";
  * `FixtureBridgeError` would replace the code a surface exists to show with a
  * fixture-scoped one and make the rendered refusal a thing the live bridge never
  * produces.
+ *
+ * AND A RESOLVED REPLY PASSES THE LOG ON ITS WAY OUT. For a read the daemon derives
+ * from the session log, the scripted value is the state the session OPENS in and the
+ * frames delivered since are what moved it — `fixture-log-projected-reads.ts` names
+ * that class and owns which calls are in it. Every other call is handed back exactly
+ * what the scenario scripts, which is what that table answering `undefined` means.
  */
 export async function resolveScriptedReply(
   engine: ScenarioEngine,
@@ -53,7 +60,7 @@ export async function resolveScriptedReply(
     case "refused":
       throw settlement.refusal;
     case "resolved":
-      return settlement.value;
+      return projectScriptedReplyOverLog(engine, call, settlement.value);
   }
 }
 

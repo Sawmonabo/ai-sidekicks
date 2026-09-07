@@ -36,5 +36,6 @@ export {
   runStateStreamArmFor,
   sessionEventStreamFor,
   subscriptionDeliversEventKind,
+  type AwarenessSignalStream,
   type RunStateStreamKind,
 } from "./session-event-streams.js";

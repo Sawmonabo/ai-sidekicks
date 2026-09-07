@@ -17,13 +17,13 @@
 //     this reply: it has no channel row at all, its audience is fixed at
 //     `participants`, and a row here would be the fixture minting a record the daemon
 //     does not keep.
-//   • The MEMBERSHIP ROSTER carries the identifier `membership.update` is keyed by.
-//     The `membership.created` beats carry one each, but the session's OPENER has no
-//     such beat — `session.created` admitted them — so a fold over the log reaches
-//     three of the four people in this room and the fourth is the owner, whose row is
-//     the one every role control is reached from. The opener's membership id is real
-//     and its EVENT is not, which is why it is minted here beside the read that
-//     carries it rather than in the beat table that cannot.
+//   • The MEMBERSHIP ROSTER carries the membership STATE, which no beat states. Every
+//     person in this room has a `membership.created` beat carrying their id — the
+//     opener's included, because the real `session.create` path emits one for the
+//     creator — so the ids come from the roster table rather than being minted here.
+//     What a fold over those beats could never reach is `MembershipState`:
+//     `membership.created` states none, and the four kinds that would announce one
+//     carry no registered payload at all.
 //   • The PRESENCE DETAIL carries the devices behind one person's aggregated state.
 //     `presence.read` carries the aggregate and the four `presence.*` beats carry no
 //     payload variant at all, so per-device detail exists on no other wire. Each
@@ -75,8 +75,15 @@ export interface CollaborationGrowthScript {
 /** One person, as the two membership-keyed reads and the presence detail see them. */
 export interface CollaborationGrowthParticipant {
   readonly participantId: string;
-  /** Absent for the session's opener, whose membership no beat announces. */
-  readonly membershipId: string | undefined;
+  /**
+   * Required, the opener's included.
+   *
+   * It was optional while the opener's membership was a thing this file minted, and
+   * that optionality was the hole: a room whose owner had no membership beat had no
+   * membership id anywhere the log could reach, so the roster read stood in for a fold
+   * that could not run. The beat exists now, so the id is the roster's.
+   */
+  readonly membershipId: string;
   readonly role: string;
   readonly presenceState: string;
   readonly lastSeenIso: string;
@@ -88,17 +95,6 @@ export interface CollaborationGrowthChannelIds {
   readonly handoff: string;
   readonly direct: string;
 }
-
-/**
- * The opener's membership id, minted here rather than in the beat table.
- *
- * The session's opener is admitted by `session.created` and has no
- * `membership.created` event, so the beat table states that with an absent id. The
- * membership itself is not absent — `session.create` answers with one — and the owner
- * row is where every role control is reached from, so a roster read that skipped it
- * would leave the one row that matters most permanently uncontrolled.
- */
-const MEMBERSHIP_OPENER = "019b7904-8ce0-7e3b-8140-cca0117a0378";
 
 /** What creating a channel answers with. One id, because one create is scripted. */
 const CHANNEL_CREATED = "019b7904-8ce0-7c11-8140-cca0117a0398";
@@ -211,7 +207,7 @@ export function collaborationGrowthReplies(
       call: MEMBERSHIP_ROSTER_READ_CALL,
       result: script.participants.map((participant) => ({
         participantId: participant.participantId,
-        membershipId: participant.membershipId ?? MEMBERSHIP_OPENER,
+        membershipId: participant.membershipId,
         role: participant.role,
         state: "active",
       })),

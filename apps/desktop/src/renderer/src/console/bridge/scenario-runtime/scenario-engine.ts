@@ -194,7 +194,7 @@ export class ScenarioEngine {
       !this.#disposed &&
       this.#log.deliveredCount > 0
     ) {
-      sink(this.#deliveredEvents());
+      sink(this.deliveredEvents());
     }
     return this.#beats.subscribe(sink);
   }
@@ -251,8 +251,15 @@ export class ScenarioEngine {
    * slice, and every scripted beat after one is delivered at a position its author did
    * not write. `#deliveredBeatCount` still counts the consumed script prefix, which is
    * what `progress` and the due rule are about.
+   *
+   * PUBLIC, because a read whose answer the daemon derives from the log has to be
+   * answerable from the log here too. A scripted reply is the state a session OPENS in;
+   * a fixture that served it unchanged for the whole playback answered a read at tick
+   * zero with a state the script does not reach until later, and answered the re-read a
+   * beat triggers with the same row it had already given. Both halves are the same
+   * defect, and neither is reachable without the record of what has actually landed.
    */
-  #deliveredEvents(): readonly ConsoleSessionEvent[] {
+  public deliveredEvents(): readonly ConsoleSessionEvent[] {
     return this.#log.delivered();
   }
 

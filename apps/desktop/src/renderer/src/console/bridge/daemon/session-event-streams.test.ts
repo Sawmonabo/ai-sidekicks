@@ -28,6 +28,7 @@ import {
 
 import {
   CONSOLE_SESSION_EVENT_STREAMS,
+  PRESENCE_EVENT_STREAM,
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
@@ -94,11 +95,11 @@ function registeredKindsIn(category: EventCategory): readonly string[] {
     .map(([eventType]) => eventType);
 }
 
-/** The kinds one narrowed stream carries, as the table declares them. */
+/** The kinds one stream that declares a kind list carries, as the table declares them. */
 function carriedKindsOf(subscriptionName: ConsoleSessionEventStreamName): readonly string[] {
   const stream = sessionEventStreamFor(subscriptionName);
-  if (stream === undefined || stream.scope !== "selected-kinds") {
-    throw new Error(`${subscriptionName} is not a narrowed stream, so it carries no kind list`);
+  if (stream === undefined || stream.scope === "whole-session") {
+    throw new Error(`${subscriptionName} declares no kind list, so it carries none`);
   }
   return stream.carriedKinds;
 }
@@ -108,15 +109,20 @@ function sorted(kinds: Iterable<string>): readonly string[] {
 }
 
 describe("session-event streams — the table carries what the wire registers", () => {
-  it("routes exactly three registered subscriptions", () => {
+  it("routes exactly the four registered subscriptions this console opens", () => {
     expect(Object.keys(CONSOLE_SESSION_EVENT_STREAMS).sort()).toStrictEqual(
-      sorted([SESSION_EVENT_STREAM, RUN_STATE_EVENT_STREAM, RUN_QUEUE_EVENT_STREAM]),
+      sorted([
+        SESSION_EVENT_STREAM,
+        RUN_STATE_EVENT_STREAM,
+        RUN_QUEUE_EVENT_STREAM,
+        PRESENCE_EVENT_STREAM,
+      ]),
     );
   });
 
   it("carries only kinds the census registers", () => {
     const carried = Object.values(CONSOLE_SESSION_EVENT_STREAMS).flatMap((stream) =>
-      stream.scope === "selected-kinds" ? [...stream.carriedKinds] : [],
+      stream.scope === "whole-session" ? [] : [...stream.carriedKinds],
     );
 
     expect(carried.length).toBeGreaterThan(0);
@@ -206,6 +212,17 @@ describe("session-event streams — what a subscription name delivers", () => {
     expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, "queue_item.created")).toBe(false);
     expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "queue_item.expired")).toBe(true);
     expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "run.starting")).toBe(false);
+  });
+
+  it("holds the Awareness stream to the presence transitions and to nothing else", () => {
+    // Its kinds are the log-borne half of what moves the room. What it DELIVERS is a
+    // payload-free signal rather than any of them — the fixture's own seam owns that —
+    // and the other half, what a person is doing, rides on no registered event at all.
+    expect(sorted(carriedKindsOf(PRESENCE_EVENT_STREAM))).toStrictEqual(
+      sorted(registeredKindsIn("membership_change").filter((kind) => kind.startsWith("presence."))),
+    );
+    expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "presence.idle")).toBe(true);
+    expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "membership.created")).toBe(false);
   });
 
   it("treats a name that is not a stream as a subscription to that one event type", () => {
