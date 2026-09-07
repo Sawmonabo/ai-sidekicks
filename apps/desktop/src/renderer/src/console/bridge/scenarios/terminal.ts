@@ -1,7 +1,7 @@
 // The terminal scenario — one shared shell changing hands, and ending degraded.
 //
-// THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, and the beat envelope
-// and its clock in `terminal-beats.ts`.
+// THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, the beat envelope and
+// its clock in `terminal-beats.ts`, and the reply table in `terminal-replies.ts`.
 // What stays here is the one thing that has to be read in order to be understood:
 // which beat follows which, and why.
 //
@@ -58,13 +58,6 @@
 // `terminal/pane/node-presence-model.ts` — and handing the host's reported reachability to
 // the lease fold as its vouching input.
 //
-// WHAT REMAINS UNREACHABLE FROM A SCENARIO, STATED RATHER THAN QUIETLY MISSING. The
-// three refusals (`pty.permission_denied` before any lease comparison,
-// `pty.control_held_by_other` carrying the holder, `pty.control_not_held` on a
-// release by a non-holder) are rejections of a CALL, and `ScenarioReply` always
-// resolves — it carries a result, never an error. They are reachable today only
-// through the growth port's own refusal, which the lease operations return.
-
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   TERMINAL_HOST_NODE_ATTACHED_AT_MS,
@@ -74,6 +67,7 @@ import {
   terminalScenarioBeat,
   terminalScenarioInstantAt,
 } from "./terminal-beats.js";
+import { TERMINAL_REPLIES } from "./terminal-replies.js";
 import {
   TERMINAL_AGENT_RUN_ID,
   TERMINAL_COLLABORATOR_MEMBERSHIP_ID,
@@ -364,11 +358,5 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       },
     }),
   ],
-  // The one read the scenario answers. Everything the terminal family itself needs
-  // arrives as beats: the holder is a field on `pty.control_changed`, and the host's
-  // presence is the `runtime_node.*` pair above — so no roster read is scripted, and
-  // a scripted reply nothing calls would be a promise the wire has not made.
-  replies: [
-    { call: "agent.list", result: { agents: [{ agentId: TERMINAL_SCENARIO_CAST.agent }] } },
-  ],
+  replies: TERMINAL_REPLIES,
 };

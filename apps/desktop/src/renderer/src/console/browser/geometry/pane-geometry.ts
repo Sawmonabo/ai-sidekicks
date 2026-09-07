@@ -16,10 +16,15 @@
 // to the task that lands the namespace.
 //
 // The two surfaces beside this one: `view-host.ts` is 12.11's host seam — what a
-// sample is published TO — and `occlusion-registry.ts` is the overlay set, reached
-// through the narrow `PaneOverlaySource` port so the two do not cycle.
+// sample is published TO — and `core/airspace-registry.ts` is the overlay set every
+// overlay primitive registers into, reached through the narrow `PaneOverlaySource`
+// port so the two do not cycle.
 
-import { type Unsubscribe } from "../../core/index.js";
+import {
+  type AirspaceMotionObserver,
+  type AirspaceRect,
+  type Unsubscribe,
+} from "../../core/index.js";
 
 /** Two-decimal rounding, as the factor: a `toFixed` round trip would be a second
  *  number formatter, which `apps/desktop/AGENTS.md` names a chokepoint breach. */
@@ -29,13 +34,15 @@ const GEOMETRY_ROUNDING_FACTOR = 100;
  *  rectangle rounded to two places can be 0.4 px tall and still be a number. */
 const MINIMUM_VISIBLE_EDGE_PX = 1;
 
-/** A rectangle in CSS pixels, viewport-relative, already rounded. */
-export interface PaneRect {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
+/**
+ * A rectangle in CSS pixels, viewport-relative, already rounded.
+ *
+ * The airspace's own rect, aliased rather than re-declared: an overlay rectangle and a
+ * pane rectangle are compared against each other by `readHiddenReason` below, and two
+ * structurally identical declarations of one shape are two closed sets that agree until
+ * somebody widens one.
+ */
+export type PaneRect = AirspaceRect;
 
 /** Why a sample hides the view: a pane scrolled out of its own scroller, or an
  *  overlay the operator opened. Two different stories, so two members. */
@@ -140,6 +147,18 @@ export interface PaneOverlaySource {
   liveRects(): readonly PaneRect[];
   /** Fires when an overlay opens or closes, so a publisher re-samples immediately. */
   subscribeToChanges(sink: () => void): Unsubscribe;
+  /**
+   * Watch every registered overlay ELEMENT for movement, until the answer is called.
+   *
+   * ON THE PORT RATHER THAN LEFT TO WHOEVER MINTS THE PUBLISHER, because an
+   * observation armed outside the publisher outlives every terminal the publisher
+   * has. The registry deliberately arms no frame of its own — the only consumer that
+   * needs an overlay sampled while a transition carries it is the one drawing a
+   * native view — so the consumer installs it, and the consumer is this publisher:
+   * the observation is an invalidation source like the other five, armed by `observe`
+   * and retired by `dispose` beside them.
+   */
+  installMotionObserver(observe: AirspaceMotionObserver): Unsubscribe;
 }
 
 /** What a sample is computed from. Pure inputs, so the arithmetic is testable. */

@@ -61,23 +61,27 @@
 // this family owns the two halves that are the renderer's either way — the PROJECTION
 // a main-process mirror is built from, and the REPLAY a claimed chord arrives at —
 // and names no method string. The projection is deliberately handed a chord LIST
-// rather than reading one out of `palette/`: `KeyBindingTable` exposes no enumeration
-// of installed chords today, and inventing a second list here is exactly the drift the
-// third rule forbids. What this module does take from that family is the GRAMMAR the
-// paragraph above names, because a second chord grammar is that same drift by another
-// route.
+// rather than reading one itself, and the list its binding supplies is the palette's
+// OWN effective table — `useKeybindingSurface`'s `bindings`, the shipped chords with
+// this window's overrides applied, which the palette and the keyboard page both read.
+// So the mirror is a projection of one table rather than a second list, which is the
+// drift the third rule forbids. Reading it here instead of taking it as an argument is
+// what would make this module undrivable from a case with no palette in it, which is
+// the whole reason the seam is a parameter. What this module does take from that
+// family is the GRAMMAR the paragraph above names, because a second chord grammar is
+// that same drift by another route.
 //
 // `KeyboardHandback` carries a one-line claim naming the growth slate row that owns
 // its wire, for `chord-claim.ts`' reason: the claim is the difference between a symbol
 // waiting for a named consumer and one nothing will ever import.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { chordMatchesEvent, parseChord } from "../../palette/index.js";
+import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { chordMatchesEvent, parseChord } from "../../../palette/index.js";
 import {
   PLATFORM_MODIFIER_CHORD_TOKEN,
   PLATFORM_MODIFIER_TOKEN,
   type ChordPlatform,
-} from "../../primitives/index.js";
+} from "../../../primitives/index.js";
 import {
   carriesApplicationModifier,
   projectClaimableChords,

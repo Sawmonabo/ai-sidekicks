@@ -6,14 +6,15 @@
 // partition that closes the pane first". Nothing else about the browser is placed
 // here, and no policy row is placed anywhere else.
 //
-// WHERE THIS PAGE IS MOUNTED, AND WHY IT IS NOT MOUNTED YET. The console's surface
-// registry is keyed by SLOT, and `settings` is one slot for the whole of chapter 13
-// — sixteen-odd pages, of which this is one. There is no settings-page registry in
-// the tree, so this page claims no slot: claiming `settings` for the browser alone
-// would take the surface every other chapter-13 page needs. It is composed by
-// whichever task mints that registry, and until then it is reached by its own test.
-// The alternative — inventing the registry here — would be a shared spine minted by
-// a family that does not own it.
+// WHERE THIS PAGE IS MOUNTED. The console's surface registry is keyed by SLOT, and
+// `settings` is one slot for the whole of chapter 13 — sixteen-odd pages, of which
+// this is one — so this page claims no slot of its own: claiming `settings` for the
+// browser alone would take the surface every other chapter-13 page needs. The
+// settings family's own page registry is what resolves that, `browser` is a member of
+// its closed section set, and the registration is made where every other chapter-13
+// page's is, in that family's registrar. This file is a page body and composes
+// nothing — the alternative, registering from here, would put one family's page into
+// another family's spine and make the order pages appear in depend on import order.
 //
 // THE PARTITION TABLE IS A PROJECTION, NOT A READ. Every figure on it arrives as a
 // prop: this page performs no fetch, holds no store, and runs no effect. That is

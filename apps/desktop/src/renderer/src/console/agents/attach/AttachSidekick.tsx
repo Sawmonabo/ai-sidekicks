@@ -26,7 +26,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useId } from "react";
 
 import type { ConsoleRefusal } from "../../core/index.js";
-import { Nothing, RefusalCard } from "../../primitives/index.js";
+import { Nothing, OverlayDialogPopup, RefusalCard } from "../../primitives/index.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
 import { AxisCombobox } from "../AxisCombobox.js";
 import { type AttachSidekickForm } from "./attach-model.js";
@@ -95,165 +95,171 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
 
   return (
     <Dialog.Root open={props.open} onOpenChange={props.onOpenChange} modal="trap-focus">
-      <Dialog.Portal container={props.overlayContainer}>
-        <Dialog.Backdrop className="meridian-attach__backdrop" />
-        <Dialog.Popup className="meridian-attach__popup" aria-label="Attach a sidekick">
-          <h3 className="meridian-attach__title">Attach a sidekick</h3>
+      {/* The popup shell is the primitive's, which is also what puts this dialog in
+          the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to whatever is registered there, and a form that
+          mounted its own portal would be a dialog the view paints over. */}
+      <OverlayDialogPopup
+        container={props.overlayContainer}
+        backdropClassName="meridian-attach__backdrop"
+        className="meridian-attach__popup"
+        label="Attach a sidekick"
+      >
+        <h3 className="meridian-attach__title">Attach a sidekick</h3>
 
-          {/* Above the arms because it belongs to neither: the registered request
+        {/* Above the arms because it belongs to neither: the registered request
               requires a name of both, and no definition supplies one — the name on a
               definition row is the definition's. So this is typed, never filled in,
               and a placeholder is as far as the form goes. */}
-          <label className="meridian-axis-field">
-            <span className="meridian-axis-field__label">Name</span>
-            <input
-              className="meridian-axis-field__text"
-              value={form.name}
-              placeholder="What this agent is called here"
-              onChange={(event) => form.setName(event.target.value)}
-            />
-            <span className="meridian-axis-field__advisory">
-              Required on both arms. This is the agent&rsquo;s own name — a definition&rsquo;s name
-              stays the definition&rsquo;s.
-            </span>
-          </label>
-
-          <div className="meridian-attach__arms" role="group" aria-label="How to attach">
-            {ATTACH_ARMS.map((arm) => (
-              <button
-                key={arm}
-                type="button"
-                className="meridian-attach__arm"
-                aria-pressed={form.arm === arm}
-                disabled={arm === "definition" && !definitionArmAvailable}
-                onClick={() => form.selectArm(arm)}
-              >
-                {armLabel(arm)}
-              </button>
-            ))}
-          </div>
-
-          {form.arm === "definition" ? (
-            <DefinitionPicker
-              form={form}
-              definitions={definitions}
-              onReopen={props.onDefinitionsReopen}
-            />
-          ) : null}
-
-          {catalog.kind === "not-loaded" ? (
-            <>
-              <Nothing kind="not-loaded" title="Reading the model catalog" />
-              <p className="meridian-attach__catalog-note">
-                The definition arm stays submittable while this is in flight: the daemon resolves a
-                definition&apos;s driver and model itself.
-              </p>
-            </>
-          ) : null}
-          {catalog.kind === "failed" ? (
-            <RefusalCard
-              {...catalog.refusal}
-              action={
-                props.onCatalogReopen === undefined ? undefined : (
-                  <button type="button" onClick={props.onCatalogReopen}>
-                    Try again
-                  </button>
-                )
-              }
-            />
-          ) : null}
-
-          <AxisCombobox
-            label="Driver"
-            options={catalogValue === undefined ? undefined : driverNamesOf(catalogValue)}
-            value={driverName}
-            onValueChange={(next) => form.setField("driverName", next ?? "", catalogValue)}
-            isOverridden={form.isOverridden("driverName")}
-            overlayContainer={props.overlayContainer}
+        <label className="meridian-axis-field">
+          <span className="meridian-axis-field__label">Name</span>
+          <input
+            className="meridian-axis-field__text"
+            value={form.name}
+            placeholder="What this agent is called here"
+            onChange={(event) => form.setName(event.target.value)}
           />
-          <AxisCombobox
-            label="Model"
-            options={
-              catalogValue === undefined
-                ? undefined
-                : modelsFor(catalogValue, driverName).map((model) => model.id)
-            }
-            value={modelId}
-            onValueChange={(next) => form.setField("modelId", next ?? "", catalogValue)}
-            isOverridden={form.isOverridden("modelId")}
-            overlayContainer={props.overlayContainer}
-          />
-          <AxisCombobox
-            label="Effort"
-            options={
-              catalogValue === undefined
-                ? undefined
-                : effortLevelsFor(catalogValue, driverName, modelId)
-            }
-            value={form.effectiveValue("effort")}
-            onValueChange={(next) => form.setField("effort", next ?? "", catalogValue)}
-            isOverridden={form.isOverridden("effort")}
-            overlayContainer={props.overlayContainer}
-          />
+          <span className="meridian-axis-field__advisory">
+            Required on both arms. This is the agent&rsquo;s own name — a definition&rsquo;s name
+            stays the definition&rsquo;s.
+          </span>
+        </label>
 
-          <label className="meridian-axis-field">
-            <span className="meridian-axis-field__label">
-              Provider account
-              {form.isOverridden("providerAccountId") ? (
-                <span className="meridian-axis-field__overridden"> overridden</span>
-              ) : null}
-            </span>
-            <input
-              className="meridian-axis-field__text"
-              value={form.effectiveValue("providerAccountId") ?? ""}
-              onChange={(event) =>
-                form.setField("providerAccountId", event.target.value, catalogValue)
-              }
-            />
-            <span className="meridian-axis-field__advisory">
-              An account&rsquo;s stored readiness is advisory here and never a gate — a pinned
-              account that has left the registry refuses rather than falling back to a default.
-            </span>
-          </label>
-
-          <p className="meridian-attach__snapshot">
-            The agent takes a <strong>snapshot</strong> of what this resolves to. Editing or
-            deleting the definition afterwards reaches it never, and its posture, tools,
-            instructions, and goal are fixed for its life.
-          </p>
-
-          {readiness.status === "incomplete" ? (
-            <p className="meridian-attach__incomplete">
-              Still needed: {readiness.missing.join(", ")}.
-            </p>
-          ) : null}
-
-          {props.isSubmitting === true ? (
-            <p className="meridian-attach__incomplete" id={submittingReasonId}>
-              An attach is already outstanding for this session. Nothing here cancels a request, so
-              this control takes no second attach until the daemon answers the first.
-            </p>
-          ) : null}
-
-          <div className="meridian-attach__actions">
+        <div className="meridian-attach__arms" role="group" aria-label="How to attach">
+          {ATTACH_ARMS.map((arm) => (
             <button
+              key={arm}
               type="button"
-              className="meridian-attach__submit"
-              disabled={readiness.status !== "ready" || props.isSubmitting === true}
-              aria-busy={props.isSubmitting === true}
-              aria-describedby={props.isSubmitting === true ? submittingReasonId : undefined}
-              onClick={props.onSubmit}
+              className="meridian-attach__arm"
+              aria-pressed={form.arm === arm}
+              disabled={arm === "definition" && !definitionArmAvailable}
+              onClick={() => form.selectArm(arm)}
             >
-              Attach
+              {armLabel(arm)}
             </button>
-          </div>
+          ))}
+        </div>
 
-          {props.refusal === undefined ? null : <RefusalCard {...props.refusal} />}
-          {props.confirmation === undefined ? null : (
-            <AttachConfirmation confirmation={props.confirmation} />
-          )}
-        </Dialog.Popup>
-      </Dialog.Portal>
+        {form.arm === "definition" ? (
+          <DefinitionPicker
+            form={form}
+            definitions={definitions}
+            onReopen={props.onDefinitionsReopen}
+          />
+        ) : null}
+
+        {catalog.kind === "not-loaded" ? (
+          <>
+            <Nothing kind="not-loaded" title="Reading the model catalog" />
+            <p className="meridian-attach__catalog-note">
+              The definition arm stays submittable while this is in flight: the daemon resolves a
+              definition&apos;s driver and model itself.
+            </p>
+          </>
+        ) : null}
+        {catalog.kind === "failed" ? (
+          <RefusalCard
+            {...catalog.refusal}
+            action={
+              props.onCatalogReopen === undefined ? undefined : (
+                <button type="button" onClick={props.onCatalogReopen}>
+                  Try again
+                </button>
+              )
+            }
+          />
+        ) : null}
+
+        <AxisCombobox
+          label="Driver"
+          options={catalogValue === undefined ? undefined : driverNamesOf(catalogValue)}
+          value={driverName}
+          onValueChange={(next) => form.setField("driverName", next ?? "", catalogValue)}
+          isOverridden={form.isOverridden("driverName")}
+          overlayContainer={props.overlayContainer}
+        />
+        <AxisCombobox
+          label="Model"
+          options={
+            catalogValue === undefined
+              ? undefined
+              : modelsFor(catalogValue, driverName).map((model) => model.id)
+          }
+          value={modelId}
+          onValueChange={(next) => form.setField("modelId", next ?? "", catalogValue)}
+          isOverridden={form.isOverridden("modelId")}
+          overlayContainer={props.overlayContainer}
+        />
+        <AxisCombobox
+          label="Effort"
+          options={
+            catalogValue === undefined
+              ? undefined
+              : effortLevelsFor(catalogValue, driverName, modelId)
+          }
+          value={form.effectiveValue("effort")}
+          onValueChange={(next) => form.setField("effort", next ?? "", catalogValue)}
+          isOverridden={form.isOverridden("effort")}
+          overlayContainer={props.overlayContainer}
+        />
+
+        <label className="meridian-axis-field">
+          <span className="meridian-axis-field__label">
+            Provider account
+            {form.isOverridden("providerAccountId") ? (
+              <span className="meridian-axis-field__overridden"> overridden</span>
+            ) : null}
+          </span>
+          <input
+            className="meridian-axis-field__text"
+            value={form.effectiveValue("providerAccountId") ?? ""}
+            onChange={(event) =>
+              form.setField("providerAccountId", event.target.value, catalogValue)
+            }
+          />
+          <span className="meridian-axis-field__advisory">
+            An account&rsquo;s stored readiness is advisory here and never a gate — a pinned account
+            that has left the registry refuses rather than falling back to a default.
+          </span>
+        </label>
+
+        <p className="meridian-attach__snapshot">
+          The agent takes a <strong>snapshot</strong> of what this resolves to. Editing or deleting
+          the definition afterwards reaches it never, and its posture, tools, instructions, and goal
+          are fixed for its life.
+        </p>
+
+        {readiness.status === "incomplete" ? (
+          <p className="meridian-attach__incomplete">
+            Still needed: {readiness.missing.join(", ")}.
+          </p>
+        ) : null}
+
+        {props.isSubmitting === true ? (
+          <p className="meridian-attach__incomplete" id={submittingReasonId}>
+            An attach is already outstanding for this session. Nothing here cancels a request, so
+            this control takes no second attach until the daemon answers the first.
+          </p>
+        ) : null}
+
+        <div className="meridian-attach__actions">
+          <button
+            type="button"
+            className="meridian-attach__submit"
+            disabled={readiness.status !== "ready" || props.isSubmitting === true}
+            aria-busy={props.isSubmitting === true}
+            aria-describedby={props.isSubmitting === true ? submittingReasonId : undefined}
+            onClick={props.onSubmit}
+          >
+            Attach
+          </button>
+        </div>
+
+        {props.refusal === undefined ? null : <RefusalCard {...props.refusal} />}
+        {props.confirmation === undefined ? null : (
+          <AttachConfirmation confirmation={props.confirmation} />
+        )}
+      </OverlayDialogPopup>
     </Dialog.Root>
   );
 }

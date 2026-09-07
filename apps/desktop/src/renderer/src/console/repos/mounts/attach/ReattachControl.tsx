@@ -35,7 +35,12 @@ import { useCallback, useEffect, useRef } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { SessionStore } from "../../../store/index.js";
-import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import {
+  InlineRefusal,
+  Nothing,
+  OverlayAlertDialogPopup,
+  WireFigure,
+} from "../../../primitives/index.js";
 import { useConfirmationLifecycle } from "../confirmation/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
@@ -88,40 +93,41 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
         >
           Re-attach this path
         </AlertDialog.Trigger>
-        <AlertDialog.Portal>
-          <AlertDialog.Backdrop className="meridian-reattach__backdrop" />
-          <AlertDialog.Popup className="meridian-reattach__dialog">
-            <AlertDialog.Title className="meridian-reattach__title">
-              Re-attach this path as a new mount?
-            </AlertDialog.Title>
-            <AlertDialog.Description className="meridian-reattach__body">
-              This mount is not repaired. The path is resolved again on the same node and attached
-              as a new mount with its own read-only workspace; this row stays as history, and
-              nothing bound to it is moved across.
-            </AlertDialog.Description>
-            <dl className="meridian-reattach__subject">
-              <dt>Path</dt>
-              <dd>
-                <WireFigure value={localPath} title={localPath} />
-              </dd>
-              <dt>Node</dt>
-              <dd>
-                <WireFigure value={nodeId} title={nodeId} />
-              </dd>
-            </dl>
-            <div className="meridian-reattach__acts">
-              <AlertDialog.Close
-                className="meridian-reattach__cancel"
-                onClick={lifecycle.cancelled}
-              >
-                Leave it as it is
-              </AlertDialog.Close>
-              <AlertDialog.Close className="meridian-reattach__confirm" onClick={confirm}>
-                Re-attach
-              </AlertDialog.Close>
-            </div>
-          </AlertDialog.Popup>
-        </AlertDialog.Portal>
+        {/* The popup shell is the primitive's, which is what puts this confirmation in
+            the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+            browser-pane view yields to what is registered there, and a confirmation it
+            painted over is the one thing 12.3 forbids outright. */}
+        <OverlayAlertDialogPopup
+          backdropClassName="meridian-reattach__backdrop"
+          className="meridian-reattach__dialog"
+        >
+          <AlertDialog.Title className="meridian-reattach__title">
+            Re-attach this path as a new mount?
+          </AlertDialog.Title>
+          <AlertDialog.Description className="meridian-reattach__body">
+            This mount is not repaired. The path is resolved again on the same node and attached as
+            a new mount with its own read-only workspace; this row stays as history, and nothing
+            bound to it is moved across.
+          </AlertDialog.Description>
+          <dl className="meridian-reattach__subject">
+            <dt>Path</dt>
+            <dd>
+              <WireFigure value={localPath} title={localPath} />
+            </dd>
+            <dt>Node</dt>
+            <dd>
+              <WireFigure value={nodeId} title={nodeId} />
+            </dd>
+          </dl>
+          <div className="meridian-reattach__acts">
+            <AlertDialog.Close className="meridian-reattach__cancel" onClick={lifecycle.cancelled}>
+              Leave it as it is
+            </AlertDialog.Close>
+            <AlertDialog.Close className="meridian-reattach__confirm" onClick={confirm}>
+              Re-attach
+            </AlertDialog.Close>
+          </div>
+        </OverlayAlertDialogPopup>
       </AlertDialog.Root>
       {renderSettlement(reading.act)}
     </div>

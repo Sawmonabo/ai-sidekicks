@@ -258,13 +258,18 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
     // Without it every case above would pass against a hook that cleared its refusal
     // on any re-render — and a pane re-renders on every reported navigation, so the
     // refusal a person is reading would vanish while they read it.
+    //
+    // The refusal driven here is the close-tab chord's, which is the arm that reaches
+    // this hook without crossing the boundary: `BrowserPane` refuses `no-selected-page`
+    // when the chord arrives with nothing to close. The code comes from
+    // `pane-refusals.ts`, the set's one home, so a case cannot outlive a member.
     const { acts, rebindTo } = renderActs(FIRST_SUBJECT);
 
     act(() => {
-      acts().refuseLocally("close-unregistered", "No close action is registered.");
+      acts().refuseLocally("no-selected-page", "There is no selected page to close.");
     });
     rebindTo({ ...FIRST_SUBJECT });
 
-    expect(acts().refusal?.code).toBe("close-unregistered");
+    expect(acts().refusal?.code).toBe("no-selected-page");
   });
 });

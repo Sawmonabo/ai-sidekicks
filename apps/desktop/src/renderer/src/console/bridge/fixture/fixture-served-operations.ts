@@ -181,6 +181,40 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE TWO LEASE OPERATIONS ARE SERVED, AND WHY THAT IS ABOUT REFUSALS
+//
+// The terminal's write lease is the one surface in the console whose interesting
+// states are all REFUSALS. `pty.permission_denied` before any lease comparison,
+// `pty.control_held_by_other` carrying the holder, `pty.control_not_held` on a release
+// by a non-holder — every one of them is the rejection of a CALL, and while these two
+// operations were outside the served set no scenario could reach any of them: the
+// refusing port answered `unavailable` by name and no script was ever consulted. So
+// the surfaces that render them — the inline refusal, and the holder line beside it —
+// were reachable from no scenario, no screenshot, and no bridge-driven test.
+//
+// AND THE SERVED ARM IS WHY THEY ARE WRITES RATHER THAN READS. Taking the shell moves
+// it; a fixture that answered a take nobody scripted would be reporting a transition
+// the scenario's own beats never made, and the pane's fold reads the holder off
+// `pty.control_changed` and never off this reply. So both sit in the script-only
+// subset below and refuse by name under a scenario that scripts neither, which is the
+// `agentAttach` disposition and for the same reason.
+//
+// WHY THE BROWSER PROVENANCE READ IS THE ONE SERVED OPERATION IN ITS NAMESPACE.
+// Every other operation in the browser namespace ACTS on a live view — navigate,
+// select, capture, clear the partition — and a fixture that answered one would be
+// reporting that a page this bridge does not host had moved. This one asks a
+// question ABOUT THE SESSION'S OWN LOG: which of the artifacts the scenario already
+// publishes came out of the browser. That is a fact a scenario can state, and while
+// it could not, the produced-object shelf had exactly one source for it — the cards
+// this window's own capture control minted — so a scenario's agent captures, its
+// completed download, and its bundled asset set were folded out of the shelf and it
+// reported that nothing had been produced.
+//
+// AND THE UNSCRIPTED ARM IS THE EMPTY SET rather than a refusal, on the invite
+// ledger's rule: a session whose browser has produced nothing is an ordinary session
+// and the shelf draws it, whereas a refusal here would claim the question was never
+// asked. A scenario that publishes artifacts and names none of them as browser
+// output is saying they came from somewhere else, which is the answer this serves.
 // WHY THE WORKSPACE EXECUTION-CONTEXT READ IS SERVED, AND ONLY FROM A SCRIPT
 //
 // It is served so the repos scenario can drive the workspace card's three-path
@@ -238,6 +272,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "browserProducedArtifacts",
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
@@ -281,6 +318,13 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // browser — the one read in that namespace a scenario can answer, and the shelf's
+  // only source of provenance. See the browser section of the header.
+  "browserProducedArtifacts",
+  // terminal lease — the two calls whose interesting answers are all refusals, served
+  // so a scenario can script one. See the lease section of the header.
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
   // repos — the workspace's own execution context, answered from a scenario that
   // scripts one and refused for one that does not. See the header.
   "workspaceExecutionContextRead",
@@ -317,5 +361,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
 ];
