@@ -13,9 +13,12 @@
 // SINGLE FLIGHT IS THE LATCH'S AND NOT A FLAG'S, for `run-control-dispatch.ts`'s
 // reason: a boolean read inside a press handler is the one from the render that
 // produced that handler, so two presses in one frame both find the act idle and both
-// dispatch. `claim` and never `supersedeAndClaim` — the first create is already
-// outstanding against the daemon and cannot be recalled, so the honest answer to the
-// second is no, said out loud on the control.
+// dispatch. WHICH way each act takes its key is decided by what a duplicate press would
+// cost. The two creates take `claim`: the first is already outstanding against the
+// daemon and cannot be recalled, so the honest answer to the second is no, said out
+// loud on the control. The export takes `supersedeAndClaim`, because a second copy of
+// the same bytes writes nothing durable and there is nothing to refuse — what it must
+// not do is let the older host answer install on top of the newer one.
 //
 // NOTHING HERE MUTATES THE READ. A served create does not splice a new version into
 // the definition on screen: what the pane shows stays the answer the daemon gave, and
@@ -126,15 +129,26 @@ export function useWorkflowDefinitionAuthoring(
 }
 
 /**
- * Serialize the body on screen and put it on the host's clipboard.
+ * Serialize the body on screen, show the bytes, and hand them to the host's clipboard.
  *
- * NO LATCH, because there is no call to be in flight: the serialization is
- * synchronous, and the clipboard write that follows it is the host's own — a second
- * press writes the same bytes again, which is what a person pressing it twice means.
+ * THE SETTLEMENT IS THE HOST'S ANSWER AND NEVER THE SERIALIZATION'S. The bytes exist
+ * the moment they are composed and the copy does not: a host that hangs never took it,
+ * and one that rejects took nothing. Publishing "is on the clipboard" beside the
+ * serialization asserted an operation that had not happened — for as long as a hung
+ * call took, and forever for one that never answers — so the act stands at
+ * `dispatching` while the write is outstanding and only the FULFILLED promise says the
+ * version was copied.
  *
- * The file is published on the settlement whether or not the host took it, and that is
- * the whole design: the surface renders it in a read-only box, so a host that refused
- * leaves the bytes selectable rather than leaving the person with nothing.
+ * The file is published on every arm, and that is the whole design: the surface renders
+ * it in a read-only box, so a host that hung or refused leaves the bytes selectable
+ * rather than leaving the person with nothing.
+ *
+ * THE LATCH IS `supersedeAndClaim` AND NOT `claim`, which is the one place this act
+ * differs from the two that submit. A second press means the same bytes again — there
+ * is no durable record to duplicate, so there is nothing to refuse — but two writes
+ * settle in whatever order the host returns them, and an older answer must not
+ * overwrite a newer one: a first press rejecting after a second press succeeded would
+ * otherwise report a copy that did happen as one that did not.
  */
 function exportDefinitionFile(runtime: AuthoringRuntime): void {
   const { body } = runtime;
@@ -143,32 +157,62 @@ function exportDefinitionFile(runtime: AuthoringRuntime): void {
     return;
   }
   const file = serializeWorkflowDefinitionFile(body);
-  // The bytes go in beside the outcome and not inside it, so the refusal arm below
-  // replaces where the act STANDS and leaves what it produced on screen.
+  const versionLabel = `Version ${String(body.versionNumber)} of ${body.name}`;
+  const claim = runtime.latch.supersedeAndClaim(
+    runtime.growth,
+    actKey("export", runtime.workflowDefinitionId),
+  );
+  // The bytes go in beside the outcome and not inside it, so the two arms below replace
+  // where the act STANDS and leave what it produced on screen.
   runtime.publish((previous) => ({
     exportedFile: file,
     outcomes: {
       ...previous.outcomes,
       export: {
-        kind: "settled",
-        detail: `Version ${String(body.versionNumber)} of ${body.name} is on the clipboard, and below.`,
+        kind: "dispatching",
+        detail: `${versionLabel} is below. Waiting for the host to take the copy.`,
       },
     },
   }));
-  runtime.bridge.sidekicks.native.copyToClipboard(file).catch((rejection: unknown) => {
-    // WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT — rule 9, and the seam
-    // `enumerated-path-action.ts` established for exactly this call. The fallback is
-    // reached only where the rejection carried nothing machine-readable, and it says
-    // what did not happen and what is still on screen rather than repeating the bytes.
-    publishOutcome(runtime, "export", {
-      kind: "refused",
-      refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
-        code: "call-rejected",
-        detail:
-          "native.copyToClipboard was rejected, so the file was not copied. It is shown below and can be selected by hand.",
-      }),
+  void runtime.bridge.sidekicks.native
+    .copyToClipboard(file)
+    .then(
+      () => {
+        claim.settle(() => {
+          publishOutcome(runtime, "export", {
+            kind: "settled",
+            detail: `${versionLabel} is on the clipboard, and below.`,
+          });
+        });
+      },
+      // WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT — rule 9, and the seam
+      // `enumerated-path-action.ts` established for exactly this call. The fallback is
+      // reached only where the rejection carried nothing machine-readable, and it says
+      // what did not happen and what is still on screen rather than repeating the bytes.
+      //
+      // The rejection handler is `then`'s SECOND ARGUMENT rather than a `catch` link,
+      // so a publish that threw on the fulfilled arm cannot arrive here and be reported
+      // as the host having refused a write it had already taken.
+      (rejection: unknown) => {
+        claim.settle(() => {
+          publishOutcome(runtime, "export", {
+            kind: "refused",
+            refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
+              code: "call-rejected",
+              detail:
+                "native.copyToClipboard was rejected, so the file was not copied. It is shown below and can be selected by hand.",
+            }),
+          });
+        });
+      },
+    )
+    // The key goes back whichever arm ran, a `publish` that threw included. Nothing is
+    // refused by holding it — `supersedeAndClaim` never refuses — but `generation-latch.ts`
+    // bounds its register within a live subject BY release, and a key never given back is
+    // an entry kept for the life of the bridge.
+    .finally(() => {
+      claim.release();
     });
-  });
 }
 
 /**
@@ -210,14 +254,21 @@ async function importDefinitionFile(runtime: AuthoringRuntime, text: string): Pr
 }
 
 /**
- * Submit the body on screen at `shared` scope, naming the version it was copied from.
+ * Submit the body on screen at `shared` scope, byte for byte.
  *
- * `parentContentHash` IS THE ONE MEMBER THIS ACT ADDS, and it is why promoting is a
- * copy-on-write rather than a move: the new shared definition records the hash of the
- * bytes it was branched from, so the daemon can tell a promoted copy from one typed
- * out again. Neither read reply returns that member — the growth slate carries the
- * absence as this row's own prerequisite — so a definition's provenance is something
- * this console can WRITE and cannot yet read back.
+ * NO `parentContentHash`, AND ITS ABSENCE IS THIS ACT'S OWN CLAIM RATHER THAN AN
+ * OMISSION. That member is copy-on-write provenance for the OPPOSITE direction:
+ * `Spec-017 §Definition scope in the builder (SA-36)` reserves it for an author editing
+ * a `shared` definition, which produces a NARROWER one recording the shared original's
+ * hash. A promotion runs the other way and creates the shared definition "from the
+ * promoted version's exact bytes" — there is no shared original to have branched from,
+ * so setting it would record every promoted version as a downward fork off a definition
+ * that never existed and corrupt the version chain for each one.
+ *
+ * WHAT TRAVELS IS THE BODY AND THE TARGET SCOPE, AND NO FLAG. The daemon's
+ * operator-scope authorization keys on the scope the body names and never on the
+ * gesture that composed it, so this is the same write an author typing a shared
+ * definition by hand puts.
  */
 async function promoteDefinition(runtime: AuthoringRuntime): Promise<void> {
   const { body, sessionId } = runtime;
@@ -235,7 +286,6 @@ async function promoteDefinition(runtime: AuthoringRuntime): Promise<void> {
     // a scope's identity is deliberately absent rather than empty.
     scope: "shared",
     entry: body.entry,
-    parentContentHash: body.contentHash,
     phaseDefinitions: body.phaseDefinitions,
   };
   await submitDefinition(runtime, "promote", request, (versionNumber) => {
@@ -269,7 +319,13 @@ async function submitDefinition(
     });
     return;
   }
-  publishOutcome(runtime, act, { kind: "dispatching" });
+  // Composed from the request that is about to go rather than passed in beside it: both
+  // acts here submit, and a sentence read off the very body being sent cannot describe
+  // a different scope from the one the daemon will adjudicate.
+  publishOutcome(runtime, act, {
+    kind: "dispatching",
+    detail: `Submitting ${request.name} at the ${request.scope} scope.`,
+  });
   try {
     const settlement = await settleGrowthRead(runtime.growth.workflowDefinitionCreate(request));
     claim.settle(() => {
@@ -293,8 +349,9 @@ async function submitDefinition(
  *
  * The definition is in the key because this pane is RE-ADDRESSED IN PLACE: the latch
  * outlives one definition's visit, so definition A's outstanding create must not refuse
- * definition B's first press. The two acts take separate keys for the mirror reason —
- * an outstanding import must not refuse a promote.
+ * definition B's first press. The three acts take separate keys for the mirror reason —
+ * an outstanding import must not refuse a promote, and an export superseding its own
+ * clipboard write must abandon no create.
  */
 function actKey(act: WorkflowDetailAct, workflowDefinitionId: string | undefined): string {
   return `${act}:${workflowDefinitionId ?? ""}`;
