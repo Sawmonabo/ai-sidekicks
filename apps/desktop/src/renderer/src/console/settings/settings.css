@@ -22,6 +22,29 @@
   top: var(--meridian-space-6);
 }
 
+/* The two panes become one column before the reflow floor, because they cannot
+ * both hold a measure there: the rail's fixed 216px, the 2rem gutter, and the
+ * surface's own 2rem padding on each side already come to 312px, and the whole
+ * viewport at the floor is 320px minus the frame's 52px rail. Stacking is what
+ * keeps WCAG 2.2 SC 1.4.10 true at that width; the rail stops sticking with it,
+ * since a sticky rail above a stacked pane would hold the narrowest screen's
+ * scarcest resource — vertical room — for a list a person has finished with.
+ *
+ * 60rem is the point `agents/definitions/sidekick-definitions-page.css` already
+ * collapses at. This surface joins it rather than declaring a second one: the
+ * console's breakpoint story is one floor and one collapse point, and a third
+ * number here would make it neither.
+ */
+@media (width <= 60rem) {
+  .meridian-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meridian-settings__rail {
+    position: static;
+  }
+}
+
 /* --- The search field ---------------------------------------------------- */
 
 .meridian-settings__search {

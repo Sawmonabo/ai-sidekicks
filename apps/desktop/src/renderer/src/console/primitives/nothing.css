@@ -121,18 +121,41 @@
  * `--badge`: an absence that qualifies a value sitting beside it. Two of the five
  * kinds are mounted here by default; all five render here when a caller says so.
  */
+/* A badge is a one-line pill WHEREVER A LINE IS AVAILABLE, and the sizing says only
+   that. It carried a fixed `block-size` and `white-space: nowrap`, which said
+   something stronger — that the label may never take a second line — and at the
+   reflow floor (`tokens/palette.ts`'s `REFLOW_MIN_WIDTH_PX`) that turned a label
+   longer than its column into content a person has to scroll sideways to read, which
+   is exactly what WCAG 2.2 SC 1.4.10 is about. A minimum rather than a fixed height,
+   and a label that may wrap, changes nothing at any width where the label fits on one
+   line — the box is `border-box`, the content box is well under 1.375rem, and a line
+   that does not reach the end does not wrap — so the pill a person sees on a desktop
+   window is the same pill. The `detail` stays the badge's tooltip regardless: that is
+   a decision about a SECOND STRING and not about this one's line count. */
 .meridian-nothing--badge {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-1);
-  block-size: 1.375rem;
+  min-block-size: 1.375rem;
+  max-inline-size: 100%;
   padding-inline: var(--meridian-space-2);
   border-radius: var(--meridian-radius-sm);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
-  line-height: 1;
-  white-space: nowrap;
+  /* 1.2 rather than 1 so a wrapped label's two lines are not touching. A single-line
+     badge is unaffected: `min-block-size` is what decides its height either way. */
+  line-height: 1.2;
+}
+
+/* A flex item's automatic minimum size is its min-content width, so without this the
+   label refuses to narrow past its longest word and the pill overflows instead of
+   wrapping. `break-word` rather than `anywhere`: a label is the console's own prose
+   and breaks between words first, taking a mid-word break only where one word alone
+   is wider than the column. */
+.meridian-nothing--badge .meridian-nothing__badge-label {
+  min-inline-size: 0;
+  overflow-wrap: break-word;
 }
 
 /* One bar rather than three, and sized in text units because a badge has no measure
