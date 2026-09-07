@@ -35,6 +35,14 @@ import type { ConsoleRefusal } from "../../../../core/index.js";
  * running and never which account was running it — so a second row's control could be
  * disabled with no reason a person could act on, which is worse than one that stays
  * pressable and refuses.
+ *
+ * AND A REFUSED CANCELLATION IS AN ARM OF THE LIVE ATTEMPT RATHER THAN A REPLACEMENT
+ * FOR IT. A cancel that the transport could not carry, or that the daemon declined,
+ * establishes nothing about the provider's own login process — so the attempt is still
+ * the thing on screen, and the refusal is rendered beside its verification details and
+ * its cancel control rather than instead of them. Installing it as `refused` took away
+ * the code the operator was typing and the only way to stop the flow, and re-offered
+ * every start control, over a process that may well still be running.
  */
 export type SignInFlowState =
   | { readonly kind: "idle" }
@@ -43,17 +51,34 @@ export type SignInFlowState =
       readonly kind: "live";
       readonly accountId: ProviderAccountId;
       readonly attempt: ProviderAccountLoginResponse;
+      /** A cancellation this machine refused. The attempt is still running. */
+      readonly cancelRefusal?: ConsoleRefusal | undefined;
     }
   | {
       readonly kind: "cancelling";
       readonly accountId: ProviderAccountId;
       readonly attempt: ProviderAccountLoginResponse;
+      /** The previous cancellation's refusal, still shown while this one travels. */
+      readonly cancelRefusal?: ConsoleRefusal | undefined;
     }
   | { readonly kind: "ended"; readonly because: string }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
 
 /** The state a shell starts in and returns to. Shared so it has one spelling. */
 export const IDLE_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
+
+/**
+ * What a flow ending on the registry's own tail says.
+ *
+ * A SENTENCE OF ITS OWN, because this ending is not a cancellation and not a reply to
+ * anything this window asked. `providerAccount.subscribe` carries `login_completed`
+ * correlated on the attempt id, and the registered contract is explicit that it is a
+ * report FROM THE PROVIDER that its flow finished and never a verdict about the
+ * account — so the words say exactly that and send the reader to the registry, which is
+ * the same thing every other settled arm of this plane does.
+ */
+export const SIGN_IN_ENDED_BY_REGISTRY =
+  "This machine reports the provider's sign-in finished. That is not a claim the account is authenticated — the registry is being read again to see what became of it.";
 
 /**
  * Whether the daemon is running a flow of this window's making, per kind.

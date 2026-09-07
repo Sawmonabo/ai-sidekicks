@@ -1,14 +1,21 @@
-// The four derivations the accounts shell makes over one registry reply.
+// The four derivations the accounts shell makes over one account-plane reading.
 //
-// EVERY CASE DRIVES THE REAL FUNCTION. Nothing here reimplements a fold, a
+// EVERY CASE DRIVES THE REAL FUNCTION. Nothing here reimplements a selection, a
 // supersession rule, or a day count — a test that restated one would pass against a
 // module that had stopped agreeing with it, which is the failure the package standard
 // names outright.
 //
-// AND EVERY CLEAN RESULT HAS ITS NEGATIVE CONTROL. The `limitId` key, the
-// `observedAt` ordering, the `probe` tie-break, and the generation comparison are
-// each asserted twice — once for what they do, once for the thing they would do if
-// the rule were the obvious wrong one.
+// AND EVERY CLEAN RESULT HAS ITS NEGATIVE CONTROL. The `limitId` key, the account
+// filter, the ordering, and the generation comparison are each asserted twice — once
+// for what they do, once for the thing they would do if the rule were the obvious
+// wrong one.
+//
+// WHICH READING IS CURRENT IS ASSERTED ELSEWHERE, ON PURPOSE. That rule belongs to
+// `bridge/quotas/provider-quota-fold.ts`, which has its own suite, and to
+// `AccountsShell.quota-supersession.test.tsx`, which drives the whole path from the
+// node's tail to the rendered cell. What is asserted HERE is that this module makes no
+// such decision of its own — the case that hands it two readings for one limit is the
+// foil for exactly that, and its input is one the readout's contract does not produce.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,10 +26,11 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
+import type { ProviderQuotaReadout } from "../../../../bridge/index.js";
 import { instantMilliseconds } from "../../../../core/frozen-instant.test-support.js";
 import {
+  accountQuotaRowsFrom,
   estimatedReloginDaysAfterSignIn,
-  foldAccountQuotaRows,
   observationAgeInDays,
   readinessForProvider,
 } from "./quota-rows.js";
@@ -61,13 +69,41 @@ function usageWindow(
   };
 }
 
-describe("foldAccountQuotaRows", () => {
+/**
+ * A reading of the account plane holding exactly these seated rows.
+ *
+ * The readout is the only thing the selection accepts, and it is composed here rather
+ * than reached for: what the four other members say does not bear on which rows this
+ * account's table draws, so a case that had to script a phase and a refusal to ask
+ * about ordering would be answering a question nobody asked.
+ */
+function registryHolding(
+  usageWindows: readonly ProviderAccountUsageWindow[],
+): ProviderQuotaReadout {
+  return {
+    usageWindows,
+    readings: [],
+    accounts: [],
+    accountLabels: new Map(),
+    readiness: [],
+    newestLoginCompletion: undefined,
+    phase: "read",
+    readRefusal: undefined,
+    unreadableDeliveryCount: 0,
+    unreadableRefusal: undefined,
+  };
+}
+
+describe("accountQuotaRowsFrom", () => {
   it("keeps three limits that share one window length apart", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(3), [
-      usageWindow({ limitId: "weekly_all", label: "Weekly, all models" }),
-      usageWindow({ limitId: "weekly_opus", label: "Weekly, Opus" }),
-      usageWindow({ limitId: "weekly_code", label: "Weekly, code" }),
-    ]);
+    const rows = accountQuotaRowsFrom(
+      registryHolding([
+        usageWindow({ limitId: "weekly_all", label: "Weekly, all models" }),
+        usageWindow({ limitId: "weekly_opus", label: "Weekly, Opus" }),
+        usageWindow({ limitId: "weekly_code", label: "Weekly, code" }),
+      ]),
+      accountAtGeneration(3),
+    );
     expect(rows.map((row) => row.window.limitId)).toEqual([
       "weekly_all",
       "weekly_code",
@@ -76,7 +112,7 @@ describe("foldAccountQuotaRows", () => {
   });
 
   // The negative control for the case above: every one of those three carries the
-  // same `windowMins`, so a fold keyed on the window length would answer one row.
+  // same `windowMins`, so a selection keyed on the window length would answer one row.
   it("does not collapse rows that share a window length", () => {
     const sharedWindowLengths = new Set(
       [
@@ -88,94 +124,73 @@ describe("foldAccountQuotaRows", () => {
     expect(sharedWindowLengths.size).toBe(1);
   });
 
-  it("keeps the newest observation for a limit", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(3), [
-      usageWindow({
-        limitId: "weekly_all",
-        observedAt: "2026-01-01T06:00:00.000Z",
-        usedPercent: 5,
-      }),
-      usageWindow({
-        limitId: "weekly_all",
-        observedAt: "2026-01-01T07:30:00.000Z",
-        usedPercent: 44,
-      }),
-    ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.window.usedPercent).toBe(44);
-  });
-
-  it("does not keep the newest observation when it arrived first", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(3), [
-      usageWindow({
-        limitId: "weekly_all",
-        observedAt: "2026-01-01T07:30:00.000Z",
-        usedPercent: 44,
-      }),
-      usageWindow({
-        limitId: "weekly_all",
-        observedAt: "2026-01-01T06:00:00.000Z",
-        usedPercent: 5,
-      }),
-    ]);
-    expect(rows[0]?.window.usedPercent).toBe(44);
-  });
-
-  it("breaks an exact tie toward the deliberate probe", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(3), [
-      usageWindow({ limitId: "weekly_all", source: "run", usedPercent: 5 }),
-      usageWindow({ limitId: "weekly_all", source: "probe", usedPercent: 44 }),
-    ]);
-    expect(rows[0]?.window.usedPercent).toBe(44);
-  });
-
-  // The tie-break applies to an EXACT tie and to nothing else: a run-sourced reading
-  // taken later still wins, because recency decides first.
-  it("does not prefer a probe that is older than a run reading", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(3), [
-      usageWindow({
-        limitId: "weekly_all",
-        source: "probe",
-        observedAt: "2026-01-01T06:00:00.000Z",
-        usedPercent: 44,
-      }),
-      usageWindow({
-        limitId: "weekly_all",
-        source: "run",
-        observedAt: "2026-01-01T07:30:00.000Z",
-        usedPercent: 5,
-      }),
-    ]);
-    expect(rows[0]?.window.usedPercent).toBe(5);
+  // THE FOIL FOR THE SECOND RULE THAT USED TO LIVE HERE. Two readings for one limit is
+  // an input the readout's own contract does not produce — the fold seats one row per
+  // `(accountId, limitId)` — and that is exactly why it is the right probe: a module
+  // that resolved this pair would be answering a question it is not allowed to answer,
+  // and the answer it used to give was the wrong one, seating a later 5% over a
+  // standing 44% inside one window because it ranked on the timestamp alone.
+  it("decides nothing about which of two readings for one limit is current", () => {
+    const rows = accountQuotaRowsFrom(
+      registryHolding([
+        usageWindow({
+          limitId: "weekly_all",
+          observedAt: "2026-01-01T06:00:00.000Z",
+          usedPercent: 44,
+        }),
+        usageWindow({
+          limitId: "weekly_all",
+          observedAt: "2026-01-01T07:30:00.000Z",
+          usedPercent: 5,
+        }),
+      ]),
+      accountAtGeneration(3),
+    );
+    expect(rows.map((row) => row.window.usedPercent)).toEqual([44, 5]);
   });
 
   it("marks a reading taken under an older credential generation", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(6), [
-      usageWindow({ limitId: "weekly_all", observedCredentialGeneration: 5 }),
-    ]);
+    const rows = accountQuotaRowsFrom(
+      registryHolding([usageWindow({ limitId: "weekly_all", observedCredentialGeneration: 5 })]),
+      accountAtGeneration(6),
+    );
     expect(rows[0]?.behindAccountGeneration).toBe(true);
   });
 
   it("does not mark a reading taken under the account's own generation", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(6), [
-      usageWindow({ limitId: "weekly_all", observedCredentialGeneration: 6 }),
-    ]);
+    const rows = accountQuotaRowsFrom(
+      registryHolding([usageWindow({ limitId: "weekly_all", observedCredentialGeneration: 6 })]),
+      accountAtGeneration(6),
+    );
     expect(rows[0]?.behindAccountGeneration).toBe(false);
   });
 
   it("ignores readings belonging to another account", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(3), [
-      usageWindow({ limitId: "weekly_all", accountId: OTHER_ACCOUNT_ID }),
-    ]);
+    const rows = accountQuotaRowsFrom(
+      registryHolding([usageWindow({ limitId: "weekly_all", accountId: OTHER_ACCOUNT_ID })]),
+      accountAtGeneration(3),
+    );
     expect(rows).toEqual([]);
   });
 
   it("sorts by the limit identifier where the provider published no label", () => {
-    const rows = foldAccountQuotaRows(accountAtGeneration(3), [
-      usageWindow({ limitId: "zeta" }),
-      usageWindow({ limitId: "alpha" }),
-    ]);
+    const rows = accountQuotaRowsFrom(
+      registryHolding([usageWindow({ limitId: "zeta" }), usageWindow({ limitId: "alpha" })]),
+      accountAtGeneration(3),
+    );
     expect(rows.map((row) => row.window.limitId)).toEqual(["alpha", "zeta"]);
+  });
+
+  // The ordering is this page's and the reading is the node's, so the selection must
+  // not reorder the array it was handed — a fold publishing its rows to two surfaces
+  // would otherwise have one of them shuffled under it.
+  it("leaves the reading's own row order untouched", () => {
+    const seated = [usageWindow({ limitId: "zeta" }), usageWindow({ limitId: "alpha" })];
+    const registry = registryHolding(seated);
+
+    accountQuotaRowsFrom(registry, accountAtGeneration(3));
+
+    expect(registry.usageWindows.map((window) => window.limitId)).toEqual(["zeta", "alpha"]);
   });
 });
 

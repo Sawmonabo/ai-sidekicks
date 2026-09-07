@@ -19,6 +19,11 @@
 // hidden — while one is running, and `signin-plane.ts` beside this module owns both
 // that rule and where a refused start lands.
 
+// AND THE REGISTRY IS WHAT SAYS A FLOW ENDED WHEN A CANCEL COULD NOT. The plane keeps a
+// live attempt through a refused cancellation — the node declining to stop a process is
+// not the process stopping — so the completion frame on the account plane's own tail is
+// what releases it, correlated by attempt id.
+
 // THE REGISTRY IS READ ONCE PER WINDOW AND THIS PAGE IS NOT THE READER. `bridge/quotas/`
 // holds the node's one account-plane reading: one `providerAccount.list`, one
 // `providerAccount.subscribe` behind it, and one fold. This shell used to run a SECOND
@@ -42,7 +47,7 @@ import {
 import { Nothing } from "../../../../primitives/index.js";
 import { AccountDetail } from "./AccountDetail.js";
 import { AccountRow } from "./AccountRow.js";
-import { foldAccountQuotaRows, readinessForProvider } from "./quota-rows.js";
+import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./QuotaTable.js";
 import { ReadinessRow } from "./ReadinessRow.js";
 import { cancelSignIn, startSignIn } from "./signin-flow.js";
@@ -93,6 +98,19 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
     () => signInPlane.snapshot(),
     () => signInPlane.snapshot(),
   );
+  // THE OTHER THING THAT ENDS A BROKERED FLOW, and the reason this page reads it here.
+  // A cancellation the node refused is not evidence the provider's login process
+  // stopped, so the plane goes on holding its single-flight claim through one — and
+  // `providerAccount.subscribe`'s completion frame is the node's own word that the
+  // attempt is over. Keyed on the ATTEMPT ID rather than on the frame, so a re-render
+  // over the same completion re-runs nothing; the plane correlates it against whatever
+  // it is tracking and does nothing where the two do not match.
+  const completedAttemptId = registry.newestLoginCompletion?.attemptId;
+  useEffect(() => {
+    if (completedAttemptId !== undefined) {
+      signInPlane.noteLoginCompleted(completedAttemptId);
+    }
+  }, [completedAttemptId, signInPlane]);
 
   const readRefusal = readRefusalOf(registry);
   if (readRefusal !== undefined) {
@@ -215,7 +233,7 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
 
           <section className="meridian-settings-page__block">
             <h3 className="meridian-settings-page__block-title">Quota — {selected.billingMode}</h3>
-            <QuotaTable rows={foldAccountQuotaRows(selected, registry.usageWindows)} />
+            <QuotaTable rows={accountQuotaRowsFrom(registry, selected)} />
           </section>
         </>
       )}

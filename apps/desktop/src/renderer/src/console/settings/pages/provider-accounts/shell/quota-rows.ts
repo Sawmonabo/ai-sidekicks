@@ -1,10 +1,27 @@
-// What the registry reply says about one account, once the readings have been folded.
+// What the account plane's reading says about one account, once it is on this page.
 //
 // PURE, AND SEPARATE FROM THE READ FOR THAT REASON. Every rule here is a derivation
-// over one reply — which quota reading is current, whether an observation is behind
-// the account it describes, how old a stored observation is, and how far off a
-// re-login estimate is. Each of them is a place a surface could quietly disagree with
-// the daemon, and each is drivable with no bridge and no React.
+// over one reading — which of its rows belong to this account, whether an observation
+// is behind the account it describes, how old a stored observation is, and how far off
+// a re-login estimate is. Each of them is drivable with no bridge and no React.
+//
+// WHICH READING IS CURRENT IS NOT ONE OF THEM, AND THAT IS THE POINT OF THE SIGNATURE.
+// `Spec-029 §Per-limit provider quota` states supersession as two rules in one order —
+// newest wins by observation time, EXCEPT that a same-window reading never moves
+// backward, the exception evaluated first — and `bridge/quotas/provider-quota-fold.ts`
+// is the console's one implementation of it. This module used to fold the rows a second
+// time on the way to the table, with the exception missing: a later reading below the
+// high-water mark replaced the higher one on its timestamp alone, so this page could
+// show 20% for a window the canonical feed was holding at 90% and the composer's chip
+// was still reporting. A second rule for one decision does not stay in step, and the
+// gate goes green while the two surfaces disagree.
+//
+// So the rows are SELECTED and never folded, and the parameter is the READOUT rather
+// than an array of wire rows: `ProviderQuotaReadout.usageWindows` is the fold's own
+// superseded set, one row per `(accountId, limitId)` with the high-water guard already
+// applied, and the only thing that composes one is the node's single account-plane
+// reader. A caller cannot hand this function raw wire rows to fold, because raw wire
+// rows are not a readout.
 //
 // WHAT IS DELIBERATELY NOT HERE. No health verdict, no readiness state, and no remedy.
 // All three arrive on the reply already decided and are rendered as they came: the
@@ -17,7 +34,8 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts";
 
-import { MILLISECONDS_PER_DAY, compareInstants, parseInstant } from "../../../../core/index.js";
+import type { ProviderQuotaReadout } from "../../../../bridge/index.js";
+import { MILLISECONDS_PER_DAY, parseInstant } from "../../../../core/index.js";
 
 /**
  * The current reading for one `(accountId, limitId)` pair, plus whether it is behind.
@@ -34,66 +52,30 @@ export interface AccountQuotaRow {
 }
 
 /**
- * Fold one account's quota readings: newest observation wins per limit.
+ * The rows the account plane's reading holds for one account, as the table draws them.
  *
- * THE KEY IS `limitId` AND NEVER `windowMins`. One pinned provider surface publishes
- * three distinct limits that all run over 10080 minutes, so a window-keyed fold
- * collapses them and which one survives depends on the order the array happened to
- * arrive in. That is the exact defect the re-key exists to remove, and re-introducing
- * it here would put it back one layer up.
+ * A SELECTION AND NEVER A FOLD. Which reading is current for a `(accountId, limitId)`
+ * pair is settled before a row reaches this function, by the one implementation of that
+ * rule; every seated row for this account is carried through, and none is dropped,
+ * replaced, or re-ranked here. A second answer to that question is the defect this
+ * signature exists to make unwritable.
  *
- * `observedAt` decides, and `source` breaks ONLY an exact tie — the registered
- * ordering rule, with `probe` preferred because a deliberate probe is a reading
- * somebody asked for and a run-derived one is a side effect of traffic.
- *
- * Rows are returned ordered by the provider's own label where it published one and by
- * `limitId` otherwise, so the table does not reshuffle between reads.
+ * Rows are ordered by the provider's own label where it published one and by `limitId`
+ * otherwise, so the table does not reshuffle between reads. Ordering is a presentation
+ * rule and is this page's to make — the fold's own order is by account first, which is
+ * the wrong key for a table that is already about one account.
  */
-export function foldAccountQuotaRows(
+export function accountQuotaRowsFrom(
+  registry: ProviderQuotaReadout,
   account: ProviderAccount,
-  usageWindows: readonly ProviderAccountUsageWindow[],
 ): readonly AccountQuotaRow[] {
-  const currentByLimitId = new Map<string, ProviderAccountUsageWindow>();
-  for (const observed of usageWindows) {
-    if (observed.accountId !== account.accountId) {
-      continue;
-    }
-    const held = currentByLimitId.get(observed.limitId);
-    if (held === undefined || supersedes(observed, held)) {
-      currentByLimitId.set(observed.limitId, observed);
-    }
-  }
-  return [...currentByLimitId.values()]
+  return registry.usageWindows
+    .filter((window) => window.accountId === account.accountId)
     .sort((left, right) => quotaSortKey(left).localeCompare(quotaSortKey(right)))
     .map((window) => ({
       window,
       behindAccountGeneration: window.observedCredentialGeneration < account.credentialGeneration,
     }));
-}
-
-/**
- * Whether a candidate reading replaces the one currently held for its limit.
- *
- * ORDERED BY THE MOMENT AND NEVER BY THE TEXT. Two RFC 3339 stamps naming one instant
- * differ as strings the moment one carries an offset and the other a `Z`, and a
- * `+01:00` stamp sorts AFTER the `Z` stamp it precedes — so a text comparison would
- * keep the older reading whenever a provider changed how it spells a time. The tie
- * the `source` rule breaks is a tie of MOMENTS for the same reason: two spellings of
- * one instant are one reading arriving twice, not a newer reading superseding an
- * older, and only the moment comparison says so.
- */
-function supersedes(
-  candidate: ProviderAccountUsageWindow,
-  held: ProviderAccountUsageWindow,
-): boolean {
-  const ordering = compareInstants(
-    parseInstant(candidate.observedAt),
-    parseInstant(held.observedAt),
-  );
-  if (ordering !== 0) {
-    return ordering > 0;
-  }
-  return candidate.source === "probe" && held.source !== "probe";
 }
 
 /** What a quota row sorts on: the provider's own label, else its limit identifier. */

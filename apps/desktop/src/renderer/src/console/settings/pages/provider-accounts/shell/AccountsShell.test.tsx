@@ -17,105 +17,27 @@
 // read of its own: a frame pushed down the tail reaches the rows, and mounting the
 // page costs ONE `providerAccount.list`.
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ProviderAccount } from "@ai-sidekicks/contracts";
-
-import {
-  SidekicksBridgeProvider,
-  createFixtureBridge,
-  growthUnavailable,
-  type ConsoleBridge,
-} from "../../../../bridge/index.js";
-import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM } from "../../../../bridge/daemon/daemon-streams.js";
-import {
-  withCapturedStream,
-  withDaemonCall,
-  type BridgeUnderTest,
-  type StreamUnderTest,
-} from "../../../../bridge/fixture/fixture-bridge.test-support.js";
+import { growthUnavailable, type ConsoleBridge } from "../../../../bridge/index.js";
 import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
-import { SETTINGS_PROVIDER_ACCOUNT_LIST } from "../../../../bridge/scenarios/settings-account-plane.js";
-import { SETTINGS_SCENARIO } from "../../../../bridge/scenarios/settings.js";
-import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
-import { AccountsShell } from "./AccountsShell.js";
+import {
+  bridgeCountingItsCalls,
+  bridgeHoldingTheTail,
+  fixtureBridge,
+  pressFirstStartControl,
+  registryAccountAt,
+  renderSettledShell,
+  renderShell,
+  rowsLabelled,
+  selectAccount,
+  startControls,
+} from "./accounts-shell-mount.test-support.js";
 
 afterEach(() => {
   cleanup();
 });
-
-function renderShell(bridge: ConsoleBridge): HTMLElement {
-  const { container } = render(
-    <SidekicksBridgeProvider bridge={bridge}>
-      <LiveAnnouncerProvider>
-        <AccountsShell bridge={bridge} />
-      </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
-  );
-  return container;
-}
-
-/** Mount, carry the debounced read past its window and past the reply's latency. */
-async function renderSettledShell(bridge: ConsoleBridge): Promise<HTMLElement> {
-  const container = renderShell(bridge);
-  await settleScriptedRead(bridge);
-  return container;
-}
-
-function fixtureBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
-}
-
-/** Every start-sign-in control the readiness list is currently offering. */
-function startControls(): HTMLButtonElement[] {
-  return screen.getAllByRole<HTMLButtonElement>("button", { name: /start sign-in/iu });
-}
-
-/** Press the first of them, the way a person reaching the remedy does. */
-function pressFirstStartControl(): void {
-  const [control] = startControls();
-  if (control === undefined) {
-    throw new Error("the readiness list offered no sign-in control to press");
-  }
-  fireEvent.click(control);
-}
-
-/** Open one account's detail the way a person does — by pressing its row. */
-function selectAccount(container: HTMLElement, displayLabel: string): void {
-  const rows = [...container.querySelectorAll<HTMLButtonElement>(".meridian-accounts__row")];
-  const row = rows.find((button) => (button.textContent ?? "").includes(displayLabel));
-  if (row === undefined) {
-    throw new Error(`the registry rendered no account row labelled ${displayLabel}`);
-  }
-  fireEvent.click(row);
-}
-
-/** One account off the deck's own reply, so no case here invents a registry row. */
-function registryAccountAt(ordinal: number): ProviderAccount {
-  const account = SETTINGS_PROVIDER_ACCOUNT_LIST.accounts[ordinal];
-  if (account === undefined) {
-    throw new Error(`the settings deck holds no registry account at ordinal ${String(ordinal)}`);
-  }
-  return account;
-}
-
-/** How many rows the list is currently drawing for one account's label. */
-function rowsLabelled(container: HTMLElement, displayLabel: string): number {
-  return [...container.querySelectorAll(".meridian-accounts__row")].filter((row) =>
-    (row.textContent ?? "").includes(displayLabel),
-  ).length;
-}
-
-/** The deck, with the account plane's live tail in this case's hands. */
-function bridgeHoldingTheTail(): StreamUnderTest {
-  return withCapturedStream(fixtureBridge(), PROVIDER_ACCOUNT_SUBSCRIBE_STREAM);
-}
-
-/** The deck, with every daemon call answered by the deck and counted on the way. */
-function bridgeCountingItsCalls(): BridgeUnderTest {
-  return withDaemonCall(fixtureBridge(), async (_call, passThrough) => await passThrough());
-}
 
 describe("AccountsShell", () => {
   it("draws a loading absence before the registry answers", () => {
