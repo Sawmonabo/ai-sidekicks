@@ -23,7 +23,7 @@
 
 import { useState } from "react";
 
-import { Glyph } from "../../primitives/index.js";
+import { Glyph, RefusalRecovery } from "../../primitives/index.js";
 import { DerivedFigure, WireFigure, formatByteQuantity } from "../../primitives/index.js";
 import { GLYPH_SIZE_DENSE } from "../../tokens/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
@@ -113,10 +113,17 @@ export function CarrierRow(props: CarrierRowProps): React.JSX.Element {
           <WireFigure value={allowanceFigure.text} title={String(maximumByteLength)} />
           <DerivedFigure text="this deployment admits per attachment" />
         </p>
-        {isOverAllowance && overAllowanceCopy?.meaning !== undefined ? (
-          <p className="meridian-carrier-row__over-allowance" role="status">
-            {overAllowanceCopy.meaning} {overAllowanceCopy.nextMove}
-          </p>
+        {isOverAllowance && overAllowanceCopy !== undefined ? (
+          // THE WHOLE READING AND NOT ITS FIRST HALF. The table's `too_large` entry is a
+          // meaning, a lead-in, and the three bounds that lead-in promises — so a surface
+          // rendering only the meaning and the lead-in ends on a colon and names none of
+          // them. The shell that renders a recovery everywhere else renders it here too,
+          // which is also what keeps this warning the refusal's own words rather than a
+          // paraphrase of them that drifts the first time either is edited.
+          <div className="meridian-carrier-row__over-allowance" role="status">
+            {overAllowanceCopy.meaning === undefined ? null : <p>{overAllowanceCopy.meaning}</p>}
+            <RefusalRecovery recovery={overAllowanceCopy} />
+          </div>
         ) : null}
       </div>
     </li>

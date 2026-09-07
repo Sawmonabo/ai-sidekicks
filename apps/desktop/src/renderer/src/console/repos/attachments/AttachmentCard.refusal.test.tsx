@@ -74,7 +74,8 @@ describe("attachment card — a refused stream is told what to do exactly once",
   it("renders the table's move where the refusal carries no disposition", () => {
     // The one that proves the branch above is a choice rather than a suppression: an
     // over-size refusal on a stream with no disposition still reaches the participant
-    // with both halves the table holds.
+    // with every part the table holds — the cases included, because this entry's move
+    // is a lead-in into them and a card that stopped at the colon would name none.
     const recovery = artifactRefusalRecovery(TOO_LARGE_CODE);
     const { container } = render(
       <AttachmentCard
@@ -91,6 +92,10 @@ describe("attachment card — a refused stream is told what to do exactly once",
     const text = container.textContent ?? "";
     expect(text).toContain(recovery?.meaning);
     expect(text).toContain(recovery?.nextMove);
+    for (const distinction of recovery?.distinctions ?? []) {
+      expect(text).toContain(distinction);
+    }
+    expect(recovery?.distinctions.length).toBeGreaterThan(0);
   });
 
   it("negative control: a code the table has no reading for adds no sentence", () => {

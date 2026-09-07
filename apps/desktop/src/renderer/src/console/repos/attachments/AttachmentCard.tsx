@@ -44,6 +44,7 @@ import {
   Glyph,
   InlineRefusal,
   Nothing,
+  RefusalRecovery,
   WireFigure,
   formatByteQuantity,
   formatDuration,
@@ -264,9 +265,14 @@ function renderRefusalReading(
       {recovery?.meaning === undefined ? null : (
         <p className="meridian-attachment__note">{recovery.meaning}</p>
       )}
-      <p className="meridian-attachment__note">
-        {disposition === undefined ? recovery?.nextMove : INGEST_DISPOSITION_COPY[disposition]}
-      </p>
+      {disposition === undefined ? (
+        // THROUGH THE SHELL, so a recovery whose move is a lead-in into named cases
+        // renders those cases here too — `artifact.too_large` is one, and a card that
+        // rendered its move alone would end on a colon and list nothing.
+        <RefusalRecovery recovery={recovery} />
+      ) : (
+        <p className="meridian-attachment__note">{INGEST_DISPOSITION_COPY[disposition]}</p>
+      )}
     </>
   );
 }
