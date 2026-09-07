@@ -1,6 +1,7 @@
 // The appearance page projects the applied scheme, chooses through the frame's own
 // registered commands, and offers nothing else.
 
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -97,7 +98,7 @@ describe("appearance page", () => {
         ?.querySelector("input");
       await act(async () => {
         (darkControl as HTMLElement | null)?.click();
-        await Promise.resolve();
+        await crossMacrotaskBoundary();
       });
       expect(chosen).toStrictEqual(["frame.useDarkScheme"]);
     } finally {
@@ -114,7 +115,7 @@ describe("appearance page", () => {
       ?.querySelector("input");
     await act(async () => {
       (lightControl as HTMLElement | null)?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     expect(container.textContent ?? "").toContain("scheme-command-unavailable");

@@ -36,6 +36,7 @@ import {
   REPOS_SCENARIO,
 } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
+import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
 
@@ -59,7 +60,7 @@ import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
  */
 export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   const { bridge, sessionStore } = scenarioCollaborators();
-  const ArtifactPaneBody = paneBodyComponent("artifact");
+  const ArtifactPaneBody = await paneBodyComponent("artifact");
   const { container } = await renderSettled(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       {ArtifactPaneBody({
@@ -85,7 +86,7 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   // moving time past a deadline no beat is scheduled at.
   await act(async () => {
     bridge.scenarioEngine?.advance(SCENARIO_SETTLE_ADVANCE_MS);
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   await waitForWithin(region, ".meridian-refusal--card");
   return { element: region, bridge };
@@ -135,7 +136,7 @@ async function mountArtifactPanePayload(
 ): Promise<MountedFamilySurface> {
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
   const bridge = scriptedArtifactPort(readAnswer);
-  const ArtifactPaneBody = paneBodyComponent("artifact");
+  const ArtifactPaneBody = await paneBodyComponent("artifact");
   const { container } = await renderSettled(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       {ArtifactPaneBody({
@@ -148,7 +149,7 @@ async function mountArtifactPanePayload(
   const region = requireLabelledRegion(container, /Artifact$/u);
   await act(async () => {
     bridge.scenarioEngine?.advance(SCENARIO_SETTLE_ADVANCE_MS);
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   await waitForWithin(region, ".meridian-artifacts__filter");
   fireEvent.click(within(region).getByRole("button", { name: "Fetch payload" }));

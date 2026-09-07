@@ -63,7 +63,6 @@ export { FindInLedger } from "./narrowing/FindInLedger.js";
 export { LedgerFilterBar } from "./narrowing/LedgerFilterBar.js";
 export { ProvenanceRail } from "./rail/ProvenanceRail.js";
 export { ReplayControls } from "./replay/ReplayControls.js";
-export { SeamRow } from "./seams/SeamRow.js";
 export { ChapterCollapseState } from "./chapters/chapter-collapse.js";
 export {
   LedgerChapterIndex,

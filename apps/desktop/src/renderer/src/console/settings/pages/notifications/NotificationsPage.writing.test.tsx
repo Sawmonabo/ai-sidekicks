@@ -5,6 +5,7 @@
 // locked while one of its switches is in flight. What the page READS is
 // `NotificationsPage.reading.test.tsx`, over the one cast in
 // `notifications-page.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -102,7 +103,7 @@ describe("the notifications page — what a switch sends", () => {
     const container = await renderSettledPage(held.bridge);
     await act(async () => {
       storedSwitches(container)[0]?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     expect(storedSwitches(container)[0]?.hasAttribute("data-disabled")).toBe(true);
   });

@@ -47,6 +47,7 @@ export const PANE_BODY_RULE = "console-panes-hold-no-body";
 export const IMPORTED_PANE_BODY_RULE = "console-panes-hold-no-imported-body";
 export const OUTSIDE_DOOR_RULE = "renderer-reaches-console-through-doors";
 export const CONSOLE_ROOT_RULE = "console-root-is-composition-only";
+export const CONSOLE_NOT_SHELL_RULE = "console-not-shell";
 /**
  * One of the eight per-family ordering rules, named because one control needs it.
  *
@@ -69,6 +70,7 @@ const OWNED_RULES: readonly string[] = [
   IMPORTED_PANE_BODY_RULE,
   OUTSIDE_DOOR_RULE,
   CONSOLE_ROOT_RULE,
+  CONSOLE_NOT_SHELL_RULE,
   STATE_UPWARD_EDGE_RULE,
   TEST_SUPPORT_READER_RULE,
   SHARED_THROUGH_CORE_RULE,

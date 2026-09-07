@@ -29,6 +29,7 @@ import {
   renderControl,
   renderControlOn,
 } from "./NewSessionControl.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 describe("the composed new-session draft — reachable, and only on an act", () => {
   afterEach(cleanup);
@@ -61,7 +62,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     await press("+ New");
     await act(async () => {
       screen.getByRole("radio", { name: "Trusted" }).click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect((screen.getByRole("radio", { name: "Trusted" }) as HTMLInputElement).checked).toBe(true);
@@ -73,7 +74,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     await press("+ New");
     await act(async () => {
       screen.getByRole("radio", { name: "Trusted" }).click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await press("Discard");
 
@@ -94,7 +95,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     await press("+ New");
     await act(async () => {
       screen.getByRole("radio", { name: "Trusted" }).click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await press("Send");
 
@@ -120,7 +121,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     await press("+ New");
     await act(async () => {
       screen.getByRole("radio", { name: "Trusted" }).click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await press("Send");
 
@@ -134,7 +135,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     await press("+ New");
     await act(async () => {
       screen.getByRole("radio", { name: "Trusted" }).click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     // The window a double-click lands in: the create is suspended, so this is what
@@ -144,7 +145,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
 
     await act(async () => {
       held.answer();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     // ...and pressable again once it settles, because the partial leaves a draft the

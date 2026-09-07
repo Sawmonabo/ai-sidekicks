@@ -48,6 +48,24 @@ import type { ScenarioEngine } from "./scenario-engine.js";
  */
 export const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-full"] as const;
 
+/**
+ * The code a call the scenario in play scripts nothing for refuses with.
+ *
+ * ONE SPELLING, TWO VOCABULARIES, AND THEY MEAN DIFFERENT THINGS ON PURPOSE. On the
+ * `daemon.call` arm `fixture-bridge.ts` raises it as an AUTHORING error: every method
+ * a surface reaches through the call door is one the corpus registers, so a scenario
+ * that scripts none has a gap in it. On the growth port it is a reading about the
+ * SCENARIO: an operation the fixture serves, driven from a scenario that models
+ * nothing it could be answered from, has been left unasked — which is the "not
+ * checked" kind of nothing and not an empty result.
+ *
+ * The two readings share the spelling because they share the fact, and a reader who
+ * learns the word once should not have to learn a second one for the same absence.
+ * Declared here, where the seam that discovers the absence lives, so neither
+ * consuming vocabulary carries a literal the other could be renamed away from.
+ */
+export const SCRIPT_ABSENT_REFUSAL_CODE = "reply-unscripted" as const;
+
 /** One such code. Derived, so the two consuming vocabularies cannot disagree. */
 export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[number];
 

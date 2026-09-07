@@ -17,6 +17,7 @@ import type { GrowthPortAnswer } from "../../bridge/growth-port/growth-port.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ManualClock } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { WIRE_UNREGISTERED } from "./proposal-gate-scripted-port.test-support.js";
 import { WorktreeGateRow } from "./WorktreeGateRow.js";
@@ -127,7 +128,7 @@ async function renderRow(
   let result!: ReturnType<typeof render>;
   await act(async () => {
     result = render(row(branchContext, overrides));
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   await settleRead(result.container);
   return result;
@@ -156,7 +157,7 @@ async function renderRefusedRow(): Promise<ReturnType<typeof render>> {
   let result!: ReturnType<typeof render>;
   await act(async () => {
     result = render(row(WIRE_UNREGISTERED));
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   await waitFor(() => {
     if (!result.container.textContent?.includes("wire-unregistered")) {
@@ -252,7 +253,7 @@ describe("WorktreeGateRow — the announcement", () => {
       const disclosure = container.querySelector("details.meridian-root-gate");
       (disclosure as HTMLDetailsElement).open = true;
       rerender(row(SERVED_CONTEXT));
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     // Still the one message, and nothing queued behind it: a second announcement

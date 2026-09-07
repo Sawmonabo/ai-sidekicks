@@ -1,0 +1,158 @@
+/* The composer. Three zones in one column: what a message is addressed to, the
+   message itself, and what the send would cost. Dense where the data is dense and
+   quiet everywhere else — the chrome is a boundary, not a toolbar. */
+
+.meridian-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-composer__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-height: var(--meridian-space-5);
+}
+
+/* The input's zone is the tall one — it is the only place a person types, so it
+   gets the room and the raised ground even while it is reserved. */
+.meridian-composer__send {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(var(--meridian-space-8) * 2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-composer__accessories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.meridian-composer__meters {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+/* The directive line. One line that grows to the cap `composer-bounds.ts` names,
+   then scrolls inside its own box so the ledger above it keeps its room. */
+.meridian-composer__line {
+  width: 100%;
+  min-height: calc(var(--meridian-space-5) + var(--meridian-space-2));
+  padding: var(--meridian-space-2);
+  color: var(--meridian-text);
+  font: inherit;
+  font-family: var(--meridian-font-sans);
+  background: var(--meridian-ground);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  resize: none;
+}
+
+.meridian-composer__line:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-composer__line[readonly] {
+  color: var(--meridian-text-muted);
+  background: var(--meridian-surface-sunken);
+}
+
+/* The non-persistence disclosure, between the line and the row under it. Quiet, and
+   the same size as the path label beside it: it reports a property of the draft a
+   person is holding, and it is not a refusal and not an instruction. */
+.meridian-composer__notice {
+  margin-top: var(--meridian-space-1);
+  margin-bottom: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/* The row under the line: the path label on the left, the controls on the right.
+   The label is quiet because it reports rather than instructs. */
+.meridian-composer__send-row {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  margin-top: var(--meridian-space-2);
+}
+
+.meridian-composer__path {
+  flex: 1;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  font-family: var(--meridian-font-mono);
+}
+
+/* One primary action per surface (rule 1), so exactly one control carries the
+   accent and every other control on the composer is quiet.
+
+   The accent is carried as the BOUNDARY AND THE INK, not as a fill, and that is
+   a contrast fact rather than a taste one: `accent-text` is the accent-tinted
+   colour for text on a SURFACE, so painting it on the `accent` fill puts two
+   near-isoluminant colours together (L 0.475 on L 0.575 light, L 0.845 on
+   L 0.73 dark) and fails WCAG 1.4.3 in both schemes — which the accessibility
+   tier reports on this exact selector. The primitives DO own a filled treatment
+   that clears the floor, `meridian-accent-fill`, which pairs that fill with
+   `accent-ink` at 4.73:1 light and 7.41:1 dark, and a card's one primary action
+   wears it. This control keeps the boundary-and-ink pair instead, because that
+   pair measures HIGHER on the label it has to carry — 6.38:1 light and 11.49:1
+   dark, the same pair `.meridian-chip--accent` uses — with the accent boundary
+   at 4.17:1 and 7.77:1 against the send box's own surface, clearing the 3:1
+   non-text floor rule 3 puts on a control boundary. The control still reads as
+   the one accented affordance in the composer, because it is the only one. */
+.meridian-composer__primary {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-accent-text);
+  font: inherit;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-accent);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-composer__primary[disabled] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.meridian-composer__stop,
+.meridian-composer__resend {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-text);
+  font: inherit;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-composer__primary:focus-visible,
+.meridian-composer__stop:focus-visible,
+.meridian-composer__resend:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The two chip groups sit on one line and wrap together, so the address and the
+   posture never separate onto different rows while one of them has room. */
+.meridian-composer__target,
+.meridian-composer__posture {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: center;
+}

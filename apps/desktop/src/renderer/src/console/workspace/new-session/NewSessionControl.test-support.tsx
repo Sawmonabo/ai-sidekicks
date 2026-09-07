@@ -13,6 +13,7 @@ import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
@@ -153,7 +154,7 @@ export function bridgeQueueingCreates(): QueuedCreates {
 export async function press(name: string | RegExp): Promise<void> {
   await act(async () => {
     screen.getByRole("button", { name }).click();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -166,6 +167,6 @@ export async function openDraftWithPosture(): Promise<void> {
   await press("+ New");
   await act(async () => {
     screen.getByRole("radio", { name: "Trusted" }).click();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }

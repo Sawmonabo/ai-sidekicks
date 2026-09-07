@@ -52,7 +52,6 @@ export function useSessionScopedState<TValue>(
   return useSubjectScopedState(bridge, sessionId, initial);
 }
 
-// Consumed by T-023p-1C-3
 /**
  * The session a holder is about, or `undefined` where the surface is about none.
  *

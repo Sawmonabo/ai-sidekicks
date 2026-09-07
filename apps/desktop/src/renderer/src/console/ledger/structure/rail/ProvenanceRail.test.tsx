@@ -41,7 +41,7 @@ function thumbBounds(slider: HTMLElement): {
   readonly topPercent: number;
   readonly heightPercent: number;
 } {
-  const thumb = slider.querySelector<HTMLElement>(".meridian-rail__thumb");
+  const thumb = slider.querySelector<HTMLElement>(".meridian-provenance-rail__thumb");
   if (thumb === null) {
     throw new Error("the rail drew no viewport thumb");
   }
@@ -268,6 +268,6 @@ describe("rail — clip honesty is rendered, not implied", () => {
     // whether or not anybody can act on it; the button is a promise, so it is not.
     const { slider } = renderRail({ model: railModel(true), canLoadEarlier: false });
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
-    expect(slider.querySelector(".meridian-rail__unloaded")).not.toBeNull();
+    expect(slider.querySelector(".meridian-provenance-rail__unloaded")).not.toBeNull();
   });
 });

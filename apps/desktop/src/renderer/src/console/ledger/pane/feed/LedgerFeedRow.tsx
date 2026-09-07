@@ -38,7 +38,10 @@ import {
   type LedgerRowRenderer,
   type LedgerViewportRow,
 } from "../../frame/index.js";
-import { ChapterHeader, SeamRow, type LedgerChapter } from "../../structure/index.js";
+import { ChapterHeader, type LedgerChapter } from "../../structure/index.js";
+// The seam row through its own directory's door rather than the family's: that door
+// owns the seam vocabulary this row draws AND the sheet that dresses it.
+import { SeamRow } from "../../structure/seams/index.js";
 import { Nothing } from "../../../primitives/index.js";
 import { type TimelineRowRenderer, type TimelineRowSlotProps } from "../../../seats/index.js";
 import { type ParticipantHueAssignment } from "../../../tokens/index.js";

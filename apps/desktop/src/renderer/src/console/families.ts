@@ -44,6 +44,7 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerCollaborationFamily } from "./collaboration-family.js";
+import { registerComposerFamily } from "../shell/index.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
@@ -146,12 +147,19 @@ export function registerConsoleFamilies(
   // never through a board's module-scope registrar, which writes into production
   // whatever the caller composed into.
   //
-  // A seat may also be handed a COMPOSITION argument beside its boards, on the terms
-  // the sessions control above is named under: one view family may not import
-  // another, so this root — the one file allowed to name more than one — says which
-  // component a family's slot mounts. It is NAMED here rather than written into the
-  // seat, because a seat line passes identifiers and nothing else, which is what lets
-  // `seat-census.test-support.ts` read this block as a grammar rather than parse it.
+  // WHAT EACH SEAT BELOW TAKES, where a reader can meet it without breaking the block.
+  // The composer family claims no surface slot: its body is the composer SEAT under the
+  // deck, and its panes are claimed through `panes/index.ts` above. What it does claim
+  // is a fold — the approval-flow kinds the approvals pane reads entities from — and
+  // some of the sidebar's sections, so its seat passes those two boards and no other
+  // registry, because those are the only claims it makes.
+  //
+  // A seat may also be handed a COMPOSITION argument beside its boards: one view family
+  // may not import another, so this root — the one file allowed to name more than one —
+  // says which component a family's slot mounts. It is NAMED here rather than written
+  // into the seat, because a seat line passes identifiers and nothing else, which is
+  // what lets `seat-census.test-support.ts` read this block as a grammar rather than
+  // parse it.
   const ledgerComposition = { workspace: Workspace };
   // The sessions destination's composition, named on the same terms: that surface is
   // the collaboration family's and the composed new-session draft is the workspace
@@ -164,7 +172,7 @@ export function registerConsoleFamilies(
   // seven one-line diffs at seven distinct positions; `families.seat-board.test.ts`
   // reads the block as a census and refuses anything that is not a seat.
   registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
-  // T-023p-1C-3 composer
+  registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
   registerCollaborationFamily(surfaces, sidebarSections, sessionsComposition); // T-023p-1C-4 collaboration
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
   registerWorkflowSurfaces(surfaces); // T-023p-1C-6 workflows

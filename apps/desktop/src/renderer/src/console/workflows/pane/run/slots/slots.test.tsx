@@ -1,4 +1,4 @@
-// The two Plan-017 slots this pane's own directory owns, checked on the two things
+// The two workflow-engine slots this pane's own directory owns, checked on the two
 // a slot owes.
 //
 //   1. **The shell stands while nobody has filled it**, and says the feature has
@@ -66,15 +66,19 @@ describe("an unfilled slot is reserved, not stubbed", () => {
     "%s renders none of the contract's governance prose",
     (_name, element) => {
       const { container } = render(element);
-      expect(container.textContent ?? "").not.toContain("Plan-017");
+      for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
+        expect(container.textContent ?? "").not.toContain(slot.owningTask);
+      }
     },
   );
 
   it("negative control: the contracts really do carry that prose, so the case is not vacuous", () => {
     // Every contract names its owning task. If none did, the assertion above would
-    // hold over a component that rendered the whole contract verbatim.
+    // hold over a component that rendered the whole contract verbatim. The owner is
+    // named by SUBJECT rather than by number, which is what a runtime string in this
+    // tree may carry, so that is what the control reads.
     for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
-      expect(slot.owningTask).toContain("Plan-017");
+      expect(slot.owningTask).toContain("workflow authoring and execution plan");
     }
   });
 });
@@ -155,7 +159,7 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
    * Declared once rather than inside a case, because a component composed on each
    * render is a new type each time and React remounts it — the reciprocal obligation
    * `owner-slots.ts` states. The effect's teardown is the fact under test: a real
-   * Plan-017 body opens a subscription there.
+   * workflow-engine body opens a subscription there.
    */
   function statefulFormBody(recordTeardown: () => void) {
     return function StatefulFormBody(mount: HumanFormMount): React.JSX.Element {

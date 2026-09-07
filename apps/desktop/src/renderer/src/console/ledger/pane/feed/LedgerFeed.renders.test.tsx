@@ -31,7 +31,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
 import { type TimelineRowSlotProps } from "../../../seats/index.js";
 import { type SessionStore } from "../../../store/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";

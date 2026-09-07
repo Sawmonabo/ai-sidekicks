@@ -15,7 +15,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
 import { ManualClock } from "../../../core/index.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 import { foldChapterHeaders } from "../feed/ledger-chapter-fold.js";

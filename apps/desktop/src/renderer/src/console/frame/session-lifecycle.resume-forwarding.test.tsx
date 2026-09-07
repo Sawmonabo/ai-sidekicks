@@ -27,6 +27,7 @@ import {
   lastObservation,
   type Observation,
 } from "./session-lifecycle.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /** The position the recording bridge's read acknowledges, and the entry then submits. */
 const ACKNOWLEDGED_CURSOR = "bridge-swap-cursor-7";
@@ -122,9 +123,7 @@ async function settleRefresh(
   await act(async () => {
     registry.requestRefresh(sessionId, "reconnect");
     engine.advance(REFRESH_DEBOUNCE_MS);
-    for (let tick = 0; tick < 8; tick += 1) {
-      await Promise.resolve();
-    }
+    await crossMacrotaskBoundary();
   });
 }
 

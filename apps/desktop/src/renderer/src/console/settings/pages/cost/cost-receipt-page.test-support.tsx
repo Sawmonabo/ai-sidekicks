@@ -17,7 +17,7 @@ import {
 } from "../../settings-page-mount.test-support.js";
 import { CostReceiptPage } from "./CostReceiptPage.js";
 import type { CostReceipt, CostReceiptOutcome } from "./cost-receipt-model.js";
-import { settle as settlePasses } from "../../../core/settle.test-support.js";
+import { settle as settleReactWork } from "../../../core/settle.test-support.js";
 
 export type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
 
@@ -114,7 +114,7 @@ export function bridgeServing(receipt: CostReceipt): ConsoleBridge {
 
 /** Let the one-shot read and the effects it schedules land. */
 export async function settle(): Promise<void> {
-  await settlePasses(3);
+  await settleReactWork();
 }
 
 /** Mount the cost page beside a recorder. See the family's shared harness. */

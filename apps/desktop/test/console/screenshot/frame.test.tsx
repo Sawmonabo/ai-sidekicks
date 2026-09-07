@@ -79,6 +79,7 @@ import {
   skipOffBaselineHost,
   warnOnceOffBaselineHost,
 } from "./baseline-host.js";
+import { captureSettled } from "./settled-capture.js";
 
 import {
   ConsoleRoot,
@@ -160,7 +161,8 @@ describe("screenshot — the frame under the first-run scenario", () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
-      await expect(requireCapturedElement(container, FRAME_SELECTOR)).toMatchScreenshot(
+      await captureSettled(
+        requireCapturedElement(container, FRAME_SELECTOR),
         `frame-first-run-${scheme}`,
       );
     });
@@ -180,6 +182,6 @@ describe("screenshot — the frame under the first-run scenario", () => {
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
     // The whole body, not the frame: the palette portals out of the frame's
     // subtree into the overlay root, so a frame-scoped shot would miss it.
-    await expect(document.body).toMatchScreenshot("palette-open-light");
+    await captureSettled(document.body, "palette-open-light");
   });
 });

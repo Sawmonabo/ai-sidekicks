@@ -13,10 +13,12 @@
 // announcement from two. Advancing past the hold is what makes the difference
 // observable.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
-import { settle as settlePasses } from "../../core/settle.test-support.js";
+import { settle as settleReactWork } from "../../core/settle.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SidekickDefinitionsPage } from "./SidekickDefinitionsPage.js";
 import type { SidekickDefinitionRecord } from "./definition-rows.js";
@@ -111,7 +113,7 @@ export class RegistryStub {
 
   public bridge(): ConsoleBridge {
     const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-    return {
+    const built: ConsoleBridge = {
       ...fixture,
       growth: {
         ...fixture.growth,
@@ -136,6 +138,10 @@ export class RegistryStub {
         },
       },
     };
+    // Recorded so {@link settle} can reach the frozen clock this bridge's reads are
+    // scheduled against — see that function.
+    bridgeUnderTest = built;
+    return built;
   }
 }
 
@@ -170,21 +176,39 @@ export function renderPage(bridge: ConsoleBridge): {
 export async function releaseAnnouncementHold(clock: ManualClock): Promise<void> {
   await act(async () => {
     clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
 /**
- * The depth of this page's own effect chain: the read, the delete, and the re-read
- * the delete schedules, each settling the next.
+ * The bridge the page or the view under test is reading through.
  *
- * The bound stays with the caller and the loop is `core/`'s — see that module.
+ * Module state rather than a parameter because {@link settle} is called from forty-odd
+ * places across this page's three suites and from {@link RegistryStub} itself, and
+ * threading a bridge through every one of them would state nothing a reader needs:
+ * exactly one page is mounted at a time here, over the bridge the stub just minted.
  */
-const DEFINITIONS_SETTLE_PASSES = 6;
+let bridgeUnderTest: ConsoleBridge | undefined;
 
-/** Let the read, the delete, and the re-read the delete schedules all land. */
+/**
+ * Let the read, the delete, and the re-read the delete schedules all land.
+ *
+ * TWO WAITS, BECAUSE THE PAGE HAS TWO KINDS OF READ. The opening read goes through
+ * the registry view's `RefreshScheduler`, so the frozen clock has to reach the
+ * window's deadline before anything is on the wire at all; the re-read a delete
+ * performs is taken directly and only needs its own chain to settle. Doing the first
+ * without the second leaves the reply uncommitted, and the second without the first
+ * asserts against a page that was never given a chance to ask.
+ *
+ * No depth is stated, which is the point: this page's chain used to be counted at six
+ * and the seventh link would have gone unwaited for. `core/`'s settle crosses a
+ * boundary instead — see that module.
+ */
 export async function settle(): Promise<void> {
-  await settlePasses(DEFINITIONS_SETTLE_PASSES);
+  if (bridgeUnderTest !== undefined) {
+    await settleScheduledRead(bridgeUnderTest);
+  }
+  await settleReactWork();
 }
 
 export function savedRegionOf(container: HTMLElement): Element {
@@ -214,7 +238,7 @@ export async function pressWithoutSettling(
 ): Promise<void> {
   await act(async () => {
     control?.click();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 

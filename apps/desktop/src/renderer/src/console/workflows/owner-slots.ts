@@ -39,36 +39,44 @@
 
 import type { OwnerSlotContract } from "../seats/index.js";
 
-/** Shared by all five, so the deletion obligation is stated once. */
-const PLAN_017_BODY: Pick<OwnerSlotContract, "owningTask" | "deleteShellIn"> = {
-  owningTask: "Plan-017 — the workflow engine's own renderer bodies",
-  deleteShellIn: "the Plan-017 task that mounts the body, in the same PR as the mount",
+/**
+ * Shared by all five, so the deletion obligation is stated once.
+ *
+ * The owning plan is named by its SUBJECT rather than by its number, the way the five
+ * sibling contracts elsewhere in this tree name theirs. Every member here is a runtime
+ * string in a shipped module, and this repository keeps governance identifiers in
+ * comments — which is where the number belongs and where it is: the workflow authoring
+ * and execution plan owns these bodies.
+ */
+const WORKFLOW_ENGINE_BODY: Pick<OwnerSlotContract, "owningTask" | "deleteShellIn"> = {
+  owningTask: "the workflow authoring and execution plan's own renderer bodies",
+  deleteShellIn: "the task that mounts the body, in the same PR as the mount",
 };
 
 /** The node-graph canvas the builder pane frames. */
 export const WORKFLOW_GRAPH_SLOT: OwnerSlotContract = {
-  ...PLAN_017_BODY,
+  ...WORKFLOW_ENGINE_BODY,
   mountObligation:
     "the builder pane supplies the pane context and the full pane body area, and reads back nothing; geometry stays client-local and never enters the hashed definition body",
 };
 
 /** The run detail — phase sections, retries, outputs — inside the run pane. */
 export const WORKFLOW_RUN_DETAIL_SLOT: OwnerSlotContract = {
-  ...PLAN_017_BODY,
+  ...WORKFLOW_ENGINE_BODY,
   mountObligation:
     "the run pane supplies the run snapshot and the scroll chokepoint, and keeps the header and the park banner above it",
 };
 
 /** The human phase's form, opened from a parked phase and from the inspector. */
 export const WORKFLOW_HUMAN_FORM_SLOT: OwnerSlotContract = {
-  ...PLAN_017_BODY,
+  ...WORKFLOW_ENGINE_BODY,
   mountObligation:
     "both panes supply the phase reference and render the daemon's typed refusal; neither derives whether the form may be submitted",
 };
 
 /** The human phase's in-progress draft, which is renderer-local and never durable. */
 export const WORKFLOW_DRAFT_SLOT: OwnerSlotContract = {
-  ...PLAN_017_BODY,
+  ...WORKFLOW_ENGINE_BODY,
   mountObligation:
     "the mounting pane supplies the window-lifetime draft store and never the durable one; a draft that survived a restart would be participant content in a durable home",
 };
@@ -85,7 +93,7 @@ export const WORKFLOW_DRAFT_SLOT: OwnerSlotContract = {
  * pane holds only the session — so the obligation is stated as the floor both meet.
  */
 export const WORKFLOW_CHAT_START_SLOT: OwnerSlotContract = {
-  ...PLAN_017_BODY,
+  ...WORKFLOW_ENGINE_BODY,
   mountObligation:
     "every mount supplies the session context and, where it holds one, the resolved definition; each offers the control without deciding whether the caller may start a run",
 };

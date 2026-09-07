@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // The row-id namespace comes from the ledger scenario that declares it, deeply and
 // not through a door: a stem restated here would be a second namespace the day the
 // scenario's own moved.
-import { EVENT_ID_STEM } from "../../../bridge/scenarios/ledger-cast.js";
+import { EVENT_ID_STEM } from "../../../bridge/scenarios/ledger/ledger-cast.js";
 import { isContractTimelineRow } from "../../../bridge/daemon/timeline-row-contract.test-support.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 // Deeply, and not through `structure/index.ts`: this is the only consumer outside

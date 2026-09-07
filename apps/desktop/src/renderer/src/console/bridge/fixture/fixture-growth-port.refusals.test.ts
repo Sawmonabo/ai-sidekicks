@@ -32,7 +32,7 @@ import { createLiveBridge } from "../live-bridge.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { CONSOLE_SCENARIOS } from "../scenarios/index.js";
-import { LEDGER_SCENARIO } from "../scenarios/ledger.js";
+import { LEDGER_SCENARIO } from "../scenarios/ledger/ledger.js";
 import { RESUME_CURSOR_UNRESOLVABLE_CODE } from "../../store/index.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 

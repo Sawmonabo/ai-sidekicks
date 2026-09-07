@@ -5,6 +5,7 @@
 // seam rather than a table of its own. Both halves — what it reads, and what it
 // changes — need that same wiring, so it is built once here.
 
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { afterEach, beforeEach } from "vitest";
@@ -72,7 +73,7 @@ export async function recordOnto(
   fireEvent.click(recorder);
   await act(async () => {
     fireEvent.keyDown(recorder, press);
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 

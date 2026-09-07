@@ -84,7 +84,7 @@
 //     session read, and `session.renamed` is where a later change to it would
 //     arrive — never from the creation event.
 
-import { scriptLedgerBeats } from "./ledger-script.js";
+import { scriptLedgerBeats } from "./ledger/ledger-script.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,

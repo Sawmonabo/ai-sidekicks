@@ -1,6 +1,7 @@
 // The application page composes the two blocks about this build and claims one
 // section for them.
 
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -67,8 +68,8 @@ async function renderSettled(): Promise<HTMLElement> {
         <ApplicationPage context={contextFor()} />
       </LiveAnnouncerProvider>,
     ).container;
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
+    await crossMacrotaskBoundary();
   });
   const page = (root as HTMLElement).querySelector<HTMLElement>(".meridian-settings-page");
   if (page === null) {

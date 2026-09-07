@@ -24,6 +24,7 @@ import {
   renderControl,
   renderControlOn,
 } from "./NewSessionControl.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 describe("the composed new-session draft — which composition a settlement lands in", () => {
   it("drops a discarded draft's settlement rather than showing it under its replacement", async () => {
@@ -40,7 +41,7 @@ describe("the composed new-session draft — which composition a settlement land
     await openDraftWithPosture();
     await act(async () => {
       queued.answerOldest();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(container.textContent).not.toContain("first-turn-missing");
@@ -65,7 +66,7 @@ describe("the composed new-session draft — which composition a settlement land
 
     await act(async () => {
       queued.answerOldest();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
@@ -73,7 +74,7 @@ describe("the composed new-session draft — which composition a settlement land
 
     await act(async () => {
       queued.answerOldest();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     // The newer draft's own settlement is the one that lands.
@@ -91,7 +92,7 @@ describe("the composed new-session draft — which composition a settlement land
 
     await act(async () => {
       queued.answerOldest();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(container.textContent).toContain("first-turn-missing");
@@ -108,7 +109,7 @@ describe("the composed new-session draft — which composition a settlement land
     await press("+ New");
     await act(async () => {
       screen.getByRole("radio", { name: "Trusted" }).click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(container.textContent).not.toContain("first-turn-missing");

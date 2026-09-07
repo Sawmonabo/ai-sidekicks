@@ -8,6 +8,7 @@
 // controls behind a pending confirmation would offer two jobs on one screen at
 // the moment the person has to concentrate on one.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -315,7 +316,7 @@ describe("memberships — one change at a time", () => {
 
     confirmRevoke(container, 0);
     await act(async () => {
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     // The scenario scripts no `membership.update` reply, so the fixture refuses —

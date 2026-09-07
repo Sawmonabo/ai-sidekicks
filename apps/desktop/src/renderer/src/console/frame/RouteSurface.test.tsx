@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { GrowthPort } from "../bridge/index.js";
 import { createFixtureBridge } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
-import { settleReactWork } from "../core/act-settlement.test-support.js";
+import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { type ConsoleRoute } from "../routing/index.js";
@@ -124,12 +124,17 @@ describe("RouteSurface — the picker on a bare auxiliary route", () => {
     expect(screen.getByRole("button", { name: FLAGSHIP_SCENARIO.sessionId })).toBeDefined();
   });
 
-  it("navigates the window to the session that was chosen", () => {
+  it("navigates the window to the session that was chosen", async () => {
     const registry = registryWithOpenSessions("session-alpha");
     const { context, frameStore } = contextFor(BARE_TIMELINE_ROUTE, registry);
 
     render(<RouteSurface context={context} />);
     screen.getByRole("button", { name: "session-alpha" }).click();
+    // AWAITED, because the choice warms the chosen surface before it commits — the
+    // window has nothing but the picker under it, so committing first would replace a
+    // working control with a reserved frame. `RouteSurface.agent-console.test.tsx`
+    // holds that claim; here the wait is only what makes the navigation observable.
+    await settleReactWork();
 
     expect(frameStore.getState().route).toStrictEqual({
       kind: "auxiliary",

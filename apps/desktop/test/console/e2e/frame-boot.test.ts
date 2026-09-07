@@ -77,7 +77,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
     });
   });
 
-  it("boots the frame with its rail, a mounted surface, and a reserved one", async () => {
+  it("boots the frame with its rail, a mounted surface, and a composed absence", async () => {
     // The scenario is NAMED rather than defaulted, and that is this case's premise
     // rather than a detail of it: every claim below is about the first-run
     // composition — an empty directory, a readable session, an unowned pane kind —
@@ -146,38 +146,41 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
           .count(),
       ).toBe(0);
 
-      // Reserved, not stubbed, on a destination that genuinely has no owner. This
-      // is the half of the pair that makes the other half mean something: without
-      // it, "no reserved-slot absence on sessions" would also pass over a frame
-      // that had stopped rendering that arm altogether. And the absence must be
-      // the COMPOSED one, not a bare line, because a bare line at the top-left of
-      // a real window is what a half-painted page looks like.
+      // The COMPOSED absence, in a real window, which is the half of the pair that
+      // makes the other half mean something: without it, "no absence wrapper on
+      // sessions" would also pass over a frame that had stopped rendering that arm
+      // altogether. And it must be the composed one, not a bare line, because a bare
+      // line at the top-left of a real window is what a half-painted page looks like.
       //
-      // Re-pointed rather than deleted, which is the instruction each previous probe
-      // left behind: it moved off `#/settings` when the collaboration family took
-      // that destination, off `#/workflows` when the workflows family took that one,
-      // and off `#/window/timeline/…` now that the ledger claims the last SURFACE
-      // slot nobody owned. All seven declared slots have owners, so `surfaceSlotFor`
-      // can no longer hand `RouteSurface` a slot with no descriptor and no address
-      // asks this question at the surface layer any more — which is exactly the case
-      // that instruction named, and the answer it asked for is a destination the
-      // probe is TOLD rather than one it guesses.
+      // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
+      // previous revision of this probe pointed at a destination nobody owned — off
+      // `#/settings` when the collaboration family took it, off `#/workflows` when the
+      // workflows family took that, off `#/window/timeline/…` once the ledger claimed
+      // the last unowned SURFACE slot, and then one layer down at a pane kind the deck
+      // declared and no family rendered. That last address is gone too: `registeredPaneKinds()`
+      // now answers with all eleven of `PANE_KINDS`, so no address anywhere in a built
+      // console reaches a reserved arm, and each earlier revision's own instruction —
+      // re-point it, do not delete it — ends here, at the point it named: there is no
+      // slot left to be told to reserve.
       //
-      // It is the fixture-only pane harness, one level down, and the arm it reaches
-      // says so in its own source: "Reserved, not stubbed — `RouteSurface`'s rule one
-      // level down", for a pane KIND the deck declares and no family renders. `runs`
-      // is session-scoped, so it needs no entity segment, and it is unowned because
-      // the composer-sidebar-runs-approvals family has not shipped — the same kind of
-      // fact "reserved, not missing" states one layer up. Re-point it again — do not
-      // delete it — the day a family registers a `runs` body; `approvals` and
-      // `inspector` are the two unowned kinds behind it.
+      // What replaces it is an absence a family can never claim away, because it does
+      // not fire on a pane kind at all: `PaneHarnessSurface` holds the address segment
+      // to `parseConsolePaneAddress`, the console's one admission point for an address
+      // that arrived untyped, and a segment that names no kind is refused there. That
+      // is also the STRONGER end-to-end subject of the two — a reserved arm is a state
+      // a shipped build can only reach through its own composition mistake, while a
+      // mistyped hash is a thing a person actually does. The reserved arms themselves
+      // stay pinned where they can be driven directly, with a registry that holds no
+      // descriptor: `PaneHarnessSurface.test.tsx` for this one and `RouteSurface.test.tsx`
+      // for the slot layer above it. Point this back at a reserved arm the day a kind is
+      // declared in `PANE_KINDS` ahead of the family that renders it.
       //
       // BOTH address segments are required by that route's grammar, and the session
       // is the scenario's own: the first-run DIRECTORY is empty, which is what the
       // assertion above is about, while the session it holds is readable, which is
       // what gets the store open and the route as far as the surface.
       await consoleWindow.evaluate((sessionId: string) => {
-        window.location.hash = `#/pane-harness/runs/${sessionId}`;
+        window.location.hash = `#/pane-harness/not-a-pane-kind/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);
       // `--block` is the composed placement, and asserting it is the other half of
       // "not a bare line": the surface layer proved that with `SurfaceAbsence`, and
@@ -185,7 +188,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // placement modifier is what carries the same claim.
       await consoleWindow
         .locator(
-          `section[aria-label="${PANE_HARNESS_LABEL}"] .meridian-nothing--block.meridian-nothing--empty`,
+          `section[aria-label="${PANE_HARNESS_LABEL}"] .meridian-nothing--block.meridian-nothing--error`,
         )
         .waitFor({
           state: "visible",

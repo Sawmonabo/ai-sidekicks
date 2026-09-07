@@ -21,8 +21,8 @@ import {
   type GrowthServedValue,
 } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "../bridge/scenarios/flagship.js";
-import { LEDGER_SCENARIO, LEDGER_SCENARIO_ID } from "../bridge/scenarios/ledger.js";
-import { settleReactWork } from "../core/act-settlement.test-support.js";
+import { LEDGER_SCENARIO, LEDGER_SCENARIO_ID } from "../bridge/scenarios/ledger/ledger.js";
+import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { liveRegionText } from "../primitives/live-region.test-support.js";
 import { parseRoute } from "../routing/index.js";
 import { FrameStore } from "../store/index.js";

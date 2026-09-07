@@ -4,6 +4,7 @@
 // rows that appear and vanish as the frame registers and unregisters commands while
 // the page is open. What a person CHANGES is `KeyboardPage.rebinding.test.tsx`, over
 // the one cast in `keyboard-page.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, fireEvent, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -118,7 +119,7 @@ describe("keyboard page — a command registered after the page first rendered",
     // section and came back.
     const { container } = render(<LateRegisteringFrame />);
     await act(async () => {
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(rowOf(container, LATE_COMMAND.id)).toBeDefined();
@@ -141,7 +142,7 @@ describe("keyboard page — a command registered after the page first rendered",
           <KeyboardPage />
         </LiveAnnouncerProvider>,
       );
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(() => rowOf(container, "app.checkForUpdates")).toThrow();

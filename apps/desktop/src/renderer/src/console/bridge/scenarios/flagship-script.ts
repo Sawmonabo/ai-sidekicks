@@ -12,7 +12,7 @@ import {
   createLedgerLaneEntries,
   ledgerOpeningEntries,
   type LedgerScriptEntry,
-} from "./ledger-script.js";
+} from "./ledger/ledger-script.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,

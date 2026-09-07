@@ -42,7 +42,7 @@ describe("the ledger feed — one binding", () => {
   it("sizes the rail from the rows the box intersects, not the rows it mounts", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithFeedLog(LONG_LOG_EVENT_COUNT));
-    const thumb = feed.querySelector<HTMLElement>(".meridian-rail__thumb");
+    const thumb = feed.querySelector<HTMLElement>(".meridian-provenance-rail__thumb");
     expect(thumb).not.toBeNull();
     // Both readings come off the DOM, so this discriminates rather than restating a
     // constant. At the head there is no leading overscan, so the mounted rows are
@@ -65,7 +65,7 @@ describe("the ledger feed — one binding", () => {
     // one is the full-height thumb — which is exactly what a rail reading an
     // unattached binding drew on a fully laid-out ledger.
     const feed = renderFeed(openSessionStoreWithFeedLog(LONG_LOG_EVENT_COUNT));
-    const thumb = feed.querySelector<HTMLElement>(".meridian-rail__thumb");
+    const thumb = feed.querySelector<HTMLElement>(".meridian-provenance-rail__thumb");
     expect(thumb?.style.height).toBe("100%");
   });
 });
@@ -137,10 +137,10 @@ describe("the ledger feed — the clip it draws is the clip that is true", () =>
   it("draws the unloaded segment once the cap has taken rows", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));
-    expect(feed.querySelector(".meridian-rail__unloaded")).not.toBeNull();
+    expect(feed.querySelector(".meridian-provenance-rail__unloaded")).not.toBeNull();
     expect(feed.textContent).toContain("Older entries are no longer in this window.");
     // And still no control, because no registered read returns rows before the head.
-    expect(feed.querySelector(".meridian-rail__load-earlier")).toBeNull();
+    expect(feed.querySelector(".meridian-provenance-rail__load-earlier")).toBeNull();
     expect(feed.querySelector(".meridian-find__load-earlier")).toBeNull();
   });
 
@@ -149,7 +149,7 @@ describe("the ledger feed — the clip it draws is the clip that is true", () =>
     // would mark every complete session as truncated.
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithGeneralLog(5));
-    expect(feed.querySelector(".meridian-rail__unloaded")).toBeNull();
+    expect(feed.querySelector(".meridian-provenance-rail__unloaded")).toBeNull();
     expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
   });
 });

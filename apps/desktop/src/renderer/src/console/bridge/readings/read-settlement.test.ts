@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { ConsoleRefusalError, refuse, type WireErrorEnvelope } from "../../core/index.js";
 import { answerFromScriptedReply } from "../fixture/fixture-scripted-answer.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
-import { growthUnavailable } from "../growth-port/index.js";
+import { growthUnavailable, growthUnscriptedReply } from "../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
 import { READ_SETTLEMENT_REFUSAL_ORIGIN, settleGrowthRead } from "./read-settlement.js";
@@ -56,8 +56,11 @@ function scenarioRefusingTheEnumeration(): ConsoleScenario {
  * The enumeration, asked through the same seam the fixture's own port asks it through.
  *
  * The unscripted arm is unreachable from every case below — each scripts this call —
- * and exists to satisfy the adapter, which asks for the value a scenario that scripted
- * nothing would have answered with.
+ * and exists to satisfy the adapter, which asks for the OUTCOME a scenario that
+ * scripted nothing would have answered with. It is the served operation's own refusal
+ * rather than an empty list, on the rule the builder's header states: an empty
+ * enumeration is the claim that this session has no definitions, and a scenario that
+ * models none has not made it.
  */
 function enumerationThroughTheSeam(
   engine: ScenarioEngine,
@@ -67,10 +70,7 @@ function enumerationThroughTheSeam(
     "workflow.definitionList",
     "workflowDefinitionList",
     { sessionId: PROBE_SESSION_ID },
-    () => ({
-      status: "served",
-      value: { definitions: [] },
-    }),
+    () => growthUnscriptedReply("workflowDefinitionList", "workflow.definitionList"),
   );
 }
 

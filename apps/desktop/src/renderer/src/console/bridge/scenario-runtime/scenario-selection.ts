@@ -42,7 +42,7 @@ import { SCENARIO_FIXTURE_GLOBAL, refuse, type ConsoleRefusal } from "../../core
 import { CONSOLE_SCENARIOS } from "./scenario-manifest.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 import { FIRST_RUN_SCENARIO_ID } from "../scenarios/first-run.js";
-import { LEDGER_FIRST_SIXTY_SCENARIO_ID } from "../scenarios/ledger-first-sixty.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO_ID } from "../scenarios/ledger/ledger-scenario-id.js";
 
 /**
  * What a fixture window plays when its URL names no scenario.

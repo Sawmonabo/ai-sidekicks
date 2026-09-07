@@ -14,6 +14,7 @@
 // would be a second copy of the harness, which is the duplication this package's
 // own scaffolding rule forbids.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -134,7 +135,7 @@ async function sectionWithItsReadSettled(id: SidebarSectionId): Promise<MountedS
   await act(async () => {
     mounted.bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
     for (let pass = 0; pass < 4; pass += 1) {
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     }
   });
   expect(mounted.container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
@@ -235,7 +236,7 @@ describe("a roster age with nothing else moving", () => {
     await act(async () => {
       bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
       for (let pass = 0; pass < 4; pass += 1) {
-        await Promise.resolve();
+        await crossMacrotaskBoundary();
       }
     });
     return { container, sessionStore, bridge };
@@ -255,7 +256,7 @@ describe("a roster age with nothing else moving", () => {
     await act(async () => {
       mounted.bridge.scenarioEngine?.advance(FORTY_FIVE_MINUTES_MS);
       for (let pass = 0; pass < 4; pass += 1) {
-        await Promise.resolve();
+        await crossMacrotaskBoundary();
       }
     });
 

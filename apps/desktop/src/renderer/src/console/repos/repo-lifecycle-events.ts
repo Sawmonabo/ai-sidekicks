@@ -15,9 +15,9 @@
 //
 // A SET RATHER THAN A CLASS, because a class was all this ever needed to be. The
 // wrapper that used to live here held a `SessionRefreshTriggers`, forwarded `start` and
-// `dispose` to it, and added its own `terminalEventKinds` — three lines of forwarding
+// `dispose` to it, and added a kind list of its own — three lines of forwarding
 // around one value, in a family whose two readers construct the shared triggers
-// perfectly well themselves. The shared answer that mattered was never the class: it
+// perfectly well themselves and now declare that list on themselves. The shared answer that mattered was never the class: it
 // was the KIND SET, so a second reader cannot watch a different frame while reading the
 // same rows.
 //
@@ -37,9 +37,9 @@
 // gates bound to them.
 //
 // ONE READ PER BURST, WHICH IS WHY A WIDER SET COSTS NOTHING. `SessionRefreshTriggers`
-// asks the scheduler for a read when a transition carries ANY watched kind — once per
-// transition, not once per frame — and the scheduler coalesces the request into the
-// window it is already holding. So a workspace that reprovisions through
+// asks the READING for a read when a transition carries ANY watched kind — once per
+// transition, not once per frame — and the scheduler behind that request coalesces it
+// into the window it is already holding. So a workspace that reprovisions through
 // `provisioning` and `ready`, and the five worktree transitions behind it, are one
 // re-read rather than seven.
 

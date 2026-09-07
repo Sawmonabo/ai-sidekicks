@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { UiStateStore } from "../persistence/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { SESSION_ID, memoryStore, sessionStore, workspaceFor } from "./Workspace.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /** A store whose writes fail, which is what raises the workspace's own save refusal. */
 class RejectingWriteAdapter extends MemoryPersistenceAdapter {
@@ -33,7 +34,7 @@ async function pressDetach(container: HTMLElement): Promise<void> {
   expect(control).not.toBeNull();
   await act(async () => {
     control?.click();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -54,7 +55,7 @@ async function dismiss(row: HTMLElement): Promise<void> {
   expect(control).not.toBeNull();
   await act(async () => {
     control?.click();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 

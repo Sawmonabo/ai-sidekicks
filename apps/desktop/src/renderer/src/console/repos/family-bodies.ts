@@ -10,25 +10,27 @@
 //
 // WHAT IS HERE AND WHAT IS IN THE DOOR. The sidebar and card registrations run here,
 // against the boards the composition hands this family rather than against a
-// process-wide singleton. The two pane RENDERERS are here for the same reason and stop
-// there — the pane REGISTRATION is declared in `repos/index.ts`, because
-// `console/panes/index.ts` states that contract in its own words: a family claims its
-// pane kinds "inside that function", the one it publishes from its own `index.ts`.
+// process-wide singleton. The pane registration is declared in `repos/index.ts`,
+// because `console/panes/index.ts` states that contract in its own words: a family
+// claims its pane kinds "inside that function", the one it publishes from its own
+// `index.ts`.
+//
+// THE TWO PANE RENDERERS USED TO BE HERE AND ARE NOT ANY MORE. They moved beside their
+// components, into `diff-pane/diff-pane-body.ts` and `artifact-pane/artifact-pane-body.ts`,
+// because both panes are now loader-backed: a renderer composed in this module would be
+// reached by a static import from the family door, which is exactly the edge that put
+// the diff viewer and the artifact payload views on the initial import graph. What this
+// module still composes is what a session paints without opening anything — the two
+// sidebar sections and the three inline ledger cards.
 
-import { createElement, type ReactNode } from "react";
+import { createElement } from "react";
 
 import {
-  ArtifactPane,
   registerInlineArtifactCardBody,
   registerInlineAttachmentCardBody,
 } from "./artifact-pane/index.js";
-import { DiffPane, registerInlineDiffCardBody } from "./diff-pane/index.js";
-import {
-  paneBodyForKind,
-  type ConsolePaneContext,
-  type InlineCardSeatRegistry,
-  type SidebarSectionRegistry,
-} from "../seats/index.js";
+import { registerInlineDiffCardBody } from "./diff-pane/index.js";
+import { type InlineCardSeatRegistry, type SidebarSectionRegistry } from "../seats/index.js";
 import { AttachmentCarrierSection } from "./attachments/AttachmentCarrierSection.js";
 import { RepoSection } from "./mounts/RepoSection.js";
 
@@ -43,31 +45,6 @@ import { RepoSection } from "./mounts/RepoSection.js";
  * body was spelled differently.
  */
 export const REPOS_FAMILY_OWNER = "repos";
-
-/**
- * The diff pane, at an address the deck resolved to this kind.
- *
- * `paneBodyForKind` is the seat's own narrowing and the one answer to the arm that
- * cannot be served: it compares the kind, hands the body its own arm, and renders the
- * chrome's typed refusal otherwise. Six families writing that comparison themselves is
- * six answers to one question — which is what this family had, in a refusal it minted
- * and a card it drew — so the narrowing is consumed rather than restated.
- *
- * A MISMATCH IS STILL A RENDERED REFUSAL AND NEVER A THROW, for the reason it always
- * was: the deck looks a body up BY kind, so the arm is reachable only through a
- * restored layout row or a typed route, and one bad row must lose that row rather than
- * take the whole deck down with it.
- */
-export const renderDiffPaneBody: (context: ConsolePaneContext) => ReactNode = paneBodyForKind(
-  "diff",
-  (context) => createElement(DiffPane, { context }),
-);
-
-/** The artifact pane, on the narrowing the diff body above explains. */
-export const renderArtifactPaneBody: (context: ConsolePaneContext) => ReactNode = paneBodyForKind(
-  "artifact",
-  (context) => createElement(ArtifactPane, { context }),
-);
 
 /**
  * Fill the sidebar's two repos-family sections and the ledger row's three cards.

@@ -27,6 +27,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { type ConsoleRoute } from "../routing/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext, type PaneKind } from "../seats/index.js";
 import { FrameStore } from "../store/index.js";
@@ -151,7 +152,7 @@ async function pressControl(controlName: string, times = 1): Promise<void> {
     for (let press = 0; press < times; press += 1) {
       screen.getByRole("button", { name: controlName }).click();
     }
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 

@@ -14,7 +14,7 @@ import type { UiStateStore } from "../../persistence/index.js";
 import { openStore } from "../sessions.test-support.js";
 import { InviteShelf, type InviteShelfReader, type ServedInvite } from "./InviteShelf.js";
 
-import { settle as settlePasses } from "../../core/settle.test-support.js";
+import { settle as settleReactWork } from "../../core/settle.test-support.js";
 
 export type ShelfOutcome = Awaited<ReturnType<InviteShelfReader>>[number];
 
@@ -50,7 +50,7 @@ export const REFUSED: ShelfOutcome = {
  * number picked to make a test pass.
  */
 export async function settle(): Promise<void> {
-  await settlePasses(4);
+  await settleReactWork();
 }
 
 /**

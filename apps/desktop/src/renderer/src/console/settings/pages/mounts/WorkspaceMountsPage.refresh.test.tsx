@@ -6,6 +6,7 @@
 // both drive the page through the harness in
 // `workspace-mounts-page.test-support.tsx`.
 
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -83,7 +84,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
 
     await act(async () => {
       page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await settle();
 
@@ -112,7 +113,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
 
     await act(async () => {
       page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await settle();
 

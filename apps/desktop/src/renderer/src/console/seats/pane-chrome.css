@@ -51,7 +51,13 @@
   gap: var(--meridian-space-3);
   align-items: center;
   min-height: 34px;
-  padding: 0 var(--meridian-space-2) 0 var(--meridian-space-3);
+  /* The block padding and the type size are the DECK's rhythm, spent here because this
+     family owns the class. Both fall back to the value a pane outside a deck wants — an
+     auxiliary window mounts one with no density around it — so the pane is dressed with
+     or without a deck above it. */
+  padding: var(--meridian-pane-head-padding-block, 0) var(--meridian-space-2)
+    var(--meridian-pane-head-padding-block, 0) var(--meridian-space-3);
+  font-size: var(--meridian-pane-head-font-size, inherit);
   border-bottom: 1px solid var(--meridian-edge);
   background: var(--meridian-surface-sunken);
 }

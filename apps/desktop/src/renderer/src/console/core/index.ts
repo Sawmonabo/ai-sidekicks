@@ -20,7 +20,9 @@ export {
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
+  AWAITING_RUN_IDS_NAMED_CAP,
   BOUNDED_ENUMERATION_MAX_ROWS,
+  BROAD_ALLOW_LIST_THRESHOLD,
   CAST_BAR_CHIP_CAP,
   CHAPTER_VISIBLE_ROW_CAP,
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
@@ -40,6 +42,7 @@ export {
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
+  INTERVENTION_OUTCOME_CAP,
   LEDGER_MAX_ELEMENT_HEIGHT_PX,
   LEDGER_PARKED_LEASE_CAP,
   LEDGER_WINDOW_ROW_CAP,
@@ -59,6 +62,9 @@ export {
   PHASE_GRAPH_MIN_ZOOM,
   POSITION_SIBLING_OBSERVER_CAP,
   PRE_INITIALISATION_BUFFER_CAP,
+  PROJECTED_RUN_CAP,
+  PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP,
+  QUEUE_ROWS_RENDERED_CAP,
   RAIL_FISHEYE_MAX_SCALE,
   RAIL_MAX_TICKS_PER_PIXEL,
   REFRESH_DEBOUNCE_MS,
@@ -70,9 +76,13 @@ export {
   REVEAL_CHECKPOINT_TAIL_CAP,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
+  RUN_STATUS_ROW_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
+  SEATED_KNOWN_RUN_CAP,
   SESSION_BACK_TIER_VISIBLE_CAP,
+  SESSION_GOAL_MAX_LENGTH,
+  SESSION_GOAL_MIN_LENGTH,
   SETTLED_INVITE_VISIBLE_CAP,
   SIDEBAR_MAXIMUM_WIDTH_PERCENT,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
@@ -136,6 +146,7 @@ export {
   ConsoleRefusalError,
   isConsoleRefusal,
   refuse,
+  refusedMemberPaths,
   type ConsoleRefusal,
   // The narrowing `refuse` returns. Through the door because a producer that owns a
   // closed code union declares its own refusal type as an instantiation of this one
@@ -161,13 +172,13 @@ export {
   type WireRefusal,
   type WireErrorEnvelope,
 } from "./wire-rejection.js";
-// The two predicates a reading of an untyped wire value starts from, each written
-// separately by the families that needed it. They ship through this door rather than
+// The three predicates a reading of an untyped wire value starts from, each written
+// separately by the families that needed one. They ship through this door rather than
 // from the family that happened to need one first, because their readers sit at three
 // different heights on the DAG — `persistence/`, `bridge/`, `frame/` — and two of
 // those cannot reach the third, so the floor is the only home all of them share.
 export { isWireRecord } from "./wire-record.js";
-export { readWireString } from "./wire-strings.js";
+export { readWireNumber, readWireString } from "./wire-strings.js";
 
 // The cross-process leaf's lossy renderer for a value that has no honest string,
 // re-published here rather than re-declared.

@@ -23,9 +23,6 @@ import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
 /** How the session names itself, where a scenario says so. */
 const DISPLAY_TITLE = "Ship the ledger";
 
-/** How many settle passes the bar's chained reads take. Three reads, one effect each. */
-const READ_SETTLE_PASSES = 4;
-
 /**
  * The silent scenario with answers added, so a case varies one reply and nothing else.
  *
@@ -109,7 +106,7 @@ async function barAnswering(replies: ConsoleScenario["replies"]): Promise<HTMLEl
     />,
     { scenario: scenarioAnswering(replies) },
   );
-  await settle(READ_SETTLE_PASSES);
+  await settle();
   return bar;
 }
 

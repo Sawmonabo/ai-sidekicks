@@ -11,6 +11,7 @@
 // prop load-bearing rather than ceremonial — a host REPLACES its bridge without
 // remounting anything, and the session id does not move when it does.
 
+import { crossMacrotaskBoundary } from "../../console/core/macrotask-boundary.test-support.js";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -351,7 +352,7 @@ describe("NodeRoster — a stream that could not be opened", () => {
     const tryAgain = screen.getByRole("button", { name: "Try again" });
     await act(async () => {
       tryAgain.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     await screen.findByText(`node id: ${AT_FLOOR_NODE_ID}`);
@@ -385,7 +386,7 @@ describe("NodeRoster — a stream that could not be opened", () => {
 
     await act(async () => {
       screen.getByRole("button", { name: "Try again" }).click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
 
     expect(seam.subscribePresence).toHaveBeenCalledTimes(2);

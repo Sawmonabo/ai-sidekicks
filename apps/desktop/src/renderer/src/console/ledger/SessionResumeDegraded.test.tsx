@@ -18,7 +18,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "../core/index.js";
-import { settleReactWork } from "../core/act-settlement.test-support.js";
+import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "../seats/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { SessionStoreRegistry, type SessionSnapshot } from "../store/index.js";

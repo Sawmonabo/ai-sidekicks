@@ -22,6 +22,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 
 import type { SessionStoreRegistry } from "./session-store-registry.js";
+import type { SessionDegradedCause } from "./degradation.js";
 import type { SessionStore, SessionStoreState } from "./session-store.js";
 import type { TimelineResumeDecision } from "./timeline-resume.js";
 
@@ -77,6 +78,28 @@ export function useSessionDegraded(store: SessionStore): boolean {
 
 function readDegraded(state: SessionStoreState): boolean {
   return state.degradedCause !== undefined;
+}
+
+/**
+ * Why the projection is known-incomplete, or `undefined` while it is whole.
+ *
+ * A hook of its own rather than a `useSessionStore` call at each surface, for the
+ * reason `hooks.ts` states in full: the selector has to return a stored reference, and
+ * one written per surface is one more chance to build a value and re-render every
+ * frame. A sidebar section renders "unavailable" from this rather than rendering a
+ * zero, which is the distinction the design language draws between an answered empty
+ * read and a read that never landed.
+ *
+ * The same subscription {@link useSessionDegraded} makes, narrowed one step less: a
+ * reader that renders the cause takes this, and one that only asks whether a cause is
+ * standing takes the boolean and pays no render when one cause becomes another.
+ */
+export function useSessionDegradedCause(store: SessionStore): SessionDegradedCause | undefined {
+  return useStore(store.readable, readDegradedCause);
+}
+
+function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
+  return state.degradedCause;
 }
 
 /**

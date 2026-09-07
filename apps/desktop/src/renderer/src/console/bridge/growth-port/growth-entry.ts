@@ -141,6 +141,12 @@ export type GrowthOperationId =
   // identity, and the callback-tool registry the approvals pane reads
   | "callerParticipantRead"
   | "callbackToolRegistryRead"
+  | "approvalProjectionRead"
+  | "approvalResolve"
+  | "approvalRuleList"
+  | "approvalRuleRevoke"
+  | "sessionGoalUpdate"
+  | "sessionGoalClear"
   // agent plane — the four `agent.*` verbs the console calls, in the order a surface
   // meets them: read the roster, put a sidekick in, move its provider axes, take it
   // out. Each id is its wire method's tail with the root folded in, which
@@ -182,5 +188,6 @@ export type GrowthPrerequisiteId =
   | "timelinePathReferenceMember"
   | "approvalRememberedRuleMember"
   | "approvalAmendmentArm"
+  | "agentProviderSwitchFailedEvent"
   | "providerSessionImportSpec"
   | "timelineResumeCursorMember";

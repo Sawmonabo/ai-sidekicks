@@ -45,13 +45,21 @@
 // and the kind it is claiming — the one-line-per-position property the branches
 // depend on is about the line, and two families were never going to share one.
 //
-// THE BODIES DO NOT LIVE UNDER THIS DIRECTORY. This file and its suite are the whole
-// of `panes/`, and that is a rule rather than an accident of what has landed: the
-// layering gate subtracts this path from both endpoints of `console-view-family-isolation`
-// and from the view-family set itself, so it can name every family without being read as
-// one. A pane body parked behind that subtraction is view code no view rule can see —
-// which is what happened, and what the ledger's `pane/` subtree undid. A family's pane
-// body belongs in that family, beside the rest of it.
+// THE FAMILY IS A SIBLING OF THIS FILE, NOT A SUBDIRECTORY OF IT
+//
+// A pane body lives at `console/<family>/pane/`, behind that family's own door at
+// `console/<family>/index.ts` — never under `panes/`. This file composes the deck
+// and holds no body, which is what lets it name every family without becoming the
+// place any of them lives: a body here would be reachable from a sibling family
+// only by importing UPWARD into the site that composes it, and both composition
+// sites are subtracted from the layering gate's endpoints precisely so that this
+// file may name them all.
+//
+// AND NOTHING ELSE LIVES HERE EITHER. The frame every pane wears is
+// `seats/ConsolePaneChrome.tsx` and its sheet is imported by the seats door, which
+// is where every console family imports its own. This directory is this file and its
+// suite; `console-panes-hold-no-body` holds the first half of that and the barrel
+// census the second.
 //
 // A FAMILY MAY BE HANDED A COMPOSITION ARGUMENT HERE, on `console/families.ts`' terms
 // and for its reason: this is one of the two files allowed to name more than one view
@@ -81,9 +89,12 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerAgentConsolePane } from "../agents/index.js";
+import { registerApprovalsPane } from "../approvals/index.js";
 import { registerBrowserPanes } from "../browser/index.js";
+import { registerInspectorPane } from "../inspector/index.js";
 import { registerLedgerPanes } from "../ledger/index.js";
 import { registerReposPanes } from "../repos/index.js";
+import { registerRunsPane } from "../runs/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { registerTerminalPanes } from "../terminal/index.js";
 import { registerWorkflowPanes } from "../workflows/index.js";
@@ -98,7 +109,9 @@ import { registerWorkflowPanes } from "../workflows/index.js";
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   registerLedgerPanes(registry); // T-023p-1C-2 timeline
-  // T-023p-1C-3 runs approvals inspector
+  registerRunsPane(registry); // T-023p-1C-3 runs
+  registerApprovalsPane(registry); // T-023p-1C-3 approvals
+  registerInspectorPane(registry); // T-023p-1C-3 inspector
   registerAgentConsolePane(registry); // T-023p-1C-4 agent-console
   registerReposPanes(registry); // T-023p-1C-5 diff artifact
   registerWorkflowPanes(registry); // T-023p-1C-6 workflow-run workflow-builder

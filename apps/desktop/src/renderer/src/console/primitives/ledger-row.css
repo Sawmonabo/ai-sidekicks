@@ -165,3 +165,28 @@
   opacity: 1;
   pointer-events: auto;
 }
+
+/*
+ * The same reveal, as a slot a family can put its own control in.
+ *
+ * The footer above is a fixed grid area; a family that wants one control to appear on
+ * the row's hover — a card's disclosure, say — has nowhere to put it and would have to
+ * write `.meridian-ledger-row:hover .its-own-class` in its own sheet. That is a second
+ * family declaring this family's class, which makes the reveal a question the cascade
+ * answers rather than a rule either sheet states. So the contract is a CLASS: the
+ * primitive owns when a thing is revealed, and the family owns what the thing is.
+ *
+ * `pointer-events` is deliberately absent, unlike the footer's. The footer is a strip
+ * that spans the row and would swallow clicks meant for the body; a control placed
+ * inline is over nothing, and a guard here would break a click on a disclosure that a
+ * family had left permanently visible under its own rule.
+ */
+.meridian-ledger-row__revealed {
+  opacity: 0;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-ledger-row:hover .meridian-ledger-row__revealed,
+.meridian-ledger-row:focus-within .meridian-ledger-row__revealed {
+  opacity: 1;
+}

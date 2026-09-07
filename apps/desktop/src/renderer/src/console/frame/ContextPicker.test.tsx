@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { SessionStoreRegistry } from "../store/index.js";
 import { ContextPicker } from "./ContextPicker.js";
 
@@ -56,7 +57,7 @@ async function renderPicker(growth: GrowthPort): Promise<void> {
     />,
   );
   await act(async () => {
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 

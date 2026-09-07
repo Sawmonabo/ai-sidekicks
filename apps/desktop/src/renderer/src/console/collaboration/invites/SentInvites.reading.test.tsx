@@ -9,6 +9,7 @@
 // The revoke MUTATION is `SentInvites.revoking.test.tsx` and the session a row
 // belongs to is `SentInvites.subject.test.tsx`: three questions on the module's own
 // three seams, over the one cast in `sent-invites.test-support.tsx`.
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -143,7 +144,7 @@ describe("sent invites — the ledger", () => {
     const revoke = container.querySelector<HTMLButtonElement>(".meridian-invites__row-action");
     await act(async () => {
       revoke?.click();
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     await settle();
     // The scenario scripts no `invite.revoke` reply, so the fixture refuses — and

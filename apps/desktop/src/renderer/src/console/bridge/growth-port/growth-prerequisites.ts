@@ -122,6 +122,12 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "type-member",
       "the per-row remembered-rule match on approval rows",
     ),
+    agentProviderSwitchFailedEvent: prerequisite(
+      "agentProviderSwitchFailedEvent",
+      "agent-provider-switch-failure",
+      "event-type",
+      "the `agent.provider_switch_failed` event, which is how a deferred switch that could not be applied reaches a client that did not issue the mutation",
+    ),
     approvalAmendmentArm: prerequisite(
       "approvalAmendmentArm",
       "approval-amendment-arm",

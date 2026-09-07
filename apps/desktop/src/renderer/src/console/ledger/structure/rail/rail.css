@@ -23,7 +23,7 @@
  * the constants module and this sheet never restates it.
  */
 
-.meridian-rail {
+.meridian-provenance-rail {
   position: relative;
   flex: 0 0 auto;
   display: flex;
@@ -31,7 +31,7 @@
   align-items: stretch;
 }
 
-.meridian-rail__strip {
+.meridian-provenance-rail__strip {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -42,13 +42,13 @@
   justify-content: center;
 }
 
-.meridian-rail__strip:focus-visible {
+.meridian-provenance-rail__strip:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: -2px;
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-rail__canvas {
+.meridian-provenance-rail__canvas {
   width: 100%;
   height: 100%;
   display: block;
@@ -60,7 +60,7 @@
  * without the segment's own box being a second element to keep in step.
  */
 
-.meridian-rail__unloaded {
+.meridian-provenance-rail__unloaded {
   position: absolute;
   inset-block-start: 0;
   inset-inline-start: 50%;
@@ -78,7 +78,7 @@
 
 /* The viewport thumb: where the reading position is, not what it contains. */
 
-.meridian-rail__thumb {
+.meridian-provenance-rail__thumb {
   position: absolute;
   inset-inline: 2px;
   background: color-mix(in oklch, var(--meridian-text-muted) 18%, transparent);
@@ -88,7 +88,7 @@
 
 /* The live marker at the tail, drawn only while the ledger is following. */
 
-.meridian-rail__live {
+.meridian-provenance-rail__live {
   position: absolute;
   inset-block-end: 0;
   inset-inline-start: 50%;
@@ -100,7 +100,7 @@
   pointer-events: none;
 }
 
-.meridian-rail__load-earlier {
+.meridian-provenance-rail__load-earlier {
   flex: 0 0 auto;
   padding: var(--meridian-space-1);
   border: 0;
@@ -115,7 +115,7 @@
  * never re-targets the rail underneath — the card is a reading, not a control.
  */
 
-.meridian-rail__preview {
+.meridian-provenance-rail__preview {
   position: absolute;
   inset-inline-end: calc(100% + var(--meridian-space-2));
   transform: translateY(-50%);
@@ -133,7 +133,7 @@
   z-index: 2;
 }
 
-.meridian-rail__preview-summary {
+.meridian-provenance-rail__preview-summary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -3,11 +3,19 @@
  *
  * Owned by `OperatorControls.tsx`, beside it, and IMPORTED FROM THIS PANE'S OWN DOOR,
  * `pane/run/index.ts`, which is its one edge. `workflows/workflows.css` names this
- * sheet among the three it deliberately does not pull in, and that is the arrangement
+ * sheet among the ones it deliberately does not pull in, and that is the arrangement
  * rather than an exception to it: `apps/desktop/AGENTS.md` admits a sheet through the
- * barrel of the directory that OWNS it, this directory carries a door of its own, and
- * a family sheet reaching in would put the run pane's rules on the initial document
- * for every session that never opens one.
+ * barrel of the directory that OWNS it, and this directory carries a door of its own.
+ * The family sheet is pulled by all three of this family's chunk roots, so reaching in
+ * from there would put the run pane's rules on the destination's chunk and the builder's
+ * as well — paid by every session that opens either and never a run.
+ *
+ * THE BLOCK CARRIES THE FAMILY'S PREFIX, and it did not always. `.meridian-run-controls`
+ * is `runs/pane/runs.css`'s, declared with different layout and disjoint children, so
+ * while both sheets were on the document whichever loaded last decided how THIS pane laid
+ * its controls out — and this body could not go behind a loader without that answer
+ * changing. One class, one owner; `test/console/architecture/stylesheet-selector-owners.test.ts`
+ * holds the census that keeps a second collision from landing unnoticed.
  */
 
 /* -------------------------------------------------------------- run controls */
@@ -21,13 +29,13 @@
  * spent on neither: this is the run's control cluster, and it sits in the body where
  * the run's own facts are rather than in the pane head above it.
  */
-.meridian-run-controls {
+.meridian-workflow-run-controls {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-4);
 }
 
-.meridian-run-controls__control {
+.meridian-workflow-run-controls__control {
   display: flex;
   flex: 1 1 20rem;
   flex-direction: column;
@@ -39,7 +47,7 @@
   border-radius: var(--meridian-radius-md);
 }
 
-.meridian-run-controls__head {
+.meridian-workflow-run-controls__head {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -51,7 +59,7 @@
  * family offers are the same kind of thing, and a second set of paddings here would
  * drift from that one at the first tweak.
  */
-.meridian-run-controls__action {
+.meridian-workflow-run-controls__action {
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
@@ -66,36 +74,36 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-run-controls__action:focus-visible {
+.meridian-workflow-run-controls__action:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
 
-.meridian-run-controls__note {
+.meridian-workflow-run-controls__note {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
 }
 
 /* The disclosure marker stays the platform's: it is already announced and already
  * rotates, and a replacement would be ornament that a screen reader cannot use. */
-.meridian-run-controls__summary {
+.meridian-workflow-run-controls__summary {
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
   cursor: pointer;
 }
 
-.meridian-run-controls__summary:focus-visible {
+.meridian-workflow-run-controls__summary:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
 
-.meridian-run-controls__disclosure {
+.meridian-workflow-run-controls__disclosure {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
 }
 
-.meridian-run-controls__field-label {
+.meridian-workflow-run-controls__field-label {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
@@ -105,7 +113,7 @@
  * sans face at the reading size rather than in the mono column rule 4 reserves for
  * strings the daemon sent.
  */
-.meridian-run-controls__reason {
+.meridian-workflow-run-controls__reason {
   font-family: var(--meridian-font-sans);
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
@@ -115,7 +123,7 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-run-controls__reason:focus-visible {
+.meridian-workflow-run-controls__reason:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
@@ -125,9 +133,9 @@
  * quiet size the budget and the re-pin target line use: it reports on an act that has
  * already happened, and it must not out-shout the control it stands under.
  */
-.meridian-run-controls__budget,
-.meridian-run-controls__outcome,
-.meridian-run-controls__repin-target {
+.meridian-workflow-run-controls__budget,
+.meridian-workflow-run-controls__outcome,
+.meridian-workflow-run-controls__repin-target {
   display: flex;
   gap: var(--meridian-space-1);
   margin: 0;
@@ -135,13 +143,13 @@
   color: var(--meridian-text-faint);
 }
 
-.meridian-run-controls__repin {
+.meridian-workflow-run-controls__repin {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
 }
 
-.meridian-run-controls__select {
+.meridian-workflow-run-controls__select {
   font-family: var(--meridian-font-sans);
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
@@ -150,7 +158,7 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-run-controls__select:focus-visible {
+.meridian-workflow-run-controls__select:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

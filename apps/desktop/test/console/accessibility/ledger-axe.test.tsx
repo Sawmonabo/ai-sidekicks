@@ -43,8 +43,8 @@ import {
   createFixtureBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger-quiet.js";
-import { LEDGER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger.js";
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door

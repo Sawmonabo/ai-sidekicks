@@ -11,7 +11,7 @@
 // a helper on its SECOND use. A module beside the one caller is not a second home
 // for these shapes; it is the same home, split at a seam.
 
-import { type LedgerScriptEntry } from "./ledger-script.js";
+import { type LedgerScriptEntry } from "./ledger/ledger-script.js";
 import { RUN_IMPLEMENTER, SESSION_ID } from "./flagship-cast.js";
 
 /**

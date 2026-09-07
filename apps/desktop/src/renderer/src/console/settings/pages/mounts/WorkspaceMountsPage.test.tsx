@@ -5,6 +5,7 @@
 // (`WorkspaceMountsPage.refresh.test.tsx`); both drive the page through the harness
 // in `workspace-mounts-page.test-support.tsx`.
 
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -155,7 +156,7 @@ describe("workspace mounts page — the read says it landed, once", () => {
 
     await act(async () => {
       clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
     expect(politeText()).toBe("");
 

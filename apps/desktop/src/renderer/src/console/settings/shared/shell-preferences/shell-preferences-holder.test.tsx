@@ -13,6 +13,8 @@
 // has to be a real React render, and it is produced the only way a test can produce
 // one — a sibling that throws after the probe has already rendered.
 
+import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -48,11 +50,18 @@ function AbandoningSibling(): React.JSX.Element {
   throw new Error("this render never commits");
 }
 
-/** Let the acquiring effect run and the carrier's refusal land. */
-async function settle(): Promise<void> {
+/**
+ * Let the acquiring effect run, the store's scheduled opening read fire, and the
+ * carrier's refusal land.
+ *
+ * The bridge travels because the read is armed on the clock `consoleClockFor`
+ * resolves off it — the fixture's frozen one — so a settle that only crossed
+ * boundaries would assert against a store that was never given a chance to ask.
+ */
+async function settle(bridge: ConsoleBridge): Promise<void> {
+  await settleScheduledRead(bridge);
   await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
@@ -65,7 +74,7 @@ describe("shell preferences binding — acquisition happens after the commit", (
         <PreferenceProbe bridge={bridge} />
       </StrictMode>,
     );
-    await settle();
+    await settle(bridge);
 
     // Strict mode invokes the acquiring effect twice; the second invocation finds
     // the store the first one minted rather than superseding it, which is the
@@ -79,14 +88,14 @@ describe("shell preferences binding — acquisition happens after the commit", (
   it("disposes the superseded store exactly once when the bridge is replaced", async () => {
     const firstBridge = refusingBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
-    await settle();
+    await settle(firstBridge);
     const firstStore = consoleShellPreferences.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
     const disposals = vi.spyOn(firstStore as { dispose: () => void }, "dispose");
 
     const secondBridge = refusingBridge();
     rerender(<PreferenceProbe bridge={secondBridge} />);
-    await settle();
+    await settle(secondBridge);
 
     expect(disposals).toHaveBeenCalledTimes(1);
     expect(consoleShellPreferences.storeIfCurrent(secondBridge)?.isDisposed).toBe(false);
@@ -98,7 +107,7 @@ describe("shell preferences binding — acquisition happens after the commit", (
     // committed, so this case fails on the old code and passes on the new one.
     const firstBridge = refusingBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
-    await settle();
+    await settle(firstBridge);
     const firstStore = consoleShellPreferences.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
 

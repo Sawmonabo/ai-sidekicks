@@ -3,8 +3,18 @@
  * Imported from `workspace/index.ts` beside the family's other sheets, so the rules
  * land once per bundle and in the family's own order.
  *
- * Every colour is a Meridian custom property and every space a step on the scale,
- * so the sidebar follows the scheme attribute with no conditional in JSX.
+ * ONE OWNER FOR THE `.meridian-sidebar__*` NAMESPACE. Every class the sidebar's three
+ * components write is declared here and nowhere else, which is what the selector-owner
+ * audit checks: a class declared in two sheets is a rule whose winner depends on import
+ * order, and import order is the one thing a bundler is free to change.
+ *
+ * NO WIDTH RULE. The column is sized by the workspace's own split — the panel it sits
+ * in reports and restores a percentage — so a width here would be a second answer to a
+ * question the split already settles, and the two would disagree the moment somebody
+ * dragged the separator.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale, so
+ * the sidebar follows the scheme attribute with no conditional in JSX.
  */
 
 /* --- The session sidebar ------------------------------------------------ */
@@ -17,6 +27,7 @@
   min-height: 0;
   overflow-y: auto;
   font-size: var(--meridian-text-sm);
+  background: var(--meridian-surface-sunken);
   scrollbar-width: thin;
 }
 
@@ -27,8 +38,66 @@
   padding: var(--meridian-space-2);
 }
 
+/*
+ * The column's own chrome: one control, and only the one. The sidebar's job is the
+ * sections, so anything else that landed here would be competing with them.
+ */
+.meridian-sidebar__chrome {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-sidebar__collapse {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: default;
+}
+
+.meridian-sidebar__collapse:hover {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-sidebar__collapse:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Sticky, because filtering a long column is the one act performed while scrolled. */
+.meridian-sidebar__filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--meridian-space-2) var(--meridian-space-2) 0;
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-sidebar__filter-field {
+  width: 100%;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-font-sans);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-sidebar__filter-field:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
 .meridian-sidebar__sections {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
   margin: 0;
@@ -42,35 +111,50 @@
   min-height: 0;
 }
 
+/* The heading carries the outline level; the button inside it carries the interaction.
+   Both are needed: a bare button is unreachable by heading navigation, and a heading
+   with a click handler is unreachable by keyboard. */
+.meridian-sidebar__heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
 /*
  * A section header is a real button, so it arrives in tab order with its expanded
  * state announced. The chrome is deliberately quiet — a column of eight headers is
  * the sidebar's resting state, and eight bordered controls would read as eight
  * things demanding a decision.
  */
-.meridian-sidebar__header {
+.meridian-sidebar__disclosure {
   display: flex;
-  align-items: center;
   gap: var(--meridian-space-2);
+  align-items: center;
   width: 100%;
   padding: var(--meridian-space-2) var(--meridian-space-3);
-  border: 0;
-  border-block-end: 1px solid var(--meridian-edge);
-  background: none;
-  color: var(--meridian-text);
+  color: var(--meridian-text-muted);
   font: inherit;
   font-size: var(--meridian-text-sm);
   text-align: start;
+  background: none;
+  border: 0;
+  border-block-end: 1px solid var(--meridian-edge);
   cursor: default;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-sidebar__header:hover {
-  background: var(--meridian-surface-sunken);
+.meridian-sidebar__disclosure:hover {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
 }
 
-.meridian-sidebar__header:focus-visible {
+.meridian-sidebar__disclosure:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: -2px;
+}
+
+.meridian-sidebar__disclosure[aria-expanded="true"] {
+  color: var(--meridian-text);
 }
 
 /*
@@ -79,14 +163,30 @@
  * filled row would make the section calling for somebody the loudest thing on a
  * surface whose loudest thing should be the deck.
  */
-.meridian-sidebar__header[data-attention="attention"] {
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-amber-mark);
+.meridian-sidebar__disclosure[data-attention="attention"] {
   color: var(--meridian-amber-text);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-amber-mark);
 }
 
-.meridian-sidebar__header[data-attention="failure"] {
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+.meridian-sidebar__disclosure[data-attention="failure"] {
   color: var(--meridian-red-text);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+}
+
+/* Where the DOM-free cursor is. An inset shadow rather than a fill, so the mark reads
+   at a glance without competing with the attention edge on the same row — and it is an
+   inset rather than a fourth border, because the attention edge is already the leading
+   one and two borders on one side is one of them winning silently. */
+.meridian-sidebar__section[data-cursored="true"] .meridian-sidebar__disclosure {
+  color: var(--meridian-text);
+  box-shadow: inset 2px 0 0 0 var(--meridian-accent);
+}
+
+.meridian-sidebar__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .meridian-sidebar__body {
@@ -128,34 +228,64 @@
   outline-offset: -2px;
 }
 
-/*
- * The column's own chrome: one control, and only the one. The sidebar's job is the
- * sections, so anything else that landed here would be competing with them.
- */
-.meridian-sidebar__chrome {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border-block-end: 1px solid var(--meridian-edge);
+/* --- The runs section, the composer family's own body. ------------------- */
+
+.meridian-sidebar-runs__count {
+  margin: 0 0 var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
 }
 
-.meridian-sidebar__collapse {
+.meridian-sidebar-runs__group + .meridian-sidebar-runs__group {
+  margin-top: var(--meridian-space-3);
+}
+
+.meridian-sidebar-runs__group-heading {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  margin: 0 0 var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  font-weight: inherit;
+}
+
+.meridian-sidebar-runs__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-sidebar-runs__open {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  width: 100%;
   padding: var(--meridian-space-1) var(--meridian-space-2);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-font-sans);
+  text-align: left;
+  background: transparent;
   border: 0;
   border-radius: var(--meridian-radius-sm);
-  background: none;
-  color: var(--meridian-text-muted);
-  font: inherit;
-  font-size: var(--meridian-text-xs);
-  cursor: default;
+  cursor: pointer;
 }
 
-.meridian-sidebar__collapse:hover {
-  color: var(--meridian-text);
-  background: var(--meridian-surface-sunken);
+.meridian-sidebar-runs__open:hover {
+  background: var(--meridian-surface-raised);
 }
 
-.meridian-sidebar__collapse:focus-visible {
+.meridian-sidebar-runs__open:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: -2px;
+}
+
+/* The identifier is wire-verbatim, so it is set in mono and truncates rather than
+   wrapping — a wrapped identifier reads as two. */
+.meridian-sidebar-runs__id {
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-family: var(--meridian-font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

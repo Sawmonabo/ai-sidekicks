@@ -61,7 +61,7 @@ export const SIDEBAR_SECTION_IDS = [
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
-// Consumed by T-023p-1C-4, T-023p-1C-5
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** Everything a section body is handed. */
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
@@ -81,6 +81,20 @@ export interface SidebarSectionContext {
    * second source of truth for a rule stated over the set.
    */
   readonly isOpen: boolean;
+  /**
+   * What the sidebar's filter field currently holds, verbatim.
+   *
+   * The field is the SIDEBAR's — one filter above the whole tree, owned by
+   * `workspace/sidebar/Sidebar.tsx` — and the matching is each SECTION's, because
+   * only the section knows what its own rows are called and what a match over them
+   * means; the composer family's own reading of it is in
+   * `workspace/sidebar/sections/RunsSection.tsx`. Empty means no filter is on; a
+   * section that ignores this member simply does not narrow.
+   *
+   * Additive-optional so a section authored before this seam existed still
+   * compiles. The sidebar always supplies it.
+   */
+  readonly filterQuery?: string;
 }
 
 // Consumed by T-023p-1C-4, T-023p-1C-5

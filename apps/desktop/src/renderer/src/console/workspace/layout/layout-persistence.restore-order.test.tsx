@@ -19,6 +19,7 @@ import { type UiStateStore } from "../../persistence/index.js";
 import { memoryStore } from "../Workspace.test-support.js";
 import { DeckLayout } from "../deck/deck-layout.js";
 import { DECK_LAYOUT_RECORD_KEY, useDeckPersistence } from "./layout-persistence.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 const RESTORE_SESSION = "session-restore";
 
@@ -80,9 +81,7 @@ function mountPersistence(
 /** Let the read, the restore, and the write pump settle, without advancing a timer. */
 async function drain(): Promise<void> {
   await act(async () => {
-    for (let turn = 0; turn < 12; turn += 1) {
-      await Promise.resolve();
-    }
+    await crossMacrotaskBoundary();
   });
 }
 

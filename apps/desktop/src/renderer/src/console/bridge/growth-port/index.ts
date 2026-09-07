@@ -34,7 +34,7 @@ export type {
   GrowthPrerequisiteEntry,
 } from "./growth-entry.js";
 
-export type { GrowthOutcome } from "./growth-outcome.js";
+export { mapGrowthServed, type GrowthOutcome } from "./growth-outcome.js";
 
 // `settledGrowthCall` is deliberately absent: its only readers are the workspace's
 // auxiliary hand-off and pane-error watch, which take it from `bridge/index.ts` like
@@ -44,6 +44,7 @@ export {
   createRefusingGrowthPort,
   growthScriptedReplyUnavailable,
   growthUnavailable,
+  growthUnscriptedReply,
   type GrowthPort,
 } from "./growth-port.js";
 

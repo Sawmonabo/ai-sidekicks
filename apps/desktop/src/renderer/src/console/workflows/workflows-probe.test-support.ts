@@ -28,12 +28,14 @@
 // one edit here, and every caller keeps compiling because it only ever names what it
 // asserts on.
 //
-// `settle` IS ONE `act` BOUNDARY, and the microtask awaited inside it is not the part
-// that settles anything: React's async `act` drains its own queue and the effects that
-// queue schedules on the way out. That is why the copies this module replaced disagreed
-// about how many already-resolved promises to await and every one of them passed. One
-// boundary, named once, so a suite waiting on a read is not also asserting a count of
-// turns nobody chose.
+// `settle` IS ONE `act` BOUNDARY, and what it awaits inside is a MACROTASK boundary
+// rather than a count of microtasks: React's async `act` drains its own queue and the
+// effects that queue schedules on the way out, and `crossMacrotaskBoundary` lets every
+// chain those effects started run to its own end whatever its depth. That is why the
+// copies this module replaced disagreed about how many already-resolved promises to
+// await and every one of them passed — a number tuned against one promise chain stops
+// waiting the day the chain grows a link. One boundary, named once, so a suite waiting
+// on a read is not also asserting a count of turns nobody chose.
 //
 // What is deliberately NOT here is anything one suite reads: the scope-group queries,
 // the two-page port, the recording announcer, and the start slot's spy each have one
@@ -43,6 +45,7 @@ import { act } from "@testing-library/react";
 
 import { type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
 /** The session every workflows suite addresses. One id, so every suite probes one. */
@@ -84,6 +87,6 @@ export function portAnswering(page: SettledDefinitionPage): GrowthPort {
 /** Let every read a surface put reach its own settlement, so an assertion is about answers. */
 export async function settle(): Promise<void> {
   await act(async () => {
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }

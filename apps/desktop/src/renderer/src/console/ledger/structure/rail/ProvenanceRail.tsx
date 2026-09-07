@@ -242,9 +242,9 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
   );
 
   return (
-    <div className="meridian-rail" style={railStripStyle()}>
+    <div className="meridian-provenance-rail" style={railStripStyle()}>
       <div
-        className="meridian-rail__strip"
+        className="meridian-provenance-rail__strip"
         role="slider"
         tabIndex={0}
         aria-label="Session provenance rail"
@@ -261,30 +261,36 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
         onClick={handleClick}
         onKeyDown={handleKeyDown}
       >
-        <canvas ref={canvasRef} className="meridian-rail__canvas" aria-hidden="true" />
+        <canvas ref={canvasRef} className="meridian-provenance-rail__canvas" aria-hidden="true" />
         {railModel.clip.hasUnloadedExtent ? (
-          <span className="meridian-rail__unloaded" aria-hidden="true" />
+          <span className="meridian-provenance-rail__unloaded" aria-hidden="true" />
         ) : null}
         <span
-          className="meridian-rail__thumb"
+          className="meridian-provenance-rail__thumb"
           aria-hidden="true"
           style={thumbStyle(props.viewportPosition, props.viewportExtent)}
         />
-        {props.isFollowing ? <span className="meridian-rail__live" aria-hidden="true" /> : null}
+        {props.isFollowing ? (
+          <span className="meridian-provenance-rail__live" aria-hidden="true" />
+        ) : null}
       </div>
       {railModel.clip.hasUnloadedExtent && onLoadEarlier !== undefined ? (
-        <button type="button" className="meridian-rail__load-earlier" onClick={onLoadEarlier}>
+        <button
+          type="button"
+          className="meridian-provenance-rail__load-earlier"
+          onClick={onLoadEarlier}
+        >
           Load earlier
         </button>
       ) : null}
       {preview === undefined ? null : (
         <div
-          className="meridian-rail__preview"
+          className="meridian-provenance-rail__preview"
           role="status"
           style={previewStyle(preview.offsetFraction)}
         >
           <Glyph name={preview.tick.glyph} size={GLYPH_SIZE_ROW} />
-          <span className="meridian-rail__preview-summary">{preview.tick.summary}</span>
+          <span className="meridian-provenance-rail__preview-summary">{preview.tick.summary}</span>
         </div>
       )}
     </div>

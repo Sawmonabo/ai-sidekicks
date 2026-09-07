@@ -72,12 +72,14 @@ import type { ScenarioFixtureHandle } from "../../../src/renderer/src/console/br
 import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/ledger-quiet.js";
+} from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger-quiet.js";
 import {
   FLAGSHIP_SCENARIO,
   FLAGSHIP_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
-import { LEDGER_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
+import { LEDGER_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger.js";
+import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
+import { captureSettled } from "./settled-capture.js";
 
 /**
  * How many advances the whole script is walked in, and how many drain it.
@@ -172,7 +174,7 @@ async function playToFrozenTick(lastBeatAtMs: number): Promise<number> {
   for (let step = 0; step < SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT; step += 1) {
     await act(async () => {
       control.advance(stepMs);
-      await Promise.resolve();
+      await crossMacrotaskBoundary();
     });
   }
   return control.deliveredBeatCount();
@@ -223,7 +225,7 @@ describe("screenshot — the console under the flagship scenario", () => {
         "no ledger row reached the document, so this capture would pin an empty feed",
       ).toBeGreaterThan(0);
 
-      await expect(frame).toMatchScreenshot(`flagship-frame-${scheme}`);
+      await captureSettled(frame, `flagship-frame-${scheme}`);
     });
   }
 });
@@ -248,7 +250,7 @@ describe("screenshot — the ledger's empty state", () => {
     expect(container.querySelectorAll(".meridian-ledger-row")).toHaveLength(0);
     expect(container.textContent).toContain("Nothing has happened in this session yet.");
 
-    await expect(frame).toMatchScreenshot("ledger-quiet-light");
+    await captureSettled(frame, "ledger-quiet-light");
   });
 });
 

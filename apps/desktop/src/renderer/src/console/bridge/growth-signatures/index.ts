@@ -54,6 +54,7 @@
 // the console comes through.
 
 import type { AgentGrowthSignatures } from "./agents.js";
+import type { ApprovalGrowthSignatures } from "./approvals.js";
 import type { ArtifactGrowthSignatures } from "./artifacts.js";
 import type { AttentionGrowthSignatures } from "./attention.js";
 import type { GitflowGrowthSignatures } from "./gitflow.js";
@@ -82,6 +83,7 @@ export interface GrowthOperationSignatures
     AttentionGrowthSignatures,
     WorkflowGrowthSignatures,
     IdentityGrowthSignatures,
-    SidekickGrowthSignatures,
     AgentGrowthSignatures,
+    ApprovalGrowthSignatures,
+    SidekickGrowthSignatures,
     LedgerGrowthSignatures {}

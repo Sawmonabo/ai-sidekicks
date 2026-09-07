@@ -169,13 +169,11 @@ export interface ConsoleDaemonMethodContract {
   // providerAccount — the node-local registry read. The subscription beside it is a
   // stream and so is not here; see this module's header.
   /**
-   * @consumedBy T-023p-1C-3
-   *
-   * Bound ahead of its caller, and marked so the row does not read as live: nothing
-   * under `console/` calls it on this branch, and the surface that will is the
-   * run-start account selector
+   * Live. `provider-account-quota.ts` calls it and the composer's accessory rail
+   * renders the reading, so the row is bound by a caller rather than ahead of one.
+   * The run-start account selector
    * `Spec-023 §Provider Accounts And Cost View (→ Plan-029 Provider Accounts And Credential Homes)`
-   * puts on the composer, pre-set to the provider's default account.
+   * puts on the composer is a second reader of the same registry, not the first.
    */
   readonly "providerAccount.list": {
     readonly request: ProviderAccountListRequest;

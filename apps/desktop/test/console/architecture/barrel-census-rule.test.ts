@@ -103,7 +103,7 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
     );
     const doorPublishingIt = syntheticModule(
       `${CONSOLE_PREFIX}/bridge/index.ts`,
-      'export type { PostureMode } from "./sidekick-definition.js";\n',
+      'export type { PostureMode } from "../../../src/renderer/src/console/bridge/wire-shapes/sidekick-definition.js";\n',
     );
 
     expect(censusFindings([declaringWithLocalReaders, doorPublishingIt])).toStrictEqual([

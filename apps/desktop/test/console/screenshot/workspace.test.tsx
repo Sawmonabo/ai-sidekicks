@@ -27,7 +27,7 @@
 // RUNNER rather than a platform. `baseline-host.ts` reads this run against that rule
 // once, and this file asks it rather than reading the environment for itself.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import { act } from "@testing-library/react";
 
 import {
@@ -51,7 +51,8 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
 import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/ledger-quiet.js";
+} from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger-quiet.js";
+import { captureSettled } from "./settled-capture.js";
 
 /** The sidebar's own column, which both of its arms render and neither omits. */
 const SIDEBAR_SELECTOR = ".meridian-sidebar";
@@ -174,7 +175,7 @@ describe("screenshot — the session workspace and its sidebar", () => {
       const mount = await openWorkspace();
       requireSidebarExpanded(mount.container);
 
-      await expect(mount.frame).toMatchScreenshot(`workspace-sidebar-expanded-${scheme}`);
+      await captureSettled(mount.frame, `workspace-sidebar-expanded-${scheme}`);
     });
 
     it(`renders the sidebar collapsed in the ${scheme} scheme`, async (context) => {
@@ -183,7 +184,7 @@ describe("screenshot — the session workspace and its sidebar", () => {
       const mount = await openWorkspace();
       collapseSidebar(mount);
 
-      await expect(mount.frame).toMatchScreenshot(`workspace-sidebar-collapsed-${scheme}`);
+      await captureSettled(mount.frame, `workspace-sidebar-collapsed-${scheme}`);
     });
   }
 });

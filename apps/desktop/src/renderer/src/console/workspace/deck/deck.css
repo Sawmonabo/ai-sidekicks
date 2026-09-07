@@ -158,12 +158,20 @@
  * number comes from `density.ts`. What lives here is the rhythm that goes with it:
  * a tighter deck sets its chrome tighter, so the extra pane a person bought is
  * spent on content rather than on padding.
+ *
+ * SET AS CUSTOM PROPERTIES ON THE DECK, AND NEVER AS RULES ON THE PANE'S OWN CLASSES.
+ * `meridian-pane__head` is the seats family's, and a second family writing a rule
+ * against it makes the head's padding a question the CASCADE answers — whichever of
+ * the two sheets the bundler emits last wins, and that order is a property of the
+ * import graph rather than of either file. The deck states its rhythm as VALUES and
+ * `seats/pane-chrome.css` spends them, so one family declares the class and one
+ * family decides the number, with nothing to order.
  */
-.meridian-deck[data-density="comfortable"] .meridian-pane__head {
-  padding-block: var(--meridian-space-3);
+.meridian-deck[data-density="comfortable"] {
+  --meridian-pane-head-padding-block: var(--meridian-space-3);
 }
 
-.meridian-deck[data-density="compact"] .meridian-pane__head {
-  padding-block: var(--meridian-space-1);
-  font-size: var(--meridian-text-xs);
+.meridian-deck[data-density="compact"] {
+  --meridian-pane-head-padding-block: var(--meridian-space-1);
+  --meridian-pane-head-font-size: var(--meridian-text-xs);
 }

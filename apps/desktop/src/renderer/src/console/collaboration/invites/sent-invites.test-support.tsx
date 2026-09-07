@@ -7,6 +7,7 @@
 // id; a second copy of `settle` is two files disagreeing about how many passes the
 // read chain needs without either one failing.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act } from "@testing-library/react";
 import { vi } from "vitest";
 
@@ -18,7 +19,7 @@ import {
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge, ServedInvite } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
-import { settle as settlePasses } from "../../core/settle.test-support.js";
+import { settle as settleReactWork } from "../../core/settle.test-support.js";
 
 /**
  * The ids this file sends over the wire, and the labels they stand for.
@@ -105,12 +106,12 @@ export async function pressRevoke(container: HTMLElement): Promise<void> {
   const revoke = container.querySelector<HTMLButtonElement>(".meridian-invites__row-action");
   await act(async () => {
     revoke?.click();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   await settle();
 }
 
 /** Let the one-shot read and the effects it schedules land. */
 export async function settle(): Promise<void> {
-  await settlePasses(3);
+  await settleReactWork();
 }

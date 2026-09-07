@@ -10,7 +10,7 @@
  * they land once per bundle and cascade after the primitives' and the frame's.
  */
 
-.meridian-rail__load-earlier:focus-visible,
+.meridian-provenance-rail__load-earlier:focus-visible,
 .meridian-find__load-earlier:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;

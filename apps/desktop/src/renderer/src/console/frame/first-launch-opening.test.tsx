@@ -17,12 +17,9 @@ import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { settle } from "../core/settle.test-support.js";
 import { FrameStore } from "../store/index.js";
 import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
-import { LEDGER_FIRST_SIXTY_SCENARIO } from "../bridge/scenarios/ledger-first-sixty.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO } from "../bridge/scenarios/ledger/ledger-first-sixty.js";
 import { FIRST_LAUNCH_SEEN_KEY } from "./first-launch.js";
 import { useFirstLaunchOpening } from "./first-launch-opening.js";
-
-/** How many settle passes the read, the navigation and the write take between them. */
-const OPENING_SETTLE_PASSES = 4;
 
 /** One durable store over memory, so a case can launch twice against one install. */
 function installStore(): UiStateStore {
@@ -49,7 +46,7 @@ async function launch(
   renderHook(() => {
     useFirstLaunchOpening({ bridge, frameStore, uiStateStore, openedAtHash });
   });
-  await settle(OPENING_SETTLE_PASSES);
+  await settle();
   return frameStore;
 }
 

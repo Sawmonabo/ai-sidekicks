@@ -1,4 +1,4 @@
-// The two Plan-017 slots the builder mounts, checked on the two things a slot owes.
+// The two workflow-engine slots the builder mounts, checked on the two things a slot owes.
 //
 //   1. **The shell stands while nobody has filled it**, and says the feature has
 //      not been built — never a shape that reads as a broken one, and never a word
@@ -71,15 +71,19 @@ describe("an unfilled builder slot is reserved, not stubbed", () => {
     "%s renders none of the contract's governance prose",
     (_name, element) => {
       const { container } = render(element);
-      expect(container.textContent ?? "").not.toContain("Plan-017");
+      for (const slot of [WORKFLOW_GRAPH_SLOT, WORKFLOW_DRAFT_SLOT]) {
+        expect(container.textContent ?? "").not.toContain(slot.owningTask);
+      }
     },
   );
 
   it("negative control: the contracts really do carry that prose, so the case is not vacuous", () => {
     // Both contracts name their owning task. If neither did, the assertion above
-    // would hold over a component that rendered the whole contract verbatim.
+    // would hold over a component that rendered the whole contract verbatim. The
+    // owner is named by SUBJECT rather than by number, which is what a runtime string
+    // in this tree may carry, so that is what the control reads.
     for (const slot of [WORKFLOW_GRAPH_SLOT, WORKFLOW_DRAFT_SLOT]) {
-      expect(slot.owningTask).toContain("Plan-017");
+      expect(slot.owningTask).toContain("workflow authoring and execution plan");
     }
   });
 });

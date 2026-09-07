@@ -280,21 +280,16 @@
   color: var(--meridian-text-muted);
   font: inherit;
   font-size: var(--meridian-text-xs);
-  opacity: 0;
   cursor: pointer;
-  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-ledger-row:hover .meridian-tool-card__disclosure,
+/* The row-hover arm is the PRIMITIVE's, reached by the class the disclosure carries:
+   `meridian-ledger-row` is the primitives family's, and a rule here naming it would
+   make the reveal depend on which of the two sheets the bundler emits last. These two
+   arms name only this family's own class, so they stay. */
 .meridian-tool-card__disclosure:focus-visible,
 .meridian-tool-card__disclosure[aria-expanded="true"] {
   opacity: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .meridian-tool-card__disclosure {
-    transition: none;
-  }
 }
 
 /* --- Cards: the machine-authored body ------------------------------------ */

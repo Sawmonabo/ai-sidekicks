@@ -12,6 +12,7 @@
 // written out: what the daemon answers is a suite's claim, but WHICH call it answers
 // is the console's, and a literal here would be a second copy of a wire string.
 
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, fireEvent } from "@testing-library/react";
 
 import {
@@ -177,6 +178,6 @@ export async function projectGrant(sessionStore: SessionStore, enabled: boolean)
       ],
       participantJoinLog: [],
     });
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }

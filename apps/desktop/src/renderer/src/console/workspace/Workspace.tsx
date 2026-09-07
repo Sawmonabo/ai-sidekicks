@@ -65,9 +65,9 @@ import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
 import type { DeckPane } from "./deck/deck-model.js";
 import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
 import { useDeckPersistence } from "./layout/layout-persistence.js";
-import { SessionSidebar } from "./sidebar/SessionSidebar.js";
-import { registerSidebarCommands } from "./sidebar/sidebar-commands.js";
-import { useSidebarLayout } from "./sidebar/sidebar-state.js";
+import { Sidebar } from "./sidebar/Sidebar.js";
+import { registerSidebarCommands } from "./sidebar/commands/sidebar-command-seat.js";
+import { useSidebarLayout } from "./sidebar/persistence/use-sidebar-layout.js";
 import {
   composerSeatRenderer,
   parseConsolePaneAddress,
@@ -230,7 +230,7 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
         onLayoutChanged={(percentages) => {
           const sidebarPercent = percentages[SIDEBAR_PANEL_ID];
           if (sidebarPercent !== undefined) {
-            sidebar.layout.recordWidthPercent(sidebarPercent);
+            sidebar.model.recordWidthPercent(sidebarPercent);
           }
         }}
       >
@@ -273,11 +273,11 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
                 ? { maxSize: SIDEBAR_COLLAPSED_WIDTH_PX }
                 : {})}
             >
-              <SessionSidebar
+              <Sidebar
                 sessionStore={props.sessionStore}
                 bridge={props.bridge}
                 openPane={openPane}
-                layout={sidebar.layout}
+                model={sidebar.model}
                 snapshot={sidebar.snapshot}
               />
             </Panel>

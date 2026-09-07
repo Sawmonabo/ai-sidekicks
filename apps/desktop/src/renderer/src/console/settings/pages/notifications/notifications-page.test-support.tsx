@@ -5,6 +5,7 @@
 // sends — read the same switches and labels off the rendered record. Built once here
 // so a change to the chain moves one stub rather than two.
 
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 
@@ -25,7 +26,7 @@ import type {
   AttentionPreferenceReadOutcome,
   CallerParticipantOutcome,
 } from "./attention-preference-model.js";
-import { settle as settlePasses } from "../../../core/settle.test-support.js";
+import { settle as settleReactWork } from "../../../core/settle.test-support.js";
 
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 
@@ -57,7 +58,7 @@ export function servedPreferences(
 
 /** Let the chained reads, the write, and the re-read all land. */
 export async function settle(): Promise<void> {
-  await settlePasses(8);
+  await settleReactWork();
 }
 
 /**
@@ -131,7 +132,7 @@ export function storedLabels(container: HTMLElement): string[] {
 export async function press(element: HTMLElement | undefined): Promise<void> {
   await act(async () => {
     element?.click();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
   await settle();
 }
