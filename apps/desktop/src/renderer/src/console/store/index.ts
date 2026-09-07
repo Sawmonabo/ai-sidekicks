@@ -144,6 +144,27 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // than deep-imported around.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
+// The read line every scheduled read is on, and the four names a caller outside this
+// family needs from it: the hook that binds one to a `(subject, key)` pairing, the
+// combinator the bridge's call door races a pending read against, the reading a
+// COMPOSED read takes at each boundary between its own calls, and the scope itself.
+//
+// `ReadScope` IS PUBLISHED, and the sentence that withheld it named a risk
+// construction does not create. A caller cannot construct somebody else's line — what
+// it constructs it owns — and the line a HOLDER owns is the case neither of the other
+// two names serves: `useReadScope` binds a scope to a render, which is wrong for a
+// class whose lifetime is its own key rather than any one component's mount, and the
+// scheduler's scope is private on purpose. The composer's provider-command
+// enumeration is that holder: two zones observe it, one drives it, and the read line
+// belongs to the address it was opened at.
+export {
+  isReadAbandoned,
+  ReadScope,
+  settleUnlessAbandoned,
+  useReadScope,
+} from "./read-cancellation.js";
+export type { ReadRound } from "./read-cancellation.js";
+
 // The signal half of a push-driven read, beside the scheduler that coalesces it.
 // It leaves the family because its callers are view families, which are siblings
 // and cannot reach each other — so the second caller's only alternative to this

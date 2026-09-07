@@ -9,15 +9,23 @@
 // that refused everything would satisfy all of them while replacing the fixture's own
 // answers with a refusal no surface could tell from a real one.
 
+import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse, type WireErrorEnvelope } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+import { createFixture } from "../fixture/fixture-bridge.test-support.js";
 import { answerFromScriptedReply } from "../fixture/fixture-scripted-answer.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import { growthUnavailable, growthUnscriptedReply } from "../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
-import { READ_SETTLEMENT_REFUSAL_ORIGIN, settleGrowthRead } from "./read-settlement.js";
+import {
+  READ_SETTLEMENT_REFUSAL_ORIGIN,
+  settleGrowthRead,
+  useSettledGrowthRead,
+  type SettledGrowthRead,
+} from "./read-settlement.js";
 import {
   PROBE_PARTICIPANT_ID,
   PROBE_SESSION_ID,
@@ -180,5 +188,94 @@ describe("settleGrowthRead — a rejection becomes a refusal, and names its auth
 
     expect(settled.code).toBe(`${READ_SETTLEMENT_REFUSAL_ORIGIN}-call-failed`);
     expect(settled.status).toBe("unavailable");
+  });
+});
+
+/**
+ * The projection, and the two endings that must stop it being built.
+ *
+ * `settleUnlessAbandoned` answers which of two events came FIRST, and it resolves the
+ * instant the read does — retiring its abort listener as it goes. A departure landing
+ * after that resolution and before this callback runs therefore finds nothing to
+ * reach, and the captured settlement still reads `settled`: one microtask, which is
+ * exactly the gap a fulfilment and a pane teardown scheduled in the same tick fall
+ * into. The round is the reading that covers it.
+ *
+ * The projection callback is COUNTED rather than inferred from the rendered value:
+ * what this hook exists to save is `settled` never running, and a value nobody
+ * renders looks identical to one that was never composed.
+ */
+describe("useSettledGrowthRead — no projection is built for a surface that has left", () => {
+  /** The port this hook addresses its state and its read line against. */
+  const growthPort = createFixture().bridge.growth;
+
+  /** What the cases below settle their read with. Narrow on purpose: nothing renders it. */
+  type ProbeOutcome = { readonly status: "served"; readonly value: number };
+
+  /** One read this suite settles when it chooses, and the act that settles it. */
+  interface HeldRead {
+    readonly promise: Promise<ProbeOutcome>;
+    readonly serve: (outcome: ProbeOutcome) => void;
+  }
+
+  function heldRead(): HeldRead {
+    let serve: (outcome: ProbeOutcome) => void = () => undefined;
+    const promise = new Promise<ProbeOutcome>((resolve) => {
+      serve = resolve;
+    });
+    return { promise, serve };
+  }
+
+  /** The hook under test, with every projection it builds recorded. */
+  function renderProbe(
+    read: HeldRead,
+    projections: string[],
+  ): RenderHookResult<SettledGrowthRead<string>, void> {
+    return renderHook(() =>
+      useSettledGrowthRead<ProbeOutcome, string>(growthPort, PROBE_SESSION_ID, () => read.promise, {
+        unsettled: () => "unsettled",
+        settled: (settlement) => {
+          projections.push(settlement.status);
+          return settlement.status;
+        },
+      }),
+    );
+  }
+
+  it("skips the projection when the departure lands between the settlement and the callback", async () => {
+    const read = heldRead();
+    const projections: string[] = [];
+    const { unmount } = renderProbe(read, projections);
+
+    // Registered AFTER the hook's own handler on the same promise, so the settlement
+    // wins the race and this lands one microtask behind it — the gap no signal check
+    // placed earlier could have covered.
+    void read.promise.then(() => {
+      queueMicrotask(() => {
+        unmount();
+      });
+    });
+    await act(async () => {
+      read.serve({ status: "served", value: 1 });
+      await crossMacrotaskBoundary();
+    });
+
+    expect(projections).toStrictEqual([]);
+  });
+
+  it("negative control: the same read on a surface that stayed builds its projection", async () => {
+    // Without this the case above would hold over a hook that projected nothing at
+    // all, which is the same green for the opposite defect.
+    const read = heldRead();
+    const projections: string[] = [];
+    const { result } = renderProbe(read, projections);
+
+    await act(async () => {
+      read.serve({ status: "served", value: 1 });
+      await crossMacrotaskBoundary();
+    });
+
+    expect(projections).toStrictEqual(["served"]);
+    expect(result.current.value).toBe("served");
   });
 });

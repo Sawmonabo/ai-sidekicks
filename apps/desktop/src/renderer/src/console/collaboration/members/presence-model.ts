@@ -230,10 +230,15 @@ export function createPresenceRoster(options: {
   return new PushDrivenRead<PresenceReading>({
     clock,
     origin: PRESENCE_ROSTER_ORIGIN,
-    read: async () => {
-      const reply = await callDaemon(bridge, PRESENCE_READ_METHOD, {
-        sessionId: heldIdAsWireId(sessionStore.sessionId),
-      });
+    read: async (signal) => {
+      const reply = await callDaemon(
+        bridge,
+        PRESENCE_READ_METHOD,
+        {
+          sessionId: heldIdAsWireId(sessionStore.sessionId),
+        },
+        { signal },
+      );
       // Stamped where the read settles, off the clock this read already owns — so a
       // story's frozen clock stamps a frozen instant and a capture is byte-stable.
       return {

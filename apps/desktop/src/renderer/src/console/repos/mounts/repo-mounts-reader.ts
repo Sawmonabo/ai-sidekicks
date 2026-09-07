@@ -68,6 +68,7 @@ import {
 import {
   RefreshScheduler,
   SessionRefreshTriggers,
+  type ReadRound,
   type ReadTriggerTarget,
   type RefreshReason,
   type SessionStore,
@@ -148,8 +149,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
     this.#clock = options.clock;
     this.#scheduler = new RefreshScheduler({
       clock: this.#clock,
-      perform: async () => {
-        await this.#performRead();
+      perform: async (_reasons, round) => {
+        await this.#performRead(round);
       },
       // Swallowing is not an option and re-throwing into a timer callback reaches
       // nobody, so a read that threw past its own refusal handling lands in the
@@ -281,11 +282,39 @@ export class RepoMountsReader implements ReadTriggerTarget {
     };
   }
 
-  async #performRead(): Promise<void> {
+  /**
+   * Whether this pass has stopped mattering, by either of the two ways it can.
+   *
+   * A METHOD RATHER THAN THE EXPRESSION AT EACH OF THE FOUR SITES, for two reasons.
+   * The reading is a disjunction that must not drift between the awaits it guards,
+   * and `AbortSignal.aborted` is a readonly property TypeScript narrows on first
+   * inspection and keeps narrowed across an `await` — the very interval in which it
+   * changes — so a repeated inline check reads as settled to the compiler while being
+   * the opposite in fact.
+   */
+  #isAbandoned(round: ReadRound): boolean {
+    return this.#disposed || round.signal.aborted;
+  }
+
+  /**
+   * The section's whole reading: a workspace roster, one mount read per distinct
+   * mount, the worktree roster, and one capability read per workspace.
+   *
+   * SERIAL AND THEREFORE THE MOST WORTH ABANDONING. Every await is a round trip whose
+   * reply is parsed against a registered schema before this method sees it, and a
+   * section left before the pass finishes used to run all of them and discard the
+   * fold. The round's signal reaches each read, so an abandoned pass costs the door's
+   * pre-send check per remaining call and nothing else.
+   */
+  async #performRead(round: ReadRound): Promise<void> {
     this.#publish({ ...this.#reading, status: "reading" });
 
-    const workspaceOutcome = await readSessionWorkspaces(this.#bridge, this.#sessionId);
-    if (this.#disposed) {
+    const workspaceOutcome = await readSessionWorkspaces(
+      this.#bridge,
+      this.#sessionId,
+      round.signal,
+    );
+    if (this.#isAbandoned(round)) {
       return;
     }
     if (workspaceOutcome.status === "refused") {
@@ -317,8 +346,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
         continue;
       }
       seenMountIds.add(workspace.repoMountId);
-      const mountOutcome = await readRepoMount(this.#bridge, workspace.repoMountId);
-      if (this.#disposed) {
+      const mountOutcome = await readRepoMount(this.#bridge, workspace.repoMountId, round.signal);
+      if (this.#isAbandoned(round)) {
         return;
       }
       firstRefusal = recordFirstRefusal(firstRefusal, mountOutcome);
@@ -330,8 +359,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
       }
     }
 
-    const worktreeOutcome = await readWorktreeStatus(this.#bridge, this.#sessionId);
-    if (this.#disposed) {
+    const worktreeOutcome = await readWorktreeStatus(this.#bridge, this.#sessionId, round.signal);
+    if (this.#isAbandoned(round)) {
       return;
     }
 
@@ -341,8 +370,12 @@ export class RepoMountsReader implements ReadTriggerTarget {
     > = {};
     const byCapabilitiesRead: Record<string, ConsoleRefusal> = {};
     for (const workspace of workspaces) {
-      const capabilitiesOutcome = await readExecutionModeCapabilities(this.#bridge, workspace.id);
-      if (this.#disposed) {
+      const capabilitiesOutcome = await readExecutionModeCapabilities(
+        this.#bridge,
+        workspace.id,
+        round.signal,
+      );
+      if (this.#isAbandoned(round)) {
         return;
       }
       if (capabilitiesOutcome.status === "served") {

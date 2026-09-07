@@ -12,11 +12,22 @@
 // predicate. The place copies of a guard drift is the predicate, and a drifted
 // predicate is a stale value on screen that every test still passes.
 //
-// A MONOTONIC SERIAL, NOT AN `AbortController`. Nothing behind the bridge is
-// cancellable: a call is started and then settles or does not. So a superseded reply
-// is IGNORED, and claiming its call was stopped would be a claim this console cannot
-// honour. Every claim takes a serial from one counter that never reissues a number,
-// and a settlement is admitted only while the key it holds still names that serial.
+// A MONOTONIC SERIAL, NOT AN `AbortController`, BECAUSE THE TWO ANSWER DIFFERENT
+// QUESTIONS. This one answers "may this settlement install", which is an ORDERING
+// question and has an answer for every act the console performs. A signal answers "is
+// anybody still waiting", which is an OWNERSHIP question and has an answer only where
+// the act has an owner who may leave — reads, and reads only. A mutation that reached
+// the daemon has happened, so a superseded reply is IGNORED and never stopped, and
+// claiming otherwise would be a claim this console cannot honour. Every claim takes a
+// serial from one counter that never reissues a number, and a settlement is admitted
+// only while the key it holds still names that serial.
+//
+// READS PAIR THIS WITH A SIGNAL RATHER THAN REPLACING IT — see
+// `read-cancellation.ts`, whose round is a claim from this latch and an `AbortSignal`
+// as ONE value, so a read cannot be ordered without also being stoppable or stopped
+// without also being ordered. Nothing about the rule here changes: even an abandoned
+// read is only the console dropping its own interest, since no wire carries a
+// per-request cancel to the daemon.
 //
 // THE KEY IS WHAT THE RULE IS ABOUT, AND IT IS NEVER THE MOUNT. "One in flight" is
 // one per subject: one goal mutation per session, one send per composer address, one

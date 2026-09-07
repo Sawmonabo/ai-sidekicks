@@ -57,6 +57,9 @@ import { useEffect } from "react";
 
 import { normalizeWireRejection, type WireRefusal } from "../../core/index.js";
 import {
+  isReadAbandoned,
+  settleUnlessAbandoned,
+  useReadScope,
   useSubjectScopedState,
   type SubjectKey,
   type SubjectScopedPublish,
@@ -164,25 +167,78 @@ export interface SettledGrowthReadProjection<TOutcome, TState> {
  * in this console is `store/generation-latch.ts`, which decides whether a settlement
  * may install. This decides nothing about an answer that has arrived — it says only
  * that the question is worth putting again.
+ *
+ * AND THE READ IS ABANDONED RATHER THAN MERELY DROPPED. Publishing nowhere is the
+ * right answer and it arrives too late: the reply has already been settled and the
+ * caller's `settled` projection has already been built for a visit that is over. So
+ * the read is put on a line addressed at the same pairing the state is, its signal is
+ * handed to the caller's own `read`, and a settlement that loses the race returns
+ * before any projection is composed. A caller whose `read` ignores the signal keeps
+ * exactly the old behaviour — the projection is still skipped, and only the seam
+ * below it goes on waiting. Which is why the round is read BEFORE the read is put as
+ * well as after it settles: for a caller like that the REQUEST is the cost, and one
+ * put on a round that was already over is a request nothing can ever stop.
  */
 export function useSettledGrowthRead<TOutcome, TState>(
   growth: GrowthPort,
   key: SubjectKey,
-  read: (key: SubjectKey) => Promise<TOutcome> | undefined,
+  read: (key: SubjectKey, signal: AbortSignal) => Promise<TOutcome> | undefined,
   project: SettledGrowthReadProjection<TOutcome, TState>,
   readRevision = 0,
 ): SettledGrowthRead<TState> {
   const { value, publish } = useSubjectScopedState<TState>(growth, key, () =>
     project.unsettled(key),
   );
+  // Addressed at the same pairing the state is, so the line and the value it fills
+  // begin and end together: a surface re-addressed at a new key gets a fresh line
+  // and the old one's outstanding read is abandoned in the same render.
+  const readScope = useReadScope(growth, key);
   const { settled } = project;
   useEffect(() => {
-    const pending = read(key);
+    const round = readScope.openRound();
+    // AND THE ROUND IS ASKED BEFORE THE READ IS PUT, which is not the same check as
+    // the one below. `openRound` answers a round that is already OVER rather than
+    // refusing, and it grounds that on the call door checking the signal before it
+    // sends — the DAEMON door's guarantee, over a call the door itself makes. `read`
+    // here is the caller's, and a growth read ignores the signal by design, so on
+    // this path there is no door beneath to stop the request and the reading has to
+    // be taken here.
+    //
+    // WHERE A ROUND THAT IS ALREADY OVER COMES FROM, and it is React's double-mount
+    // rather than anything exotic. The scope's lifetime is `useReadScope`'s, whose
+    // hook runs above this one, so its effect is committed first: the strict remount
+    // runs that effect's cleanup — which ABANDONS the scope — and then its setup,
+    // which publishes a replacement one render later. This effect replays in between,
+    // against the scope its own render captured, which is the one that cleanup just
+    // abandoned. Measured on the fixture port: three reads reached the caller's `read`
+    // for one mount, the middle one born aborted. A signal-honouring read is refused
+    // at the call door on that one and never leaves the console; this one is not.
+    if (isReadAbandoned(round.signal)) {
+      return;
+    }
+    const pending = read(key, round.signal);
     if (pending === undefined) {
       return;
     }
-    void settleGrowthRead(pending).then((settlement) => {
-      publish(settled(settlement));
+    void settleUnlessAbandoned(settleGrowthRead(pending), round.signal).then((settlement) => {
+      if (settlement.status === "abandoned") {
+        // The whole saving is that `settled` never runs: the projection a surface
+        // renders is built here, and building one for a visit that is over is the
+        // work this hook exists to stop rather than merely to discard afterwards.
+        return;
+      }
+      // AND THE ROUND IS ASKED AGAIN, at the last boundary before the projection is
+      // built. The settlement above answers which of two events came FIRST, and it
+      // resolves the instant the read does — retiring its abort listener as it goes —
+      // so a departure landing between that resolution and this callback finds
+      // nothing to reach and the captured settlement still reads `settled`. One
+      // microtask, which is exactly the gap a fulfilment and a pane teardown
+      // scheduled in the same tick fall into. The round is the reading that covers
+      // it, and it covers the other ending too: a round this line has already
+      // SUPERSEDED installs nothing, which no signal check would have caught.
+      round.settle(() => {
+        publish(settled(settlement.value));
+      });
     });
     // `publish` re-identifies exactly when the holder is re-addressed, so it is both
     // the guard on this read's answer and the whole of what tells this effect to run
@@ -191,7 +247,10 @@ export function useSettledGrowthRead<TOutcome, TState>(
     // answer went stale under an address that did not move. `read` and `settled` are
     // deliberately not in it: each is a closure the caller rebuilds every render over
     // exactly the port and key already named here, so listing them would re-read on
-    // every render of every surface.
-  }, [growth, key, publish, readRevision]);
+    // every render of every surface. `readScope` is listed and re-identifies on
+    // exactly the same occasions `publish` does; a revision advance opens a new round
+    // on the SAME scope, which supersedes the outstanding one, so the answer already
+    // on screen stays until the fresh read lands.
+  }, [growth, key, publish, readRevision, readScope]);
   return { value, publish };
 }
