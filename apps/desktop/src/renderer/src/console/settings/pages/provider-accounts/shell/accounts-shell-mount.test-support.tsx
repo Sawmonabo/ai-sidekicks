@@ -68,6 +68,20 @@ export function bridgeCountingItsCalls(): BridgeUnderTest {
   return withDaemonCall(fixtureBridge(), async (_call, passThrough) => await passThrough());
 }
 
+/**
+ * The deck with BOTH: the live tail in this case's hands, and every call counted.
+ *
+ * Composed rather than a third stand-alone deck, because the claim that needs both is
+ * one claim — a frame arriving on the tail causing a call to go out — and a case that
+ * could only hold one of the two would be asserting the frame or the call, never the
+ * link between them.
+ */
+export function bridgeHoldingTheTailAndCountingCalls(): StreamUnderTest & BridgeUnderTest {
+  const tail = bridgeHoldingTheTail();
+  const counted = withDaemonCall(tail.bridge, async (_call, passThrough) => await passThrough());
+  return { bridge: counted.bridge, calls: counted.calls, deliver: tail.deliver };
+}
+
 /** Every start-sign-in control the readiness list is currently offering. */
 export function startControls(): HTMLButtonElement[] {
   return screen.getAllByRole<HTMLButtonElement>("button", { name: /start sign-in/iu });

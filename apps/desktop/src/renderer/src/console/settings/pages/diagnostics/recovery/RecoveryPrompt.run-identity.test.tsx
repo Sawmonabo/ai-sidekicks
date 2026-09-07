@@ -13,7 +13,7 @@
 // the case would go green the day either of them moved.
 
 import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type { RunState } from "@ai-sidekicks/contracts";
 
@@ -88,24 +88,27 @@ function renderPromptFor(
 ): {
   readonly container: HTMLElement;
   readonly readdressTo: (nextRunId: string) => void;
+  /** What the prompt reported upward, so a case can count receipts rather than infer. */
+  readonly onRecoveryReceipt: Mock<() => void>;
 } {
-  const view = render(
+  const onRecoveryReceipt = vi.fn<() => void>();
+  const promptFor = (addressedRunId: string): React.JSX.Element => (
     <SidekicksBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <RecoveryPrompt bridge={bridge} runId={runId} />
+        <RecoveryPrompt
+          bridge={bridge}
+          runId={addressedRunId}
+          onRecoveryReceipt={onRecoveryReceipt}
+        />
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </SidekicksBridgeProvider>
   );
+  const view = render(promptFor(runId));
   return {
     container: view.container,
+    onRecoveryReceipt,
     readdressTo: (nextRunId: string): void => {
-      view.rerender(
-        <SidekicksBridgeProvider bridge={bridge}>
-          <LiveAnnouncerProvider>
-            <RecoveryPrompt bridge={bridge} runId={nextRunId} />
-          </LiveAnnouncerProvider>
-        </SidekicksBridgeProvider>,
-      );
+      view.rerender(promptFor(nextRunId));
     },
   };
 }
@@ -166,6 +169,36 @@ describe("the recovery prompt, when the run under it moves", () => {
     const outcome = prompt.container.querySelector(".meridian-recovery-prompt__outcome");
     expect(outcome?.textContent).toContain("went from");
     expect(outcome?.getAttribute("role")).toBe("status");
+  });
+
+  // A RECEIPT IS REPORTED UPWARD, and it is the only settlement that is. The readings
+  // above this prompt refresh on focus, on reconnect and on the three run terminals,
+  // and a `retry` the node accepted sends none of those — so a prompt that reported
+  // nothing left the page holding its pre-request inspection under a receipt saying
+  // the run had resumed.
+  it("reports a receipt upward exactly once", async () => {
+    const plane = bridgeHoldingRecoveryRequests();
+    const prompt = renderPromptFor(plane.bridge, STALLED_RUN_ID);
+
+    await answerRecoveryConfirmation(prompt.container, "Try again", "confirm");
+    await plane.answer(STALLED_RUN_ID, "running");
+
+    expect(prompt.onRecoveryReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  // THE NEGATIVE CONTROL for that: a request the node REFUSED moved nothing, so there
+  // is nothing for the readings to be behind. Without this the case above would hold
+  // for a prompt that reported every settlement it ever saw.
+  it("reports nothing upward when the request was refused", async () => {
+    const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
+    const prompt = renderPromptFor(fixture, STALLED_RUN_ID);
+
+    await answerRecoveryConfirmation(prompt.container, "Try again", "confirm");
+
+    // The deck scripts no reply for this request, so the fixture's own refusal is what
+    // settles — a refusal built by the shipped port and rendered on this control.
+    expect(prompt.container.textContent).toContain("reply-unscripted");
+    expect(prompt.onRecoveryReceipt).not.toHaveBeenCalled();
   });
 
   // And the re-address itself carries nothing forward: the pass that first sees the new

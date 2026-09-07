@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   bridgeAnswering,
   answerRecoveryConfirmation,
+  movingInspection,
   openRecoveryConfirmation,
   recoveryReceipt,
   regionText,
@@ -22,6 +23,9 @@ import {
   STALLED_RUN_ID,
 } from "../diagnostics-page.test-support.js";
 import { runEntity, sessionStoreHolding } from "../../../settings-page-mount.test-support.js";
+import { settleScheduledRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
+import { settle } from "../../../../core/settle.test-support.js";
+import type { ConsoleBridge } from "../../../../bridge/index.js";
 import type { SessionStore } from "../../../../store/index.js";
 
 function storeWithStalledRun(): SessionStore {
@@ -34,13 +38,20 @@ function storeWithStalledRun(): SessionStore {
 async function renderPrompt(script: Parameters<typeof bridgeAnswering>[0]): Promise<{
   readonly container: HTMLElement;
   readonly calls: ReturnType<typeof bridgeAnswering>["calls"];
+  readonly bridge: ConsoleBridge;
 }> {
   const { bridge, calls } = bridgeAnswering({
     stall: stuckInspection("2026-01-01T07:53:30.000Z"),
     ...script,
   });
   const container = await renderSettledPage(bridge, storeWithStalledRun());
-  return { container, calls };
+  return { container, calls, bridge };
+}
+
+/** Carry the refresh a settlement asked for past the scheduler's window. */
+async function settleRefresh(bridge: ConsoleBridge): Promise<void> {
+  await settleScheduledRead(bridge);
+  await settle();
 }
 
 describe("the recovery prompt", () => {
@@ -99,6 +110,42 @@ describe("the recovery prompt", () => {
 
     expect(region).toContain("not registered on this build");
     expect(buttons).toEqual(["Try again", "Interrupt", "Abandon"]);
+  });
+
+  it("re-reads the inspection once the node answers with a receipt", async () => {
+    // THE DEFECT. A `retry` the node accepted moves a stuck run back to a live state,
+    // so the run stays this page's candidate and no terminal event fires — neither the
+    // subjects nor the subscription moves. The page therefore kept the inspection it
+    // had read BEFORE the request, leaving the stuck reading and its controls beside a
+    // receipt reporting the run resumed.
+    const { bridge, calls, container } = await renderPrompt({
+      recovery: recoveryReceipt("running"),
+    });
+    expect(regionText(container, "Stuck runs")).toContain("suspects");
+    expect(calls.stall).toHaveBeenCalledTimes(1);
+
+    // What the node answers next: the same run, inspected again, and moving.
+    calls.stall.mockResolvedValue({ status: "served", value: movingInspection() });
+    await answerRecoveryConfirmation(container, "Try again", "confirm");
+    await settleRefresh(bridge);
+
+    expect(calls.stall).toHaveBeenCalledTimes(2);
+    expect(regionText(container, "Stuck runs")).toContain("still making progress");
+    expect(regionText(container, "Stuck runs")).not.toContain("suspects");
+  });
+
+  // THE NEGATIVE CONTROL for that: a request the node REFUSED moved nothing, so the
+  // four wires are not asked again. Without it the case above would hold for a page
+  // that re-read after every settlement — which is a read put for an act that failed.
+  it("re-reads nothing when the request was refused", async () => {
+    const { bridge, calls, container } = await renderPrompt({ refuse: ["recovery"] });
+    expect(calls.stall).toHaveBeenCalledTimes(1);
+
+    await answerRecoveryConfirmation(container, "Try again", "confirm");
+    await settleRefresh(bridge);
+
+    expect(calls.stall).toHaveBeenCalledTimes(1);
+    expect(regionText(container, "Stuck runs")).toContain("suspects");
   });
 
   it("offers no recovery where there is no moving run to address it to", async () => {

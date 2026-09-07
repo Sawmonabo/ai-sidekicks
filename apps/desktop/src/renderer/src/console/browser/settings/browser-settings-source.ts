@@ -43,6 +43,16 @@
 // costs nothing either way — nothing is cancelled, the reply simply installs nowhere —
 // and the re-read that follows a served act is scheduled through the same scheduler,
 // so it cannot overtake the read it superseded.
+//
+// AND AN ACT THAT ANSWERED NOTHING RECONCILES, WHICH IS A DIFFERENT ARM AGAIN. A call
+// that REJECTED said nothing about what the node did: the clear may have run and lost
+// its reply, the write may have been applied. Both used to end here with no re-read, so
+// a removed partition could keep its byte figure on screen and a switch could keep
+// drawing a position the record no longer holds, until a focus or reconnect happened by.
+// So the dispositions part at the seam that already tells them apart: a refusal the node
+// RETURNED is definite and re-reads nothing, a rejection is ambiguous and schedules
+// reconciliation through this view's own scheduler. The classification is the SHAPE of
+// the answer, never a reading of the thrown value — `core/wire-rejection.ts`' question.
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -57,13 +67,17 @@ import {
   type RefreshReason,
 } from "../../store/index.js";
 import {
+  ambiguousPolicyWrite,
+  declinedPolicyWrite,
   partitionListingFrom,
   partitionListingFromRejection,
   policyReadingFromRejection,
   policyReadingsFrom,
   refusedPartitionListing,
   refusedSwitchReading,
+  SERVED_POLICY_WRITE,
   type BrowserPolicyReading,
+  type PolicyWriteSettlement,
 } from "./browser-settings-readings.js";
 import type { BrowserPolicySwitchId, BrowserPolicySwitchReading } from "./policy-switches.js";
 import type { BrowserPartitionListing } from "./site-partitions.js";
@@ -201,13 +215,20 @@ export class BrowserSettingsView implements ReadTriggerTarget {
    * that reported success and left the old byte figure on screen would be telling a
    * person their data is gone while showing them how much of it there is.
    *
-   * A REJECTION IS NOT CAUGHT HERE. `PartitionClearControl` settles its own round on
-   * both arms and knows which STEP it had reached, which this carrier does not — so
-   * swallowing the rejection into a refusal would replace a sentence naming the step
-   * with one that cannot.
+   * A REJECTION IS NOT SWALLOWED HERE, and it is not left alone either.
+   * `PartitionClearControl` knows which STEP it had reached and this carrier does not,
+   * so the rejection is re-thrown verbatim rather than folded into a refusal whose
+   * sentence could not name the step — but the node may have removed the partition and
+   * lost the reply, so the listing is reconciled first: the re-read the control's own
+   * words promise and nothing performed.
    */
   public readonly clearSiteData = async (sessionId: string): Promise<SiteDataActOutcome> => {
-    const outcome = await this.#bridge.growth.browserSiteDataClear({ sessionId });
+    const outcome = await this.#bridge.growth
+      .browserSiteDataClear({ sessionId })
+      .catch((rejection: unknown) => {
+        this.#reconcileAfterAmbiguousAct();
+        throw rejection;
+      });
     if (outcome.status !== "served") {
       // Nothing moved, so nothing published and nothing superseded: the refusal is
       // this row's and the control renders it beside the row it was pressed on.
@@ -271,34 +292,50 @@ export class BrowserSettingsView implements ReadTriggerTarget {
    * would show a position nobody set or erase a refusal nobody read.
    */
   async #write(switchId: BrowserPolicySwitchId, nextEnabled: boolean): Promise<void> {
-    const refusal = await this.#attemptWrite(switchId, nextEnabled);
+    const settlement = await this.#attemptWrite(switchId, nextEnabled);
     if (this.#isDisposed) {
       return;
     }
     this.#supersedeReads();
-    if (refusal !== undefined) {
-      this.#publish({ policyReading: refusal });
+    if (settlement.kind === "served") {
+      this.requestRead("participant-request");
       return;
     }
-    this.requestRead("participant-request");
+    // Published FIRST on both failing arms, so the seam's own words are on screen while
+    // the reconciliation below is still inside its window.
+    this.#publish({ policyReading: settlement.reading });
+    if (settlement.kind === "ambiguous") {
+      this.requestRead("participant-request");
+    }
   }
 
-  /** The write itself: the refusal it settled on, or `undefined` for a served one. */
+  /** The write itself, as the disposition its answer earns. */
   async #attemptWrite(
     switchId: BrowserPolicySwitchId,
     nextEnabled: boolean,
-  ): Promise<BrowserPolicyReading | undefined> {
+  ): Promise<PolicyWriteSettlement> {
     try {
       const outcome = await this.#bridge.growth.browserPolicyWrite({
         switchId,
         enabled: nextEnabled,
       });
-      return outcome.status === "served"
-        ? undefined
-        : { kind: "refused", reading: refusedSwitchReading(outcome) };
+      return outcome.status === "served" ? SERVED_POLICY_WRITE : declinedPolicyWrite(outcome);
     } catch (rejection: unknown) {
-      return policyReadingFromRejection(rejection);
+      return ambiguousPolicyWrite(rejection);
     }
+  }
+
+  /**
+   * An act answered nothing, so the node is asked what it holds now. Written once
+   * because the halves are one move, and SCHEDULED rather than put: a person pressing
+   * a control that keeps rejecting owes one reconciliation per burst.
+   */
+  #reconcileAfterAmbiguousAct(): void {
+    if (this.#isDisposed) {
+      return;
+    }
+    this.#supersedeReads();
+    this.requestRead("participant-request");
   }
 
   /**

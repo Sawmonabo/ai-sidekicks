@@ -27,6 +27,7 @@ import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.t
 import { SETTINGS_PROVIDER_ACCOUNT_LOGIN } from "../../../../bridge/scenarios/settings-account-plane.js";
 import {
   bridgeHoldingTheTail,
+  bridgeHoldingTheTailAndCountingCalls,
   pressFirstStartControl,
   renderSettledShell,
   startControls,
@@ -35,6 +36,13 @@ import {
 afterEach(() => {
   cleanup();
 });
+
+/**
+ * The registry read the shell asks for. A literal because the reply registry keys its
+ * own rows by this string and exports no constant — minting one for a test would be a
+ * second spelling of a name the registry already owns.
+ */
+const REGISTRY_READ_METHOD = "providerAccount.list";
 
 /** The verification URI the deck's brokered attempt answers with. */
 const VERIFICATION_URI = SETTINGS_PROVIDER_ACCOUNT_LOGIN.verificationUri;
@@ -123,6 +131,32 @@ describe("the sign-in card, when a cancellation is refused", () => {
 
     expect(container.querySelector('[aria-label="Sign-in in progress"]')).toBeNull();
     expect(startControls().every((control) => control.disabled)).toBe(false);
+  });
+
+  it("asks the registry for a fresh read once the completion has landed", async () => {
+    // The third thing a completion owes. A flow ending says nothing about the account —
+    // the daemon reads nothing the provider's login binary writes — so the page asks the
+    // node rather than assuming, and that question is a call this case counts.
+    const plane = bridgeHoldingTheTailAndCountingCalls();
+    const container = await renderSettledShell(plane.bridge);
+    pressFirstStartControl();
+    await settleScriptedRead(plane.bridge);
+    const readsBefore = plane.calls.filter((call) => call.method === REGISTRY_READ_METHOD).length;
+
+    act(() => {
+      plane.deliver({
+        kind: "login_completed",
+        attemptId: SETTINGS_PROVIDER_ACCOUNT_LOGIN.attemptId,
+        accountId: "acct-codex-personal",
+        outcome: "succeeded",
+      });
+    });
+    await settleScriptedRead(plane.bridge);
+
+    expect(
+      plane.calls.filter((call) => call.method === REGISTRY_READ_METHOD).length,
+    ).toBeGreaterThan(readsBefore);
+    expect(container.querySelector('[aria-label="Sign-in in progress"]')).toBeNull();
   });
 
   // And the negative control for THAT: the tail is node-scoped, so another window's
