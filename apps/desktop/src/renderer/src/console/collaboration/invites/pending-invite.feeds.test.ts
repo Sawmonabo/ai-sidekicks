@@ -18,13 +18,14 @@ import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
-  type GrowthPendingInvite,
+  type GrowthPendingInviteState,
 } from "../../bridge/index.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { PendingInviteAdapter } from "./pending-invite.js";
 import {
   FIRST_REFERENCE,
   FIRST_SESSION,
+  readyPreview,
   scenarioWithArrivals,
   settleFeeds,
 } from "./pending-invite.test-support.js";
@@ -93,15 +94,13 @@ describe("the deep-link lifecycle — a feed that opened and then broke", () => 
         await Promise.resolve({
           status: "served",
           value: {
-            events: (async function* serveOneThenEnd(): AsyncGenerator<GrowthPendingInvite> {
-              yield {
+            events: (async function* serveOneThenEnd(): AsyncGenerator<GrowthPendingInviteState> {
+              yield readyPreview({
                 reference: FIRST_REFERENCE,
                 sessionId: FIRST_SESSION,
-                joinMode: "collaborator",
-                expiresAt: "2026-01-08T10:05:00.000Z",
                 sessionName: "Design review",
                 inviterDisplayName: "Priya Raman",
-              };
+              });
               if (ending === "throws") {
                 throw new Error("the producer went away mid-stream");
               }

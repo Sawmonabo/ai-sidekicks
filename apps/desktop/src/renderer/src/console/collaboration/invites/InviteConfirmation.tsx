@@ -177,7 +177,6 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
           ) : (
             <InviteOutcomeReport
               outcome={snapshot.outcome}
-              onRetry={props.onRetry}
               onAcknowledge={props.onAcknowledge}
               isActing={isActing}
             />

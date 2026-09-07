@@ -59,7 +59,7 @@ export const INVITE_GROWTH_OPERATIONS: Readonly<Record<InviteOperationId, Growth
     "inviteRetryPending",
     "pending-invite-namespace",
     "method",
-    "try one reference again after an attempt that could be retried, without minting a second reference for one invitation",
+    "re-drive the preview of one outstanding deep link by the opaque attempt handle its unavailable state supplied, which names which link failed and can confirm nothing",
     "invite.retryPending",
   ),
   inviteDismissPending: op(

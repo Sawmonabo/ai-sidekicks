@@ -261,7 +261,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       value: pendingInvites.openOutcomeFeed(),
     }),
     inviteConfirmPending: async (request) => pendingInvites.confirm(request.reference),
-    inviteRetryPending: async (request) => pendingInvites.retry(request.reference),
+    inviteRetryPending: async (request) => pendingInvites.retry(request.attempt),
     inviteDismissPending: async (request) => pendingInvites.dismiss(request.reference),
     // The node's control-plane host, from the scenario's own declaration. Refused as
     // the SCENARIO's gap where none is declared — this fixture serves the operation,

@@ -86,7 +86,13 @@ export type {
 } from "./presence.js";
 
 // The pending confirmation and its four outcomes.
-export type { GrowthInviteOutcome, GrowthPendingInvite } from "./invites.js";
+export type {
+  GrowthInviteAttempt,
+  GrowthInviteOutcome,
+  GrowthPendingInvite,
+  GrowthPendingInvitePreviewFailure,
+  GrowthPendingInviteState,
+} from "./invites.js";
 
 export {
   GROWTH_PR_PREPARATION_STATES,

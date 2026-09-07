@@ -34,7 +34,7 @@ import {
   type ConsoleBridge,
   type GrowthInviteOutcome,
   type GrowthOutcome,
-  type GrowthPendingInvite,
+  type GrowthPendingInviteState,
   type GrowthStream,
 } from "../../bridge/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
@@ -45,8 +45,8 @@ export const PENDING_INVITE_ORIGIN = "pending-invite";
 
 /** What the reading above this one wants told. */
 export interface PendingInviteFeedSinks {
-  /** One invitation arrived on the pending feed. */
-  readonly onInvite: (invite: GrowthPendingInvite) => void;
+  /** One deep link's preview state arrived on the pending feed, whichever arm it is. */
+  readonly onArrival: (arrival: GrowthPendingInviteState) => void;
   /** One attempt's answer arrived on the outcome feed. */
   readonly onOutcome: (outcome: GrowthInviteOutcome) => void;
   /** A feed's refusal changed. Nothing else about this module is watchable. */
@@ -63,10 +63,11 @@ export interface PendingInviteFeedSinks {
 export class PendingInviteFeeds {
   readonly #bridge: ConsoleBridge;
   readonly #sinks: PendingInviteFeedSinks;
-  #pendingFeed: GrowthStream<GrowthPendingInvite> | undefined;
+  #pendingFeed: GrowthStream<GrowthPendingInviteState> | undefined;
   #outcomeFeed: GrowthStream<GrowthInviteOutcome> | undefined;
   #refusal: ConsoleRefusal | undefined;
   #isOpening = false;
+  #isReplayRequested = false;
   #isClosed = false;
 
   public constructor(bridge: ConsoleBridge, sinks: PendingInviteFeedSinks) {
@@ -99,6 +100,25 @@ export class PendingInviteFeeds {
     await this.#openClosedFeeds();
   }
 
+  /**
+   * Ask the pending feed to re-deliver everything main is still holding.
+   *
+   * THE ONE RECOVERY THE FEED SUPPORTS, and `core/constants.ts` states it beside the
+   * bound that needs it: main holds each reference until an act releases it, and
+   * re-opening the pending feed re-delivers every one still held. So a frame the
+   * reading above declined to queue at the bound is not lost — it is simply not on
+   * screen yet, and this is how it gets there once the queue has room again. The
+   * outcome feed is deliberately untouched: nothing about it is capacity-bound, and
+   * closing it would drop the answer to an act already dispatched.
+   */
+  public async replayPending(): Promise<void> {
+    if (this.#isClosed) {
+      return;
+    }
+    this.#isReplayRequested = true;
+    await this.#openClosedFeeds();
+  }
+
   /** Close both feeds. Terminal: a closed pair opens nothing again. */
   public close(): void {
     this.#isClosed = true;
@@ -108,19 +128,35 @@ export class PendingInviteFeeds {
     this.#outcomeFeed = undefined;
   }
 
+  /**
+   * Open whichever feed is down, replaying the pending one where one was asked for.
+   *
+   * A LOOP RATHER THAN ONE PASS, because a replay asked for WHILE an open is in
+   * flight would otherwise be swallowed by the re-entrancy guard — and the request
+   * that raises it is the queue regaining room, which is exactly when a repair open
+   * is likely to be running. Each pass clears the flag before acting on it, so a
+   * request raised during a pass costs one more pass and never spins.
+   */
   async #openClosedFeeds(): Promise<void> {
     if (this.#isOpening || this.#isClosed) {
       return;
     }
     this.#isOpening = true;
     try {
-      if (this.#outcomeFeed === undefined) {
-        await this.#openOutcomeFeed();
-      }
-      if (this.#pendingFeed === undefined) {
-        await this.#openPendingFeed();
-      }
-      this.#retireRefusalWhenBothFeedsAreUp();
+      do {
+        if (this.#isReplayRequested) {
+          this.#isReplayRequested = false;
+          this.#pendingFeed?.close();
+          this.#pendingFeed = undefined;
+        }
+        if (this.#outcomeFeed === undefined) {
+          await this.#openOutcomeFeed();
+        }
+        if (this.#pendingFeed === undefined) {
+          await this.#openPendingFeed();
+        }
+        this.#retireRefusalWhenBothFeedsAreUp();
+      } while (this.#isReplayRequested && !this.#isClosed);
     } finally {
       this.#isOpening = false;
     }
@@ -170,14 +206,14 @@ export class PendingInviteFeeds {
   }
 
   async #openPendingFeed(): Promise<void> {
-    const feed = await this.#openFeed(
+    const feed = await this.#openFeed<GrowthPendingInviteState>(
       async () => await this.#bridge.growth.invitePendingSubscribe({}),
     );
     if (feed === undefined) {
       return;
     }
     this.#pendingFeed = feed;
-    void this.#drain(feed, this.#sinks.onInvite, () => {
+    void this.#drain(feed, this.#sinks.onArrival, () => {
       if (this.#pendingFeed === feed) {
         this.#pendingFeed = undefined;
       }

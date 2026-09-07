@@ -165,7 +165,8 @@
 .meridian-invite-create__send:disabled,
 .meridian-invite-confirmation__confirm:disabled,
 .meridian-invite-confirmation__dismiss:disabled,
-.meridian-invite-outcome__retry:disabled {
+.meridian-invite-outcome__retry:disabled,
+.meridian-invite-outcome__acknowledge:disabled {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;

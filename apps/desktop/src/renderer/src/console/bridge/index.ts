@@ -512,7 +512,13 @@ export type {
 // The pending confirmation and the four arms one attempt on it can end in. Through
 // the door and from their declaring module for the same reason: the confirmation
 // surface is the collaboration family's, and every arm it renders is one of these.
-export type { GrowthInviteOutcome, GrowthPendingInvite } from "./growth-values/invites.js";
+export type {
+  GrowthInviteAttempt,
+  GrowthInviteOutcome,
+  GrowthPendingInvite,
+  GrowthPendingInvitePreviewFailure,
+  GrowthPendingInviteState,
+} from "./growth-values/invites.js";
 
 // The composer's own composing publisher. It lives in this family because it is a
 // write adapter over the growth port — the `quotas/` reads' mirror image — and it
