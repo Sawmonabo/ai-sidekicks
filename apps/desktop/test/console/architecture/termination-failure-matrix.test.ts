@@ -5,18 +5,17 @@
 // against this path were each one CELL of the same table — a refused `taskkill`
 // read as a kill, an unreaped zombie read as a live process, a root that exited
 // while a descendant held its stdio, a settle-time registration that threw over a
-// child already running — and each was fixed where it was found. A fix that
-// closes one cell and reopens another is invisible to a suite organised by
-// finding, because no file holds the two together. This file holds them together.
+// child already running — each fixed where it was found. A fix that closes one
+// cell and reopens another is invisible to a suite organised by finding.
 //
 // THE FIVE AXES, AND WHY THESE FIVE. They are the independent variables the
 // termination decision actually reads: what the ROOT is doing (the pid a tree is
-// addressed through), what the PLATFORM said about the kill, which MECHANISM
-// this platform's tree kill is (a delivered group signal, or `taskkill` walking a
+// addressed through), what the PLATFORM said about the kill, which MECHANISM this
+// platform's tree kill is (a delivered group signal, or `taskkill` walking a
 // descendant tree), what is left RUNNING (nothing, a descendant, or a pid whose
 // process has exited and not been reaped), and whether the settle-time
-// REGISTRATION that owns the retry was accepted at all. Every one of the four
-// findings sits at a distinct point in that space.
+// REGISTRATION that owns the retry was accepted. Each finding sits at a distinct
+// point in that space.
 //
 // WHAT IS DRIVEN, AND WHAT CANNOT BE. No platform can be asked to refuse a kill
 // on demand, no runner can be made Windows, and a zombie is the reaping behaviour
@@ -24,9 +23,7 @@
 // construction — `process-tree.test.ts` says the same about itself — and the
 // DECISIONS those arms funnel through are driven directly with scripted
 // collaborators, which is why each is a named exported function rather than an
-// expression at a call site. The one cell that needs a real child gets one: a
-// registration refusal over a live process is the shape whose whole defect was
-// that no handle survived it.
+// expression at a call site. The one cell that needs a real child gets one.
 
 import { describe, expect, it } from "vitest";
 
@@ -70,9 +67,8 @@ interface TerminationAxes {
  * One cell: the state, the verdict it owes, and the real code that answers.
  *
  * `owedTermination` is `true` only where nothing that could still execute is
- * left. That is the whole failure direction of this path — a `false` costs a
- * retry, and a wrong `true` costs an Electron that outlives the run — so a cell
- * whose answer is uncertain owes `false`.
+ * left — a `false` costs a retry and a wrong `true` costs an Electron that
+ * outlives the run, so a cell whose answer is uncertain owes `false`.
  */
 interface TerminationCell {
   readonly name: string;
@@ -87,19 +83,18 @@ const ROOT_PID = 4242;
 const DESCENDANT_PID = 4243;
 
 /**
- * The external arm's collaborators, scripted.
- *
- * `hasTerminated` is handed the pids the arm has run a tree kill from, which is
- * what makes "it addressed the descendant" separable from "it reported success
- * without looking": a scripted tree only dies if the arm named it.
+ * The external arm's collaborators, scripted. `hasTerminated` is handed the pids
+ * the arm ran a tree kill from, so "it addressed the descendant" is separable
+ * from "it reported success without looking": a scripted tree dies only if named.
  */
 function scriptedExternalTools(script: {
   readonly killTreeFrom: (processId: number) => boolean;
   readonly parentByChild: ReadonlyMap<number, number>;
   readonly hasTerminated: (processId: number, killAttempts: readonly number[]) => boolean;
-}): ExternalTreeTools {
+}): ExternalTreeTools & { readonly killedFrom: readonly number[] } {
   const killedFrom: number[] = [];
   return {
+    killedFrom,
     killTreeFrom: (processId: number): boolean => {
       killedFrom.push(processId);
       return script.killTreeFrom(processId);
@@ -113,13 +108,14 @@ function scriptedExternalTools(script: {
 const ROOTLESS_TREE_TABLE: ReadonlyMap<number, number> = new Map([[DESCENDANT_PID, ROOT_PID]]);
 
 /**
- * The tools for a rootless tree whose descendant takes, or refuses, an explicit kill.
- *
- * The root is gone throughout — that is what makes the tree rootless — so the
- * only pid whose fate can change is the descendant's, and it changes only if the
- * arm actually addressed it.
+ * The tools for a rootless tree whose descendant takes, or refuses, an explicit
+ * kill. The root is gone throughout — that is what makes the tree rootless — so
+ * the only pid whose fate can change is the descendant's, and it changes only if
+ * the arm actually addressed it.
  */
-function rootlessTreeTools(descendantYieldsToExplicitKill: boolean): ExternalTreeTools {
+function rootlessTreeTools(
+  descendantYieldsToExplicitKill: boolean,
+): ExternalTreeTools & { readonly killedFrom: readonly number[] } {
   return scriptedExternalTools({
     // The walk starts at the root, and a pid that names nothing has no tree to
     // walk, so `taskkill` exits non-zero however alive the descendant is.
@@ -139,9 +135,8 @@ function scriptedLiveness(stateCode: string): { exists: () => boolean; stateCode
 /**
  * The POSIX arm's collaborators, scripted: nothing delivers, and the case says
  * what the GROUP and the ROOT each still hold. Both are supplied separately
- * because the whole cell is that they disagree — the root is reaped and its
- * group is not empty, which is what a launcher shim exiting under a live
- * browser produces on every POSIX run.
+ * because the whole cell is that they disagree — the root reaped and its group
+ * not empty, which a shim exiting under a live browser produces on every run.
  */
 function undeliverableSignalTools(script: {
   readonly groupHasMember: boolean;
@@ -211,8 +206,14 @@ const TERMINATION_MATRIX: readonly TerminationCell[] = [
       settleRegistration: "accepted",
     },
     owedTermination: true,
-    answer: () =>
-      Promise.resolve(terminateExternalTree(ROOT_PID, "SIGKILL", rootlessTreeTools(true))),
+    // The verdict AND the evidence, because the verdict alone is satisfiable the
+    // wrong way: an arm reporting the tree gone because its ROOT is gone answers
+    // `true` without naming the descendant. Conjoining the ask discriminates.
+    answer: () => {
+      const tools = rootlessTreeTools(true);
+      const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
+      return Promise.resolve(terminated && tools.killedFrom.includes(DESCENDANT_PID));
+    },
   },
   {
     name: "a rootless tree whose descendant survives every ask is a refusal",
@@ -367,8 +368,7 @@ describe("the termination path, enumerated over every state it is asked in", () 
           `registration ${cell.axes.settleRegistration}`,
       ).toBe(cell.owedTermination);
     },
-    // The scripted cells settle in microseconds; the one that spawns is held to
-    // the same derived bound every case in this tier that spawns is held to.
+    // The scripted cells settle in microseconds; the spawning one takes the tier's.
     LIFETIME_TEST_TIMEOUT_MS,
   );
 
@@ -388,8 +388,7 @@ describe("the termination path, enumerated over every state it is asked in", () 
       "refused-then-delivered",
       "refused-throughout",
     ]);
-    // Both mechanisms are covered on either platform: every other cell names its
-    // mode outright, and the one that spawns takes this host's.
+    // Covered on either platform: every other cell names its mode, this one reads it.
     expect(covered((axes) => axes.treeMode)).toStrictEqual(["external", "signal"]);
     expect(covered((axes) => axes.surviving)).toStrictEqual([
       "descendant",

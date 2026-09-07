@@ -45,9 +45,9 @@ import { describe, expect, it } from "vitest";
 
 import { processHasTerminated } from "../../helpers/process-tree.js";
 import { BoundedCleanup, ELECTRON_PROCESS_TERMINATOR } from "../bounded-cleanup.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import { withCleanupOutcome } from "../cleanup-disposition.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import {
   applicationThatNeverCloses,
   applicationWhoseCloseRejects,
@@ -357,12 +357,17 @@ describe("bounded cleanup — which liveness reading a verdict rests on", () => 
     const calleeNames = calleeNamesIn(BOUNDED_CLEANUP_PATH);
     // Non-vacuity first: a reader that found no calls at all would pass the
     // claim below over an empty set.
-    expect(calleeNames, "the parse found no calls, so the absence below is vacuous").toContain(
-      "processHasTerminated",
-    );
+    expect(
+      calleeNames.size,
+      "the parse found no calls, so the absence below is vacuous",
+    ).toBeGreaterThan(0);
     expect(
       calleeNames,
       "a verdict path reached `processExists` — an unreaped zombie reads as a live process there",
     ).not.toContain("processExists");
+    expect(
+      calleeNames,
+      "no verdict path reads liveness at all — the terminator binding has gone somewhere else",
+    ).toContain("processHasTerminated");
   });
 });
