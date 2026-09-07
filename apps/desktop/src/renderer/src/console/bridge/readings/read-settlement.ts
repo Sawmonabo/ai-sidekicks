@@ -189,7 +189,18 @@ export function useSettledGrowthRead<TOutcome, TState>(
         // work this hook exists to stop rather than merely to discard afterwards.
         return;
       }
-      publish(settled(settlement.value));
+      // AND THE ROUND IS ASKED AGAIN, at the last boundary before the projection is
+      // built. The settlement above answers which of two events came FIRST, and it
+      // resolves the instant the read does — retiring its abort listener as it goes —
+      // so a departure landing between that resolution and this callback finds
+      // nothing to reach and the captured settlement still reads `settled`. One
+      // microtask, which is exactly the gap a fulfilment and a pane teardown
+      // scheduled in the same tick fall into. The round is the reading that covers
+      // it, and it covers the other ending too: a round this line has already
+      // SUPERSEDED installs nothing, which no signal check would have caught.
+      round.settle(() => {
+        publish(settled(settlement.value));
+      });
     });
     // `publish` re-identifies exactly when the holder is re-addressed, so it is both
     // the guard on this read's answer and the whole of what tells this effect to run

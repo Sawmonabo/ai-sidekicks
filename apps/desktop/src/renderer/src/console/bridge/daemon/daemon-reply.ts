@@ -67,7 +67,7 @@
 // consumed for its leaf helpers rather than for this.
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
-import { settleUnlessAbandoned } from "../../store/index.js";
+import { isReadAbandoned, settleUnlessAbandoned } from "../../store/index.js";
 import { lossyStringify, readGuardedProperty } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import {
@@ -150,36 +150,30 @@ export interface DaemonCallOptions {
 }
 
 /**
- * Whether nobody is waiting for this read any more.
- *
- * A FUNCTION AND NOT `signal?.aborted === true` AT EACH SITE, and the reason is a
- * compiler behaviour rather than tidiness: `aborted` is a readonly property, so
- * TypeScript narrows it at the first check and KEEPS that narrowing across the
- * `await` in between — the second check then compares `false | undefined` against
- * `true` and is reported as an impossible comparison. The property really does change
- * over that await, which is the whole point of it, so the reading is taken through a
- * call the narrowing cannot follow.
- */
-function isAbandoned(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true;
-}
-
-/**
  * The refusal a read that nobody is waiting for settles as.
  *
  * Built here rather than at the three places that reach it, so the sentence a
  * reader would meet is one sentence. It names the method and no value: there is
  * nothing to quote and, on the pre-send arm, nothing was even composed.
+ *
+ * EXPORTED FOR THE COMPOSED READ, which has `await` boundaries this door cannot see.
+ * A read that calls the door, folds the answer, and calls it again has to stop
+ * between its own calls, and it already stops this way on the first one:
+ * `seats/push-driven-read.ts`'s `servedValueOrRaise` raises exactly this refusal the
+ * moment the door answers with it. A caller settling its later boundaries under a
+ * code of its own would give one settlement two names, so it raises this one instead.
  */
+export function abandonedReadRefusal(method: string): ConsoleRefusal {
+  return refuse(
+    DAEMON_REPLY_REFUSAL_ORIGIN,
+    "read-abandoned" satisfies DaemonReplyRefusalCode,
+    `Nothing is waiting for the ${method} read any more, so the console read nothing from it.`,
+  );
+}
+
+/** That refusal as the door's own answer, so every arm here returns one shape. */
 function abandonedRead(method: string): DaemonReply<never> {
-  return {
-    status: "refused",
-    refusal: refuse(
-      DAEMON_REPLY_REFUSAL_ORIGIN,
-      "read-abandoned" satisfies DaemonReplyRefusalCode,
-      `Nothing is waiting for the ${method} read any more, so the console read nothing from it.`,
-    ),
-  };
+  return { status: "refused", refusal: abandonedReadRefusal(method) };
 }
 
 /**
@@ -220,7 +214,7 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
   const binding = CONSOLE_DAEMON_METHOD_BINDINGS[method];
   const { signal } = options;
 
-  if (isAbandoned(signal)) {
+  if (isReadAbandoned(signal)) {
     return abandonedRead(method);
   }
 
@@ -252,7 +246,7 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
     }
     reply = settlement.value;
   } catch (rejection: unknown) {
-    if (isAbandoned(signal)) {
+    if (isReadAbandoned(signal)) {
       // The read lost its owner and the call failed, in whichever order. Reporting
       // the wire failure would compose a refusal about a call nobody put a question
       // for any more; the departure is the fact that explains the settlement.
@@ -272,7 +266,7 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
     };
   }
 
-  if (isAbandoned(signal)) {
+  if (isReadAbandoned(signal)) {
     // THE INTERLEAVING THE RACE ABOVE CANNOT ANSWER, and the reason this check is
     // here rather than folded into it. `settleUnlessAbandoned` reports which of the
     // two racers WON; it resolves the instant the reply does, retiring its abort

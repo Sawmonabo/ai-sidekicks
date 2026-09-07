@@ -207,6 +207,32 @@ export type ReadSettlement<TValue> =
   | { readonly status: "abandoned" };
 
 /**
+ * Whether nobody is waiting for this read any more.
+ *
+ * THE READING A CALLER TAKES AFTER ITS `await`, and the companion to
+ * {@link settleUnlessAbandoned} rather than a second mechanism: the combinator answers
+ * which of two events came FIRST, and this answers whether anybody is still waiting
+ * once both have. A read that reaches the wire once needs the first; a COMPOSED read —
+ * one that calls the door, folds the answer, and calls it again — needs the second at
+ * every boundary between its calls, because an abort landing in one of those gaps
+ * reaches no listener the combinator has left attached.
+ *
+ * A FUNCTION AND NOT `signal?.aborted === true` AT EACH SITE, and the reason is a
+ * compiler behaviour rather than tidiness: `aborted` is a readonly property, so
+ * TypeScript narrows it at the first check and KEEPS that narrowing across the
+ * `await` in between — the second check then reads as a comparison that cannot
+ * change, which is precisely the claim this predicate exists to deny. The property
+ * really does move over that await, which is the whole point of it, so the reading is
+ * taken through a call the narrowing cannot follow.
+ *
+ * `signal` is optional for {@link settleUnlessAbandoned}'s reason: its absence is the
+ * mutation path, which has no owner who may leave and is therefore never abandoned.
+ */
+export function isReadAbandoned(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+/**
  * Settle `pending`, unless `signal` says nobody is waiting for it any more.
  *
  * THE POINT IS THAT IT DOES NOT WAIT. A read that hangs — a scripted reply a scenario

@@ -15,6 +15,15 @@
 // carrying its own code verbatim. What is left here is the pair of identifiers,
 // parsed through their registered schemas, and the three settled states a surface
 // renders.
+//
+// AND THE ROUND'S SIGNAL GOES THROUGH THE DOOR WITH IT. This is a surface-owned read:
+// the popover that opened it closes, or the composer addresses another agent, and
+// nobody is waiting for the bindings any more. Without the signal the door went on
+// waiting for the reply and parsing the whole `ProviderCommandListResult` against its
+// registered schema for an owner who had left — the holder next door superseded what
+// came back, which discards the answer and pays for it anyway. The signal is a
+// PARAMETER rather than something this module opens, because whose read this is and
+// when it ends are the holder's to say.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
@@ -51,20 +60,33 @@ export type ProviderCommandReadState =
   | { readonly phase: "served"; readonly groups: readonly ProviderCommandBindingGroup[] }
   | { readonly phase: "refused"; readonly refusal: ConsoleRefusal };
 
-/** One enumeration request, resolved into exactly one settled state. Never throws. */
+/**
+ * One enumeration request, resolved into exactly one settled state. Never throws.
+ *
+ * `signal` is the round's, from the read line the holder opened for this address. An
+ * already-abandoned line puts nothing on the wire and one abandoned mid-flight parses
+ * nothing — both settle as the door's own `read-abandoned` refusal, which the holder
+ * never publishes because the round it was opened on is no longer the live one.
+ */
 export async function settleEnumeration(
   bridge: ConsoleBridge,
   sessionId: string,
   agentId: string,
+  signal: AbortSignal,
 ): Promise<ProviderCommandReadState> {
   const parsedSessionId = readSessionId(sessionId);
   if (parsedSessionId === undefined) {
     return { phase: "refused", refusal: unparseableAddress() };
   }
-  const reply = await callDaemon(bridge, "driver.listProviderCommands", {
-    sessionId: parsedSessionId,
-    agentId,
-  });
+  const reply = await callDaemon(
+    bridge,
+    "driver.listProviderCommands",
+    {
+      sessionId: parsedSessionId,
+      agentId,
+    },
+    { signal },
+  );
   // The daemon's own refusal reads as itself. `driver.unavailable` is the ordinary
   // one here — an agent holding no live binding has nothing to enumerate.
   return reply.status === "refused"
