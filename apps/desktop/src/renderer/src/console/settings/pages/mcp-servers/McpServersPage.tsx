@@ -28,11 +28,8 @@ import type { ReactNode } from "react";
 
 import { Chip } from "../../../primitives/index.js";
 import { MCP_SERVERS_PAGE } from "./mcp-servers-slot.js";
-import {
-  renderOwnerSlotPage,
-  type SettingsPageContext,
-  type SettingsPageRegistry,
-} from "../../settings-page-registry.js";
+import { renderOwnerSlotPage } from "../../owner-slot-page.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-mcp";

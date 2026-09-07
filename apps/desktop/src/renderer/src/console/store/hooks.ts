@@ -37,6 +37,7 @@ import type { SessionStoreRegistry } from "./session-store-registry.js";
 import { selectEntity, selectPartition, type SessionStore } from "./session-store.js";
 import type { SessionDegradedCause } from "./session-store.js";
 import type { SessionStoreState } from "./session-store.js";
+import type { ShellState } from "./shell-state.js";
 
 /**
  * The store for one session, or `undefined` while that session is not open.
@@ -379,6 +380,38 @@ export function useSessionDegradedCause(store: SessionStore): SessionDegradedCau
 
 function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
   return state.degradedCause;
+}
+
+/**
+ * What the shell says about itself, subscribed rather than sampled.
+ *
+ * A hook of its own beside {@link useFrameStore} for `useSessionDegradedCause`'s
+ * reason: the selector has to return a stored reference, and one written per surface
+ * is one more chance to build a value in a render body and re-render every frame.
+ * The store publishes a new `shellState` only when the report or the recovery fold
+ * actually moved, so a subscriber here re-renders exactly when the fact does.
+ */
+export function useShellState(store: FrameStore): ShellState {
+  return useStore(store.readable, readShellState);
+}
+
+function readShellState(state: FrameStoreState): ShellState {
+  return state.shellState;
+}
+
+/**
+ * How many sessions need a person, or `undefined` where nothing is reading.
+ *
+ * Narrowed one step further than {@link useShellState} because the rail renders this
+ * and nothing else: the rail is the console's most-seen surface, and a subscriber to
+ * the whole shell state would re-render it on every heartbeat.
+ */
+export function useRailAttentionCount(store: FrameStore): number | undefined {
+  return useStore(store.readable, readRailAttentionCount);
+}
+
+function readRailAttentionCount(state: FrameStoreState): number | undefined {
+  return state.railAttentionCount;
 }
 
 /** Select from the frame store. */

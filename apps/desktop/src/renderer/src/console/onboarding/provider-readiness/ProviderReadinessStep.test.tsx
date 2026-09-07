@@ -1,0 +1,293 @@
+// The provider step renders six states, one remedy per arm, and no staleness badge.
+//
+// THE VOCABULARY CASES DRIVE THE CONTRACT'S OWN ARRAY rather than a hand-listed
+// copy: a test restating the six readiness states would be a second closed set, and
+// the first one to go stale when a seventh lands.
+//
+// THE REMEDY IS DISPLAY TEXT AND EVERY ARM STILL HAS AN ACTION. The two remedies whose
+// act is a mutating registry verb are never PERFORMED here — a button that registered
+// an account or set a default from this step would be a second place the registry is
+// written from, and no console route serves either verb — so what those arms offer is
+// the way to the surface that owns them, scoped to the row's own provider. The case
+// below counts the controls a `register` row offers and asserts where the row's one
+// control goes; `ProviderRow.test.tsx` drives the row directly for the other arms.
+//
+// AND `observedAt` IS RENDERED AS WHAT IT IS. The contract carries no read-path age
+// test and no stale arm, so a badge computed from a clock would be this console
+// inventing a freshness policy and applying it to somebody else's reading.
+
+import { PROVIDER_READINESS_STATES, type ProviderReadiness } from "@ai-sidekicks/contracts";
+import { render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { ProviderReadinessStep } from "./ProviderReadinessStep.js";
+import { READINESS_STATE_LABELS, READINESS_STATE_NOTES } from "./provider-readiness-copy.js";
+import { providerAccountRecord } from "./provider-readiness.test-support.js";
+import type { ProviderAccount } from "@ai-sidekicks/contracts";
+import type { ProviderReadinessReading } from "./provider-readiness-reading.js";
+
+const ACCOUNT_ID = "019b78c9-0a80-7c31-8110-cca0117a3302" as NonNullable<
+  ProviderReadiness["resolvedAccountId"]
+>;
+
+function renderStep(
+  reading: ProviderReadinessReading,
+  onOpenAccountRegistry: (providerName: string | undefined) => void = () => undefined,
+): HTMLElement {
+  const { container } = render(
+    <ProviderReadinessStep
+      reading={reading}
+      actionFor={() => ({ kind: "idle" })}
+      onRecheck={() => undefined}
+      recheckBlock={undefined}
+      onOpenAccountRegistry={onOpenAccountRegistry}
+      onDismiss={() => undefined}
+    />,
+  );
+  return container;
+}
+
+function readingWith(entries: readonly ProviderReadiness[]): ProviderReadinessReading {
+  return { kind: "read", entries, accounts: [] };
+}
+
+function readingWithAccounts(
+  entries: readonly ProviderReadiness[],
+  accounts: readonly ProviderAccount[],
+): ProviderReadinessReading {
+  return { kind: "read", entries, accounts };
+}
+
+describe("the readiness vocabulary", () => {
+  it("says something distinct about every state the contract declares", () => {
+    // Vacuity guard: an empty contract array would make the loop assert nothing.
+    expect(PROVIDER_READINESS_STATES.length).toBe(6);
+    const notes = new Set<string>();
+    for (const state of PROVIDER_READINESS_STATES) {
+      const text = renderStep(readingWith([{ provider: "claude", state }])).textContent ?? "";
+      expect(text).toContain(READINESS_STATE_LABELS[state]);
+      expect(text).toContain(READINESS_STATE_NOTES[state]);
+      notes.add(READINESS_STATE_NOTES[state]);
+    }
+    // Six states, six sentences: a shared sentence would make two different facts
+    // read identically on screen.
+    expect(notes.size).toBe(6);
+  });
+
+  it("reports a provider as ready on the authenticated arm and on no other", () => {
+    for (const state of PROVIDER_READINESS_STATES) {
+      const text = renderStep(readingWith([{ provider: "codex", state }])).textContent ?? "";
+      expect(text.includes("Ready. A run can start"), state).toBe(state === "authenticated");
+    }
+  });
+});
+
+describe("the remedy", () => {
+  it("renders the register remedy as text and offers the way to the registry", () => {
+    const opened: (string | undefined)[] = [];
+    const container = renderStep(
+      readingWith([
+        {
+          provider: "claude",
+          state: "no_account",
+          remedy: { kind: "register", provider: "claude" },
+        },
+      ]),
+      (providerName) => opened.push(providerName),
+    );
+    expect(container.textContent).toContain("Register an account for this provider");
+    // The step's own two controls — the registry and the skip — plus the row's one,
+    // which is a deep link and never the registry verb itself.
+    const controls = [...container.querySelectorAll("button")];
+    expect(controls).toHaveLength(3);
+    const rowAction = controls.find(
+      (control) => control.textContent === "Open the registry to add an account",
+    );
+    expect(rowAction).toBeDefined();
+    rowAction?.click();
+    // Scoped to the row's provider, which is the whole difference from the step's own
+    // unscoped button: the page it lands on says which provider it was opened for.
+    expect(opened).toStrictEqual(["claude"]);
+  });
+
+  it("names no provider when the step's own button is the one pressed", () => {
+    // The negative control for the scoping above: one handler serves both controls, so
+    // a row action that leaked its provider into the step's button would open the page
+    // for a provider nobody was reading about.
+    const opened: (string | undefined)[] = [];
+    const container = renderStep(
+      readingWith([{ provider: "claude", state: "authenticated" }]),
+      (providerName) => opened.push(providerName),
+    );
+    const stepAction = [...container.querySelectorAll("button")].find(
+      (control) => control.textContent === "Open the account registry",
+    );
+    expect(stepAction).toBeDefined();
+    stepAction?.click();
+    expect(opened).toStrictEqual([undefined]);
+  });
+
+  it("displays a sign-in remedy and offers only the probe that decides it", () => {
+    // `Spec-026 §Provider Authentication (Group B)` hands the operator the provider's
+    // own flow "with the remedy named — which provider, which account, the invocation,
+    // and the home" and has this step display it rather than run it, and it makes the
+    // probe the definition of success. So the invocation and the home are on screen,
+    // the only control is **Check again**, and there is no control that performs the
+    // sign-in — which this step used to offer.
+    const container = renderStep(
+      readingWith([
+        {
+          provider: "codex",
+          state: "reauth_required",
+          resolvedAccountId: ACCOUNT_ID,
+          observedAt: "2026-01-01T08:40:00.000Z",
+          remedy: {
+            kind: "sign_in",
+            accountId: ACCOUNT_ID,
+            signInInvocation: "codex login",
+            credentialHomePath: "/homes/codex/personal",
+          },
+        },
+      ]),
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("codex login");
+    expect(text).toContain("/homes/codex/personal");
+    const labels = [...container.querySelectorAll("button")].map((one) => one.textContent);
+    expect(labels).toContain("Check again");
+    expect(labels).not.toContain("Sign in to this provider");
+  });
+
+  it("offers no re-check where readiness resolved no account to probe", () => {
+    const container = renderStep(
+      readingWith([
+        {
+          provider: "claude",
+          state: "no_account",
+          remedy: { kind: "register", provider: "claude" },
+        },
+      ]),
+    );
+    const labels = [...container.querySelectorAll("button")].map((one) => one.textContent);
+    expect(labels).not.toContain("Check again");
+  });
+});
+
+describe("what the step never renders", () => {
+  it("shows the observation moment verbatim and adds no freshness word", () => {
+    const text =
+      renderStep(
+        readingWith([
+          {
+            provider: "claude",
+            state: "authenticated",
+            resolvedAccountId: ACCOUNT_ID,
+            observedAt: "2026-01-01T08:55:00.000Z",
+          },
+        ]),
+      ).textContent ?? "";
+    expect(text).toContain("2026-01-01T08:55:00.000Z");
+    for (const word of ["stale", "Stale", "ago", "out of date", "expired"]) {
+      expect(text, word).not.toContain(word);
+    }
+  });
+
+  it("has no field anywhere a provider credential could be typed", () => {
+    const container = renderStep(
+      readingWith([
+        {
+          provider: "codex",
+          state: "reauth_required",
+          resolvedAccountId: ACCOUNT_ID,
+          remedy: {
+            kind: "sign_in",
+            accountId: ACCOUNT_ID,
+            signInInvocation: "codex login",
+            credentialHomePath: "/homes/codex/personal",
+          },
+        },
+      ]),
+    );
+    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(container.querySelector("form")).toBeNull();
+  });
+});
+
+describe("the absences", () => {
+  it("separates a read in flight from a read that failed", () => {
+    expect(renderStep({ kind: "reading" }).textContent).toContain("Reading what this node can run");
+    const refused = renderStep({
+      kind: "unreadable",
+      refusal: { code: "runtimenode.permission_denied", detail: "No.", origin: "daemon" },
+    });
+    expect(refused.textContent).toContain("runtimenode.permission_denied");
+  });
+
+  it("says a node that selects no provider selects none, rather than showing nothing", () => {
+    expect(renderStep(readingWith([])).textContent).toContain("No providers are selected");
+  });
+});
+
+describe("the accounts a row is handed", () => {
+  /**
+   * A label carrying a comma, so a step that pre-joined would be caught by the count
+   * rather than only by the absence of the suffix.
+   */
+  const LABEL_WITH_A_COMMA = "Work, personal, and the shared one";
+
+  function accountFigures(container: HTMLElement): readonly string[] {
+    const term = [...container.querySelectorAll("dt")].find(
+      (one) => one.textContent === "Accounts registered for this provider",
+    );
+    const cell = term?.nextElementSibling;
+    if (!(cell instanceof HTMLElement)) {
+      throw new Error("the step rendered no accounts cell");
+    }
+    return [...cell.querySelectorAll(".meridian-figure--wire")].map(
+      (figure) => figure.textContent ?? "",
+    );
+  }
+
+  it("passes the registry records through and composes no display string", () => {
+    const container = renderStep(
+      readingWithAccounts(
+        [{ provider: "codex", state: "authenticated" }],
+        [
+          providerAccountRecord({
+            accountId: "acct-one",
+            displayLabel: LABEL_WITH_A_COMMA,
+            isDefault: true,
+          }),
+          providerAccountRecord({ accountId: "acct-two", displayLabel: "Work", isDefault: false }),
+        ],
+      ),
+    );
+
+    // Two accounts, two figures, each carrying its label whole — which a step that
+    // pasted a suffix on or joined with commas could not produce.
+    expect(accountFigures(container)).toStrictEqual([LABEL_WITH_A_COMMA, "Work"]);
+    expect(container.textContent).not.toContain("(default)");
+  });
+
+  it("hands each provider only its own accounts", () => {
+    const container = renderStep(
+      readingWithAccounts(
+        [{ provider: "claude", state: "no_account" }],
+        [
+          providerAccountRecord({
+            accountId: "acct-one",
+            displayLabel: "Personal",
+            isDefault: true,
+            provider: "codex",
+          }),
+        ],
+      ),
+    );
+
+    // The registry holds one account and it belongs to the OTHER provider, so the row
+    // for this one has nothing to show — which is the only evidence the step's filter
+    // ran at all, since the row renders whatever it is handed.
+    expect(accountFigures(container)).toStrictEqual([]);
+  });
+});

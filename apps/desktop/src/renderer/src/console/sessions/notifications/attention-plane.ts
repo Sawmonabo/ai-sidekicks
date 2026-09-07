@@ -166,6 +166,16 @@ export type AttentionReading =
       readonly droppedCount: number;
       /** Sessions that never answered. Non-empty means the coverage is incomplete. */
       readonly refusedSessions: readonly RefusedAttentionSession[];
+      /**
+       * Every session this read asked about, carried through from the fan-out.
+       *
+       * The denominator the refusals are a numerator over, and the only member that
+       * says which sessions a settled read speaks FOR. A surface that renders the
+       * projection needs neither; the emitter needs both, because an item from a
+       * session this read has only just begun addressing is the state of the world
+       * rather than something that happened.
+       */
+      readonly addressedSessionIds: readonly string[];
     };
 
 /** The arm that answered. Named once, so the readings below take it directly. */

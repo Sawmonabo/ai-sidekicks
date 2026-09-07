@@ -99,6 +99,28 @@ export {
   type ConsoleSurfaceDescriptor,
 } from "./surface-registry.js";
 
+// The frame-lifetime binding seat, beside the four that mount bodies. It is on this
+// door for the same reason every other board is — a family claims a place on it and
+// the composition hands the board out — and `mountFrameBindings` is here because the
+// frame is the one caller that wraps a subtree in what the board holds.
+//
+// FOUR SPECIFIERS AND NOT EIGHT. The slot enumeration, its derived union, and the
+// descriptor are the board's INTERNAL vocabulary: a family names its slot as a string
+// literal inside the descriptor it registers and never imports the union to do it, so
+// publishing them here would put four names on this door that only the declaring
+// module and its tests reach. `families.test.ts` imports them from that module
+// directly, on the rule `DuplicateRegistrationError` already follows one layer down.
+//
+// No `@consumedBy` claims: the composition root, the frame, and the family that fills
+// the one declared slot all read these today.
+export {
+  FrameBindingRegistry,
+  frameBindingRegistry,
+  mountFrameBindings,
+  type FrameBindingContext,
+  type FrameBindingProps,
+} from "./frame-bindings.js";
+
 // The two contexts come off their own modules rather than off the boards that hand them
 // out. They were hoisted there to break a cycle — a board reaches the reserved frame it
 // mounts while a loader-backed body is in flight, and that frame names the context — and
@@ -317,14 +339,43 @@ export type {
   SessionSubject,
 } from "./session-subject.js";
 
-// The node's session directory — the read, and the offer a picker draws from it.
+// The node's session directory — the read, the offer a picker draws from it, and the
+// one way a settled act says the node's list has moved.
 //
 // In this family because its one input is the growth port and `seats/` is the lowest
 // family above `bridge/`. It was authored in `frame/` when the frame was its only
 // reader; it has readers on both sides of the frame now, and neither `frame/` nor its
 // door is reachable from below.
-export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+//
+// The invalidation door travels with the read for the same reason the read is here: it
+// is addressed at the PORT, so the family that settles an act and the three families
+// that render the answer reach one generation rather than passing a refresh callback
+// down through whichever surfaces happen to sit between them.
+export {
+  offeredSessionIds,
+  requestSessionDirectoryRead,
+  useSessionDirectory,
+} from "./session-directory.js";
 export type { SessionDirectoryState } from "./session-directory.js";
+
+// Whether a first send pins the session it was sent into: the rule, and the record
+// the two families that own its halves meet on.
+//
+// In this family because the halves are in two families that may not import each
+// other. Only the sessions destination can say where a session came from — it
+// authored the one origin this console reports in full — and only the composer knows
+// a send is the first one, because the send path is the composer's; the composer
+// lives outside the console entirely and reaches it through family doors alone. The
+// rule itself imports nothing at all, so `seats/` is simply the lowest family both
+// readers can take it from.
+//
+// `AutoPinRefusalReason` and `SessionAutoPinAuthority` are deliberately absent. The
+// first is read only by the port beside the rule, and the second is met structurally
+// by the object the sessions destination composes at a settled start — so a door line
+// for either would be a specifier no cross-family import uses.
+export { autoPinDecision } from "./auto-pin.js";
+export type { AutoPinDecision, SessionOriginEvidence } from "./auto-pin.js";
+export { recordConsoleStartedSession, settleFirstSendAutoPin } from "./session-auto-pin.js";
 
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
@@ -359,6 +410,7 @@ export { subscribeDaemonEvent } from "./wire-access.js";
 // mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
 // reaches them here like every other consumer.
 export {
+  absorbedSurfaceAsks,
   renderAbsorbedInviteAcceptance,
   renderAbsorbedNodeRoster,
   renderAbsorbedParticipantRoster,

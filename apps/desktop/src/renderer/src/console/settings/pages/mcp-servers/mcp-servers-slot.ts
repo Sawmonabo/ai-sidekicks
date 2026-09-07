@@ -27,7 +27,8 @@
 // arrived to decide otherwise.
 
 import type { OwnerSlotProps } from "../../../seats/index.js";
-import type { OwnerSlotPage, SettingsPageBody } from "../../settings-page-registry.js";
+import type { OwnerSlotPage } from "../../owner-slot-page.js";
+import type { SettingsPageBody } from "../../settings-page-registry.js";
 
 /**
  * The seat itself.
