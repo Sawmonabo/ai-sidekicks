@@ -30,14 +30,12 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
+import type { ConsoleClock } from "../../../core/index.js";
 import { useAnnounce } from "../../../primitives/index.js";
-import { consoleRefusalFrom } from "../../../seats/index.js";
 import {
-  NO_TRIGGERING_EVENT_KINDS,
   useSubjectScopedResource,
   useSubjectScopedState,
   useWindowReadTriggers,
-  type ReadTriggerTarget,
   type SubjectScopedDisposal,
 } from "../../../store/index.js";
 import {
@@ -45,10 +43,12 @@ import {
   type AttentionPreferenceReading,
   type CallerParticipantReading,
 } from "./attention-preference-model.js";
+import { AttentionPreferenceRead } from "./attention-preference-read.js";
+import { CallerParticipantRead } from "./caller-participant-read.js";
 import {
-  ATTENTION_PREFERENCE_ORIGIN,
-  AttentionPreferenceRead,
-} from "./attention-preference-read.js";
+  OsNotificationPermissionRead,
+  type OsNotificationPermissionReading,
+} from "./os-notification-permission-read.js";
 import { NotificationPreferenceWriter } from "./notification-preference-writer.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
@@ -67,6 +67,35 @@ const ATTENTION_PREFERENCE_READ_DISPOSAL: SubjectScopedDisposal<AttentionPrefere
   isClosed: (read) => read.isDisposed,
 };
 
+/** The same rule for the identity read in front of it, for the same reason. */
+const CALLER_PARTICIPANT_READ_DISPOSAL: SubjectScopedDisposal<CallerParticipantRead> = {
+  dispose: (read) => {
+    read.dispose();
+  },
+  isClosed: (read) => read.isDisposed,
+};
+
+/**
+ * The clock this page's readings schedule against, held for the life of a bridge.
+ *
+ * The scenario's frozen clock under the fixture and the real one otherwise, so these
+ * reads' coalescing windows advance exactly when every other console read's does.
+ *
+ * Resolved through the family's own holder rather than `useConsoleClock`, which reads
+ * the bridge PROVIDER: this page is mounted from a settings board that hands it a
+ * bridge directly, and reaching for the provider would make the clock a second,
+ * stricter requirement than the bridge the page already has. Pinned rather than read
+ * per call because the live arm of `consoleClockFor` MINTS — the reading it gives is
+ * the same either way, and holding one is what keeps a scheduler armed on a clock that
+ * does not change underneath it.
+ *
+ * Written once because both hooks in this module need it, and two copies of a pin are
+ * two places a page can come to run on two time bases.
+ */
+function usePinnedBridgeClock(bridge: ConsoleBridge): ConsoleClock {
+  return useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge)).value;
+}
+
 /**
  * The two reads, in order, and the writer that owns everything after them.
  *
@@ -80,71 +109,37 @@ export function useStoredAttentionPreferences(
   context: SettingsPageContext,
 ): StoredPreferenceBinding {
   const { bridge, retainedSessionId } = context;
-  // The scenario's frozen clock under the fixture and the real one otherwise, so this
-  // read's coalescing window advances exactly when every other console read's does.
-  //
-  // Resolved through the family's own holder rather than `useConsoleClock`, which
-  // reads the bridge PROVIDER: this page is mounted from a settings board that hands
-  // it a bridge directly, and reaching for the provider would make the clock a
-  // second, stricter requirement than the bridge the page already has. Pinned rather
-  // than read per call because the live arm of `consoleClockFor` MINTS — the reading
-  // it gives is the same either way, and holding one is what keeps the scheduler
-  // armed on a clock that does not change underneath it.
-  const { value: clock } = useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge));
+  const clock = usePinnedBridgeClock(bridge);
   const announce = useAnnounce();
-  // THE IDENTITY READ IS HELD FOR THE SUBJECT IT WAS MADE FOR, through the family's one
-  // holder. It was a `useState` cell cleared at the top of an effect, and "cleared
-  // first" was first WITHIN THE EFFECT — one committed frame after the render that
-  // renamed the subject, so that frame painted one session's participant under
-  // another's name. The holder is addressed during the render, so the pass that first
-  // sees a new subject reads that subject's own seed.
-  const { value: participantReading, publish: publishParticipantReading } = useSubjectScopedState<
-    CallerParticipantReading | undefined
-  >(bridge, retainedSessionId, () => undefined);
+  // THE IDENTITY READ IS A SCHEDULED READ HELD FOR THE SESSION IT WAS MADE FOR. It was
+  // a `useEffect` keyed on the bridge and the session, which is a read that runs ONCE:
+  // a transport outage refused it, the dependencies never moved again, and the section
+  // behind it — which takes the participant as its subject — refused every focus and
+  // every reconnect for the life of the window. It now declares the same
+  // `ReadTriggerTarget` its own set does and takes the same three window triggers, so
+  // a later focus asks again and the chain finishes.
+  const { value: identityRead } = useSubjectScopedResource(
+    bridge,
+    retainedSessionId,
+    () => new CallerParticipantRead({ bridge, sessionId: retainedSessionId, clock }),
+    CALLER_PARTICIPANT_READ_DISPOSAL,
+  );
+  useWindowReadTriggers(identityRead, bridge.transportReconnect);
+  const subscribeToIdentity = useCallback(
+    (onStoreChange: () => void) => identityRead.subscribe(onStoreChange),
+    [identityRead],
+  );
+  const takeIdentitySnapshot = useCallback(() => identityRead.snapshot(), [identityRead]);
+  const participantReading = useSyncExternalStore(
+    subscribeToIdentity,
+    takeIdentitySnapshot,
+    takeIdentitySnapshot,
+  );
 
   const participantId =
     participantReading?.kind === "answered" && participantReading.outcome.status === "served"
       ? participantReading.outcome.value.participantId
       : undefined;
-
-  // The chain settles once and says so once. Held in a ref rather than in state so
-  // announcing never causes the render that would announce again.
-  const hasAnnouncedRef = useRef(false);
-
-  useEffect(() => {
-    if (retainedSessionId === undefined) {
-      return undefined;
-    }
-    // The publisher guards the VALUE; this flag guards the ANNOUNCEMENT, which it
-    // cannot — the announcer is the window's and is addressed by nothing.
-    let isAttached = true;
-    hasAnnouncedRef.current = false;
-    void bridge.growth.callerParticipantRead({ sessionId: retainedSessionId }).then(
-      (outcome) => {
-        publishParticipantReading({ kind: "answered", outcome });
-        if (isAttached && outcome.status === "unavailable" && !hasAnnouncedRef.current) {
-          // The chain stopped here, so this refusal IS the settlement — said in the
-          // daemon's own words rather than in a sentence about a read never made.
-          hasAnnouncedRef.current = true;
-          announce(outcome.detail);
-        }
-      },
-      // The chain stops here too, and for a reason the port's own vocabulary has no
-      // arm for. Without this the page reports "Finding out who you are" for the life
-      // of the window over a call that already failed.
-      (rejection: unknown) => {
-        const refusal = consoleRefusalFrom(rejection, ATTENTION_PREFERENCE_ORIGIN);
-        publishParticipantReading({ kind: "unreadable", refusal });
-        if (isAttached && !hasAnnouncedRef.current) {
-          hasAnnouncedRef.current = true;
-          announce(refusal.detail);
-        }
-      },
-    );
-    return () => {
-      isAttached = false;
-    };
-  }, [bridge, retainedSessionId, announce, publishParticipantReading]);
 
   // ONE READING PER PARTICIPANT, and the participant rather than the session: a person
   // reached through two sessions is the same person, and re-seeding their switches
@@ -174,17 +169,26 @@ export function useStoredAttentionPreferences(
     takeReadSnapshot,
   );
 
+  // THE CHAIN SETTLES ONCE AND SAYS SO ONCE, AND "ONCE" IS KEYED ON WHAT IT SAID. A
+  // boolean here reported the first settlement and then went silent for the life of
+  // the window, which was right while the identity read ran once and is wrong now that
+  // it retries: an attempt that refused announced its refusal, and the focus that
+  // succeeded afterwards put a set on screen with nothing said about it. Held in a ref
+  // rather than in state so announcing never causes the render that would announce
+  // again.
+  const lastAnnouncedRef = useRef<string | undefined>(undefined);
+  const settledSentence = chainSentenceFor(participantReading, preferenceReading);
   useEffect(() => {
-    if (preferenceReading === undefined || hasAnnouncedRef.current) {
+    if (settledSentence === undefined || lastAnnouncedRef.current === settledSentence) {
       return;
     }
-    // In an effect rather than inside the reply's own callback, because the reading is
-    // published by a class that holds no announcer: what is said is a property of the
+    // In an effect rather than inside a reply's own callback, because the readings are
+    // published by classes that hold no announcer: what is said is a property of the
     // settled value, and this is the one place that value and the window's announcer
     // are both in hand.
-    hasAnnouncedRef.current = true;
-    announce(sentenceFor(preferenceReading));
-  }, [announce, preferenceReading]);
+    lastAnnouncedRef.current = settledSentence;
+    announce(settledSentence);
+  }, [announce, settledSentence]);
 
   // Rebuilt when the participant changes, because everything it holds — the queue,
   // the busy records, the refusals — belongs to one person's set. The old writer's
@@ -229,6 +233,35 @@ export function useStoredAttentionPreferences(
 }
 
 /**
+ * What the settled chain says out loud, or nothing because it has not settled.
+ *
+ * THE CHAIN AND NOT THE LAST LINK, because either link can be where it stops. A read
+ * set is the settlement whenever there is one; before that, an identity that refused —
+ * in the daemon's own words on the `unavailable` arm, and in the console's on the
+ * rejection arm the port has no member for — is the settlement, since nothing behind
+ * it will ever run. An identity that answered and a set still in flight is not a
+ * settlement at all, and answers with nothing rather than with a sentence about a read
+ * that is still out.
+ */
+function chainSentenceFor(
+  participantReading: CallerParticipantReading | undefined,
+  preferenceReading: AttentionPreferenceReading | undefined,
+): string | undefined {
+  if (preferenceReading !== undefined) {
+    return sentenceFor(preferenceReading);
+  }
+  if (participantReading === undefined) {
+    return undefined;
+  }
+  if (participantReading.kind === "unreadable") {
+    return participantReading.refusal.detail;
+  }
+  return participantReading.outcome.status === "served"
+    ? undefined
+    : participantReading.outcome.detail;
+}
+
+/**
  * What one settled preference reading says out loud.
  *
  * The refusal arm carries the console's own sentence for a call that produced no
@@ -240,48 +273,45 @@ function sentenceFor(reading: AttentionPreferenceReading): string {
   return reading.kind === "unreadable" ? reading.refusal.detail : announcementFor(reading.outcome);
 }
 
+/** How a probe whose bridge moved is retired, declared once at module scope. */
+const OS_PERMISSION_READ_DISPOSAL: SubjectScopedDisposal<OsNotificationPermissionRead> = {
+  dispose: (read) => {
+    read.dispose();
+  },
+  isClosed: (read) => read.isDisposed,
+};
+
 /**
  * Whether this machine's operating system will let the shell raise a notification.
  *
  * Its own reading and its own hook, because it answers for the MACHINE rather than for
  * a participant: it re-reads on the window's own triggers — a person granting the
  * permission does so outside this application and comes back to it — and it is
- * addressed by no session and no participant. No wire serves it today, which is a row
- * on the growth slate rather than a silence: the page says the question could not be
- * put, and never that the answer was yes.
+ * addressed by no session and no participant.
+ *
+ * THE PROBES OVERLAP, WHICH IS WHY IT IS A CLASS. Granting the permission is a trip
+ * out of the window and back, so the mount probe and the focus probe are in flight
+ * together and their replies return in whatever order the host answers in. Both used
+ * to publish unconditionally, so an older `denied` could overwrite a newer `granted`
+ * and leave the notice stale. `OsNotificationPermissionRead` puts every trigger
+ * through the console's one refresh chokepoint and admits only the live round's
+ * settlement.
  */
-export type OsNotificationPermissionReading =
-  | { readonly kind: "unread" }
-  | { readonly kind: "read"; readonly status: "granted" | "denied" | "not-determined" }
-  | { readonly kind: "unavailable" };
-
 export function useOsNotificationPermission(
   bridge: ConsoleBridge,
 ): OsNotificationPermissionReading {
-  const { value: reading, publish: publishReading } =
-    useSubjectScopedState<OsNotificationPermissionReading>(bridge, undefined, () => ({
-      kind: "unread",
-    }));
-  const target = useMemo<ReadTriggerTarget>(
-    () => ({
-      triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
-      requestRead: () => {
-        void bridge.growth.attentionOsPermissionRead({}).then(
-          (outcome) => {
-            publishReading(
-              outcome.status === "served"
-                ? { kind: "read", status: outcome.value.status }
-                : { kind: "unavailable" },
-            );
-          },
-          () => {
-            publishReading({ kind: "unavailable" });
-          },
-        );
-      },
-    }),
-    [bridge, publishReading],
+  const clock = usePinnedBridgeClock(bridge);
+  const { value: read } = useSubjectScopedResource(
+    bridge,
+    undefined,
+    () => new OsNotificationPermissionRead({ bridge, clock }),
+    OS_PERMISSION_READ_DISPOSAL,
   );
-  useWindowReadTriggers(target, bridge.transportReconnect);
-  return reading;
+  useWindowReadTriggers(read, bridge.transportReconnect);
+  const subscribeToRead = useCallback(
+    (onStoreChange: () => void) => read.subscribe(onStoreChange),
+    [read],
+  );
+  const takeReadSnapshot = useCallback(() => read.snapshot(), [read]);
+  return useSyncExternalStore(subscribeToRead, takeReadSnapshot, takeReadSnapshot);
 }

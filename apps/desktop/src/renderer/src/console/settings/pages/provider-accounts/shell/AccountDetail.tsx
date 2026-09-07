@@ -6,6 +6,7 @@ import {
   WireFigure,
   formatCount,
   formatDateTime,
+  formatDayDuration,
 } from "../../../../primitives/index.js";
 import { DefinitionGrid, type DefinitionGridEntry } from "../../../shared/DefinitionGrid.js";
 import { estimatedReloginDaysAfterSignIn } from "./quota-rows.js";
@@ -66,7 +67,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       term: <span>Re-login estimate</span>,
       definition: (
         <span>
-          About <DerivedFigure text={formatCount(horizonInDays)} /> days after sign-in. An estimate
+          About <DerivedFigure text={formatDayDuration(horizonInDays)} /> after sign-in. An estimate
           from the provider’s published issuance interval, not a deadline this machine can vouch
           for.
         </span>

@@ -58,18 +58,32 @@ export function servedPreferences(
 }
 
 /**
+ * How many scheduler windows the page's read chain crosses before it has settled.
+ *
+ * TWO, AND BOTH OF THEM ARE READS. The identity read is scheduled now — it takes the
+ * window's own triggers so a refused one is asked again on the next focus — and the
+ * participant it names is the subject the preference reading is minted under, so that
+ * reading does not exist to ask for its own set until the first window has elapsed and
+ * answered. A harness that advanced once would fire the identity read and then report
+ * the absence of a preference read it never gave the scheduler a chance to perform.
+ */
+const CHAINED_READ_WINDOWS = 2;
+
+/**
  * Let the chained reads, the write, and the re-read all land.
  *
- * TWO WAITS, BECAUSE THE CHAIN CROSSES A SCHEDULER. The identity read is issued from
- * an effect and answers on its own promise, so draining React's queue is the whole of
- * that half; the preference read behind it goes through `store/scheduling.ts` and is
- * armed on the fixture's FROZEN clock, so a case that only drained React would advance
- * nothing and then report the absence of a read it never gave the scheduler a chance
- * to perform. The bridge is a parameter because the clock is the bridge's.
+ * BOTH READS CROSS A SCHEDULER, and both are armed on the fixture's FROZEN clock, so a
+ * case that only drained React would advance nothing at all. The bridge is a parameter
+ * because the clock is the bridge's. React's own queue is drained between the windows
+ * as well as before them: the identity reply commits a render, and it is that render
+ * that mints the reading which asks for the set.
  */
 export async function settle(bridge: ConsoleBridge): Promise<void> {
+  for (let window = 0; window < CHAINED_READ_WINDOWS; window += 1) {
+    await settleReactWork();
+    await settleScheduledRead(bridge);
+  }
   await settleReactWork();
-  await settleScheduledRead(bridge);
 }
 
 /**

@@ -8,7 +8,7 @@
 import { type ReactNode } from "react";
 
 import { Nothing } from "../../../primitives/index.js";
-import type { OsNotificationPermissionReading } from "./stored-attention-preferences.js";
+import type { OsNotificationPermissionReading } from "./os-notification-permission-read.js";
 
 /**
  * FOUR STATES AND ONE OF THEM IS SILENCE. A granted permission needs no notice — the
