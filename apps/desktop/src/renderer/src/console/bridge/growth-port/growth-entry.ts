@@ -168,7 +168,9 @@ export type GrowthOperationId =
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
-  | "orchestrationBudgetRead";
+  | "orchestrationBudgetRead"
+  // the live gap fill: re-open the stream after a position the caller states
+  | "timelineSubscribe";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

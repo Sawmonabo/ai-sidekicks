@@ -19,7 +19,10 @@ import { op } from "./operation-entry.js";
  */
 type LedgerOperationId = Extract<
   GrowthOperationId,
-  "hydratedEventRead" | "orchestrationCostReceiptRead" | "orchestrationBudgetRead"
+  | "hydratedEventRead"
+  | "orchestrationCostReceiptRead"
+  | "orchestrationBudgetRead"
+  | "timelineSubscribe"
 >;
 
 /** The ledger rows, in the order the single table carried them. */
@@ -51,5 +54,18 @@ export const LEDGER_GROWTH_OPERATIONS: Readonly<Record<LedgerOperationId, Growth
     "method",
     "read the session's limits and the committed-spend figure admission compares against, served from the same accountant accessor the receipt is, so the two can never disagree",
     "orchestration.budgetRead",
+  ),
+  // The live gap fill. A SUBSCRIPTION rather than a method, and the one row on this
+  // plane whose wire method is registered already: what the console cannot reach is
+  // the request the method takes, because the seam it would travel names an event and
+  // carries no request object. The value is that method's own acknowledgement and
+  // never a stream — the rows arrive on the subscription the store already holds, and
+  // a second stream handed to a pane would make a pane the owner of one.
+  timelineSubscribe: op(
+    "timelineSubscribe",
+    "timeline-live-resubscribe",
+    "subscription",
+    "re-open a session's stream after a position the caller states, so a window that was told about entries it never received replays from the last place it kept instead of re-reading the whole log",
+    "timeline.subscribe",
   ),
 };

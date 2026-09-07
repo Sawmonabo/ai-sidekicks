@@ -193,6 +193,24 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE LIVE GAP FILL IS ON NEITHER LIST
+//
+// `timelineSubscribe` re-opens a session's stream after a position the caller states,
+// and its served answer would be the subscription id the daemon minted for that
+// replay. No scenario holds one, and none could: a scenario is a script of beats over
+// a frozen clock, so the subscription every window already tails is the engine's own
+// and was never acknowledged by anything that issues ids. Minting one here is the
+// `gitflowPrPrepare` invention exactly — a receipt for work no author said was done —
+// and it is worse in one respect, because a served id would tell the surface the
+// replay was ACCEPTED while the rows that replay would carry never arrive. Nor is
+// there an absence to serve: a subscription that opened and delivered nothing and one
+// nobody asked for are answers to different questions.
+//
+// So it refuses under both bridges, and the refusal is the true state of that wire.
+// What a fixture CAN reach is the console's own half — a window holding a position it
+// kept, over a projection it knows is missing rows — and that is reachable from the
+// store rather than from this port.
+//
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
