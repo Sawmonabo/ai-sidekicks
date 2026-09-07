@@ -49,22 +49,37 @@
 // `primitives/index.ts` and `frame/index.ts` already follow: one edge into each sheet
 // per bundle, and no surface can render a shape whose CSS never arrived.
 //
-// FIVE SHEETS AND NOT ONE, because one file carried five surfaces — the settings
+// SEVEN SHEETS AND NOT ONE, because one file carried five surfaces — the settings
 // page, the shared controls, the produced-object cards, the pane shell, and the
 // bounds table — and a reader looking for the pane's chrome had to scroll past the
 // partition table to find it. They are imported one by one rather than through a
 // `@import` chain so every edge into this family's CSS is visible at the door, which
 // is what makes "imported here and nowhere else" checkable rather than promised.
 //
+// THE LAST TWO ARE THE SAME ARGUMENT ONE LEVEL DOWN. `pane/pane.css` had in turn
+// grown to 458 lines over three directories, so it is split by WHICH COMPONENT DRAWS
+// EACH ROOT: `pane/chrome/chrome.css` for the tab strip, the load hairline, the page
+// picker, and the overflow disclosure; `pane/file/file.css` for the local file
+// control and its admitted roots. `pane/handback/` gets no sheet — the one class it
+// draws is a modifier of a root two directories draw, which belongs to neither.
+//
 // EACH ONE SITS BESIDE THE MODULES IT DRESSES — one sheet per sub-module directory,
 // named for that directory — rather than in a `styles/` pile of its own, which is
 // `primitives/`'s placement and now this package's stated rule. `controls.css` is at
 // the family root and that is the rule's other half: its two shapes belong to three
 // directories at once, so it belongs to none of them.
+//
+// THE TWO NESTED SHEETS ENTER HERE AND NOT LOWER, and that is the ownership rule
+// rather than a shortcut: neither `pane/chrome/` nor `pane/file/` carries an
+// `index.ts`, so this barrel owns both directories and a sheet enters at the door of
+// the directory that owns it. The order below is the order the rules were already in,
+// so the split changes no cascade.
 import "./settings/settings.css";
 import "./controls.css";
 import "./cards/cards.css";
 import "./pane/pane.css";
+import "./pane/chrome/chrome.css";
+import "./pane/file/file.css";
 import "./bounds/bounds.css";
 
 import { registerComposerAttachMenuEntry, type ConsolePaneRegistry } from "../seats/index.js";

@@ -1,7 +1,7 @@
 // The terminal scenario — one shared shell changing hands, and ending degraded.
 //
-// THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, and the beat envelope
-// and its clock in `terminal-beats.ts`.
+// THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, the beat envelope and
+// its clock in `terminal-beats.ts`, and the reply table in `terminal-replies.ts`.
 // What stays here is the one thing that has to be read in order to be understood:
 // which beat follows which, and why.
 //
@@ -58,29 +58,6 @@
 // `terminal/pane/node-presence-model.ts` — and handing the host's reported reachability to
 // the lease fold as its vouching input.
 //
-// THE REFUSALS ARE SCRIPTED, AND ONE OF THEM IS WHY. The three refusals
-// (`pty.permission_denied` before any lease comparison, `pty.control_held_by_other`
-// carrying the holder, `pty.control_not_held` on a release by a non-holder) are
-// rejections of a CALL rather than transitions, so no beat can carry one. What carries
-// one is `ScenarioRejectingReply`, and this scenario scripts the contested take: the
-// collaborator holds the shell for most of this script, so a take issued while they
-// hold it is refused `pty.control_held_by_other` naming them, which is the only
-// refusal in the vocabulary that names anybody and therefore the only one that reaches
-// the holder line beside the inline refusal.
-//
-// IT ANSWERS EVERY TAKE IN THIS SCENARIO, AND THAT IS STATED RATHER THAN HIDDEN. The
-// reply table matches on the method NAME, so there is no beat-position arm to script
-// one answer before the collaborator takes the shell and another after. That costs
-// nothing here, because a SERVED take changes nothing a person can see: the pane's
-// holder comes from the `pty.control_changed` beat and never from this reply
-// (`lease-claim.ts`'s served arm sets no holder), so a scripted success would be an
-// invisible no-op where the scripted refusal is the whole of what the surface draws.
-//
-// THE RELEASE IS SCRIPTED SERVED, and it is the one lease call that has an honest
-// served form: the registered response frees the lease, so `controlHolder` is null and
-// there is nothing to invent. It is scripted so the handback the owner is offered in
-// the final held frame settles rather than refusing under a wire this fixture serves.
-
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   TERMINAL_HOST_NODE_ATTACHED_AT_MS,
@@ -90,6 +67,7 @@ import {
   terminalScenarioBeat,
   terminalScenarioInstantAt,
 } from "./terminal-beats.js";
+import { TERMINAL_REPLIES } from "./terminal-replies.js";
 import {
   TERMINAL_AGENT_RUN_ID,
   TERMINAL_COLLABORATOR_MEMBERSHIP_ID,
@@ -380,32 +358,5 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       },
     }),
   ],
-  // The one read the scenario answers. Everything the terminal family itself needs
-  // arrives as beats: the holder is a field on `pty.control_changed`, and the host's
-  // presence is the `runtime_node.*` pair above — so no roster read is scripted, and
-  // a scripted reply nothing calls would be a promise the wire has not made.
-  replies: [
-    { call: "agent.list", result: { agents: [{ agentId: TERMINAL_SCENARIO_CAST.agent }] } },
-    {
-      // The contested take. `details` is the FLAT envelope's registered position for a
-      // refusal's structured context — `core/wire-rejection.ts` reads it there, and
-      // `core/refusal-extensions.ts` is the closed registry of what may be read out of
-      // it — so the holder reaches `ClaimRefusalHolder` through exactly the reader a
-      // live rejection reaches it through, with nothing in the surface knowing which
-      // bridge produced it.
-      call: "session.takeControl",
-      refusal: {
-        code: "pty.control_held_by_other",
-        message:
-          "Somebody else holds this session's shell. Ask them to release it, then try again.",
-        details: { holderParticipantId: COLLABORATOR },
-      },
-    },
-    {
-      // The one lease call with an honest served form: the registered response frees
-      // the lease, so the holder is null and nothing is invented.
-      call: "session.releaseControl",
-      result: { controlHolder: null },
-    },
-  ],
+  replies: TERMINAL_REPLIES,
 };

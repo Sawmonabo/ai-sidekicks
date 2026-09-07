@@ -5,6 +5,21 @@
 // and the strip derives nothing: back and forward are enabled from the view's own
 // REPORTED history state, never from a count the renderer kept.
 //
+// THIS SUBTREE CARRIES NO DOOR, AND THAT IS THE DOOR RULE APPLIED RATHER THAN SKIPPED.
+// `pane/` groups its modules under `chrome/`, `file/`, and `handback/`, and none of the
+// three holds an `index.ts`. `apps/desktop/AGENTS.md` puts a sub-module door where a
+// SIBLING reads across, which these do — `chrome/PaneOverflow.tsx` reads `../file/` and
+// `../handback/`, and `file/FileControl.tsx` reads `../chrome/` — but `chrome/` and
+// `file/` read each OTHER, so a door on each would make `chrome/index.ts →
+// file/index.ts → chrome/index.ts` a cycle `no-circular` fails. The remedy that rule
+// names for exactly this shape is the deep specifier, which is what those six
+// cross-reads are written as, and the doorless form is already this family's:
+// `bounds/`, `cards/`, and `geometry/` are the same shape for the simpler reason that
+// no sibling reads across them at all. The sheets follow that same ownership rather
+// than depth — a directory with no door is owned by the family barrel — so
+// `chrome/chrome.css` and `file/file.css` enter at `browser/index.ts` beside
+// `pane/pane.css`.
+//
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
 // kind in the console; what this file returns is the BODY that goes inside it. The

@@ -313,7 +313,7 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
   it("negative control: the checker reads a submodule's import and a door's", () => {
     // The clean results above mean nothing unless the reader recognises the two
     // shapes it is looking for. Read out of the real tree rather than asserted about
-    // it: the browser family's door carries its five sheets, and the component beside
+    // it: the browser family's door carries its seven sheets, and the component beside
     // it carries none.
     const doorEdges = stylesheetImportsOf(`browser/${FAMILY_DOOR}`);
     expect(doorEdges.length).toBeGreaterThan(1);

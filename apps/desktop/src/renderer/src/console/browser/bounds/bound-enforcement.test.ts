@@ -91,8 +91,14 @@ describe("the full-page capture extent", () => {
   it("negative control: the deferred measure refuses too, so no shape admits by default", () => {
     // A second shape through the same arm. Without it the case above would hold over
     // an implementation that special-cased `scalar` and admitted every other measure.
+    // The WHOLE refusal is asserted and not only its code, on the case above's terms:
+    // a code alone would pass over an arm that reached the right verdict with the
+    // wrong author or with a sentence naming no bound, and this arm is the one a
+    // person meets when a bound has lost its shape — the sentence is all they get.
     const refusal = admitCaptureAgainstMeasure({ kind: "deferred", owner: "somebody else" }, 1, 1);
     expect(refusal?.code).toBe(BROWSER_BOUND_REFUSAL_CODE);
+    expect(refusal?.origin).toBe(BROWSER_BOUND_REFUSAL_ORIGIN);
+    expect(refusal?.detail).toContain("FULL_PAGE_CAPTURE_MAX");
   });
 });
 
