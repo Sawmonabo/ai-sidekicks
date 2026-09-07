@@ -47,6 +47,10 @@ function pressThePaletteRow(surface: RunControlSurface): void {
       surface,
       onRequestSteer: () => undefined,
       onRequestRewind: () => undefined,
+      // A described run seats a row, so the pane's empty state — and the start act it
+      // carries — is not offered here. This suite is about the pause latch alone.
+      startOffer: { seatedRunCount: 1, hasRead: true, openRefusal: undefined },
+      onRequestComposerFocus: () => undefined,
     },
   );
 }

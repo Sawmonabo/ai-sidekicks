@@ -99,16 +99,33 @@ export function RunsPaneBody(props: {
   // names the session.
   useRefusalBannerEscalation(context.frameStore, stateFeed.openRefusal);
 
-  // The same six acts the rows draw, reachable from the palette while this pane is
-  // open. Contributed here rather than at module scope because every one of them
-  // closes over this pane's dispatcher, and dispatched through that same surface so
-  // a palette press and a button press are one mutation with one idempotency key.
+  // What the empty state is reading, built once and handed to both the surface that
+  // renders the control and the contribution that lists it — so the palette offers
+  // the start act on exactly the reading the button is drawn on.
+  const startOffer = useMemo(
+    () => ({
+      seatedRunCount: seating.rows.length,
+      hasRead: stateFeed.hasRead,
+      openRefusal: stateFeed.openRefusal,
+    }),
+    [seating.rows.length, stateFeed.hasRead, stateFeed.openRefusal],
+  );
+
+  // The same six acts the rows draw — and the empty state's own — reachable from the
+  // palette while this pane is open. Contributed here rather than at module scope
+  // because every one of them closes over this pane's dispatcher, and dispatched
+  // through that same surface so a palette press and a button press are one mutation
+  // with one idempotency key.
   useRunControlCommands({
     runs: stateFeed.runs,
     driverCapabilities,
     surface,
     onRequestSteer,
     onRequestRewind,
+    startOffer,
+    // The same function the empty state's button is handed, so the two entry points
+    // are one act rather than two callers that happen to agree.
+    onRequestComposerFocus: requestComposerFocus,
   });
 
   // The composer is offered only against a run the STREAM has described: its guard
@@ -156,8 +173,7 @@ export function RunsPaneBody(props: {
         ) : null}
         {seating.rows.length === 0 ? (
           <NoRuns
-            hasRead={stateFeed.hasRead}
-            openRefusal={stateFeed.openRefusal}
+            reading={startOffer}
             // The empty state names an act this pane cannot perform — the composer
             // is the workspace's, mounted beside the deck — so it asks for it
             // rather than reaching into another family for the element.

@@ -11,10 +11,12 @@ import { capabilityReadout } from "./driver-capability-readout.test-support.js";
 import { recordingRunControlSurface, runProjection } from "./run-control-commands.test-support.js";
 import {
   dispatchRunControlCommand,
+  performRunStart,
   runControlCommandRows,
   type RunControlCommandInput,
 } from "./run-control-commands.js";
 import { type RunControlSurface } from "./run-control-surface.js";
+import { type RunStartOfferReading } from "../run-start-offer.js";
 
 const FIRST_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 const SECOND_RUN = "c4a1b2d3-5e6f-4071-8b82-0d3e4f506172";
@@ -30,6 +32,11 @@ const CAPABLE = capabilityReadout(
   ],
 );
 
+/** The empty state's reading, defaulting to the arm that offers its act. */
+function startOffer(overrides: Partial<RunStartOfferReading> = {}): RunStartOfferReading {
+  return { seatedRunCount: 0, hasRead: true, openRefusal: undefined, ...overrides };
+}
+
 function inputFor(
   runs: readonly RunProjection[],
   surface: RunControlSurface,
@@ -41,6 +48,8 @@ function inputFor(
     surface,
     onRequestSteer: () => undefined,
     onRequestRewind: () => undefined,
+    startOffer: startOffer(),
+    onRequestComposerFocus: () => undefined,
     ...overrides,
   };
 }
@@ -128,6 +137,35 @@ describe("what running a contributed row does", () => {
     );
 
     expect(calls).toEqual([]);
+  });
+});
+
+describe("the empty state's act, performed from the palette", () => {
+  it("asks the composer for the caret while the empty state still asks for it", () => {
+    const onRequestComposerFocus = vi.fn();
+    const { surface } = recordingRunControlSurface();
+
+    performRunStart(inputFor([], surface, { onRequestComposerFocus }));
+
+    expect(onRequestComposerFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for nothing once a run landed between the contribution and the press", () => {
+    // The row leaves the palette on the next contribution, and a press that lands in
+    // the gap does nothing: the pane's own control is already gone, and a palette
+    // still offering to start work in a pane full of runs is the second offer set the
+    // shared reading exists to prevent.
+    const onRequestComposerFocus = vi.fn();
+    const { surface } = recordingRunControlSurface();
+
+    performRunStart(
+      inputFor([], surface, {
+        onRequestComposerFocus,
+        startOffer: startOffer({ seatedRunCount: 1 }),
+      }),
+    );
+
+    expect(onRequestComposerFocus).not.toHaveBeenCalled();
   });
 });
 

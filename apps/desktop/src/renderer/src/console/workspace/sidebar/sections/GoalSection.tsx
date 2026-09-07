@@ -19,11 +19,26 @@
 // sentences about what a goal CHANGE does, and a change is made where the editor is.
 // The one line here states what the session's goal is; a person who wants to know
 // what changing it will do opens the surface that offers the change.
+//
+// AND THE CONTROL SAYS NAVIGATION, BECAUSE THAT IS WHAT IT DOES. It read "Set a goal"
+// / "Change the goal" — an advertised mutation whose destination renders its editor
+// only for a role the goal contract admits, so a viewer or a runtime contributor was
+// promised an act and handed a surface that offers them none. The remedy is the copy
+// rather than a role gate here: gating would need a second reading of the caller's
+// identity beside the card's own, and it would hide the goal from a participant
+// entitled to read it. The words are `goal-section-commands.ts`'s and the act is that
+// module's one function, both shared with the palette row — so the button, the row,
+// and the destination cannot come apart.
+//
+// THE CONTROL IS OFFERED IN EVERY READING, which is why the line is a component of
+// its own. Opening the goal's surface is exactly as available while the projection is
+// incomplete as it is when the fold answered — more so, arguably — so the section
+// returns one shape rather than four, and the palette row it contributes is present
+// on precisely the same condition: this section is on screen.
 
 import { useMemo } from "react";
 
 import { foldSessionGoal } from "../../../bridge/index.js";
-import { DerivedFigure, Nothing } from "../../../primitives/index.js";
 import { type SidebarSectionContext } from "../../../seats/index.js";
 import {
   useSessionDegradedCause,
@@ -31,6 +46,12 @@ import {
   useSessionStore,
   type SessionStoreState,
 } from "../../../store/index.js";
+import { GoalLine } from "./GoalLine.js";
+import {
+  GOAL_SECTION_ACTION_LABEL,
+  openSessionGoalSurface,
+  useGoalSectionCommands,
+} from "./goal-section-commands.js";
 
 function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
   return state.timeline;
@@ -41,57 +62,19 @@ export function GoalSection(context: SidebarSectionContext): React.JSX.Element {
   const isInitialised = useSessionInitialised(context.sessionStore);
   const degradedCause = useSessionDegradedCause(context.sessionStore);
   const goal = useMemo(() => foldSessionGoal(timeline), [timeline]);
+  useGoalSectionCommands(context.openPane);
 
-  if (!isInitialised) {
-    return <Nothing kind="not-loaded" title="Reading the session's goal." />;
-  }
-  if (degradedCause !== undefined) {
-    // An incomplete projection may be missing the very event that set the goal, so
-    // "no goal set" would be this console reporting its own gap as the session's
-    // state. The cause is the store's own word, rendered as received.
-    return (
-      <Nothing
-        kind="error"
-        title="The goal is unavailable."
-        detail={`The projection is incomplete (${degradedCause}), so a goal read from it could be one the session has already moved past.`}
-      />
-    );
-  }
-  if (goal.status === "unreadable") {
-    return (
-      <Nothing
-        kind="error"
-        title="The latest goal event could not be read."
-        detail="A goal event landed carrying a shape this build does not recognise, so the goal shown here would be a guess."
-      />
-    );
-  }
   return (
     <div className="meridian-sidebar-goal">
-      {goal.status === "set" ? (
-        // Clamped to one measure by the sheet rather than truncated here: the text
-        // is the participant's own and a console-shortened goal is a different goal.
-        // The full text is the element's title, so it is reachable without a pane.
-        <p className="meridian-sidebar-goal__text" title={goal.text}>
-          {goal.text}
-        </p>
-      ) : (
-        <p className="meridian-sidebar-goal__none">
-          <DerivedFigure text="No goal set" />
-        </p>
-      )}
+      <GoalLine isInitialised={isInitialised} degradedCause={degradedCause} goal={goal} />
       <button
         type="button"
         className="meridian-sidebar-goal__open"
         onClick={() => {
-          // The surface that holds the editor. Offering a set control here that
-          // opened nothing, or a second editor that could not see the card's own
-          // in-flight mutation, are the two ways this line could lie about what it
-          // can do.
-          context.openPane({ kind: "approvals" });
+          openSessionGoalSurface(context.openPane);
         }}
       >
-        {goal.status === "set" ? "Change the goal" : "Set a goal"}
+        {GOAL_SECTION_ACTION_LABEL}
       </button>
     </div>
   );
