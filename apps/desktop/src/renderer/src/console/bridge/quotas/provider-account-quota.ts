@@ -43,6 +43,7 @@ import { ProviderAccountSubscribeRequestSchema } from "@ai-sidekicks/contracts";
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
+  ReadScope,
   RefreshScheduler,
   type ReadTriggerTarget,
   type RefreshReason,
@@ -119,10 +120,23 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
    * the one question this node-scoped reading exists to answer once.
    */
   #isRetired = false;
-  // Identifies the read attempt a reply belongs to. A reply whose ordinal has moved
-  // on was abandoned by an overflow re-read and seats nothing — without it the
-  // abandoned snapshot would land after the fresh one and undo it.
-  #seedReadOrdinal = 0;
+  /**
+   * The line every seed read is on, whichever of the three triggers opened it.
+   *
+   * THE READING OWNS IT, NOT THE SCHEDULER, and that is forced rather than chosen. An
+   * overflow repair fires WHILE a seed is in flight — the hold it overflows was begun
+   * by that very seed — so the repair has to supersede a read the scheduler may not
+   * have started, and a per-fire scheduler round can only ever supersede the
+   * scheduler's own. One line over all three triggers is what makes "the newest seed
+   * is the only one that may seat" true, which a private ordinal used to claim for
+   * the seating half alone and could say nothing to the call itself.
+   *
+   * SO IT REPLACES AN ORDINAL RATHER THAN JOINING ONE: a round is the ordering claim
+   * and the signal as one value, so a seed cannot be superseded without also being
+   * stopped, and retiring the reading abandons the line rather than leaving an
+   * outstanding `providerAccount.list` to be awaited and schema-parsed for nobody.
+   */
+  readonly #readLine = new ReadScope();
   #readout: ProviderQuotaReadout;
 
   public constructor(bridge: ConsoleBridge, onIdle: () => void) {
@@ -156,6 +170,12 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
           this.#open();
           return;
         }
+        // The round the scheduler hands a performer is deliberately not the one this
+        // read rides: it supersedes the scheduler's own fires and nothing else, and a
+        // seed here has to be superseded by an overflow repair the scheduler never
+        // fired. `#seedRead` therefore opens its round on `#readLine`, which is the
+        // one line all three triggers share — a second line beside it would let the
+        // older of two overlapping seeds seat over the newer.
         await this.#seedRead();
       },
       // A read that fails is already recorded as this readout's own `readRefusal`.
@@ -276,8 +296,11 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   /**
    * Take the registry snapshot, holding the tail's notifications across it.
    *
-   * Called again on buffer overflow, which is why the attempt carries an ordinal:
-   * whichever read is newest is the only one whose reply may seat anything.
+   * EVERY SEED OPENS A ROUND ON THIS READING'S LINE — the open's first read, the
+   * overflow repair, and the scheduler's fire alike — so the newest seed is the only
+   * one whose reply may seat anything AND the superseded one stops rather than being
+   * ignored: its signal is aborted, the call door reads nothing from whatever the
+   * daemon answers, and a retired reading parses no registry at all.
    */
   async #seedRead(): Promise<void> {
     if (!this.#lifecycle.isOpen) {
@@ -286,12 +309,20 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
       // begin has nothing to release it.
       return;
     }
-    this.#seedReadOrdinal += 1;
-    const readOrdinal = this.#seedReadOrdinal;
+    const round = this.#readLine.openRound();
     this.#deliveries.beginHold();
 
-    await callDaemon(this.#bridge, "providerAccount.list", {}).then((reply) => {
-      if (!this.#lifecycle.isOpen || this.#seedReadOrdinal !== readOrdinal) {
+    const reply = await callDaemon(
+      this.#bridge,
+      "providerAccount.list",
+      {},
+      { signal: round.signal },
+    );
+    // `settle` and not a comparison, so the superseded and the abandoned arms are one
+    // act: neither seats, and neither publishes the door's `read-abandoned` refusal as
+    // this readout's own — a departure is not a registry that could not be read.
+    round.settle(() => {
+      if (!this.#lifecycle.isOpen) {
         return;
       }
       // The held notifications are replayed on BOTH arms, and on the served arm they
@@ -324,6 +355,9 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
 
   #close(): void {
     this.#lifecycle.markClosed();
+    // The line is abandoned, not merely left behind: an outstanding seed is dropped
+    // where it stands rather than awaited and parsed for a reading nobody holds.
+    this.#readLine.abandon();
     this.#refresh.dispose();
     this.#closeStream?.();
     this.#closeStream = undefined;

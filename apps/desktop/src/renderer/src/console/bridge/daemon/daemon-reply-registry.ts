@@ -36,6 +36,14 @@
 // door (`growth-port.ts`), which refuses by name and says who owes the wire. The two
 // seams and the line between them are described in `daemon-reply.ts`'s header.
 //
+// WHAT ELSE THE METHOD SET CARRIES, AND WHY IT CARRIES IT HERE. One property of a
+// method is asked about often enough to have an answer rather than a convention:
+// whether calling it CHANGES A RUN. It lives beside the table because that is the only
+// place the question can be asked of every method at once — the classification is a
+// total map over the same key set, so a landing family that adds a row and forgets to
+// answer does not compile. Written anywhere else it would be a second list of method
+// strings, and a second list is the shape that goes stale in silence.
+//
 // WHAT IS NOT IN THE SET. Subscriptions. `daemon.subscribe` names a stream rather
 // than a call and answers with an unsubscribe handle, so it has no reply to bind;
 // which names are streams and what each carries is `session-event-streams.ts`'s
@@ -209,6 +217,73 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
  */
 export const CONSOLE_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.freeze(
   Object.keys(CONSOLE_DAEMON_METHOD_BINDINGS) as ConsoleDaemonMethod[],
+);
+
+/**
+ * Whether each registered method CHANGES A RUN, answered for every one of them.
+ *
+ * A TOTAL MAP AND NOT A ROSTER, which is the whole reason it is here rather than
+ * beside whichever caller wanted it. A roster of run-changing methods is a list that
+ * goes stale in silence: the row a landing family adds to the contract next door is a
+ * compile error until it is bound a schema, and would be nothing at all until someone
+ * remembered to classify it. The mapped-type annotation makes the classification part
+ * of adding the row — a method missing from this table does not compile, and a key
+ * for a method the contract does not name does not compile either.
+ *
+ * WHAT THE QUESTION MEANS, so a row is decided rather than guessed. `true` is: this
+ * call starts, changes, or stops a run, or the queue of turns that becomes one. Pause
+ * and resume move a run between states; the four intervention arms reach a running
+ * one; the interrupt and the compaction are run-addressed on the driver plane and
+ * both change the run they name. `false` is everything else, and two of them are
+ * worth stating because they are mutations all the same: `repo.executionModeSelect`
+ * records a WORKSPACE's execution mode and names no run, and `session.create`,
+ * `membership.update` and `invite.revoke` change the session's own roster. A mutation
+ * is not automatically a run change, and reading it as one would put every family
+ * that also reads under a claim written about run controls.
+ *
+ * THIS IS NOT THE DOOR'S READ-VERSUS-MUTATION RULE, and it must not become one.
+ * `DaemonCallOptions` in `daemon-reply.ts` keeps that distinction at the call site on
+ * purpose, so a caller says whether the act it is performing has an owner who may
+ * walk away from it. Nothing in `callDaemon` consults this table; what reads it is
+ * the architecture tier, which holds run-control dispatchers to the rule that none of
+ * them is ever handed a read round.
+ */
+const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } = Object.freeze({
+  "run.queueCreate": true,
+  "run.queueList": false,
+  "run.queueCancel": true,
+  "run.pause": true,
+  "run.resume": true,
+  "run.intervene": true,
+  "driver.interruptRun": true,
+  "driver.compactContext": true,
+  "driver.listProviderCommands": false,
+  "driver.listCapabilities": false,
+  "driver.listModels": false,
+  "repo.mountRead": false,
+  "repo.workspaceList": false,
+  "repo.executionModeCapabilitiesRead": false,
+  "repo.executionModeSelect": false,
+  "repo.worktreeStatusRead": false,
+  "session.create": false,
+  "channel.list": false,
+  "membership.update": false,
+  "presence.read": false,
+  "invite.revoke": false,
+  "providerAccount.list": false,
+});
+
+/**
+ * The registered methods that change a run — the console's one roster of them.
+ *
+ * Derived from the table above and from the registry's own key census, so the roster
+ * and the classification cannot disagree and neither can drift from the method set.
+ * A consumer that wants "which wire calls are run controls" reads this and never
+ * writes its own list; the one that exists today is the architecture tier's
+ * read-cancellation gate, whose claim is about exactly this set of dispatches.
+ */
+export const RUN_CHANGING_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.freeze(
+  CONSOLE_DAEMON_METHODS.filter((method) => CHANGES_A_RUN[method]),
 );
 
 /**
