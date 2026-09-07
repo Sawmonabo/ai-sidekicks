@@ -1,111 +1,26 @@
-// The new-session draft, and the honest ending of a send it cannot finish.
+// The draft object: what it holds, and the one session it is allowed to make.
 //
-// `new-session-draft.ts` asks for a draft that is local until it is sent, and for a
-// send that names
-// the calls that succeeded. Two of the three calls that send needs are registered
-// nowhere in the contracts package, so the interesting case is not the happy path:
-// it is that a send which creates a session and then cannot attach anything says
-// so, names `session.create` as done, and leaves the draft on screen.
+// `new-session-draft.ts` asks for a draft that is local until it is sent, and for one
+// draft object to make at most one session however many times Send is pressed. Both
+// halves are asserted here; what the send itself puts on the wire, and what each
+// ending says, is `new-session-send.test.ts` beside this one.
 //
-// The second interesting case follows from the first. That partial leaves the draft
-// non-empty and Send pressable, so the class has to survive being pressed again —
-// and the fixture engine answers `session.create` with the same scripted id every
-// time, which means a second session is indistinguishable from the first BY ITS
-// RESULT. These cases therefore count the calls that reached the wire rather than
-// comparing ids: the count is the only reading that tells one session from two.
+// EVERY COUNT IS OF CALLS THAT REACHED THE WIRE rather than of ids compared, and that
+// is the fixture's doing: the engine answers `session.create` with the same scripted
+// id every time, so a second session is indistinguishable from the first BY ITS
+// RESULT. The count is the only reading that tells one session from two — and, one
+// leg down, one attach from two.
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../bridge/index.js";
 import {
-  withDaemonCall,
-  type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
-import {
-  NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
-  NewSessionDraft,
-  refuseSendThatRejected,
-} from "./new-session-draft.js";
-
-const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
-
-/**
- * The WHOLE registered create response.
- *
- * Whole, because the fixture bridge parses a scripted reply against the method's own
- * shape and refuses one that is short of it — a partial script would have been a
- * console tested against a reply the daemon cannot send. Named once, so the scenario
- * and the counted arm below settle on the same thing.
- */
-const CREATE_REPLY = {
-  sessionId: CREATED_SESSION_ID,
-  state: "active",
-  memberships: [],
-  channels: [],
-} as const;
-
-/** The one method the draft sends, named here so a count reads as what it counts. */
-const SESSION_CREATE_METHOD = "session.create";
-
-function scenario(options: { readonly scriptsCreate: boolean }): ConsoleScenario {
-  return {
-    id: "draft-send",
-    label: "Draft send",
-    purpose: "Drives the new-session draft's one reachable wire call.",
-    sessionId: "session-draft",
-    participantIdsInJoinOrder: ["participant-you"],
-    startedAtIso: "2026-01-01T09:00:00.000Z",
-    beats: [],
-    replies: options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : [],
-  };
-}
-
-function draftFor(options: { readonly scriptsCreate: boolean }): NewSessionDraft {
-  return new NewSessionDraft({ bridge: createFixtureBridge({ scenario: scenario(options) }) });
-}
-
-/** The method one recorded call named, for a count that reads as what it counts. */
-function sentMethod(call: RecordedDaemonCall): string {
-  return call.method;
-}
-
-/** A draft plus a tally of what reached the wire behind it. */
-interface CountedDraft {
-  readonly draft: NewSessionDraft;
-  /**
-   * Every call `daemon.call` was given, in order.
-   *
-   * The recorder's own live array, not a snapshot: a case reads it after the send it
-   * is counting, and a copy taken at construction would always be empty.
-   */
-  readonly calls: readonly RecordedDaemonCall[];
-}
-
-/**
- * A draft over the fixture bridge, with `daemon.call` recorded on the way past.
- *
- * Through `withDaemonCall`, the console's one shared arm for this, rather than a
- * spread written here: `daemon-reply-chokepoint` scans source text and does not care
- * which tier wrote the reach, so a suite that spelled its own would be the second
- * implementation of the door every other suite already drives.
- *
- * The answer is `CREATE_REPLY` or a rejection, which is the two states the scenario
- * itself puts the fixture in — what these cases assert is what the DRAFT does with
- * each, and the count is of what it sent.
- */
-function countedDraftFor(options: { readonly scriptsCreate: boolean }): CountedDraft {
-  const under = withDaemonCall(
-    createFixtureBridge({ scenario: scenario(options) }),
-    async (call) => {
-      if (!options.scriptsCreate) {
-        throw new Error(`no reply is scripted for ${call.method}`);
-      }
-      return CREATE_REPLY;
-    },
-  );
-  return { draft: new NewSessionDraft({ bridge: under.bridge }), calls: under.calls };
-}
+  countedDraftFor,
+  draftFor,
+  sentMethod,
+  CREATED_SESSION_ID,
+  RUN_QUEUE_CREATE_METHOD,
+  SESSION_CREATE_METHOD,
+} from "./new-session-draft.test-support.js";
 
 describe("NewSessionDraft — what it holds", () => {
   it("starts empty and says so", () => {
@@ -147,72 +62,6 @@ describe("NewSessionDraft — what it holds", () => {
     draft.setPosture("trusted");
     unsubscribe();
     expect(revisions).toStrictEqual([1, 2]);
-  });
-});
-
-describe("NewSessionDraft — the send", () => {
-  it("refuses an empty draft without touching the wire", async () => {
-    const result = await draftFor({ scriptsCreate: true }).send();
-    expect(result.outcome).toBe("refused");
-    expect(result.refusal?.code).toBe("draft-empty");
-    expect(result.completedCalls).toStrictEqual([]);
-  });
-
-  it("creates the session, then says which calls it could not make", async () => {
-    const draft = draftFor({ scriptsCreate: true });
-    draft.selectAgent({ definitionId: "definition-1", providerAccountId: undefined });
-    const result = await draft.send();
-
-    expect(result.outcome).toBe("partial");
-    expect(result.sessionId).toBe(CREATED_SESSION_ID);
-    // The error slot names the calls that SUCCEEDED, because a person
-    // deciding whether to retry needs to know a session already exists.
-    expect(result.completedCalls).toStrictEqual(["session.create"]);
-    // The draft named a sidekick, so the send stops at the call that has no shape at
-    // all, and says the turn behind it was not attempted either.
-    expect(result.refusal?.code).toBe("wire-unregistered");
-    expect(result.refusal?.detail).toContain("agent.attach");
-    expect(result.refusal?.detail).toContain("run.queueCreate");
-  });
-
-  it("names the missing first turn, not the wire, when the draft chose no sidekicks", async () => {
-    // Zero agents is zero attaches, so the only call left is one that IS registered:
-    // reporting it as unregistered would name a cause the module's own header denies,
-    // and a person pasting that code into an issue would be reporting the wrong fact.
-    const draft = draftFor({ scriptsCreate: true });
-    draft.setPosture("trusted");
-    const result = await draft.send();
-
-    expect(result.outcome).toBe("partial");
-    expect(result.completedCalls).toStrictEqual(["session.create"]);
-    expect(result.refusal?.code).toBe("first-turn-missing");
-    expect(result.refusal?.detail).toContain("run.queueCreate");
-    // And it does not name a call this send was never going to make.
-    expect(result.refusal?.detail).not.toContain("agent.attach");
-  });
-
-  it("keeps the draft when the create itself fails, and names no completed call", async () => {
-    const draft = draftFor({ scriptsCreate: false });
-    draft.setPosture("readonly-sandboxed");
-    const result = await draft.send();
-
-    expect(result.outcome).toBe("refused");
-    expect(result.sessionId).toBeUndefined();
-    expect(result.completedCalls).toStrictEqual([]);
-    expect(result.refusal?.code).toBe("session-create-failed");
-    // The draft survives a failed send: a person's choices are not thrown away
-    // because a wire was down.
-    expect(draft.snapshot().isEmpty).toBe(false);
-  });
-
-  it("negative control: the daemon's own message never reaches the person", async () => {
-    // Without this, the case above would pass over a refusal that pasted an IPC
-    // stack into console copy.
-    const draft = draftFor({ scriptsCreate: false });
-    draft.setPosture("trusted");
-    const result = await draft.send();
-    expect(result.refusal?.detail).not.toContain("scenario");
-    expect(result.refusal?.detail).not.toContain("reply-unscripted");
   });
 });
 
@@ -275,6 +124,45 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     expect(result.sessionId).toBe(CREATED_SESSION_ID);
   });
 
+  it("resumes at the first unmade call rather than repeating the ones that landed", async () => {
+    // The per-leg memory, which is the invariant one leg down from "one draft, one
+    // session": a retry that re-attached would put two agents on the session for one
+    // the person chose once, and one that re-queued would send their words twice.
+    const draft = draftFor({ scriptsCreate: true, scriptsAttach: true, scriptsFirstTurn: true });
+    draft.selectAgent({ definitionId: "definition-1", providerAccountId: undefined });
+    const stopped = await draft.send();
+    expect(stopped.refusal?.code).toBe("first-turn-missing");
+    expect(stopped.completedCalls).toStrictEqual(["session.create", "agent.attach"]);
+
+    // What a person does after reading that: type the message, press again.
+    draft.setFirstTurn("Start on the parser.");
+    const finished = await draft.send();
+
+    expect(finished.outcome).toBe("sent");
+    // Every leg named once. The create and the attach are named because they EXIST,
+    // not because this press made them — the slot's job is to say what is there.
+    expect(finished.completedCalls).toStrictEqual([
+      "session.create",
+      "agent.attach",
+      "run.queueCreate",
+    ]);
+  });
+
+  it("negative control: the second press re-attaches nothing the first one landed", async () => {
+    // Without this the case above would pass over a build that re-issued the attach,
+    // since a second attach the fixture also answers changes no result it asserts.
+    const counted = countedDraftFor({ scriptsCreate: true, scriptsFirstTurn: true });
+    counted.draft.setPosture("trusted");
+    await counted.draft.send();
+    counted.draft.setFirstTurn("Start on the parser.");
+    await counted.draft.send();
+
+    expect(counted.calls.map(sentMethod)).toStrictEqual([
+      SESSION_CREATE_METHOD,
+      RUN_QUEUE_CREATE_METHOD,
+    ]);
+  });
+
   it("retries the create when the first attempt never landed one", async () => {
     // A create that FAILED left no session, so nothing is remembered and a retry is
     // a real second attempt — the memory keys on the call having landed, not on the
@@ -288,33 +176,5 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     expect(first.refusal?.code).toBe("session-create-failed");
     expect(retried.refusal?.code).toBe("session-create-failed");
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD, SESSION_CREATE_METHOD]);
-  });
-});
-
-describe("NewSessionDraft — what a send that REJECTED reports", () => {
-  // The arm this answers is defensive and, in this build, unreachable through the
-  // bridge: `callDaemon` returns a typed reply for a rejected call, an absent door
-  // and a schema failure alike, so no fixture bridge can make `send()` reject. What
-  // shipped in its place was `undefined`, which cleared the result and left Send
-  // pressable with nothing on screen, nothing announced, and nothing recorded — a
-  // control that answers a press by doing nothing. So the SENTENCE is asserted here,
-  // where it is built, rather than through a path a test would have to fake.
-
-  it("carries a code of the draft's own vocabulary rather than clearing the press", () => {
-    const reported = refuseSendThatRejected();
-
-    expect(reported.outcome).toBe("refused");
-    expect(reported.refusal?.code).toBe("send-failed");
-    expect(reported.refusal?.origin).toBe(NEW_SESSION_DRAFT_REFUSAL_ORIGIN);
-  });
-
-  it("negative control: it claims nothing was created", () => {
-    // Without this the case above would pass over a report that named the fault and
-    // still carried a session id, which is a person told to retry a create that may
-    // already have landed.
-    const reported = refuseSendThatRejected();
-
-    expect(reported.sessionId).toBeUndefined();
-    expect(reported.completedCalls).toStrictEqual([]);
   });
 });

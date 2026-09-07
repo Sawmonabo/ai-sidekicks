@@ -9,9 +9,16 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
 import { UiStateStore } from "../persistence/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
-import { SESSION_ID, memoryStore, sessionStore, workspaceFor } from "./Workspace.test-support.js";
+import {
+  SCENARIO,
+  SESSION_ID,
+  memoryStore,
+  sessionStore,
+  workspaceFor,
+} from "./Workspace.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /** A store whose writes fail, which is what raises the workspace's own save refusal. */
@@ -21,9 +28,35 @@ class RejectingWriteAdapter extends MemoryPersistenceAdapter {
   }
 }
 
+/**
+ * A bridge whose detach refuses, which is what gives this column a banner to raise.
+ *
+ * The refusal is STATED rather than inherited from whatever the fixture happens not to
+ * serve. This file is about the COLUMN — one row per distinct refusal, and a key that
+ * survives a dismissal — so the source of the refusal is scaffolding, and scaffolding
+ * that changes whenever a wire is served is scaffolding these cases silently lose.
+ * `growthUnavailable` builds exactly the value the live bridge returns for a wire the
+ * corpus has not registered, so the three fields the column folds on are the real ones.
+ */
+function bridgeRefusingDetach(): ConsoleBridge {
+  const base = createFixtureBridge({ scenario: SCENARIO });
+  return {
+    ...base,
+    growth: {
+      ...base.growth,
+      windowDetachPane: async () => growthUnavailable("windowDetachPane"),
+    },
+  };
+}
+
 function renderSession(uiStateStore: UiStateStore): HTMLElement {
   const { container } = render(
-    workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, uiStateStore, false),
+    workspaceFor(
+      { sessionId: SESSION_ID, store: sessionStore() },
+      uiStateStore,
+      false,
+      bridgeRefusingDetach(),
+    ),
   );
   return container;
 }
@@ -61,9 +94,9 @@ async function dismiss(row: HTMLElement): Promise<void> {
 
 describe("Workspace — the banner column", () => {
   it("counts a refusal raised three times rather than stacking three of it", async () => {
-    // The window wire is not registered in this build, so every press refuses with the
-    // same three fields. Three rows saying one thing is three chances to dismiss the
-    // wrong one and no more information than the first.
+    // Every press refuses with the same three fields, so three rows would say one
+    // thing three times — three chances to dismiss the wrong one and no more
+    // information than the first.
     const container = renderSession(memoryStore());
     await waitFor(() => {
       expect(container.querySelector("[data-detach='timeline']")).not.toBeNull();

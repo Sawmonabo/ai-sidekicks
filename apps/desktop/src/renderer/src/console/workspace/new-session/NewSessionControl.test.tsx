@@ -100,12 +100,13 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     await press("Send");
 
     // The session exists, and what could not follow it is named. This draft chose a
-    // posture and no sidekicks, so the only call left is the registered one with no
-    // turn to carry — a different code from the one a draft naming sidekicks gets,
-    // because they are unsendable for different reasons and a person pastes the code.
+    // posture, no sidekicks, and typed no first message, so the only call left is the
+    // turn — a different code from the one a stopped attach gets, because they are
+    // unsendable for different reasons and a person pastes the code.
     expect(container.textContent).toContain("first-turn-missing");
-    expect(container.textContent).toContain("run.queueCreate");
-    expect(container.textContent).not.toContain("agent.attach");
+    // And the calls that DID land are named beneath the refusal, which is what a
+    // person deciding whether to press again is reading for.
+    expect(container.textContent).toContain("Already sent: session.create");
     // Said once, in the announcer, in the vocabulary of what happened rather than
     // in the wire's.
     expect(politeText(container)).toBe(
