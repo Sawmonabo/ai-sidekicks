@@ -118,7 +118,13 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   "hydrated-event-read": "ledger lane — the timeline pane and the ledger rows",
   // collaboration lanes — the health strip, the park banner, and the composer's chip.
   "health-subscribe": "collaboration lane — the health strip and park banner",
+  // The two switch terminals are two rows because two surfaces wait on them, and the
+  // second is on this table for the same reason as the first: neither wire is a
+  // callable operation, so the derived check below has no id to search for however
+  // finished either surface is.
   "agent-provider-switch-failure": "composer lane — the target chip",
+  "agent-provider-switch-terminal":
+    "agents lane — the agent console's switch settlement line and the runs pane's status row",
   // repos lane — the worktree recipe the repos surface renders, and the mount-health
   // identity verdict, whose console consumer is built and whose PRODUCER is not: the
   // verdict is a member of a reply rather than a call, so the operation-derived check
@@ -253,6 +259,7 @@ describe("growth slate — every row's consuming surface resolves to a module", 
  */
 const ROWS_WITH_NO_LEDGER_OPERATION: readonly GrowthSlateRowId[] = [
   "agent-provider-switch-failure",
+  "agent-provider-switch-terminal",
   "worktree-setup-recipe",
   "workflow-event-registration",
   "workflow-definition-scope",

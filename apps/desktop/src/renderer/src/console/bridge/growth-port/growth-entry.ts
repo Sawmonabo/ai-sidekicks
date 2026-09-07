@@ -73,6 +73,24 @@ export interface GrowthPrerequisiteEntry {
   readonly kind: GrowthPrerequisiteKind;
   readonly liveStatus: GrowthLiveStatus;
   readonly summary: string;
+  /**
+   * The event-type strings an `event-type` row is waiting to be registered.
+   *
+   * ON THE ENTRY RATHER THAN INSIDE ITS SENTENCE, for the reason
+   * {@link GrowthOperationEntry.expectedWireMethod} is: a wire string a gate has to
+   * READ cannot live only in prose written for a person. An `event-type` row's whole
+   * claim is that a type is absent from the shipped census, and until that claim was a
+   * value nothing checked it — the day the registration lands, the row would have gone
+   * on reporting a debt already paid, which is the one failure this ledger exists to
+   * prevent. Deliberately `string[]` and not `SessionEventType`: a type this array can
+   * name is by definition not a member of that union yet, so narrowing it would make
+   * the array unwritable exactly while the row is owed.
+   *
+   * Absent where the row's unmet need names no specific type (a registration counted
+   * rather than enumerated). Never empty: an `event-type` row with an empty array
+   * would read as a checked claim about nothing.
+   */
+  readonly unregisteredEventTypes?: readonly string[];
 }
 
 export type GrowthOperationId =
@@ -268,6 +286,7 @@ export type GrowthPrerequisiteId =
   | "approvalRememberedRuleMember"
   | "approvalAmendmentArm"
   | "agentProviderSwitchFailedEvent"
+  | "agentProviderSwitchedEvent"
   | "nodeSelfDeclarationCarrier"
   | "providerSessionImportSpec"
   | "mountHealthIdentityProjection";

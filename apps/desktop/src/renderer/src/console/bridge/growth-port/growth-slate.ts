@@ -134,11 +134,27 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "agent console run-linkage panel",
     wireRegistered: false,
   },
+  // THE TWO SWITCH TERMINALS ARE TWO ROWS, NOT ONE, AND THAT IS THE CONSUMER TALKING.
+  // They are registered by one amendment and will leave this table together, which is
+  // an argument for one row — but a slate row's job is to name a wire and the SURFACE
+  // waiting on it, and these two are waited on by different surfaces for opposite
+  // reasons. The failed terminal is a caution the composer's target chip renders; the
+  // applied terminal is a settlement the agent card's own line renders, and it is the
+  // one the runs view needs to draw a status row at all. Folded into one row, the
+  // second surface was invisible: the ledger named the failure alone, and every reader
+  // of it concluded the console was owed one event.
   "agent-provider-switch-failure": {
     id: "agent-provider-switch-failure",
     wire: "the `agent.provider_switch_failed` event type, so a deferred switch that could not be applied reaches a client that did not issue the mutation",
     owningDocument: "Spec-006, Plan-016",
     consumingSurface: "composer (the target chip)",
+    wireRegistered: false,
+  },
+  "agent-provider-switch-terminal": {
+    id: "agent-provider-switch-terminal",
+    wire: "the `agent.provider_switched` event type, so a switch that applied at a deferred boundary reaches a client that did not issue the mutation — the settlement carrying its continuity arm and its declared losses",
+    owningDocument: "Spec-006, Plan-016",
+    consumingSurface: "agent console (the switch settlement line), runs pane (the status row)",
     wireRegistered: false,
   },
   "gitflow-actions": {
