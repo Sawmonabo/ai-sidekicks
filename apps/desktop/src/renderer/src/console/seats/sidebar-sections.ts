@@ -29,9 +29,10 @@
 // banner is room-wide attention, while the section is the sidebar's own
 // independently loaded read of what this session is waiting on.
 
-import { KeyedRegistry } from "../core/index.js";
+import { KeyedRegistry, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { type SessionStore } from "../store/index.js";
+import { type ConsolePaneAddress } from "./pane-address.js";
 import { type ConsolePaneOpener } from "./pane-registry.js";
 
 /**
@@ -95,6 +96,25 @@ export interface SidebarSectionContext {
    * compiles. The sidebar always supplies it.
    */
   readonly filterQuery?: string;
+  /**
+   * The column's shared bulk selection, as the narrow face a row drives it through.
+   *
+   * The SELECTION is the sidebar's because a bulk act crosses sections; the ROWS are
+   * each section's because only the section knows which of its items admit an act at
+   * all. A section with no bulk-eligible rows never reads this member.
+   *
+   * Additive-optional so a section authored before this seam existed still compiles.
+   * The sidebar always supplies it.
+   */
+  readonly bulk?: SidebarBulkSelection;
+  /**
+   * How a row of this section becomes draggable onto the deck.
+   *
+   * Additive-optional beside {@link bulk} and for the same reason. A section whose
+   * rows open nothing never reads it; a section that does gets the column's one
+   * gesture rather than binding a second drag library of its own.
+   */
+  readonly dragRow?: SidebarRowDragBinder;
 }
 
 // Consumed by T-023p-1C-4, T-023p-1C-5
@@ -135,6 +155,27 @@ export interface SidebarSectionDescriptor {
   readonly attention?: (
     context: Omit<SidebarSectionContext, "isOpen" | "openPane">,
   ) => "attention" | "failure" | undefined;
+  /**
+   * This section's items as a tree, for the column to fold.
+   *
+   * The design track asks for "rollup status per section: child-to-parent over the
+   * session › channel › run tree; grouping pinned, needs-attention, running, then
+   * the rest". The TREE is the family's — only it knows what its rows are and how
+   * they nest — and the FOLD is the column's, because what the fold decides is the
+   * open-or-collapsed rule stated over the whole set.
+   *
+   * A section that supplies one need not also supply {@link attention}: the column
+   * folds the tree's own levels child-to-parent and reaches the same answer from the
+   * same facts. A section that supplies both is answering one question twice, so the
+   * column takes `attention` as the section's explicit claim and the fold as its
+   * fallback rather than merging them.
+   *
+   * Read on the same terms as {@link attention}: during the column's render, over
+   * state the family already holds, never a read and never a subscription.
+   */
+  readonly rollup?: (
+    context: Omit<SidebarSectionContext, "isOpen" | "openPane">,
+  ) => readonly SidebarRollupNode[];
 }
 
 export class SidebarSectionRegistry {
@@ -176,4 +217,139 @@ export function sidebarSectionRenderer(
   id: SidebarSectionId,
 ): ((context: SidebarSectionContext) => React.ReactNode) | undefined {
   return sidebarSectionRegistry.descriptorFor(id)?.render;
+}
+
+// --------------------------------------------------------------------------
+// The rollup tree, and the bulk-selection seam.
+// --------------------------------------------------------------------------
+//
+// `Spec-023 §Console Design (Meridian)` puts two more things on this seat, and both
+// are the same split as `attention` above: the family REPORTS and the sidebar
+// DECIDES.
+//
+//   • The rollup. The section's items as a session › channel › run tree, grouped.
+//     One attention value per section cannot express "which of my children is
+//     calling", so a section that carries a tree reports the tree and the column
+//     folds it child-to-parent. The fold is the sidebar's because the rule it
+//     serves — "a section carrying an amber or red item is open and every other
+//     section is collapsed" — is stated over the whole set.
+//   • Bulk selection. A bulk act crosses sections (three queued items here, two
+//     invites there), so the selection cannot live inside one section's body. The
+//     column owns it and hands each section a narrow face: is this row selected,
+//     toggle it, and what did its own reply say. A section that never calls it is
+//     a section with no bulk-eligible rows, which is not an error.
+
+/**
+ * How a rollup's items group, in the order a person reads them.
+ *
+ * The design track's own order and its own four groups. Declared as a tuple so the
+ * union is derived from it and the render order is the declaration — the same shape
+ * `SIDEBAR_SECTION_IDS` takes, for the same reason.
+ */
+export const SIDEBAR_ROLLUP_GROUPS = ["pinned", "needs-attention", "running", "rest"] as const;
+
+/** One rollup group. Derived from the enumeration, never restated. */
+export type SidebarRollupGroup = (typeof SIDEBAR_ROLLUP_GROUPS)[number];
+
+/**
+ * One node of a section's rollup — a session, a channel, a run, or a leaf entity.
+ *
+ * `attention` is this node's OWN reading and never its children's: the fold walks
+ * child-to-parent, so a parent that restated a child's level would be a second
+ * source of truth for the same fact and the two would disagree the moment a child
+ * settled. A node that carries nothing itself omits it.
+ *
+ * `opens` is what a press or a drop of this node opens. Absent means the node is
+ * structure — a channel that groups runs and is not itself a pane — and both the
+ * press and the drop decline rather than opening something else.
+ */
+export interface SidebarRollupNode {
+  /** Unique within its section. The selection and the drag both key on it. */
+  readonly nodeId: string;
+  /** What a person reads on the row, and what a bulk confirm names it by. */
+  readonly label: string;
+  readonly group: SidebarRollupGroup;
+  readonly attention?: "attention" | "failure";
+  readonly opens?: ConsolePaneAddress;
+  readonly children?: readonly SidebarRollupNode[];
+}
+
+/**
+ * One row a person can drag onto the deck.
+ *
+ * Declared on the seat rather than in the column, because the SECTION is what binds
+ * its own row elements and a contract a view family writes against cannot live above
+ * it. What the column owns is the binding itself — the library, the payload key, and
+ * what a settled drop does.
+ */
+export interface SidebarRowDragTarget {
+  /** Unique within the column while the row is on screen. Keys the bound source. */
+  readonly nodeId: string;
+  /** What a person reads on the row — what the drop announcement names it by. */
+  readonly label: string;
+  /** What the drop opens. A row that opens nothing is not a drag target at all. */
+  readonly opens: ConsolePaneAddress;
+}
+
+/**
+ * How a section makes one of its rows draggable.
+ *
+ * Answers the ref callback the row hands its element to. The callback is STABLE for a
+ * row id, so a section may call this during render without rebinding the gesture on
+ * every pass — the column's own cache is what makes that true, and it is why this is a
+ * binder handed down rather than a hook a section would call.
+ */
+export type SidebarRowDragBinder = (
+  target: SidebarRowDragTarget,
+) => (element: HTMLElement | null) => void;
+
+/**
+ * Which acts a bulk selection can carry, and what each one is.
+ *
+ * Closed, and closed at the three the design track names: cancel several queued
+ * items, revoke several invites, retire several worktrees. Every one of them is
+ * destructive, which is why there is no `isDestructive` member — a boolean that is
+ * `true` on every row is a member nothing reads.
+ */
+export const SIDEBAR_BULK_ACTS = ["cancel-queue-item", "revoke-invite", "retire-worktree"] as const;
+
+/** One bulk act. Derived from the enumeration, never restated. */
+export type SidebarBulkAct = (typeof SIDEBAR_BULK_ACTS)[number];
+
+/**
+ * One row a bulk act can be run against.
+ *
+ * The ENTITY id and never a request: the act's own table below the sidebar knows
+ * which method carries which member, and a seat that shaped a request would put a
+ * wire shape on a contract the view families write against.
+ */
+export interface SidebarBulkItem {
+  readonly sectionId: SidebarSectionId;
+  readonly act: SidebarBulkAct;
+  /** The entity id the act's request carries. Held as a string; widened at the door. */
+  readonly itemId: string;
+  /** What the destructive preview names this row by. */
+  readonly label: string;
+}
+
+/** What one selected row's act settled as, or that it is still in flight. */
+export type SidebarBulkOutcome =
+  | { readonly state: "running" }
+  | { readonly state: "done" }
+  | { readonly state: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * The face a section row drives the shared selection through.
+ *
+ * Narrow on purpose. A section may ask whether one of its rows is selected, put a
+ * row in or out, and read what that row's own reply said — and it may not enumerate
+ * the selection, clear it, or run anything. Running is the column's: the confirm
+ * names every item across every section, and a section that could run would be
+ * running a set it cannot see.
+ */
+export interface SidebarBulkSelection {
+  readonly isSelected: (item: SidebarBulkItem) => boolean;
+  readonly toggle: (item: SidebarBulkItem) => void;
+  /** What this row's own act settled as, or `undefined` while it has not been run. */
+  readonly outcomeFor: (item: SidebarBulkItem) => SidebarBulkOutcome | undefined;
 }

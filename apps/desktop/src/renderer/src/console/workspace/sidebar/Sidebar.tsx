@@ -67,6 +67,7 @@ import {
   SIDEBAR_SECTION_IDS,
   sidebarSectionRegistry,
   type ConsolePaneOpener,
+  type SidebarRowDragTarget,
   type SidebarSectionId,
   type SidebarSectionRegistry,
 } from "../../seats/index.js";
@@ -79,6 +80,10 @@ import {
 } from "./commands/sidebar-command-seat.js";
 import { useSidebarKeyboard } from "./commands/use-sidebar-keyboard.js";
 import { type SidebarModel, type SidebarSnapshot } from "./model/sidebar-model.js";
+import { BulkActionBar } from "./bulk/BulkActionBar.js";
+import { useBulkSelectionFace, useBulkSelectionModel } from "./bulk/use-bulk-selection.js";
+import { useSidebarRowDragSources, useSidebarRowDropMonitor } from "./drag/row-drag.js";
+import { type AirspaceRegistry } from "../deck/rect-discipline.js";
 
 export interface SidebarProps {
   readonly sessionStore: SessionStore;
@@ -108,6 +113,14 @@ export interface SidebarProps {
   readonly sectionRegistry?: SidebarSectionRegistry;
   /** Which seat the palette's acts reach this sidebar through. Defaults to the window's. */
   readonly commandSeat?: MountedSidebarSeat;
+  /**
+   * The window's overlay airspace, so the bulk confirm yields the native views under it.
+   *
+   * Optional for the deck tracker's reason: a column mounted without one is a column
+   * with no native view beneath it, and claiming a registry that does not exist is not
+   * a state this file has to represent.
+   */
+  readonly airspace?: AirspaceRegistry;
 }
 
 export function Sidebar(props: SidebarProps): React.JSX.Element {
@@ -125,7 +138,25 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
 
   const sectionRegistry = props.sectionRegistry ?? sidebarSectionRegistry;
 
-  useSectionAttention(model, sectionRegistry, props.sessionStore, props.bridge);
+  const rollupBySectionId = useSectionAttention(
+    model,
+    sectionRegistry,
+    props.sessionStore,
+    props.bridge,
+  );
+
+  // ONE SELECTION AND ONE SET OF DRAG SOURCES FOR THE COLUMN. A bulk act crosses
+  // sections and a drop opens into this column's own deck, so both are the column's
+  // rather than a section's — and both are handed DOWN through the section context, so
+  // a section reaches neither by import.
+  const bulkSelection = useBulkSelectionModel();
+  const bulkSelectionFace = useBulkSelectionFace(bulkSelection);
+  const rowDragSources = useSidebarRowDragSources();
+  const bindRowDrag = useCallback(
+    (target: SidebarRowDragTarget) => rowDragSources.binderFor(target),
+    [rowDragSources],
+  );
+  useSidebarRowDropMonitor(props.openPane, announce);
 
   const registerDisclosure = useCallback(
     (sectionId: SidebarSectionId, element: HTMLButtonElement | null) => {
@@ -291,6 +322,9 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
             isOpen={model.isSectionOpen(sectionId)}
             isCursored={snapshot.cursorSectionId === sectionId}
             attention={snapshot.attentionBySectionId[sectionId]}
+            rollup={rollupBySectionId[sectionId]}
+            bulk={bulkSelectionFace}
+            dragRow={bindRowDrag}
             filterQuery={snapshot.filterQuery}
             sessionStore={props.sessionStore}
             bridge={props.bridge}
@@ -300,6 +334,15 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
           />
         ))}
       </ul>
+      {/* Below the sections rather than above them: the bar is the consequence of what
+          is selected in the tree, and a bar at the top would move the whole column
+          down the first time somebody ticked a row. */}
+      <BulkActionBar
+        model={bulkSelection}
+        bridge={props.bridge}
+        sessionId={props.sessionStore.sessionId}
+        {...(props.airspace === undefined ? {} : { airspace: props.airspace })}
+      />
     </nav>
   );
 }

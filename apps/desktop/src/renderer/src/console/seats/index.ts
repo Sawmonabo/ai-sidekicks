@@ -204,6 +204,23 @@ export {
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
+// The rollup tree and the bulk-selection seam, published beside the sections they
+// belong to. Two of the three type names below are read by the sidebar's own fold and
+// runner; the two enumerations are what a view family derives its groups and acts from
+// rather than restating them.
+export {
+  SIDEBAR_BULK_ACTS,
+  SIDEBAR_ROLLUP_GROUPS,
+  type SidebarBulkAct,
+  type SidebarBulkItem,
+  type SidebarBulkOutcome,
+  type SidebarBulkSelection,
+  type SidebarRollupGroup,
+  type SidebarRollupNode,
+  type SidebarRowDragBinder,
+  type SidebarRowDragTarget,
+} from "./sidebar-sections.js";
+
 export {
   /** @consumedBy T-023p-1C-2 */
   TIMELINE_ROW_DENSITIES,

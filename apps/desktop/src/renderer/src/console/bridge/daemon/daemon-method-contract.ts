@@ -49,6 +49,8 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceListRequest,
   WorkspaceListResponse,
+  WorktreeRetireRequest,
+  WorktreeRetireResponse,
   WorktreeStatusReadRequest,
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
@@ -142,6 +144,15 @@ export interface ConsoleDaemonMethodContract {
   readonly "repo.worktreeStatusRead": {
     readonly request: WorktreeStatusReadRequest;
     readonly response: WorktreeStatusReadResponse;
+  };
+  /**
+   * The worktree plane's one mutation the console sends. Bound because the sidebar's
+   * bulk retire is its caller — a row bound ahead of a caller is the shape this
+   * registry's own header forbids, and this one arrives with the surface that sends it.
+   */
+  readonly "repo.worktreeRetire": {
+    readonly request: WorktreeRetireRequest;
+    readonly response: WorktreeRetireResponse;
   };
 
   // session, channels, membership, presence, invites — the collaboration plane.

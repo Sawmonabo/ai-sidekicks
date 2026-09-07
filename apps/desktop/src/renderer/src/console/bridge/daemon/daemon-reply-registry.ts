@@ -83,6 +83,8 @@ import {
   WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
+  WorktreeRetireRequestSchema,
+  WorktreeRetireResponseSchema,
   WorktreeStatusReadRequestSchema,
   WorktreeStatusReadResponseSchema,
 } from "@ai-sidekicks/contracts";
@@ -188,6 +190,10 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "repo.worktreeStatusRead": bindDaemonMethod(
     WorktreeStatusReadRequestSchema,
     WorktreeStatusReadResponseSchema,
+  ),
+  "repo.worktreeRetire": bindDaemonMethod(
+    WorktreeRetireRequestSchema,
+    WorktreeRetireResponseSchema,
   ),
   "session.create": bindDaemonMethod(SessionCreateRequestSchema, SessionCreateResponseSchema),
   "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema),
