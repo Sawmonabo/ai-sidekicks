@@ -63,6 +63,33 @@ export interface RowMeasurementLedgerOptions {
 
 const EMPTY_PROJECTION: RowKeyProjection = { virtualKeys: [], duplicateKeyCount: 0 };
 
+/**
+ * How a repeat's projected key is spelled, declared once.
+ *
+ * Read back by {@link RowMeasurementLedger.forgetAllExcept}, which has to recover
+ * the row a projected key was minted for. Two spellings of it would make the trim
+ * drop a prior for a row still on screen.
+ */
+const REPEAT_KEY_SEPARATOR = "~repeat-";
+
+/**
+ * The row a measured key was recorded under.
+ *
+ * The ordinal is checked rather than assumed, so a row whose own key happens to
+ * contain the separator is not truncated into a row that does not exist — which
+ * would drop the prior of a row still in the window.
+ */
+function rowKeyOfMeasuredKey(measuredKey: string): string {
+  const separatorIndex = measuredKey.lastIndexOf(REPEAT_KEY_SEPARATOR);
+  if (separatorIndex < 0) {
+    return measuredKey;
+  }
+  const ordinal = measuredKey.slice(separatorIndex + REPEAT_KEY_SEPARATOR.length);
+  return ordinal.length > 0 && /^\d+$/.test(ordinal)
+    ? measuredKey.slice(0, separatorIndex)
+    : measuredKey;
+}
+
 export class RowMeasurementLedger {
   readonly #estimatedRowHeightPx: number;
   readonly #measurementCap: number;
@@ -141,6 +168,41 @@ export class RowMeasurementLedger {
     this.#acceptedHeightByRowKey.delete(rowKey);
   }
 
+  /**
+   * Forget every prior whose row the window no longer holds. Answers how many.
+   *
+   * THE RESIDUE `forget` LEAVES. The cap forgets each key it drops, and that is
+   * exact for every row that had a key of its own — but a prior also survives a
+   * display-settings pass that did not fire, a duplicate row whose measured key is
+   * this module's own `~repeat-` projection and which no caller can name, and a row
+   * the window let go without a prune. The table is bounded, so none of that grows
+   * without limit; it simply stays resident on a session that has gone quiet, which
+   * is what the idle trim in `../viewport/idle-trim.ts` releases.
+   *
+   * SAFE BY CONSTRUCTION, which is why the argument is the retained set rather than
+   * a count or an age: a prior for a row still in the window is never dropped, so
+   * nothing on screen is re-measured and no offset moves. A dropped prior costs one
+   * measurement the next time that row is read back, which is exactly what a row
+   * that has never been measured already costs.
+   *
+   * The repeat suffix is stripped HERE because it is minted here: a caller holding
+   * row keys cannot know that a duplicate row was measured under a projected name,
+   * and asking it to reconstruct one would put this module's private spelling in
+   * two places.
+   */
+  public forgetAllExcept(retainedRowKeys: readonly string[]): number {
+    const retained = new Set(retainedRowKeys);
+    let forgottenCount = 0;
+    for (const measuredKey of [...this.#acceptedHeightByRowKey.keys()]) {
+      if (retained.has(rowKeyOfMeasuredKey(measuredKey))) {
+        continue;
+      }
+      this.#acceptedHeightByRowKey.delete(measuredKey);
+      forgottenCount += 1;
+    }
+    return forgottenCount;
+  }
+
   public get measuredRowCount(): number {
     return this.#acceptedHeightByRowKey.size;
   }
@@ -173,7 +235,7 @@ export class RowMeasurementLedger {
         // element slot of its own, rather than displacing the row that got there
         // first — which is what sharing a key with the library's caches would do.
         duplicateKeyCount += 1;
-        virtualKeys[index] = `${rowKey}~repeat-${String(duplicateKeyCount)}`;
+        virtualKeys[index] = `${rowKey}${REPEAT_KEY_SEPARATOR}${String(duplicateKeyCount)}`;
         continue;
       }
       seenKeys.add(rowKey);

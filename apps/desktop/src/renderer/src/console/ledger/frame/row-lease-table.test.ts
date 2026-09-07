@@ -79,4 +79,29 @@ describe("the row-lease table — the parked bound", () => {
     expect(table.lease("chapter-1")).toBeUndefined();
     expect(table.lease("chapter-0")?.innerScrollTopPx).toBe(9);
   });
+  it("releases every parked lease at once, and keeps every live one", () => {
+    // The TIME half of this module's own bound. The count cap keeps the row a person
+    // had open a moment ago; this returns the ones from an hour ago, which the header
+    // already says nobody expects to survive.
+    const table = new LedgerRowLeaseTable(4);
+    for (const key of ["chapter-0", "chapter-1"]) {
+      table.setLease(key, EXPANDED);
+      table.park(key);
+    }
+    table.setLease("chapter-2", EXPANDED);
+
+    expect(table.releaseParkedLeases()).toBe(2);
+    expect(table.parkedCount).toBe(0);
+    expect(table.lease("chapter-0")).toBeUndefined();
+    expect(table.lease("chapter-2")).toStrictEqual(EXPANDED);
+  });
+
+  it("releases nothing when nothing is parked", () => {
+    // The negative control for the count: a release that answered with the LIVE size
+    // would report memory returned that is still held.
+    const table = new LedgerRowLeaseTable(4);
+    table.setLease("chapter-0", EXPANDED);
+    expect(table.releaseParkedLeases()).toBe(0);
+    expect(table.lease("chapter-0")).toStrictEqual(EXPANDED);
+  });
 });

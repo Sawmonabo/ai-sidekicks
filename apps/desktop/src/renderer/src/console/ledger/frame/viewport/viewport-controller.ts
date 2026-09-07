@@ -84,6 +84,7 @@ export class LedgerViewportController {
       measurements: this.measurements,
       anchor: this.anchor,
       scroll: this.scroll,
+      clock: options.clock,
     });
     this.#publication = new LedgerViewportPublication({
       clock: options.clock,

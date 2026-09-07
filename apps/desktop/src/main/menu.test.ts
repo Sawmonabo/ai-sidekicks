@@ -26,6 +26,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock, type MenuTemplateItem } from "../../test/helpers/electron-mock.js";
+import { AUXILIARY_MENU_CHORDS, electronAcceleratorFor } from "../shared/auxiliary-menu-chords.js";
 import { AUXILIARY_ROUTE_LABELS, AUXILIARY_ROUTE_NAMES } from "../shared/auxiliary-routes.js";
 
 const routeListsMock = vi.hoisted(() => {
@@ -153,7 +154,15 @@ describe("the application menu", () => {
     // and out of the published lists, and the menu follows the published list.
     expect(labelsOf(submenu)).toEqual([AUXILIARY_ROUTE_LABELS["timeline"]]);
     const timelineEntry = submenu.find((item) => item.label === "Timeline");
-    expect(timelineEntry?.accelerator).toBe("CmdOrCtrl+Shift+T");
+    // Rendered from the shared table rather than restated. A literal here was a
+    // second copy of the accelerator, and it went stale the moment the chord moved
+    // off `T` — which is the collision `auxiliary-menu-chords.ts` exists to have
+    // caught. What is asserted is that the menu carries the DECLARED chord in
+    // Electron's spelling; which chord that is, is the table's to say.
+    expect(timelineEntry?.accelerator).toBe(
+      electronAcceleratorFor(AUXILIARY_MENU_CHORDS["timeline"]),
+    );
+    expect(timelineEntry?.accelerator).toBe("CmdOrCtrl+Shift+L");
     expect(typeof timelineEntry?.click).toBe("function");
     expect(rolesOf(submenu)).toContain("minimize");
   });

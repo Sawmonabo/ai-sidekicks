@@ -31,6 +31,7 @@ import {
   type SessionStore,
   type SessionStoreState,
 } from "../../../store/index.js";
+import { useLedgerFirstReadSettled } from "./ledger-first-read.js";
 import { Nothing } from "../../../primitives/index.js";
 
 /**
@@ -46,11 +47,6 @@ const LOADING_SHELL_COUNT = 12;
 const LOADING_SHELL_KEYS: readonly string[] = Object.freeze(
   Array.from({ length: LOADING_SHELL_COUNT }, (_unused, index) => `shell-${String(index)}`),
 );
-
-/** Whether a read response has established this window's base state. */
-function readInitialised(state: SessionStoreState): boolean {
-  return state.initialised;
-}
 
 /** Why the projection is known-incomplete, or `undefined` while it is not. */
 function readDegradedCause(state: SessionStoreState): string | undefined {
@@ -69,9 +65,11 @@ export interface LedgerWindowReadStateProps {
  * is copied into a second holder that could disagree with the store it came from.
  */
 export function LedgerWindowReadState(props: LedgerWindowReadStateProps): React.JSX.Element | null {
-  const initialised = useSessionStore(props.sessionStore, readInitialised);
+  // The same reading the viewport's empty arm takes, through the same hook: two
+  // surfaces speaking about one moment, and never from two selectors.
+  const firstReadSettled = useLedgerFirstReadSettled(props.sessionStore);
   const degradedCause = useSessionStore(props.sessionStore, readDegradedCause);
-  if (!initialised) {
+  if (!firstReadSettled) {
     return (
       <div
         className="meridian-ledger-window-skeleton"

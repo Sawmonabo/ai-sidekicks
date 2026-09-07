@@ -103,6 +103,7 @@ import { LedgerFeedRail } from "./LedgerFeedRail.js";
 import {
   LedgerWindowAbsences,
   LedgerWindowReadState,
+  useLedgerFirstReadSettled,
   useLedgerProjection,
   useRailGeometry,
   useVisibleLedgerWindow,
@@ -160,6 +161,9 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // than read once: the grant is a durable session fact anybody in the session can
   // change, and a value latched at mount would keep saying so after it was turned on.
   const peerInvocation = usePeerInvocationProjection(props.sessionStore);
+  // The same reading `<LedgerWindowReadState>` below draws its shells from, so the
+  // empty sentence and the loading shells cannot both be on screen.
+  const firstReadSettled = useLedgerFirstReadSettled(props.sessionStore);
   // The fold is this MOUNT's, not the log's: which finished chapters a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
@@ -355,6 +359,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
               feedLabel={props.feedLabel}
               scope={scope}
               peerInvocationEnabled={peerInvocation.enabled}
+              firstReadSettled={firstReadSettled}
               hasActiveTurn={ledgerWindow.hasActiveTurn}
             />
           </LedgerRowRevealProvider>

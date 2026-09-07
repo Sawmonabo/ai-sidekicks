@@ -90,6 +90,23 @@ export class LedgerRowLeaseTable {
   }
 
   /**
+   * Drop every parked lease, answering how many went.
+   *
+   * The TIME half of the bound this module already states in its header — "nobody
+   * expects that of a row pruned an hour ago". The count cap above is unchanged; the
+   * idle trim (`viewport/idle-trim.ts`) calls this after a quiet period, by which
+   * point every parked lease is a row nobody has paged back to.
+   *
+   * The LIVE table is deliberately untouched: those leases belong to rows the window
+   * still holds, and taking one would collapse a row a person has open.
+   */
+  public releaseParkedLeases(): number {
+    const releasedCount = this.#parkedLeaseBySyntheticKey.size;
+    this.#parkedLeaseBySyntheticKey.clear();
+    return releasedCount;
+  }
+
+  /**
    * The parked key.
    *
    * Prefixed rather than reusing the row key, so a parked lease can never be

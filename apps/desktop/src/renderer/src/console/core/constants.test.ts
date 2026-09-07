@@ -22,13 +22,17 @@ import {
   ATTACHMENT_CHUNK_BYTE_CAP,
   BASE64_ENCODE_STRIDE_BYTES,
   CAST_BAR_CHIP_CAP,
+  CHAPTER_VISIBLE_ROW_CAP,
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
+  FIND_MATCH_CAP,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
+  LEDGER_PARKED_LEASE_CAP,
+  LEDGER_WINDOW_ROW_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
@@ -43,6 +47,9 @@ import {
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
   RESTORE_PATH_ROW_HEIGHT_PX,
+  REVEAL_CHECKPOINT_TAIL_CAP,
+  REVEAL_FRAME_CHARACTER_BUDGET,
+  REVEAL_LITERAL_BACKTRACK_CAP,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
   RESTORE_PATH_VISIBLE_ROW_CAP,
   RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
@@ -83,6 +90,13 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["RESTORE_PATH_VISIBLE_ROW_CAP", RESTORE_PATH_VISIBLE_ROW_CAP],
   ["RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX", RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX],
   ["WORKFLOW_CANCEL_REASON_BYTE_CAP", WORKFLOW_CANCEL_REASON_BYTE_CAP],
+  ["LEDGER_WINDOW_ROW_CAP", LEDGER_WINDOW_ROW_CAP],
+  ["LEDGER_PARKED_LEASE_CAP", LEDGER_PARKED_LEASE_CAP],
+  ["CHAPTER_VISIBLE_ROW_CAP", CHAPTER_VISIBLE_ROW_CAP],
+  ["FIND_MATCH_CAP", FIND_MATCH_CAP],
+  ["REVEAL_FRAME_CHARACTER_BUDGET", REVEAL_FRAME_CHARACTER_BUDGET],
+  ["REVEAL_CHECKPOINT_TAIL_CAP", REVEAL_CHECKPOINT_TAIL_CAP],
+  ["REVEAL_LITERAL_BACKTRACK_CAP", REVEAL_LITERAL_BACKTRACK_CAP],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -315,5 +329,50 @@ describe("console bounds — the phase graph's zoom range", () => {
     // is a range the surface never actually offers.
     expect(PHASE_GRAPH_MIN_ZOOM).toBeLessThan(1);
     expect(PHASE_GRAPH_MAX_ZOOM).toBeGreaterThan(1);
+  });
+});
+
+describe("console bounds — the ledger's four caps describe one window", () => {
+  it("parks exactly one window's worth of leases", () => {
+    // `LEDGER_PARKED_LEASE_CAP`'s own rationale states the bound as a RELATION —
+    // "parking one window's worth covers a page back and no more" — so the two
+    // numbers being equal is the claim, not a coincidence. Above the window's cap it
+    // would hold leases for rows a page back cannot reach; below it, paging back one
+    // window would find rows that had silently collapsed.
+    expect(LEDGER_PARKED_LEASE_CAP).toBe(LEDGER_WINDOW_ROW_CAP);
+  });
+
+  it("keeps one chapter's body shorter than the whole retained window", () => {
+    // A chapter is one entry INSIDE the window and a nested scroller of its own. At
+    // or above the window's cap a single run could mount as many rows as the entire
+    // ledger retains, and "scrolling inside a chapter is reading rather than paging"
+    // would be describing the ledger rather than the chapter.
+    expect(CHAPTER_VISIBLE_ROW_CAP).toBeLessThan(LEDGER_WINDOW_ROW_CAP);
+  });
+
+  it("ranks more matches than the window can hold rows", () => {
+    // The find field searches the loaded window, and its own rationale says a
+    // one-character query "matches most of it". At or below the window's row cap, a
+    // query matching every retained row would be truncated by the cap rather than by
+    // the window — so the counter's denominator would understate a set the walk can
+    // in fact reach, which is the opposite of the promise that cap exists to keep.
+    expect(FIND_MATCH_CAP).toBeGreaterThan(LEDGER_WINDOW_ROW_CAP);
+  });
+});
+
+describe("console bounds — the reveal engine's three per-frame bounds", () => {
+  it("keeps the literal backtrack far inside one frame's published characters", () => {
+    // The gate walks back from a candidate ceiling inside the characters this frame
+    // is publishing. A backtrack cap at or above the frame budget could walk the
+    // whole frame's output, which is exactly the scan its rationale says it "refuses
+    // to become".
+    expect(REVEAL_LITERAL_BACKTRACK_CAP).toBeLessThan(REVEAL_FRAME_CHARACTER_BUDGET);
+  });
+
+  it("retains more than one checkpoint, so the tail is history rather than a latch", () => {
+    // A checkpoint re-anchors a commit that arrived out of band. A tail of one holds
+    // only the newest, so any commit that is not the newest has nothing to
+    // re-anchor against and the retention stops being a tail at all.
+    expect(REVEAL_CHECKPOINT_TAIL_CAP).toBeGreaterThan(1);
   });
 });

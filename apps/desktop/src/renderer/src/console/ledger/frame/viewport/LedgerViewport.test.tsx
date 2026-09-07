@@ -67,6 +67,8 @@ interface BoundLedgerViewportProps {
   readonly rows: readonly LedgerViewportRow[];
   readonly renderRow: (row: LedgerViewportRow) => React.ReactNode;
   readonly feedLabel: string;
+  /** Defaults to settled, so only the cases about the read in flight say otherwise. */
+  readonly firstReadSettled?: boolean;
   readonly hasActiveTurn?: boolean;
   readonly errorEntries?: React.ComponentProps<typeof LedgerViewport>["errorEntries"];
   /** Filled on every commit, so a case can act on the binding the viewport got. */
@@ -102,6 +104,7 @@ function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element
       binding={binding}
       renderRow={props.renderRow}
       feedLabel={props.feedLabel}
+      firstReadSettled={props.firstReadSettled ?? true}
       {...(props.hasActiveTurn === undefined ? {} : { hasActiveTurn: props.hasActiveTurn })}
       {...(props.errorEntries === undefined ? {} : { errorEntries: props.errorEntries })}
     />
@@ -208,6 +211,47 @@ describe("the ledger viewport — the feed", () => {
         rows={[]}
         renderRow={renderRow}
         feedLabel="Session timeline"
+      />,
+    );
+    expect(screen.getByText("Nothing has happened in this session yet.")).toBeDefined();
+  });
+
+  it("says nothing about an empty session while its first read is in flight", () => {
+    // The pane draws twelve loading shells during this window. The empty sentence
+    // rendered above them said the session was empty at the one moment nobody could
+    // know that — two statements about one screen, and this is the false one.
+    render(
+      <BoundLedgerViewport
+        clock={new ManualClock()}
+        rows={[]}
+        renderRow={renderRow}
+        feedLabel="Session timeline"
+        firstReadSettled={false}
+      />,
+    );
+    expect(screen.queryByText("Nothing has happened in this session yet.")).toBeNull();
+  });
+
+  it("speaks the moment the read lands, without waiting for a row", () => {
+    // The other arm, and the reason the gate is on the READ rather than on a delay:
+    // a settled read over an empty log is exactly when the sentence is true, and a
+    // window that stayed silent then would leave a genuinely empty session blank.
+    const { rerender } = render(
+      <BoundLedgerViewport
+        clock={new ManualClock()}
+        rows={[]}
+        renderRow={renderRow}
+        feedLabel="Session timeline"
+        firstReadSettled={false}
+      />,
+    );
+    rerender(
+      <BoundLedgerViewport
+        clock={new ManualClock()}
+        rows={[]}
+        renderRow={renderRow}
+        feedLabel="Session timeline"
+        firstReadSettled
       />,
     );
     expect(screen.getByText("Nothing has happened in this session yet.")).toBeDefined();

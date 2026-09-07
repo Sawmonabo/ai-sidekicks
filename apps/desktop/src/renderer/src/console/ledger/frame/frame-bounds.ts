@@ -85,3 +85,21 @@ export const REVEAL_CATCH_UP_MULTIPLIER = 3;
  * matter how long the message has grown.
  */
 export const REVEAL_GATE_TAIL_CHARACTERS = 64;
+
+/**
+ * How long the ledger must have been still for the next activity to trim first, in
+ * milliseconds.
+ *
+ * MEASURED, NEVER ARMED. `viewport/idle-trim.ts` runs its pass on the first activity
+ * after a gap this wide rather than on a timer, because `Spec-023 §Console Design
+ * (Meridian)` §The four bars allows no timer on the console's steady state and
+ * `LedgerViewport.test.tsx` holds this frame to it. So this is a threshold a
+ * subtraction is compared against, and a ledger nobody is touching arms nothing.
+ *
+ * Two minutes because it has to be longer than every pause inside ordinary reading —
+ * a person scrolling back, reading a long tool result, switching to another window to
+ * check something — and short enough that the pause after a working session returns
+ * what that session accumulated. A row whose lease survives a two-minute pause is one
+ * nobody is coming back to.
+ */
+export const LEDGER_IDLE_TRIM_DWELL_MS = 120_000;
