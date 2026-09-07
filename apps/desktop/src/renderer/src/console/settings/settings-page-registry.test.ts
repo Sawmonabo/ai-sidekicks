@@ -6,16 +6,17 @@
 // place to widen and the first one to go stale.
 
 import { describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
 
+import { SETTINGS_SECTION_IDS, SETTINGS_SECTION_LABELS } from "./settings-sections.js";
 import {
-  SETTINGS_SECTION_IDS,
-  SETTINGS_SECTION_LABELS,
   SettingsPageRegistry,
   matchSettingsEntries,
   renderOwnerSlotPage,
   type OwnerSlotPage,
   type SettingsPageContext,
   type SettingsPageDescriptor,
+  type SettingsPageRegistration,
 } from "./settings-page-registry.js";
 
 function pageFor(
@@ -81,6 +82,51 @@ describe("settings page registry — one page per section", () => {
     // Every case above reads `registeredSections`, and all of them would pass over
     // a registry that reported sections nobody registered.
     expect(new SettingsPageRegistry().registeredSections()).toStrictEqual([]);
+  });
+});
+
+describe("settings page registry — what is left to warm", () => {
+  /** A registration whose body arrives as its own chunk, resolving to nothing. */
+  function deferredPageFor(
+    section: (typeof SETTINGS_SECTION_IDS)[number],
+  ): SettingsPageRegistration {
+    return {
+      section,
+      owner: "settings-registry-test",
+      label: SETTINGS_SECTION_LABELS[section],
+      keywords: [],
+      body: () =>
+        Promise.resolve<{ Body: (context: SettingsPageContext) => ReactNode }>({
+          Body: () => null,
+        }),
+    };
+  }
+
+  it("names the sections still to load, in rail order", () => {
+    // Rail order rather than registration order, for the two boards' reason: what a walk
+    // warms first is observable, and registration order would make it depend on which
+    // page lane the chunk root evaluated first.
+    const registry = new SettingsPageRegistry();
+    registry.register(deferredPageFor("keyboard"));
+    registry.register(deferredPageFor("accounts"));
+    expect(registry.unloadedKeys()).toStrictEqual(["accounts", "keyboard"]);
+  });
+
+  it("drops a section once its body has been asked for", async () => {
+    const registry = new SettingsPageRegistry();
+    registry.register(deferredPageFor("keyboard"));
+    await registry.preload("keyboard");
+    expect(registry.unloadedKeys()).toStrictEqual([]);
+  });
+
+  it("negative control: a component-form page has nothing to warm", () => {
+    // Without this, the cases above would pass over a registry that reported every
+    // registered section as unloaded — and the walk would then re-arm forever on a page
+    // that was never going to resolve.
+    const registry = new SettingsPageRegistry();
+    registry.register(pageFor("keyboard"));
+    expect(registry.registeredSections()).toStrictEqual(["keyboard"]);
+    expect(registry.unloadedKeys()).toStrictEqual([]);
   });
 });
 

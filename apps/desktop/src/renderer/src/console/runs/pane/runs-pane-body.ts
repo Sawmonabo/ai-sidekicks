@@ -3,13 +3,16 @@
 // A LOADER-BACKED BODY. The runs list opens from the composer's own controls and from
 // a run address; nothing paints it before a person asks for one. What rides behind the
 // boundary with it is the whole of this subtree — the run-state feed, the projection,
-// the seating model, the intervention surfaces, and both stylesheets — none of which a
-// session that never opens the pane has any use for.
+// the seating model, and the intervention surfaces — none of which a session that never
+// opens the pane has any use for.
 //
-// THE SHEETS ENTER HERE RATHER THAN AT THE DOOR, which is `apps/desktop/AGENTS.md`'s
-// stylesheet rule read the way it is written: the owner is the directory that carries
-// the chunk, and putting these on the family door would leave the pane's rules on the
-// initial document of every session while the body itself was deferred.
+// THE SHEETS ARE THE ONE THING THAT DOES NOT RIDE WITH IT, and `runs/index.ts` carries
+// the measurement that says why: `runs.css` declares `.meridian-run-row__failure`, which
+// `workflows/runs/run-list.css` also declares, and while both sheets are on the document
+// the later one decides how the WORKFLOWS run list draws a failed run. Deferring the
+// sheet with the body changes that surface, which belongs to another family — so the
+// sheets stay on the door until that collision is settled the way the run-controls one
+// was, by giving the class one owner.
 //
 // Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
 
@@ -17,12 +20,6 @@ import { createElement } from "react";
 
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { RunsPane } from "./RunsPane.js";
-
-import "./runs.css";
-// The intervention surfaces carry their own sheet beside the pane's, split at the
-// same seam their components are; rules addressing selectors in both sheets stay
-// in `runs.css` as a single declaration.
-import "./interventions/run-interventions.css";
 
 /**
  * The runs list, at an address the deck resolved.

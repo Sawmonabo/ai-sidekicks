@@ -135,3 +135,87 @@ export function dynamicImportSpecifiers(fileName: string, source: string): reado
   });
   return specifiers;
 }
+
+/**
+ * Whether a declaration is erased before a bundler ever sees it.
+ *
+ * TWO SHAPES, BOTH OF THEM ERASED. The clause itself can be type-only
+ * (`import type { X } from`, `export type { X } from`, `export type * from`), and a
+ * clause that is not can still name nothing but types — `import { type X } from`,
+ * `export { type X } from` — which TypeScript elides for the same reason. A binding
+ * list that is EMPTY is deliberately not erased here: `import {} from "./m"` emits, and
+ * `every` over an empty list would answer that it does not.
+ *
+ * A default or namespace binding is a value binding, so a declaration carrying one is
+ * emitted whatever its named elements say.
+ */
+function isTypeOnlyDeclaration(node: ts.ImportDeclaration | ts.ExportDeclaration): boolean {
+  if (ts.isExportDeclaration(node)) {
+    if (node.isTypeOnly) {
+      return true;
+    }
+    const exported = node.exportClause;
+    return (
+      exported !== undefined &&
+      ts.isNamedExports(exported) &&
+      exported.elements.length > 0 &&
+      exported.elements.every((element) => element.isTypeOnly)
+    );
+  }
+  const clause = node.importClause;
+  if (clause === undefined) {
+    return false;
+  }
+  if (clause.isTypeOnly) {
+    return true;
+  }
+  if (clause.name !== undefined) {
+    return false;
+  }
+  const bindings = clause.namedBindings;
+  return (
+    bindings !== undefined &&
+    ts.isNamedImports(bindings) &&
+    bindings.elements.length > 0 &&
+    bindings.elements.every((element) => element.isTypeOnly)
+  );
+}
+
+/**
+ * Every module specifier a module names STATICALLY and EMITS. Relative only.
+ *
+ * TYPE-ONLY EDGES ARE NOT EDGES, and the reason is the direction this reader's answer
+ * is used in. It feeds a reach set whose consumer reports an OFFENCE when it finds no
+ * user — so over-reporting reach under-reports offences, and the eager-CSS regression
+ * the chunk-root gate exists to reject passes green the moment a door carries an
+ * `import type` line to a component that only a loader-backed body renders. The header
+ * this replaced claimed the opposite ("over-reporting refuses more than it must"),
+ * which is true of a predicate that reports on finding a user and false of this one.
+ *
+ * So the parser's own `isTypeOnly` flags ARE consulted, on both the clause and its
+ * specifiers, and what is left is exactly what the bundler puts in the chunk.
+ *
+ * Dynamic `import()` is deliberately absent — it is `dynamicImportSpecifiers`' subject,
+ * and the boundary between the two is the whole point of both.
+ */
+export function moduleStaticImportSpecifiers(fileName: string, source: string): readonly string[] {
+  if (!fileName.endsWith(".ts") && !fileName.endsWith(".tsx")) {
+    return [];
+  }
+  const specifiers: string[] = [];
+  const parsed = parseSourceText(fileName, source);
+  forEachDescendant(parsed, (node) => {
+    if (!ts.isImportDeclaration(node) && !ts.isExportDeclaration(node)) {
+      return;
+    }
+    const moduleSpecifier = node.moduleSpecifier;
+    if (
+      moduleSpecifier !== undefined &&
+      ts.isStringLiteral(moduleSpecifier) &&
+      !isTypeOnlyDeclaration(node)
+    ) {
+      specifiers.push(moduleSpecifier.text);
+    }
+  });
+  return specifiers;
+}
