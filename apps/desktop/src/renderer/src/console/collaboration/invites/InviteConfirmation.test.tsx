@@ -5,69 +5,27 @@
 // reference lifecycle landed, that what the card holds is a REFERENCE and never a
 // credential. Both are asserted here, and the second is asserted against the shape as
 // well as against the render: there is no token member to print.
+//
+// EVERY CASE HERE HOLDS AN INVITATION. The two arms that produced none — a preview the
+// control plane refused and one it could not answer at all — are
+// `InviteConfirmation.previews.test.tsx`, because what is asserted about them is a
+// different subject: not what the card says about an invitation, but what it offers
+// when there is no reference to spend on anything.
 
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { GrowthInviteOutcome } from "../../bridge/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
-import { InviteConfirmation } from "./InviteConfirmation.js";
-import type { PendingInviteSnapshot } from "./pending-invite.js";
+import { control, outcomeActs, renderCard } from "./invite-confirmation.test-support.js";
 import {
   INVITED_SESSION_ID as INVITED_SESSION,
   PENDING_INVITE_REFERENCE as REFERENCE,
   pendingInvite as invite,
-  pendingInviteSnapshot as snapshot,
 } from "./pending-invite.test-support.js";
 
 const MEMBERSHIP = "019b7910-000a-7000-8000-000000000002";
-
-/** The card, portalled into the test's own container so a case can query it. */
-function renderCard(
-  overrides: Partial<PendingInviteSnapshot> = {},
-  acts: Partial<{
-    open: boolean;
-    onConfirm: () => void;
-    onRetry: () => void;
-    onDismiss: () => void;
-    onAcknowledge: () => void;
-  }> = {},
-): HTMLElement {
-  const { container } = render(
-    <InviteConfirmation
-      open={acts.open ?? true}
-      snapshot={snapshot(overrides)}
-      onConfirm={acts.onConfirm ?? (() => undefined)}
-      onRetry={acts.onRetry ?? (() => undefined)}
-      onDismiss={acts.onDismiss ?? (() => undefined)}
-      onAcknowledge={acts.onAcknowledge ?? (() => undefined)}
-      overlayContainer={document.body}
-    />,
-  );
-  return container.ownerDocument.body;
-}
-
-function control(root: HTMLElement, className: string): HTMLButtonElement {
-  const found = root.querySelector<HTMLButtonElement>(`.${className}`);
-  if (found === null) {
-    throw new Error(`no ${className}`);
-  }
-  return found;
-}
-
-/**
- * The controls an outcome report offers, by class name.
- *
- * Asserted as the WHOLE row rather than as the absence of one name: a case that only
- * checked a retry control was gone would pass just as well over a report that had
- * been given a different second control, and over one that offered nothing at all.
- */
-function outcomeActs(root: HTMLElement): readonly string[] {
-  return [...root.querySelectorAll(".meridian-invite-outcome__acts button")].map(
-    (button) => button.className,
-  );
-}
 
 describe("the confirmation — when there is nothing to confirm", () => {
   it("renders nothing at all", () => {

@@ -30,6 +30,15 @@
 // feed refusal with no invitation waiting: "we cannot tell you whether one arrived" is
 // a different fact from "none has", and a window that drew nothing would be saying the
 // second while the first was true.
+//
+// AND IT ANNOUNCES A PREVIEW THAT PRODUCED NO INVITATION, on the same reading. The
+// pending feed carries three states and only one of them is an invitation: a link the
+// control plane refused and one that could not be put at all reach this window too,
+// and while the notice drew for the ready arm alone both of those arrived, were held
+// by the lifecycle, and were surfaced by nothing — so an expired link looked exactly
+// like a link nobody had followed, and the retry the `unavailable` arm carries the
+// handle for was reachable from no control on any screen. All three open the SAME
+// card, because they are one question about one deep link.
 
 import { useCallback, useState } from "react";
 
@@ -37,6 +46,7 @@ import { InlineRefusal } from "../../primitives/index.js";
 import type { WindowOverlaySeatProps } from "../../seats/index.js";
 import { InviteConfirmation } from "./InviteConfirmation.js";
 import { useJoinedOutcomeNavigation } from "./joined-outcome-navigation.js";
+import type { PendingInviteSnapshot } from "./pending-invite.js";
 import { usePendingInvites } from "./use-pending-invites.js";
 
 export type InviteLifecycleOverlayProps = WindowOverlaySeatProps;
@@ -68,22 +78,24 @@ export function InviteLifecycleOverlay(
   const confirm = useCallback(() => {
     adapter.confirm();
   }, [adapter]);
+  // NOT A CLOSE PATH, unlike the two above it, and that is a property of what a retry
+  // ANSWERS. Its answer is a fresh preview state on the pending feed rather than
+  // anything this card can render, so the lifecycle releases the head it was
+  // dispatched on when the call is served and the card closes on its own. Closing it
+  // here would take a refused retry off the screen along with the refusal's own words.
   const retry = useCallback(() => {
     adapter.retry();
   }, [adapter]);
 
-  const hasNotice = snapshot.invite !== undefined || snapshot.feedRefusal !== undefined;
+  // Whichever of the three states the head is in, there is something to look at.
+  const hasPrompt = snapshot.invite !== undefined || snapshot.previewFailure !== undefined;
   return (
     <>
-      {hasNotice ? (
+      {hasPrompt || snapshot.feedRefusal !== undefined ? (
         <div className="meridian-invite-notice" role="status">
-          {snapshot.invite === undefined ? null : (
+          {hasPrompt ? (
             <>
-              <p className="meridian-invite-notice__lede">
-                {snapshot.waitingBehind > 0
-                  ? `You have ${String(snapshot.waitingBehind + 1)} invitations waiting.`
-                  : "You have an invitation waiting."}
-              </p>
+              <p className="meridian-invite-notice__lede">{noticeLede(snapshot)}</p>
               <button
                 type="button"
                 className="meridian-invite-notice__open"
@@ -94,14 +106,14 @@ export function InviteLifecycleOverlay(
                 Look at it
               </button>
             </>
-          )}
+          ) : null}
           {snapshot.feedRefusal === undefined ? null : (
             <InlineRefusal code={snapshot.feedRefusal.code} detail={snapshot.feedRefusal.detail} />
           )}
         </div>
       ) : null}
       <InviteConfirmation
-        open={isConfirmationOpen && snapshot.invite !== undefined}
+        open={isConfirmationOpen && hasPrompt}
         snapshot={snapshot}
         onConfirm={confirm}
         onRetry={retry}
@@ -110,4 +122,26 @@ export function InviteLifecycleOverlay(
       />
     </>
   );
+}
+
+/**
+ * What the notice says about the head, in one sentence.
+ *
+ * The two readings are genuinely different claims and neither can stand in for the
+ * other: "an invitation is waiting" is an offer, and "a link did not open" is a
+ * report. The count behind the head rides both, because a person deciding whether to
+ * look now is deciding about the queue rather than about its first entry.
+ */
+function noticeLede(snapshot: PendingInviteSnapshot): string {
+  const { waitingBehind } = snapshot;
+  if (snapshot.invite === undefined) {
+    return waitingBehind > 0
+      ? `An invitation link did not open. ${String(waitingBehind)} more ${
+          waitingBehind === 1 ? "is" : "are"
+        } waiting.`
+      : "An invitation link did not open.";
+  }
+  return waitingBehind > 0
+    ? `You have ${String(waitingBehind + 1)} invitations waiting.`
+    : "You have an invitation waiting.";
 }

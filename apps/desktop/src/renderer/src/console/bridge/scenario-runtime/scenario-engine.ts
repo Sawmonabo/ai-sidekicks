@@ -18,8 +18,18 @@
 // (its snapshot answers at cursor zero, so every position in between counts as
 // missing) and entered degradation and repair, or, if the scenario had already
 // finished, stayed empty forever. The replay is served from the engine's OWN record
-// of what it has delivered — the script and the count of its consumed prefix — so
-// there is no second copy of the beats to keep in step.
+// of what it has delivered, which is `scenario-log.ts` beside this file.
+//
+// AND A FRAME CAN BE APPENDED THAT THE SCRIPT DOES NOT CARRY. A scenario is a
+// recording, and a person acting on a fixture surface does something the recording
+// does not contain: a lifecycle move answers, and against a daemon the event it
+// produced would arrive on this session's stream. `appendEvent` is that, and it is the
+// engine's because the stream is — a fixture namespace that emitted onto its own feed
+// would be a second delivery path into stores this one already owns. It is NOT a clock
+// move: an act happens now rather than at a tick, so it delivers to whatever is
+// subscribed and is replayed to whatever subscribes later, and no advance is published
+// for it. Where its position in the log comes from is `scenario-log.ts`'s answer, and
+// it is one line rather than two.
 //
 // The engine holds ONE more thing than the script: the replies a scripted latency
 // has parked, in `held-reply-queue.ts` beside it. That module states why they live
@@ -50,6 +60,7 @@ import {
 } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.js";
+import { ScenarioSessionLog, type UnpositionedSessionEvent } from "./scenario-log.js";
 import type { ConsoleScenario, ScenarioReply } from "./scenario.js";
 
 /** Where a scenario's playback has got to. Rendered by the fixture picker. */
@@ -105,6 +116,9 @@ export class ScenarioEngine {
   // no beat, which is exactly the case a frame scheduled between two beats needs.
   readonly #advances = new Emitter<number>("scenario advance");
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
+  // Where a delivered frame's position comes from, and the record a late subscriber is
+  // replayed. One line for scripted beats and appended frames alike.
+  readonly #log = new ScenarioSessionLog();
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
   #disposed = false;
@@ -171,10 +185,14 @@ export class ScenarioEngine {
    * which is what it would have done before.
    */
   public subscribe(sink: ScenarioSink, options?: ScenarioSubscribeOptions): Unsubscribe {
+    // Keyed on what the LOG holds and never on the consumed script prefix: an appended
+    // frame advances the first and not the second, so a scenario appended to before its
+    // first advance would replay nothing and hand a late subscriber a log it reads as
+    // starting at a gap.
     if (
       options?.replayDeliveredPrefix === true &&
       !this.#disposed &&
-      this.#deliveredBeatCount > 0
+      this.#log.deliveredCount > 0
     ) {
       sink(this.#deliveredEvents());
     }
@@ -201,16 +219,41 @@ export class ScenarioEngine {
   }
 
   /**
-   * The beats the frozen clock has already delivered, in log order.
+   * Append one frame this scenario's script does not carry, and deliver it now.
    *
-   * Derived from the script and the consumed count rather than accumulated into a
-   * list of its own. `#deliveredBeatCount` is already the engine's record of how far
-   * the prefix has been consumed — `advance` keeps it and the set actually delivered
-   * one claim — so a second array would be that same fact stored twice, free to
-   * disagree with it after any change to the due-prefix rule.
+   * The one entry a fixture namespace reaches to put an act's own consequence on this
+   * session's stream. It goes through the log rather than through a sequence of its
+   * own, so the position it takes and the positions the beats after it take are one
+   * decision — see `scenario-log.ts` for why an appended frame shifts the rest.
+   *
+   * A DISPOSED engine appends nothing and reports it, on `advance`'s rule: a delivery
+   * into a torn-down subscriber is the failure this module's teardown exists to
+   * prevent, and an append is a delivery.
+   */
+  public appendEvent(event: UnpositionedSessionEvent): ConsoleSessionEvent | undefined {
+    if (this.#disposed) {
+      reportTripwire(
+        "apply-chokepoint-bypass",
+        `ScenarioEngine(${this.#scenario.id})`,
+        `a "${event.kind}" frame was appended after teardown; the engine dropped it rather than delivering into a disposed store`,
+      );
+      return undefined;
+    }
+    const appended = this.#log.appendEvent(event);
+    this.#beats.emit([appended]);
+    return appended;
+  }
+
+  /**
+   * The frames this playback has already delivered, in log order.
+   *
+   * The LOG's answer rather than a slice of the script: an appended frame is in no
+   * slice, and every scripted beat after one is delivered at a position its author did
+   * not write. `#deliveredBeatCount` still counts the consumed script prefix, which is
+   * what `progress` and the due rule are about.
    */
   #deliveredEvents(): readonly ConsoleSessionEvent[] {
-    return this.#scenario.beats.slice(0, this.#deliveredBeatCount).map((beat) => beat.event);
+    return this.#log.delivered();
   }
 
   /** Advance one tick. A no-op after teardown, reported rather than silent. */
@@ -264,7 +307,10 @@ export class ScenarioEngine {
     this.#heldReplies.releaseThrough(this.#elapsedMs);
     if (due.length > 0) {
       this.#deliveredBeatCount += due.length;
-      this.#beats.emit(due.map((beat) => beat.event));
+      // Stamped on the way out rather than read off the script: an appended frame has
+      // already taken a position, and a beat delivered at the number its author wrote
+      // would be a duplicate the store drops.
+      this.#beats.emit(this.#log.admitScriptedBeats(due.map((beat) => beat.event)));
     }
     // LAST, and unconditional. Last, because a subscriber walking its own due rule
     // against this tick should see a scenario whose beats for the same tick have

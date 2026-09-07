@@ -36,7 +36,15 @@
 // So all seven are declared script-only next door, and the sweep in
 // `fixture-growth-port.test.ts` holds each to the `reply-unscripted` refusal rather
 // than to the `wire-unregistered` one a build with no stand-in would take.
+//
+// AND THREE OF THE FOUR WRITES DO A SECOND THING, which is why they are the one group
+// here that is not a bare call to the scripted-write seam. A served mute, unmute or
+// archive puts its own `channel.*` transition on the session stream, because against a
+// daemon the receipt and the event are two halves of one move and a fixture carrying
+// only the first leaves the directory's re-read path reachable from nothing but an
+// authored beat. `fixture-channel-lifecycle.ts` owns that half and states it in full.
 
+import { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { answerScriptedWrite } from "./fixture-scripted-write.js";
 import { growthUnscriptedReply, type GrowthPort } from "../growth-port/index.js";
@@ -110,12 +118,12 @@ export function fixtureCollaborationReads(
       ),
     channelCreate: async (request) =>
       await answerScriptedWrite(engine, "channel.create", "channelCreate", request),
-    channelMute: async (request) =>
-      await answerScriptedWrite(engine, "channel.mute", "channelMute", request),
-    channelUnmute: async (request) =>
-      await answerScriptedWrite(engine, "channel.unmute", "channelUnmute", request),
-    channelArchive: async (request) =>
-      await answerScriptedWrite(engine, "channel.archive", "channelArchive", request),
+    // The three lifecycle MOVES answer the same way the create above does and then put
+    // the transition on the session's own stream, which is the half that makes the
+    // directory's re-read reachable at all under the fixture. Their reasoning is
+    // `fixture-channel-lifecycle.ts`'s, and it holds one identifier line across the
+    // three, so they arrive here as an object rather than as three closures.
+    ...new FixtureChannelLifecycle(engine).operations(),
     membershipRosterRead: async (request) =>
       answerFromScriptedReply(
         engine,

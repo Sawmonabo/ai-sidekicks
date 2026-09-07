@@ -14,10 +14,22 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  createFixtureBridge,
+  type ConsoleBridge,
+  type GrowthPendingInviteState,
+} from "../../bridge/index.js";
+import { FixtureGrowthStream } from "../../bridge/fixture/fixture-growth-stream.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { InviteLifecycleOverlay } from "./InviteLifecycleOverlay.js";
-import { FIRST_SESSION, scenarioWithArrivals } from "./pending-invite.test-support.js";
+import {
+  FIRST_SESSION,
+  PENDING_INVITE_ATTEMPT,
+  refusedPreview,
+  scenarioWithArrivals,
+  unavailablePreview,
+} from "./pending-invite.test-support.js";
 
 /** What one mount of the overlay hands back to a case. */
 interface MountedOverlay {
@@ -188,5 +200,92 @@ describe("the invite lifecycle — where a join takes the window", () => {
     await press(body, "meridian-invite-confirmation__confirm");
     expect(body.textContent ?? "").toContain("Sign in to finish joining.");
     expect(openSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("the invite lifecycle — a deep link that produced no invitation", () => {
+  // The defect this block exists for: the notice drew for the ready arm alone, so a
+  // refused preview and one that could not be put at all arrived, were held by the
+  // lifecycle, and reached no screen — and the retry the `unavailable` arm carries the
+  // handle for was reachable from no control anywhere in the console.
+
+  /** What one mount over a hand-built pending feed hands back, plus what it retried. */
+  interface MountedFailure {
+    readonly body: HTMLElement;
+    readonly retries: readonly unknown[];
+  }
+
+  /**
+   * Mount the overlay over a pending feed carrying one preview failure.
+   *
+   * The narrow exception `pending-invite.previews.test.ts` already takes, for the same
+   * reason: the scenario table scripts INVITATIONS, so the two arms a preview reaches
+   * when it produces none are the two states it cannot express. Everything else here —
+   * the retry operation included — is the real fixture growth port.
+   */
+  async function mountOverFailure(arrival: GrowthPendingInviteState): Promise<MountedFailure> {
+    const retries: unknown[] = [];
+    const bridge = fixtureBridgeWithGrowth(scenarioWithArrivals(), {
+      invitePendingSubscribe: async () => {
+        const feed = new FixtureGrowthStream<GrowthPendingInviteState>();
+        feed.push(arrival);
+        return await Promise.resolve({ status: "served", value: feed });
+      },
+      inviteRetryPending: async (request) => {
+        retries.push(request);
+        return await Promise.resolve({ status: "served", value: undefined });
+      },
+    });
+    const { body } = await mountOverlay(bridge);
+    return { body, retries };
+  }
+
+  it("announces a link that did not open, rather than an invitation that is waiting", async () => {
+    const { body } = await mountOverFailure(refusedPreview());
+    const text = body.textContent ?? "";
+    expect(text).toContain("An invitation link did not open.");
+    expect(text).not.toContain("invitation waiting");
+  });
+
+  it("negative control: an invitation that DID open is still announced as one", async () => {
+    // Without this the case above would pass over a notice that had stopped
+    // distinguishing the two readings and reported every arrival as a failure.
+    const { body } = await mountOverlay();
+    expect(body.textContent ?? "").toContain("invitations waiting");
+  });
+
+  it("opens the same card on the same press, and names the refusal in it", async () => {
+    const { body } = await mountOverFailure(refusedPreview());
+    expect(body.querySelector(".meridian-invite-confirmation")).toBeNull();
+    await press(body, "meridian-invite-notice__open");
+    const text = body.textContent ?? "";
+    expect(text).toContain("invite.expired");
+    expect(text).toContain("Ask whoever sent it for a fresh link");
+  });
+
+  it("puts the preview again through the lifecycle's own retry, on the attempt handle", async () => {
+    // The whole point of the arm: the control reaches `invite.retryPending` carrying the
+    // handle that names which outstanding deep link this is, and never a reference.
+    const { body, retries } = await mountOverFailure(unavailablePreview());
+    await press(body, "meridian-invite-notice__open");
+    await press(body, "meridian-invite-outcome__retry");
+    expect(retries).toEqual([{ attempt: PENDING_INVITE_ATTEMPT }]);
+  });
+
+  it("closes the card once the retried head is released, without a second press", async () => {
+    // A served retry releases the head, because its answer arrives as a fresh pending
+    // state rather than in this card. Nothing is left to look at, so nothing is shown.
+    const { body } = await mountOverFailure(unavailablePreview());
+    await press(body, "meridian-invite-notice__open");
+    await press(body, "meridian-invite-outcome__retry");
+    expect(body.querySelector(".meridian-invite-confirmation")).toBeNull();
+    expect(body.querySelector(".meridian-invite-notice")).toBeNull();
+  });
+
+  it("puts a refused preview away on its own control, and it stays away", async () => {
+    const { body } = await mountOverFailure(refusedPreview());
+    await press(body, "meridian-invite-notice__open");
+    await press(body, "meridian-invite-outcome__acknowledge");
+    expect(body.querySelector(".meridian-invite-notice")).toBeNull();
   });
 });
