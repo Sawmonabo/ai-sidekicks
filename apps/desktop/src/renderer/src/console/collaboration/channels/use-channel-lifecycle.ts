@@ -37,6 +37,7 @@ import {
   CHANNEL_NOT_FOUND_CODE,
   channelLifecycleMutation,
   type ChannelLifecycleAction,
+  type ChannelLifecycleRequest,
 } from "./channel-writes.js";
 import { type ChannelRowLifecycle } from "./ChannelRowControls.js";
 
@@ -44,6 +45,21 @@ import { type ChannelRowLifecycle } from "./ChannelRowControls.js";
 interface GoneChannelNotice {
   readonly channelId: string;
   readonly refusal: ConsoleRefusal;
+}
+
+/**
+ * The move the coordinator's latch is actually held for, and the row it names.
+ *
+ * ONE VALUE RATHER THAN TWO REGISTERS. The action used to be held on its own beside
+ * the coordinator's pending key, written at the press: a second press arriving before
+ * the first render had shut the controls replaced it, the coordinator then answered
+ * that press under its single-flight rule, and the row still holding the latch
+ * rendered the neighbour's verb — a mute in flight reading “Archiving…”. Which row a
+ * move belongs to is a fact about the move, so it travels with it.
+ */
+interface PendingChannelAct {
+  readonly channelId: string;
+  readonly action: ChannelLifecycleAction;
 }
 
 /** The directory as the list draws it: two regions, the notices, and the acts. */
@@ -89,22 +105,31 @@ export function useChannelLifecycle(
     [channels, appliedStates],
   );
 
-  const lifecycleCoordinator = useMemo(
-    () =>
-      new WireMutationCoordinator({
-        perform: channelLifecycleMutation(bridge),
-        describeWhat: "The channel",
-      }),
+  // Which of the three the row in flight is performing, and which row that is. Read
+  // only while that row is the pending one, so it is never stale: the coordinator is
+  // rebuilt when the subject moves, and its fresh snapshot names no pending row.
+  const [pendingAct, setPendingAct] = useState<PendingChannelAct | undefined>(undefined);
+
+  const lifecycleCoordinator = useMemo(() => {
+    const performLifecycle = channelLifecycleMutation(bridge);
+    return new WireMutationCoordinator({
+      // The move is recorded HERE and nowhere else, because this is the one place the
+      // coordinator reaches only once its single-flight latch is held: a press it
+      // answers under that rule never runs this, so it cannot name the row that does
+      // hold the latch. Recording it at the press instead put the console's own
+      // reading of that rule in a second place, and the two disagreed on exactly the
+      // frame the rule is for.
+      perform: async (request: ChannelLifecycleRequest) => {
+        setPendingAct({ channelId: request.channelId, action: request.action });
+        return await performLifecycle(request);
+      },
+      describeWhat: "The channel",
+    });
     // Keyed on the SUBJECT and not only on the transport: what is in flight and whose
     // refusal stands is about ONE session's rows, and a session's list inheriting
     // another's is what closes every control on the frame after a move.
-    [bridge, sessionId],
-  );
+  }, [bridge, sessionId]);
   const lifecycle = useWireMutation(lifecycleCoordinator);
-  // Which of the three the row in flight is performing. Read only while that row is
-  // the pending one, so it is never stale: the coordinator is rebuilt when the subject
-  // moves, and its fresh snapshot names no pending row at all.
-  const [pendingAction, setPendingAction] = useState<ChannelLifecycleAction | undefined>(undefined);
 
   useEffect(() => {
     // The coordinator being retired is superseded rather than dropped: dropping the
@@ -131,7 +156,6 @@ export function useChannelLifecycle(
       // is the reading this act is about, and taking it off an already-overlaid row
       // would have a second press record this console's own answer as the directory's.
       const supersededState = channels?.find((channel) => channel.id === channelId)?.state;
-      setPendingAction(action);
       void lifecycleCoordinator.run(channelId, { channelId, action }).then((settlement) => {
         // `undefined` is the refused arm — and the superseded one, where the subject
         // moved while the call was unsettled. The daemon's answer is on the
@@ -171,7 +195,13 @@ export function useChannelLifecycle(
       }
       const channelId = row.channel.id;
       return {
-        pendingAction: lifecycle.pendingKey === channelId ? pendingAction : undefined,
+        // The latch's own row AND the move recorded when it was taken. The two are
+        // written in one act, so the second read is a check on the first rather than
+        // a second opinion about which row is in flight.
+        pendingAction:
+          lifecycle.pendingKey === channelId && pendingAct?.channelId === channelId
+            ? pendingAct.action
+            : undefined,
         // Every row's controls close while ANY move is unsettled, not only the one
         // being moved: the coordinator behind them applies one at a time.
         isAnyPending: lifecycle.pendingKey !== undefined,
@@ -184,7 +214,7 @@ export function useChannelLifecycle(
         },
       };
     },
-    [actOnChannel, lifecycle, lifecycleCoordinator, pendingAction],
+    [actOnChannel, lifecycle, lifecycleCoordinator, pendingAct],
   );
 
   const rows = ordered ?? { live: [], archived: [] };

@@ -96,7 +96,8 @@ export function CreateChannelPolicyFields(props: {
           }}
         />
         <span className="meridian-create-channel__field-note">
-          Fixed at creation. Left empty, the channel takes the session&rsquo;s own order.
+          Fixed at creation. Required when agents take turns round-robin, and ignored under every
+          other policy.
         </span>
       </label>
 

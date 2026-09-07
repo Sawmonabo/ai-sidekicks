@@ -113,6 +113,17 @@ describe("creating a channel — the policy a general channel carries", () => {
     expect(notes).toHaveLength(5);
   });
 
+  it("says the round-robin order is required rather than offering to fall back", () => {
+    // The note used to promise that an empty order took the session's own. It does
+    // not: `Spec-016 §Turn Policies` refuses a round-robin create with no order at
+    // all, so the copy that offered the fallback was describing a request that fails.
+    const { container } = renderCreateChannel();
+    const notes = fieldNotes(container);
+
+    expect(notes.join(" ")).toContain("Required when agents take turns round-robin");
+    expect(notes.join(" ")).not.toContain("own order");
+  });
+
   it("offers the session's own default as an explicit choice rather than pre-picking one", () => {
     // An absent member on this wire MEANS the session's default, so a console that
     // filled one in would be choosing on a person's behalf and reporting it as theirs.

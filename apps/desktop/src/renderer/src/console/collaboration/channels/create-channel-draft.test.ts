@@ -198,6 +198,47 @@ describe("create channel draft — what a direct channel sends", () => {
   });
 });
 
+describe("create channel draft — the order a round-robin channel must carry", () => {
+  it("composes nothing while the order is empty", () => {
+    // `Spec-016 §Turn Policies` requires a non-empty agent order for every
+    // round-robin channel and refuses a create without one, so a form declaring
+    // itself ready here would be promising a request the daemon must refuse.
+    const draft = namedDraft();
+    draft.setTurnPolicy("round-robin");
+    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("round-robin order");
+  });
+
+  it("counts a field of separators as empty, exactly as the request does", () => {
+    const draft = namedDraft();
+    draft.setTurnPolicy("round-robin");
+    draft.setRoundRobinOrder(" , , ");
+    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("round-robin order");
+  });
+
+  it("negative control: the same draft composes once an order is typed", () => {
+    // Without this the two cases above would pass over a draft that refused every
+    // round-robin channel whatever its order said.
+    const draft = namedDraft();
+    draft.setTurnPolicy("round-robin");
+    draft.setRoundRobinOrder("reviewer, builder");
+    expect(requestOf(draft).config?.roundRobinOrder).toStrictEqual(["reviewer", "builder"]);
+  });
+
+  it("asks for no order under any other policy the form can choose", () => {
+    const draft = namedDraft();
+    draft.setTurnPolicy("free-form");
+    expect(missingFrom(draft, PARTICIPANT_YOU)).toStrictEqual([]);
+    expect(requestOf(draft).config?.roundRobinOrder).toBeUndefined();
+  });
+
+  it("asks for no order under the session's own policy, which this form cannot read", () => {
+    // An unset policy MEANS the session's default, and the console does not know
+    // which one that is — demanding an order there would be a rule invented against
+    // a policy nobody on this surface can see.
+    expect(missingFrom(namedDraft(), PARTICIPANT_YOU)).toStrictEqual([]);
+  });
+});
+
 describe("create channel draft — what Cancel does", () => {
   it("puts every field back where the form opened", () => {
     const draft = namedDraft();

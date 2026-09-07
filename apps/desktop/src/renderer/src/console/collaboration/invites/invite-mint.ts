@@ -33,6 +33,15 @@
 // replacing it: the mint still goes and the reveal shows the identifier and says the
 // link could not be composed. Refusing the whole act on it would throw away an
 // invitation the daemon was willing to issue.
+//
+// AND IT IS NOT A FINISHED ONE EITHER, WHICH IS WHY THE TOKEN SURVIVES IT. Reading
+// the host first bounds the damage a refusal can do — nothing is minted while it is
+// still out — but it cannot rule the refusal out: the port answers, and it may answer
+// no. Dropping the token there ended the invitation's usable life at its first
+// transient failure, since the ledger carries no token and no later read recovers
+// one. So the unresolved arm carries the token and {@link inviteLinkFrom} is the one
+// composition both the mint and a retry go through. The credential's life is exactly
+// the window in which something still reads it: the composed arm carries no token.
 
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
@@ -62,9 +71,13 @@ export interface InviteMintReply {
 /**
  * What one settled act produces: the invitation, and the link it is sent as.
  *
- * THE TOKEN IS DELIBERATELY NOT A MEMBER. It is consumed by the composition inside
- * this module and never leaves it, so no caller holds a plaintext credential it has
- * no use for — the reveal renders it only inside the link.
+ * THE TOKEN IS DELIBERATELY NOT A MEMBER HERE. Where the host answered it is consumed
+ * by the composition inside this module and never leaves it, so no caller holds a
+ * plaintext credential it has no use for — the reveal renders it only inside the
+ * link. Where the host did NOT answer it travels on {@link MintedInviteLink}'s
+ * unresolved arm, because there the composition is still owed and something still
+ * reads it; a receipt-level member would hold it on both arms, which is a longer life
+ * than the one that needs it.
  */
 export interface InviteMintReceipt {
   /** Wire-verbatim, from the create reply. */
@@ -75,7 +88,7 @@ export interface InviteMintReceipt {
 }
 
 /** The host this node composes links against, or why it could not be read. */
-type ControlPlaneHostReading =
+export type ControlPlaneHostReading =
   | { readonly status: "read"; readonly host: string }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
@@ -113,14 +126,16 @@ export function inviteMintWithLink<TRequest, TReply extends InviteMintReply>(
 }
 
 /**
- * This node's control-plane host, asked once per press.
+ * This node's control-plane host, asked once per press — and once per retry.
  *
  * The port's contract is that it RESOLVES with an outcome, so a rejection has no arm
  * in that vocabulary and is widened into one here rather than left to propagate: an
  * unhandled rejection would take the whole act down with it and mint nothing, which
  * turns a link this console could not compose into an invitation it refused to issue.
  */
-async function readControlPlaneHost(bridge: ConsoleBridge): Promise<ControlPlaneHostReading> {
+export async function readControlPlaneHost(
+  bridge: ConsoleBridge,
+): Promise<ControlPlaneHostReading> {
   try {
     const outcome = await bridge.growth.controlPlaneHostRead({});
     return outcome.status === "served"
@@ -131,9 +146,20 @@ async function readControlPlaneHost(bridge: ConsoleBridge): Promise<ControlPlane
   }
 }
 
-/** The link this token is sent as, or the reason there is not one. */
-function inviteLinkFrom(host: ControlPlaneHostReading, token: string): MintedInviteLink {
+/**
+ * The link this token is sent as, or the reason there is not one YET.
+ *
+ * The token travels onto the unresolved arm rather than being dropped, which is what
+ * makes a retry possible at all: the plaintext exists in this process exactly once,
+ * and a composition that discarded it on the refused path would leave a real
+ * invitation nothing could ever compose a link for.
+ *
+ * Exported because a retry composes through THIS function and not a second copy of
+ * it: two spellings of `https://<host>/invite/<token>` is two chances for one of them
+ * to be wrong.
+ */
+export function inviteLinkFrom(host: ControlPlaneHostReading, token: string): MintedInviteLink {
   return host.status === "read"
     ? { status: "composed", url: composeInviteLink(host.host, token) }
-    : { status: "refused", refusal: host.refusal };
+    : { status: "unresolved", token, refusal: host.refusal };
 }
