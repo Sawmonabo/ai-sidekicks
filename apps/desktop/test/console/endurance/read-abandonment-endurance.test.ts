@@ -50,6 +50,7 @@ import { callDaemon } from "../../../src/renderer/src/console/bridge/daemon/daem
 import { bridgeAnswering } from "../../../src/renderer/src/console/bridge/fixture/fixture-bridge.test-support.js";
 import { SESSION_ID } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../src/renderer/src/console/core/index.js";
+import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { PushDrivenRead } from "../../../src/renderer/src/console/seats/push-driven-read.js";
 
 /**
@@ -57,7 +58,12 @@ import { PushDrivenRead } from "../../../src/renderer/src/console/seats/push-dri
  *
  * Large enough that a per-cycle leak is unmistakable in the counts below and a
  * per-cycle projection could not hide in rounding, and small enough that the whole
- * file is milliseconds — this tier's cost is the churn, not the fixture.
+ * file is a few seconds on any runner — measured at roughly three, nearly all of it
+ * the two real timer boundaries each cycle waits on rather than the churn itself.
+ * That is the price of `crossMacrotaskBoundary` over a counted microtask loop, and it
+ * is the right one to pay: the count a local loop would carry is tuned against
+ * whatever settlement chain happens to sit under it today, which is the failure
+ * `core/settle.test-support.ts` records nine suites having had.
  */
 const CHURN_CYCLES = 400;
 
@@ -81,13 +87,6 @@ interface ChurnTally {
 interface HeldCall {
   readonly answered: Promise<unknown>;
   readonly release: (body: unknown) => void;
-}
-
-/** Let every queued continuation run. Generous: turn counts are not a contract. */
-async function drainMicrotasks(): Promise<void> {
-  for (let turn = 0; turn < 32; turn += 1) {
-    await Promise.resolve();
-  }
 }
 
 /**
@@ -179,14 +178,14 @@ async function runOneCycle(
     // composing its answer.
     subject.model.dispose();
     call.release(UNREADABLE_REPLY);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
   } else {
     call.release(READABLE_REPLY);
-    await drainMicrotasks();
+    await crossMacrotaskBoundary();
     subject.model.dispose();
   }
 
-  await drainMicrotasks();
+  await crossMacrotaskBoundary();
   subject.releaseSubscription();
 }
 

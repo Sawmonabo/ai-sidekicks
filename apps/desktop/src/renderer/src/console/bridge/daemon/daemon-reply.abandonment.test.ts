@@ -61,11 +61,34 @@ function servedPresenceReply(): unknown {
   return { participants: [] };
 }
 
-/** A promise that never settles, and the release that lets a case settle it. */
-function heldReply(): { readonly promise: Promise<unknown>; readonly release: () => void } {
+/**
+ * A reply the presence schema REFUSES, so a parse that ran is visible in the answer.
+ *
+ * The whole evidence of the late-reply case below. A door that went on to parse this
+ * would answer `reply-unreadable`, and the negative control beside that case is what
+ * proves the needle bites: over the same door, the same bridge, and this same body, a
+ * line that stays live really does settle as `reply-unreadable`.
+ */
+function refusedPresenceReply(): unknown {
+  return { participants: "not a list" };
+}
+
+/**
+ * A promise that never settles, and the release that answers it with `reply`.
+ *
+ * THE BODY IS THE CALLER'S, and it is a parameter rather than a constant because the
+ * two cases below need opposite ones. A case that only has to not WAIT can be answered
+ * with anything; a case whose claim is that nothing was PARSED has to be answered with
+ * a body the parse would reject, or its green result is equally satisfied by a door
+ * that parsed the reply and agreed with it.
+ */
+function heldReply(reply: unknown): {
+  readonly promise: Promise<unknown>;
+  readonly release: () => void;
+} {
   let release: () => void = () => undefined;
   const promise = new Promise<unknown>((resolve) => {
-    release = () => resolve(servedPresenceReply());
+    release = () => resolve(reply);
   });
   return { promise, release };
 }
@@ -129,7 +152,9 @@ describe("callDaemon — a read whose owner has gone", () => {
 
   it("settles without waiting for a reply that never arrives", async () => {
     const line = readLine();
-    const held = heldReply();
+    // The body is immaterial here and is the refusable one all the same, so no case
+    // in this file can be satisfied by a door that read what it was handed.
+    const held = heldReply(refusedPresenceReply());
     const underTest = bridgeAnswering(async () => await held.promise);
 
     const calling = callDaemon(
@@ -151,7 +176,11 @@ describe("callDaemon — a read whose owner has gone", () => {
 
   it("reads nothing from a reply that arrives after the abandonment", async () => {
     const line = readLine();
-    const held = heldReply();
+    // A reply the registered schema REFUSES. A door that had gone on to parse it would
+    // answer `reply-unreadable`, so the code below is evidence the parse never ran
+    // rather than evidence that it ran and agreed — which is all a schema-VALID body
+    // could ever have shown here.
+    const held = heldReply(refusedPresenceReply());
     const underTest = bridgeAnswering(async () => await held.promise);
 
     const calling = callDaemon(
@@ -161,12 +190,28 @@ describe("callDaemon — a read whose owner has gone", () => {
       { signal: line.signal },
     );
     line.abort();
-    // A reply the registered schema would REFUSE. A door that had gone on to parse it
-    // would answer `reply-unreadable`, so the code below is evidence the parse never
-    // ran rather than evidence that it ran and agreed.
     held.release();
 
     expect(refusalOf(await calling).code).toBe(READ_ABANDONED);
+  });
+
+  it("negative control: that same reply answers `reply-unreadable` on a live line", async () => {
+    // The recorded control for the case above. Restore a door that parses the late
+    // reply — drop the guard between the race and the parse — and the case goes red
+    // with THIS code, because this is what parsing that body produces. Without this
+    // assertion the claim "the parse never ran" would rest on a body nobody had
+    // checked was refusable at all.
+    const line = readLine();
+    const underTest = bridgeAnswering(async () => refusedPresenceReply());
+
+    const reply = await callDaemon(
+      underTest.bridge,
+      "presence.read",
+      { sessionId: SESSION_ID },
+      { signal: line.signal },
+    );
+
+    expect(refusalOf(reply).code).toBe("reply-unreadable");
   });
 
   it("reports the departure rather than a wire failure when the call also rejected", async () => {

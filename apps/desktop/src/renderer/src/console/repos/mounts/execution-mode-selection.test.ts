@@ -25,7 +25,8 @@ import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { ParkedCalls } from "../held-calls.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
-import { drain, settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
+import { settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { selectionInFlightCopy } from "./execution-mode-selection.js";
 
 // Every reader a case opens is tracked, and none of them outlives its case.
@@ -119,7 +120,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     const { reader } = await openWithHeldSelect();
 
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     // THE MODE AND NOT A FLAG: the rows go on showing the mode the workspace is bound
     // as now, so a picker that only greyed out would report nothing about what was
@@ -134,7 +135,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // reporting success.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     await reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
 
@@ -150,11 +151,11 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
   it("releases the picker and re-reads once the held switch settles", async () => {
     const { reader, clock, port } = await openWithHeldSelect();
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     const readsBefore = reader.performCount;
 
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
     // Absent, never a held key with no value: the picker asks whether there IS an entry.
@@ -162,7 +163,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // An accepted switch re-reads, because the workspace transitions
     // `ready -> provisioning -> ready` on its existing id and the row has to follow it.
     clock.advance(REFRESH_DEBOUNCE_MS);
-    await drain();
+    await crossMacrotaskBoundary();
     expect(reader.performCount).toBe(readsBefore + 1);
   });
 
@@ -171,12 +172,12 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // participant's correction is not lost, it is deferred to a picker that comes back.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(port.selectCallCount()).toBe(2);
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBe(BRANCH_MODE);
@@ -188,10 +189,10 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // cannot collide with the one waiting.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(port.selectCallCount()).toBe(2);
     expect(reader.snapshot.workspaceRefusals.bySelection[PLAIN_WORKSPACE_ID]).toBeUndefined();
@@ -207,11 +208,11 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // holding it after the answer arrived would strand the row on a switch that is over.
     const { reader, port } = await openWithHeldSelect("rejected");
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     const readsBefore = reader.performCount;
 
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
       "workspace.busy",
@@ -227,12 +228,12 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     // published on a torn-down section would move the snapshot here.
     const { reader, port } = await openWithHeldSelect("rejected");
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     const readingBefore = reader.snapshot;
 
     reader.dispose();
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(reader.snapshot).toBe(readingBefore);
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]).toBeUndefined();
@@ -247,15 +248,15 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     // accepted switch, until the follow-up read finished.
     const { reader, port } = await openWithHeldSelect(["rejected", "served"]);
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
       "workspace.busy",
     );
 
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBe(WORKTREE_MODE);
     // Absent, never a held key with no value — the picker asks whether there IS one.
@@ -268,15 +269,15 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     // result, and the row ends holding the second answer rather than nothing.
     const { reader, port } = await openWithHeldSelect("rejected");
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]).toBeUndefined();
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(port.selectCallCount()).toBe(2);
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
@@ -291,15 +292,15 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     // unrelated row was pressed.
     const { reader, port } = await openWithHeldSelect("rejected");
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
       "workspace.busy",
     );
 
     void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
       "workspace.busy",
@@ -314,11 +315,11 @@ describe("ExecutionModeSelections — the register empties on every arm", () => 
     expect(reader.inFlightSelectionCount).toBe(0);
 
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     expect(reader.inFlightSelectionCount).toBe(1);
 
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     // A give-back that misses on one arm leaks a key, and the row it belongs to then
     // refuses every later press for the life of the section while every case above
@@ -329,14 +330,14 @@ describe("ExecutionModeSelections — the register empties on every arm", () => 
   it("gives the key back on the refused arm too, and after a refused second press", async () => {
     const { reader, port } = await openWithHeldSelect("rejected");
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     // The refused second press takes no key, so it has none to leak either.
     void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     expect(reader.inFlightSelectionCount).toBe(1);
 
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(reader.inFlightSelectionCount).toBe(0);
     expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
@@ -349,14 +350,14 @@ describe("ExecutionModeSelections — the register empties on every arm", () => 
     // both cases above while refusing a press on a row that cannot collide.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     expect(reader.inFlightSelectionCount).toBe(2);
 
     port.release();
-    await drain();
+    await crossMacrotaskBoundary();
     expect(reader.inFlightSelectionCount).toBe(0);
   });
 });

@@ -16,6 +16,11 @@ import { describe, expect, it } from "vitest";
 
 import type { GrowthPort, WorkflowVersionChainEntry } from "../../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
+// The console's one settle, rather than a counted microtask loop of this file's own:
+// the read's answer reaches React state from a promise callback, so the wait has to
+// happen inside `act` for the render under assertion to be the one that saw it, and
+// how deep the settlement chain runs is not a number a suite should be pinning.
+import { settle } from "../../../core/settle.test-support.js";
 import type { WorkflowVersionChoice } from "./run-controls.js";
 import { useWorkflowVersionChain } from "./version-chain.js";
 
@@ -98,22 +103,6 @@ function observeChain(
       view.rerender(probe);
     },
   };
-}
-
-/**
- * Let the read's own microtasks run, which is all an immediate answer needs.
- *
- * A BOUNDED DRAIN RATHER THAN A COUNTED ONE. How many turns of the microtask queue a
- * settlement chain costs is not a contract the hook makes — it moves whenever a layer
- * is added between the call and the publish, which is how a suite written against an
- * exact count fails on a change that broke nothing. Turns are free when nothing is
- * queued, so the ceiling is generous and the cases below assert on what was published
- * rather than on how many turns it took to get there.
- */
-async function settle(): Promise<void> {
-  for (let turn = 0; turn < 32; turn += 1) {
-    await Promise.resolve();
-  }
 }
 
 describe("the version chain a served read offers", () => {
