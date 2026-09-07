@@ -153,6 +153,56 @@ const ADMITTED_DATE_READINGS: readonly SyntaxBanCase[] = [
   },
 ];
 
+/**
+ * The exported-collection rows.
+ *
+ * The defect this arm was written for is a derived event-kind census that left its
+ * module as a `ReadonlySet`: one object every controller in the window shared, whose
+ * annotation hides `add` from a reader and from nothing at runtime. Rows 3 and 4 are
+ * the shapes that make the arm non-trivial — an annotation is not what it keys on, and
+ * a `Map` is the same defect with different mutators.
+ */
+const REFUSED_SHARED_COLLECTIONS: readonly SyntaxBanCase[] = [
+  { source: "export const kinds = new Set([1]);", reading: "a published set" },
+  { source: "export const byName = new Map();", reading: "a published map" },
+  {
+    source: "export const kinds: ReadonlySet<string> = new Set<string>(census);",
+    reading: "a published set behind a `ReadonlySet` annotation, which hides nothing at runtime",
+  },
+  {
+    source: "export const rows: ReadonlyMap<string, number> = new Map(entries);",
+    reading: "the same claim on a map",
+  },
+  { source: "export const held = new WeakMap();", reading: "the weak-keyed spelling" },
+];
+
+/**
+ * What the same arm must leave alone.
+ *
+ * The first row is the whole scope of the ban: a collection a module keeps to itself is
+ * a lookup table, and this tree is full of them. Rows 2 and 3 are the remedy the
+ * message names — a factory and a field — and a ban that refused either would leave a
+ * caller nowhere to go.
+ */
+const ADMITTED_SHARED_COLLECTIONS: readonly SyntaxBanCase[] = [
+  {
+    source: "const kinds = new Set([1]);\nexport const size = kinds.size;",
+    reading: "a module-private lookup table",
+  },
+  {
+    source: "export function kinds() { return new Set([1]); }",
+    reading: "a factory, which hands each caller its own",
+  },
+  {
+    source: "export class Reading { readonly kinds = new Set([1]); }",
+    reading: "a field on an exported class",
+  },
+  {
+    source: "export const kinds: readonly number[] = [1];",
+    reading: "the derived data the remedy exports",
+  },
+];
+
 describe("console syntax bans — every planted row lands on the side it belongs", () => {
   const linter = createDesktopLinter();
 
@@ -160,7 +210,11 @@ describe("console syntax bans — every planted row lands on the side it belongs
     return ruleMessagesAt(linter, source, NON_EXEMPT_CONSOLE_PROBE_PATH, AUDITED_RULE);
   }
 
-  for (const { source, reading } of [...REFUSED_STAMP_ORDERINGS, ...REFUSED_DATE_READINGS]) {
+  for (const { source, reading } of [
+    ...REFUSED_STAMP_ORDERINGS,
+    ...REFUSED_DATE_READINGS,
+    ...REFUSED_SHARED_COLLECTIONS,
+  ]) {
     it(
       `refuses ${reading}`,
       async () => {
@@ -170,7 +224,11 @@ describe("console syntax bans — every planted row lands on the side it belongs
     );
   }
 
-  for (const { source, reading } of [...ADMITTED_STAMP_ORDERINGS, ...ADMITTED_DATE_READINGS]) {
+  for (const { source, reading } of [
+    ...ADMITTED_STAMP_ORDERINGS,
+    ...ADMITTED_DATE_READINGS,
+    ...ADMITTED_SHARED_COLLECTIONS,
+  ]) {
     it(
       `admits ${reading}`,
       async () => {

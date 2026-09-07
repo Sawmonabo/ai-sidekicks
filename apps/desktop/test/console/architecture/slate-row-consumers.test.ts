@@ -52,6 +52,12 @@ const SEAM_PATH_FRAGMENTS: readonly string[] = ["console/bridge/"];
  * surface for and has not built yet; when its lane lands, its entry comes off and the
  * derived check starts covering it. Deleting an entry to make the gate pass is the one
  * move this table exists to make visible.
+ *
+ * A ROW WHOSE WIRE IS NOT CALLABLE IS HERE PERMANENTLY, and is the one class an entry
+ * does not come off for: the derived check below searches for an operation id, and a
+ * row named only by a growth PREREQUISITE has none to search for however finished its
+ * surface is. Those rows are counted in `ROWS_WITH_NO_LEDGER_OPERATION` below, so the
+ * class stays a tripwire rather than a hole.
  */
 const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // browser lane — the browser pane and its dev-server chip.
@@ -71,8 +77,13 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // collaboration lanes — the health strip, the park banner, and the composer's chip.
   "health-subscribe": "collaboration lane — the health strip and park banner",
   "agent-provider-switch-failure": "composer lane — the target chip",
-  // repos lane — the worktree recipe the repos surface renders.
+  // repos lane — the worktree recipe the repos surface renders, and the mount-health
+  // identity verdict, whose console consumer is built and whose PRODUCER is not: the
+  // verdict is a member of a reply rather than a call, so the operation-derived check
+  // below cannot reach it either way.
   "worktree-setup-recipe": "repos lane — the repos surface",
+  "mount-health-identity-verdict":
+    "repos lane — the mount card's health chip and the settings mounts row",
   // workflows lanes — the run pane and the builder.
   "workflow-event-registration": "workflows lane — the workflow-run pane",
   "workflow-definition-scope": "workflows lane — the workflow-builder pane",
@@ -168,11 +179,13 @@ describe("growth slate — every row's consuming surface resolves to a module", 
  * The rows whose wire is not a callable operation.
  *
  * An event kind the console has to be told about, a payload member on a reply it
- * already receives, or a registration performed elsewhere: each is a real thing the
- * console is waiting for and none of them is something a surface CALLS, so the
- * operation-id search below cannot reach them. They are recorded here so the class is
- * counted rather than assumed, and they are on the lane table above for the same
- * reason every unreachable row is: a debt with a name on it.
+ * already receives, a registration performed elsewhere, or a value the contract fully
+ * declares that no producer can emit: each is a real thing the console is waiting for
+ * and none of them is something a surface CALLS, so the operation-id search below
+ * cannot reach them. Every one of them is named by a growth PREREQUISITE, which is
+ * where the ledger records a thing the console needs and cannot call. They are recorded
+ * here so the class is counted rather than assumed, and they are on the lane table
+ * above for the same reason every unreachable row is: a debt with a name on it.
  */
 const ROWS_WITH_NO_LEDGER_OPERATION: readonly GrowthSlateRowId[] = [
   "agent-provider-switch-failure",
@@ -183,6 +196,7 @@ const ROWS_WITH_NO_LEDGER_OPERATION: readonly GrowthSlateRowId[] = [
   "timeline-path-reference",
   "approval-remembered-rule",
   "approval-amendment-arm",
+  "mount-health-identity-verdict",
 ] as GrowthSlateRowId[];
 
 /** A row id no ledger operation and no module can match. The negative control's. */

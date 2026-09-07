@@ -15,6 +15,7 @@
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
+import { RootDisposalConfirmation } from "../mounts/roots/RootDisposalConfirmation.js";
 import { ProposalGateDisclosure } from "./ProposalGateDisclosure.js";
 import { WorktreeCard } from "../mounts/WorktreeCard.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
@@ -36,12 +37,27 @@ export interface WorktreeGateRowProps {
   readonly sessionStore: SessionStore;
   /** The instant the section read at, so an age moves on a re-read and never on a render. */
   readonly nowMilliseconds: number;
+  /** Read the section again, so a retired root's new state reaches this list. */
+  readonly onRequestRead: () => void;
 }
 
 export function WorktreeGateRow(props: WorktreeGateRowProps): React.JSX.Element {
   return (
     <div className="meridian-root-gate-row">
       <WorktreeCard record={props.record} nowMilliseconds={props.nowMilliseconds} />
+      {/*
+        THE DISPOSAL IS OFFERED UNCONDITIONALLY, unlike the gate beside it. A gate needs
+        a workspace pairing to ask anything at all; a retire needs only the root's own
+        id, which every row has — and a root that cannot be retired says so with
+        `worktree.retire_conflict`, which is the daemon's answer rather than this row's
+        guess.
+      */}
+      <RootDisposalConfirmation
+        bridge={props.bridge}
+        kind="worktree"
+        rootId={props.record.worktreeId}
+        onSettled={props.onRequestRead}
+      />
       {props.subject === undefined ? (
         // No gate at all, rather than a gate that could not ask: no reader is
         // constructed for a root whose workspace no read names, so no call is made.

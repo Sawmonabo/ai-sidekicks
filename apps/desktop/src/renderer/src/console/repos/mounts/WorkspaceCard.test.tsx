@@ -9,22 +9,45 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { SessionStore } from "../../store/index.js";
+
+import { bindControlPosture } from "./mount-health.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
-import { CANONICAL_ROOT, workspaceRow as workspace } from "./repo-mounts.test-support.js";
+import { CANONICAL_ROOT, mount, workspaceRow as workspace } from "./repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 
-function renderRow(row: RepoWorkspaceRow): ReturnType<typeof render> {
+/** The posture a healthy, attached mount hands down, composed the way the card gets it. */
+const HEALTHY_MOUNT_BIND_CONTROLS = bindControlPosture(mount());
+
+function renderRow(
+  row: RepoWorkspaceRow,
+  overrides: Partial<React.ComponentProps<typeof WorkspaceCard>> = {},
+): ReturnType<typeof render> {
   return render(
     <WorkspaceCard
       workspace={row}
       capabilities={undefined}
       refusal={undefined}
+      refusalMode={undefined}
       pendingMode={undefined}
-      modeControlsOffered
+      bindControls={HEALTHY_MOUNT_BIND_CONTROLS}
+      mountCanonicalRoot={CANONICAL_ROOT}
+      bridge={fixtureBridgeWithGrowth(REPOS_SCENARIO, {})}
+      sessionStore={new SessionStore({ sessionId: "session-repos" })}
       onSelectExecutionMode={() => undefined}
+      onRequestRead={() => undefined}
+      {...overrides}
     />,
   );
 }
+
+/** The one workspace whose row offers a root to prepare, in the mode that materialises one. */
+const WRITABLE_ROW: RepoWorkspaceRow = workspace({ executionMode: "worktree" });
+
+/** A withholding mount's real posture, composed by the module the card reads it from. */
+const DETACHED_MOUNT_BIND_CONTROLS = bindControlPosture(mount({ state: "detached" }));
 
 describe("WorkspaceCard — the root", () => {
   it("renders the root the wire gave it", () => {
@@ -80,5 +103,41 @@ describe("WorkspaceCard — two chips, and no third axis", () => {
     const head = container.querySelector(".meridian-workspace-card__head");
     expect(within(head as HTMLElement).queryByText("healthy")).toBeNull();
     expect(within(head as HTMLElement).queryByText("unreachable")).toBeNull();
+  });
+});
+
+describe("WorkspaceCard — one posture for both binding controls", () => {
+  /** Whether the root-preparation form is live, read off the control the form is entered through. */
+  function branchInput(container: HTMLElement): HTMLInputElement | null {
+    return container.querySelector<HTMLInputElement>(".meridian-prepare-root__branch-input");
+  }
+
+  it("holds the root preparation while the mount withholds its bind controls", () => {
+    // A detached, unreachable, or identity-mismatched mount refuses every bind and
+    // every run, and a prepare is a bind. Offering the form there collects a branch
+    // name for a call the daemon has already said it will not accept.
+    const { container } = renderRow(WRITABLE_ROW, { bindControls: DETACHED_MOUNT_BIND_CONTROLS });
+
+    expect(branchInput(container)?.disabled).toBe(true);
+    expect(container.querySelector(".meridian-prepare-root__held")).not.toBeNull();
+  });
+
+  it("holds the root preparation while a mode switch is on the wire", () => {
+    // Which call a prepare sends and whether it asks a reuse question are both read
+    // off `workspace.executionMode`, which is the member the pending switch is about
+    // to change — so a prepare sent now is a prepare for the mode being left.
+    const { container } = renderRow(WRITABLE_ROW, { pendingMode: "ephemeral clone" });
+
+    expect(branchInput(container)?.disabled).toBe(true);
+    expect(container.querySelector(".meridian-prepare-root__held")).not.toBeNull();
+  });
+
+  it("negative control: a writable row on a healthy mount offers the preparation", () => {
+    // Without this the two cases above would pass against a control that was never
+    // offered at all, which is a root nobody can prepare ahead of a run.
+    const { container } = renderRow(WRITABLE_ROW);
+
+    expect(branchInput(container)?.disabled).toBe(false);
+    expect(container.querySelector(".meridian-prepare-root__held")).toBeNull();
   });
 });

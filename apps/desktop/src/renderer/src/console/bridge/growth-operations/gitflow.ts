@@ -1,5 +1,6 @@
-// The repo plane's ledger rows: the git action a workspace runs, and the gitflow
-// branch context and pull-request proposal built on top of it.
+// The repo plane's ledger rows: the git action a workspace runs, the gitflow branch
+// context and pull-request proposal built on top of it, and the workspace's own
+// execution context.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. The section
 // comment below is the single table's own, kept with the rows it heads.
@@ -15,7 +16,10 @@ import { op } from "./operation-entry.js";
  * key that is not an operation id fails here too. A hand-written list would be a
  * second copy of the id set — the thing `growth-entry.ts` exists to prevent.
  */
-type GitflowOperationId = Extract<GrowthOperationId, `gitflow${string}` | "gitActionExecute">;
+type GitflowOperationId = Extract<
+  GrowthOperationId,
+  `gitflow${string}` | "gitActionExecute" | "workspaceExecutionContextRead"
+>;
 
 /** The repo rows, in the order the single table carried them. */
 export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, GrowthOperationEntry>> =
@@ -41,5 +45,16 @@ export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, Grow
       "method",
       "prepare a reviewable pull-request proposal from the recorded branch context, before any remote mutation",
       "gitflow.prPrepare",
+    ),
+    // The workspace's own execution context. NO EXPECTED WIRE METHOD, on the
+    // identity-and-registry rows' rule rather than as an omission: the corpus registers
+    // no read for this at all — the checkout root is a column on a daemon table and the
+    // fallback marker is not a field anywhere — so a method string here would be one
+    // this console invented.
+    workspaceExecutionContextRead: op(
+      "workspaceExecutionContextRead",
+      "workspace-execution-context",
+      "method",
+      "read the normalized checkout root a turn-boundary snapshot operates on and whether the workspace is executing under a substituted fallback mode, for the workspace card's three-path disclosure and its fallback badge",
     ),
   };

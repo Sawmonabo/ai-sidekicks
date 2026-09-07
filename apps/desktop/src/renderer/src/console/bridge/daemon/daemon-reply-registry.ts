@@ -62,8 +62,14 @@ import {
   CompactContextRequestSchema,
   ChannelListRequestSchema,
   ChannelListResponseSchema,
+  EphemeralCloneDisposeRequestSchema,
+  EphemeralCloneDisposeResponseSchema,
+  EphemeralClonePrepareRequestSchema,
+  EphemeralClonePrepareResponseSchema,
   ExecutionModeSelectRequestSchema,
   ExecutionModeSelectResponseSchema,
+  ExecutionRootPrepareRequestSchema,
+  ExecutionRootPrepareResponseSchema,
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
   InviteRevokeResponseSchema,
@@ -82,6 +88,8 @@ import {
   QueueItemCreateResponseSchema,
   QueueItemListRequestSchema,
   QueueItemListResponseSchema,
+  RepoAttachRequestSchema,
+  RepoAttachResponseSchema,
   RepoMountReadRequestSchema,
   RepoMountReadResponseSchema,
   RunControlAckSchema,
@@ -93,8 +101,14 @@ import {
   SessionJoinResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadRequestSchema,
   WorkspaceExecutionModeCapabilitiesReadResponseSchema,
+  WorkspaceBindRequestSchema,
+  WorkspaceBindResponseSchema,
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
+  WorktreeRetireRequestSchema,
+  WorktreeRetireResponseSchema,
+  WorktreeReuseCheckRequestSchema,
+  WorktreeReuseCheckResponseSchema,
   WorktreeStatusReadRequestSchema,
   WorktreeStatusReadResponseSchema,
 } from "@ai-sidekicks/contracts";
@@ -143,8 +157,10 @@ export type ConsoleDaemonMethodBindings = {
 /**
  * Bind one method's two schemas, frozen.
  *
- * A factory rather than eighteen object literals so the table below reads as a
- * table, and so the freeze is not something a row can forget. Frozen because this
+ * A factory rather than one hand-written object literal per row, so the table below
+ * reads as a table and so the freeze is not something a row can forget. Count-free
+ * deliberately: the count moves with every method this console learns to call, and a
+ * sentence carrying it goes stale on the diff that adds one. Frozen because this
  * is a registry and not a builder: a module that could re-point
  * `CONSOLE_DAEMON_METHOD_BINDINGS["run.pause"].requestSchema` at start-up would be
  * able to change what the console will send on a method without touching either the
@@ -187,15 +203,37 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   ),
   "driver.listCapabilities": bindDaemonMethod(DriverReadParamsSchema, ListCapabilitiesResultSchema),
   "driver.listModels": bindDaemonMethod(DriverReadParamsSchema, ListModelsResultSchema),
+  "repo.attach": bindDaemonMethod(RepoAttachRequestSchema, RepoAttachResponseSchema),
   "repo.mountRead": bindDaemonMethod(RepoMountReadRequestSchema, RepoMountReadResponseSchema),
-  "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceListResponseSchema),
+  "repo.workspaceBind": bindDaemonMethod(WorkspaceBindRequestSchema, WorkspaceBindResponseSchema),
   "repo.executionModeCapabilitiesRead": bindDaemonMethod(
     WorkspaceExecutionModeCapabilitiesReadRequestSchema,
     WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   ),
+  "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceListResponseSchema),
   "repo.executionModeSelect": bindDaemonMethod(
     ExecutionModeSelectRequestSchema,
     ExecutionModeSelectResponseSchema,
+  ),
+  "repo.executionRootPrepare": bindDaemonMethod(
+    ExecutionRootPrepareRequestSchema,
+    ExecutionRootPrepareResponseSchema,
+  ),
+  "repo.worktreeReuseCheck": bindDaemonMethod(
+    WorktreeReuseCheckRequestSchema,
+    WorktreeReuseCheckResponseSchema,
+  ),
+  "repo.ephemeralClonePrepare": bindDaemonMethod(
+    EphemeralClonePrepareRequestSchema,
+    EphemeralClonePrepareResponseSchema,
+  ),
+  "repo.ephemeralCloneDispose": bindDaemonMethod(
+    EphemeralCloneDisposeRequestSchema,
+    EphemeralCloneDisposeResponseSchema,
+  ),
+  "repo.worktreeRetire": bindDaemonMethod(
+    WorktreeRetireRequestSchema,
+    WorktreeRetireResponseSchema,
   ),
   "repo.worktreeStatusRead": bindDaemonMethod(
     WorktreeStatusReadRequestSchema,
@@ -243,14 +281,15 @@ export const CONSOLE_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.fre
  * call starts, changes, or stops a run, or the queue of turns that becomes one. Pause
  * and resume move a run between states; the four intervention arms reach a running
  * one; the interrupt and the compaction are run-addressed on the driver plane and
- * both change the run they name. `false` is everything else, and two of them are
+ * both change the run they name. `false` is everything else, and several of them are
  * worth stating because they are mutations all the same: `repo.executionModeSelect`
  * records a WORKSPACE's execution mode and names no run; `session.create`,
  * `session.join`, `membership.update` and `invite.revoke` change the session's own
- * roster; and `providerAccount.probe` re-checks an account's readiness, which no run
- * reads until its next admission. A mutation is not automatically a run change, and
- * reading it as one would put every family that also reads under a claim written
- * about run controls.
+ * roster; the repo attach, bind, prepare, retire, and dispose acts change mounts,
+ * workspaces, and execution roots the same way; and `providerAccount.probe` re-checks
+ * an account's readiness, which no run reads until its next admission. A mutation is
+ * not automatically a run change, and reading it as one would put every family that
+ * also reads under a claim written about run controls.
  *
  * THIS IS NOT THE DOOR'S READ-VERSUS-MUTATION RULE, and it must not become one.
  * `DaemonCallOptions` in `daemon-reply.ts` keeps that distinction at the call site on
@@ -276,6 +315,13 @@ const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } =
   "repo.executionModeCapabilitiesRead": false,
   "repo.executionModeSelect": false,
   "repo.worktreeStatusRead": false,
+  "repo.attach": false,
+  "repo.workspaceBind": false,
+  "repo.executionRootPrepare": false,
+  "repo.worktreeReuseCheck": false,
+  "repo.ephemeralClonePrepare": false,
+  "repo.ephemeralCloneDispose": false,
+  "repo.worktreeRetire": false,
   "session.create": false,
   "session.join": false,
   "channel.list": false,

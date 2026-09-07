@@ -51,6 +51,10 @@ import {
   PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
   SHELL_NOTIFICATION_PERMISSION_CALL,
 } from "../scenarios/bring-your-history.js";
+// The routing key itself, from the scenario module that mints it — the workflow
+// enumeration's rule one file over: restated as a literal here, a rename would move
+// the constant and the reply and leave this handler answering a key nothing sends.
+import { REPOS_EXECUTION_CONTEXT_CALL } from "../scenarios/repos-mutation-replies.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 import type { ShellReport } from "../../store/index.js";
 
@@ -349,6 +353,22 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     daemonStop: async () => publishShellControl(shellChannel, "daemonStop", stoppedReport),
     daemonRestart: async () => publishShellControl(shellChannel, "daemonRestart", startingReport),
     daemonStart: async () => publishShellControl(shellChannel, "daemonStart", startingReport),
+    // repos — the workspace's own execution context.
+    //
+    // ITS UNSCRIPTED ARM IS THE WORKFLOW SUBJECT READS' AND NOT THE INVITE LEDGER'S,
+    // for the reason `fixture-served-operations.ts` gives: this read answers facts
+    // about ONE named workspace, so an empty answer would assert that the workspace
+    // exists and is bound to no root — an invention, where an invite ledger with no
+    // rows is an ordinary session. Routed through the scripted seam so a scenario
+    // answers per workspace, exactly as the entity-scoped `repo.*` reads beside it do.
+    workspaceExecutionContextRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        REPOS_EXECUTION_CONTEXT_CALL,
+        "workspaceExecutionContextRead",
+        request,
+        () => growthUnscriptedReply("workspaceExecutionContextRead", REPOS_EXECUTION_CONTEXT_CALL),
+      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

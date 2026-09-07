@@ -211,17 +211,22 @@ describe("RepoSection — the mounts this session actually holds", () => {
     const section = renderSection(REPOS_SCENARIO);
 
     await section.advanceUntil(() => {
-      expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(2);
+      expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(3);
     });
     // Health is the axis only `repo.mountRead` carries, and it is the one that decides
-    // whether the sidebar opens this section at all. One card of each verdict, so the
-    // healthy and the degraded rendering are both reachable from one session.
-    const [healthy, unreachable] = [...section.container.querySelectorAll(MOUNT_CARD_SELECTOR)];
+    // whether the sidebar opens this section at all. One card of each verdict — the
+    // whole of `RepoMountHealth.status` — so every rendering is reachable from one
+    // session rather than two of three being unreachable from any.
+    const [healthy, unreachable, drifted] = [
+      ...section.container.querySelectorAll(MOUNT_CARD_SELECTOR),
+    ];
     expect(within(healthy as HTMLElement).getByText("healthy")).toBeDefined();
     expect(within(unreachable as HTMLElement).getByText("unreachable")).toBeDefined();
-    // Each card names the root it is about, so the two are two mounts rather than one
-    // mount drawn twice.
-    expect(healthy?.getAttribute("aria-label")).not.toBe(unreachable?.getAttribute("aria-label"));
+    expect(within(drifted as HTMLElement).getByText("identity_mismatch")).toBeDefined();
+    // Each card names the root it is about, so the three are three mounts rather than
+    // one mount drawn three times.
+    const labels = [healthy, unreachable, drifted].map((card) => card?.getAttribute("aria-label"));
+    expect(new Set(labels).size).toBe(3);
   });
 
   it("negative control: a section whose mount reads are unscripted draws no card", async () => {
@@ -353,5 +358,29 @@ describe("RepoSection — a refused read says so once, and never says it was not
 
     expect(section.container.textContent).toContain(NOT_READ_TITLE);
     expect(section.container.querySelector(".meridian-refusal--card")).toBeNull();
+  });
+});
+
+describe("RepoSection — the one mutating entry point", () => {
+  it("offers the attach on the section itself, above the mounts it already holds", async () => {
+    // Before this the section could only ever REPORT repositories: `repo.attach` is a
+    // registered daemon method and the console had no control that reached it, so a
+    // session's first repository could not be started from the desktop at all.
+    const section = renderSection(REPOS_SCENARIO);
+
+    await section.advanceUntil(() => {
+      expect(within(section.container).getByText("Attach a repository")).toBeDefined();
+    });
+  });
+
+  it("negative control: the empty-mount card no longer sends a person to another client", async () => {
+    // The card used to say attaching was reached through the command-line and SDK
+    // surfaces, which was true of this console and false of the wire.
+    const section = renderSection(REPOS_SCENARIO);
+
+    await section.advanceUntil(() => {
+      expect(within(section.container).getByText("Attach a repository")).toBeDefined();
+    });
+    expect(section.container.textContent).not.toContain("command-line and SDK");
   });
 });
