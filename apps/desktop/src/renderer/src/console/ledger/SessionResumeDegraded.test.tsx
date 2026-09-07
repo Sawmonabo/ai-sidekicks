@@ -17,6 +17,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { SidekicksBridgeProvider, createFixtureBridge } from "../bridge/index.js";
+import { LEDGER_QUIET_SCENARIO } from "../bridge/scenarios/ledger/ledger-quiet.js";
 import { ManualClock } from "../core/index.js";
 import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "../seats/index.js";
@@ -92,8 +94,14 @@ async function renderWorkspaceSurface(input: {
     await settleReactWork();
   }
 
+  // Under the provider, because this mounts the WHOLE workspace surface and the
+  // surfaces composed into it read the bridge the way every console surface does. The
+  // scenario is the quiet one: this suite's subject is the resume decision, which the
+  // registry above settles, so a scenario with a script would be beats nothing here
+  // reads. The gap fill mounted beside the resume notice renders nothing for a window
+  // that is missing nothing, which every case here is.
   render(
-    <>
+    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       {descriptor.render({
         route: { kind: "workspace", sessionId: SESSION_ID },
         bridge: { source: "fixture" },
@@ -104,7 +112,7 @@ async function renderWorkspaceSurface(input: {
         draftStore: {},
         paneRegistry: new ConsolePaneRegistry(),
       } as unknown as ConsoleSurfaceContext)}
-    </>,
+    </SidekicksBridgeProvider>,
   );
   await settleReactWork();
 }

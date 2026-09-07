@@ -55,7 +55,8 @@ export type GrowthSlateRowId =
   | "cost-receipt-read"
   | "workflow-version-chain"
   | "health-status-read"
-  | "daemon-version-negotiation";
+  | "daemon-version-negotiation"
+  | "timeline-live-resubscribe";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -399,6 +400,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-023 §Daemon Supervision Lifecycle (step 3, which requires an incompatible handshake be surfaced to the renderer with reads permitted and names no seam that carries it); the envelopes themselves in packages/contracts/src/jsonrpc-negotiation.ts (DaemonHello / DaemonHelloAck and the three incompatible-handshake reasons)",
     consumingSurface: "frame version banner",
+    wireRegistered: false,
+  },
+  "timeline-live-resubscribe": {
+    id: "timeline-live-resubscribe",
+    wire: "a re-subscribe that opens a session's stream AFTER a position the caller states, so a window told about entries it never received replays from the last place it kept rather than re-reading the whole log. The method is registered and its request already carries that position; what is missing is a seam that can send one — the preload bridge's subscribe half names an EVENT and takes no request object, so there is nowhere on it for a position to travel, and the console's only reachable repair is the whole-window re-read",
+    owningDocument:
+      "Spec-013 §Timeline (the replay-from-a-kept-position reading a degraded ledger renders); Spec-023 §Preload Bridge Contract (the daemon namespace, whose subscribe half carries an event name and no request)",
+    consumingSurface: "ledger replay gap fill",
     wireRegistered: false,
   },
 };

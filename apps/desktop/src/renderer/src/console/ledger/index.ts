@@ -54,6 +54,7 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
+import { LedgerGapFill } from "./pane/replay/index.js";
 import { registerFixtureShellRowFooter } from "./cards/shell/FixtureShellRowFooter.js";
 import { registerFixtureShellRows } from "./cards/shell/FixtureShellRows.js";
 import { TimelinePane } from "./pane/index.js";
@@ -258,6 +259,21 @@ function mountWorkspace(
       : createElement(SessionResumeDegraded, {
           registry: context.sessionStoreRegistry,
           sessionId,
+        }),
+    // Beside it and for the same reason: this is the one position holding the store
+    // and the registry together, and the gap fill needs both — the hole from the
+    // store, the position a read acknowledged from the registry. It renders nothing
+    // for a window that is not missing anything, which is nearly always.
+    //
+    // Keyed on the STORE rather than on the route's session id, which is the sibling
+    // above's key: a route naming a session this window has not opened has no store to
+    // read a hole out of, and the two absences are the same conditional written from
+    // the side each surface reads from.
+    context.sessionStore === undefined
+      ? null
+      : createElement(LedgerGapFill, {
+          registry: context.sessionStoreRegistry,
+          sessionStore: context.sessionStore,
         }),
     createElement(Workspace, {
       key: sessionId ?? "no-session",
