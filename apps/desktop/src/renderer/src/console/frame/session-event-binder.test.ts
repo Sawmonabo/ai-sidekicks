@@ -13,11 +13,12 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable } from "../bridge/index.js";
+import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
+import { withDaemonSubscribe } from "../bridge/fixture/fixture-bridge.test-support.js";
 import type { ScenarioEngine } from "../bridge/scenario-runtime/scenario-engine.js";
 import type { ConsoleScenario } from "../bridge/scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
-import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
+import { APPLY_COALESCE_MS, ManualClock, type Unsubscribe } from "../core/index.js";
 import { consoleTripwires } from "../core/tripwires.js";
 import { SessionStoreRegistry, type ConsoleSessionEvent } from "../store/index.js";
 import {
@@ -83,6 +84,81 @@ function createUnreadableHarness(): BinderHarness {
     clock: engine.clock,
   });
   return { registry, binder: new SessionEventBinder({ registry, bridge }), engine };
+}
+
+/**
+ * A transport that refuses to open a stream a stated number of times.
+ *
+ * The shipped Tier-1 preload is exactly this shape — `daemon.subscribe` throws
+ * synchronously until a build with a real one is installed — so what the cases below
+ * drive is the failure the console actually meets rather than a stand-in for it. A
+ * class with a private field rather than a closed-over counter, per
+ * `apps/desktop/AGENTS.md`, and refusals are COUNTED DOWN rather than switched off by
+ * the case, so a retry that re-fails is expressible and the pass that has to survive
+ * one is drivable.
+ */
+class ScriptedStreamOutage {
+  #refusalsRemaining: number;
+
+  public constructor(refusalCount: number) {
+    this.#refusalsRemaining = refusalCount;
+  }
+
+  public get refusalsRemaining(): number {
+    return this.#refusalsRemaining;
+  }
+
+  public openStream(passThrough: () => Unsubscribe): Unsubscribe {
+    if (this.#refusalsRemaining > 0) {
+      this.#refusalsRemaining -= 1;
+      throw new Error("the daemon event stream is not reachable from this window");
+    }
+    return passThrough();
+  }
+}
+
+/** A binder over a transport whose first opens throw, and the reads it asks for. */
+interface OutageHarness extends BinderHarness {
+  readonly bridge: ConsoleBridge;
+  readonly outage: ScriptedStreamOutage;
+  /** Every reason the registry's read was actually performed for, in order. */
+  readonly reasonsSeen: string[];
+}
+
+/**
+ * The same three pieces over a bridge whose `daemon.subscribe` refuses `refusalCount`
+ * times, with a REGISTERED read whose reasons are recorded.
+ *
+ * The read matters as much as the subscription: the gap these cases cover is that a
+ * failed open skipped the initial `requestRefresh` as well as the stream, so a session
+ * that came back had neither. `refreshDebounceMs: 0` puts the read one frozen
+ * millisecond after the request rather than a debounce interval away.
+ */
+function createOutageHarness(refusalCount: number): OutageHarness {
+  const base = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+  const engine = base.scenarioEngine;
+  if (engine === undefined) {
+    throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
+  }
+  const outage = new ScriptedStreamOutage(refusalCount);
+  const bridge = withDaemonSubscribe(base, (passThrough) => outage.openStream(passThrough));
+  const reasonsSeen: string[] = [];
+  const registry = new SessionStoreRegistry({
+    read: (_sessionId, reasons) => {
+      reasonsSeen.push(...reasons);
+      return Promise.resolve(undefined);
+    },
+    clock: engine.clock,
+    refreshDebounceMs: 0,
+  });
+  return {
+    registry,
+    binder: new SessionEventBinder({ registry, bridge }),
+    engine,
+    bridge,
+    outage,
+    reasonsSeen,
+  };
 }
 
 /** The page slot the fixture diagnostics are hung on, read as the tier reads it. */
@@ -422,6 +498,123 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     expect(registry.peek(SESSION_ID)?.snapshot().timeline).toHaveLength(
       FLAGSHIP_SCENARIO.beats.length,
     );
+
+    binder.dispose();
+  });
+
+  it("retains a session whose stream open threw, and says so on its store", () => {
+    // The leak this closes: the early return left the session with no subscription
+    // AND no initial read, and the registry's `opened` change for it had already been
+    // delivered — so nothing was going to name that session again until somebody
+    // closed and reopened it. Two readings have to be true here at once: the id is
+    // retained for a retry, and the store carries a cause a surface can render.
+    const { registry, binder, engine, bridge, reasonsSeen } = createOutageHarness(1);
+    binder.attach();
+    registry.open(SESSION_ID);
+
+    engine.advance(1);
+
+    expect(binder.boundSessionIds).toEqual([]);
+    expect(binder.unboundSessionIds).toEqual([SESSION_ID]);
+    expect(registry.peek(SESSION_ID)?.snapshot().degradedCause).toBe("subscription-closed");
+    expect(bridge.transportReconnect.reachability).toBe("unreachable");
+    // No stream and no read: the second half of the same gap, and the half a
+    // subscription-only fix would leave open.
+    expect(reasonsSeen).toEqual([]);
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+
+    binder.dispose();
+  });
+
+  it("retries the retained session on the transport's returning edge, read included", async () => {
+    const { registry, binder, engine, bridge, reasonsSeen } = createOutageHarness(1);
+    binder.attach();
+    registry.open(SESSION_ID);
+    expect(binder.unboundSessionIds).toEqual([SESSION_ID]);
+
+    // The wire comes back. Reported into the same signal the binder reports into, by
+    // whatever observed it — under the fixture that is a scenario's scripted outage,
+    // and under the app it is the next session's successful open.
+    bridge.transportReconnect.observe("reachable");
+
+    expect(binder.retriedBindCount).toBe(1);
+    expect(binder.boundSessionIds).toEqual([SESSION_ID]);
+    expect(binder.unboundSessionIds).toEqual([]);
+
+    engine.advance(1);
+    await Promise.resolve();
+    expect(reasonsSeen).toEqual(["subscribe"]);
+
+    engine.advance(PAST_EVERY_BEAT_MS);
+    expect(binder.appliedEventCountFor(SESSION_ID)).toBeGreaterThan(0);
+
+    binder.dispose();
+  });
+
+  it("negative control: with no returning edge the same session is never retried", () => {
+    // Without this the case above would pass over a binder that re-attempted on any
+    // pass at all — a poll, a render, the next advance — which is the timer the
+    // design forbids wearing a retry's clothes.
+    const { registry, binder, engine, outage, reasonsSeen } = createOutageHarness(2);
+    binder.attach();
+    registry.open(SESSION_ID);
+
+    engine.advance(PAST_EVERY_BEAT_MS);
+    engine.advance(APPLY_COALESCE_MS + 1);
+
+    expect(binder.retriedBindCount).toBe(0);
+    expect(binder.boundSessionIds).toEqual([]);
+    expect(binder.unboundSessionIds).toEqual([SESSION_ID]);
+    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
+    expect(reasonsSeen).toEqual([]);
+    // Two refusals were scripted and exactly one was spent, so the claim is made
+    // against the TRANSPORT rather than against the binder's own count: nothing asked
+    // it a second time.
+    expect(outage.refusalsRemaining).toBe(1);
+
+    binder.dispose();
+  });
+
+  it("does not retry a session that closed between the failed open and the return", () => {
+    const { registry, binder, engine, bridge, outage } = createOutageHarness(1);
+    binder.attach();
+    registry.open(SESSION_ID);
+    expect(binder.unboundSessionIds).toEqual([SESSION_ID]);
+
+    registry.close(SESSION_ID);
+    bridge.transportReconnect.observe("reachable");
+
+    expect(binder.retriedBindCount).toBe(0);
+    expect(binder.unboundSessionIds).toEqual([]);
+    expect(binder.boundSessionIds).toEqual([]);
+    // Nothing was opened on the wire for a session this window no longer holds.
+    expect(engine.sinkCount).toBe(0);
+    expect(outage.refusalsRemaining).toBe(0);
+
+    binder.dispose();
+  });
+
+  it("makes one pass over the retained set even when the retry itself moves the signal", () => {
+    // The re-entrancy this closes: a pass where one retry fails and a later one
+    // succeeds drives the signal `unreachable` and then `reachable` INSIDE the walk,
+    // which is a returning edge delivered back into the same method. One pass is what
+    // a returning edge is worth, so the still-failing session waits for the next one
+    // rather than being re-attempted inside this one.
+    const secondSessionId = `${SESSION_ID}-second`;
+    const { registry, binder, bridge } = createOutageHarness(3);
+    binder.attach();
+    registry.open(SESSION_ID);
+    registry.open(secondSessionId);
+    expect(binder.unboundSessionIds).toEqual([SESSION_ID, secondSessionId]);
+
+    bridge.transportReconnect.observe("reachable");
+
+    // Two retries for two retained sessions, and not three: the first spends the last
+    // scripted refusal, the second opens, and the edge that second open emits does
+    // not start the walk again.
+    expect(binder.retriedBindCount).toBe(2);
+    expect(binder.boundSessionIds).toEqual([secondSessionId]);
+    expect(binder.unboundSessionIds).toEqual([SESSION_ID]);
 
     binder.dispose();
   });

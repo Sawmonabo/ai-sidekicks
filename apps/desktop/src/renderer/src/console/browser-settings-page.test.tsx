@@ -13,6 +13,7 @@ import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
 } from "./bridge/fixture/fixture-bridge.test-support.js";
+import { settleScheduledRead } from "./bridge/readings/scheduled-read.test-support.js";
 import { LiveAnnouncerProvider } from "./primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "./store/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
@@ -24,7 +25,15 @@ afterEach(() => {
   cleanup();
 });
 
-/** The settings surface a window mounts, parked on the browser address. */
+/**
+ * The settings surface a window mounts, parked on the browser address.
+ *
+ * THE FROZEN CLOCK IS MOVED, not just the microtask queue. The section's two reads go
+ * through `store/scheduling.ts`'s one `RefreshScheduler`, armed on the fixture's frozen
+ * clock — so a helper that only drained promises would assert against a page that had
+ * never been given the chance to ask, and read its "still reading" arm as the answer.
+ * `settleScheduledRead` is the console's one home for that wait.
+ */
 async function renderSettingsAtBrowser(): Promise<HTMLElement> {
   const surfaces = new ConsoleSurfaceRegistry();
   registerSettingsSurface(surfaces);
@@ -35,12 +44,13 @@ async function renderSettingsAtBrowser(): Promise<HTMLElement> {
   }
   const frameStore = new FrameStore();
   frameStore.navigate({ kind: "settings", page: "browser" });
+  // The REAL fixture bridge: the page's two reads go through the growth port, and a
+  // hand-built stub would let this file assert a refusal the shipped port does not
+  // raise. No scenario answers either read, which is the state under test.
+  const bridge = fixtureBridgeWithGrowth(unscriptedScenario("browser-settings-test"), {});
   const context = {
     route: frameStore.getState().route,
-    // The REAL fixture bridge: the page's two reads go through the growth port, and a
-    // hand-built stub would let this file assert a refusal the shipped port does not
-    // raise. No scenario answers either read, which is the state under test.
-    bridge: fixtureBridgeWithGrowth(unscriptedScenario("browser-settings-test"), {}),
+    bridge,
     frameStore,
     sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
   } as unknown as ConsoleSurfaceContext;
@@ -50,6 +60,7 @@ async function renderSettingsAtBrowser(): Promise<HTMLElement> {
   await act(async () => {
     await settle();
   });
+  await settleScheduledRead(bridge);
   return container;
 }
 
