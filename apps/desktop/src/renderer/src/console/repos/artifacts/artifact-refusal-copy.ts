@@ -306,3 +306,32 @@ export const TOO_MANY_ATTACHMENTS_CODE = "artifact.too_many_attachments";
 
 /** The code an over-sized payload is refused with, named once. */
 export const TOO_LARGE_CODE = "artifact.too_large";
+
+/**
+ * What `artifact.too_large` WILL say, for a surface warning against a bound it is not
+ * sure of.
+ *
+ * A SECOND LEAD-IN OVER THE SAME THREE BOUNDS, and the tense is the whole difference.
+ * The entry above is written for a refusal that has HAPPENED — it opens "Nothing was
+ * stored", which is a report — and the carrier's own row states a bound BEFORE a
+ * participant spends an upload, against the figure this console ships with rather than
+ * one the deployment answered. Rendered there, the refusal's own sentence told a person
+ * their file had been rejected by a daemon that had not been asked yet. So the lead-in
+ * is future and conditional, and the three bounds under it are the entry's own array
+ * rather than a second copy: the whole reason one table exists is that a code has one
+ * answer wherever it surfaces, and a forecast that restated the three would drift from
+ * the refusal the first time either was edited.
+ *
+ * `meaning` IS DELIBERATELY NOT CARRIED. It ends "the daemon's own sentence above does",
+ * which is true under a refusal and false above a warning: on this arm there is no
+ * daemon sentence anywhere on screen.
+ *
+ * It is `RefusalRecoveryCopy` and not this module's extended shape, because it is not a
+ * recovery for a refusal that arrived — nothing looks it up by code, and the shell that
+ * renders it is the same one every family's recovery lands in.
+ */
+export const ARTIFACT_TOO_LARGE_FORECAST: RefusalRecoveryCopy = {
+  nextMove:
+    "This attachment is over the per-attachment bound this console ships with, which is not necessarily the one this deployment enforces. Nothing here withholds the send. If this deployment kept the shipped default, the daemon answers with artifact.too_large, and which of the three bounds the upload crosses decides the move:",
+  distinctions: ARTIFACT_REFUSAL_RECOVERIES[TOO_LARGE_CODE].distinctions,
+};

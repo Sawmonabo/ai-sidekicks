@@ -81,7 +81,7 @@ export function AttachmentCarrierSection(props: AttachmentCarrierSectionProps): 
       <CarrierList
         entries={snapshot.entries}
         publishedAtMilliseconds={snapshot.publishedAtMilliseconds}
-        maximumByteLength={SHIPPED_DEFAULT_ALLOWLIST.maximumByteLength}
+        allowlist={SHIPPED_DEFAULT_ALLOWLIST}
         onRetry={retry}
         onAbandon={abandon}
         onReorder={reorder}

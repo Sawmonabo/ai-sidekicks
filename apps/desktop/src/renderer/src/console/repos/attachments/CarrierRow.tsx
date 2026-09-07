@@ -20,6 +20,19 @@
 // own `Blob` size rather than a caller's claim, and when it is past the bound the row
 // says what `artifact.too_large` will say — as a warning, never as a gate. Nothing here
 // refuses to send: the three enforcement points are the daemon's.
+//
+// AND THE ROW TAKES THE WHOLE READING BECAUSE THE BOUND ALONE CANNOT BE STATED HONESTLY.
+// `attachment-bounds.ts` carries `source` beside the figure precisely because an
+// operator override replaces the shipped default WHOLESALE, and the only reader the
+// affordance has today answers `shipped-default` on every build the console runs on. A
+// row handed a bare number said "this deployment admits" about a figure no deployment
+// had reported, and then rendered the refusal's own past-tense copy — "Nothing was
+// stored" — above a file the daemon had not been asked about. So both halves of this
+// row are keyed on `source`: the allowance line qualifies whose bound it is showing,
+// and the over-allowance region renders a REFUSAL where the figure is the deployment's
+// and a FORECAST where it is the shipped default. The forecast is minted beside the
+// refusal table (`artifacts/artifact-refusal-copy.ts`) and carries that entry's own
+// three bounds, so the two readings cannot drift apart.
 
 import { useState } from "react";
 
@@ -27,9 +40,16 @@ import { Glyph, RefusalRecovery } from "../../primitives/index.js";
 import { DerivedFigure, WireFigure, formatByteQuantity } from "../../primitives/index.js";
 import { GLYPH_SIZE_DENSE } from "../../tokens/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
-import { exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
+import {
+  exceedsAttachmentByteAllowance,
+  type AttachmentAllowlistReading,
+} from "./attachment-bounds.js";
 import { attachmentNameReading } from "./attachment-provenance.js";
-import { TOO_LARGE_CODE, artifactRefusalRecovery } from "../artifacts/artifact-refusal-copy.js";
+import {
+  ARTIFACT_TOO_LARGE_FORECAST,
+  TOO_LARGE_CODE,
+  artifactRefusalRecovery,
+} from "../artifacts/artifact-refusal-copy.js";
 import { attachmentReorderHandleLabel } from "./attachment-reorder.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 import { useCarrierRowDrag } from "./carrier-drag.js";
@@ -38,12 +58,30 @@ import { useCarrierRowDrag } from "./carrier-drag.js";
 const MOVE_EARLIER = -1;
 const MOVE_LATER = 1;
 
+/**
+ * What the allowance line says the figure beside it IS, per arm of the reading.
+ *
+ * Two sentences and not one with a clause bolted on, because they make different
+ * claims: one reports a bound the daemon answered with, and the other reports the
+ * bound this console ships with and says where the real one is settled. A line that
+ * could not tell them apart would be a claim about a deployment nothing has read.
+ */
+const EFFECTIVE_ALLOWANCE_NOTE = "this deployment admits per attachment";
+const SHIPPED_DEFAULT_ALLOWANCE_NOTE =
+  "this console ships as the default per attachment. What this deployment admits is settled at ingest";
+
 export interface CarrierRowProps {
   readonly entry: AttachmentIngestEntry;
   readonly position: number;
   readonly attachmentCount: number;
-  /** The per-attachment byte bound this deployment admits, as read or as shipped. */
-  readonly maximumByteLength: number;
+  /**
+   * The bounds this row measures against, WITH where they came from.
+   *
+   * The whole reading and never the number off it: `source` is what decides both what
+   * the allowance line claims and whether the region below it is a refusal or a
+   * forecast, and a row handed the figure alone could only guess.
+   */
+  readonly allowlist: AttachmentAllowlistReading;
   readonly publishedAtMilliseconds: number;
   readonly onRetry: (localId: string) => void;
   readonly onAbandon: (localId: string) => void;
@@ -54,7 +92,8 @@ export interface CarrierRowProps {
 }
 
 export function CarrierRow(props: CarrierRowProps): React.JSX.Element {
-  const { entry, position, attachmentCount, maximumByteLength } = props;
+  const { entry, position, attachmentCount, allowlist } = props;
+  const { maximumByteLength } = allowlist;
   const [rowElement, setRowElement] = useState<HTMLLIElement | null>(null);
   const [handleElement, setHandleElement] = useState<HTMLButtonElement | null>(null);
   const localId = entry.declared.localId;
@@ -71,7 +110,6 @@ export function CarrierRow(props: CarrierRowProps): React.JSX.Element {
     entry.declared.byteLength,
     maximumByteLength,
   );
-  const overAllowanceCopy = artifactRefusalRecovery(TOO_LARGE_CODE);
   return (
     <li
       // The element the adapter drags a preview of, held as STATE rather than in a ref:
@@ -111,21 +149,59 @@ export function CarrierRow(props: CarrierRowProps): React.JSX.Element {
           <WireFigure value={declaredFigure.text} title={String(entry.declared.byteLength)} />
           <DerivedFigure text="of the" />
           <WireFigure value={allowanceFigure.text} title={String(maximumByteLength)} />
-          <DerivedFigure text="this deployment admits per attachment" />
+          <DerivedFigure
+            text={
+              allowlist.source === "effective"
+                ? EFFECTIVE_ALLOWANCE_NOTE
+                : SHIPPED_DEFAULT_ALLOWANCE_NOTE
+            }
+          />
         </p>
-        {isOverAllowance && overAllowanceCopy !== undefined ? (
-          // THE WHOLE READING AND NOT ITS FIRST HALF. The table's `too_large` entry is a
-          // meaning, a lead-in, and the three bounds that lead-in promises — so a surface
-          // rendering only the meaning and the lead-in ends on a colon and names none of
-          // them. The shell that renders a recovery everywhere else renders it here too,
-          // which is also what keeps this warning the refusal's own words rather than a
-          // paraphrase of them that drifts the first time either is edited.
-          <div className="meridian-carrier-row__over-allowance" role="status">
-            {overAllowanceCopy.meaning === undefined ? null : <p>{overAllowanceCopy.meaning}</p>}
-            <RefusalRecovery recovery={overAllowanceCopy} />
-          </div>
-        ) : null}
+        {isOverAllowance ? renderOverAllowance(allowlist.source) : null}
       </div>
     </li>
+  );
+}
+
+/**
+ * What a row past the bound says — which depends on WHOSE bound it is past.
+ *
+ * A render helper rather than a branch inside the body, on `ArtifactRefusalRecovery`'s
+ * rule: it holds no state and takes no hooks, so an element type would buy a
+ * reconciliation boundary nothing needs, and the two arms are long enough that inline
+ * they hid which of them a reader was in.
+ *
+ * THE EFFECTIVE ARM RENDERS THE REFUSAL WHOLE. The table's `too_large` entry is a
+ * meaning, a lead-in, and the three bounds that lead-in promises — so a surface
+ * rendering only the meaning and the lead-in ends on a colon and names none of them.
+ * The shell that renders a recovery everywhere else renders it here too, which is what
+ * keeps this warning the refusal's own words rather than a paraphrase that drifts.
+ *
+ * THE SHIPPED-DEFAULT ARM RENDERS THE FORECAST, and carries no past-tense sentence at
+ * all: the figure being measured against is this console's own, no deployment has
+ * reported one, and nothing has been sent — so "Nothing was stored" would be a report
+ * of a refusal that has not been asked for. The forecast is the same three bounds under
+ * a conditional lead-in, and it carries no `meaning`, whose closing clause points at a
+ * daemon sentence this arm does not have.
+ */
+function renderOverAllowance(
+  source: AttachmentAllowlistReading["source"],
+): React.JSX.Element | null {
+  if (source === "shipped-default") {
+    return (
+      <div className="meridian-carrier-row__over-allowance" role="status">
+        <RefusalRecovery recovery={ARTIFACT_TOO_LARGE_FORECAST} />
+      </div>
+    );
+  }
+  const refusalCopy = artifactRefusalRecovery(TOO_LARGE_CODE);
+  if (refusalCopy === undefined) {
+    return null;
+  }
+  return (
+    <div className="meridian-carrier-row__over-allowance" role="status">
+      {refusalCopy.meaning === undefined ? null : <p>{refusalCopy.meaning}</p>}
+      <RefusalRecovery recovery={refusalCopy} />
+    </div>
   );
 }

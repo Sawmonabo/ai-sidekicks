@@ -22,6 +22,7 @@ import { useCallback } from "react";
 
 import { Nothing, useAnnounce } from "../../primitives/index.js";
 import { CarrierRow } from "./CarrierRow.js";
+import type { AttachmentAllowlistReading } from "./attachment-bounds.js";
 import { attachmentNameReading } from "./attachment-provenance.js";
 import {
   attachmentPositionOf,
@@ -34,8 +35,16 @@ import { EMPTY_CARRIER_TITLE, EMPTY_CARRIER_DETAIL } from "./attachment-carrier-
 export interface CarrierListProps {
   readonly entries: readonly AttachmentIngestEntry[];
   readonly publishedAtMilliseconds: number;
-  /** The per-attachment byte bound each row measures its own declared size against. */
-  readonly maximumByteLength: number;
+  /**
+   * The bounds each row measures its own declared size against, and whose they are.
+   *
+   * Handed down WHOLE rather than as the byte figure, because the row's copy turns on
+   * `source` as much as on the number: an operator override replaces the shipped
+   * default wholesale, so a row that could not say which of the two it was measuring
+   * against would claim a bound no deployment reported. `CarrierRow.tsx` says what
+   * each arm renders.
+   */
+  readonly allowlist: AttachmentAllowlistReading;
   readonly onRetry: (localId: string) => void;
   readonly onAbandon: (localId: string) => void;
   /** Put this attachment at this declared position. The carrier's ledger is the record. */
@@ -104,7 +113,7 @@ export function CarrierList(props: CarrierListProps): React.JSX.Element {
           entry={entry}
           position={position}
           attachmentCount={entries.length}
-          maximumByteLength={props.maximumByteLength}
+          allowlist={props.allowlist}
           publishedAtMilliseconds={props.publishedAtMilliseconds}
           onRetry={props.onRetry}
           onAbandon={props.onAbandon}

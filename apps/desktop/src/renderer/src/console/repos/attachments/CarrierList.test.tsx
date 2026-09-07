@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { CarrierList } from "./CarrierList.js";
+import type { AttachmentAllowlistReading } from "./attachment-bounds.js";
 import {
   CARRIER_ENTRY_MILLISECONDS,
   carrierEntry,
@@ -25,6 +26,27 @@ import { type AttachmentIngestEntry } from "./attachment-shapes.js";
 /** The per-attachment bound the rows in these cases are measured against. */
 const ADMITTED_BYTES = 1_000;
 
+/**
+ * The bound as a DEPLOYMENT reported it, and the bound as this console ships it.
+ *
+ * Two readings rather than one, because the row's copy turns on which of them it was
+ * handed — and only one of the two is reachable in the shipped console today, which is
+ * exactly why the other has to be pinned here: the affordance renders the shipped
+ * default on every build, so a suite that only drove the effective arm would leave the
+ * arm a participant actually meets undrawn.
+ */
+const EFFECTIVE_BOUNDS: AttachmentAllowlistReading = {
+  source: "effective",
+  mediaTypes: ["text/markdown"],
+  maximumByteLength: ADMITTED_BYTES,
+  refusal: undefined,
+};
+
+const SHIPPED_DEFAULT_BOUNDS: AttachmentAllowlistReading = {
+  ...EFFECTIVE_BOUNDS,
+  source: "shipped-default",
+};
+
 interface RenderedList {
   readonly container: HTMLElement;
   readonly grips: readonly HTMLElement[];
@@ -32,14 +54,17 @@ interface RenderedList {
   readonly announced: () => string;
 }
 
-function renderList(entries: readonly AttachmentIngestEntry[]): RenderedList {
+function renderList(
+  entries: readonly AttachmentIngestEntry[],
+  allowlist: AttachmentAllowlistReading = EFFECTIVE_BOUNDS,
+): RenderedList {
   const moves: { readonly localId: string; readonly toPosition: number }[] = [];
   const { container } = render(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       <CarrierList
         entries={entries}
         publishedAtMilliseconds={CARRIER_ENTRY_MILLISECONDS}
-        maximumByteLength={ADMITTED_BYTES}
+        allowlist={allowlist}
         onRetry={() => undefined}
         onAbandon={() => undefined}
         onReorder={(localId, toPosition) => {
@@ -155,5 +180,56 @@ describe("carrier list — one attachment's size against the bound", () => {
   it("negative control: an attachment inside the bound carries no warning", () => {
     const list = renderList([carrierEntry("attachment-1", "first.md", ADMITTED_BYTES)]);
     expect(list.container.querySelector(".meridian-carrier-row__over-allowance")).toBeNull();
+  });
+});
+
+describe("carrier list — whose bound the row is measuring against", () => {
+  it("qualifies the figure as the shipped default, and says where the real one is settled", () => {
+    // The arm every build of the console actually reaches: no registered wire answers
+    // the effective allow-list, so the affordance renders what it ships with. Claimed
+    // as "this deployment admits", that figure is a statement about a deployment
+    // nothing has read.
+    const list = renderList([carrierEntry("attachment-1", "first.md")], SHIPPED_DEFAULT_BOUNDS);
+    const allowance =
+      list.container.querySelector(".meridian-carrier-row__allowance")?.textContent ?? "";
+    expect(allowance).toContain("ships as the default per attachment");
+    expect(allowance).toContain("settled at ingest");
+    // THE `×` LINE, and it is the effective arm's clause verbatim rather than a
+    // fragment of it: this arm may — and does — name the deployment, as the place the
+    // real bound gets settled. What it must never do is CLAIM the figure beside it is
+    // the one that deployment admits, which is the whole of the effective sentence.
+    expect(allowance).not.toContain("this deployment admits per attachment");
+  });
+
+  it("forecasts the refusal on that arm rather than reporting one, and names all three bounds", () => {
+    const list = renderList(
+      [carrierEntry("attachment-1", "huge.md", ADMITTED_BYTES + 1)],
+      SHIPPED_DEFAULT_BOUNDS,
+    );
+    const warning =
+      list.container.querySelector(".meridian-carrier-row__over-allowance")?.textContent ?? "";
+    // The forecast is conditional and future, and it is the refusal's own three bounds
+    // rather than a paraphrase — the reservation point among them, which is the one a
+    // person never guesses.
+    expect(warning).toContain("If this deployment kept the shipped default");
+    expect(warning).toContain("reserved the spool");
+    expect(warning).toContain("relay publish cap");
+    // THE `×` LINE. Before the arm split, this row rendered the refusal's own
+    // past-tense report above a file no daemon had been asked about.
+    expect(warning).not.toContain("Nothing was stored");
+  });
+
+  it("negative control: the effective arm still reports the refusal in its own words", () => {
+    // The split must not turn every warning into a forecast: where the daemon DID
+    // report the bound, the refusal's own copy is what this row is supposed to carry.
+    const list = renderList(
+      [carrierEntry("attachment-1", "huge.md", ADMITTED_BYTES + 1)],
+      EFFECTIVE_BOUNDS,
+    );
+    const warning =
+      list.container.querySelector(".meridian-carrier-row__over-allowance")?.textContent ?? "";
+    expect(warning).toContain("Nothing was stored");
+    expect(warning).toContain("reserved the spool");
+    expect(warning).not.toContain("If this deployment kept the shipped default");
   });
 });
