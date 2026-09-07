@@ -72,6 +72,7 @@ import { useCallback, useId, useRef } from "react";
 
 import { BudgetMeter } from "../bounds/BudgetMeter.js";
 import { useCapturedObjects } from "../cards/captured-objects.js";
+import { useBrowserProducedObjects } from "../cards/produced-provenance.js";
 import { useRelayedToolCalls } from "../cards/tool-call-relay.js";
 import type { PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
 import {
@@ -125,6 +126,9 @@ export function BrowserPaneChrome(context: PaneContextOf<"browser">): React.JSX.
     pageCount: openPages.length,
   });
   const captured = useCapturedObjects(bridge, paneId, paneActs);
+  // The shelf's membership, which is the daemon's answer and not this window's
+  // register: the acts below produce only some of what the browser produces.
+  const producedObjects = useBrowserProducedObjects(bridge, sessionId, captured.cardsByArtifactId);
   const admittedRoots = useAdmittedRoots(bridge, sessionId);
   const toolCalls = useRelayedToolCalls(bridge, sessionId);
   const paneRootRef = useRef<HTMLDivElement | null>(null);
@@ -313,7 +317,7 @@ export function BrowserPaneChrome(context: PaneContextOf<"browser">): React.JSX.
           roots={admittedRoots}
           refusal={actRefusal}
           sessionStore={sessionStore}
-          producedCards={captured.cardsByArtifactId}
+          producedCards={producedObjects}
           toolCalls={toolCalls}
           handback={handback}
           onCapture={captured.capture}

@@ -17,24 +17,24 @@
 // one-pipeline rule showing through, and it is why this fold reads a registered event
 // family rather than waiting for a namespace.
 //
-// AND WHY THAT MAKES PROVENANCE THE CALLER'S TO SUPPLY. The same rule that gives the
+// AND WHY THAT MAKES PROVENANCE A SEPARATE QUESTION. The same rule that gives the
 // browser a registered family gives it NO way to be told apart inside one: the
 // `artifact_publication` payload is `{sessionId, artifactId?, runId?, diffArtifactId?,
 // visibility?, state}` plus the relay's additive members, and neither
 // `docs/specs/006-session-event-taxonomy-and-audit-log.md` nor the `ArtifactPublish` /
 // `ArtifactRead` shapes in `docs/architecture/contracts/api-payload-contracts.md`
-// carry a producer, an origin, or anything else naming what made the object. So a
+// carry a producer, an origin, or anything else naming what made the object — the
+// manifest's `createdBy` names the publishing PARTICIPANT and not a surface. So a
 // fold that accepted every readable artifact beat was not folding browser output at
 // all — a repository attachment published from the same session is that exact shape,
 // and it listed under "Produced objects" as though this window had made it.
 //
-// The remaining source of that fact is the pane's OWN operation replies:
-// `browserCapture` answers with the artifact id the capture became, and a download
-// will answer the same way, so the set of ids this window minted is known here and
-// nowhere else on the wire. This fold therefore takes that set and joins it to the
-// log, which supplies the one thing the reply cannot: the state the object has since
-// reached. Never a heuristic on media type or file name — those are properties of the
-// bytes and say nothing about who produced them.
+// `produced-provenance.ts` answers it, and this fold takes its set: the daemon says
+// which artifacts came out of the browser, this window adds the ones its own capture
+// acts minted, and the log supplies the one thing neither can — the state each object
+// has since reached. Never a heuristic on media type or file name, and never the
+// renderer's own card register, which knows only the acts this window performed and
+// forgets those the moment the pane remounts.
 //
 // AND WHY THE PAYLOAD IS READ DEFENSIVELY. `packages/contracts` registers the three
 // artifact event TYPES and no payload variant for any of them, so the store carries
@@ -81,31 +81,43 @@ export interface ProducedArtifact {
 }
 
 /**
- * A card this window can justify rendering, and which of the two it is.
+ * One produced object the shelf may list, and what this window can say about it.
  *
  * Declared here rather than beside the shelf that renders it, because the register
- * that MAKES cards and the component that renders them both need it.
+ * that MAKES cards, the ledger that names the rest, and the component that renders
+ * both all need it.
  *
- * THE LIFECYCLE STATE IS SUBTRACTED, and that subtraction is the type saying where
- * each half of a row comes from. A card is composed out of what the producing act
- * answered with — an artifact id, a media type, a byte length — and the act cannot
- * answer with a state it has not reached yet. The state is the LOG's, joined on at
- * the shelf, so a register that tried to hold one would be a second and staler answer
- * to a question `foldProducedArtifacts` already answers.
+ * THREE ARMS, AND THE THIRD IS THE ONE THAT MAKES THIS A LEDGER. The first two are
+ * cards for the acts this window performed. `named` is an object the WIRE named as
+ * browser output that this window did not make — an agent's capture, a completed
+ * download, a bundled asset set, anything produced before this pane's mount — and it
+ * carries an artifact id and nothing else, because inventing a media type or a byte
+ * length for bytes this window never held is the fabrication the identity row exists
+ * to avoid. `produced-provenance.ts` owns where each arm comes from.
+ *
+ * THE LIFECYCLE STATE IS SUBTRACTED FROM ALL THREE, and that subtraction is the type
+ * saying where each half of a row comes from. A card is composed out of what the
+ * producing act answered with — an artifact id, a media type, a byte length — and the
+ * act cannot answer with a state it has not reached yet. The state is the LOG's,
+ * joined on at the shelf, so a register that tried to hold one would be a second and
+ * staler answer to a question `foldProducedArtifacts` already answers.
  */
 export type ProducedObjectCard =
   | { readonly kind: "capture"; readonly props: Omit<BrowserCaptureCardProps, "state"> }
-  | { readonly kind: "download"; readonly props: Omit<BrowserDownloadCardProps, "state"> };
+  | { readonly kind: "download"; readonly props: Omit<BrowserDownloadCardProps, "state"> }
+  | { readonly kind: "named"; readonly props: { readonly artifactId: string } };
 
 /**
- * Which produced object a card is about, whichever of the two shapes it has.
+ * Which produced object a card is about, whichever arm it is.
  *
- * ONE MEMBER ON BOTH ARMS, read the same way. The capture arm used to answer with its
+ * ONE MEMBER ON EVERY ARM, read the same way. The capture arm used to answer with its
  * `captureName`, because the register assigned the artifact id into that member — so
  * the shelf's key and the human-readable name were the same string by construction,
- * and the card put a locator where a name belongs. Both card shapes now carry their
- * own `artifactId`, which is what the log's fold keys on and what a later fetch is
- * keyed by, and neither one is reachable by reading a display value.
+ * and the card put a locator where a name belongs. Every arm now carries its own
+ * `artifactId`, which is what the log's fold keys on and what a later fetch is keyed
+ * by, and none of them is reachable by reading a display value. That is also the whole
+ * of what the `named` arm carries, which is why this accessor stayed one line when the
+ * ledger arm joined the union rather than growing a branch per shape.
  */
 export function producedObjectArtifactId(card: ProducedObjectCard): string {
   return card.props.artifactId;
@@ -131,13 +143,14 @@ function readProducedState(
 /**
  * Every artifact this window produced, newest first, as the log now knows it.
  *
- * `producedArtifactIds` is the provenance and the only one there is: the ids the
- * pane's own capture and download operations answered with. An artifact the log
- * carries that is not in that set is some other surface's output — a repository
- * attachment, a diff, an agent's publish — and it belongs on the timeline rather than
- * on a shelf whose sentence is "browser-produced". An empty set therefore folds to no
- * rows, which is the honest reading of a window that has produced nothing rather than
- * an empty view of the session's artifacts.
+ * `producedArtifactIds` is the provenance, and `produced-provenance.ts` is where it
+ * comes from: the artifacts the daemon named as this session's browser output, plus
+ * the ones this window's own capture acts minted. An artifact the log carries that is
+ * not in that set is some other surface's output — a repository attachment, a diff, an
+ * agent's publish from another tool — and it belongs on the timeline rather than on a
+ * shelf whose sentence is "browser-produced". An empty set therefore folds to no rows,
+ * which is the honest reading of a session whose browser has produced nothing rather
+ * than an empty view of its artifacts.
  *
  * Newest first because the shelf's own sentence is "the session's RECENT
  * browser-produced artifacts": a person opening the overflow control after a capture

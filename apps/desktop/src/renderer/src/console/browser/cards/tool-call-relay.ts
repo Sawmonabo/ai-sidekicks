@@ -18,6 +18,15 @@
 // a display bound rather than one of the resource ceilings 12.10 enumerates — no tool
 // result is truncated, no call is refused, and nothing about what the daemon did
 // changes. What is dropped is a row nobody scrolled to.
+//
+// AND THE ACCUMULATION SURVIVES THE PRODUCER, which is the difference between the two
+// arms below carrying calls and only one of them doing so. A relayed call is a
+// HISTORICAL invocation — it happened, and it goes on having happened after the
+// subscription that reported it closes — so an ended arm that dropped the list would
+// erase every call the session made the moment the producer finished cleanly, and the
+// feed would render its own sentence ("this list stops where it stopped") over
+// nothing at all. The end is a fact about the SUBSCRIPTION and never about the calls,
+// so the ended arm carries the same bounded list the served arm was carrying.
 
 import { useEffect } from "react";
 
@@ -47,14 +56,20 @@ export type RelayedToolCall = ToolCallStream extends {
   ? Event
   : never;
 
-/** What the pane knows about the agent's browser tool calls right now. */
+/**
+ * What the pane knows about the agent's browser tool calls right now.
+ *
+ * BOTH SETTLED ARMS CARRY THE LIST, and they carry the same one. `served` is a live
+ * subscription and `ended` is one whose producer finished; what differs is whether
+ * another call can still arrive, not which calls have already been made.
+ */
 export type ToolCallReading =
   | Extract<ReadingState, { readonly kind: "reading" }>
   | (Extract<ReadingState, { readonly kind: "served" }> & {
       readonly calls: readonly RelayedToolCall[];
     })
   | Extract<ReadingState, { readonly kind: "refused" }>
-  | { readonly kind: "ended" };
+  | { readonly kind: "ended"; readonly calls: readonly RelayedToolCall[] };
 
 const UNREAD_TOOL_CALLS: ToolCallReading = { kind: "reading" };
 
@@ -114,7 +129,9 @@ export function useRelayedToolCalls(
         }
         closeStream();
         if (!cancelled) {
-          publish({ kind: "ended" });
+          // The list the loop above accumulated, handed on verbatim: the producer
+          // ending says nothing about the calls it already relayed.
+          publish({ kind: "ended", calls: seen });
         }
       } catch (failure) {
         closeStream();

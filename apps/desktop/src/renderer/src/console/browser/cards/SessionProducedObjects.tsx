@@ -11,12 +11,18 @@
 // reduction runs once per move rather than once per render of the overflow control.
 //
 // THIS IS ALSO WHERE THE JOIN HAPPENS, because this is the one place both halves are
-// in scope. The pane's register supplies the provenance — the ids this window's own
-// capture and download acts answered with, which is the only record anywhere that an
-// artifact came from the browser — and the store supplies the state each of them has
-// since reached. The fold takes the ids and reads the log; neither side alone is a
-// shelf, and a fold that read only the log would list every artifact the session ever
-// published as browser output.
+// in scope. `produced-provenance.ts` supplies the membership — which of the session's
+// artifacts came out of the browser, as the daemon answers it, unioned with the ids
+// this window's own capture acts minted — and the store supplies the state each of
+// them has since reached. The fold takes the ids and reads the log; neither side alone
+// is a shelf, and a fold that read only the log would list every artifact the session
+// ever published as browser output.
+//
+// AND THE IDS ARRIVE HERE ALREADY JOINED, which is what keeps this component a fold
+// over a set rather than a second place provenance is decided. It reads the KEYS of
+// the map it is handed and asks nothing about how a key got there — so a key whose
+// value is a card is drawn as one, a key whose value is the `named` arm is drawn as an
+// identity row, and this file needs no branch for either.
 
 import { useMemo } from "react";
 
@@ -31,16 +37,23 @@ function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"]
 
 export interface SessionProducedObjectsProps {
   readonly sessionStore: SessionStore;
-  /** Cards for the objects this window itself produced, keyed by artifact id. */
+  /**
+   * Every produced object the shelf may list, keyed by artifact id.
+   *
+   * Its KEYS are the provenance and its values are what this window can say about
+   * each — a card for an object it made, the `named` arm for one the daemon named.
+   * `produced-provenance.ts` composes it.
+   */
   readonly cardsByArtifactId: ReadonlyMap<string, ProducedObjectCard>;
 }
 
 export function SessionProducedObjects(props: SessionProducedObjectsProps): React.JSX.Element {
   const { cardsByArtifactId } = props;
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
-  // Held on the register rather than rebuilt per render: the map's identity moves only
-  // when this window produces something, so the set and the fold below it both stand
-  // still while the overflow control re-renders for every other reason it has to.
+  // Derived from the joined map rather than rebuilt per render: that map's identity
+  // moves only when the daemon's answer lands or this window produces something, so
+  // the set and the fold below it both stand still while the overflow control
+  // re-renders for every other reason it has to.
   const producedArtifactIds = useMemo(() => new Set(cardsByArtifactId.keys()), [cardsByArtifactId]);
   const artifacts = useMemo(
     () => foldProducedArtifacts(timeline, producedArtifactIds),

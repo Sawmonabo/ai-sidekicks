@@ -4,6 +4,10 @@
 // has been relayed" is not "the relay finished" and neither is "no agent has called a
 // page tool". A component that folded any two would tell a person the agent is idle
 // when the truth is that this window stopped being told.
+//
+// AND THE FINISHED ARM IS NOT ALWAYS AN ABSENCE, which is the fourth case's whole
+// subject: a relay that ended after relaying calls has both a terminal status and a
+// list, and the list is the history of what the agent actually did.
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -19,6 +23,13 @@ const RELAYED_CALL: RelayedToolCall = {
   owningRunLabel: "Run 3",
 };
 
+const SECOND_RELAYED_CALL: RelayedToolCall = {
+  toolCallId: "call-2",
+  toolName: "browser_capture",
+  argumentsJson: "{}",
+  owningRunLabel: "Run 3",
+};
+
 function renderFeed(reading: ToolCallReading): void {
   render(<ToolCallFeed reading={reading} />);
 }
@@ -30,10 +41,20 @@ describe("the pane's tool-call feed", () => {
     expect(screen.queryByText("No tool calls yet")).toBeNull();
   });
 
-  it("says the relay finished where the producer ended", () => {
-    renderFeed({ kind: "ended" });
+  it("says the relay finished where the producer ended having relayed nothing", () => {
+    renderFeed({ kind: "ended", calls: [] });
     expect(screen.getByText("Relay finished")).toBeTruthy();
     expect(screen.queryByText("Tool calls not relayed")).toBeNull();
+  });
+
+  it("keeps the calls a finished relay had already made, beside its terminal status", () => {
+    // The producer ending is a fact about the SUBSCRIPTION. Every call in this list
+    // was made and stays made, and a feed that dropped them at the moment the relay
+    // closed cleanly would erase the session's whole tool history.
+    renderFeed({ kind: "ended", calls: [SECOND_RELAYED_CALL, RELAYED_CALL] });
+    expect(screen.getByText("Relay finished")).toBeTruthy();
+    expect(screen.getByText("browser_capture")).toBeTruthy();
+    expect(screen.getByText("browser_navigate")).toBeTruthy();
   });
 
   it("renders the refusal it was handed rather than an absence", () => {

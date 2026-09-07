@@ -6,6 +6,13 @@
 // PANE adds is proximity: the call about to act on the page a person is watching,
 // beside that page.
 //
+// AND A FINISHED RELAY STILL HAS ITS CALLS. The terminal status and the rows are two
+// different facts — the subscription ended, and these invocations were made — so the
+// ended arm renders the status ABOVE the same list the live arm renders rather than
+// instead of it. A feed that swapped the list for the sentence deleted every call the
+// session had made at the moment its producer closed cleanly, which is the one moment
+// nothing was wrong.
+//
 // EVERY CALL ARRIVES AWAITING ADJUDICATION, and that is a fact about the relay rather
 // than a default this component chose. The relay carries an invocation the daemon has
 // not yet answered; the answer travels back over the response operation, and the
@@ -37,17 +44,8 @@ export function ToolCallFeed(props: ToolCallFeedProps): React.JSX.Element {
       />
     );
   }
-  if (reading.kind === "ended") {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="inline"
-        title="Relay finished"
-        detail="The producer relaying this session's browser tool calls finished, so this list stops where it stopped."
-      />
-    );
-  }
-  if (reading.calls.length === 0) {
+  const hasEnded = reading.kind === "ended";
+  if (reading.calls.length === 0 && !hasEnded) {
     return (
       <Nothing
         kind="empty"
@@ -59,20 +57,32 @@ export function ToolCallFeed(props: ToolCallFeedProps): React.JSX.Element {
   }
 
   return (
-    <div className="meridian-browser-cards">
-      {reading.calls.map((call) => (
-        <BrowserToolCallCard
-          key={call.toolCallId}
-          toolCallId={call.toolCallId}
-          toolName={call.toolName}
-          argumentsJson={call.argumentsJson}
-          owningRunLabel={call.owningRunLabel}
-          // The relay carries an invocation the daemon has not answered. What settles
-          // it travels back over the response operation, and a settled outcome is
-          // rendered by the timeline's own row for the same call.
-          outcome={{ status: "awaiting-adjudication" }}
+    <>
+      {hasEnded ? (
+        <Nothing
+          kind="not-checked"
+          placement="inline"
+          title="Relay finished"
+          detail="The producer relaying this session's browser tool calls finished, so this list stops where it stopped."
         />
-      ))}
-    </div>
+      ) : null}
+      {reading.calls.length === 0 ? null : (
+        <div className="meridian-browser-cards">
+          {reading.calls.map((call) => (
+            <BrowserToolCallCard
+              key={call.toolCallId}
+              toolCallId={call.toolCallId}
+              toolName={call.toolName}
+              argumentsJson={call.argumentsJson}
+              owningRunLabel={call.owningRunLabel}
+              // The relay carries an invocation the daemon has not answered. What
+              // settles it travels back over the response operation, and a settled
+              // outcome is rendered by the timeline's own row for the same call.
+              outcome={{ status: "awaiting-adjudication" }}
+            />
+          ))}
+        </div>
+      )}
+    </>
   );
 }
