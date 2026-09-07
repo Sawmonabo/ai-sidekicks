@@ -160,11 +160,15 @@ describe("the live roster read's refusals", () => {
 
 describe("the live roster read's reply", () => {
   it("serves a reply the registered schema admits", async () => {
-    const outcome = await readRuntimeNodeRosterOverControlPlane(bridgeServing({ nodes: [] }), {
-      sessionId: SESSION_ID,
-    });
+    const outcome = await readRuntimeNodeRosterOverControlPlane(
+      bridgeServing({ nodes: [], controlHolder: null }),
+      { sessionId: SESSION_ID },
+    );
 
-    expect(outcome).toStrictEqual({ status: "served", value: { nodes: [] } });
+    expect(outcome).toStrictEqual({
+      status: "served",
+      value: { nodes: [], controlHolder: null },
+    });
   });
 
   it("refuses a reply the registered schema does not admit, rather than serving it", async () => {
@@ -172,7 +176,7 @@ describe("the live roster read's reply", () => {
     // the surface as `undefined` under a `served` status and the never-mask reading
     // silently stops distinguishing a degraded node. Parsed, it refuses.
     const outcome = await readRuntimeNodeRosterOverControlPlane(
-      bridgeServing({ nodes: [{ nodeId: "n1", healthState: "degraded" }] }),
+      bridgeServing({ nodes: [{ nodeId: "n1", healthState: "degraded" }], controlHolder: null }),
       { sessionId: SESSION_ID },
     );
 

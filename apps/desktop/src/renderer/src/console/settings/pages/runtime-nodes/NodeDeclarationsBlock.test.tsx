@@ -4,8 +4,14 @@
 // this block exists to make is about the two surfaces together: the declarations and
 // the rows are one answer, they arrive on one call, and the block never says "no
 // machine is attached" while the roster is still reading.
+//
+// WHICH IS WHY EVERY QUERY IS SCOPED TO THE BLOCK. `CapabilityDeclaration` is the
+// shipped view, and the attach control on the same page composes it too — a page-wide
+// query counts that one as a machine's declaration, which is a different fact about a
+// different subject: one is a machine that is here, and the other is a machine asking
+// to be. The scope is what keeps the count and the negative control about this block.
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { RuntimeNodeRosterRequest } from "@ai-sidekicks/contracts";
@@ -65,6 +71,11 @@ function countingRosterReads(bridge: ConsoleBridge): {
   };
 }
 
+/** The declarations block itself, so a query never reaches the attach control beside it. */
+function declarationsBlock(): HTMLElement {
+  return screen.getByLabelText("What each node declares");
+}
+
 describe("what each node declares", () => {
   it("renders one declaration per attached machine", async () => {
     render(
@@ -73,7 +84,8 @@ describe("what each node declares", () => {
       />,
     );
 
-    const declarations = await screen.findAllByLabelText("capability-declaration");
+    const declarations =
+      await within(declarationsBlock()).findAllByLabelText("capability-declaration");
     expect(declarations).toHaveLength(2);
     expect(declarations[0]?.textContent).toContain("provider-driver");
   });
@@ -85,7 +97,7 @@ describe("what each node declares", () => {
     const counted = countingRosterReads(bridgeAt(BOTH_MACHINES_ONLINE_MS));
     render(<RuntimeNodesPage context={contextFor(counted.bridge, SETTINGS_SCENARIO.sessionId)} />);
 
-    await screen.findAllByLabelText("capability-declaration");
+    await within(declarationsBlock()).findAllByLabelText("capability-declaration");
     expect(counted.readCount()).toBe(1);
   });
 
@@ -98,7 +110,7 @@ describe("what each node declares", () => {
       />,
     );
 
-    expect(screen.queryByLabelText("capability-declaration")).toBeNull();
+    expect(within(declarationsBlock()).queryByLabelText("capability-declaration")).toBeNull();
     expect(screen.queryByText(/No machine is attached/)).toBeNull();
     // The assertions above are the case and they are taken first; this is what happens
     // AFTER them. The read this mount put on the wire settles whether or not the case

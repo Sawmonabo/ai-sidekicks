@@ -194,7 +194,12 @@ describe("NodeRoster", () => {
 
     it("renders the loaded (not error, not loading) state for an empty roster", async () => {
       // A session with no attachments is a legitimate empty projection.
-      render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seamServing({ nodes: [] }).reads} />);
+      render(
+        <NodeRoster
+          sessionId={FIRST_SESSION_ID}
+          reads={seamServing({ nodes: [], controlHolder: null }).reads}
+        />,
+      );
 
       const loadedSection = await screen.findByLabelText("node-roster-loaded");
       expect(loadedSection.querySelectorAll("li")).toHaveLength(0);

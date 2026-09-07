@@ -309,6 +309,7 @@ export { subscribeDaemonEvent } from "./wire-access.js";
 // mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
 // reaches them here like every other consumer.
 export {
+  renderAbsorbedAttachFlow,
   renderAbsorbedCapabilityDeclaration,
   renderAbsorbedInviteAcceptance,
   renderAbsorbedMixedVersionStatus,

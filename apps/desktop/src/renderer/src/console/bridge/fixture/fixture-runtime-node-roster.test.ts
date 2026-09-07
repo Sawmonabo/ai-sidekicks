@@ -163,7 +163,7 @@ describe("the frame current at a tick", () => {
     if (node === undefined) {
       throw new Error("the settings scenario carries no populated roster frame to build from");
     }
-    return { atMs, nodes: [{ ...node, nodeId: nodeId as NodeId }] };
+    return { atMs, nodes: [{ ...node, nodeId: nodeId as NodeId }], controlHolder: null };
   }
 
   it("negative control: is the latest due frame even where the literal is unsorted", () => {

@@ -48,7 +48,7 @@ import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
 const GROWTH_REPLY_PREFIX = "growth:";
 
 /**
- * Method strings the CORPUS registers that this console does not bind a shape for.
+ * Wire names the CORPUS registers that this console binds no DAEMON shape for.
  *
  * A hand-written list, which is what everything else in this tier exists to avoid,
  * and it is one here because there is nothing to derive it from: `packages/contracts`
@@ -58,23 +58,25 @@ const GROWTH_REPLY_PREFIX = "growth:";
  * read. The list is therefore a transcription, and it is kept honest by being tiny and
  * by each entry naming why it is not in the binding table instead.
  *
- * A method belongs here when the corpus registers it and no console surface calls it
- * yet — which is exactly the state that keeps it OUT of
- * `ConsoleDaemonMethodContract`, whose admission rule is a surface that calls it. A
- * scenario may script such a call ahead of its surface; what it may not do is invent
- * one, and the difference between those two is the whole of this claim.
- *
- * The entry moves to a binding row, not to a second life here, on the day a surface
- * calls it: a bound method is validated in both directions and one listed here is
- * served to the fixture unchecked.
+ * TWO CLASSES BELONG HERE, and only the first is transient. A daemon method the corpus
+ * registers and no console surface calls yet is exactly the state that keeps it out of
+ * `ConsoleDaemonMethodContract`, whose admission rule is a surface that calls it — a
+ * scenario may script such a call ahead of its surface, and that entry moves to a
+ * binding row on the day a surface calls it, because a bound method is validated in
+ * both directions and one listed here is served unchecked. A CONTROL-PLANE PROCEDURE
+ * belongs here permanently: that registry enumerates daemon methods, the fixture's own
+ * contract assertion runs on the daemon arm alone for the same reason, and no surface
+ * calling one can ever move it across. What neither class admits is an invented name,
+ * and that difference is the whole of this claim.
  */
 const CORPUS_METHODS_THE_CONSOLE_DOES_NOT_BIND: readonly string[] = [
-  // Empty, and that is a statement rather than a gap: every call the shipped
-  // scenarios script is admitted by one of the two derived registries below.
-  // `agent.list` was the sole entry and never needed to be — the agent roster's
-  // growth row declares it as that row's expected wire method, so the growth branch
-  // already admitted it, and a transcription beside a derivation is a second answer
-  // to one question that goes stale on its own.
+  // The registered runtime-node attach mutation, reached over the CONTROL-PLANE arm by
+  // the absorbed attach flow the settings nodes page mounts
+  // (`runtime-node-attach/attach-request.ts` names it, and owns it as the one home for
+  // the string). Dual-transport in the corpus and control-plane-only in this renderer,
+  // so it is a procedure rather than a daemon method and the binding table — which is
+  // the daemon's — could not hold it whatever calls it.
+  "runtimenode.attach",
 ];
 
 /**

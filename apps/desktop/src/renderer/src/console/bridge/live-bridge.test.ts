@@ -38,7 +38,7 @@ import {
 const SESSION_ID = "019b7904-8ce0-75e5-8510-ada11a5a33a5" as SessionId;
 
 /** What a served roster resolves to, asserted verbatim so a stub cannot pass. */
-const ROSTER_REPLY = { nodes: [] };
+const ROSTER_REPLY = { nodes: [], controlHolder: null };
 
 /** A misspelling that is one underscore away from the registered name. */
 const EVENT_STYLE_MISSPELLING = "runtime_node.roster";

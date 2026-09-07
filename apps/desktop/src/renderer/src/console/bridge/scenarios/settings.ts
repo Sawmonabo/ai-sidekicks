@@ -76,6 +76,8 @@ import {
   RUNTIME_NODES,
   RUNTIME_NODE_ROSTER_FRAMES,
   SESSION_ID,
+  SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
+  SETTINGS_RUNTIME_NODE_ATTACH_REPLY,
   occurredAt,
   type SettingsRuntimeNode,
 } from "./settings-runtime-nodes.js";
@@ -101,6 +103,11 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T08:00:00.000Z",
   runtimeNodeRoster: RUNTIME_NODE_ROSTER_FRAMES,
+  // The declaration the attach control reviews, supplied by the deck because
+  // `Spec-023 §Trust Stance` puts its composition off the renderer entirely. The
+  // roster above says which machines are already here; this says what a machine
+  // arriving would claim about itself, and the two are different subjects.
+  runtimeNodeAttachDraft: SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
   // One transport outage, after the last roster frame has landed.
   //
   // The settings surface is where the reconnect signal is actually SPENT — the shell
@@ -223,6 +230,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
     // reading rather than an absent reply: the read succeeded and there is nothing
     // in it.
     { call: "agent.list", result: { agents: [] } },
+    SETTINGS_RUNTIME_NODE_ATTACH_REPLY,
     ...SETTINGS_DIAGNOSTICS_REPLIES,
     ...SETTINGS_ACCOUNT_PLANE_REPLIES,
     ...SETTINGS_MCP_PLANE_REPLIES,
