@@ -8,11 +8,8 @@
 // rule, at the same seam: they say what a row of a kind LOOKS like, and this file
 // says which rows play and when.
 
-import {
-  createLedgerLaneEntries,
-  ledgerOpeningEntries,
-  type LedgerScriptEntry,
-} from "./ledger/ledger-script.js";
+import { ledgerOpeningEntries } from "./ledger/ledger-opening-entries.js";
+import { createLedgerLaneEntries, type LedgerScriptEntry } from "./ledger/ledger-script.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,
@@ -36,7 +33,7 @@ import {
   costUpdateEntry,
 } from "./flagship-entries.js";
 
-/** The three entry builders, with this scenario's session bound in. */
+/** The four entry builders, with this scenario's session bound in. */
 const lane = createLedgerLaneEntries(SESSION_ID);
 
 export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
@@ -356,19 +353,16 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
   // The thread between two runs. `Spec-006 §Run Lifecycle (run_lifecycle)` puts the linkage members
   // on the BIRTH beat — `run.queued` — so the parent is named where the child is
   // created, and nowhere else: a second event announcing the link would be a second
-  // record of one fact, and the projection would have to pick one.
-  {
+  // record of one fact, and the projection would have to pick one. Through the shared
+  // builder, which is where that rule is enforced rather than merely written down: a
+  // hand-written payload here was the second copy of a shape one module owns.
+  lane.transition(RUN_ARCHITECT_HELPER, {
     atMs: 2_400,
-    kind: "run.queued",
-    payload: {
-      sessionId: SESSION_ID,
-      runId: RUN_ARCHITECT_HELPER,
-      runVersion: 1,
-      newState: "queued",
-      parentRunId: RUN_ARCHITECT,
-      internalHelper: true,
-    },
-  },
+    runVersion: 1,
+    newState: "queued",
+    parentRunId: RUN_ARCHITECT,
+    internalHelper: true,
+  }),
   lane.transition(RUN_ARCHITECT_HELPER, {
     atMs: 2_450,
     runVersion: 2,

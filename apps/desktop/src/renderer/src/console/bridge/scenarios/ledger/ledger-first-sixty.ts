@@ -37,9 +37,9 @@
 // in the census; `subagent.started` / `subagent.completed` are, and a child thread
 // opening under a run is the part of that story the log can tell).
 
+import { ledgerCastMember, ledgerOpeningEntries } from "./ledger-opening-entries.js";
 import {
   createLedgerLaneEntries,
-  ledgerOpeningEntries,
   scriptLedgerBeats,
   type LedgerScriptEntry,
 } from "./ledger-script.js";
@@ -72,6 +72,16 @@ const AGENT_IMPLEMENTER = "019b78ff-f900-7a6e-8120-d1a4c1150106";
 const AGENT_REVIEWER = "019b78ff-f900-7a6e-8130-d1a4c1150107";
 const RUN_IMPLEMENTER = "019b78ff-f900-740e-8110-d1a4c1150114";
 const RUN_REVIEWER = "019b78ff-f900-740e-8120-d1a4c1150115";
+
+/**
+ * The provider-native subagent the reviewer's run opens, as its provider names it.
+ *
+ * NOT A UUID, and that is the fact it carries: the id is minted by the provider and is
+ * unique only inside that provider's run scope, which is why the console keys a
+ * subagent by the whole `(runId, provider, subagentId)` triple and never by this
+ * string alone.
+ */
+const SUBAGENT_REVIEWER = "sub_01k9wq7t8b";
 
 /**
  * The base instant, minted from its fields rather than read back out of a string.
@@ -134,7 +144,15 @@ function instantAtSecond(second: number): string {
   return new Date(startedAtMs + atSecond(second)).toISOString();
 }
 
-/** The three entry builders, with this scenario's session bound in. */
+/**
+ * The provider the reviewer's lane runs on, read off the cast rather than restated.
+ *
+ * A subagent is keyed by `(runId, provider, subagentId)`, so this has to be the same
+ * string the reviewer's own attach beat carries — and the cast is where it is stated.
+ */
+const REVIEWER_PROVIDER = ledgerCastMember(FIRST_SIXTY_AGENTS, AGENT_REVIEWER).driverName;
+
+/** The four entry builders, with this scenario's session bound in. */
 const lane = createLedgerLaneEntries(SESSION_ID);
 
 const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
@@ -226,15 +244,23 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
   }),
 
   // 24–34s — a child thread opens under the reviewer's run and settles.
-  {
+  // The child thread, and it carries its own IDENTITY. `subagent.*` registers no
+  // strict variant in `packages/contracts`, which is why a census of that package
+  // reads as though these rows carry two members — but the wire-truth predicate's
+  // other leg is the taxonomy's per-type rows, and those name the provider, the
+  // provider-native child id, and the tool call it was opened under. Without the
+  // first two the ledger cannot key the pair, so it draws the start and the
+  // completion as two unrelated handoffs instead of one child observed twice.
+  //
+  // `parentToolCallId` is absent here on purpose: this child opens BEFORE the
+  // reviewer's own tool call, so there is no call to name, and the taxonomy makes
+  // the member optional for exactly that case.
+  lane.subagent(RUN_REVIEWER, {
     atMs: atSecond(26),
     kind: "subagent.started",
-    // The two members every run-scoped payload in the corpus carries, and no
-    // third: `subagent.*` registers no payload variant and no member of one is
-    // named anywhere in `packages/contracts`, so a child-thread identifier here
-    // would be a wire fact this fixture invented.
-    payload: { sessionId: SESSION_ID, runId: RUN_REVIEWER },
-  },
+    provider: REVIEWER_PROVIDER,
+    subagentId: SUBAGENT_REVIEWER,
+  }),
   lane.tool(RUN_REVIEWER, {
     atMs: atSecond(29),
     kind: "tool.invoked",
@@ -249,11 +275,12 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
     durationMs: 2_980,
     contentLength: 512,
   }),
-  {
+  lane.subagent(RUN_REVIEWER, {
     atMs: atSecond(34),
     kind: "subagent.completed",
-    payload: { sessionId: SESSION_ID, runId: RUN_REVIEWER },
-  },
+    provider: REVIEWER_PROVIDER,
+    subagentId: SUBAGENT_REVIEWER,
+  }),
 
   // 34–46s — the approval arriving, and the run being let through.
   lane.transition(RUN_IMPLEMENTER, {

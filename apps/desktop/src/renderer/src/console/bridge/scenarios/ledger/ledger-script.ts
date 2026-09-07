@@ -4,10 +4,16 @@
 // first-sixty-seconds session, the endurance generator, and the flagship's four-lane
 // session — and all four need the same four things: a sequence that never skips, an
 // `occurredAt` that agrees with the beat's own `atMs`, the registered run-lifecycle
-// payload, and the registered assistant / tool payloads.
+// payload, and the registered machine-activity payloads — assistant, tool, and the
+// provider-native subagent rows filed beside them.
 // `apps/desktop/AGENTS.md` hoists a helper on its second use, so the vocabulary
 // lives here once rather than four times; the four scenarios are then only their own
 // data, which is what a reader wants to read.
+//
+// THE OPENING IS NEXT DOOR. Who is in the room before any run starts is
+// `ledger-opening-entries.ts`, which reads the entry type from here and is read back
+// by nothing here — a session's opening is not a lane's, so the lane binder at the
+// foot of this file composes the four builders below and never that one.
 //
 // The `Ledger` in the exported names is where the vocabulary was first needed rather
 // than a claim about who may use it; the flagship reaches for exactly the same
@@ -40,9 +46,10 @@
 //     a rendered frame, so it throws here.
 //
 // The payload builders below carry the registered shapes and nothing else.
-// `run.*` has no strict variant in `packages/contracts/src/event.ts` and is held to
-// the census alone; `assistant.*` and `tool.*` do have one, and it is `.strict()`,
-// so a member these builders do not name is a member the wire rejects.
+// `run.*` and `subagent.*` have no strict variant in `packages/contracts/src/event.ts`
+// and are held to the census and to the per-type payload rows of the taxonomy;
+// `assistant.*` and `tool.*` do have one, and it is `.strict()`, so a member those
+// builders do not name is a member the wire rejects.
 
 import { parseInstant } from "../../../core/index.js";
 import type { ScenarioBeat } from "../../scenario-runtime/index.js";
@@ -135,7 +142,29 @@ export interface RunTransitionInput {
   /** The agent the run belongs to. Carried on the birth transition. */
   readonly agentId?: string;
   readonly actorId?: string;
+  /**
+   * The run that created this one, and the two facts that ride beside it.
+   *
+   * The three orchestration-linkage members, on the BIRTH beat and nowhere else. The
+   * taxonomy's run-lifecycle rows put them on `run.queued`, so the parent is named
+   * where the child is created — a second beat announcing the link would be a second
+   * record of one fact and the projection reading it would have to choose which. The
+   * builder refuses them on any other transition rather than emitting a beat the
+   * daemon does not send.
+   *
+   * `linkType` is deliberately absent from this set: it is typed by an orchestration
+   * symbol no TypeScript in this workspace declares, so a beat carrying one would be
+   * stating a value nothing here can check.
+   */
+  readonly parentRunId?: string;
+  /** Whether the child is the parent's own helper rather than a participant's run. */
+  readonly internalHelper?: boolean;
+  /** The runtime node that produced the child, where the daemon resolved one. */
+  readonly producingNodeId?: string;
 }
+
+/** The one transition the orchestration linkage rides. */
+const RUN_BIRTH_STATE = "queued";
 
 /**
  * One run-state transition, as `run.<state>`.
@@ -146,6 +175,14 @@ export interface RunTransitionInput {
  * leg sees a registered kind and the strict layer registers no `run.*` variant.
  */
 export function runTransitionEntry(input: RunTransitionInput): LedgerScriptEntry {
+  const linkage = orchestrationLinkageMembers(input);
+  if (Object.keys(linkage).length > 0 && input.newState !== RUN_BIRTH_STATE) {
+    throw new RangeError(
+      `a run's orchestration linkage rides its birth beat, and this entry moves ${input.runId} ` +
+        `into "${input.newState}". The taxonomy puts the linkage on \`run.${RUN_BIRTH_STATE}\` ` +
+        "alone, so a second beat carrying it would be a second record of one fact.",
+    );
+  }
   return {
     atMs: input.atMs,
     kind: `run.${input.newState}`,
@@ -157,7 +194,17 @@ export function runTransitionEntry(input: RunTransitionInput): LedgerScriptEntry
       ...(input.previousState === undefined ? {} : { previousState: input.previousState }),
       newState: input.newState,
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
+      ...linkage,
     },
+  };
+}
+
+/** Whichever of the three linkage members this entry stated, and no key for the rest. */
+function orchestrationLinkageMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {
+  return {
+    ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
+    ...(input.internalHelper === undefined ? {} : { internalHelper: input.internalHelper }),
+    ...(input.producingNodeId === undefined ? {} : { producingNodeId: input.producingNodeId }),
   };
 }
 
@@ -241,107 +288,50 @@ export function toolActivityEntry(input: ToolActivityInput): LedgerScriptEntry {
   };
 }
 
-/**
- * One agent as three ledger scenarios all carry it.
- *
- * The `agent.attached` payload and the `agent.list` row are two views of one
- * record, so a scenario states each agent once and both views are built from it.
- */
-export interface LedgerCastMember {
-  readonly agentId: string;
-  readonly name: string;
-  readonly driverName: string;
-  readonly modelId: string;
-}
-
-/** Who is in the room before any run starts. */
-export interface LedgerOpeningInput {
+/** What one provider-native subagent beat says. */
+export interface SubagentActivityInput {
+  readonly atMs: number;
   readonly sessionId: string;
-  /** The participant who opened the session, and whose window this is. */
-  readonly openedBy: string;
-  /** The second person, who joins by membership. */
-  readonly joinedBy: string;
-  readonly membershipId: string;
-  /** The cast, each attached at the tick beside it. */
-  readonly cast: readonly (LedgerCastMember & { readonly attachedAtMs: number })[];
-  /** When the second person joins, in scenario time. */
-  readonly joinedAtMs: number;
-  /**
-   * The one named channel this session opens, where it opens one.
-   *
-   * Optional because most scenarios' lanes speak in the implicit main channel,
-   * which is unnamed on the wire and needs no beat; a scenario that wants a
-   * channel-addressed pane to be a log of something scripts one here.
-   */
-  readonly channel?: { readonly channelId: string; readonly name: string };
+  readonly runId: string;
+  /** `subagent.started` or `subagent.completed`. */
+  readonly kind: string;
+  /** The provider that minted the child. Half of the key a completion pairs on. */
+  readonly provider: string;
+  /** The provider-native child id. Unique only inside that provider's run scope. */
+  readonly subagentId: string;
+  /** The tool call the child was opened under, where the provider names one. */
+  readonly parentToolCallId?: string;
 }
 
 /**
- * The opening of a ledger session: the room, then the cast.
+ * One provider-native subagent beat, started or completed, in the registered shape.
  *
- * Every ledger scenario opens the same way, and the three payload shapes here are
- * the ones a mistake is quietest in — `session.created` carries no title, a person
- * joining is a `membership.created` rather than a `participant.*` the census does
- * not have, and `agent.attached` carries `name` where a reader expects
- * `displayName`. Written once, all three scenarios are right or all three are
- * wrong, and the wire-truth predicate says which.
+ * A NON-TOOL ROW UNDER A TOOL CATEGORY, which is the whole reason it has a builder of
+ * its own rather than riding the tool one: the taxonomy files both kinds under tool
+ * activity and then states in terms that these two are per-type and carry no
+ * `toolName`. A scenario that reached for the tool builder would ship a member the
+ * daemon does not send on this row.
+ *
+ * THE TWO KINDS TAKE THE SAME SHAPE, deliberately, because a completion pairs to its
+ * start on `(runId, provider, subagentId)` — the id alone never pairs across runs or
+ * providers. One builder is what makes the two beats carry the same triple; two
+ * literals are how a fixture ships a completion that pairs with nothing.
  */
-export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly LedgerScriptEntry[] {
-  return [
-    {
-      atMs: 0,
-      kind: "session.created",
-      actorId: input.openedBy,
-      // The registered shape verbatim: the new session's id plus the resolved
-      // config and metadata. Both are open records and both are empty, because
-      // nothing in the corpus names a key inside either.
-      payload: { sessionId: input.sessionId, config: {}, metadata: {} },
+export function subagentActivityEntry(input: SubagentActivityInput): LedgerScriptEntry {
+  return {
+    atMs: input.atMs,
+    kind: input.kind,
+    payload: {
+      sessionId: input.sessionId,
+      runId: input.runId,
+      provider: input.provider,
+      subagentId: input.subagentId,
+      ...(input.parentToolCallId === undefined ? {} : { parentToolCallId: input.parentToolCallId }),
     },
-    ...(input.channel === undefined
-      ? []
-      : [
-          {
-            atMs: input.joinedAtMs,
-            kind: "channel.created",
-            actorId: input.openedBy,
-            // The registered shape is the id and an optional name, and nothing
-            // else: the implicit main channel is unnamed on the wire, so a named
-            // one is what a scenario has to script for a channel-addressed pane to
-            // be a log OF something.
-            payload: { channelId: input.channel.channelId, name: input.channel.name },
-          },
-        ]),
-    {
-      atMs: input.joinedAtMs,
-      kind: "membership.created",
-      actorId: input.joinedBy,
-      payload: {
-        membershipId: input.membershipId,
-        participantId: input.joinedBy,
-        role: "collaborator",
-        identityHandle: "priya",
-      },
-    },
-    ...input.cast.map((agent) => ({
-      atMs: agent.attachedAtMs,
-      kind: "agent.attached",
-      // The person who attached the agent, not the agent: an agent does not attach
-      // itself, and the envelope actor is who acted.
-      actorId: input.openedBy,
-      payload: {
-        sessionId: input.sessionId,
-        agentId: agent.agentId,
-        name: agent.name,
-        driverName: agent.driverName,
-        modelId: agent.modelId,
-        state: "ready",
-        actor: input.openedBy,
-      },
-    })),
-  ];
+  };
 }
 
-/** The three entry builders one session's script uses, with its session bound in. */
+/** The four entry builders one session's script uses, with its session bound in. */
 export interface LedgerLaneEntryBuilders {
   readonly transition: (
     runId: string,
@@ -355,10 +345,14 @@ export interface LedgerLaneEntryBuilders {
     runId: string,
     input: Omit<ToolActivityInput, "sessionId" | "runId">,
   ) => LedgerScriptEntry;
+  readonly subagent: (
+    runId: string,
+    input: Omit<SubagentActivityInput, "sessionId" | "runId">,
+  ) => LedgerScriptEntry;
 }
 
 /**
- * Bind one session id into the three entry builders.
+ * Bind one session id into the four entry builders.
  *
  * Every entry of one scenario carries that scenario's session, so repeating it at
  * every call site is both noise and the one place a copied line could name another
@@ -369,5 +363,6 @@ export function createLedgerLaneEntries(sessionId: string): LedgerLaneEntryBuild
     transition: (runId, input) => runTransitionEntry({ ...input, sessionId, runId }),
     output: (runId, input) => assistantOutputEntry({ ...input, sessionId, runId }),
     tool: (runId, input) => toolActivityEntry({ ...input, sessionId, runId }),
+    subagent: (runId, input) => subagentActivityEntry({ ...input, sessionId, runId }),
   };
 }

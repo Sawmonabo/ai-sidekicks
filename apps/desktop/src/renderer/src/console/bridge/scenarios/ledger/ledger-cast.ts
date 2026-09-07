@@ -52,6 +52,38 @@ export const RUN_REVIEWER = "019b793b-7b60-740e-8120-d1a4c1150112";
 export const RUN_ARCHITECT = "019b793b-7b60-740e-8130-d1a4c1150113";
 
 /**
+ * The child run the architect's turn opens, and the only run here with a parent.
+ *
+ * A CHILD RUN IS NOT A FOURTH LANE. The ledger summarizes it onto the one row that
+ * names both it and its parent rather than drawing a lane of its own, which is why
+ * this id is stated beside the three above and is deliberately not one of them: the
+ * three are the compositions a reader has to tell apart in one frame, and this is
+ * the background work folded into one of them.
+ */
+export const RUN_ARCHITECT_CHILD = "019b793b-7b60-740e-8140-d1a4c1150114";
+
+/**
+ * The runtime node the child run was produced on.
+ *
+ * A daemon-assigned opaque identifier rather than a hostname, which is what that
+ * brand is: the timeline requires a child run's provenance to name its producing
+ * node, and a summary that could not state one renders the absence instead. This
+ * scenario states one so the present arm is reachable.
+ */
+export const RUNTIME_NODE = "019b793b-7b60-7d0c-8110-c0de11a0d0e1";
+
+/**
+ * The provider-native subagent the reviewer's run opens, as its provider names it.
+ *
+ * NOT A UUID, and that is the fact it carries: the identifier is minted by the
+ * provider and is unique only inside that provider's run scope, which is why the
+ * console keys a subagent by the whole `(runId, provider, subagentId)` triple and
+ * never by this string alone. Written in the provider's own shape so a fixture
+ * cannot teach a surface to expect a session-wide identifier here.
+ */
+export const SUBAGENT_REVIEWER = "sub_01k9wq4m2h";
+
+/**
  * The base instant, minted from its fields rather than read back out of a string.
  *
  * `Date.parse` is not a validator — it reads a timezone-less stamp in the host's

@@ -7,12 +7,15 @@
 // NAMED FOR THE BEATS AND NOT FOR THE SCRIPT, because `ledger-script.ts` beside it is
 // the SHARED entry vocabulary every ledger-shaped scenario builds against. This holds
 // one scenario's entries; that holds the builders they are made of.
+//
+// THREE LANES AND TWO THINGS THAT ARE NOT LANES. This script also plays a CHILD RUN
+// under the architect and a provider-native SUBAGENT under the reviewer — the two
+// shapes the ledger folds INTO a lane rather than drawing beside one. Neither had a
+// beat in any scenario, so the child-run summary and the handoff row were reachable
+// from hand-written fixtures and from nothing a session could play.
 
-import {
-  createLedgerLaneEntries,
-  ledgerOpeningEntries,
-  type LedgerScriptEntry,
-} from "./ledger-script.js";
+import { ledgerCastMember, ledgerOpeningEntries } from "./ledger-opening-entries.js";
+import { createLedgerLaneEntries, type LedgerScriptEntry } from "./ledger-script.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,
@@ -22,10 +25,13 @@ import {
   MEMBERSHIP_PRIYA,
   PARTICIPANT_PRIYA,
   PARTICIPANT_YOU,
+  RUNTIME_NODE,
   RUN_ARCHITECT,
+  RUN_ARCHITECT_CHILD,
   RUN_IMPLEMENTER,
   RUN_REVIEWER,
   SESSION_ID,
+  SUBAGENT_REVIEWER,
   attachedAtIso,
 } from "./ledger-cast.js";
 
@@ -39,7 +45,24 @@ import {
  */
 const IMPLEMENTER_REWIND_TARGET_POSITION = 4;
 
-/** The three entry builders, with this scenario's session bound in. */
+/**
+ * The tool call the reviewer's subagent was opened under.
+ *
+ * Named once because four beats read it and they must agree: the invocation, its
+ * settlement, and the `parentToolCallId` on each half of the subagent pair. A child
+ * hung from a call nothing else in the log holds is a parent that never happened.
+ */
+const REVIEWER_TOOL_CALL_ID = "call-reviewer-1";
+
+/**
+ * The provider the reviewer's lane runs on, read off the cast rather than restated.
+ *
+ * A subagent is keyed by `(runId, provider, subagentId)`, so this has to be the same
+ * string the reviewer's own attach beat carries — and the cast is where it is stated.
+ */
+const REVIEWER_PROVIDER = ledgerCastMember(LEDGER_AGENTS, AGENT_REVIEWER).driverName;
+
+/** The four entry builders, with this scenario's session bound in. */
 const lane = createLedgerLaneEntries(SESSION_ID);
 
 export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
@@ -144,13 +167,33 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     atMs: 1_240,
     kind: "tool.invoked",
     toolName: "run_tests",
-    toolCallId: "call-reviewer-1",
+    toolCallId: REVIEWER_TOOL_CALL_ID,
+  }),
+
+  // THE HANDOFF, OBSERVED TWICE. A provider-native subagent opens under the reviewer's
+  // tool call and finishes inside it, both beats carrying the SAME identity — which is
+  // why both are here. The ledger anchors a subagent at the first row naming it and
+  // draws one handoff there; the completion joins that anchor and draws nothing of its
+  // own, so one beat of the pair could never show the second was suppressed.
+  lane.subagent(RUN_REVIEWER, {
+    atMs: 1_300,
+    kind: "subagent.started",
+    provider: REVIEWER_PROVIDER,
+    subagentId: SUBAGENT_REVIEWER,
+    parentToolCallId: REVIEWER_TOOL_CALL_ID,
+  }),
+  lane.subagent(RUN_REVIEWER, {
+    atMs: 1_380,
+    kind: "subagent.completed",
+    provider: REVIEWER_PROVIDER,
+    subagentId: SUBAGENT_REVIEWER,
+    parentToolCallId: REVIEWER_TOOL_CALL_ID,
   }),
   lane.tool(RUN_REVIEWER, {
     atMs: 1_420,
     kind: "tool.error",
     toolName: "run_tests",
-    toolCallId: "call-reviewer-1",
+    toolCallId: REVIEWER_TOOL_CALL_ID,
     durationMs: 180,
     contentLength: 244,
   }),
@@ -216,6 +259,22 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     contentLength: 318,
   }),
 
+  // THE CHILD RUN, BORN HERE AND NOWHERE ELSE. The architect's turn opens a run of its
+  // own, and this beat is the only one in the session naming both it and its parent —
+  // the taxonomy puts the orchestration linkage on the birth beat, and the ledger
+  // summarizes the child onto exactly the row carrying it. Everything else the summary
+  // states is derived from the rows below. `producingNodeId` is stated because a child
+  // run's provenance has to name the node that produced it, and a summary that cannot
+  // supply one renders the absence instead — which no scenario here leaves unreached.
+  lane.transition(RUN_ARCHITECT_CHILD, {
+    atMs: 2_560,
+    runVersion: 1,
+    newState: "queued",
+    agentId: AGENT_ARCHITECT,
+    parentRunId: RUN_ARCHITECT,
+    producingNodeId: RUNTIME_NODE,
+  }),
+
   {
     atMs: 2_600,
     kind: "run.rolled_back",
@@ -231,11 +290,29 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
       targetPosition: IMPLEMENTER_REWIND_TARGET_POSITION,
     },
   },
+  lane.transition(RUN_ARCHITECT_CHILD, {
+    atMs: 2_620,
+    runVersion: 2,
+    previousState: "queued",
+    newState: "starting",
+  }),
+  lane.transition(RUN_ARCHITECT_CHILD, {
+    atMs: 2_660,
+    runVersion: 3,
+    previousState: "starting",
+    newState: "running",
+  }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 2_700,
     kind: "assistant.message",
     contentType: "text/markdown",
     contentLength: 1_012,
+  }),
+  lane.output(RUN_ARCHITECT_CHILD, {
+    atMs: 2_740,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 284,
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 2_820,
@@ -243,6 +320,17 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     toolName: "read_file",
     toolCallId: "call-implementer-2",
   }),
+  {
+    atMs: 2_860,
+    // THE COMPACTION INSIDE THE CHILD, which makes its summary a FLOOR rather than a
+    // total: rows before this one left the child's own transcript, so the count the
+    // summary carries is a lower bound over a history that lost entries — the one
+    // incompleteness cause a log can state on its own. The implementer's lane carries
+    // the session's other compaction seam and says nothing about a child, which is
+    // how a reader sees the marker is scoped to the run it landed in.
+    kind: "usage.context_compacted",
+    payload: { sessionId: SESSION_ID, runId: RUN_ARCHITECT_CHILD },
+  },
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 2_900,
     kind: "tool.result",
@@ -250,6 +338,12 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     toolCallId: "call-implementer-2",
     durationMs: 62,
     contentLength: 2_048,
+  }),
+  lane.transition(RUN_ARCHITECT_CHILD, {
+    atMs: 2_940,
+    runVersion: 4,
+    previousState: "running",
+    newState: "completed",
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 2_980,

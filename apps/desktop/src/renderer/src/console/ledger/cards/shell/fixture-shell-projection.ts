@@ -58,6 +58,12 @@
 //     actually carries rather than composing a sentence the daemon never said,
 //     and the real summary arrives with the read that brings the real rows.
 //
+//   • `childRunSummary`. Derived by `shell-child-run-summaries.ts` beside this file
+//     and stamped here on one row per child run, from the orchestration linkage
+//     `Spec-006` puts on a run's birth beat. Its own module because its subject is a
+//     RUN across the whole window rather than a row, and it is the one derived member
+//     that cannot be decided while folding a single event.
+//
 // A ROLLBACK RESETS THE COUNT, WHICH IS WHAT "RE-EXECUTION REUSES ORDINALS" MEANS.
 // A rewind advances the epoch AND returns the run to the anchor the wire named, so
 // the row after a boundary is at `targetPosition` — in the new epoch — and the rows
@@ -85,6 +91,7 @@ import {
 import { readRollbackBoundaryPayload } from "../../../bridge/index.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 import { attributedRunIdOf } from "../run-attribution.js";
+import { deriveShellChildRunSummaries } from "./shell-child-run-summaries.js";
 
 /**
  * What one projection pass produced, and what it could not.
@@ -208,6 +215,11 @@ export function projectFixtureShellRows(
   }
 
   const progressionByRunId = new Map<string, RunProgression>();
+  // A pass of its own, before the fold, because a child run's summary states where the
+  // child GOT to — its newest state and how many rows it holds — and neither is known
+  // at the row the summary is stamped on. Keyed by that row's event id, so the fold
+  // below asks one map read per event and decides nothing about which row is which.
+  const childRunSummaryByEventId = deriveShellChildRunSummaries(events);
   const rows: TimelineRow[] = [];
   let unprojectableEventCount = 0;
 
@@ -254,12 +266,18 @@ export function projectFixtureShellRows(
       continue;
     }
 
+    const childRunSummary = childRunSummaryByEventId.get(event.id);
     rows.push({
       ...commonRowFields(event, category),
       kind: "run",
       runId: runId as RunId,
       position: progression.nextPosition,
       epoch: progression.epoch,
+      // Present on exactly one row per child run — see `shell-child-run-summaries.ts`
+      // for which row and why. Absent has to be absent rather than a present
+      // `undefined`: the retention table compares own keys and would read the two as
+      // different rows.
+      ...(childRunSummary === undefined ? {} : { childRunSummary }),
       payload: event.payload ?? {},
     });
     progression.nextPosition += 1;
