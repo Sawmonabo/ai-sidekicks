@@ -36,7 +36,7 @@
 }
 
 .meridian-account-handoff__action:focus-visible {
-  outline: var(--meridian-focus-ring);
+  outline: 2px solid var(--meridian-focus-ring);
   outline-offset: var(--meridian-space-1);
   border-radius: var(--meridian-radius-sm);
 }

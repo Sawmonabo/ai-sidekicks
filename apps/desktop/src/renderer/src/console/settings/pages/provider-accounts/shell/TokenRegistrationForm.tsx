@@ -1,10 +1,11 @@
-import { BILLING_MODES, PROVIDER_NAMES, type BillingMode } from "@ai-sidekicks/contracts";
+import { BILLING_MODES, PROVIDER_NAMES } from "@ai-sidekicks/contracts";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { RegistrationOutcomeLine } from "./RegistrationOutcomeLine.js";
 import type { ConsoleBridge } from "../../../../bridge/index.js";
 import {
   IDLE_TOKEN_REGISTRATION,
+  readRegistrationFields,
   submitTokenRegistration,
   type TokenRegistrationOutcome,
 } from "./signin-flow.js";
@@ -43,23 +44,30 @@ export function TokenRegistrationForm(props: { readonly bridge: ConsoleBridge })
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const displayLabel = displayLabelInput.current?.value.trim() ?? "";
-    const provider = providerSelect.current?.value ?? "";
-    const billingMode = billingSelect.current?.value ?? "";
-    // Read once, sent once, cleared immediately. The local binding dies with this
-    // handler's frame; nothing above it ever holds the value.
+    // THE ORDER HERE IS THE GUARANTEE. The ordinary fields are read and judged before
+    // the token is touched at all, because a form that cannot be sent must leave the
+    // credential where the person put it: `required` accepts a label of spaces, so the
+    // handler that trimmed after clearing threw away a typed token and returned in
+    // silence, and the only way back was to type the credential again.
+    const reading = readRegistrationFields({
+      displayLabel: displayLabelInput.current?.value ?? "",
+      provider: providerSelect.current?.value ?? "",
+      billingMode: billingSelect.current?.value ?? "",
+    });
+    if (reading.kind === "refused") {
+      setOutcome({ kind: "refused", refusal: reading.refusal });
+      return;
+    }
+    // Read once, sent once, cleared immediately — and only now, on the path that
+    // dispatches. The local binding dies with this handler's frame; nothing above it
+    // ever holds the value.
     const nonInteractiveToken = tokenInput.current?.value ?? "";
     if (tokenInput.current !== null) {
       tokenInput.current.value = "";
     }
-    if (!isProviderName(provider) || !isBillingMode(billingMode) || displayLabel === "") {
-      return;
-    }
     setOutcome({ kind: "submitting" });
     void submitTokenRegistration(bridge, {
-      provider,
-      displayLabel,
-      billingMode,
+      ...reading.fields,
       // Absent rather than empty when nothing was typed: the member is optional on the
       // wire and an empty string is a token the daemon would have to refuse, which
       // would report a field left blank as a rejected credential.
@@ -118,14 +126,4 @@ export function TokenRegistrationForm(props: { readonly bridge: ConsoleBridge })
       <RegistrationOutcomeLine outcome={outcome} />
     </form>
   );
-}
-
-/** Narrow a select's string back to the closed provider set the wire admits. */
-function isProviderName(value: string): value is (typeof PROVIDER_NAMES)[number] {
-  return PROVIDER_NAMES.some((provider) => provider === value);
-}
-
-/** Narrow a select's string back to the closed billing vocabulary the wire admits. */
-function isBillingMode(value: string): value is BillingMode {
-  return BILLING_MODES.some((mode) => mode === value);
 }

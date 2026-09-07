@@ -136,7 +136,7 @@
 }
 
 .meridian-cost-receipt__split-summary:focus-visible {
-  outline: var(--meridian-focus-ring);
+  outline: 2px solid var(--meridian-focus-ring);
   outline-offset: var(--meridian-space-1);
 }
 

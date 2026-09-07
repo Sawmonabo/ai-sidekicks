@@ -306,13 +306,16 @@ export function readChordFromEvent(
     return { outcome: "cleared" };
   }
   if (MODIFIER_KEYS.has(event.key)) {
-    return { outcome: "incomplete", heldModifiers: heldModifiers(event, platform) };
+    return { outcome: "incomplete", heldModifiers: readHeldModifiersFromEvent(event, platform) };
   }
   const keyToken = event.code === "" ? event.key : event.code;
   if (keyToken === "") {
-    return { outcome: "incomplete", heldModifiers: heldModifiers(event, platform) };
+    return { outcome: "incomplete", heldModifiers: readHeldModifiersFromEvent(event, platform) };
   }
-  return { outcome: "captured", chord: [...heldModifiers(event, platform), keyToken].join("+") };
+  return {
+    outcome: "captured",
+    chord: [...readHeldModifiersFromEvent(event, platform), keyToken].join("+"),
+  };
 }
 
 /**
@@ -323,10 +326,21 @@ export function readChordFromEvent(
  * declared one read the same way. The OTHER control key is written literally,
  * because on macOS `⌃` and `⌘` are two different keys and a chord that folded them
  * together would install on the wrong one.
+ *
+ * EXPORTED BECAUSE A RELEASE IS READ THE SAME WAY A PRESS IS. A keystroke's modifier
+ * flags describe the state the host is in AFTER the event, so the flags on the keyup
+ * that ends a `⇧` are exactly the flags on a keydown taken at the same instant — which
+ * makes the answer to "what is held now?" one function rather than two. A recorder that
+ * cleared its held set on every release instead would empty the hint while `⌥` was still
+ * down, and a recorder that read a second copy of this table would drift from the one
+ * the chord is composed with.
+ *
+ * It reads no `key` and no `code`: which key ENDED is not the question, and the four
+ * flags answer the one that is.
  */
-function heldModifiers(
+export function readHeldModifiersFromEvent(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
-  platform: ChordPlatform,
+  platform: ChordPlatform = HOST_CHORD_PLATFORM,
 ): readonly string[] {
   const modifiers: string[] = [];
   const commandModifierHeld = platform === "darwin" ? event.metaKey : event.ctrlKey;
