@@ -141,6 +141,9 @@ export function importsSharedWalk(source: string, fileName: string): boolean {
   );
 }
 
+/** The bare callee that loads a module in CommonJS, read as a name rather than a value. */
+const COMMONJS_LOADER = "require";
+
 /**
  * Every module specifier `source` names, static and dynamic alike.
  *
@@ -151,6 +154,23 @@ export function importsSharedWalk(source: string, fileName: string): boolean {
  * census's own `readModuleSyntax` is the wrong instrument there: that one reads named
  * bindings because a door republishes names, and `import ts from "typescript"` names
  * none.
+ *
+ * THE COMMONJS FORMS ARE READ TOO, and that arm is the finding rather than a
+ * completeness gesture. `import helper = require("../helper.js")` is an
+ * `ImportEqualsDeclaration` whose `require` is SYNTAX — it is neither an import
+ * declaration nor a call expression, so both arms above passed over it and the
+ * reach-closure the body-allowance gate builds on this reader never enqueued the
+ * helper. A helper loaded that way could hold an uncharged bounded wait under a
+ * green check, which is the false green that gate exists to prevent. `require("…")`
+ * as a plain call is the same load one spelling along — the form a `.cts` module
+ * writes when it wants no binding declaration — and is read for the same reason.
+ *
+ * A LOADER REACHED THROUGH ANOTHER CALL IS NOT READ, and the line is where a
+ * specifier stops being readable from the text: `createRequire(import.meta.url)(…)`
+ * and `module.require(…)` name the module through a value this reader would have to
+ * resolve, which is the binding resolution it deliberately does not do. The
+ * chokepoint next door answers that question for its own subject, keyed on the
+ * LOADER's name rather than on a reach graph — see `child-process-reach.ts`.
  */
 export function moduleSpecifiersIn(source: string, fileName: string): readonly string[] {
   const specifiers: string[] = [];
@@ -164,11 +184,20 @@ export function moduleSpecifiersIn(source: string, fileName: string): readonly s
       return;
     }
     if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      node.arguments[0] !== undefined &&
-      ts.isStringLiteralLike(node.arguments[0])
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      ts.isStringLiteralLike(node.moduleReference.expression)
     ) {
+      specifiers.push(node.moduleReference.expression.text);
+      return;
+    }
+    if (!ts.isCallExpression(node) || node.arguments[0] === undefined) {
+      return;
+    }
+    const namesAModule =
+      node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+      (ts.isIdentifier(node.expression) && node.expression.text === COMMONJS_LOADER);
+    if (namesAModule && ts.isStringLiteralLike(node.arguments[0])) {
       specifiers.push(node.arguments[0].text);
     }
   });

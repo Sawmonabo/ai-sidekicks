@@ -269,18 +269,33 @@ describe("launched bodies charge every bounded wait to the allowance", () => {
   });
 
   it("negative control: a helper a body reaches is scanned, and one only the launcher reaches is not", () => {
-    // THE FINDING, driven through the real derivation. The corpus is four
-    // modules: a tier test, a flat helper it calls, the launcher it also calls,
-    // and a flat helper only the launcher calls. Under the roster this replaced,
-    // the first flat helper was invisible — it is not `palette-interaction.ts` —
-    // and its uncharged wait was reported by nothing.
+    // THE FINDING, driven through the real derivation. The corpus is five
+    // modules: a tier test, two flat helpers it calls, the launcher it also
+    // calls, and a flat helper only the launcher calls. Under the roster this
+    // replaced, the first flat helper was invisible — it is not
+    // `palette-interaction.ts` — and its uncharged wait was reported by nothing.
+    //
+    // THE SECOND HELPER IS REACHED THE COMMONJS WAY, and it is the second
+    // finding: `import helper = require("…")` is an `ImportEqualsDeclaration`,
+    // neither an import declaration nor a call, so the shared specifier reader
+    // returned nothing for it and this closure never enqueued the module. A
+    // `.cts` helper written that way held an uncharged wait under a green check.
     const planted: readonly { readonly path: string; readonly text: string }[] = [
       {
         path: "e2e/planted-boot.test.ts",
         text: [
           'import { withLaunchedConsole } from "../electron-harness.js";',
           'import { openPlantedPalette } from "../planted-interaction.js";',
-          "export const body = [withLaunchedConsole, openPlantedPalette];",
+          'import plantedChurn = require("../planted-churn.cjs");',
+          "export const body = [withLaunchedConsole, openPlantedPalette, plantedChurn];",
+        ].join("\n"),
+      },
+      {
+        path: "planted-churn.cts",
+        text: [
+          "export async function churnPlantedRoutes(window) {",
+          "  await window.waitForLoadState('load', { timeout: 10_000 });",
+          "}",
         ].join("\n"),
       },
       {
@@ -308,6 +323,7 @@ describe("launched bodies charge every bounded wait to the allowance", () => {
     const reached = launchBodyModulePaths(planted);
     expect([...reached].sort()).toStrictEqual([
       "e2e/planted-boot.test.ts",
+      "planted-churn.cts",
       "planted-interaction.ts",
     ]);
     // And the reached helper's uncharged wait is what the gate then reports —
@@ -319,7 +335,10 @@ describe("launched bodies charge every bounded wait to the allowance", () => {
           .filter((call) => !call.consumesAllowance)
           .map((call) => `${module.path}:${String(call.line)} ${call.method}()`),
       );
-    expect(unconsumed).toStrictEqual(["planted-interaction.ts:2 waitFor()"]);
+    expect(unconsumed).toStrictEqual([
+      "planted-churn.cts:2 waitForLoadState()",
+      "planted-interaction.ts:2 waitFor()",
+    ]);
   });
 
   it("negative control: a wait with a bare timeout is reported", () => {

@@ -18,14 +18,14 @@
 // `disposeWhenTestFinishes`, which the last case below asserts rather than
 // assumes.
 
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { isTypeScriptModuleFileName } from "../console-source-modules.js";
+import { consoleSourceModules, isTypeScriptModuleFileName } from "../console-source-modules.js";
 import { reachesAsynchronousSpawn } from "./child-process-reach.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -89,23 +89,18 @@ function supersededNamedImportReader(source: string): boolean {
  */
 const SUPERSEDED_EXTENSION_TEST = /\.tsx?$/;
 
-/** Every TypeScript module under `root`, as paths relative to `root`. */
-function typeScriptModulesUnder(root: string): string[] {
-  const collected: string[] = [];
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(absolute);
-        continue;
-      }
-      if (entry.isFile() && isTypeScriptModuleFileName(entry.name)) {
-        collected.push(path.relative(root, absolute));
-      }
-    }
-  };
-  visit(root);
-  return collected;
+/**
+ * Every TypeScript module under `root`, as paths relative to `root`.
+ *
+ * THE PACKAGE'S ONE WALK, and this gate used to carry a second: a `readdirSync`
+ * recursion admitting a file by `isTypeScriptModuleFileName` alone, which answers
+ * by EXTENSION and so admits `.d.ts` where the shared walk subtracts declarations
+ * because nothing in one runs. A declaration naming `spawn` was therefore a second
+ * spawner to this gate and no source at all to every other, with nothing reporting
+ * the difference. `tests: true` because every module under this root is one.
+ */
+function typeScriptModulesUnder(root: string): readonly string[] {
+  return consoleSourceModules({ roots: [root], tests: true }).map((module) => module.relativePath);
 }
 
 function readTestSource(relativePath: string): string {
@@ -308,17 +303,22 @@ describe("every Electron spawn under test/ goes through one owner", () => {
     }
   });
 
-  it("walks the module extensions a TypeScript module actually has", () => {
+  it("walks the module extensions a TypeScript module has, and no declaration", () => {
     // THE FINDING, driven end to end rather than asserted about a regex. The walk
     // is run over a planted tree holding one spawner per module-system extension,
     // and the foil is run over the same names: the reader was never the hole —
     // it reports both of these as spawners — the SET was, and a file the walk
     // never collected could reach `spawn` under a green check forever.
+    //
+    // The declaration is the other half — the disagreement the local walk carried.
+    // Both foils are asserted: the file test that admits the `.d.ts` name, and the
+    // reader that cannot tell the two texts apart. So the exclusion is the WALK's.
     const plantedRoot = mkdtempSync(path.join(tmpdir(), "sidekicks-spawn-walk-"));
     try {
       const plantedNames: readonly string[] = ["planted-spawner.mts", "planted-spawner.cts"];
+      const declarationName = "planted-spawner.d.ts";
       mkdirSync(path.join(plantedRoot, "helpers"));
-      for (const name of plantedNames) {
+      for (const name of [...plantedNames, declarationName]) {
         writeFileSync(path.join(plantedRoot, "helpers", name), PLANTED_SPAWNER_SOURCE, "utf8");
       }
       // A non-module file in the same directory, so the walk is shown to be
@@ -328,6 +328,8 @@ describe("every Electron spawn under test/ goes through one owner", () => {
       expect([...typeScriptModulesUnder(plantedRoot)].sort()).toStrictEqual(
         [...plantedNames].map((name) => path.join("helpers", name)).sort(),
       );
+      expect(isTypeScriptModuleFileName(declarationName)).toBe(true);
+      expect(reachesAsynchronousSpawn(PLANTED_SPAWNER_SOURCE, declarationName)).toBe(true);
       for (const name of plantedNames) {
         expect(reachesAsynchronousSpawn(PLANTED_SPAWNER_SOURCE, name), name).toBe(true);
         expect(
