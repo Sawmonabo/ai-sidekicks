@@ -12,9 +12,10 @@
 // with the test, `close` is delivered to nothing, and the handler that would have
 // removed the directory is code that does not run. `spawnManagedElectronChild`
 // binds the KILL to the test, which is what stops the process outliving the run;
-// nothing in it binds the REMOVAL, which is why `cleanUpAfterChildAtSettleTime`
-// exists and why a harness that does not call it accumulates one profile per
-// overrun. Both of this package's Electron spawners now call it —
+// what binds the REMOVAL is `releaseAfterTermination`, the spawn argument its
+// ordered teardown runs after the last attempt, and a harness that passes none
+// accumulates one profile per overrun. Both of this package's Electron spawners
+// now pass one —
 // `helpers/electron-probe.ts` for the smoke probe and `helpers/gc-probe.ts`
 // for the GC probe — and the cases below are what makes that a property rather
 // than a convention.
@@ -26,13 +27,15 @@
 // no-op rather than a throw — which is what `rmSync`'s `force` gives and what the
 // idempotence case below drives directly.
 //
-// AND ONE REMOVER IS NOT ENOUGH IF THE KILL WAS REFUSED. The two settle-time
-// disposers run in registration STACK order, so the cleanup registered by a
-// harness runs BEFORE the one the spawn armed — invisible while every kill
-// lands, and decisive on the one that does not. The refusal case below is what
-// makes the retry a property rather than a comment: it is injected, because a
-// `taskkill` that spawns, exits non-zero and leaves Electron running is not a
-// state a platform can be asked for on demand.
+// AND ONE REMOVER IS NOT ENOUGH IF THE KILL WAS REFUSED. The removal used to be
+// a settle-time registration of the harness's own, made after the one the spawn
+// armed — and those run in registration STACK order, so it ran FIRST, removed
+// the directory under a tree whose kill had been refused, and left the door's
+// disposer to kill it afterwards with no removal behind it. One spawn argument
+// and one disposer is what closes that; the refusal case below is what makes the
+// retry-then-remove order a property rather than a comment, and the refusal is
+// injected because a `taskkill` that spawns, exits non-zero and leaves Electron
+// running is not a state a platform can be asked for on demand.
 //
 // The stand-ins are `electron-child-lifetime.test-support.ts`'s and the bounded
 // readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
@@ -42,8 +45,7 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { cleanUpAfterChildAtSettleTime } from "../../helpers/electron-child-cleanup.js";
-import { spawnManagedElectronChild } from "../../helpers/electron-child.js";
+import { spawnManagedElectronChild, type ChildRelease } from "../../helpers/electron-child.js";
 import type {
   ManagedElectronChild,
   ProcessTreeTerminator,
@@ -70,6 +72,16 @@ import { expectTerminatedWithin, reap } from "./electron-child-liveness.test-sup
 const REFUSED_KILL_SETTLE_WAIT_MS = 1_000;
 
 /**
+ * More refusals than the shared attempt bound can spend.
+ *
+ * The negative control needs a child that is STILL RUNNING when the settlement
+ * ends — that is what makes "`close` never came" true of it — and a platform
+ * that relieved it partway through would deliver the close the control exists
+ * to do without. The case reaps the child itself.
+ */
+const REFUSALS_BEYOND_EVERY_BOUND = 99;
+
+/**
  * A child that will not exit on its own, spawned through the real chokepoint.
  *
  * The terminator is optional because only the refusal case needs one: every
@@ -78,7 +90,9 @@ const REFUSED_KILL_SETTLE_WAIT_MS = 1_000;
  */
 function spawnHoldingChild(
   registrar: RecordingSettleRegistrar,
+  releaseAfterTermination?: ChildRelease,
   terminateProcessTree?: ProcessTreeTerminator,
+  terminationExitWaitMs?: number,
 ): ManagedElectronChild {
   return spawnManagedElectronChild({
     command: process.execPath,
@@ -87,6 +101,8 @@ function spawnHoldingChild(
     env: process.env,
     registerSettleTimeTermination: registrar.register,
     terminateProcessTree,
+    releaseAfterTermination,
+    terminationExitWaitMs,
   });
 }
 
@@ -102,7 +118,11 @@ describe("a settling test releases what its child was holding", () => {
       // profile directory per overrun.
       const registrar = new RecordingSettleRegistrar();
       const profile = heldProfile();
-      const managed = spawnHoldingChild(registrar);
+      let closedWhenRemoved: boolean | null = null;
+      const managed: ManagedElectronChild = spawnHoldingChild(registrar, () => {
+        closedWhenRemoved = managed.hasClosed;
+        profile.removeProfileDirectory();
+      });
       const childPid = managed.child.pid ?? 0;
 
       // Whether the child had actually CLOSED by the time the removal ran — the
@@ -119,16 +139,6 @@ describe("a settling test releases what its child was holding", () => {
       // it records the delivery from its constructor, so it is already true when
       // the disposer that waited runs, and still false for one that removed in
       // the same turn as the kill.
-      let closedWhenRemoved: boolean | null = null;
-      cleanUpAfterChildAtSettleTime(
-        managed,
-        () => {
-          closedWhenRemoved = managed.hasClosed;
-          profile.removeProfileDirectory();
-        },
-        registrar.register,
-      );
-
       try {
         // Non-vacuity: the directory is there and the child is running, so the
         // assertion after the settlement is about the settlement and not about a
@@ -168,14 +178,13 @@ describe("a settling test releases what its child was holding", () => {
       // a property of `rmSync`'s `force` flag that a rewrite could drop silently.
       const registrar = new RecordingSettleRegistrar();
       const profile = heldProfile();
-      const managed = spawnHoldingChild(registrar);
+      const managed = spawnHoldingChild(registrar, profile.removeProfileDirectory);
       const childPid = managed.child.pid ?? 0;
 
       managed.child.once("close", () => {
         managed.dispose();
         profile.removeProfileDirectory();
       });
-      cleanUpAfterChildAtSettleTime(managed, profile.removeProfileDirectory, registrar.register);
 
       try {
         expect(profile.removalCount()).toBe(0);
@@ -222,19 +231,17 @@ describe("a settling test releases what its child was holding", () => {
       const registrar = new RecordingSettleRegistrar();
       const profile = heldProfile();
       const terminator = new ObservedTreeTerminator(2);
-      const managed = spawnHoldingChild(registrar, terminator.terminate);
-      const childPid = managed.child.pid ?? 0;
-
       let closedWhenRemoved: boolean | null = null;
-      cleanUpAfterChildAtSettleTime(
-        managed,
+      const managed: ManagedElectronChild = spawnHoldingChild(
+        registrar,
         () => {
           closedWhenRemoved = managed.hasClosed;
           profile.removeProfileDirectory();
         },
-        registrar.register,
+        terminator.terminate,
         REFUSED_KILL_SETTLE_WAIT_MS,
       );
+      const childPid = managed.child.pid ?? 0;
 
       try {
         expect(existsSync(profile.directory)).toBe(true);
@@ -284,7 +291,18 @@ describe("a settling test releases what its child was holding", () => {
       // reading a torn-down worker freezes forever.
       const registrar = new RecordingSettleRegistrar();
       const profile = heldProfile();
-      const managed = spawnHoldingChild(registrar);
+      // A platform that refuses every ask, so the child is still there when the
+      // settlement ends and `close` has genuinely not been delivered. Without
+      // the refusals the settlement's own bounded wait FOR `close` would deliver
+      // it, the handler would remove the directory, and the control would report
+      // a leak closed by the very path it is standing in for the absence of.
+      const terminator = new ObservedTreeTerminator(REFUSALS_BEYOND_EVERY_BOUND);
+      const managed = spawnHoldingChild(
+        registrar,
+        undefined,
+        terminator.terminate,
+        REFUSED_KILL_SETTLE_WAIT_MS,
+      );
       const childPid = managed.child.pid ?? 0;
 
       managed.child.once("close", () => {

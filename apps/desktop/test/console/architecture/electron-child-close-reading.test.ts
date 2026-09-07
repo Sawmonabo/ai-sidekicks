@@ -37,7 +37,6 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { cleanUpAfterChildAtSettleTime } from "../../helpers/electron-child-cleanup.js";
 import { readProcessLiveness } from "../../helpers/process-tree/liveness.js";
 import {
   LIFETIME_TEST_TIMEOUT_MS,
@@ -58,8 +57,13 @@ describe("a managed child is gone when it CLOSES, not when it reports an exit co
     async () => {
       const registrar = new RecordingSettleRegistrar();
       const profileDirectory = mkdtempSync(path.join(tmpdir(), "sidekicks-close-wait-"));
+      let closedWhenRemoved: boolean | null = null;
       const { managed, childPid, grandchildPid } = await spawnChildWithGrandchild(registrar, {
         exitHoldingStdio: true,
+        releaseAfterTermination: () => {
+          closedWhenRemoved = managed.hasClosed;
+          rmSync(profileDirectory, { recursive: true, force: true });
+        },
       });
       try {
         // THE GAP, ASSERTED BEFORE ANYTHING IS ASKED OF IT. The child is gone by
@@ -74,15 +78,6 @@ describe("a managed child is gone when it CLOSES, not when it reports an exit co
         ).toBe(false);
         expect(readProcessLiveness(grandchildPid)).toBe("running");
 
-        let closedWhenRemoved: boolean | null = null;
-        cleanUpAfterChildAtSettleTime(
-          managed,
-          () => {
-            closedWhenRemoved = managed.hasClosed;
-            rmSync(profileDirectory, { recursive: true, force: true });
-          },
-          registrar.register,
-        );
         expect(existsSync(profileDirectory)).toBe(true);
 
         await registrar.settle();

@@ -26,6 +26,7 @@ import { expect, onTestFinished } from "vitest";
 import {
   spawnManagedElectronChild,
   TEST_TIMEOUT_SLACK_MS,
+  type ChildRelease,
   type SettleTimeDisposer,
   type SettleTimeRegistrar,
 } from "../../helpers/electron-child.js";
@@ -118,8 +119,16 @@ export class RecordingSettleRegistrar {
     return this.#disposers.length;
   }
 
+  /**
+   * Run what was registered, in the order the RUNNER would run it — REVERSE
+   * registration order, because that is what `onTestFinished` does. This replayed
+   * in registration order, which is exactly the order under which the
+   * teardown-ordering defect is INVISIBLE: the spawn door's disposer ran first,
+   * so a caller's later registration could not be observed removing a resource
+   * ahead of a kill the runner would really have issued after it.
+   */
   async settle(): Promise<void> {
-    for (const dispose of this.#disposers) {
+    for (const dispose of [...this.#disposers].reverse()) {
       await dispose();
     }
   }
@@ -336,6 +345,10 @@ export interface SpawnPairOptions {
   readonly exitHoldingStdio?: boolean;
   /** Overrides the identity capture, and with it the readings it takes. */
   readonly captureRootIdentity?: SpawnedTreeIdentityCapture | undefined;
+  /** What the spawn releases after its LAST termination attempt has settled. */
+  readonly releaseAfterTermination?: ChildRelease | undefined;
+  /** What each attempt is given to produce a `close`; the production grace by default. */
+  readonly terminationExitWaitMs?: number | undefined;
 }
 
 /** Spawn the pair and wait until the grandchild has announced its pid. */
@@ -351,6 +364,8 @@ export async function spawnChildWithGrandchild(
     registerSettleTimeTermination: registrar.register,
     terminateProcessTree: options.terminateProcessTree,
     captureRootIdentity: options.captureRootIdentity,
+    releaseAfterTermination: options.releaseAfterTermination,
+    terminationExitWaitMs: options.terminationExitWaitMs,
   });
   const childPid = managed.child.pid;
   if (childPid === undefined) {

@@ -116,7 +116,7 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
   );
 
   it(
-    "keeps the root a refused kill left, and asks again at the next settlement",
+    "keeps the root a refused kill left, and asks again inside the one settlement",
     async () => {
       const registrar = new RecordingSettleRegistrar();
       const terminator = new ObservedTreeTerminator(1);
@@ -124,15 +124,20 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
         terminateProcessTree: terminator.terminate,
       });
       try {
-        // THE REFUSED KILL, and the two things it has to leave behind. The
-        // marker used to be set before the call, so this settlement recorded a
+        // THE REFUSED KILL, and the two things it has to leave behind. Asked of
+        // ONE disposal rather than of a settlement, because a settlement is now
+        // the whole bounded retry — the spawn door's single disposer owns every
+        // attempt — and the readings below are about what ONE refused ask leaves
+        // for the next one to work with.
+        //
+        // The marker used to be set before the call, so a refusal recorded a
         // delivered SIGKILL that no process ever received and every later
         // disposer returned early on it. The marker now records the verdict —
         // but a marker alone still could not make the retry work, because the
         // abort ran unconditionally and reaches the direct handle ALONE: it
         // took the root down, and a tree is addressed THROUGH its root. The
         // retry would have walked from a pid that no longer named the tree.
-        await registrar.settle();
+        managed.dispose();
         expect(terminator.requests).toStrictEqual([{ processId: childPid, signal: "SIGKILL" }]);
         expect(managed.isKilled, "a refused kill was recorded as delivered").toBe(false);
         expect(
@@ -146,7 +151,9 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
         expect(readProcessLiveness(grandchildPid)).toBe("running");
 
         // The retry the marker would have suppressed, walking the root the
-        // refusal preserved, through the same door.
+        // refusal preserved, through the same door — and inside the ONE
+        // settlement, because a resource release is sequenced after the last
+        // attempt and a retry deferred to a later disposer would land after it.
         await registrar.settle();
         expect(terminator.requests).toHaveLength(2);
         expect(managed.isKilled).toBe(true);

@@ -104,6 +104,17 @@ export interface ProcessTerminator {
 }
 
 /**
+ * The wall clock this cleanup charges its phases against, as a seam.
+ *
+ * Injected for the one case no real clock produces on demand: a synchronous host
+ * query spending its whole `HOST_QUERY_TIMEOUT_MS` ceiling, which is what
+ * `#terminateUntilGone` charges to the deadline. A case driving three of those
+ * cannot afford fifteen real seconds, and cannot move the SIGKILL onto a fake
+ * timer either — the pause below still needs a real macrotask.
+ */
+export type CleanupClock = () => number;
+
+/**
  * How the close settled.
  *
  * `unterminable` is deliberately distinct from `terminated` rather than folded
@@ -194,6 +205,7 @@ export class BoundedCleanup {
   readonly #profile: LaunchProfile;
   readonly #budgetMs: number;
   readonly #terminationWaitMs: number;
+  readonly #readClock: CleanupClock;
 
   constructor(
     application: ClosableApplication,
@@ -201,12 +213,14 @@ export class BoundedCleanup {
     profile: LaunchProfile,
     budgetMs: number = CLEANUP_BUDGET_MS,
     terminationWaitMs: number = TERMINATION_GRACE_MS,
+    readClock: CleanupClock = Date.now,
   ) {
     this.#application = application;
     this.#terminator = terminator;
     this.#profile = profile;
     this.#budgetMs = budgetMs;
     this.#terminationWaitMs = terminationWaitMs;
+    this.#readClock = readClock;
   }
 
   /**
@@ -227,7 +241,7 @@ export class BoundedCleanup {
 
   /** The race itself: close inside the bound, or SIGKILL what would not. */
   async #closeOrTerminate(): Promise<CleanupOutcome> {
-    const startedAt = Date.now();
+    const startedAt = this.#readClock();
     const budgetMs = this.#budgetMs;
     let timeoutHandle: NodeJS.Timeout | undefined;
     const budgetExpired = new Promise<"expired">((resolveExpiry) => {
@@ -261,7 +275,7 @@ export class BoundedCleanup {
       clearTimeout(timeoutHandle);
     }
     if (raced === "closed") {
-      return { settlement: "closed", waitedMs: Date.now() - startedAt, budgetMs };
+      return { settlement: "closed", waitedMs: this.#readClock() - startedAt, budgetMs };
     }
     const processId = this.#application.processId();
     if (raced === "rejected") {
@@ -272,7 +286,7 @@ export class BoundedCleanup {
       if (processId === undefined || !this.#terminator.isRunning(processId)) {
         return {
           settlement: "closed-after-rejection",
-          waitedMs: Date.now() - startedAt,
+          waitedMs: this.#readClock() - startedAt,
           budgetMs,
           closeRejection,
           processId,
@@ -282,7 +296,7 @@ export class BoundedCleanup {
         settlement: (await this.#terminateUntilGone(processId, startedAt))
           ? "terminated"
           : "unterminable",
-        waitedMs: Date.now() - startedAt,
+        waitedMs: this.#readClock() - startedAt,
         budgetMs,
         closeRejection,
         processId,
@@ -295,7 +309,7 @@ export class BoundedCleanup {
       processId !== undefined && (await this.#terminateUntilGone(processId, startedAt));
     return {
       settlement: terminated ? "terminated" : "unterminable",
-      waitedMs: Date.now() - startedAt,
+      waitedMs: this.#readClock() - startedAt,
       budgetMs,
       processId,
     };
@@ -335,13 +349,39 @@ export class BoundedCleanup {
    * of that budget rather than spent beside it. The ATTEMPTS are unchanged — they
    * are the policy, and a verdict reached with no pause left is still the verdict
    * a reader came for, while a verdict vitest killed is not reached at all.
+   *
+   * AND THE PROBES ARE CHARGED TOO, WHICH THE PAUSE ALONE NEVER WAS. The pause is
+   * the cheapest thing here. `terminate` and `isRunning` are both SYNCHRONOUS
+   * host queries — a root start-stamp read and a whole process-table read, each
+   * bounded only by `HOST_QUERY_TIMEOUT_MS` and each blocking this thread — so on
+   * the path this loop exists for, a close that spent its ceiling and a platform
+   * that refuses every kill, three attempts added roughly thirty seconds that
+   * NOTHING was charged for, past what `tierTimeoutFor` reserves. Vitest fired
+   * first and took the `unterminable` verdict with it.
+   *
+   * So the loop carries its OWN deadline, DERIVED rather than invented: the same
+   * registered figure the close was held to, restarted at the first attempt. It
+   * cannot be the close's REMAINING budget, which on that path is already zero —
+   * refusing the first kill after a hung close would trade a bounded overrun for
+   * a live Electron still holding its profile. And it cannot be left unstated,
+   * because a tier reserves only figures that are written down. Giving up an ask
+   * never gives up the removal: `close()` above removes the profile on every
+   * settlement this returns into.
    */
   async #terminateUntilGone(processId: number, startedAt: number): Promise<boolean> {
+    const terminationStartedAt = this.#readClock();
     for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
+      if (this.#readClock() - terminationStartedAt >= this.#budgetMs) {
+        return false;
+      }
       if (this.#terminator.terminate(processId)) {
         return true;
       }
       await this.#whenTerminationHasHadTime(startedAt);
+      // The liveness read is deliberately NOT behind that guard: it is the
+      // evidence that decides this verdict, and skipping it would report
+      // `unterminable` over a tree the refused-then-landed kill already took
+      // down — a false alarm on the one settlement a later launch feels.
       if (!this.#terminator.isRunning(processId)) {
         return true;
       }
@@ -353,12 +393,11 @@ export class BoundedCleanup {
    * The bounded pause a refused attempt spends before the tree is asked about again.
    *
    * The grace interval, or whatever the close left of the budget — whichever is
-   * shorter. Never negative and deliberately allowed to reach zero: a zero-length
-   * timer still yields the loop a macrotask, so the liveness recheck below it is
-   * a genuine second reading rather than the same instant asked twice.
+   * shorter. Deliberately allowed to reach zero: a zero-length timer still yields
+   * the loop a macrotask, so the liveness recheck is a genuine second reading.
    */
   async #whenTerminationHasHadTime(startedAt: number): Promise<void> {
-    const remainingMs = Math.max(0, this.#budgetMs - (Date.now() - startedAt));
+    const remainingMs = Math.max(0, this.#budgetMs - (this.#readClock() - startedAt));
     const waitMs = Math.min(this.#terminationWaitMs, remainingMs);
     await new Promise<void>((resolve) => {
       setTimeout(resolve, waitMs);
