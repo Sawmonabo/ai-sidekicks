@@ -9,9 +9,11 @@
 //
 //   • The item is LIVE. A resolved item is already dropped by the plane, so nothing
 //     here re-checks `resolvedAt`; what reaches this class is what needs a person.
-//   • The item is NEW TO THIS WINDOW. Announced ids are remembered, bounded by
-//     `ATTENTION_NOTIFIED_ITEM_CAP`, so a re-read that returns the same projection
-//     raises nothing and a reconnect catch-up burst raises each of its items once.
+//   • The item is NEW TO THIS WINDOW. Announced ids are remembered, so a re-read that
+//     returns the same projection raises nothing and a reconnect catch-up burst raises
+//     each of its items once. `ATTENTION_NOTIFIED_ITEM_CAP` bounds that memory over
+//     the ids that have CLEARED and never over the ones a read still returns — a cap
+//     that could drop a live id would make every refresh re-announce the projection.
 //   • The item is NOT the session a focused window is looking at. Interrupting
 //     someone about the thing on their screen is the one case where the banner is
 //     strictly worse than silence. An unfocused window announces every session,
@@ -53,8 +55,8 @@ export interface AttentionNotifierAudience {
  * all three would be the third place in this subtree where a read's history was
  * re-derived on every render.
  *
- * Insertion order carries the eviction: a `Set` iterates in insertion order, so the
- * oldest id is the first one `values().next()` hands back and no second structure is
+ * Insertion order carries the eviction: a `Set` iterates in insertion order, so
+ * walking it is walking the remembered ids oldest first and no second structure is
  * needed to know which to drop.
  */
 export class AttentionNotifier {
@@ -68,6 +70,10 @@ export class AttentionNotifier {
    * rule held back is still an item this window has seen, and announcing it later
    * because the person happened to focus a different session would be a banner about
    * something that did not just happen.
+   *
+   * The projection's own ids are collected as the fold runs, because what the cap may
+   * forget afterwards is decided against THIS read and never against the remembered
+   * set alone — the rule the eviction below states.
    */
   public arrivalsToAnnounce(
     liveItems: readonly AttentionItem[],
@@ -75,16 +81,19 @@ export class AttentionNotifier {
   ): readonly AttentionItem[] {
     const announceable = this.#hasBaseline;
     this.#hasBaseline = true;
+    const liveItemIds = new Set<string>();
     const arrivals: AttentionItem[] = [];
     for (const item of liveItems) {
+      liveItemIds.add(item.id);
       if (this.#announcedItemIds.has(item.id)) {
         continue;
       }
-      this.#remember(item.id);
+      this.#announcedItemIds.add(item.id);
       if (announceable && this.#reachesAPerson(item, audience)) {
         arrivals.push(item);
       }
     }
+    this.#forgetClearedItemIdsOverTheCap(liveItemIds);
     return arrivals;
   }
 
@@ -96,14 +105,37 @@ export class AttentionNotifier {
     return item.sessionId !== audience.activeSessionId;
   }
 
-  #remember(itemId: string): void {
-    this.#announcedItemIds.add(itemId);
-    while (this.#announcedItemIds.size > ATTENTION_NOTIFIED_ITEM_CAP) {
-      const oldest = this.#announcedItemIds.values().next();
-      if (oldest.done === true) {
+  /**
+   * Bring the remembered ids back under the cap by forgetting CLEARED ones, oldest
+   * first.
+   *
+   * AN ID IN THE CURRENT PROJECTION IS NEVER FORGOTTEN, and that is the whole rule.
+   * The eviction used to run over the remembered set alone, so a projection larger
+   * than the cap evicted the very ids it was in the middle of remembering: adding one
+   * id dropped the next live one, the following read found that one missing and raised
+   * a banner for it, and the drop walked on. A window holding 201 unresolved items
+   * re-announced its entire projection on every refresh, for as long as the items
+   * stayed unresolved — which is precisely as long as they matter.
+   *
+   * So the cap bounds what this window remembers about items that have CLEARED, not
+   * what it remembers about items still standing. Where the live set alone exceeds the
+   * cap the remembered set stays above it, deliberately: the alternative is a banner
+   * about something the projection is still showing, and a memory proportional to a
+   * projection the daemon itself bounds is the cheaper of the two costs.
+   *
+   * Cleared ids are kept while there is room under the cap rather than dropped on
+   * sight, because a fan-out read that refused for one session answers without that
+   * session's items — and forgetting them would re-announce every one of them the
+   * moment the read recovered.
+   */
+  #forgetClearedItemIdsOverTheCap(liveItemIds: ReadonlySet<string>): void {
+    for (const rememberedItemId of this.#announcedItemIds) {
+      if (this.#announcedItemIds.size <= ATTENTION_NOTIFIED_ITEM_CAP) {
         return;
       }
-      this.#announcedItemIds.delete(oldest.value);
+      if (!liveItemIds.has(rememberedItemId)) {
+        this.#announcedItemIds.delete(rememberedItemId);
+      }
     }
   }
 }
