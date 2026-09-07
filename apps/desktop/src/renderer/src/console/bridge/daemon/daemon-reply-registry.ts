@@ -245,10 +245,12 @@ export const CONSOLE_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.fre
  * one; the interrupt and the compaction are run-addressed on the driver plane and
  * both change the run they name. `false` is everything else, and two of them are
  * worth stating because they are mutations all the same: `repo.executionModeSelect`
- * records a WORKSPACE's execution mode and names no run, and `session.create`,
- * `membership.update` and `invite.revoke` change the session's own roster. A mutation
- * is not automatically a run change, and reading it as one would put every family
- * that also reads under a claim written about run controls.
+ * records a WORKSPACE's execution mode and names no run; `session.create`,
+ * `session.join`, `membership.update` and `invite.revoke` change the session's own
+ * roster; and `providerAccount.probe` re-checks an account's readiness, which no run
+ * reads until its next admission. A mutation is not automatically a run change, and
+ * reading it as one would put every family that also reads under a claim written
+ * about run controls.
  *
  * THIS IS NOT THE DOOR'S READ-VERSUS-MUTATION RULE, and it must not become one.
  * `DaemonCallOptions` in `daemon-reply.ts` keeps that distinction at the call site on
@@ -275,11 +277,13 @@ const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } =
   "repo.executionModeSelect": false,
   "repo.worktreeStatusRead": false,
   "session.create": false,
+  "session.join": false,
   "channel.list": false,
   "membership.update": false,
   "presence.read": false,
   "invite.revoke": false,
   "providerAccount.list": false,
+  "providerAccount.probe": false,
 });
 
 /**
