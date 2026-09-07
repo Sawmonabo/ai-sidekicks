@@ -54,7 +54,7 @@ function servedPolicy(values: Readonly<Record<string, boolean>>): PolicyOutcome 
   return { status: "served", value: values };
 }
 
-function servedList(partitions: ListOutcome extends { value: infer V } ? V : never): ListOutcome {
+function servedList(partitions: Extract<ListOutcome, { status: "served" }>["value"]): ListOutcome {
   return { status: "served", value: partitions };
 }
 
