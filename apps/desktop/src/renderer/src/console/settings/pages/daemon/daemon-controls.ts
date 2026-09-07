@@ -15,11 +15,11 @@
 // any bridge namespace, so it goes through the growth port and refuses by name where
 // the build does not carry it.
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { GrowthPort } from "../../../bridge/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { useSubjectScopedState } from "../../../store/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
 
 /** What the daemon says about itself, once it has been asked. */
 export interface DaemonStatus {
@@ -73,29 +73,72 @@ export type DaemonControlSettlement =
     };
 
 /**
+ * The single-flight key the two controls SHARE, within one growth port.
+ *
+ * One key and not one per control, because the rule is one destructive act at a time
+ * against this machine's runtime rather than one of each: a stop dispatched while a
+ * restart is outstanding is two conflicting orders nobody confirmed together.
+ */
+const DAEMON_CONTROL_KEY = "daemon-control";
+
+/** One control in flight, and the way to put one. */
+export interface DaemonControlDispatch {
+  /** Which control is outstanding, or `undefined` while none is. */
+  readonly inFlight: DaemonControl | undefined;
+  /** Put one control. A press arriving while one is outstanding puts nothing. */
+  readonly put: (control: DaemonControl) => void;
+}
+
+/**
  * Dispatch one control and report what came back.
  *
  * `sent` AND NOT `done`, deliberately. Neither operation reports the state it
  * produced — a stop that was accepted is not a runtime that has stopped — and the
  * supervisor's next report is what says so. The settlement here says only that the
  * console asked and was not refused, which is the whole of what the call answers.
+ *
+ * SINGLE FLIGHT IS DECIDED IN THE TICK AND RENDERED AFTERWARDS, and it takes both
+ * halves. The rendered `inFlight` is what disables the confirmation, but a second
+ * press landing in the same frame reads the flag from the render that produced its
+ * handler and finds the surface idle — so the key is what actually refuses it, taken
+ * synchronously before the call goes out. `store/generation-latch.ts` owns that
+ * register for the console; a boolean here would be the copy that drifts.
+ *
+ * The latch is mount-scoped and superseded by its own unmount, so a reply arriving
+ * after the page is gone installs nothing rather than reporting a settlement into a
+ * tree that no longer exists.
  */
 export function useDaemonControl(
   growth: GrowthPort,
   onSettled: (settlement: DaemonControlSettlement) => void,
-): (control: DaemonControl) => void {
-  return useCallback(
+): DaemonControlDispatch {
+  const dispatchLatch = useGenerationLatch();
+  const [inFlight, setInFlight] = useState<DaemonControl | undefined>(undefined);
+  const put = useCallback(
     (control: DaemonControl) => {
+      const dispatch = dispatchLatch.claim(growth, DAEMON_CONTROL_KEY);
+      if (dispatch === undefined) {
+        return;
+      }
+      setInFlight(control);
       void (async () => {
         const outcome =
           control === "stop" ? await growth.daemonStop({}) : await growth.daemonRestart({});
-        onSettled(
-          outcome.status === "served"
-            ? { control, outcome: "sent" }
-            : { control, outcome: "refused", refusal: outcome },
-        );
+        try {
+          dispatch.settle(() => {
+            setInFlight(undefined);
+            onSettled(
+              outcome.status === "served"
+                ? { control, outcome: "sent" }
+                : { control, outcome: "refused", refusal: outcome },
+            );
+          });
+        } finally {
+          dispatch.release();
+        }
       })();
     },
-    [growth, onSettled],
+    [dispatchLatch, growth, onSettled],
   );
+  return useMemo(() => ({ inFlight, put }), [inFlight, put]);
 }

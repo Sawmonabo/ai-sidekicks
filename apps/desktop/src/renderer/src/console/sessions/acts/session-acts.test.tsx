@@ -12,8 +12,12 @@ import { describe, expect, it } from "vitest";
 import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenarios/bring-your-history.js";
 import { JoinSessionForm } from "./JoinSessionForm.js";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import {
+  fixtureBridgeWithGrowth,
+  growthServing,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { settle } from "../../core/settle.test-support.js";
+import type { ConsoleBridge, GrowthImportProgress } from "../../bridge/index.js";
 
 /** The session the scenario plays — the one identifier its join answers for. */
 const JOINABLE_SESSION_ID = BRING_YOUR_HISTORY_SCENARIO.sessionId;
@@ -107,6 +111,52 @@ describe("joining a session", () => {
     expect(joined).toStrictEqual([]);
   });
 
+  it("does not navigate when the form went away before the join settled", async () => {
+    const joined: string[] = [];
+    const { container, unmount } = render(
+      <JoinSessionForm
+        bridge={bridge()}
+        onJoined={(sessionId) => {
+          joined.push(sessionId);
+        }}
+      />,
+    );
+
+    fill(container, "Session", JOINABLE_SESSION_ID);
+    fill(container, "Your handle", "sam");
+    submit(container);
+    // The whole window the defect lives in, and it is reached by ORDERING rather than
+    // by a scripted delay: nothing has awaited since the press, so the reply's
+    // continuation cannot have run, and the form is torn down underneath it.
+    unmount();
+    await settle();
+
+    // A settlement that navigated here would drag a person who had left this
+    // destination into a workspace they are no longer asking for.
+    expect(joined).toStrictEqual([]);
+  });
+
+  it("navigates when the same join settles under a form still on screen — the control", async () => {
+    const joined: string[] = [];
+    const { container } = render(
+      <JoinSessionForm
+        bridge={bridge()}
+        onJoined={(sessionId) => {
+          joined.push(sessionId);
+        }}
+      />,
+    );
+
+    fill(container, "Session", JOINABLE_SESSION_ID);
+    fill(container, "Your handle", "sam");
+    submit(container);
+    await settle();
+
+    // Which is what makes the case above a claim about the unmount rather than about
+    // a join that never settled at all.
+    expect(joined).toStrictEqual([JOINABLE_SESSION_ID]);
+  });
+
   it("offers nothing while the list is degraded, and names the cause", () => {
     const { container } = render(
       <JoinSessionForm
@@ -150,4 +200,74 @@ describe("importing a provider session", () => {
     // entirely — "nothing was asked" rather than an empty reading of a subscription.
     expect(container.querySelector(".meridian-session-import__progress")).toBeNull();
   });
+
+  it("keeps the control refused while the progress stream is still reading", async () => {
+    const stream = heldProgressStream();
+    const growth = fixtureBridgeWithGrowth(BRING_YOUR_HISTORY_SCENARIO, {
+      providerSessionImportSubscribe: growthServing(stream.handle),
+    }).growth;
+    const { container } = render(<ProviderImportPanel growth={growth} />);
+
+    fill(container, "Provider", "claude");
+    fill(container, "What to read", "~/.claude/threads/one.jsonl");
+    submit(container);
+    await settle();
+
+    // The begin has answered — the id exists and the stream has spoken once — and the
+    // import is nowhere near done. A control re-enabled here would let a second submit
+    // replace the id and orphan this reading with nothing on screen reporting it.
+    expect(container.textContent).toContain("7");
+    expect(submitControl(container).disabled).toBe(true);
+    expect(container.textContent).toContain("The last import is still being read.");
+
+    stream.end();
+    await settle();
+
+    // And the moment the producer stops, the form is a form again.
+    expect(container.textContent).toContain("Ended");
+    expect(submitControl(container).disabled).toBe(false);
+  });
 });
+
+/** The panel's own submit control, which is the last button its form carries. */
+function submitControl(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector("button.meridian-session-import__submit");
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error("the import panel rendered no submit control");
+  }
+  return button;
+}
+
+/**
+ * A progress stream that speaks once and then stays open until the case ends it.
+ *
+ * The scenario's own stream runs to its terminal frame on its own, which is right for
+ * the case above and wrong for this one: what is asserted here is the state BETWEEN
+ * the first frame and the last, and a stream that walks itself puts that moment where
+ * the runtime decides rather than where the case does.
+ */
+function heldProgressStream(): {
+  readonly handle: { readonly events: AsyncIterable<GrowthImportProgress>; close: () => void };
+  readonly end: () => void;
+} {
+  let end = (): void => undefined;
+  const ended = new Promise<void>((resolve) => {
+    end = resolve;
+  });
+  return {
+    end: (): void => {
+      end();
+    },
+    handle: {
+      events: {
+        async *[Symbol.asyncIterator](): AsyncGenerator<GrowthImportProgress> {
+          yield { importId: "held-import", turnsSeen: 7, state: "reading" };
+          await ended;
+        },
+      },
+      close: (): void => {
+        end();
+      },
+    },
+  };
+}

@@ -16,13 +16,21 @@
 // so; a refusal is the daemon's own sentence against the field that earned it; and a
 // settled join navigates, because a join whose only evidence is a form that cleared
 // itself is indistinguishable from one that did nothing.
+//
+// THE NAVIGATION IS RETIRED WHEN THE FORM GOES AWAY. `onJoined` moves the whole
+// window, and a slow join that settles after the person has disclosed the form shut
+// or left the sessions destination would yank them into a workspace they are no
+// longer asking for. Nothing behind the bridge is cancellable, so the call is not
+// stopped — the CONTINUATION is retired, through the mount-scoped generation latch
+// `store/generation-latch.ts` owns. The act's own settlement still installs (it is
+// held on the bridge and survives the mount); only the navigation is dropped.
 
 import { useMemo, useState } from "react";
 
 import { SessionAct, useSessionAct } from "./act-settlement.js";
 import { InlineRefusal } from "../../primitives/index.js";
 import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../../store/index.js";
 import type { SessionId, SessionJoinResponse } from "@ai-sidekicks/contracts";
 
 /** The holder key this form's one act is addressed by, within a bridge. */
@@ -64,6 +72,11 @@ export function JoinSessionForm(props: JoinSessionFormProps): React.JSX.Element 
       }),
   ).value;
   const settlement = useSessionAct(join);
+  // The mount's own register, superseded wholesale by its unmount. It answers one
+  // question — may THIS submission still navigate — and it is deliberately not the
+  // act's single flight, which the act already owns and which is keyed on the bridge
+  // rather than on the mount.
+  const navigationLatch = useGenerationLatch();
 
   const trimmedSessionId = sessionId.trim();
   const trimmedHandle = identityHandle.trim();
@@ -88,12 +101,23 @@ export function JoinSessionForm(props: JoinSessionFormProps): React.JSX.Element 
         if (disabledReason !== undefined) {
           return;
         }
+        // Taken BEFORE the call, so the round this settlement is measured against is
+        // the one that dispatched it. `supersedeAndClaim` rather than `claim` because
+        // the act above already refuses a second press audibly, so a refusing claim
+        // here would only add an arm nothing can reach.
+        const navigation = navigationLatch.supersedeAndClaim(bridge, JOIN_ACT_KEY);
         void join
           .run({ sessionId: typedSessionId(trimmedSessionId), identityHandle: trimmedHandle })
           .then(() => {
-            const settled = join.settlement();
-            if (settled.status === "settled") {
-              onJoined(settled.answer.sessionId);
+            try {
+              navigation.settle(() => {
+                const settled = join.settlement();
+                if (settled.status === "settled") {
+                  onJoined(settled.answer.sessionId);
+                }
+              });
+            } finally {
+              navigation.release();
             }
           });
       }}
