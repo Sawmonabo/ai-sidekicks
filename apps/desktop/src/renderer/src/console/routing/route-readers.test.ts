@@ -1,9 +1,10 @@
-// The four questions a surface asks of a route it already holds.
+// The questions a surface asks of a route it already holds.
 //
 // SPLIT FROM `routes.test.ts` with the module it drives. That file owns the GRAMMAR —
 // the round trip, the malformed hashes, the shared auxiliary fragment — and this one
 // owns the readers: which rail icon is lit, which chrome a window renders, whether an
-// auxiliary window still needs a subject, and whether two routes are one address.
+// auxiliary window still needs a subject, whether two routes are one address, and which
+// workflow phase — if any — the address a person followed was pointing at.
 //
 // EVERY PREDICATE IS ASKED ABOUT EVERY KIND, walked from the shared lists rather than
 // retyped, because the failure each of these guards against is a kind nobody asked the
@@ -17,6 +18,7 @@ import {
   isAuxiliaryRoute,
   needsContextPicker,
   railDestinationFor,
+  routeWorkflowPhase,
   routesAreEqual,
   settingsRoute,
   settingsSelection,
@@ -222,5 +224,34 @@ describe("the settings arm's page-scoped selection", () => {
     expect(
       routesAreEqual(settingsRoute("accounts", "codex"), settingsRoute("accounts", "codex")),
     ).toBe(true);
+  });
+});
+
+describe("routeWorkflowPhase — the phase a deep link named", () => {
+  it("hands back the focus a phase address carries", () => {
+    // The whole value rather than its two members separately: what a consumer needs is
+    // the run AND the phase together, and an accessor that answered one of them would
+    // let a caller pair this route's phase with some other route's run.
+    expect(
+      routeWorkflowPhase({
+        kind: "workspace",
+        sessionId: "session-1",
+        workflowPhase: { workflowRunId: "run-1", phaseId: "phase-1" },
+      }),
+    ).toStrictEqual({ workflowRunId: "run-1", phaseId: "phase-1" });
+  });
+
+  it("names nothing for a bare workspace address, which carries no focus", () => {
+    expect(routeWorkflowPhase({ kind: "workspace", sessionId: "session-1" })).toBeUndefined();
+  });
+
+  it("negative control: it names nothing for a route of another kind", () => {
+    // Without this, an accessor that read a member off any route at all would pass both
+    // cases above and hand the run pane a focus that came from somewhere else — the
+    // same defect `settingsSelection` guards against, and the reason this reader exists
+    // rather than every consumer reaching into the arm itself.
+    for (const route of MAIN_WINDOW_ROUTES.filter((each) => each.kind !== "workspace")) {
+      expect(routeWorkflowPhase(route), route.kind).toBeUndefined();
+    }
   });
 });

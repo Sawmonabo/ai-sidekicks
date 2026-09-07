@@ -12,19 +12,33 @@
 // shows the port's typed refusal. Without the second, a green run would not
 // distinguish a pane that reads from one that renders the served arm unconditionally.
 //
-// What is deliberately NOT here is anything one suite reads: the derived runs with
-// two human waits, the park-attention projection the graph is measured against, and
-// the slot spies each have exactly one reader and stay beside it. A helper hoisted
-// before it has a second caller is a helper whose shape is decided by nobody.
+// AND THE BRANCHING RUN IS HERE NOW, because it has two readers. The routing cases
+// and the phase-address cases both need a run that parks two phases on a person: a run
+// with one wait cannot tell "opened the phase it was asked for" apart from "opened the
+// only one there was". What stays beside its one reader is still what one suite reads —
+// the park-attention projection the graph is measured against, and the run-detail spy.
+//
+// What is deliberately NOT here is the `vi.mock` line itself. Vitest hoists that per
+// FILE, so it stays in each suite that spies the form slot and only the READING of the
+// spy lives here.
 
 import { render } from "@testing-library/react";
+import { vi } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
+import {
+  createFixtureBridge,
+  type ConsoleBridge,
+  type WorkflowPhaseState,
+  type WorkflowRunSnapshot,
+} from "../../../bridge/index.js";
+import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../../../bridge/scenarios/flagship.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
 import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
+import type { ConsoleRoute } from "../../../routing/index.js";
 import type { PaneContextOf } from "../../../seats/index.js";
-import { SessionStore, type ConsoleEntityRef } from "../../../store/index.js";
+import { FrameStore, SessionStore, type ConsoleEntityRef } from "../../../store/index.js";
+import { HumanFormSlot } from "./slots/HumanFormSlot.js";
 import { WorkflowRunPane } from "./WorkflowRunPane.js";
 
 /**
@@ -76,11 +90,24 @@ export function paneContext(
   // shape `repos/artifact-pane/artifact-pane-mount.test-support.ts` uses for the same
   // split.
   sessionStore: SessionStore = initialisedSessionStore(),
+  // The route the window has committed, for a case whose subject is what a LINK said.
+  //
+  // Omitted and `undefined` mean the same thing here and that is deliberate: the frame
+  // store's own default route names no workflow phase, which is the state every other
+  // case in these suites is asserting against, so there is no reading of "unset" that
+  // differs from "a route carrying no phase".
+  committedRoute?: ConsoleRoute,
 ): PaneContextOf<"workflow-run"> {
   return {
     kind: "workflow-run",
     entity,
     bridge,
+    // A REAL frame store, for the session store's reason one line down: the pane reads
+    // the committed route off it to seed which parked phase's form opens, so a context
+    // without one throws at mount rather than rendering a pane with no link focus.
+    frameStore: new FrameStore(
+      committedRoute === undefined ? {} : { initialRoute: committedRoute },
+    ),
     // A REAL store rather than the `{ sessionId }` stub this used to cast, because
     // the pane's live-round reading subscribes to the session's own transitions —
     // `run-live-rounds.ts`, which is how a run moved by the engine or by another
@@ -147,3 +174,80 @@ export function renderPane(context: PaneContextOf<"workflow-run">): HTMLElement 
  * than being cut off by the generic test kill first.
  */
 export const GRAPH_CHUNK_WAIT = { timeout: 4000 } as const;
+
+/**
+ * The fixture's own human wait, which is the shape every derived phase keeps.
+ *
+ * Read off the scenario rather than written out: `phaseRunId` and `formRevision` are
+ * exactly what makes a wait addressable, and a hand-written phase would keep passing
+ * if the fixture stopped carrying them.
+ */
+export function fixtureHumanWait(): WorkflowPhaseState {
+  const phase = WORKFLOWS_PARKED_RUN.phaseStates.find(
+    (candidate) => candidate.parkReason === "waiting-human",
+  );
+  if (phase === undefined) {
+    throw new Error("the workflows fixture parks no phase on a person");
+  }
+  return phase;
+}
+
+/** The second branch's phase-run key, in the wire's own shape and nobody else's. */
+export const SECOND_WAIT_PHASE_RUN_ID = "019b7a10-0280-7aa1-8100-701a11150009";
+
+/**
+ * The fixture's parked run with a SECOND phase parked on a person beside the first.
+ *
+ * HOISTED ON ITS SECOND READER, which is `apps/desktop/AGENTS.md`'s rule: the routing
+ * cases and the phase-address cases both need a run that branches, because a run with
+ * one wait cannot distinguish "opened the phase it was asked for" from "opened the only
+ * one there was". A second copy would agree with this one until one of them grew a
+ * third branch.
+ */
+export function runWithTwoHumanWaits(): WorkflowRunSnapshot {
+  const first = fixtureHumanWait();
+  return {
+    ...WORKFLOWS_PARKED_RUN,
+    phaseStates: WORKFLOWS_PARKED_RUN.phaseStates.flatMap((phase) =>
+      phase.phaseId === first.phaseId
+        ? [
+            phase,
+            {
+              ...first,
+              phaseId: `${first.phaseId}-second-branch`,
+              phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
+            },
+          ]
+        : [phase],
+    ),
+  };
+}
+
+/** Every phase this snapshot parks on a person, in the order the pane resolves them. */
+export function humanWaitsOf(run: WorkflowRunSnapshot): readonly WorkflowPhaseState[] {
+  return run.phaseStates.filter((phase) => phase.parkReason === "waiting-human");
+}
+
+/**
+ * A scenario answering the run read with one snapshot, driving the REAL fixture port.
+ *
+ * The idiom `run-snapshot.test.tsx` established. Scripting the reply rather than
+ * replacing the port keeps the pane's read on the same path every other case exercises,
+ * so what these cases observe is the pane and not a stand-in.
+ */
+export function scenarioServingRun(run: WorkflowRunSnapshot, id: string): ConsoleScenario {
+  return { ...WORKFLOWS_SCENARIO, id, replies: [{ call: "workflow.runRead", result: run }] };
+}
+
+/**
+ * The phase whose form the pane actually mounted, on the latest render it made.
+ *
+ * Reads the spy the CALLING suite installed — `vi.mock` is hoisted per file, so the
+ * `vi.mock(import("./slots/HumanFormSlot.js"), { spy: true })` line stays beside the
+ * cases and only the reading of it lives here. A suite without that line reads an
+ * unmocked component and gets `undefined`, which is a missing spy rather than a
+ * mounted form, so every caller declares it.
+ */
+export function mountedFormPhaseId(): string | undefined {
+  return vi.mocked(HumanFormSlot).mock.calls.at(-1)?.[0].phase?.phaseId;
+}

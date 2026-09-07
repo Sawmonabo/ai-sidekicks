@@ -13,7 +13,14 @@
 // sequence — is `workflow.versionRead`, addressed by `(definitionId, versionNumber)`,
 // which is why it cannot be put until the first has answered. The chain is a third
 // question again, addressed by the opaque version id, and the registry resolves no
-// version id at all — so it rides its own slate row and is asked last.
+// version id at all — so it rides its own slate row.
+//
+// AND THE SECOND AND THIRD GO OUT TOGETHER. Each is addressed out of the FIRST read's
+// answer and neither is addressed out of the other's, so the wire orders them against
+// the definition read and against nothing else. Chaining them anyway made the chain
+// request hostage to the version body's latency — and, against a daemon holding that
+// body open, a chain question that was never put at all while the identity it belongs
+// to had already arrived.
 //
 // AND THE THREE SETTLE INDEPENDENTLY, WHICH IS THE WHOLE SHAPE OF THIS MODULE. The
 // definition read is the subject: without it there is nothing to render and the state
@@ -137,10 +144,12 @@ type DefinitionDetailOutcome =
  * ask — the `unasked` state — and the absence is answered here, where the request is
  * built.
  *
- * The version read is put after the definition read rather than beside it because it
- * is addressed by a number the first read answers; the chain is put after for the
- * same reason. Serial rather than parallel is therefore the wire's shape and not a
- * choice about concurrency.
+ * ONE ORDERING EDGE AND NOT TWO. The version read and the chain read are both put after
+ * the DEFINITION read, because each is addressed by something only that read answers —
+ * the version number for one, the opaque version id for the other. Neither is addressed
+ * by anything the OTHER answers, so there is no wire reason to put them in sequence, and
+ * putting them in one made a slow version body hold back a question that was already
+ * fully composed.
  */
 function readDefinitionDetail(
   growth: GrowthPort,
@@ -151,7 +160,20 @@ function readDefinitionDetail(
     : composeDefinitionDetail(growth, workflowDefinitionId);
 }
 
-/** The three reads, settled and folded into one answer. */
+/**
+ * The three reads, settled and folded into one answer.
+ *
+ * THE TWO QUALIFYING READS ARE STARTED TOGETHER AND AWAITED TOGETHER. Both are
+ * addressed entirely out of the subject read's answer, so the second was waiting on a
+ * settlement it takes nothing from: a version body that answered slowly — or, on a
+ * daemon holding the request open, never — kept the chain request unsent and the whole
+ * detail in its `reading` state while the identity beside it had already arrived.
+ *
+ * `Promise.all` rather than two awaits, and it composes rather than short-circuits: both
+ * helpers settle their own refusal into their own arm and neither rejects, so the fold
+ * below sees the same three facts it always did, one of which now cost no extra
+ * round trip.
+ */
 async function composeDefinitionDetail(
   growth: GrowthPort,
   workflowDefinitionId: string,
@@ -162,8 +184,10 @@ async function composeDefinitionDetail(
   if (definition.status !== "served") {
     return definition;
   }
-  const version = await readVersionBody(growth, definition.value);
-  const chain = await readVersionChain(growth, definition.value);
+  const [version, chain] = await Promise.all([
+    readVersionBody(growth, definition.value),
+    readVersionChain(growth, definition.value),
+  ]);
   return { status: "served", detail: { definition: definition.value, version, chain } };
 }
 

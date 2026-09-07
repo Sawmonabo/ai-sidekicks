@@ -45,7 +45,7 @@
 // behind every session open for no new information, so the scan runs only over
 // transitions of an already-initialised store.
 
-import type { ReadTriggerTarget } from "./read-triggers.js";
+import { eventTriggersRead, type ReadTriggerTarget } from "./read-triggers.js";
 import type { SessionStore } from "./session-store.js";
 
 export interface SessionRefreshTriggerOptions {
@@ -136,13 +136,17 @@ export class SessionRefreshTriggers {
       return;
     }
     const admitted = state.timeline.filter((event) => event.sequence > previous.cursor);
-    // The kinds are read off the target on every transition rather than copied at
+    // The declaration is read off the target on every transition rather than copied at
     // construction, so a reading whose declaration is a getter over something that
     // moves is compared against what it declares NOW. A projected frame's `kind` is a
     // plain string — the store admits what the wire sent — which is why the declared
     // set is `ReadonlySet<string>` and the comparison is honest about what it compares.
-    const { triggeringEventKinds } = this.#target;
-    if (admitted.some((event) => triggeringEventKinds.has(event.kind))) {
+    //
+    // Through the shared predicate, which is the one home for the two-part admission:
+    // the declared kind, and then the reading's own answer about THIS frame. Comparing
+    // kinds here while the hook wiring also consulted the frame would have been two
+    // vocabularies over one policy, which is exactly what this class's header refuses.
+    if (admitted.some((event) => eventTriggersRead(this.#target, event))) {
       this.#target.requestRead("terminal-event");
     }
   }
