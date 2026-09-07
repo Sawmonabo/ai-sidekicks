@@ -9,18 +9,49 @@
 // declares, and the two optional ones are rendered only where the phase carries them —
 // a phase with no `goBackTo` has no target, and an empty label saying so would be the
 // renderer inventing a fact about the definition.
+//
+// A BINDING IS ITS SCOPE **AND** WHAT THAT SCOPE REFERS TO. `McpServerBindingRef` is a
+// three-arm union rather than one shape because the reference is part of the binding's
+// identity: two `project` bindings under different repository roots are two different
+// configured servers wearing the same server and tool names, and a row printing only
+// the broad scope word renders them identically — leaving nobody able to say which
+// configured server the phase will invoke. So the reference is drawn beside the scope,
+// wire-verbatim through the figure chokepoint, on the arms that carry one. The `user`
+// arm carries none at all and nothing is drawn for it, rather than an empty figure
+// standing where a path would be. That is `DefinitionDetail.tsx`'s own
+// scope-and-reference pair one level down, and for its reason too: the two are never
+// joined into one string, because a scope that refers to nothing narrower would read as
+// a scope with a blank name.
 
 import { Chip, WireFigure } from "../../../primitives/index.js";
-import type { WorkflowPhaseDefinition } from "../../../bridge/index.js";
+import type { McpServerBindingRef, WorkflowPhaseDefinition } from "../../../bridge/index.js";
 
 export interface DefinitionPhaseRowProps {
   readonly phase: WorkflowPhaseDefinition;
 }
 
+/**
+ * One binding's full identity, as a list key and never as anything a person reads.
+ *
+ * The server and tool names alone are not one: two bindings equal in provider, server
+ * and tool and differing in `scopeRef` are two configured servers, and under a
+ * name-only key they are two siblings React is told are the same element. Every member
+ * the union declares goes in, so a collision needs two bindings that genuinely are one.
+ *
+ * SERIALIZED RATHER THAN DELIMITER-JOINED, because one of these members is a filesystem
+ * path and can hold whichever separator a joined key would have picked — two bindings
+ * whose parts straddle that separator differently would collide again, under one
+ * repository root and not another.
+ */
+function bindingRowKey(binding: McpServerBindingRef, toolName: string): string {
+  const scopeRef = binding.scope === "user" ? undefined : binding.scopeRef;
+  return JSON.stringify([binding.provider, binding.scope, scopeRef, binding.serverName, toolName]);
+}
+
 /** One phase row: its name, its closed vocabulary values, and its tool bindings. */
 export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.Element {
   const { phase } = props;
-  const bindings = phase.toolBindings ?? [];
+  const toolBindings = phase.toolBindings ?? [];
   return (
     <li className="meridian-definition-detail__phase">
       <span className="meridian-definition-detail__phase-name">{phase.name}</span>
@@ -40,13 +71,22 @@ export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.El
           join <Chip mono label={phase.parallelJoinPolicy} />
         </span>
       )}
-      {bindings.length === 0 ? null : (
+      {toolBindings.length === 0 ? null : (
         <ul className="meridian-definition-detail__bindings">
-          {bindings.map((binding) => (
-            <li key={`${binding.binding.serverName}/${binding.toolName}`}>
-              <WireFigure value={`${binding.binding.serverName}/${binding.toolName}`} />
-              <Chip mono label={binding.binding.provider} />
-              <Chip mono label={binding.binding.scope} />
+          {toolBindings.map((toolBinding) => (
+            <li key={bindingRowKey(toolBinding.binding, toolBinding.toolName)}>
+              <WireFigure value={`${toolBinding.binding.serverName}/${toolBinding.toolName}`} />
+              <Chip mono label={toolBinding.binding.provider} />
+              <Chip mono label={toolBinding.binding.scope} />
+              {/*
+               * Narrowed on the union's own discriminant rather than on the member being
+               * present: `user` is the one arm declared without a reference, so a fourth
+               * arm added without one stops compiling here instead of rendering
+               * `undefined` where a scope's identity belongs.
+               */}
+              {toolBinding.binding.scope === "user" ? null : (
+                <WireFigure value={toolBinding.binding.scopeRef} />
+              )}
             </li>
           ))}
         </ul>

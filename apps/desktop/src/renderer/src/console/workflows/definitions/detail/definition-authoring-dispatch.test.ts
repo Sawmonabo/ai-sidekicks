@@ -1,131 +1,37 @@
-// What each act does to the state a control reads, including the two answers that
-// arrive after the press.
+// The export act: what it puts on screen, and when it may say the host took it.
 //
-// THE CASE THIS FILE EXISTS FOR IS THE REFUSED CLIPBOARD. Exporting settles twice: the
-// serialization is synchronous and the host's write is not, so the outcome a person
-// ends up looking at is the host's answer. Holding the bytes on the settled outcome
-// made that answer erase them — a refusal saying the copy did not happen, with nothing
-// left on screen to select instead — so the file is its own member and the cases below
-// pin both halves.
+// EXPORTING SETTLES TWICE, which is the asymmetry every case here is about. The
+// serialization is synchronous and the host's write is not, so the answer a person ends
+// up looking at is the host's. Two things went wrong at that seam and both are pinned
+// below.
 //
-// Every case drives the REAL hook over a real growth port. The port is the refusing one
-// with a single arm replaced, which is what a build with no `workflow.*` wire actually
-// hands this surface.
+// THE BYTES MUST OUTLIVE THE ANSWER. Holding the file on the settled outcome let the
+// host's refusal erase it — a sentence saying the copy did not happen, with nothing left
+// on screen to select instead — so the file is its own member.
+//
+// AND THE ACT MAY NOT CLAIM TO HAVE SETTLED BEFORE THE HOST ANSWERS. The outcome was
+// published as settled beside the serialization, so a host that hung left "is on the
+// clipboard" on screen over a copy that never happened, forever for a call that never
+// answers. The cases drive a never-answering clipboard, a deferred one, and two presses
+// whose answers arrive out of order.
+//
+// The two acts that reach the growth port are `definition-authoring-dispatch.port-acts.test.ts`,
+// and the scaffolding both suites press through is the `.test-support.ts` beside them.
 
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { serializeWorkflowDefinitionFile } from "../../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
+import { WORKFLOWS_SESSION_ID } from "../../../bridge/scenarios/workflow-fixture-ids.js";
 import {
-  workflowDefinitionReadFor,
-  workflowVersionBodyFor,
-} from "../../../bridge/scenarios/workflow-fixture-bodies.js";
-import {
-  DEFINITION_RELEASE_CHECKS_SESSION,
-  WORKFLOWS_SESSION_ID,
-} from "../../../bridge/scenarios/workflow-fixture-ids.js";
-import type { ConsoleBridge, GrowthPort, WorkflowVersionBody } from "../../../bridge/index.js";
-import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
-import { useWorkflowDefinitionAuthoring } from "./definition-authoring-dispatch.js";
-import {
-  WORKFLOW_DETAIL_REFUSAL_CODES,
-  type WorkflowDefinitionAuthoring,
-  type WorkflowDetailActOutcome,
-  type WorkflowDetailRefusalCode,
-} from "./definition-authoring.js";
+  authoringBridge,
+  expectLocalRefusal,
+  mountAuthoring,
+  outcomeDetail,
+  refusalCode,
+  scriptedBody,
+} from "./definition-authoring-dispatch.test-support.js";
 
 afterEach(cleanup);
-
-/**
- * The body the fixture states for the definition every case here is addressed at.
- *
- * The version number is READ off the definition rather than written down: the fixture
- * answers a body for the latest version alone, so a number restated here would be a
- * second copy of a fact that moves whenever the scenario's table does.
- */
-function scriptedBody(): WorkflowVersionBody {
-  const definition = workflowDefinitionReadFor(DEFINITION_RELEASE_CHECKS_SESSION);
-  const body =
-    definition === undefined
-      ? undefined
-      : workflowVersionBodyFor(definition.id, definition.versionNumber);
-  if (body === undefined) {
-    throw new Error("the fixture states no body for the definition these cases open");
-  }
-  return body;
-}
-
-interface BridgeParts {
-  /** Replaces the port's create arm. Absent leaves the refusing one in place. */
-  readonly create?: GrowthPort["workflowDefinitionCreate"];
-  /** Replaces the host's clipboard write. Absent accepts every write. */
-  readonly copyToClipboard?: (file: string) => Promise<void>;
-}
-
-/** A bridge carrying exactly the two seams an act reaches: the port and the clipboard. */
-function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
-  const refusing = createRefusingGrowthPort();
-  const growth: GrowthPort = {
-    ...refusing,
-    ...(parts.create === undefined ? {} : { workflowDefinitionCreate: parts.create }),
-  };
-  const copyToClipboard = parts.copyToClipboard ?? (async () => undefined);
-  return {
-    growth,
-    sidekicks: { native: { copyToClipboard } },
-  } as unknown as ConsoleBridge;
-}
-
-/**
- * Mount the hook against one definition, and give the caller a way to press it.
- *
- * BOTH SUBJECTS ARE REQUIRED AND NEITHER DEFAULTS, which is a decision this file made
- * the hard way: a default parameter is applied to an argument passed as `undefined`, so
- * the two cases that exist to drive an absent session and an absent body were each
- * getting the present one and passing against the wrong arm.
- */
-function mountAuthoring(
-  bridge: ConsoleBridge,
-  sessionId: string | undefined,
-  body: WorkflowVersionBody | undefined,
-): { current: () => WorkflowDefinitionAuthoring; press: (pressed: () => void) => Promise<void> } {
-  const mounted = renderHook(() =>
-    useWorkflowDefinitionAuthoring(bridge, DEFINITION_RELEASE_CHECKS_SESSION, sessionId, body),
-  );
-  return {
-    current: () => mounted.result.current,
-    press: async (pressed) => {
-      await act(async () => {
-        pressed();
-        // A boundary and not a counted turn: the clipboard write and the create both
-        // settle through the normalizer and a publish, and a chain one link deeper
-        // would leave a case asserting about the state from before the answer landed.
-        await crossMacrotaskBoundary();
-      });
-    },
-  };
-}
-
-/** The code on an outcome that refused, or the kind it took instead. */
-function refusalCode(outcome: WorkflowDetailActOutcome): string {
-  return outcome.kind === "refused" ? outcome.refusal.code : `not refused: ${outcome.kind}`;
-}
-
-/**
- * Assert one act refused with a code this surface DECLARES.
- *
- * Two claims and not one: the specific code, and its membership in the closed tuple.
- * Without the second a refusal raised with a string nobody declared would pass every
- * case that names it, which is the whole failure mode the vocabulary exists to stop.
- */
-function expectLocalRefusal(
-  outcome: WorkflowDetailActOutcome,
-  code: WorkflowDetailRefusalCode,
-): void {
-  expect(refusalCode(outcome)).toBe(code);
-  expect(WORKFLOW_DETAIL_REFUSAL_CODES).toContain(code);
-}
 
 describe("exporting — the bytes outlive the host's answer", () => {
   it("refuses with `body-unavailable` where the version read answered with no body", async () => {
@@ -151,9 +57,9 @@ describe("exporting — the bytes outlive the host's answer", () => {
   });
 
   it("keeps the file on screen when the host refuses the clipboard", async () => {
-    // The regression this pins. The refusal replaces where the act STANDS; it does not
-    // withdraw what the act produced, because the bytes are the one thing a person can
-    // still act on after a copy that did not happen.
+    // The refusal replaces where the act STANDS; it does not withdraw what the act
+    // produced, because the bytes are the one thing a person can still act on after a
+    // copy that did not happen.
     const mounted = mountAuthoring(
       authoringBridge({
         copyToClipboard: () =>
@@ -173,71 +79,87 @@ describe("exporting — the bytes outlive the host's answer", () => {
   });
 });
 
-describe("importing — what settles before any call is put", () => {
-  it("refuses with `session-unbound` where the pane is bound to no session", async () => {
-    const mounted = mountAuthoring(authoringBridge(), undefined, scriptedBody());
-    await mounted.press(() => {
-      mounted.current().importDefinition("{}");
-    });
-
-    expectLocalRefusal(mounted.current().outcomes.import, "session-unbound");
-  });
-
-  it("negative control: the same text reaches the port once a session is bound", async () => {
-    // Without this, the case above would hold over a hook that refused every import —
-    // the right answer for one input, arrived at without reading the session at all.
-    const mounted = mountAuthoring(authoringBridge(), WORKFLOWS_SESSION_ID, scriptedBody());
-    await mounted.press(() => {
-      mounted.current().importDefinition("{}");
-    });
-
-    expectLocalRefusal(mounted.current().outcomes.import, "file-unreadable");
-  });
-});
-
-describe("single flight — one outstanding create per act and definition", () => {
-  /** A create that never answers, which is what a press mid-flight is waiting on. */
-  const outstandingCreate: GrowthPort["workflowDefinitionCreate"] = () => {
-    return new Promise(() => undefined);
-  };
-
-  it("refuses the second press of one act rather than putting a second create", async () => {
+describe("exporting — the settlement is the host's answer and not the serialization's", () => {
+  it("stays dispatching with the bytes on screen while the host has not answered", async () => {
+    // The regression this pins. A host that never answers never took the copy, and an
+    // outcome published beside the serialization asserted that it had — for the life of
+    // the pane, with no later answer to correct it.
     const mounted = mountAuthoring(
-      authoringBridge({ create: outstandingCreate }),
+      authoringBridge({ copyToClipboard: () => new Promise<void>(() => undefined) }),
       WORKFLOWS_SESSION_ID,
       scriptedBody(),
     );
     await mounted.press(() => {
-      mounted.current().promoteDefinition();
-    });
-    expect(mounted.current().outcomes.promote.kind).toBe("dispatching");
-
-    await mounted.press(() => {
-      mounted.current().promoteDefinition();
+      mounted.current().exportDefinition();
     });
 
-    expectLocalRefusal(mounted.current().outcomes.promote, "act-in-flight");
+    const outcome = mounted.current().outcomes.export;
+    expect(outcome.kind).toBe("dispatching");
+    expect(outcomeDetail(outcome)).not.toContain("on the clipboard");
+    // The bytes are on screen throughout, which is what makes the pending state usable
+    // rather than merely honest.
+    expect(mounted.current().exportedFile).toContain("schemaVersion");
   });
 
-  it("does not let an outstanding promote refuse an import", async () => {
-    // The two acts take separate keys. Sharing one would answer a person's first press
-    // of a different control with a sentence about a submission they never made.
-    //
-    // The pasted text is a REAL file — the exporter's own output — because an
-    // unreadable one refuses at the parse and never reaches the latch, which would
-    // make this case pass over a hook that shared one key for both acts.
+  it("settles only once the host's own write fulfils", async () => {
+    // The negative control for the case above: without it, that one would hold over an
+    // export that never settled at all.
+    const takers: Array<() => void> = [];
     const mounted = mountAuthoring(
-      authoringBridge({ create: outstandingCreate }),
+      authoringBridge({
+        copyToClipboard: () =>
+          new Promise<void>((resolve) => {
+            takers.push(resolve);
+          }),
+      }),
       WORKFLOWS_SESSION_ID,
       scriptedBody(),
     );
     await mounted.press(() => {
-      mounted.current().promoteDefinition();
+      mounted.current().exportDefinition();
     });
+    expect(mounted.current().outcomes.export.kind).toBe("dispatching");
+
     await mounted.press(() => {
-      mounted.current().importDefinition(serializeWorkflowDefinitionFile(scriptedBody()));
+      takers[0]?.();
     });
 
-    expect(mounted.current().outcomes.import.kind).toBe("dispatching");
+    const outcome = mounted.current().outcomes.export;
+    expect(outcome.kind).toBe("settled");
+    expect(outcomeDetail(outcome)).toContain("on the clipboard");
+  });
+
+  it("does not let an earlier host answer install over a later press's", async () => {
+    // Two presses write the same bytes and neither is refused, so what the latch is for
+    // on this act is ORDER: a first press rejecting after a second succeeded would
+    // report a copy that DID happen as one that did not.
+    const answers: Array<{ readonly resolve: () => void; readonly reject: (r: unknown) => void }> =
+      [];
+    const mounted = mountAuthoring(
+      authoringBridge({
+        copyToClipboard: () =>
+          new Promise<void>((resolve, reject) => {
+            answers.push({ resolve, reject });
+          }),
+      }),
+      WORKFLOWS_SESSION_ID,
+      scriptedBody(),
+    );
+    await mounted.press(() => {
+      mounted.current().exportDefinition();
+    });
+    await mounted.press(() => {
+      mounted.current().exportDefinition();
+    });
+    expect(answers).toHaveLength(2);
+
+    await mounted.press(() => {
+      answers[1]?.resolve();
+    });
+    await mounted.press(() => {
+      answers[0]?.reject({ code: "session.not_found", message: "This session is gone." });
+    });
+
+    expect(mounted.current().outcomes.export.kind).toBe("settled");
   });
 });

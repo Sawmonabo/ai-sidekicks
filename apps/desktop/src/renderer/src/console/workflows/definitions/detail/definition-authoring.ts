@@ -70,17 +70,24 @@ export const WORKFLOW_DETAIL_REFUSAL_CODES: readonly [
 export type WorkflowDetailRefusalCode = (typeof WORKFLOW_DETAIL_REFUSAL_CODES)[number];
 
 /**
- * Where one act stands. The settled arm carries what a person reads about it.
+ * Where one act stands. The two in-progress-and-after arms carry what a person reads.
  *
  * NO ARM CARRIES THE EXPORTED BYTES, deliberately. Where an act stands and what it
  * produced are two facts with two lifetimes: the clipboard write settles after the
  * serialization does, so a file held on the settled arm would be erased by the host's
  * own refusal — leaving a person a sentence about a copy that did not happen and
  * nothing on screen to select instead. The bytes are `exportedFile` below.
+ *
+ * AND `dispatching` CARRIES A SENTENCE OF ITS OWN RATHER THAN LEAVING THE WORD TO THE
+ * ROW. The three acts are not in flight in the same way — two submit a definition and
+ * the third submits nothing at all, handing bytes to the host — so a single word
+ * composed at the render site is a word that is wrong for one of them. The act that
+ * knows what it is waiting on writes the sentence, which is where the settled arm's
+ * already lives.
  */
 export type WorkflowDetailActOutcome =
   | { readonly kind: "idle" }
-  | { readonly kind: "dispatching" }
+  | { readonly kind: "dispatching"; readonly detail: string }
   | { readonly kind: "settled"; readonly detail: string }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
 
