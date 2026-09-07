@@ -367,7 +367,7 @@
 .meridian-truncation-notice__show-all {
   align-self: flex-start;
   background: none;
-  border: 1px solid var(--meridian-border-subtle);
+  border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   color: var(--meridian-text-muted);
   cursor: pointer;
@@ -422,7 +422,7 @@
   gap: var(--meridian-space-2);
   width: 100%;
   background: none;
-  border: 1px solid var(--meridian-border-subtle);
+  border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   color: inherit;
   cursor: pointer;
@@ -441,7 +441,7 @@
 .meridian-input-ask__field {
   width: 100%;
   background: var(--meridian-surface-sunken);
-  border: 1px solid var(--meridian-border-subtle);
+  border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   color: inherit;
   font: inherit;
@@ -451,7 +451,7 @@
 
 .meridian-input-ask__send {
   background: none;
-  border: 1px solid var(--meridian-border-subtle);
+  border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   color: inherit;
   cursor: pointer;

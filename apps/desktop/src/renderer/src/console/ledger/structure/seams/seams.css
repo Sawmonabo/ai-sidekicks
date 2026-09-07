@@ -82,7 +82,7 @@
   align-items: baseline;
   gap: var(--meridian-space-2);
   padding-block: var(--meridian-space-1);
-  border-block-start: 1px solid var(--meridian-border-subtle);
+  border-block-start: 1px solid var(--meridian-edge);
   color: var(--meridian-text-muted);
 }
 

@@ -225,7 +225,7 @@
   color: var(--meridian-text);
   font-size: var(--meridian-text-xs);
   background: var(--meridian-surface-raised);
-  border: 1px solid var(--meridian-border);
+  border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
 }
 
