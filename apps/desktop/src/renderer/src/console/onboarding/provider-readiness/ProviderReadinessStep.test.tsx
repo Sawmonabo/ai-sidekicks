@@ -19,6 +19,8 @@ import { describe, expect, it } from "vitest";
 
 import { ProviderReadinessStep } from "./ProviderReadinessStep.js";
 import { READINESS_STATE_LABELS, READINESS_STATE_NOTES } from "./provider-readiness-copy.js";
+import { providerAccountRecord } from "./provider-readiness.test-support.js";
+import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import type { ProviderReadinessReading } from "./provider-readiness.js";
 
 const ACCOUNT_ID = "019b78c9-0a80-7c31-8110-cca0117a3302" as NonNullable<
@@ -41,6 +43,13 @@ function renderStep(reading: ProviderReadinessReading): HTMLElement {
 
 function readingWith(entries: readonly ProviderReadiness[]): ProviderReadinessReading {
   return { kind: "read", entries, accounts: [] };
+}
+
+function readingWithAccounts(
+  entries: readonly ProviderReadiness[],
+  accounts: readonly ProviderAccount[],
+): ProviderReadinessReading {
+  return { kind: "read", entries, accounts };
 }
 
 describe("the readiness vocabulary", () => {
@@ -174,5 +183,68 @@ describe("the absences", () => {
 
   it("says a node that selects no provider selects none, rather than showing nothing", () => {
     expect(renderStep(readingWith([])).textContent).toContain("No providers are selected");
+  });
+});
+
+describe("the accounts a row is handed", () => {
+  /**
+   * A label carrying a comma, so a step that pre-joined would be caught by the count
+   * rather than only by the absence of the suffix.
+   */
+  const LABEL_WITH_A_COMMA = "Work, personal, and the shared one";
+
+  function accountFigures(container: HTMLElement): readonly string[] {
+    const term = [...container.querySelectorAll("dt")].find(
+      (one) => one.textContent === "Accounts registered for this provider",
+    );
+    const cell = term?.nextElementSibling;
+    if (!(cell instanceof HTMLElement)) {
+      throw new Error("the step rendered no accounts cell");
+    }
+    return [...cell.querySelectorAll(".meridian-figure--wire")].map(
+      (figure) => figure.textContent ?? "",
+    );
+  }
+
+  it("passes the registry records through and composes no display string", () => {
+    const container = renderStep(
+      readingWithAccounts(
+        [{ provider: "codex", state: "authenticated" }],
+        [
+          providerAccountRecord({
+            accountId: "acct-one",
+            displayLabel: LABEL_WITH_A_COMMA,
+            isDefault: true,
+          }),
+          providerAccountRecord({ accountId: "acct-two", displayLabel: "Work", isDefault: false }),
+        ],
+      ),
+    );
+
+    // Two accounts, two figures, each carrying its label whole — which a step that
+    // pasted a suffix on or joined with commas could not produce.
+    expect(accountFigures(container)).toStrictEqual([LABEL_WITH_A_COMMA, "Work"]);
+    expect(container.textContent).not.toContain("(default)");
+  });
+
+  it("hands each provider only its own accounts", () => {
+    const container = renderStep(
+      readingWithAccounts(
+        [{ provider: "claude", state: "no_account" }],
+        [
+          providerAccountRecord({
+            accountId: "acct-one",
+            displayLabel: "Personal",
+            isDefault: true,
+            provider: "codex",
+          }),
+        ],
+      ),
+    );
+
+    // The registry holds one account and it belongs to the OTHER provider, so the row
+    // for this one has nothing to show — which is the only evidence the step's filter
+    // ran at all, since the row renders whatever it is handed.
+    expect(accountFigures(container)).toStrictEqual([]);
   });
 });

@@ -21,6 +21,12 @@
 // window. The in-flight arm of both acts is reachable in
 // `sessions/acts/act-settlement.test.ts`, which holds an attempt open directly.
 //
+// AND THE IMPORT'S PROGRESS IS PACED BY THE PORT, NOT BY THIS FILE. See
+// `PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES` below: the frames and their ticks are
+// declared here as data, and `bridge/fixture/fixture-growth-port.ts` releases them
+// against the frozen clock. A script cannot do it — `resultFor` is handed the request
+// and nothing else, so it has no clock to schedule against.
+//
 // THE THREE GROWTH KEYS. `growth:<operationId>` is the reply key a growth row with no
 // registered wire method takes; `wire-truth/reply-walk.ts` states that rule and
 // rejects a method-shaped key for such a row, because a method string nobody
@@ -53,21 +59,42 @@ const IMPORTABLE_PROVIDER_NAME = "claude";
 /** The import this script answers `providerSessionImportBegin` with. */
 const IMPORT_ID = "019b78c9-0a80-7b31-9c40-4f0a0b6d1103";
 
+/** One progress reading and the scenario tick the import reports it at. */
+export interface ScenarioImportProgressFrame {
+  readonly atMs: number;
+  readonly progress: GrowthImportProgress;
+}
+
 /**
- * What the import reports as it runs: two readings in flight, then its terminal.
+ * What the import reports as it runs, and WHEN: two readings in flight, then its
+ * terminal.
+ *
+ * THE TICKS ARE HALF THE SCRIPT AND THEY ARE EXPORTED FOR THAT REASON. A scenario is
+ * data and reaches no clock — a computed reply is handed the request and nothing else
+ * — so a stream built here would drain every frame onto one turn, React would batch
+ * the three renders into the terminal one, and the running states and the mid-import
+ * cancellation this scenario exists to make reachable would be reachable from
+ * nowhere. The frames are declared once, here, with the tick each falls due at, and
+ * `fixture-growth-port.ts` paces the drain below against the frozen clock from these
+ * same ticks.
  *
  * A frozen list rather than a generator held in module scope, because a scenario is
  * replayed tick-for-tick and a consumed iterable would answer the second run with
  * nothing. {@link importProgressStream} builds a fresh walk over it per call.
  */
-const IMPORT_PROGRESS_FRAMES: readonly GrowthImportProgress[] = [
-  { importId: IMPORT_ID, turnsSeen: 0, state: "reading" },
-  { importId: IMPORT_ID, turnsSeen: 34, state: "reading" },
-  { importId: IMPORT_ID, turnsSeen: 61, state: "complete" },
+export const PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES: readonly ScenarioImportProgressFrame[] = [
+  { atMs: 0, progress: { importId: IMPORT_ID, turnsSeen: 0, state: "reading" } },
+  { atMs: 120, progress: { importId: IMPORT_ID, turnsSeen: 34, state: "reading" } },
+  { atMs: 240, progress: { importId: IMPORT_ID, turnsSeen: 61, state: "complete" } },
 ];
 
 /**
  * One fresh drain over the frames above, with the close every subscriber owes.
+ *
+ * UNPACED, DELIBERATELY, and paced by the port that opens it. The values are this
+ * script's and the schedule is the fixture's, which is the only split that works: a
+ * consumer pulls the next frame from here and the port holds it until the frozen
+ * clock reaches that frame's tick.
  *
  * The stream is built PER CALL rather than held, so two subscriptions in one scenario
  * — a second window, or a surface that remounted — each see the whole import rather
@@ -79,11 +106,11 @@ function importProgressStream(): GrowthStream<GrowthImportProgress> {
   return {
     events: {
       async *[Symbol.asyncIterator]() {
-        for (const frame of IMPORT_PROGRESS_FRAMES) {
+        for (const frame of PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES) {
           if (isClosed) {
             return;
           }
-          yield frame;
+          yield frame.progress;
         }
       },
     },

@@ -112,9 +112,10 @@ function renderReading(props: ProviderReadinessStepProps): React.ReactNode {
             <ProviderRow
               key={entry.provider}
               entry={entry}
-              accountLabels={accountsForProvider(reading.accounts, entry.provider).map(
-                (account) => `${account.displayLabel}${account.isDefault ? " (default)" : ""}`,
-              )}
+              // The records, straight through. Composing a display string here would
+              // put a label the daemon sent into a value nothing downstream could tell
+              // back apart from the console's own words — see `ProviderRow.tsx`.
+              accounts={accountsForProvider(reading.accounts, entry.provider)}
               action={props.actionFor(entry.provider)}
               onSignIn={props.onSignIn}
               onRecheck={props.onRecheck}

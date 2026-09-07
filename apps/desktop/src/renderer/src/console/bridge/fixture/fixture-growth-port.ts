@@ -22,6 +22,7 @@ import {
   type ParsedRows,
 } from "../approvals/index.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
+import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import {
   FixtureShellChannel,
@@ -45,6 +46,7 @@ import type { FixtureServedGrowthOperationId } from "./fixture-served-operations
 import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
 import {
   PROVIDER_SESSION_IMPORT_BEGIN_CALL,
+  PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
   PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
   SHELL_NOTIFICATION_PERMISSION_CALL,
 } from "../scenarios/bring-your-history.js";
@@ -281,16 +283,32 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         () =>
           growthUnscriptedReply("providerSessionImportBegin", PROVIDER_SESSION_IMPORT_BEGIN_CALL),
       ),
+    //
+    // THE PROGRESS FEED IS PACED HERE, where the stream is opened, and it has to be:
+    // a scenario reaches no clock, so a script that drained its own frames handed the
+    // whole import to one turn — React batched the renders and the fixture painted
+    // only the terminal `complete` frame, leaving the running states and a
+    // mid-import cancellation reachable from nowhere. The values stay the script's;
+    // what this adds is the schedule, taken from the ticks the script declares beside
+    // them and spent on the frozen clock rather than on a timer.
     providerSessionImportSubscribe: async (request) =>
-      await answerFromScriptedReply(
-        engine,
-        PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
-        "providerSessionImportSubscribe",
-        request,
-        () =>
-          growthUnscriptedReply(
-            "providerSessionImportSubscribe",
-            PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+      mapGrowthServed(
+        await answerFromScriptedReply(
+          engine,
+          PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+          "providerSessionImportSubscribe",
+          request,
+          () =>
+            growthUnscriptedReply(
+              "providerSessionImportSubscribe",
+              PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+            ),
+        ),
+        (scripted) =>
+          paceGrowthStreamOnScenarioClock(
+            engine,
+            scripted,
+            PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
           ),
       ),
     // The shell's own condition — the one FEED this port serves, opened from the

@@ -6,6 +6,8 @@
 // Written once so the two files cannot drift into disagreeing about what a registry
 // reply looks like, which is the drift a second copy of a fixture always ends in.
 
+import type { ProviderAccount } from "@ai-sidekicks/contracts";
+
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
@@ -119,5 +121,41 @@ export function twoAccountScenario(): ConsoleScenario {
         },
       },
     ],
+  };
+}
+
+/** The four members a rendering case actually varies. The rest are held fixed. */
+export interface ScriptedProviderAccountFields {
+  readonly accountId: string;
+  readonly displayLabel: string;
+  readonly isDefault: boolean;
+  /** Which provider holds this account. `codex`, where a case does not care. */
+  readonly provider?: string;
+}
+
+/**
+ * One registry record, built for the two RENDERING suites over this family.
+ *
+ * Here rather than in either suite because both the row's cases and the step's need
+ * one and a second literal would be the registry projection written twice — the drift
+ * this module already exists to stop for the scripted reply above. The branded
+ * members are cast for the reason every console module casts them: a console module
+ * never parses a wire value, and these cases render a record rather than earning one
+ * back through the daemon door.
+ */
+export function providerAccountRecord(fields: ScriptedProviderAccountFields): ProviderAccount {
+  return {
+    accountId: fields.accountId as ProviderAccount["accountId"],
+    provider: (fields.provider ?? "codex") as ProviderAccount["provider"],
+    displayLabel: fields.displayLabel,
+    credentialGeneration: 1 as ProviderAccount["credentialGeneration"],
+    billingMode: "metered",
+    isDefault: fields.isDefault,
+    healthState: "authenticated",
+    healthObservedAt: OBSERVED_AT,
+    observedAuthMode: "oauth_token",
+    loggedInAt: null,
+    expectedReloginAtEstimate: null,
+    probeEnabled: true,
   };
 }
