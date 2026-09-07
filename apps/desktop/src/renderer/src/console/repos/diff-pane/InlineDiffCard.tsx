@@ -29,11 +29,15 @@
 //
 // WHAT THE SEAT HANDS OVER, AND WHAT IT CANNOT. `DiffInlineCardProps` carries a
 // `runId`, the `diffArtifactId` the registered diff result names itself by, and the
-// `artifactManifestId` that diff minted — and no diff, because there is no wire to
-// fetch one with: `gitflow.diffArtifactCreate` is a `Plan-023 §Console growth slate`
-// row and the growth port registers no operation for it. So the registered body
-// renders the honest absence, and the `diff` prop is the seam the fetch lands on
-// the day the wire exists. Nothing here fabricates a method name to call.
+// `artifactManifestId` that diff minted — and no diff. The WIRE is no longer what is
+// missing: the growth port now serves both the mint and the payload read the diff pane
+// mints a change set through, and this card's `artifactManifestId` is exactly the key
+// that read takes. What is missing is the pair of COMPARED STATES `parseUnifiedPatch`
+// is given beside the patch: a unified patch names neither of them, this seat carries
+// neither, and the card is handed an artifact somebody else minted rather than a
+// request it could read them off. So the registered body renders the honest absence,
+// the `diff` prop stays the seam a fetch lands on, and the seat's own props are where
+// the missing half belongs — never a base and a head this card invented.
 
 import { useId, useRef, useState } from "react";
 
