@@ -48,6 +48,7 @@ import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
+import { disposeWhenTestFinishes } from "../helpers/electron-child.js";
 import {
   BoundedCleanup,
   type CleanupOutcome,
@@ -298,6 +299,16 @@ export async function withLaunchedConsole<TResult>(
   body: (consoleApplication: ConsoleApplication) => Promise<TResult>,
 ): Promise<TResult> {
   const launched = await launchConsole(options);
+  // The body's own settlement closes this launch, and that is the path that
+  // reports a cleanup verdict. This is the OTHER path: vitest's per-test timeout
+  // does not run the body's settlement at all, so without a settle-time
+  // registration a tier that overran its own budget left a real Electron and a
+  // real profile directory behind. `close` is idempotent, so on every ordinary
+  // outcome this is a no-op — the shared door swallows the rejection, because by
+  // then the test's own failure is the one that explains the run.
+  disposeWhenTestFinishes(async () => {
+    await launched.close();
+  });
   // Minted HERE and not inside the launch: the allowance bounds what runs after
   // the launch settled, so a slow-but-valid launch spends none of it. That is the
   // whole arithmetic the tier timeout is derived from — launch, then body, then

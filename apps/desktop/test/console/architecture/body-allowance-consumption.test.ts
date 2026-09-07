@@ -23,7 +23,7 @@
 // object literal or multi-line argument list. `typescript-source.ts` holds the
 // parse; the budget tier asks the same kind of question of the same parser.
 
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
@@ -37,6 +37,19 @@ const CONSOLE_TEST_DIRECTORY = resolve(HERE, "..");
 
 /** The tiers whose tests run inside a launched console's body allowance. */
 const LAUNCHING_TIER_DIRECTORIES: readonly string[] = ["e2e", "endurance"];
+
+/**
+ * Flat `test/console/` modules a launched body calls, named one by one.
+ *
+ * The two tier directories are taken whole, because everything in them runs
+ * inside a body. The flat directory beside them cannot be: `launch-readiness.ts`
+ * waits there too, and its waits are the LAUNCH's — bounded by the launch
+ * deadline, since no allowance exists until the launch has settled. So a shared
+ * module that performs waits on the body's side of that line joins this list in
+ * the commit that adds it, and a module scanned by neither rule is a wait bounded
+ * by whatever it invented.
+ */
+const LAUNCH_BODY_SHARED_MODULES: readonly string[] = ["palette-interaction.ts"];
 
 /**
  * The call names that take a timeout and wait it out.
@@ -107,28 +120,39 @@ function boundedWaitCalls(fileName: string, sourceText: string): readonly Bounde
   return calls;
 }
 
+/** Whether a path under `test/console/` holds code that runs inside a launched body. */
+function runsInsideALaunchedBody(path: string): boolean {
+  const [head] = path.split("/");
+  return (
+    (head !== undefined && LAUNCHING_TIER_DIRECTORIES.includes(head)) ||
+    LAUNCH_BODY_SHARED_MODULES.includes(path)
+  );
+}
+
 /**
- * Every module in the launching tiers, through the tier's one walk.
+ * Every module that runs inside a launched body, through the tier's one walk.
  *
  * Not a `readdirSync` of its own: `source-walk-chokepoint.test.ts` next door
  * fails a gate in this directory that walks a tree itself, for the reason that
  * gate's header gives — a claim is only as good as the set it quantifies over,
- * and per-gate walks drift silently. The tier prefix stays in `path` because a
- * failure here names a file the way a person opens it.
+ * and per-gate walks drift silently. ONE walk of `test/console/` filtered by the
+ * predicate above rather than one walk per tier, because the shared modules sit
+ * beside the tiers rather than inside them and a second walk to reach them is the
+ * exact shape that chokepoint forbids. The tier prefix survives in `path` because
+ * a failure here names a file the way a person opens it.
  */
-function launchingTierSources(): readonly { readonly path: string; readonly text: string }[] {
-  return LAUNCHING_TIER_DIRECTORIES.flatMap((tier) =>
-    consoleSourceModules({ roots: [join(CONSOLE_TEST_DIRECTORY, tier)], tests: true }).map(
-      (module) => ({
-        path: `${tier}/${module.relativePath.split("\\").join("/")}`,
-        text: readConsoleSourceModule(module),
-      }),
-    ),
-  );
+function launchBodySources(): readonly { readonly path: string; readonly text: string }[] {
+  return consoleSourceModules({ roots: [CONSOLE_TEST_DIRECTORY], tests: true })
+    .map((module) => ({ module, path: module.relativePath.split("\\").join("/") }))
+    .filter((candidate) => runsInsideALaunchedBody(candidate.path))
+    .map((candidate) => ({
+      path: candidate.path,
+      text: readConsoleSourceModule(candidate.module),
+    }));
 }
 
 describe("launched bodies charge every bounded wait to the allowance", () => {
-  const sources = launchingTierSources();
+  const sources = launchBodySources();
   const calls = sources.flatMap((source) =>
     boundedWaitCalls(source.path, source.text).map((call) => ({ ...call, path: source.path })),
   );
@@ -138,6 +162,13 @@ describe("launched bodies charge every bounded wait to the allowance", () => {
     // scan an empty set and every assertion below would pass over it.
     expect(sources.map((source) => source.path)).toContain("e2e/frame-boot.test.ts");
     expect(sources.map((source) => source.path)).toContain("endurance/console-workload.ts");
+    // The shared half. Without it the list above would be satisfied by a scan that
+    // dropped every flat module, which is the state that let a body's waits sit
+    // outside this rule by being hoisted out of the tier that performs them.
+    expect(sources.map((source) => source.path)).toContain("palette-interaction.ts");
+    // And the line the predicate draws: the launch's own waits are bounded by the
+    // launch deadline and are not this rule's subject.
+    expect(sources.map((source) => source.path)).not.toContain("launch-readiness.ts");
     expect(calls.length, "the walk found no bounded wait at all").toBeGreaterThan(8);
   });
 

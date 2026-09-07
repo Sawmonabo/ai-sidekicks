@@ -103,7 +103,6 @@
 // the binary directly. The `xvfb-run -a` arm below remains the fallback for a
 // Linux contributor running with no display server of their own.
 
-import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -112,6 +111,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../src/main/window-reveal.js";
+import { cleanUpAfterChildAtSettleTime } from "./helpers/electron-child-cleanup.js";
+import { spawnManagedElectronChild, TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
+import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -129,6 +131,22 @@ const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
 // K=20 iterations × ~150 ms each ≈ 3 s probe runtime. Plus Electron boot
 // (typically 1-2 s on Linux runners). 30 s is a generous backstop.
 const SPAWN_TIMEOUT_MS = 30_000;
+
+// The enclosing vitest budget, DERIVED from the phases it must contain rather
+// than written down: the spawn budget, then the SIGTERM-to-SIGKILL grace, then
+// the shared reserve. The relation is the one `TEST_TIMEOUT_SLACK_MS` states —
+// this test's own deadline has to fire first, because a vitest timeout tears
+// the worker down and every pending timer in it, and the Electron that timer
+// was going to kill is then reparented to init. That is not hypothetical here:
+// four such orphans, carrying this file's own `sidekicks-gc-test-` profile
+// prefix, were found 25 minutes after the run that spawned them.
+//
+// The settle-time kill registered by `spawnManagedElectronChild`, and the
+// settle-time profile removal registered beside it, are what make the spawn
+// survivable even if this arithmetic is ever wrong again. Both, not either: the
+// derivation keeps the diagnostic path reachable, and the hooks keep the process
+// and its directory bounded when it is not.
+const GC_TEST_TIMEOUT_MS: number = SPAWN_TIMEOUT_MS + TERMINATION_GRACE_MS + TEST_TIMEOUT_SLACK_MS;
 
 interface GcProbe {
   readonly ok: boolean;
@@ -172,10 +190,29 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
   // second sees `gotTheLock === false`, calls `app.quit()`, and exits
   // with code 0 before the probe runs — a Shape-C failure that has nothing
   // to do with BrowserWindow GC reachability.
-  // `mkdtempSync` returns a unique path; the close handler removes it.
+  // `mkdtempSync` returns a unique path; `removeProfileDirectory` below is what
+  // takes it off disk, from both of the paths that can reach it.
   // `launch.smoke.test.ts` isolates its own profile the same way, for the
   // same reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
+
+  /**
+   * The ONE remover of this spawn's profile, reached from both paths.
+   *
+   * The settlement after a terminal event and the settle-time disposer
+   * registered below call this same function rather than each spelling `rmSync`
+   * for itself, and `force: true` is what lets both run on one spawn — the
+   * settlement having already removed the directory before the disposer asks
+   * again. Best-effort, because a leftover temporary profile is a housekeeping
+   * fact and raising it would replace the result the reader came for.
+   */
+  const removeProfileDirectory = (): void => {
+    try {
+      rmSync(userDataDir, { recursive: true, force: true });
+    } catch {
+      // See above: the test's own result is the one that explains the run.
+    }
+  };
 
   // `--js-flags=--expose-gc` MUST precede the entry script so Electron
   // forwards it to the underlying Chromium/V8 child. The probe's GC-pressure
@@ -193,7 +230,17 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
   const { SIDEKICKS_SMOKE_PROBE: _drop, ...envWithoutSmoke } = process.env;
 
   return new Promise<SpawnResult>((resolve) => {
-    const child = spawn(spawnCommand, spawnArguments, {
+    // Through the shared owner, which is what makes this spawn survivable.
+    // Two things it supplies that the superseded shape could not: the child
+    // leads its own process group, so the kill reaches the browser process
+    // behind the `node_modules/.bin/electron` shim rather than orphaning it —
+    // SIGKILL is unforwardable, so signalling the shim alone was how the
+    // measured orphans were made — and the kill is registered on
+    // `onTestFinished`, so it runs on every outcome this test has rather than
+    // only on the one a timer was armed for.
+    const managed = spawnManagedElectronChild({
+      command: spawnCommand,
+      args: spawnArguments,
       cwd: PACKAGE_ROOT,
       env: {
         ...envWithoutSmoke,
@@ -201,16 +248,29 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
         // No focus steal on the operator's machine; see `src/main/window-reveal.ts`.
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       },
-      stdio: ["ignore", "pipe", "pipe"],
     });
+    // The profile outlives the child unless something removes it on the paths
+    // the child's own events do not reach. `spawnManagedElectronChild` already
+    // bound the KILL to this test; this binds the REMOVAL to it, after the kill
+    // has landed. Without it a vitest timeout — the one outcome that runs
+    // neither `close` nor `error` — left the `sidekicks-gc-test-` profile on
+    // disk for the rest of the run to accumulate, which is how four of them were
+    // found beside four orphans.
+    cleanUpAfterChildAtSettleTime(managed, removeProfileDirectory);
+
+    const child = managed.child;
 
     let stdout = "";
     let stderr = "";
     let probe: GcProbe | null = null;
     let pending = "";
 
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
+    const spawnDeadline = setTimeout(() => {
+      // SIGTERM first so the shim forwards it and Electron closes the inherited
+      // stdout write end this promise's `close` is waiting on; SIGKILL to the
+      // whole group after the grace, because a hung Electron ignores the first
+      // and a hung Electron is the only reason this fires.
+      managed.terminateWithEscalation(TERMINATION_GRACE_MS);
     }, SPAWN_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -237,16 +297,18 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
     });
 
     const cleanup = (): void => {
-      try {
-        rmSync(userDataDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup. A leftover temp dir is harmless;
-        // surfacing the cleanup error would mask the actual test result.
-      }
+      // Releases the escalation timer and, on the ordinary `close` path, signals
+      // NOTHING: by then the child is reaped and its pid — and the group it led
+      // — are the operating system's to reissue, which is why disposal reads the
+      // `close` `ManagedElectronChild` recorded rather than asking for a kill.
+      // On the spawn-`error` path it is the only kill there is, and the pid it
+      // would need does not exist, so the direct handle is what it reaches.
+      managed.dispose();
+      removeProfileDirectory();
     };
 
     child.on("error", (err: Error) => {
-      clearTimeout(timeout);
+      clearTimeout(spawnDeadline);
       cleanup();
       resolve({
         probe: null,
@@ -259,7 +321,7 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
     });
 
     child.on("close", (exitCode, signal) => {
-      clearTimeout(timeout);
+      clearTimeout(spawnDeadline);
       cleanup();
       resolve({
         probe,
@@ -376,6 +438,6 @@ describe("BrowserWindow lifecycle reachability", () => {
       expect(result.exitCode).toBe(0);
       expect(result.signal).toBe(null);
     },
-    SPAWN_TIMEOUT_MS + 5_000,
+    GC_TEST_TIMEOUT_MS,
   );
 });

@@ -15,11 +15,22 @@
 // two object literals. The arithmetic that keeps the allowance inside its tier is
 // a different subject and is `launch-deadline.test.ts`'s; the close these cases
 // assert still runs is `bounded-cleanup.test.ts`'s.
+//
+// THE SAME ARITHMETIC ONE LAYER IN, which is why the palette's opening is here
+// rather than in a file of its own. `console-launch-body`'s derivation counts a
+// palette opening as ONE ten-second phase and `openPalette` performs two waits
+// inside it, so "what does the second wait get" is this allowance's own question
+// asked about a step. It is driven through the real helper against a scripted
+// window on the stopped clock the cases above already use, because a case proving
+// the second wait gets the REMAINDER cannot be made to wait one out.
 
+import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
-import { BodyAllowance, withBoundedBody } from "../launch-body.js";
+import { BodyAllowance, IN_WINDOW_STEP_TIMEOUT_MS, withBoundedBody } from "../launch-body.js";
 import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "../launch-budgets.js";
+import { LaunchDeadline } from "../launch-deadline.js";
+import { openPalette } from "../palette-interaction.js";
 
 /** An allowance short enough that exhausting it costs the suite nothing. */
 const TEST_ALLOWANCE_MS = 200;
@@ -212,6 +223,168 @@ describe("body allowance — the close runs whichever way the body went", () => 
       ),
     ).resolves.toBe("asserted");
     expect(application.closed()).toBe(true);
+  });
+});
+
+/** What a palette that opened but has not taken focus reports, as the reader names it. */
+const UNFOCUSED_READING = "present-unfocused";
+
+/** What the opening phase has left for the focus poll in the control below. */
+const LEFT_FOR_THE_POLL_MS = 300;
+
+/** The sentence `openPalette` gives when focus never arrived, matched by its distinctive half. */
+const FOCUS_DIAGNOSTIC = /never moved focus into its input/u;
+
+/** What one scripted window is told to do, and the clock its dialog wait spends. */
+interface PaletteWindowScript {
+  /** How much of the opening phase the dialog wait consumes before it resolves. */
+  readonly dialogSpendMs: number;
+  /** What every focus read reports — the palette's state for the whole poll. */
+  readonly focusReading: string;
+  /** The stopped clock the dialog wait advances, so no case waits a phase out. */
+  readonly advanceClock: (byMs: number) => void;
+}
+
+/**
+ * A window that answers `openPalette`'s three questions and records what it was asked.
+ *
+ * A stand-in for the PAGE and never for the helper, which is imported real. It
+ * supplies the two facts a Chromium supplies too slowly to assert about — a
+ * dialog that appears after some of the phase has gone, an input that never takes
+ * focus — plus the reading no Playwright API exposes: the timeout a wait received.
+ */
+class PaletteStubWindow {
+  readonly #script: PaletteWindowScript;
+  #dialogTimeoutMs: number | null = null;
+  #focusReads = 0;
+
+  constructor(script: PaletteWindowScript) {
+    this.#script = script;
+  }
+
+  /** The timeout the dialog wait was handed — the phase, before anything had spent it. */
+  get dialogTimeoutMs(): number | null {
+    return this.#dialogTimeoutMs;
+  }
+
+  /** How many times the focus reading was taken, so no assertion passes over an unrun poll. */
+  get focusReads(): number {
+    return this.#focusReads;
+  }
+
+  readonly keyboard = {
+    press: (): Promise<void> => Promise.resolve(),
+  };
+
+  getByRole(): { readonly waitFor: (options: { readonly timeout: number }) => Promise<void> } {
+    return {
+      waitFor: (options: { readonly timeout: number }): Promise<void> => {
+        this.#dialogTimeoutMs = options.timeout;
+        this.#script.advanceClock(this.#script.dialogSpendMs);
+        return Promise.resolve();
+      },
+    };
+  }
+
+  evaluate(): Promise<string> {
+    this.#focusReads += 1;
+    return Promise.resolve(this.#script.focusReading);
+  }
+
+  /** The cast every Playwright stand-in in this package makes at its boundary. */
+  asPage(): Page {
+    return this as unknown as Page;
+  }
+}
+
+describe("palette opening — two waits, one phase of the body allowance", () => {
+  it("hands the dialog wait the whole phase, and returns the input once focus lands", async () => {
+    // The ordinary run, and the non-vacuity every case below rests on: the
+    // helper still opens, still reads focus, and still returns the combobox.
+    const clock = stoppedClock(1_000);
+    const consoleWindow = new PaletteStubWindow({
+      dialogSpendMs: 2_000,
+      focusReading: "focused",
+      advanceClock: clock.advance,
+    });
+    const allowance = new BodyAllowance(BODY_ALLOWANCE_MS, clock.now);
+
+    await expect(
+      openPalette({ window: consoleWindow.asPage(), bodyAllowance: allowance }, clock.now),
+    ).resolves.toBeDefined();
+
+    expect(
+      consoleWindow.dialogTimeoutMs,
+      "the dialog wait was not handed the whole opening phase",
+    ).toBe(IN_WINDOW_STEP_TIMEOUT_MS);
+    expect(consoleWindow.focusReads).toBeGreaterThanOrEqual(1);
+  });
+
+  it("fails on the focus reading INSIDE the phase when the dialog spent all of it", async () => {
+    // THE FINDING. Two waits each declaring `IN_WINDOW_STEP_TIMEOUT_MS` is a
+    // palette opening entitled to twenty seconds against a row that budgets ten,
+    // so an opening that is slow but in bound spent the body's allowance on
+    // behalf of every step after it — and the first of those was then killed by
+    // the enclosing race with the generic overrun in place of its own sentence.
+    // Sharing the phase makes the second wait's remainder zero, so the failure is
+    // the focus diagnostic and it arrives inside the ten seconds already paid for.
+    const clock = stoppedClock(1_000);
+    const consoleWindow = new PaletteStubWindow({
+      dialogSpendMs: IN_WINDOW_STEP_TIMEOUT_MS,
+      focusReading: UNFOCUSED_READING,
+      advanceClock: clock.advance,
+    });
+    const allowance = new BodyAllowance(BODY_ALLOWANCE_MS, clock.now);
+
+    const startedAt = Date.now();
+    await expect(
+      openPalette({ window: consoleWindow.asPage(), bodyAllowance: allowance }, clock.now),
+    ).rejects.toThrow(FOCUS_DIAGNOSTIC);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(
+      consoleWindow.focusReads,
+      "the focus poll never ran, so it failed on nothing",
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      elapsedMs,
+      "the focus poll ran past the phase the dialog had already spent — it was handed a second full bound",
+    ).toBeLessThan(IN_WINDOW_STEP_TIMEOUT_MS);
+  });
+
+  it("negative control: the poll spends the REMAINDER, and a per-wait phase would restore the whole bound", async () => {
+    // Two halves of one control. First, the case above is not passing on a poll
+    // that never waits: leave the phase 300 ms and the rejection arrives about
+    // 300 ms later, so what the poll receives really is what the dialog left.
+    // Second, the shape this fix removed, through the same real classes — a phase
+    // minted per wait is unspent when the focus poll asks, so it hands back the
+    // whole bound again and the pair costs twice what the row pays for.
+    const clock = stoppedClock(1_000);
+    const consoleWindow = new PaletteStubWindow({
+      dialogSpendMs: IN_WINDOW_STEP_TIMEOUT_MS - LEFT_FOR_THE_POLL_MS,
+      focusReading: UNFOCUSED_READING,
+      advanceClock: clock.advance,
+    });
+    const allowance = new BodyAllowance(BODY_ALLOWANCE_MS, clock.now);
+    // Minted from the same clock at the same instant the call mints its own, so
+    // this reads exactly what the helper's phase reads without reaching into it.
+    const phaseAsTheCallMintsIt = new LaunchDeadline(IN_WINDOW_STEP_TIMEOUT_MS, clock.now);
+
+    const startedAt = Date.now();
+    await expect(
+      openPalette({ window: consoleWindow.asPage(), bodyAllowance: allowance }, clock.now),
+    ).rejects.toThrow(FOCUS_DIAGNOSTIC);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(phaseAsTheCallMintsIt.remainingMs()).toBe(LEFT_FOR_THE_POLL_MS);
+    expect(
+      elapsedMs,
+      "the focus poll returned without spending the remainder, so the case above proves nothing",
+    ).toBeGreaterThanOrEqual(LEFT_FOR_THE_POLL_MS - 50);
+    expect(
+      allowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      "the superseded figure is no longer the whole bound, so this control no longer reproduces the overspend",
+    ).toBe(IN_WINDOW_STEP_TIMEOUT_MS);
   });
 });
 

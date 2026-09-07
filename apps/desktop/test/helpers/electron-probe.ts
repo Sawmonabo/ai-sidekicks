@@ -8,10 +8,13 @@
 // tree — and none of it decides whether a reading is acceptable. That decision
 // is the suite's, and it stayed there.
 //
-// The harness asserts nothing and imports no test framework, deliberately. A
-// helper that could fail a test would be a second place a smoke failure can come
-// from, and the diagnostics below exist precisely because a failure here has to
-// be legible from OUTSIDE the process it describes.
+// The harness asserts nothing, deliberately. A helper that could fail a test
+// would be a second place a smoke failure can come from, and the diagnostics
+// below exist precisely because a failure here has to be legible from OUTSIDE
+// the process it describes. It reaches one test-framework symbol and only
+// through `electron-child.ts`, which registers the settle-time kill on
+// `onTestFinished` — a teardown registrar, not an assertion API, and the reason
+// a stalled Electron cannot outlive the test that spawned it.
 //
 // It is not a mock and has no fixture mode: every function here drives the real
 // binary. `../../src/main/probes/smoke-probe.ts` is the other half of the same
@@ -19,14 +22,16 @@
 // their marker strings by restating them, which the suite's own scanner cases
 // keep honest.
 
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
-import { terminateProcessTree } from "./process-tree.js";
+import { cleanUpAfterChildAtSettleTime } from "./electron-child-cleanup.js";
+import { spawnManagedElectronChild, TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
+import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -175,15 +180,6 @@ export const FORCED_DISPLAY_READY_TIMEOUT_MS = 1_000;
 // bare timeout. Consulted ONLY by this file; the shipped app never reads it.
 export const FORCED_DISPLAY_ENV = "SIDEKICKS_SMOKE_FORCE_DISPLAY";
 
-// Grace period between the SIGTERM issued at the spawn deadline and the
-// SIGKILL backstop. `node_modules/.bin/electron` is a Node shim that spawns
-// the real binary with `stdio: "inherit"` and forwards only the catchable
-// signals; SIGKILLing the shim outright orphans an Electron process that
-// still holds the inherited stdout write end, which delays this test's
-// `close` event past the vitest deadline. SIGTERM lets the shim forward and
-// the browser process exit; SIGKILL only if it does not.
-export const TERMINATION_GRACE_MS = 2_000;
-
 // Wall bound for the WHOLE at-deadline diagnostic collection, and the per-probe
 // bound inside it.
 //
@@ -202,10 +198,6 @@ export const TERMINATION_GRACE_MS = 2_000;
 // below closed-form rather than a sum of independent worst cases.
 export const DIAGNOSTIC_PROBE_TIMEOUT_MS = 1_500;
 export const DIAGNOSTIC_BUDGET_MS = 3_000;
-
-// Slack over and above the three bounded phases, covering the spawn itself,
-// the `close` event after SIGTERM, and temp-profile cleanup.
-export const TEST_TIMEOUT_SLACK_MS = 3_000;
 
 // Ceiling the stalled-boot control asserts the MEASURED collection against.
 //
@@ -623,32 +615,6 @@ function renderDiagnosticDump(result: SpawnResult): string {
   );
 }
 
-// Signals the ENTIRE spawned tree, not just the wrapper. The direct child is a
-// shim on both spawn paths — the `node_modules/.bin/electron` Node launcher, or
-// `xvfb-run` on headless Linux — and a signal delivered to the shim alone
-// reaches the real browser process only if the shim survives to forward it.
-// SIGKILL cannot be forwarded by definition, so killing the shim outright
-// orphans the browser holding the inherited stdout write end: `close` never
-// fires, the "bounded" spawn promise never settles, and the orphan keeps its
-// profile lock.
-//
-// HOW the tree is reached is `process-tree.ts`, shared with the console
-// launcher, which spawns Electron for its own tiers. The copy that used to sit
-// here and that launcher's copy had already diverged — only one of them read
-// `taskkill`'s exit status, so the other reported kills it had not performed.
-//
-// The direct-handle fallback stays here and nowhere else: it answers a question
-// the shared helper cannot be asked — a child that never received a pid, which
-// is a spawn that failed outright — and is reachable only from a caller holding
-// the handle. The group-already-reaped case (ESRCH) is the helper's.
-function terminateElectronTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.pid === undefined) {
-    child.kill(signal);
-    return;
-  }
-  terminateProcessTree(child.pid, signal);
-}
-
 /**
  * Line-buffered scanner for the readiness breadcrumb trail on ONE stream.
  *
@@ -729,6 +695,28 @@ export function spawnElectron(): Promise<SpawnResult> {
   // this reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-smoke-test-"));
 
+  /**
+   * The ONE remover of this spawn's profile, reached from all three paths.
+   *
+   * The refusal before the spawn, the settlement after `close`, and the
+   * settle-time disposer registered below all call this same function rather
+   * than each spelling `rmSync` for itself. `force: true` makes it idempotent,
+   * which is what lets two of those paths run on one spawn — a `close` arriving
+   * after a spawn `error`, or a settlement that already removed the directory
+   * before the disposer asks again.
+   *
+   * Best-effort, because it always was: a leftover temporary profile is a
+   * housekeeping fact, and raising it here would replace whichever result the
+   * caller actually came for.
+   */
+  const removeProfileDirectory = (): void => {
+    try {
+      rmSync(userDataDir, { recursive: true, force: true });
+    } catch {
+      // See above: the caller's own result is the one that explains the run.
+    }
+  };
+
   // Readiness gate. A display that is named but not serving is the one boot
   // precondition this harness can check cheaply and BEFORE spawning, so it is
   // checked here rather than discovered as a spawn-budget silence. On CI the job-level
@@ -753,13 +741,7 @@ export function spawnElectron(): Promise<SpawnResult> {
         diagnosticCollectionMs: null,
         childDisplay,
       };
-      try {
-        rmSync(userDataDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort, exactly as in `settle()`: a leftover temp profile is
-        // harmless, and surfacing a cleanup error here would mask the refusal
-        // this path exists to report.
-      }
+      removeProfileDirectory();
       return Promise.resolve(refusal);
     }
   }
@@ -781,7 +763,14 @@ export function spawnElectron(): Promise<SpawnResult> {
   const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
   return new Promise<SpawnResult>((resolve) => {
-    const child = spawn(spawnCommand, spawnArguments, {
+    // Through the shared owner rather than a bare `spawn`, so the child's
+    // lifetime is bound to this TEST and not to the timers below: the deadline
+    // covers a stalled boot, and the settle-time registration covers every
+    // other way the test ends — a pass, an assertion failure, and vitest's own
+    // timeout kill, none of which runs a timer armed for a stall.
+    const managed = spawnManagedElectronChild({
+      command: spawnCommand,
+      args: spawnArguments,
       cwd: PACKAGE_ROOT,
       env: {
         // Under the forced-stall override the probe opt-in is DROPPED from the
@@ -838,13 +827,17 @@ export function spawnElectron(): Promise<SpawnResult> {
           ? { DBUS_SESSION_BUS_ADDRESS: "disabled:", NO_AT_BRIDGE: "1" }
           : {}),
       },
-      stdio: ["ignore", "pipe", "pipe"],
-      // POSIX: lead a NEW process group so the timeout escalation can signal
-      // the whole tree (shim + browser + renderer/GPU children) at once — see
-      // `terminateElectronTree`. Never detached on Windows, where the flag
-      // means a detached console rather than a process group.
-      detached: process.platform !== "win32",
     });
+    // The profile outlives the child unless something removes it on the paths
+    // the child's own events do not reach. `spawnManagedElectronChild` already
+    // bound the KILL to this test; this binds the REMOVAL to it, after the kill
+    // has landed — see `electron-child-cleanup.ts` for why the wait between them
+    // is load-bearing rather than defensive.
+    cleanUpAfterChildAtSettleTime(managed, removeProfileDirectory);
+
+    // The stream wiring below reads the handle; every kill goes through
+    // `managed`, which owns the process group the detached spawn created.
+    const child = managed.child;
 
     let stdout = "";
     let stderr = "";
@@ -862,7 +855,6 @@ export function spawnElectron(): Promise<SpawnResult> {
     // (probe present in output, fragmented across chunks, never matched)
     // is a debugging nightmare we cheaply avoid by buffering.
     let pending = "";
-    let escalationTimer: NodeJS.Timeout | null = null;
     let deadlineFired = false;
     let collectionMs: number | null = null;
 
@@ -908,27 +900,23 @@ export function spawnElectron(): Promise<SpawnResult> {
           `(budget ${String(DIAGNOSTIC_BUDGET_MS)}ms, ` +
           `ceiling ${String(DIAGNOSTIC_COLLECTION_CEILING_MS)}ms)`,
       );
-      terminateElectronTree(child, "SIGTERM");
-      escalationTimer = setTimeout(() => {
-        terminateElectronTree(child, "SIGKILL");
-      }, TERMINATION_GRACE_MS);
+      managed.terminateWithEscalation(TERMINATION_GRACE_MS);
     }, spawnBudgetMs);
 
     // Single settle path so both timers and the temporary profile are
-    // disposed exactly once whichever terminal event fires first.
-    // `rmSync` with `force: true` is idempotent, so a `close` arriving
-    // after a spawn `error` cannot fail here.
+    // disposed exactly once whichever terminal event fires first. This is the
+    // FAST path and not the only one: it runs when a terminal event arrived, and
+    // the settle-time registration above is what covers the outcomes where none
+    // does — vitest's own timeout being the one that left profiles behind.
     const settle = (result: SpawnResult): void => {
       clearTimeout(spawnDeadline);
-      if (escalationTimer !== null) {
-        clearTimeout(escalationTimer);
-      }
-      try {
-        rmSync(userDataDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup. A leftover temp profile is harmless;
-        // surfacing the cleanup error would mask the actual test result.
-      }
+      // Releases the escalation timer and, on the ordinary `close` path, signals
+      // NOTHING: by then the child is reaped and its pid — and the group it led
+      // — are the operating system's to reissue, which is why disposal reads the
+      // `close` `ManagedElectronChild` recorded rather than asking for a kill.
+      // On the spawn-`error` path it is the only thing that runs at all.
+      managed.dispose();
+      removeProfileDirectory();
       resolve(result);
     };
 
