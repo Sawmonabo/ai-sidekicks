@@ -42,10 +42,15 @@
 //     second would go on passing if the surface emptied.
 //
 // THE SECTION IS DRAWN FROM THE SCENARIO, NOT FROM A HAND-BUILT READING.
-// `REPOS_SCENARIO` states two mounts on purpose — a git checkout and a plain
-// directory — and one of them answers `unreachable`, which is the degraded mount
-// this tier exists to pin. Building that reading here would pin a state the fixture
-// could stop producing without either tier noticing.
+// `REPOS_SCENARIO` states three mounts on purpose — a git checkout, a plain
+// directory, and a git checkout that is no longer the repository it was attached as
+// — and two of them answer on the failing health verdicts, `unreachable` and
+// `identity_mismatch`. Those are the degraded mounts this tier exists to pin, and
+// they are separate rows because neither verdict is reachable from the other's mount:
+// `identity_mismatch` needs a persisted identity anchor a plain directory has none
+// of, and the unreachable row's path is the thing that stopped answering. Building
+// either reading here would pin a state the fixture could stop producing without
+// either tier noticing.
 
 import { renderSettled } from "../console-harness.js";
 import {
