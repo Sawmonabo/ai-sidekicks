@@ -32,12 +32,7 @@ import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
 import { useAttachController, type AttachReading } from "./attach-controller.js";
-import {
-  attachFormVerdict,
-  EMPTY_ATTACH_FORM,
-  soleNodeIdOf,
-  type AttachFormState,
-} from "./attach-model.js";
+import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-model.js";
 import { NodePicker } from "./NodePicker.js";
 
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */
@@ -57,7 +52,13 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
     props.sessionStore,
   );
   const [form, setForm] = useState<AttachFormState>(EMPTY_ATTACH_FORM);
-  const verdict = attachFormVerdict(form);
+  // THE ROSTER ON SCREEN IS AN INPUT TO BOTH HALVES OF THIS DIALOG, which is what keeps
+  // the picker and the Attach button from disagreeing: the sole-node default that makes
+  // the radio checked is the same reading that makes the control open, and a refresh
+  // that drops the picked node clears the radio and shuts the control in one act.
+  const servedNodes =
+    reading.prerequisite.status === "read" ? reading.prerequisite.value : undefined;
+  const { selectedNodeId, verdict } = resolveAttachForm(form, servedNodes);
 
   const openChanged = useCallback(
     (isOpen: boolean) => {
@@ -132,7 +133,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
             />
           </label>
 
-          {renderRoster(reading, form.nodeId, selectNode, retryRoster)}
+          {renderRoster(reading, selectedNodeId, selectNode, retryRoster)}
           {renderSettlement(reading)}
 
           <div className="meridian-repo-attach__acts">
@@ -206,10 +207,13 @@ function renderRoster(
       ) : (
         <NodePicker
           options={reading.prerequisite.value}
-          // The sole node is pre-selected because there is no decision to make; two or
-          // more and the console states none, because the path is on one of them and
-          // only the participant knows which.
-          selectedNodeId={selectedNodeId ?? soleNodeIdOf(reading.prerequisite.value)}
+          // ALREADY RESOLVED AGAINST THIS ROSTER, by `resolveAttachForm`. The sole node
+          // arrives here pre-selected because there is no decision to make; two or more
+          // and nothing is checked, because the path is on one of them and only the
+          // participant knows which. The fallback used to be written here, which is how
+          // the picker and the verdict came to disagree — a checked radio the form never
+          // held, over a control that would not send.
+          selectedNodeId={selectedNodeId}
           groupName={NODE_GROUP_NAME}
           onSelect={onSelect}
         />

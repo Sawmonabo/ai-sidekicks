@@ -26,11 +26,20 @@ import {
   type WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
 
+import { resolveServedSelection, selectedChoiceOf, type ServedSelection } from "../form/index.js";
+
 /** What the bind dialog holds while it is open. */
 export interface BindFormState {
   /** Exactly what was typed, or empty for the mount root. Never normalised here. */
   readonly directory: string;
-  /** The mode picked. Never defaulted by this console — see `bindFormVerdict`. */
+  /**
+   * The mode a participant PICKED, or none picked yet.
+   *
+   * NEVER THE DAEMON'S DEFAULT. That default is derived per read by
+   * {@link resolveBindForm} from the capabilities on screen, so a reopened dialog gets
+   * it again and a refresh that withdraws it takes it away — neither of which a value
+   * written in here could do, because form state has no idea which read it came from.
+   */
   readonly executionMode: ExecutionMode | undefined;
 }
 
@@ -46,13 +55,52 @@ export type BindFormVerdict =
     }
   | { readonly status: "incomplete"; readonly because: string };
 
+/** One form read against what the mount admits: the mode it is on, and its verdict. */
+export interface BindFormResolution {
+  /**
+   * The mode the picker draws as checked, which is the mode the verdict would send.
+   *
+   * ONE READING SERVING BOTH. The picker drew from the capabilities read and the verdict
+   * read the form alone, so a refresh that withdrew the held mode drew the row excluded
+   * and left the button beside it open over exactly that mode.
+   */
+  readonly selectedMode: ExecutionMode | undefined;
+  readonly verdict: BindFormVerdict;
+}
+
 /**
- * Read one bind form, and say whether it is a request.
+ * Read one bind form against the capabilities that are currently served.
  *
- * THE MODE IS NEVER DEFAULTED, which is the contract's own rule read from the client
- * side: `repo.workspaceBind` refuses to make "the caller omitted a mode" and "the caller
- * chose `read-only`" the same request, and a default written into this form would put
- * that distinction back where nobody could see it.
+ * THE DAEMON'S DEFAULT IS DERIVED HERE RATHER THAN WRITTEN INTO THE FORM, which is what
+ * makes it survive a close: a pre-fill applied once per mount needs a memory of having
+ * been applied, and that memory outlived the form it was about — so a dialog reopened on
+ * the same mount met a picker with nothing chosen and a control that would not send.
+ *
+ * IT IS STILL NOT A GUESS OF THE CONSOLE'S, which is the rule `repo.workspaceBind`'s own
+ * refusal to conflate "omitted a mode" with "chose `read-only`" is about. The value
+ * comes from `defaultMode` on the mount's own reply, and a reply that names one outside
+ * its own `availableModes` resolves to nothing at all.
+ *
+ * `undefined` where the read has not answered, which is a different fact from a mount
+ * that admits nothing: the first cannot confirm a pick, the second withdraws one.
+ */
+export function resolveBindForm(
+  form: BindFormState,
+  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse | undefined,
+): BindFormResolution {
+  const selection = resolveServedSelection<ExecutionMode>({
+    chosen: form.executionMode,
+    servedChoices: capabilities?.availableModes,
+    defaultChoice: capabilities === undefined ? undefined : defaultBindMode(capabilities),
+  });
+  return {
+    selectedMode: selectedChoiceOf(selection),
+    verdict: bindVerdictFor(form, selection),
+  };
+}
+
+/**
+ * The verdict itself, once the mode question has an answer.
  *
  * AN EMPTY DIRECTORY IS OMITTED RATHER THAN SENT, because the wire's absent member means
  * the mount root and an empty string does not — it is a path, and a path of no
@@ -61,22 +109,44 @@ export type BindFormVerdict =
  * WHAT IS TYPED IS WHAT IS SENT. The emptiness test reads a trimmed copy; a leading or
  * trailing space is a legal POSIX filename character, so trimming on the way out would
  * bind a different directory from the one that was named.
+ *
+ * EACH CLOSED ARM NAMES ITS OWN FACT. A withdrawn mode and a read that has not answered
+ * shut the control for different reasons, and one sentence covering both would be false
+ * about whichever it was not written for.
  */
-export function bindFormVerdict(form: BindFormState): BindFormVerdict {
+function bindVerdictFor(
+  form: BindFormState,
+  selection: ServedSelection<ExecutionMode>,
+): BindFormVerdict {
   if (form.directory.length > REPO_PATH_MAX_LEN) {
     return {
       status: "incomplete",
       because: `That directory is ${String(form.directory.length)} characters. The wire accepts ${String(REPO_PATH_MAX_LEN)}.`,
     };
   }
-  if (form.executionMode === undefined) {
-    return { status: "incomplete", because: "Choose the execution mode this workspace binds in." };
+  switch (selection.status) {
+    case "resolved":
+      return {
+        status: "sendable",
+        executionMode: selection.choice,
+        directory: form.directory.trim().length === 0 ? undefined : form.directory,
+      };
+    case "withdrawn":
+      return {
+        status: "incomplete",
+        because: "That mode is no longer one this mount admits. Choose one of the modes listed.",
+      };
+    case "unserved":
+      return {
+        status: "incomplete",
+        because: "What this mount admits has not answered, so the mode chosen cannot be confirmed.",
+      };
+    case "unresolved":
+      return {
+        status: "incomplete",
+        because: "Choose the execution mode this workspace binds in.",
+      };
   }
-  return {
-    status: "sendable",
-    executionMode: form.executionMode,
-    directory: form.directory.trim().length === 0 ? undefined : form.directory,
-  };
 }
 
 /** The mode to pre-fill: the daemon's own default, and never a guess of the console's. */
