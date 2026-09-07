@@ -64,6 +64,7 @@ function renderCard(
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}
         onSelectExecutionMode={() => undefined}
+        onRequestRead={() => undefined}
         {...overrides}
       />
     </LiveAnnouncerProvider>,
@@ -239,5 +240,77 @@ describe("the in-place root's gate", () => {
     const { container, queryByText } = renderCard();
     expect(container.querySelector("details.meridian-root-gate")).toBeNull();
     expect(queryByText("subject-not-addressable")).toBeNull();
+  });
+});
+
+describe("MountCard — the drifted mount and its one control", () => {
+  it("offers the re-attach on a mount whose identity no longer matches", () => {
+    // The one verdict that carries a control, and only that one: `unreachable` may
+    // resolve on its own, so offering a re-attach there would push a person into
+    // minting a second mount for a path that is about to answer again.
+    const { getByLabelText } = renderCard({
+      mount: mount({
+        health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
+      }),
+    });
+    expect(getByLabelText(`Re-attach ${ENTERED_PATH}`)).toBeDefined();
+  });
+
+  it("negative control: a healthy mount offers no re-attach", () => {
+    const { queryByText } = renderCard();
+    expect(queryByText("Re-attach this path")).toBeNull();
+  });
+
+  it("negative control: an unreachable mount offers no re-attach either", () => {
+    const { queryByText } = renderCard({
+      mount: mount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
+    });
+    expect(queryByText("Re-attach this path")).toBeNull();
+  });
+
+  it("says the mount is not repaired, and that a new row is minted", () => {
+    const { getByText } = renderCard({
+      mount: mount({
+        health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
+      }),
+    });
+    // The card states the consequence before the confirm does, because a participant
+    // reads the card before they press anything.
+    expect(getByText(/mints a new mount/)).toBeDefined();
+  });
+});
+
+describe("MountCard — the bind entry point", () => {
+  it("offers a bind on an attached, healthy mount", () => {
+    // Attach mints one `read-only` workspace and nothing more, so this trigger is
+    // where every writable workspace in a session comes from.
+    const { getByText } = renderCard();
+    expect(getByText("Bind a workspace")).toBeDefined();
+  });
+
+  it("negative control: an unreachable mount offers no bind", () => {
+    // The card already carries the reason on its withheld line; a control the daemon
+    // would refuse anyway would be a second, worse statement of the same fact.
+    const { queryByText } = renderCard({
+      mount: mount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
+    });
+    expect(queryByText("Bind a workspace")).toBeNull();
+  });
+
+  it("negative control: a detached mount offers no bind", () => {
+    const { queryByText } = renderCard({ mount: mount({ state: "detached" }) });
+    expect(queryByText("Bind a workspace")).toBeNull();
+  });
+
+  it("negative control: a drifted mount offers the re-attach and no bind", () => {
+    // The two controls are mutually exclusive by construction: `bindControlPosture`
+    // withholds on any non-healthy verdict, and the re-attach draws on exactly one.
+    const { getByLabelText, queryByText } = renderCard({
+      mount: mount({
+        health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
+      }),
+    });
+    expect(getByLabelText(`Re-attach ${ENTERED_PATH}`)).toBeDefined();
+    expect(queryByText("Bind a workspace")).toBeNull();
   });
 });

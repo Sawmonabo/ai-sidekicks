@@ -42,6 +42,45 @@ describe("mount-health — the health axis", () => {
   });
 });
 
+describe("mount-health — the third verdict", () => {
+  it("reads `identity_mismatch` as its own verdict rather than a second unreachable", () => {
+    // `Spec-009 §Repo Mount Health (V1 Definition)` registers three statuses. Before
+    // the contract carried the third, this reading did not exist and a drifted mount
+    // could not be rendered at all.
+    const drifted = mountHealthReading({
+      status: "identity_mismatch",
+      checkedAt: "2026-01-01T00:00:00Z",
+    });
+    const unreachable = mountHealthReading({
+      status: "unreachable",
+      checkedAt: "2026-01-01T00:00:00Z",
+    });
+    expect(drifted.label).toBe("identity_mismatch");
+    expect(drifted.tone).toBe("failure");
+    expect(drifted.sentence).not.toBe(unreachable.sentence);
+  });
+
+  it("says the refusal is permanent, which is what separates it from unreachable", () => {
+    // An unreachable root can start answering again; a root holding a different
+    // repository cannot become the one that was attached, so waiting is the wrong move
+    // and the copy has to say so.
+    const drifted = mountHealthReading({
+      status: "identity_mismatch",
+      checkedAt: "2026-01-01T00:00:00Z",
+    });
+    expect(drifted.sentence).toContain("permanently");
+    expect(drifted.sentence).toContain("mints a new mount");
+  });
+
+  it("withholds the bind controls on a drifted mount, for that reason", () => {
+    const posture = bindControlPosture(
+      mount({ health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" } }),
+    );
+    expect(posture.offered).toBe(false);
+    expect(posture.offered === false && posture.withheldBecause).toContain("permanently");
+  });
+});
+
 describe("mount-health — the two axes never collapse", () => {
   it("negative control: no lifecycle word is also a health word", () => {
     // The failure this guards is not hypothetical: `stale` was rejected as a health

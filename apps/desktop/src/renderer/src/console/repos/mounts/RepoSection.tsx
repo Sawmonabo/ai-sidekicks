@@ -5,6 +5,7 @@ import { RefusalCard } from "../../primitives/index.js";
 
 import { type SidebarSectionContext } from "../../seats/index.js";
 
+import { AttachRepositoryDialog } from "./attach/AttachRepositoryDialog.js";
 import { useRepoMounts } from "./repo-mounts-binding.js";
 import { repoCallRefusal } from "../repo-reads.js";
 import { EphemeralCloneList } from "./EphemeralCloneList.js";
@@ -17,7 +18,7 @@ export interface RepoSectionProps {
 
 export function RepoSection(props: RepoSectionProps): React.JSX.Element {
   const { bridge, sessionStore, isOpen } = props.context;
-  const { reading, requestModeSelection } = useRepoMounts(bridge, sessionStore);
+  const { reading, requestModeSelection, requestRead } = useRepoMounts(bridge, sessionStore);
   const [copyRefusal, setCopyRefusal] = useState<ConsoleRefusal | undefined>(undefined);
 
   const copyCanonicalRoot = useCallback(
@@ -43,6 +44,17 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
 
   return (
     <div className="meridian-repo-section">
+      {/*
+        THE ATTACH ENTRY POINT SITS ABOVE THE LIST AND NOT INSIDE THE EMPTY CARD,
+        because a session that already holds one repository can attach a second: an
+        affordance that only appeared when the list was empty would make the first
+        attach reachable and every later one not.
+      */}
+      <AttachRepositoryDialog
+        bridge={bridge}
+        sessionStore={sessionStore}
+        onAttached={requestRead}
+      />
       <div className="meridian-repo-section__mounts">
         {reading.refusal !== undefined ? (
           <RefusalCard code={reading.refusal.code} detail={reading.refusal.detail} />
@@ -55,6 +67,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           bridge={bridge}
           sessionStore={sessionStore}
           onCopy={copyCanonicalRoot}
+          onRequestRead={requestRead}
           onSelect={requestModeSelection}
         />
         {/*
@@ -65,7 +78,12 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           valid execution roots off the screen because an unrelated mount could not be
           probed. What the list is allowed to say is decided by its OWN reading below.
         */}
-        <EphemeralCloneList reading={reading} bridge={bridge} sessionStore={sessionStore} />
+        <EphemeralCloneList
+          reading={reading}
+          bridge={bridge}
+          sessionStore={sessionStore}
+          onRequestRead={requestRead}
+        />
       </div>
     </div>
   );
