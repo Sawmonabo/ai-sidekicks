@@ -6,117 +6,56 @@
 // can reach right now is noise on every terminal pane that is not running anything.
 // So the sentence renders when there is something to step into and not otherwise.
 //
-// WHY THIS FAMILY FOLDS IT AT ALL. The runs family owns run rendering, and one view
-// family never imports another — so a boolean this pane needs cannot be taken from
-// there. What it can do is read the same log everything else reads, which is the
-// shape `node-presence-model.ts` already takes for the holding node: a narrow fold
-// beside the lease, answering one question, over registered event kinds only.
+// IT READS THE PROJECTION AND NOT THE LOG, and that is the whole of this module's
+// rule. A fold of its own over `session.subscribe` beats was a SECOND kind-to-state
+// mapping beside the run-lifecycle projector's, and the two disagreed exactly where
+// the wire is tolerant: `SessionEventSchema` registers no run-lifecycle payload
+// variant, so a `run.running` beat carrying `newState: "failed"` — or carrying no
+// state at all — arrives well-formed, and the projector refuses it precisely because a
+// recognized transition must supply the state it announces. A kind-keyed fold could
+// not see any of that. It read the kind, called the run running, and put a step-in
+// aside on a run the rest of the console does not consider running.
+//
+// SO THERE IS ONE SOURCE OF TRUTH and this surface consumes it: the `run` partition,
+// which holds what the projector admitted, read through the store's own selector. The
+// runs family owns run RENDERING and one view family never imports another — but the
+// store sits below both, so the reading this pane needs was always available without
+// re-deriving anything.
 //
 // AND IT IS NARROW ON PURPOSE. A steppable run is a RUNNING one. Stepping in pauses a
 // run, and a queued run has not started, a paused one is already stopped, a run
 // waiting on an approval or an input is stopped on something a step-in does not
 // supply, and a finished run cannot be paused at all. Every one of those is a state
-// the log names, so the answer is read rather than guessed — and the direction it errs
-// in is silence, which is the honest one for a sentence about a control.
+// the projection carries verbatim, so the answer is read rather than guessed — and the
+// direction it errs in is silence, which is the honest one for a sentence about a
+// control: a partition no projector has written to answers `false`.
 //
-// TOTAL AND PURE, on `lease-model.ts`'s discipline: given the same events, the same
-// answer, so a replayed prefix reads the same as a live stream.
+// TOTAL AND PURE, on `lease-model.ts`'s discipline: given the same projection, the
+// same answer.
 
-import type { SessionEventType } from "@ai-sidekicks/contracts";
+import type { RunState } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "../../store/index.js";
-
-/**
- * The one event kind that puts a run into a state a step-in can act on.
- *
- * Written as a `SessionEventType`, so a kind this console invents — or one a later
- * release renames — is a compile error rather than an arm that silently matches
- * nothing. That is `node-presence-model.ts`'s rule and the reason it is worth the
- * import: a fold keyed on a string nobody checks reports "nothing is running"
- * forever, and reads exactly like a session with no runs in it.
- */
-const RUN_ENTERS_STEPPABLE_EVENT_KINDS = [
-  "run.running",
-] as const satisfies readonly SessionEventType[];
+import type { ConsoleEntity } from "../../store/index.js";
 
 /**
- * The kinds that take a run back out of it.
+ * The one run state a step-in can act on.
  *
- * The five terminals plus the three live-but-stopped states. `run.queued` and
- * `run.starting` are absent for a different reason than the ones here: they precede
- * `run.running` rather than following it, so a run that reached neither was never
- * steppable and there is nothing for them to clear. Listing them would be harmless
- * and would also say something false about what they mean.
+ * Written as a `RunState`, so a state this console invents — or one a later release
+ * renames — is a compile error rather than a comparison that silently matches nothing.
+ * That is `node-presence-model.ts`'s rule and the reason it is worth the import: a
+ * fold keyed on a string nobody checks reports "nothing is running" forever, and reads
+ * exactly like a session with no runs in it.
  */
-const RUN_LEAVES_STEPPABLE_EVENT_KINDS = [
-  "run.paused",
-  "run.waiting_for_approval",
-  "run.waiting_for_input",
-  "run.completed",
-  "run.interrupted",
-  "run.failed",
-  "run.rolled_back",
-  "run.worker_shutdown",
-] as const satisfies readonly SessionEventType[];
-
-/** The run identity every run-scoped payload carries, or nothing. */
-function runIdOf(event: ConsoleSessionEvent): string | undefined {
-  const runId = event.payload?.["runId"];
-  return typeof runId === "string" && runId.length > 0 ? runId : undefined;
-}
-
-/** One run's newest word, and the position that word was written at. */
-interface SteppableReading {
-  readonly isSteppable: boolean;
-  readonly sequence: number;
-}
+const STEPPABLE_RUN_STATE: RunState = "running";
 
 /**
- * Whether the log's newest word on any run says it is running.
+ * Whether any run in this session's projection is running.
  *
- * Newest write wins PER RUN rather than across the session, because a session runs
- * several agents at once: a fold that kept one flag would have one run's completion
- * silence the aside while another run was still going.
- *
- * AND "NEWEST" IS THE LOG'S POSITION, not the order this loop happened to see the
- * events in. The store's timeline is ordered today, so the comparison below changes
- * nothing about a healthy stream — but a healed gap re-appends a prefix, and a fold
- * that took the last entry it saw would answer with a superseded word for exactly as
- * long as that prefix sat at the end. `foldProducedArtifacts` keeps the same rule for
- * the same reason, and two folds over one log disagreeing about which write is newer
- * is the drift worth spending three lines to avoid.
- *
- * A run-scoped event whose payload names no run is skipped rather than counted. The
- * registered shapes all carry `runId`, so a payload without one is not a payload the
- * daemon could have emitted — and admitting it would mean keying the fold on
- * something, which here could only be the session.
+ * The partition and not the timeline — see the header. A run the projection carries no
+ * state for is not steppable: the state is what the projector writes when a beat
+ * supplied one it accepted, and its absence is the absence of that fact rather than a
+ * state to interpret.
  */
-export function hasSteppableRun(timeline: readonly ConsoleSessionEvent[]): boolean {
-  const readingByRunId = new Map<string, SteppableReading>();
-  for (const event of timeline) {
-    const entersSteppable = (RUN_ENTERS_STEPPABLE_EVENT_KINDS as readonly string[]).includes(
-      event.kind,
-    );
-    const leavesSteppable = (RUN_LEAVES_STEPPABLE_EVENT_KINDS as readonly string[]).includes(
-      event.kind,
-    );
-    if (!entersSteppable && !leavesSteppable) {
-      continue;
-    }
-    const runId = runIdOf(event);
-    if (runId === undefined) {
-      continue;
-    }
-    const held = readingByRunId.get(runId);
-    if (held !== undefined && held.sequence > event.sequence) {
-      continue;
-    }
-    readingByRunId.set(runId, { isSteppable: entersSteppable, sequence: event.sequence });
-  }
-  for (const reading of readingByRunId.values()) {
-    if (reading.isSteppable) {
-      return true;
-    }
-  }
-  return false;
+export function hasSteppableRun(runs: Readonly<Record<string, ConsoleEntity>>): boolean {
+  return Object.values(runs).some((run) => run.state === STEPPABLE_RUN_STATE);
 }
