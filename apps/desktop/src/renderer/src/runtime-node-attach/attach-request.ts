@@ -129,8 +129,16 @@ interface InstalledControlPlaneBridge {
  * what was missing; the flow rendered it, and a reader learned that something was
  * `undefined`. The refusal below reaches the same branch and says which arm was taken
  * and what a host that resolves its own bridge should do instead.
+ *
+ * EXPORTED BECAUSE THE DEFAULT ARM NEEDS AN IDENTITY, not because a caller should be
+ * choosing it: the flow holds its settled state under the TRANSPORT it was settled
+ * through, and a caller supplying no seam is still on a transport — this one. Resolving
+ * the default at the call site rather than only inside {@link settleAttachRequest} is
+ * what gives that caller one stable object to be addressed by; composing a fresh
+ * object per render instead would re-address the holder on every pass and discard the
+ * receipt it is holding.
  */
-const installedBridgeAttachReads: RuntimeNodeAttachReads = {
+export const installedBridgeAttachReads: RuntimeNodeAttachReads = {
   attachNode: async (request) => {
     const installed = (globalThis as InstalledControlPlaneBridge).sidekicks?.controlPlane?.call;
     if (typeof installed !== "function") {
@@ -169,6 +177,39 @@ export type AttachViewState =
   | { kind: "pending" }
   | { kind: "resolved"; response: RuntimeNodeAttachResponse }
   | { kind: "rejected"; error: Error };
+
+/**
+ * The "this target has not been attached through this transport yet" answer, frozen.
+ *
+ * A module constant rather than a fresh literal on every seed, on the sibling roster's
+ * `ROSTER_NOT_READ` reasoning: the identity of the absence must not change between the
+ * passes that produce it, or a holder seeded twice for one address publishes a change
+ * nothing made.
+ */
+export const ATTACH_NOT_REQUESTED: AttachViewState = Object.freeze({ kind: "idle" });
+
+/** In flight, frozen for the same reason {@link ATTACH_NOT_REQUESTED} is. */
+export const ATTACH_IN_FLIGHT: AttachViewState = Object.freeze({ kind: "pending" });
+
+/**
+ * The attachment target this flow is addressed by, as one string.
+ *
+ * The flow's identity is the (session, node) PAIR — the attachment row's own identity,
+ * `UNIQUE(node_id, session_id)` on the roster response's `nodes` note — and the holder
+ * this key addresses compares a string, so the pair is derived here rather than
+ * compared field by field at the surface. The derivation is the CALLER's business by
+ * the holder family's own rule: only this flow knows which two facts are the subject.
+ *
+ * SEPARATED BY A CHARACTER NEITHER MEMBER CAN CONTAIN, on the proposal gate's
+ * precedent: both segments are branded identifiers, and a plain join would let a
+ * session id ending in a node id's prefix collide with a different pair.
+ */
+export function attachmentTargetKeyOf(
+  sessionId: SessionId,
+  nodeId: RuntimeNodeAttachDraft["nodeId"],
+): string {
+  return [sessionId, nodeId].join("\u0000");
+}
 
 /**
  * Issue the attach mutation for this target and settle it into a view state.
