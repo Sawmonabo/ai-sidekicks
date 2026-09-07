@@ -48,13 +48,19 @@ import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
-import { disposeWhenTestFinishes } from "../helpers/electron-child.js";
+import { disposeWhenTestFinishes, type SettleTimeRegistrar } from "../helpers/electron-child.js";
 import {
   BoundedCleanup,
   type CleanupOutcome,
+  type ClosableApplication,
   ELECTRON_PROCESS_TERMINATOR,
 } from "./bounded-cleanup.js";
-import { cleanupFailure, withCleanupOutcome, withProfileRemoval } from "./cleanup-disposition.js";
+import {
+  cleanupFailure,
+  closeAfterBody,
+  withCleanupOutcome,
+  withProfileRemoval,
+} from "./cleanup-disposition.js";
 import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
 import { composeLaunchArgs } from "./launch-args.js";
 import { BodyAllowance, withBoundedBody } from "./launch-body.js";
@@ -285,6 +291,50 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
 }
 
 /**
+ * Bind `application`'s close to the end of the current test, and close NOW when
+ * that registration refuses.
+ *
+ * On every ordinary call this is only `disposeWhenTestFinishes`: `onTestFinished`
+ * takes the registration and the close runs on whatever outcome the test reaches,
+ * vitest's own timeout kill included.
+ *
+ * THE REFUSAL IS THE CASE THIS FUNCTION EXISTS FOR. `onTestFinished` throws
+ * outside a running test, which is what `withLaunchedConsole` called from a
+ * `beforeAll` reaches — and by then Electron is up, its private profile is on
+ * disk, and the only handle on either is about to be discarded with the caller's
+ * stack frame, so the caller got a clear diagnostic beside a leaked browser and a
+ * directory nothing would remove. The refusal is therefore caught and the SAME
+ * close the registration would have run is awaited immediately, rather than a
+ * second closer written here: that one is idempotent and owns the profile
+ * removal, which is what keeps "exactly one remover, reached from both paths" a
+ * property of the code. It is `spawnManagedElectronChild`'s own recovery arm one
+ * layer up; that one disposes synchronously because its disposal is synchronous.
+ *
+ * Whose failure a reader is shown when the close fails too is `closeAfterBody`'s
+ * rule, APPLIED here rather than restated: the refusal is the failure that
+ * explains the run and the cleanup verdict rides on it as a clause, never over
+ * it — the inversion `cleanup-disposition.ts` exists to stop.
+ *
+ * Takes the close alone rather than a whole launched application, for that same
+ * module's reason: the refusal is then reachable without an Electron, and
+ * `architecture/settle-time-close.test.ts` is what drives it.
+ */
+export async function registerSettleTimeClose(
+  application: Pick<ClosableApplication, "close">,
+  register?: SettleTimeRegistrar,
+): Promise<void> {
+  try {
+    disposeWhenTestFinishes(async () => {
+      await application.close();
+    }, register);
+  } catch (registrationRefusal: unknown) {
+    await closeAfterBody(application, (): Promise<never> => {
+      throw registrationRefusal;
+    });
+  }
+}
+
+/**
  * Launch the console, run `body` against it, and close it afterwards.
  *
  * The one way in, so `launchConsole` is not exported: a tier that held the
@@ -306,9 +356,12 @@ export async function withLaunchedConsole<TResult>(
   // real profile directory behind. `close` is idempotent, so on every ordinary
   // outcome this is a no-op — the shared door swallows the rejection, because by
   // then the test's own failure is the one that explains the run.
-  disposeWhenTestFinishes(async () => {
-    await launched.close();
-  });
+  //
+  // AWAITED, because the registration can refuse. A caller in a `beforeAll` is
+  // past the launch by the time `onTestFinished` throws, and the close that
+  // covers that misuse is the registration's own — see `registerSettleTimeClose`,
+  // which owns both halves so this call site states neither twice.
+  await registerSettleTimeClose(launched);
   // Minted HERE and not inside the launch: the allowance bounds what runs after
   // the launch settled, so a slow-but-valid launch spends none of it. That is the
   // whole arithmetic the tier timeout is derived from — launch, then body, then
