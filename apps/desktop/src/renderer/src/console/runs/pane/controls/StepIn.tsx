@@ -1,8 +1,16 @@
 // Step in: take the work from an agent in one move.
 //
-// One control, three acts: pause the run, focus the run's own pane, and focus the
-// composer addressed to it. The person presses once; the console does the three
-// things they would otherwise do in sequence and then tells them what happened.
+// One control, three acts: pause the run, put the run's execution root on the deck,
+// and address the composer at that run as a steer. The person presses once; the
+// console does the three things they would otherwise do in sequence and then tells
+// them what happened.
+//
+// TWO OF THE THREE BELONG TO ANOTHER FAMILY, AND TRAVEL AS A SEAT. Which panes are
+// open and which one is focused are facts about the deck, and the composer resolves
+// what it is addressed to from the focused pane — so both acts are the workspace's,
+// reached through `seats/take-the-floor-seat.ts` rather than through an import a
+// sibling view family may not make. An unfilled seat means no deck is mounted in this
+// window, which the receipt states rather than swallowing.
 //
 // THE PAUSE IS `run.pause`, NOT AN INTERVENTION ARM. The registered intervention
 // payload is a discriminated union over `steer | interrupt | cancel | rollback`,
@@ -36,6 +44,7 @@ import { useCallback } from "react";
 import { refuse } from "../../../core/index.js";
 import { callDaemon, readRunId, type ConsoleBridge } from "../../../bridge/index.js";
 import { Glyph } from "../../../primitives/index.js";
+import { takeTheFloor } from "../../../seats/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
@@ -49,13 +58,13 @@ export interface StepInProps {
   /** Whose work it is, as the session named them. Rendered, never composed. */
   readonly agentLabel: string;
   /**
-   * Focus the run's pane and the composer addressed to it.
+   * Open this run's own detail in the pane that mounts this control.
    *
-   * One callback for both moves rather than two, because they are one act from the
-   * person's side and because the surface that mounts this control is the only
-   * thing that knows where either target is. Called only after the pause settles:
-   * moving focus while the request is still in flight would put the cursor in a
-   * composer addressed to a run that is still running.
+   * The pane-LOCAL half, and the only half the runs family owns: the deck's two acts
+   * travel through the floor seat instead. Called only after the pause settles, for
+   * the reason both moves are — disclosing a run's history while the pause is still
+   * in flight would show a run that is still running under a control that says it is
+   * not.
    */
   readonly onTakeTheFloor: () => void;
 }
@@ -112,21 +121,34 @@ export function StepIn(props: StepInProps): React.JSX.Element {
     void callDaemon(bridge, "run.pause", {
       targetRunId: parsedRunId,
       expectedRunVersion,
-    }).then((reply) => {
+    }).then(async (reply) => {
+      let wasStillAddressed = false;
       claim.settle(() => {
         if (reply.status === "refused") {
           publishSettlement({ phase: "refused", refusal: reply.refusal });
           return;
         }
-        let wasStillAddressed = false;
         publishSettlement(() => {
           wasStillAddressed = true;
-          return { phase: "paused", acknowledgment: reply.value };
+          return { phase: "paused", acknowledgment: reply.value, floor: undefined };
         });
         if (wasStillAddressed) {
           onTakeTheFloor();
         }
       });
+      // THE DECK MOVES ONLY WHERE THE PAUSE LANDED ON SCREEN. `wasStillAddressed` is
+      // the holder's own answer to "is this visit still the live one", so a settlement
+      // measured against a retired transport rearranges no panes — the same rule that
+      // keeps its receipt off the render.
+      if (reply.status === "served" && wasStillAddressed) {
+        const floor = await takeTheFloor({ runId: targetRunId });
+        claim.settle(() => {
+          publishSettlement({ phase: "paused", acknowledgment: reply.value, floor });
+        });
+      }
+      // Released after the deck has answered, not after the pause: a second press
+      // while the execution-root read is open would pause an already-paused run and
+      // move the deck a second time under the person's hands.
       claim.release();
     });
   }, [bridge, captureVisit, expectedRunVersion, latch, onTakeTheFloor, publishState, targetRunId]);

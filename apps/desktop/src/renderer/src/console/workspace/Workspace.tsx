@@ -62,6 +62,7 @@ import { WorkspaceBannerRow } from "./banners/WorkspaceBannerRow.js";
 import { useAuxiliaryPanes } from "./auxiliary/auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
 import { registerDeckCommands } from "./deck/commands/deck-command-seat.js";
+import { useTakeTheFloorSeat } from "./deck/take-the-floor.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
 import type { DeckPane } from "./deck/deck-model.js";
 import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
@@ -193,6 +194,10 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
 
   const auxiliaryPanes = useAuxiliaryPanes({ bridge: props.bridge, sessionId, onRefused: raise });
   const onFollow = useActorFollow({ layout, sessionStore, announce });
+  // The deck's half of Step in, filled for as long as this workspace is mounted. The
+  // run controls that press it live in another view family and reach this deck through
+  // the seat rather than through an import.
+  useTakeTheFloorSeat({ layout, bridge: props.bridge, sessionStore });
 
   const composer = composerSeatRenderer();
   const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
