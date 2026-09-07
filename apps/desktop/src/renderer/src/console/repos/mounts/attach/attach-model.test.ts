@@ -140,7 +140,7 @@ describe("soleNodeIdOf", () => {
 
 describe("RUNTIME_NODE_ROSTER_EVENT_KINDS", () => {
   it("is derived from the contract's census rather than hand-listed", () => {
-    expect(RUNTIME_NODE_ROSTER_EVENT_KINDS.size).toBeGreaterThan(0);
+    expect(RUNTIME_NODE_ROSTER_EVENT_KINDS.length).toBeGreaterThan(0);
     for (const kind of RUNTIME_NODE_ROSTER_EVENT_KINDS) {
       expect(kind.startsWith("runtime_node.")).toBe(true);
     }
@@ -149,6 +149,20 @@ describe("RUNTIME_NODE_ROSTER_EVENT_KINDS", () => {
   it("negative control: names no repo frame, which is the mounts reader's census", () => {
     // A roster that re-read on a repo frame would read on every attach the section
     // already re-read for, and still miss a node going offline.
-    expect(RUNTIME_NODE_ROSTER_EVENT_KINDS.has("repo.mount_attached")).toBe(false);
+    expect(RUNTIME_NODE_ROSTER_EVENT_KINDS).not.toContain("repo.mount_attached");
+  });
+
+  it("is data, so a controller that builds a set from it holds its own", () => {
+    // The census left this module as a `ReadonlySet` once, which is one mutable object
+    // shared by every controller in the window: the annotation hides `add` from a
+    // reader and from nothing at runtime. Two controllers over one census must not be
+    // able to reach each other's trigger set, and the census itself must not be
+    // reachable through either of them.
+    const first = new Set<string>(RUNTIME_NODE_ROSTER_EVENT_KINDS);
+    const second = new Set<string>(RUNTIME_NODE_ROSTER_EVENT_KINDS);
+    first.add("runtime_node.invented_by_a_caller");
+
+    expect(second.has("runtime_node.invented_by_a_caller")).toBe(false);
+    expect(RUNTIME_NODE_ROSTER_EVENT_KINDS).not.toContain("runtime_node.invented_by_a_caller");
   });
 });

@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
+import { withDaemonCall } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import {
   EPHEMERAL_CLONE_ID,
@@ -37,14 +38,41 @@ class RecordingHost implements RootDisposalHost {
 function open(
   kind: "worktree" | "ephemeral-clone",
   rootId: string,
+  bridge: ConsoleBridge = createFixtureBridge({ scenario: REPOS_SCENARIO }),
 ): { readonly controller: RootDisposalController; readonly host: RecordingHost } {
   const host = new RecordingHost();
   const controller = new RootDisposalController({
-    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
+    bridge,
     subject: disposalSubjectFor(kind, rootId),
     host,
   });
   return { controller, host };
+}
+
+/**
+ * The fixture bridge with the retire call answering the way a broken wire does.
+ *
+ * A THROW AND NOT A REFUSAL, which is the whole distinction these cases turn on: the
+ * scenario answers every disposal with a typed reply, and the two failures a live
+ * bridge adds over a fixture one — a call that rejects, and a reply the response
+ * schema will not read — reach the console as a rejected promise instead.
+ */
+function bridgeFailingRetire(answer: () => unknown): {
+  readonly bridge: ConsoleBridge;
+  readonly retireCallCount: () => number;
+} {
+  let retireCalls = 0;
+  const held = withDaemonCall(
+    createFixtureBridge({ scenario: REPOS_SCENARIO }),
+    async (call, passThrough) => {
+      if (call.method !== "repo.worktreeRetire") {
+        return await passThrough();
+      }
+      retireCalls += 1;
+      return answer();
+    },
+  );
+  return { bridge: held.bridge, retireCallCount: () => retireCalls };
 }
 
 describe("RootDisposalController — the worktree arm", () => {
@@ -111,5 +139,61 @@ describe("RootDisposalController — the guards", () => {
     await inFlight;
     expect(host.last?.status).toBe("sending");
     expect(controller.isDisposed).toBe(true);
+  });
+});
+
+describe("RootDisposalController — a wire that rejects is still an answer", () => {
+  // THE CONFIRMATION IS THE ONLY THING ON SCREEN WHEN THIS HAPPENS. The hook voids the
+  // promise, so a `send` that rejected would leave the card reporting `sending` for as
+  // long as it stayed open and would put the failure nowhere a person could read it.
+  // What makes that unreachable is that the call door is total — every repos call goes
+  // through `callDaemon`, which answers a refusal for a rejection rather than
+  // re-throwing it — and these cases are what hold this site to that door.
+
+  it("records the code a rejected retire carried, and settles rather than rejecting", async () => {
+    const { bridge } = bridgeFailingRetire(() => {
+      // The shape an IPC disconnect reaches the renderer as: a rejection carrying the
+      // daemon's own envelope rather than a reply the console can read.
+      throw { code: "daemon.unavailable", message: "The daemon is not reachable." };
+    });
+    const { controller, host } = open("worktree", REVIEWER_WORKTREE_ID, bridge);
+    await expect(controller.send()).resolves.toBeUndefined();
+    expect(host.last?.status).toBe("refused");
+    expect(host.last?.status === "refused" && host.last.refusal.code).toBe("daemon.unavailable");
+  });
+
+  it("names a rejection that carries no code of its own", async () => {
+    const { bridge } = bridgeFailingRetire(() => {
+      throw new Error("The message port closed.");
+    });
+    const { controller, host } = open("worktree", REVIEWER_WORKTREE_ID, bridge);
+    await controller.send();
+    expect(host.last?.status === "refused" && host.last.refusal.code).toBe("call-rejected");
+  });
+
+  it("records a refusal for a reply the contract will not read", async () => {
+    // The second cause a live bridge adds: the call resolves, and what it resolved
+    // with is not the shape this build registers for the method.
+    const { bridge } = bridgeFailingRetire(() => ({ state: "vaporised" }));
+    const { controller, host } = open("worktree", REVIEWER_WORKTREE_ID, bridge);
+    await controller.send();
+    expect(host.last?.status === "refused" && host.last.refusal.code).toBe("reply-unreadable");
+  });
+
+  it("gives the guard back on the rejected arm, so the retry reaches the wire", async () => {
+    const { bridge, retireCallCount } = bridgeFailingRetire(() => {
+      throw new Error("The message port closed.");
+    });
+    const { controller, host } = open("worktree", REVIEWER_WORKTREE_ID, bridge);
+    await controller.send();
+    await controller.send();
+    expect(host.readings.filter((reading) => reading.status === "sending")).toHaveLength(2);
+    expect(retireCallCount()).toBe(2);
+  });
+
+  it("negative control: the same bridge answering normally settles rather than refusing", async () => {
+    const { controller, host } = open("worktree", REVIEWER_WORKTREE_ID);
+    await controller.send();
+    expect(host.last?.status).toBe("settled");
   });
 });

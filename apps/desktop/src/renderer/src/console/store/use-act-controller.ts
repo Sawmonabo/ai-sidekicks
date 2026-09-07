@@ -24,6 +24,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "../core/index.js";
+import { useSessionStoreRebind, type SessionStoreScoped } from "./session-store-rebind.js";
+import type { SessionStore } from "./session-store.js";
 import type { SubjectKey } from "./subject-scoped-holder.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "./subject-scoped-resource.js";
 
@@ -71,13 +73,25 @@ export interface ActControllerBinding<TController extends ActControllerSurface> 
  * mount for the modes it admits, a workspace AND its execution mode for a root — and a
  * key carrying less than that leaves a controller in place across a rebind, answering
  * the previous subject's question.
+ *
+ * AND THE SESSION STORE IS THE AXIS NO KEY CARRIES, which is why it is a parameter
+ * rather than something a caller folds into the key. Every act controller arms its
+ * refresh triggers on a store, and a store rebuilt for the same session under an
+ * unchanged bridge leaves the whole address standing — so the rule is applied here,
+ * once, for every controller that binds through this hook. `session-store-rebind.ts`
+ * states it; a key with the store spelled into it would re-open the controller on a
+ * reconnect and lose the prerequisite answer with it, which is a different behaviour
+ * and the wrong one.
  */
-export function useActController<TController extends ActControllerSurface>(
+export function useActController<TController extends ActControllerSurface & SessionStoreScoped>(
   subject: object,
   key: SubjectKey,
+  sessionStore: SessionStore,
   open: () => TController,
 ): ActControllerBinding<TController> {
-  const { value: controller } = useSubjectScopedResource(subject, key, open, CONTROLLER_DISPOSAL);
+  const held = useSubjectScopedResource(subject, key, open, CONTROLLER_DISPOSAL);
+  useSessionStoreRebind(held, sessionStore, open);
+  const { value: controller } = held;
   const subscribe = useCallback(
     (onReadingChange: () => void) => controller.subscribe(onReadingChange),
     [controller],

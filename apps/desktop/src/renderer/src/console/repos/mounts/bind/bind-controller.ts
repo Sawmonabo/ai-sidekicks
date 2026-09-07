@@ -177,6 +177,7 @@ export function useBindController(
   const { controller, reading } = useActController(
     bridge,
     repoMountId,
+    sessionStore,
     () => new BindWorkspaceController({ bridge, repoMountId, sessionStore, clock }),
   );
   const requestCapabilities = useCallback(() => {

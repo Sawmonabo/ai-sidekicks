@@ -242,6 +242,13 @@ export { useActController } from "./use-act-controller.js";
 // publishes into a host rather than off a snapshot binds through
 // `useSubjectScopedResource` directly and ends exactly the same way.
 export { CONTROLLER_DISPOSAL } from "./use-act-controller.js";
+// The store axis, for the same reason the disposal leaves: a reading that binds
+// through `useSubjectScopedResource` directly rather than through the hook above still
+// arms its triggers on a session store, and the rebind rule is the same one. The type
+// travels with it so such a reading can DECLARE the member rather than growing it by
+// coincidence.
+export { useSessionStoreRebind } from "./session-store-rebind.js";
+export type { SessionStoreScoped } from "./session-store-rebind.js";
 
 export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
 export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch.js";

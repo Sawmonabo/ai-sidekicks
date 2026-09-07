@@ -52,13 +52,21 @@ const RUNTIME_NODE_EVENT_NAMESPACE_PREFIX = "runtime_node.";
  * dialog is asking — does this frame name a node — and `packages/contracts/src/event.ts`
  * warns against inferring a category from a prefix in any case.
  *
- * A `ReadonlySet` rather than an array, because that is what `ReadTriggerTarget` takes
- * and a reading converting one per construction would be doing the same work per row.
+ * AN ARRAY AND NOT A `Set`, on `repos/repo-lifecycle-events.ts`'s shape and for the
+ * reason `apps/desktop/AGENTS.md` §State and views states: an exported module-level
+ * `Set` is a mutable runtime singleton whatever its annotation says — `ReadonlySet`
+ * hides `add` from a reader and from nobody else, and every controller in the window
+ * shares the one object. What is derived here is the CENSUS, which is data; the
+ * `ReadonlySet` a `ReadTriggerTarget` declares is built by the controller that
+ * declares it, once per controller, out of this.
+ *
+ * The annotation is explicit rather than inferred, because `isolatedDeclarations`
+ * requires one on every exported binding.
  */
-export const RUNTIME_NODE_ROSTER_EVENT_KINDS: ReadonlySet<string> = new Set<string>(
-  [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter((eventType: SessionEventType) =>
-    eventType.startsWith(RUNTIME_NODE_EVENT_NAMESPACE_PREFIX),
-  ),
+export const RUNTIME_NODE_ROSTER_EVENT_KINDS: readonly SessionEventType[] = [
+  ...SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
+].filter((eventType: SessionEventType) =>
+  eventType.startsWith(RUNTIME_NODE_EVENT_NAMESPACE_PREFIX),
 );
 
 /** What the dialog holds while it is open. Two fields, neither defaulted. */
