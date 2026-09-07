@@ -15,7 +15,7 @@
 // Nothing here holds data and nothing here decides anything. A row's CONTENT is
 // its table's; a row's SHAPE is this file's.
 
-import type { GrowthSlateRowId } from "./growth-slate.js";
+import type { GrowthSlateRowId } from "./growth-slate-row.js";
 
 /** Whether an entry is wired to a real bridge yet. Checked against the slate. */
 export type GrowthLiveStatus = "fixture-only" | "live";
@@ -37,6 +37,14 @@ export type GrowthOperationKind = "method" | "subscription";
  * answer moves at runtime, so it is asked through a port method each time, while a
  * bridge member is fixed at window construction and read during render, so a method
  * that "fetched" it would be a promise wrapped around a value already in hand.
+ *
+ * `daemon-producer` is the odd one and is here because the others could not hold it:
+ * every kind above names something that is not DECLARED anywhere, and this one names a
+ * value that is fully declared and that nothing on the producing side can ever emit.
+ * Filing such a row as a `type-member` would claim the contract is missing a member it
+ * already carries, and filing it as a `governing-document` would claim a decision is
+ * open that is already approved — both are read by a person deciding what to build,
+ * and both would send them to the wrong file.
  */
 export type GrowthPrerequisiteKind =
   | "pane-kind"
@@ -46,7 +54,8 @@ export type GrowthPrerequisiteKind =
   | "error-namespace"
   | "tool-registration"
   | "bridge-member"
-  | "governing-document";
+  | "governing-document"
+  | "daemon-producer";
 
 export interface GrowthOperationEntry {
   readonly id: GrowthOperationId;
@@ -177,6 +186,9 @@ export type GrowthOperationId =
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
   | "orchestrationBudgetRead"
+  // the workspace execution context — the normalized checkout root and the
+  // fallback-mode marker, neither of which any registered reply carries
+  | "workspaceExecutionContextRead"
   // diagnostics — the registry's own order; each id is its wire method's tail with
   // the root folded in, which `growth-operations/index.test.ts` holds every entry to.
   // `healthSubscribe` above is deliberately NOT one of these: it is a stream serving
@@ -219,4 +231,5 @@ export type GrowthPrerequisiteId =
   | "approvalAmendmentArm"
   | "agentProviderSwitchFailedEvent"
   | "nodeSelfDeclarationCarrier"
-  | "providerSessionImportSpec";
+  | "providerSessionImportSpec"
+  | "mountHealthIdentityProjection";

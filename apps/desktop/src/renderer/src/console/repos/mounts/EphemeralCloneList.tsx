@@ -14,6 +14,8 @@ export interface EphemeralCloneListProps {
   readonly bridge: ConsoleBridge;
   /** Passed down for the same reason: each clone's gate arms its own refresh triggers. */
   readonly sessionStore: SessionStore;
+  /** Read the section again after a participant's own act on one of these roots. */
+  readonly onRequestRead: () => void;
 }
 
 /**
@@ -100,6 +102,7 @@ export function renderCloneRows(
             bridge={props.bridge}
             sessionStore={props.sessionStore}
             nowMilliseconds={nowMilliseconds}
+            onRequestRead={props.onRequestRead}
           />
         ))}
       </>

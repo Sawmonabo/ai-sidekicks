@@ -30,7 +30,7 @@ describe("workspace mounts page", () => {
       (element) => element.textContent ?? "",
     );
     expect(chipLabels).toContain("Attachment: attached");
-    expect(chipLabels).toContain("Reachability: unreachable");
+    expect(chipLabels).toContain("Health: unreachable");
     expect(container.textContent ?? "").toContain(`/repos/${MOUNT_A}`);
   });
 

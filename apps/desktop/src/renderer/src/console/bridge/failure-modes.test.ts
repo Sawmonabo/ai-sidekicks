@@ -27,7 +27,8 @@ import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { createRefusingGrowthPort } from "./growth-port/growth-port.js";
 import { growthUnavailable } from "./growth-port/growth-refusals.js";
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
-import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-port/growth-slate.js";
+import { GROWTH_SLATE_ROWS } from "./growth-port/growth-slate.js";
+import type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
 import {
   consoleScenarioManifest,
   findOrphanedLedgerRowIds,

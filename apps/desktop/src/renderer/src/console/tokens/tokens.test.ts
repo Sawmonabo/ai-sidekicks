@@ -84,7 +84,8 @@ describe("schemeColor — resolving a token for one scheme", () => {
   it("returns the value the generated sheet emits for that scheme", () => {
     for (const scheme of CONSOLE_SCHEMES) {
       const resolved = schemeColor("text", scheme);
-      expect(resolved).toStrictEqual(SCHEME_COLOR_TOKENS.get("text")?.[scheme]);
+      const entry = SCHEME_COLOR_TOKENS.find(([tokenName]) => tokenName === "text");
+      expect(resolved).toStrictEqual(entry?.[1][scheme]);
     }
   });
 

@@ -1,0 +1,88 @@
+/*
+ * The execution-mode picker: every mode a mount admits, and every mode it does not.
+ *
+ * SPLIT OUT OF `mounts.css` WHEN THAT SHEET PASSED THE PACKAGE'S ~400-LINE RULE, along
+ * its own `mode picker` banner and verbatim — a move, not a restyle. It is a SIBLING of
+ * `mounts.css` rather than a resident of `bind/`, because ownership follows the
+ * components: these rules dress `mounts/ExecutionModePicker.tsx` and
+ * `mounts/ModeRowView.tsx`, both of which live in this directory.
+ * `bind/BindModePicker.tsx` is a different picker wearing `meridian-bind__mode*`, which
+ * `bind/bind.css` already carries — putting these rules there would have made that
+ * sheet's own "what only the bind surface wears" sentence false and left two
+ * parent-directory components styled out of a child directory.
+ *
+ * IMPORTED FROM `repos/index.ts` IMMEDIATELY AFTER `mounts.css` AND BEFORE
+ * `mount-acts.css`, so the four act sheets keep the order they had and these rules move
+ * only relative to what stayed behind in `mounts.css`. Nothing turns on that: ten rule
+ * blocks, all of them formerly `mounts.css:278-347`, and no selector here appears in
+ * any other sheet in the family — so this block shares no element's cascade with a rule
+ * it could win or lose against.
+ */
+
+.meridian-mode-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * All rows at once, each with its reason — the reason is the point, and a menu would
+ * hide exactly the reasons a restricted mount exists to show.
+ */
+.meridian-mode-picker__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.meridian-mode-picker__legend {
+  padding: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+.meridian-mode-picker__row--restricted {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-mode-picker__label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-mode-picker__tag {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__reason {
+  grid-column: 2;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The switch this picker is held for. Reads as progress rather than as a failure,
+   which is why it takes the muted text colour and not the refusal card's. */
+.meridian-mode-picker__pending {
+  margin: var(--meridian-space-1) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
