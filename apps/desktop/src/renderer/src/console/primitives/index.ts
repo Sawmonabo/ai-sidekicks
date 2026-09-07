@@ -233,6 +233,13 @@ export { RefusalCard } from "./RefusalCard.js";
 // refusals whose codes the remedy table answers for, and three surfaces looking a
 // code up themselves is three chances to answer one code differently.
 export { RemediedRefusal } from "./RemediedRefusal.js";
+// The shell every family's own recovery table renders through, and the shape those
+// tables produce. On this door for the same reason `RemediedRefusal` is: more than one
+// family answers a code with a next move, and a shell written per family is a rendering
+// one of them can change without the other noticing — which is what happened, under two
+// class names whose declarations were identical property for property.
+export { RefusalRecovery } from "./RefusalRecovery.js";
+export type { RefusalRecoveryCopy } from "./refusal-contract.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach

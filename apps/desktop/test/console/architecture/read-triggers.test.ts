@@ -111,6 +111,7 @@ const EXPECTED_READINGS: readonly string[] = [
   "BrowserSettingsView",
   "CallerParticipantRead",
   "CostReceiptRead",
+  "DiffArtifactCreationController",
   "ExecutionRootPrepareController",
   "NodeProviderQuotaReading",
   "OnboardingFlow",

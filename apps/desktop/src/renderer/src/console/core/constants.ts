@@ -968,6 +968,26 @@ export const DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP = 1_000_000;
  */
 export const DIFF_INTRALINE_CACHE_ENTRY_CAP = 512;
 
+/**
+ * Characters of a fetched diff payload the console will parse into a change set.
+ *
+ * A DIFFERENT BOUND FROM THE ARTIFACT PREVIEW BELOW, AND DELIBERATELY MUCH LARGER. That
+ * one bounds how much of a payload a person is SHOWN at once, so a screenful and a half
+ * is the right size for it. This one bounds what the parser is handed, and the diff
+ * surfaces are virtualized: a five-thousand-line change set renders a viewport's worth
+ * of rows however long it is, so cutting the patch at preview size would throw away
+ * files a reader can reach rather than text nobody would read.
+ *
+ * What it is protecting against is the parse itself, which is linear in the patch and
+ * happens on the window's own thread. Four megabytes is far past any review a person
+ * performs in one sitting — the largest patches in this repository's own history are
+ * two orders of magnitude smaller — and a payload past it is a generated artifact rather
+ * than a change set. Past the bound the create refuses and says so, because a diff
+ * silently missing its last files is worse than one that did not render: the files it
+ * dropped are exactly the ones a reader would not know to look for.
+ */
+export const DIFF_PATCH_CHARACTER_CAP = 4_194_304;
+
 // ── The artifact pane and the rollback disclosure's path enumerations ─────────
 
 /**

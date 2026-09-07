@@ -1,97 +1,34 @@
-// What the section draws once its one read burst has answered.
+// What the section's one read burst puts on screen.
 //
 // The cases here drive the REAL section against the REAL fixture bridge, because the
 // claim worth checking is that the daemon's answer reaches the screen — a hand-built
 // reading would pin a shape the fixture could stop producing without either tier
-// noticing. `RepoSection.tsx` draws two lists of
-// execution roots, and until this file existed only one of them was covered: the clone
-// list had no production mount at all.
+// noticing. `RepoSection.tsx` draws two lists of execution roots, and until this file
+// existed only one of them was covered: the clone list had no production mount at all.
+//
+// THE CONTROLS THE SECTION AND ITS ROWS CARRY are `RepoSection.controls.test.tsx`,
+// beside this file: each writable root's change-proposal gate, the attach, and a card's
+// way into the deck are read for a different reason and share none of these subjects.
 
-import { render, within } from "@testing-library/react";
+import { within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../bridge/index.js";
-import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../../bridge/scenario-runtime/scenario.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
-import { ManualClock } from "../../core/index.js";
-import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { SessionStore } from "../../store/index.js";
-import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
-import { RepoSection } from "./RepoSection.js";
 import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 import { CLONE_EXPIRY_COPY } from "./worktree-model.js";
-import { sectionContext } from "../pane-contexts.test-support.js";
-
-/** The clone list's own container, which is what separates it from the mount list. */
-const CLONE_LIST_SELECTOR = ".meridian-repo-section__clones";
-
-/** Both root cards render under one class, so a case scopes by container, not by card. */
-const ROOT_CARD_SELECTOR = ".meridian-root-card";
-
-/** One card per mount. Read from the container, since the list has no element of its own. */
-const MOUNT_CARD_SELECTOR = ".meridian-mount-card";
+import {
+  cloneList,
+  MOUNT_CARD_SELECTOR,
+  renderSection,
+  ROOT_CARD_SELECTOR,
+} from "./repo-section.test-support.js";
 
 /** A root read that answered and named nothing — the lawful two-empty-arrays reply. */
 const SERVED_EMPTY_ROOT_READ: ScenarioReply = {
   call: "repo.worktreeStatusRead",
   result: { worktrees: [], ephemeralClones: [] },
 };
-
-/** One rendered section, and the frozen clock its reads are waiting on. */
-interface SectionUnderTest {
-  readonly container: HTMLElement;
-  /**
-   * Drive scenario time until `assert` holds, or fail with `assert`'s own message.
-   *
-   * THE REPLACEMENT FOR `waitFor`, and the replacement rather than a companion: the
-   * section schedules every read through the console's one `RefreshScheduler`, which
-   * arms its debounce on the clock it was handed — the bridge's. Under the fixture
-   * that is the scenario's frozen clock, so nothing this surface is waiting on
-   * happens until a case moves it, and polling real time would poll a still picture.
-   */
-  readonly advanceUntil: (assert: () => void) => Promise<void>;
-}
-
-/**
- * The section, open, over one scenario, inside the window's announcer.
- *
- * The announcer is the section's environment rather than a nicety: each root's gate
- * announces its own settlement and `useAnnounce` throws outside the provider. Frozen
- * time, so nothing here races the announcer's own hold deadline.
- */
-function renderSection(scenario: ConsoleScenario): SectionUnderTest {
-  const bridge = createFixtureBridge({ scenario });
-  const context = sectionContext({
-    isOpen: true,
-    bridge,
-    sessionStore: new SessionStore({ sessionId: scenario.sessionId }),
-  });
-  const { container } = render(
-    <LiveAnnouncerProvider clock={new ManualClock()}>
-      <RepoSection context={context} />
-    </LiveAnnouncerProvider>,
-  );
-  return {
-    container,
-    advanceUntil: async (assert: () => void) => {
-      await advanceScenarioUntil(bridge, assert);
-    },
-  };
-}
-
-/** Drive the section until its clone list exists, and hand it back. */
-async function cloneList(section: SectionUnderTest): Promise<HTMLElement> {
-  await section.advanceUntil(() => {
-    if (section.container.querySelector(CLONE_LIST_SELECTOR) === null) {
-      throw new Error("the section has not drawn its clone list yet");
-    }
-  });
-  const list = section.container.querySelector(CLONE_LIST_SELECTOR);
-  if (!(list instanceof HTMLElement)) {
-    throw new Error(`nothing in the section matches \`${CLONE_LIST_SELECTOR}\``);
-  }
-  return list;
-}
 
 describe("RepoSection — the ephemeral clones the root read named", () => {
   it("draws a card for each clone the daemon answered with", async () => {
@@ -245,88 +182,6 @@ describe("RepoSection — the mounts this session actually holds", () => {
   });
 });
 
-describe("RepoSection — the in-place root reaches the screen from the scenario", () => {
-  /** The in-place root's gate sits on the workspace itself, because that IS the root. */
-  const IN_PLACE_GATE_SELECTOR = ".meridian-mount-card__workspace > details.meridian-root-gate";
-
-  it("draws one gate for the branch-mode workspace and none for the read-only one", async () => {
-    // A workspace has three writable execution modes and the third one — `branch` —
-    // mints no worktree and no clone, so its gate hangs on the workspace card. While
-    // every scenario row was bound `read-only` the fixture reached two of the three
-    // roots, and the screenshot and accessibility tiers framed a section the in-place
-    // gate never appeared in.
-    //
-    // Exactly one is the negative control as well as the claim: the scenario states
-    // two workspaces, and a card that hung a gate on every one of them — including the
-    // read-only row that produces no writable branch context — would draw two.
-    const section = renderSection(REPOS_SCENARIO);
-
-    await section.advanceUntil(() => {
-      expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR).length).toBeGreaterThan(0);
-    });
-    await section.advanceUntil(() => {
-      expect(section.container.querySelectorAll(IN_PLACE_GATE_SELECTOR)).toHaveLength(1);
-    });
-    // In the in-place root's own words: the branch-context read is keyed by a context
-    // id nothing this console can call mints, so the question is not put.
-    const gate = section.container.querySelector(IN_PLACE_GATE_SELECTOR);
-    expect(gate?.textContent).toContain("not addressable");
-  });
-});
-
-describe("RepoSection — a clone root is a writable root, so it carries a gate", () => {
-  /** The disclosure a root's change-proposal gate renders into. */
-  const GATE_SELECTOR = "details.meridian-root-gate";
-
-  it("mounts one gate per clone, inside the clone's own row", async () => {
-    // Before this the clone list drew bare cards, so a participant running in the
-    // ephemeral clone mode had no way to read a branch context, prepare a proposal,
-    // or ask for a reviewed act at all.
-    const section = renderSection(REPOS_SCENARIO);
-    const list = await cloneList(section);
-
-    await section.advanceUntil(() => {
-      // The cards first: an empty list would otherwise satisfy "one gate per card"
-      // with zero of each, which is the vacuous pass this claim must not take.
-      expect(list.querySelectorAll(ROOT_CARD_SELECTOR).length).toBeGreaterThan(0);
-    });
-    expect(list.querySelectorAll(GATE_SELECTOR)).toHaveLength(
-      list.querySelectorAll(ROOT_CARD_SELECTOR).length,
-    );
-    // The clone's own refusal, in the clone's own words: its id is a REPLY member, so
-    // the registered read cannot be asked by it and the question is not put.
-    expect(within(list).getAllByText("subject-not-addressable").length).toBeGreaterThan(0);
-  });
-
-  it("negative control: a worktree root's gate is still asked, and refuses differently", async () => {
-    // Without this the case above would pass against a section that had made every
-    // gate unaddressable — which would silently retire the one root the registered
-    // request does have a key for.
-    //
-    // SCOPED TO THE ROOT ROWS, not to the whole mount card. The scenario's git
-    // workspace is bound `branch`, so its card also carries the in-place root's gate —
-    // and that one IS unaddressable, for the same reason the clone's is. The claim
-    // here is about the worktree roots, which are the rows; a card-wide sweep would
-    // read the workspace's own gate as a worktree's and fail on the fixture stating
-    // the third writable mode at all.
-    const section = renderSection(REPOS_SCENARIO);
-    await cloneList(section);
-
-    await section.advanceUntil(() => {
-      expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR).length).toBeGreaterThan(0);
-    });
-    const worktreeGates = [...section.container.querySelectorAll(MOUNT_CARD_SELECTOR)].flatMap(
-      (card) => [...card.querySelectorAll(`.meridian-root-gate-row ${GATE_SELECTOR}`)],
-    );
-    // Non-vacuous: a section that drew no worktree row at all would otherwise satisfy
-    // an empty loop, which is the pass this control exists to refuse.
-    expect(worktreeGates.length).toBeGreaterThan(0);
-    for (const gate of worktreeGates) {
-      expect(gate.textContent).not.toContain("subject-not-addressable");
-    }
-  });
-});
-
 describe("RepoSection — a refused read says so once, and never says it was not made", () => {
   it("draws the refusal card and no unread line when the roster read refuses", async () => {
     // The roster is the read every other one hangs off, so refusing it is the shape
@@ -358,29 +213,5 @@ describe("RepoSection — a refused read says so once, and never says it was not
 
     expect(section.container.textContent).toContain(NOT_READ_TITLE);
     expect(section.container.querySelector(".meridian-refusal--card")).toBeNull();
-  });
-});
-
-describe("RepoSection — the one mutating entry point", () => {
-  it("offers the attach on the section itself, above the mounts it already holds", async () => {
-    // Before this the section could only ever REPORT repositories: `repo.attach` is a
-    // registered daemon method and the console had no control that reached it, so a
-    // session's first repository could not be started from the desktop at all.
-    const section = renderSection(REPOS_SCENARIO);
-
-    await section.advanceUntil(() => {
-      expect(within(section.container).getByText("Attach a repository")).toBeDefined();
-    });
-  });
-
-  it("negative control: the empty-mount card no longer sends a person to another client", async () => {
-    // The card used to say attaching was reached through the command-line and SDK
-    // surfaces, which was true of this console and false of the wire.
-    const section = renderSection(REPOS_SCENARIO);
-
-    await section.advanceUntil(() => {
-      expect(within(section.container).getByText("Attach a repository")).toBeDefined();
-    });
-    expect(section.container.textContent).not.toContain("command-line and SDK");
   });
 });

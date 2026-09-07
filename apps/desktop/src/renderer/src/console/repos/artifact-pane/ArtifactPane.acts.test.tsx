@@ -1,4 +1,5 @@
-// What the artifact pane's row acts actually do: read one row's manifest, and delete one.
+// What the artifact pane's row acts actually do: read one row's manifest, re-classify
+// one, and delete one.
 //
 // THE BLOCK THAT FAILS ON A PANE THAT DISCARDS WHAT IT IS SERVED. The read used to be
 // called "Fetch payload" and used to throw its answer away, so pressing it changed
@@ -21,6 +22,7 @@ import {
   type GrowthPortAnswer,
   SERVED_DELETE,
   LISTED_ONE_ROW,
+  SERVED_SUMMARY,
   SESSION_ID,
   artifactBridgeAnswering,
   readAnswering,
@@ -33,6 +35,16 @@ import {
   contextFor,
   renderPane,
 } from "./artifact-pane-mount.test-support.js";
+
+/** What a served re-classification answers with. Every member required, so all are here. */
+const SERVED_VISIBILITY_UPDATE: GrowthPortAnswer<"artifactVisibilityUpdate"> = {
+  status: "served",
+  value: {
+    artifactId: SERVED_SUMMARY.artifactId,
+    visibility: "local-only",
+    updatedAt: "2026-09-02T07:06:00.000Z",
+  },
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -140,6 +152,57 @@ describe("artifact pane — reading one row's manifest", () => {
     await settleAct();
     expect(container.querySelector('[role="status"]')?.textContent).toBe("");
     expect(getByRole("button", { name: "Read manifest" })).toBeDefined();
+  });
+});
+
+describe("artifact pane — re-classifying one row", () => {
+  it("moves the row to the class the daemon settled on and says so once", async () => {
+    // THE CASE AN ECHOED REQUEST PASSES AND SHOULD NOT. The press asks for
+    // `local-only`, and the row and the sentence both have to come from the REPLY —
+    // a policy-blocked share retains the original, so a pane written from what it
+    // asked for would report a change the daemon declined to make.
+    const { paneClock, container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({
+          listAnswer: LISTED_ONE_ROW,
+          visibilityAnswer: SERVED_VISIBILITY_UPDATE,
+        }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough(paneClock);
+    const row = container.querySelector(".meridian-artifact-row") as HTMLElement;
+    expect(within(row).getByText("shared")).toBeDefined();
+
+    fireEvent.click(getByRole("button", { name: "Make local-only" }));
+    await settleAct();
+
+    const settled = container.querySelector(".meridian-artifact-row") as HTMLElement;
+    expect(within(settled).getByText("local-only")).toBeDefined();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("Visibility changed");
+  });
+
+  it("negative control: a refused change leaves the class alone and speaks in the daemon's words", async () => {
+    // Without this, a pane that wrote the requested class before the answer landed
+    // would pass the case above while reporting a change that never happened.
+    const { paneClock, container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        // Unscripted, so the port refuses this operation by name.
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough(paneClock);
+
+    fireEvent.click(getByRole("button", { name: "Make local-only" }));
+    await settleAct();
+
+    const settled = container.querySelector(".meridian-artifact-row") as HTMLElement;
+    expect(within(settled).getByText("shared")).toBeDefined();
+    expect(settled.textContent).toContain("wire-unregistered");
+    expect(container.querySelector('[role="status"]')?.textContent).not.toContain(
+      "Visibility changed",
+    );
   });
 });
 

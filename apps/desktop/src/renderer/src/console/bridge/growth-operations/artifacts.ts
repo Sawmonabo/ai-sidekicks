@@ -56,6 +56,17 @@ export const ARTIFACT_GROWTH_OPERATIONS: Readonly<
     "method",
     "delete an artifact and read back the receipt the call settles — where the payload's bytes went, and whether the destroyed relay key has foreclosed re-publish",
   ),
+  // THE ROW IS UNDER `artifact-ingest-and-crud` AND MINTS NO SLATE ROW OF ITS OWN.
+  // That row's own wire text already reads "artifact CRUD method strings", and the
+  // visibility update is one of the five interfaces its owning document names beside
+  // the publish, the read, the ingest, and the delete. A second row would be a second
+  // place for one document's registration to be tracked.
+  artifactVisibilityUpdate: op(
+    "artifactVisibilityUpdate",
+    "artifact-ingest-and-crud",
+    "method",
+    "re-classify one artifact as local-only or shared, and read back the class the daemon settled on with the instant it settled",
+  ),
   artifactAllowlistRead: op(
     "artifactAllowlistRead",
     "artifact-allowlist-and-abort",

@@ -91,6 +91,8 @@ export {
   GROWTH_PR_PREPARATION_STATES,
   type GrowthBranchContext,
   type GrowthBranchContextReadRequest,
+  type GrowthDiffArtifactCreated,
+  type GrowthDiffArtifactCreateRequest,
   type GrowthPrPreparationState,
 } from "./gitflow.js";
 

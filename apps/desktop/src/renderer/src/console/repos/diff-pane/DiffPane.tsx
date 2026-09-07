@@ -1,4 +1,4 @@
-// The diff pane: a change set, the files it touches, and the rows inside them.
+// The diff pane: a change set, the form that asks for one, or an honest absence.
 //
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
@@ -6,15 +6,18 @@
 // section, its tab stop, its accessible name, and the actor's hue all arrive from
 // there, which is why none of them is set here and why the pane is named by its whole
 // address trail rather than by the word "Diff".
+//
+// WHAT THIS FILE DECIDES IS WHICH OF THREE BODIES THE ADDRESS ADMITS, and nothing more.
+// A diff is minted over a run or over a workspace — `create/diff-create-subject.ts` is
+// where that mapping lives — so two of the five subjects a diff pane opens over can ask
+// for one and three cannot. The pane resolves the subject, hands the create surface the
+// absence copy for it, and draws that copy alone where no subject resolves.
 
 import { Nothing } from "../../primitives/index.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
-import { DiffFileList } from "./DiffFileList.js";
-import { DiffRenderer } from "./DiffRenderer.js";
-import { DiffToolbar, useDiffViewControls } from "./DiffToolbar.js";
+import { DiffChangeSet } from "./DiffChangeSet.js";
+import { DiffCreateSurface, diffCreateSubjectFor } from "./create/index.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
-import { useDiffModelViewState } from "./diff-view-state.js";
-import { DiffSubjectBar } from "./DiffSubjectBar.js";
 
 /**
  * This body's own address arm, narrowed off the union the deck hands every pane.
@@ -40,18 +43,19 @@ type DiffSubjectKind = DiffPaneContext["entity"]["kind"];
 /**
  * What the pane says when no diff has been asked for, per subject kind.
  *
- * ONE ENTRY PER KIND, and the totality is the point: the diff wire is unregistered
- * (`Plan-023 §Console growth slate`'s `gitflow-actions` row, owned by `Spec-011`), so
- * every one of these subjects reaches this pane with nothing to render — and a single
- * sentence written for a working tree would tell a person looking at a REPOSITORY
- * that their checkout is unchanged, which is a claim about a workspace this pane was
- * never opened over. Each sentence says what that subject's changes would be and that
- * nothing was asked, and none of them renders blank.
+ * ONE ENTRY PER KIND, and the totality is the point: a single sentence written for a
+ * working tree would tell a person looking at a REPOSITORY that their checkout is
+ * unchanged, which is a claim about a workspace this pane was never opened over. Each
+ * sentence says what that subject's changes would be and that nothing was asked, and
+ * none of them renders blank.
  *
- * The two collaboration subjects are stated rather than omitted for the same reason.
- * What an invitation's or a member's changes MEAN is that family's question and not
- * this one's; what this pane owes either of them is an honest absence rather than an
- * empty region, and that is what these two say.
+ * TWO OF THE FIVE CARRY A FORM UNDER THIS COPY and three do not, which is the mint's
+ * own keying rather than a product choice: `DiffArtifactCreateRequest` is keyed by a
+ * run or by a workspace, a worktree resolves to the run that provisioned it, and a
+ * repository, an invitation and a member resolve to neither. For those three the copy
+ * stands alone — what an invitation's or a member's changes MEAN is that family's
+ * question and not this one's, and what this pane owes either of them is an honest
+ * absence rather than an empty region.
  */
 const ABSENT_DIFF_COPY: Readonly<
   Record<DiffSubjectKind, { readonly title: string; readonly detail: string }>
@@ -86,32 +90,26 @@ const ABSENT_DIFF_COPY: Readonly<
 export interface DiffPaneProps {
   readonly context: DiffPaneContext;
   /**
-   * The diff to render. Absent until a wire produces one — see the header. The
-   * prop exists rather than being a fetch this body performs, because the fetch
-   * belongs to the module that owns the wire and this pane owns the chrome.
+   * A change set to render instead of asking for one.
+   *
+   * THE PROP SURVIVES THE CREATE SURFACE and is not replaced by it: a caller that
+   * already holds a model — a layout composed around one, a tier measuring the renderer
+   * — hands it over and the pane draws it, which is a different question from where a
+   * pane that holds none gets one.
    */
   readonly diff?: ConsoleDiffModel;
 }
 
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
-  const viewControls = useDiffViewControls({ showAttributionMarks: true });
-  // This pane's own density: it opens on the changed-file list with the first
-  // file expanded. Selecting a file narrows the rows to it; selecting none reads
-  // the whole change set, which is what "the first file expanded" degrades to
-  // once a reader has scrolled past it.
-  //
-  // BOTH PIECES ARE THE MODEL'S AND NOT THE PANE'S, so they live in a hook that
-  // drops them when the diff does — a selected path the next diff does not
-  // contain would narrow the rows to nothing, and the renderer would report two
-  // identical states over a change set that has changes. The toolbar's four
-  // toggles are the pane's and are deliberately not reset with them.
-  const modelViewState = useDiffModelViewState(diff);
+  const { sessionStore } = context;
+  const absence = ABSENT_DIFF_COPY[context.entity.kind];
+  const subject = diffCreateSubjectFor(context.entity, sessionStore?.sessionId);
 
   return (
     <ConsolePaneChrome
       kind="diff"
-      sessionId={context.sessionStore?.sessionId}
+      sessionId={sessionStore?.sessionId}
       // Unconditional: a diff address carries its entity, so the arm this body is
       // narrowed to has no shape in which the subject is absent. The trail renders the
       // id wire-verbatim, which is what the pane's own subject line used to say — and
@@ -120,40 +118,29 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
       entity={context.entity}
       focusHue={context.focusHue}
     >
-      {diff === undefined ? (
+      {diff !== undefined ? (
+        <DiffChangeSet diff={diff} />
+      ) : subject !== undefined && sessionStore !== undefined ? (
+        // THE STORE IS PART OF THE GATE AND NOT ONLY THE SUBJECT. Resolving what a diff
+        // is attributed to is a read that arms refresh triggers on a session store, so a
+        // pane opened on a bare route has nowhere to arm them — and the subject
+        // resolution above is about the WIRE's two keys, which is a different question
+        // from whether this window has a session to ask through.
+        <DiffCreateSurface
+          bridge={context.bridge}
+          subject={subject}
+          sessionStore={sessionStore}
+          absence={absence}
+          renderChangeSet={(created) => <DiffChangeSet diff={created} />}
+        />
+      ) : (
         <div className="meridian-diff-pane__absence">
           <Nothing
             kind="not-checked"
             placement="surface"
-            title={ABSENT_DIFF_COPY[context.entity.kind].title}
-            detail={ABSENT_DIFF_COPY[context.entity.kind].detail}
+            title={absence.title}
+            detail={absence.detail}
           />
-        </div>
-      ) : (
-        // A column of its own inside the chrome's body box, because the body scrolls
-        // as one and this surface has three bands: the attribution strip, the
-        // toolbar, and the list-and-rows pair that takes the rest of the height.
-        <div className="meridian-diff-pane">
-          <DiffSubjectBar diff={diff} />
-          <DiffToolbar controls={viewControls} />
-          <div className="meridian-diff-pane__content">
-            <DiffFileList
-              diff={diff}
-              selectedFilePath={modelViewState.selectedFilePath}
-              onSelectFilePath={modelViewState.selectFilePath}
-            />
-            <DiffRenderer
-              model={diff}
-              shownFilePath={modelViewState.selectedFilePath}
-              viewMode={viewControls.viewMode}
-              showAttributionMarks={viewControls.showAttributionMarks}
-              wrapLongLines={viewControls.wrapLongLines}
-              showWhitespaceChanges={viewControls.showWhitespaceChanges}
-              expansion={modelViewState.expansion}
-              onExpandGap={modelViewState.expandGapAt}
-              label={`Diff, ${diff.baseRef} to ${diff.headRef}`}
-            />
-          </div>
         </div>
       )}
     </ConsolePaneChrome>

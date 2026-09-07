@@ -30,16 +30,20 @@ import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 import { scenarioInstant, secondsBeforeStart } from "./repos-beats.js";
 import { capabilitiesFor, mountReadFor } from "./repos-mount-reads.js";
+import { REPOS_DIFF_REPLIES } from "./repos-diff-replies.js";
 import { REPOS_MUTATION_REPLIES } from "./repos-mutation-replies.js";
 import {
   DRIFTED_MOUNT_ID,
   DRIFTED_WORKSPACE_ID,
   EPHEMERAL_CLONE_ID,
   RECLAIMED_CLONE_ID,
+  GIT_MOUNT_BASE_BRANCH,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_BOUND_ROOT,
   GIT_WORKSPACE_ID,
+  IMPLEMENTER_BRANCH,
   IMPLEMENTER_BRANCH_CONTEXT_ID,
+  IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
@@ -65,15 +69,15 @@ const BRANCH_CONTEXTS_BY_WORKTREE_ID: Readonly<Record<string, unknown>> = {
   [IMPLEMENTER_WORKTREE_ID]: {
     branchContextId: IMPLEMENTER_BRANCH_CONTEXT_ID,
     workspaceId: GIT_WORKSPACE_ID,
-    baseBranch: "develop",
-    headBranch: "feat/rate-limit-wiring",
-    upstreamRef: "origin/feat/rate-limit-wiring",
+    baseBranch: GIT_MOUNT_BASE_BRANCH,
+    headBranch: IMPLEMENTER_BRANCH,
+    upstreamRef: `origin/${IMPLEMENTER_BRANCH}`,
     worktreeId: IMPLEMENTER_WORKTREE_ID,
   },
   [REVIEWER_WORKTREE_ID]: {
     branchContextId: REVIEWER_BRANCH_CONTEXT_ID,
     workspaceId: GIT_WORKSPACE_ID,
-    baseBranch: "develop",
+    baseBranch: GIT_MOUNT_BASE_BRANCH,
     headBranch: "review/rate-limit-wiring",
     // No `upstreamRef`: the reviewer's branch has not been pushed, which is the state
     // that makes the member's absence reachable rather than a value nothing exercises.
@@ -119,13 +123,21 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
       {
         worktreeId: IMPLEMENTER_WORKTREE_ID,
         repoMountId: GIT_MOUNT_ID,
-        // The same string the branch context below carries as its head branch: the
-        // gate drawn under this root and the root itself are one piece of work, and
-        // two spellings of one branch is how a fixture stops representing a session.
-        branchName: "feat/rate-limit-wiring",
+        // The same CONSTANT the branch context above carries as its head branch and
+        // the diff plane compares to: the gate drawn under this root, the root itself,
+        // and the change set taken over it are one piece of work, and two spellings of
+        // one branch is how a fixture stops representing a session.
+        branchName: IMPLEMENTER_BRANCH,
         fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/rate-limit-wiring",
         state: "dirty",
         createdBySessionId: SESSION_ID,
+        // THE RUN THAT MADE THIS ROOT, and the reason it is on this row and not the
+        // reviewer's: `worktrees.created_by_run_id` is nullable because a pre-run
+        // `repo.executionRootPrepare` mints a worktree with no run to attribute, so a
+        // fixture whose every root named a run could not draw the absent case — and a
+        // fixture whose every root named none could not reach the run-attributed
+        // diff at all, that arm being keyed by exactly this id.
+        createdByRunId: IMPLEMENTER_RUN_ID,
         createdAt: secondsBeforeStart(51 * 60 + 26),
         updatedAt: secondsBeforeStart(3 * 60 + 40),
       },
@@ -295,4 +307,8 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
   // among them, answered there per root with the implementer's `worktree.retire_conflict`
   // refusal the bulk confirm's consequence needs.
   ...REPOS_MUTATION_REPLIES,
+  // The diff plane, spread for the same reason and kept apart from the acts above: a
+  // diff costs a mint AND a payload read, so its two entries are one subject that spans
+  // both classes and neither module beside it is about that pair.
+  ...REPOS_DIFF_REPLIES,
 ];

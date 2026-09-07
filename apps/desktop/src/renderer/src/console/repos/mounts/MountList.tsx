@@ -1,5 +1,6 @@
 import { Nothing } from "../../primitives/index.js";
 import { MountCard } from "./MountCard.js";
+import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { type RepoMountsReading } from "./repo-mounts-model.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -27,6 +28,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
             onCopyCanonicalRoot={props.onCopy}
             onRequestRead={props.onRequestRead}
             onSelectExecutionMode={props.onSelect}
+            onOpenDiff={props.onOpenDiff}
           />
         ))}
       </>
@@ -79,4 +81,6 @@ export interface MountListProps {
   /** Read the section again after a participant's own act. Passed through to each card. */
   readonly onRequestRead: () => void;
   readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
+  /** Open a change set over one row's subject. Passed through to each card. */
+  readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }

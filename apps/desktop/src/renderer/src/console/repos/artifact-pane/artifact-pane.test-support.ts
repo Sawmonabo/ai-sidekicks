@@ -187,16 +187,21 @@ type ScriptedAnswer<TOperationId extends GrowthOperationId> =
   | GrowthPortAnswer<TOperationId>
   | Error;
 
-/** What a case scripts each of the pane's four port operations to answer. */
+/** What a case scripts each of the pane's five port operations to answer. */
 export interface ArtifactPortScript {
   readonly listAnswer?: ScriptedAnswer<"artifactList">;
   readonly allowlistAnswer?: ScriptedAnswer<"artifactAllowlistRead">;
   readonly readAnswer?: ScriptedAnswer<"artifactRead">;
   readonly deleteAnswer?: ScriptedAnswer<"artifactDelete">;
+  readonly visibilityAnswer?: ScriptedAnswer<"artifactVisibilityUpdate">;
   /** Supplied where a case counts the list reads or varies them between reads. */
   readonly artifactList?: () => Promise<GrowthPortAnswer<"artifactList">>;
   /** Supplied where a case counts the payload reads or asserts what one was asked. */
   readonly artifactRead?: (request: unknown) => Promise<GrowthPortAnswer<"artifactRead">>;
+  /** Supplied where a case holds the change open or asserts what class was asked for. */
+  readonly artifactVisibilityUpdate?: (
+    request: unknown,
+  ) => Promise<GrowthPortAnswer<"artifactVisibilityUpdate">>;
 }
 
 /**
@@ -204,7 +209,7 @@ export interface ArtifactPortScript {
  * `Error`.
  *
  * ONE BUILDER FOR BOTH HALVES OF THE PANE. The reader suites script two operations and
- * the mounted suites script four; two builders for that was two objects a fifth
+ * the mounted suites script five; two builders for that was two objects a sixth
  * operation would have to be added to, with the one that was forgotten answering
  * `undefined` rather than refusing.
  *
@@ -229,6 +234,9 @@ export function artifactBridgeAnswering(script: ArtifactPortScript): ConsoleBrid
     artifactRead:
       script.artifactRead ?? (async () => scriptedAnswer("artifactRead", script.readAnswer)),
     artifactDelete: async () => scriptedAnswer("artifactDelete", script.deleteAnswer),
+    artifactVisibilityUpdate:
+      script.artifactVisibilityUpdate ??
+      (async () => scriptedAnswer("artifactVisibilityUpdate", script.visibilityAnswer)),
   });
 }
 
@@ -237,8 +245,8 @@ export function artifactBridgeAnswering(script: ArtifactPortScript): ConsoleBrid
  *
  * The operation id is passed rather than a shared refusal value because a refusal
  * names the operation that raised it: one fixture answering every unscripted call
- * would report the same `operationId` for a list, a read and a delete, which is the
- * one thing a reader consults it for.
+ * would report the same `operationId` for a list, a read, a delete and a
+ * re-classification, which is the one thing a reader consults it for.
  */
 async function scriptedAnswer<TAnswer>(
   operationId: GrowthOperationId,

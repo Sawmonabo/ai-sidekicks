@@ -302,36 +302,14 @@
 /* --------------------------------------------- refusal recovery, shared */
 
 /*
- * The next move under a refusal, in the slot the three refusal shapes reserve for it.
- *
- * IT READS AS PART OF THE REFUSAL AND NOT AS A SECOND NOTICE: no border, no ground of
- * its own, one step of leading. A boxed remedy beside a boxed refusal would present
- * one fact as two, which is exactly what putting it in the shape's own `action` slot
- * was meant to avoid.
+ * NOT DECLARED HERE ANY MORE. The region under a mount refusal is dressed by
+ * `primitives/refusal.css`'s `.meridian-refusal-recovery`, because the component that
+ * wears it is `primitives/RefusalRecovery.tsx` and the artifact family had the same
+ * block under a second prefix — identical property for property, so a change to the
+ * region's leading landed on one surface and not the other. Named here rather than
+ * silently absent, so a reader looking for the mount recovery's rules is told where
+ * they went.
  */
-.meridian-mount-recovery {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-mount-recovery__move {
-  margin: 0;
-}
-
-/*
- * The three-way distinctions one code carries. A list because the cases are exclusive
- * and a person picks between them; run together as prose they read as three steps.
- */
-.meridian-mount-recovery__cases {
-  margin: 0;
-  padding-inline-start: var(--meridian-space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
 
 /* ------------------------------------------- workspace execution context */
 
