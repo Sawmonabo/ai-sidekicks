@@ -6,15 +6,19 @@
 // that shows what the bound provider offers rather than a launcher". Two consequences
 // are structural here rather than conventional:
 //
-//   • SELECTING INSERTS NOTHING. The spec is explicit that selection "inserts nothing
-//     into the message box and starts no turn", and the reason is not politeness: a
-//     leading slash is refused outright on the provider-bound path, so an
+//   • SELECTING A PROVIDER ENTRY INSERTS NOTHING. The spec is explicit that selection
+//     "inserts nothing into the message box and starts no turn", and the reason is not
+//     politeness: a leading slash is refused outright on the provider-bound path, so an
 //     insert-then-send affordance would compose text this shell's own send path
-//     rejects. Nothing in this file writes to the line.
-//   • THE ONE ACT IS THE CONSOLE'S OWN. A console command is what Spec-017's C-18
-//     reserves the prefix FOR, so its row carries a button — and that button runs the
-//     client-command executor, not a send. A provider row carries no button at all,
-//     because there is nothing this console may do with it.
+//     rejects. That rule is about the PROVIDER half and says nothing about the
+//     console's own commands, which `Spec-017`'s C-18 reserves the prefix FOR — and
+//     `/workflow start <name>` is one of those, intercepted by the runtime and never
+//     forwarded anywhere. Completing its argument is therefore the opposite case, and
+//     it is the one write this seat makes to the line.
+//   • THE ONE ACT ON A ROW IS THE CONSOLE'S OWN. A console command's row carries a
+//     button — and that button runs the client-command executor, not a send. A
+//     provider row carries no button at all, because there is nothing this console may
+//     do with it.
 //
 // THE EMPTY STATE WAITS FOR EVERY APPLICABLE SOURCE. "No command matches what you
 // have typed" is a claim about a SEARCH THAT FINISHED, and this popover reads two
@@ -55,6 +59,13 @@
 // looking at can still reach them; this popover is opened by their own keystroke and
 // is where their attention already is, so speaking through the window-wide region as
 // well would say everything twice.
+//
+// AND THIS SEAT IS WHERE THE WORKFLOW ACCELERATOR'S LINE-FACING HALF LIVES. Its two
+// surfaces both act on the composer's LINE — the palette entry types the directive
+// into it, and the candidate list completes the argument in it — which is this seat's
+// own subject and not the send bar's; the send bar holds the other half, the handler
+// that runs a completed line. Both are registered under one command root, so the
+// palette, the recogniser, and the keyboard page name one command.
 
 import { useCallback, useMemo } from "react";
 import { type ComposerSeatProps } from "../../../console/seats/index.js";
@@ -68,6 +79,13 @@ import {
   type ProviderCommandEnumeration,
 } from "./provider-command-holder.js";
 import { CommandDiscoveryPopover } from "./CommandDiscoveryPopover.js";
+import {
+  WorkflowStartCandidates,
+  WorkflowStartPrefillConfirm,
+  readWorkflowCommandLine,
+  useWorkflowStartPrefill,
+  workflowStartLineFor,
+} from "./workflow-start/index.js";
 
 export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */
@@ -82,20 +100,18 @@ export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
 
 export function ProviderCommandAutocomplete(
   props: ProviderCommandAutocompleteProps,
-): React.JSX.Element | null {
-  const { region, bridge, route, commandEnumeration } = props;
+): React.JSX.Element {
+  const { region, bridge, route, commandEnumeration, draftStore } = props;
   // The address is resolved here rather than handed down, exactly as the chip rail
   // and the send bar resolve it: one hook with three readers is one implementation,
   // and a host that passed the answer down would be a host that knew what each zone
   // was for.
   const { target } = useComposerAddress(props.sessionStore, props.focusedPane);
+  const draftKey = composerDraftKey(target);
   // The same store and the same key the send bar reads its line from, so what this
   // surface sees and what the line displays are one reading rather than two that
   // agree only while somebody is typing.
-  const discovery = useDirectiveLineDiscovery(region, {
-    draftStore: props.draftStore,
-    draftKey: composerDraftKey(target),
-  });
+  const discovery = useDirectiveLineDiscovery(region, { draftStore, draftKey });
   const isOpen = discovery.prefix !== undefined;
   const enumeration = useProviderCommandEnumeration({
     enumeration: commandEnumeration,
@@ -103,21 +119,43 @@ export function ProviderCommandAutocomplete(
     target,
     isOpen,
   });
+  const prefill = useWorkflowStartPrefill({ draftStore, draftKey });
 
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
+  const completeWorkflowName = useCallback(
+    (definitionName: string) => {
+      draftStore.write(draftKey, workflowStartLineFor(definitionName));
+    },
+    [draftStore, draftKey],
+  );
 
-  if (!isOpen) {
-    return null;
-  }
+  // Read off the same line the popover opened on. The reading answers `undefined` for
+  // every line that is not this command's, so no other command pays for this one.
+  const workflowLine = readWorkflowCommandLine(discovery.lineText);
   return (
-    <CommandDiscoveryPopover
-      prefix={discovery.prefix ?? ""}
-      readSurface={readSurface}
-      enumeration={enumeration}
-      addressed={addressed}
-      stepIntoListToken={discovery.stepIntoListToken}
-      onDismiss={discovery.dismiss}
-    />
+    <>
+      {isOpen ? (
+        <CommandDiscoveryPopover
+          prefix={discovery.prefix ?? ""}
+          readSurface={readSurface}
+          enumeration={enumeration}
+          addressed={addressed}
+          stepIntoListToken={discovery.stepIntoListToken}
+          onDismiss={discovery.dismiss}
+          argumentCompletion={
+            workflowLine?.status === "start" ? (
+              <WorkflowStartCandidates
+                growth={bridge.growth}
+                sessionId={props.sessionStore.sessionId}
+                typedPrefix={workflowLine.definitionName}
+                onComplete={completeWorkflowName}
+              />
+            ) : null
+          }
+        />
+      ) : null}
+      <WorkflowStartPrefillConfirm {...prefill} />
+    </>
   );
 }

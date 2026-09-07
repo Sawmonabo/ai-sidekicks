@@ -21,6 +21,7 @@ import {
   paneBinding,
   paneBodyComponent,
   scenarioCollaborators,
+  scenarioSessionStore,
   scriptedArtifactPort,
 } from "./repos-fixtures.js";
 import {
@@ -31,14 +32,10 @@ import {
 } from "./repos-mount-harness.js";
 
 import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port/growth-port.js";
-import {
-  REPOS_PINNED_ARTIFACT_ID,
-  REPOS_SCENARIO,
-} from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
+import { REPOS_PINNED_ARTIFACT_ID } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
-import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
 
 /**
  * The artifact pane, with both of its reads settled.
@@ -134,7 +131,7 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
 async function mountArtifactPanePayload(
   readAnswer: GrowthPortAnswer<"artifactRead">,
 ): Promise<MountedFamilySurface> {
-  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
+  const sessionStore = scenarioSessionStore();
   const bridge = scriptedArtifactPort(readAnswer);
   const ArtifactPaneBody = await paneBodyComponent("artifact");
   const { container } = await renderSettled(

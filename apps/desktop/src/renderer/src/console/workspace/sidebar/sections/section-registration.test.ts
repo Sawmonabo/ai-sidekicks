@@ -1,7 +1,7 @@
 // Which of the eight sidebar seats this family actually fills.
 //
-// The module's header says three of the eight are this family's and one of them has
-// a body here. Both halves are prose, and the second half is the one that goes
+// The module's header says three of the eight are this family's and which of them
+// have bodies here. Both halves are prose, and the second half is the one that goes
 // stale first — a section gains a body and the sentence beside it does not move. So
 // it is asserted against the seat's own registry rather than against a second list,
 // and against `SIDEBAR_SECTION_IDS` rather than a transcription of it: a section
@@ -24,8 +24,15 @@ import {
 } from "../../../seats/index.js";
 import { registerComposerSidebarSections } from "./section-registration.js";
 
-/** The sections this family fills today. The header's second half, as data. */
-const SEATED_BY_THIS_FAMILY: readonly SidebarSectionId[] = ["runs"];
+/**
+ * The sections this family fills today. The header's second half, as data.
+ *
+ * In the seat's own canonical order rather than in registration order, because that
+ * is what `registeredSectionIds()` answers with — the registry orders its answer by
+ * `SIDEBAR_SECTION_IDS` so a sidebar's sections read the same however the families
+ * that own them happened to register.
+ */
+const SEATED_BY_THIS_FAMILY: readonly SidebarSectionId[] = ["goal", "runs"];
 
 describe("the composer family's sidebar sections", () => {
   it("fills exactly the seats its header claims, and leaves the rest reserved", () => {

@@ -15,14 +15,14 @@
 // viewport satisfies without virtualizing anything. Stating the height makes the
 // bound a bound.
 //
-// THE SHADOW IS NOT THIS MODULE'S AND THE RULE IS. `repos/element-height-shim.test-support.ts`
+// THE SHADOW IS NOT THIS MODULE'S AND THE RULE IS. `primitives/element-height-shim.test-support.ts`
 // owns writing the property on `HTMLElement.prototype` and taking it back, because that
 // write is global to the environment and this family has two windowed lists that each
 // needed it — written twice, one of the two copies could leak a shadow into every later
 // file in the same worker. What stays here is the only part that is the diff's: which
 // element is a scroller, which is a row, and which row the wrap toggle grew.
 
-import { ElementHeightShim } from "../element-height-shim.test-support.js";
+import { ElementHeightShim } from "../../primitives/element-height-shim.test-support.js";
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
 
 /** A row the wrap toggle grew, and how tall it turned out. */

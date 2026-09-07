@@ -66,6 +66,12 @@ export type { SessionSnapshot } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
+// The handover a pane performs when its refusal stops being its own business: a
+// whole-workspace code reaches the frame's banner rather than a line inside one pane.
+// The selector beside it is for the surfaces whose refusals arrive as a collection —
+// one per resolved request, one per control settlement — so no surface writes its own
+// reading of which member rule 9 puts across the frame.
+export { bannerClassRefusalAmong, useRefusalBannerEscalation } from "./refusal-escalation.js";
 
 // The window-scoped modal's half of the shell's `inert` guard. Through this door
 // rather than either overlay's, because its two callers are sibling VIEW families —

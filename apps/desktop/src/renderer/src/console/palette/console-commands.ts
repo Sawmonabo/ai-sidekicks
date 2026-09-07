@@ -120,9 +120,35 @@ export interface ConsoleFamilyCommandContribution {
   readonly keyBindings: readonly KeyBinding[];
 }
 
+/**
+ * Withdraw exactly the contribution the call that handed this back made.
+ *
+ * Never the owner's rows in general: a superseded contributor's release leaves the
+ * registry untouched, and the live one's hands the owner back to whichever
+ * contribution is still mounted underneath it. See
+ * {@link ConsoleFamilyContributions.contribute}.
+ */
+export type ConsoleContributionRelease = () => void;
+
+/** What a released owner contributes. Frozen, so a caller cannot make it grow. */
+const NO_CONTRIBUTION: readonly [] = Object.freeze([]);
+
 /** The door a family contributes its commands and chords through. */
 export interface ConsoleCommandSurface {
-  contribute(contribution: ConsoleFamilyCommandContribution): void;
+  contribute(contribution: ConsoleFamilyCommandContribution): ConsoleContributionRelease;
+}
+
+/**
+ * One live contributor's rows, held under its owner until its own release runs.
+ *
+ * The ENTRY is the identity a release removes, and it is minted inside `contribute`
+ * rather than taken from the caller: a surface memoises the row list it hands over, so
+ * two mounts of one kind can contribute the very same array, and a release matching on
+ * that value would withdraw whichever of the two it found first. A token beside the
+ * entry would be a second name for one thing.
+ */
+interface LiveContribution {
+  readonly contribution: ConsoleFamilyCommandContribution;
 }
 
 /**
@@ -144,17 +170,110 @@ export interface ConsoleCommandSurface {
  *
  * The frame's own commands do not come through here: they close over one window's
  * store, so they are registered from an effect and removed on unmount.
+ *
+ * EXPORTED FOR THE INSTANCE CLAIM. The window composes exactly one of these below
+ * and every family reaches it through the narrowed `consoleCommandSurface` handle,
+ * so nothing in production constructs a second — but "a second composition holds its
+ * own contributors" is a property of the class rather than of that one instance, and
+ * it is unprovable against a singleton. The class is not on `palette/index.ts` and
+ * must not be: a door line for a symbol no production module imports is one
+ * `barrel-census` fails.
  */
-class ConsoleFamilyContributions implements ConsoleCommandSurface {
+export class ConsoleFamilyContributions implements ConsoleCommandSurface {
   readonly #registry: CommandRegistry;
   readonly #contributionsByOwner = new Map<string, ConsoleFamilyCommandContribution>();
   readonly #changes = new Emitter<void>("console family contribution");
+  /**
+   * Every contribution still live under an owner, in the order they arrived.
+   *
+   * AN ORDERED REGISTER AND NOT A LATEST-TOKEN LATCH. Two panes of one kind are two
+   * live contributors and only one set of rows can be registered under their shared
+   * owner, so the newest wins — which is also what makes a surface's re-contribution
+   * replace its own rows. A latch recorded WHICH contributor was live and nothing
+   * else, so closing the newer pane replaced the owner with an EMPTY contribution
+   * while the older one was still mounted: its acts left the palette with nothing on
+   * screen to say so. Retaining the earlier entries is what gives the release
+   * something to hand the rows back to.
+   *
+   * ON THE INSTANCE AND NEVER AT MODULE SCOPE. Owner-scoped replace is this object's
+   * rule, and which contributor owns an owner's rows is the same fact — held anywhere
+   * else it would be shared by every instance, so a second composition (another
+   * window, a second test mount building its own registry) would supersede an owner
+   * it has no rows in and turn the other instance's release into a no-op.
+   */
+  readonly #liveContributionsByOwner = new Map<string, LiveContribution[]>();
 
   public constructor(registry: CommandRegistry) {
     this.#registry = registry;
   }
 
-  public contribute(contribution: ConsoleFamilyCommandContribution): void {
+  /**
+   * Install `owner`'s rows, and hand back the release for THIS contribution.
+   *
+   * THE NEWEST LIVE CONTRIBUTION OWNS THE ROWS. Owner-scoped replace is exactly
+   * right for a surface re-contributing its own changed rows, and for two mounts of
+   * one surface it decides which of them the palette lists — the second, because it
+   * is the one a person opened last. What the release must not do is treat "this
+   * contributor is gone" as "this owner contributes nothing": the other mount is
+   * still on screen. So every live contribution is retained here and the release
+   * removes its own, restoring the next one still live where it removed the newest
+   * and touching the registry not at all where it removed a superseded one.
+   */
+  public contribute(contribution: ConsoleFamilyCommandContribution): ConsoleContributionRelease {
+    const live = this.#liveContributionsByOwner.get(contribution.owner) ?? [];
+    const entry: LiveContribution = { contribution };
+    live.push(entry);
+    this.#liveContributionsByOwner.set(contribution.owner, live);
+    this.#installNewest(contribution.owner);
+    return () => {
+      this.#release(contribution.owner, entry);
+    };
+  }
+
+  /**
+   * Withdraw one contribution, wherever it sits in its owner's register.
+   *
+   * Idempotent, because an entry already removed is not found again: a cleanup React
+   * runs twice withdraws nothing a later contributor owns. Removing a SUPERSEDED
+   * contributor leaves the registry alone — the rows on screen are a newer one's, and
+   * replacing them here would be the same defect read from the other end.
+   */
+  #release(owner: string, entry: LiveContribution): void {
+    const live = this.#liveContributionsByOwner.get(owner);
+    if (live === undefined) {
+      return;
+    }
+    const position = live.indexOf(entry);
+    if (position < 0) {
+      return;
+    }
+    const wasNewest = position === live.length - 1;
+    live.splice(position, 1);
+    if (live.length === 0) {
+      this.#liveContributionsByOwner.delete(owner);
+    }
+    if (wasNewest) {
+      this.#installNewest(owner);
+    }
+  }
+
+  /**
+   * Register whichever contribution is newest under `owner`, or empty the owner.
+   *
+   * The owner keeps its SLOT when it empties rather than being forgotten, so a
+   * surface that goes and comes back does not reorder the window's chords under a
+   * sibling that never moved.
+   */
+  #installNewest(owner: string): void {
+    const live = this.#liveContributionsByOwner.get(owner);
+    const newest = live?.[live.length - 1];
+    this.#replace(
+      newest?.contribution ?? { owner, commands: NO_CONTRIBUTION, keyBindings: NO_CONTRIBUTION },
+    );
+  }
+
+  /** The replace itself, with no register bookkeeping: both paths above go through it. */
+  #replace(contribution: ConsoleFamilyCommandContribution): void {
     const previous = this.#contributionsByOwner.get(contribution.owner);
     for (const command of previous?.commands ?? []) {
       this.#registry.unregister(command.id);

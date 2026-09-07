@@ -4,7 +4,7 @@
 // cards, the artifact pane, and attachments — and it occupies ONE directory tree,
 // `repos/`, with a sub-module per subject: the sidebar section and its mount cards,
 // the two pane bodies in `repos/diff-pane/` and `repos/artifact-pane/`, and the
-// artifacts, attachments, proposals and restore modules beside them. The pane bodies
+// artifacts, attachments and proposals modules beside them. The pane bodies
 // live HERE and not under `console/panes/`, which holds composition files only: the
 // deck's pane registry is keyed by pane kind while the sidebar's registry is keyed by
 // section id, and a family that owned bodies in both key spaces would otherwise need
@@ -18,7 +18,7 @@
 // sub-modules', which have barrels: `diff.css` and `artifact.css` enter through those
 // and are named here only to say where they went.
 //
-// WHAT IS HERE AND WHAT IS BELOW. This module imports the six sheets it owns,
+// WHAT IS HERE AND WHAT IS BELOW. This module imports every sheet it owns,
 // publishes the two registration entry points the console calls, and publishes the
 // two cross-family seams at the bottom. The BODIES are all in `family-bodies.ts`,
 // whose header says why a door that read the two pane barrels and the sidebar
@@ -29,7 +29,9 @@ import "./repos.css";
 // file outgrew a reader. Imported after the root sheet, which is the order the rules
 // were in, so nothing about the cascade turns on the split. Each is imported HERE
 // because none of these directories carries a barrel: they are owned by this one, and
-// a sheet enters through its owner's door.
+// a sheet enters through its owner's door. `restore/` used to be one of them and is
+// not any more: its sheet moved down to `console/primitives/restore/` with the
+// component it dresses, for the reason the seam note at the bottom of this file gives.
 //
 // The two pane sheets are NOT here. `repos/diff-pane/` and `repos/artifact-pane/`
 // each carry a door, so each owns its own sheet and imports it there. Nothing about
@@ -60,7 +62,6 @@ import "./mounts/attach/attach.css";
 import "./mounts/roots/roots.css";
 import "./mounts/bind/bind.css";
 import "./proposals/proposals.css";
-import "./restore/restore.css";
 import "./artifacts/artifacts.css";
 import "./attachments/attachments.css";
 
@@ -112,34 +113,18 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
   });
 }
 
-// The file half of a rewound run, published for the surface that mounts it.
+// THE FILE HALF OF A REWOUND RUN IS NOT PUBLISHED HERE ANY MORE, and what moved it
+// is a gate rather than a preference.
 //
-// A READ SURFACE OVER A REGISTERED WIRE TYPE, and the door is the whole of what this
-// family owes it. `FileRestoreDisclosure` renders `RollbackInterventionResult` — the
-// reply the `run.intervene` rollback answers with — and its production entry point is
-// the runs pane's intervention history, which is a SIBLING view family's body: a repos
-// module may not import it and a runs module may not deep-import this one, so the seam
-// between them is this export and the runs pane's own composition of it.
-//
-// NO DEAD-CODE EXEMPTION TAG, AND THE GATE IS WHY. That marker exempts an export
-// NOTHING reaches; this one is reached — the door's own case reads it — so knip reports
-// the symbol as used and `--treat-tag-hints-as-errors` fails a marker that suppresses
-// nothing. The claim the marker would have carried is stated here instead, in the
-// `// Consumed by` form `apps/desktop/AGENTS.md` gives the declaration side of it, and
-// it is deleted by the cross-family pass that adds the import.
-//
-// Consumed by T-023p-1C-3, which builds the runs family and composes its intervention
-// history. The consumer is named by TASK rather than by path: a pane body lives in its
-// own family's `pane/` directory, and `panes/` is flat composition only, so a path
-// written here ahead of that family would name a module `console-panes-hold-no-body`
-// forbids and no file on the tree has.
-export {
-  // Consumed by T-023p-1C-3, the runs pane's intervention history, in the
-  // cross-family task that composes it.
-  FileRestoreDisclosure,
-  // Consumed by T-023p-1C-3, with the component above.
-  type FileRestoreDisclosureProps,
-} from "./restore/FileRestoreDisclosure.js";
+// This door used to export `FileRestoreDisclosure` for one consumer it does not have
+// itself: no module under `repos/` renders it, and its production entry point is the
+// runs pane's intervention history. That is a SIBLING view family, and
+// `console-view-family-isolation` forbids the edge in both directions — so the door
+// line was a seam that could never carry its only traffic. The component, its
+// sub-modules and `restore.css` therefore moved down to `console/primitives/restore/`,
+// the lowest family that owns their inputs (the contract's rollback result, this
+// console's figures, and one `core/` threshold), and the runs pane reaches them
+// through the primitives door like any other primitive.
 
 // The ingest trio, published as the binding that owns it rather than as the client.
 //

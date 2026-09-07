@@ -156,6 +156,7 @@ export type { DriverCapabilityReadout } from "./driver-capabilities/driver-capab
 // and the questions asked of its answer are two subjects, and a door line pointing at
 // whichever file used to hold both would say otherwise.
 export {
+  readingAcrossRuns,
   readingForDriver,
   readingForRun,
   withRunDriverBindings,
@@ -490,3 +491,11 @@ export {
   type WebAuthnProbeResult,
   type WebAuthnRefusalReason,
 } from "./web-authn/ceremony-outcome.js";
+
+// The session goal: the fold that says what it is, and the two operations that change
+// it. Through this door because two VIEW families read it — the approvals pane's card
+// and the workspace sidebar's one-line reading — and those two may not import one
+// another; the module's own header says why this is the lowest family that owns its
+// inputs.
+export type { SessionGoalProjection } from "./session-goal.js";
+export { clearSessionGoal, foldSessionGoal, updateSessionGoal } from "./session-goal.js";

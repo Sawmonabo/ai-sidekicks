@@ -13,7 +13,7 @@ import { createFixture, withDaemonCall } from "../../bridge/fixture/fixture-brid
 import { withReplayedStream } from "../../bridge/daemon/daemon-streams.test-support.js";
 import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon/daemon-streams.js";
 import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { RunsPane } from "./RunsPane.js";
 
 export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -50,9 +50,12 @@ export function transition(
  * renders the pane, so a bridge on the exported surface would be an object a case
  * could hold without ever mounting anything.
  */
-function paneBridge(deliveries: readonly unknown[]): ConsoleBridge {
-  return withReplayedStream(refusingBridge(), RUN_STATE_SUBSCRIBE_STREAM, deliveries);
+function paneBridge(deliveries: readonly unknown[], rejection?: unknown): ConsoleBridge {
+  return withReplayedStream(refusingBridge(rejection), RUN_STATE_SUBSCRIBE_STREAM, deliveries);
 }
+
+/** The rejection every daemon call takes unless a case names another one. */
+const RUN_GONE_REJECTION = { code: "run.not_found", message: "no such run" };
 
 /**
  * The shipped fixture with every call refusing, and no stream script on it.
@@ -60,11 +63,31 @@ function paneBridge(deliveries: readonly unknown[]): ConsoleBridge {
  * Exported for the one harness in this family that mounts a CONTROL row rather than
  * the pane: it holds the surface's records under the bridge, so it needs one that is
  * stable across renders and answers nothing readable, and it opens no stream at all.
+ *
+ * The rejection is a parameter with a default rather than a constant, because WHICH
+ * code a control comes back with is the whole claim of the cases that press one: the
+ * default says this run is gone, and a case about what leaves the pane says the
+ * session is. Defaulted so no existing caller — `useState(refusingBridge)` included,
+ * which calls it with no argument — moves.
  */
-export function refusingBridge(): ConsoleBridge {
+export function refusingBridge(rejection: unknown = RUN_GONE_REJECTION): ConsoleBridge {
   return withDaemonCall(createFixture().bridge, async () => {
-    throw { code: "run.not_found", message: "no such run" };
+    throw rejection;
   }).bridge;
+}
+
+/**
+ * What a case asserting about the FRAME hands the mount, rather than about the pane.
+ *
+ * One parameter and not two, because the two travel together: a case reading banners
+ * off a window store is a case that has to drive the refusal that raises one, and a
+ * `frameStore` with no way to say what refused would be half a probe.
+ */
+export interface PaneFrameProbe {
+  /** The window store the case reads banners off after the pane has escalated. */
+  readonly frameStore: FrameStore;
+  /** What every daemon call rejects with, for a case pressing a control. */
+  readonly daemonRejection?: unknown;
 }
 
 /**
@@ -78,15 +101,17 @@ export async function renderPane(
   deliveries: readonly unknown[],
   withSession: boolean,
   seed?: (store: SessionStore) => void,
+  frame?: PaneFrameProbe,
 ): Promise<HTMLElement> {
-  const bridge = paneBridge(deliveries);
+  const bridge = paneBridge(deliveries, frame?.daemonRejection);
+  const frameStore = frame?.frameStore;
   const sessionStore = withSession ? new SessionStore({ sessionId: SESSION_ID }) : undefined;
   if (sessionStore !== undefined) {
     seed?.(sessionStore);
   }
   // No `entity` member: the runs pane is session-scoped, and its arm of the
   // address union carries none.
-  const context = paneContext({ kind: "runs" }, { bridge, sessionStore });
+  const context = paneContext({ kind: "runs" }, { bridge, sessionStore, frameStore });
   const { container } = render(<RunsPane {...context} />);
   await settleScheduledRead(bridge);
   return container;

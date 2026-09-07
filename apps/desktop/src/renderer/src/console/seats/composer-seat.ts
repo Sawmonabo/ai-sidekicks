@@ -16,7 +16,7 @@
 // would agree until one of them shipped.
 
 import { type ConsoleBridge } from "../bridge/index.js";
-import { type SessionStore } from "../store/index.js";
+import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore } from "../persistence/index.js";
 import { type ConsoleRoute } from "../routing/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
@@ -27,6 +27,19 @@ export interface ComposerSeatProps {
   /** The session the composer is addressed within. */
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
+  /**
+   * The window store the composer hands a whole-workspace refusal to.
+   *
+   * The composer is window chrome and its Send reaches a wire, so it is one of the
+   * surfaces that can learn the session is gone — and rule 9 puts that code across
+   * the frame rather than under one control. It has no other way to reach the frame:
+   * a pane is handed one on its context, and the composer is mounted by the seat.
+   *
+   * Required and carrying no default, on `sessionStore`'s own reading: a mount that
+   * forgot it and a mount that meant no escalation read identically as an optional
+   * member, and only one of those is a decision.
+   */
+  readonly frameStore: FrameStore;
   /**
    * Where the unsent message body lives. Drafts are the draft store's and never
    * the persistence chokepoint's: `Spec-023 §Console Design (Meridian)` keeps

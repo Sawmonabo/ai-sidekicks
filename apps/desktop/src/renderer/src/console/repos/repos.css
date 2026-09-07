@@ -10,13 +10,21 @@
  *
  * WHAT STAYED HERE, AND WHY IT IS NOT AN EIGHTH SUB-MODULE SHEET. One kind of rule:
  * those whose selector list spans two sub-modules — a pair grid shared by a root card
- * and an artifact row, a focus ring shared by the gate and the restore disclosure, a
- * path link shared by the proposal and the restore disclosure. Splitting one of those
- * would duplicate a declaration into two files and make the pair drift; keeping it
- * here keeps it stated once, in the sheet both halves are loaded beside. A rule ONE
- * sub-module draws does not qualify and never did: a sheet in `repos/` may not claim
- * rules for a directory it does not own, which is why the artifact and attachment
- * cards and the ingest-bounds disclosure now live in `repos/artifact-pane/`.
+ * and an artifact row, the summary those two share, a focus ring shared by the root
+ * card and the artifacts section. Splitting one of those would duplicate a
+ * declaration into two files and make the pair drift; keeping it here keeps it stated
+ * once, in the sheet both halves are loaded beside. A rule ONE sub-module draws does
+ * not qualify and never did: a sheet in `repos/` may not claim rules for a directory
+ * it does not own, which is why the artifact and attachment cards and the
+ * ingest-bounds disclosure now live in `repos/artifact-pane/`.
+ *
+ * AND A SPAN ENDS WHEN ITS OTHER HALF LEAVES THE FAMILY. Two rules here paired a
+ * proposal selector with a file-restore-disclosure one. That disclosure moved down to
+ * `console/primitives/restore/` — the runs pane is a sibling view family of this one
+ * and neither may import the other — so the restore halves went to the sheet that
+ * moved with it, and the proposal halves stopped spanning anything: they draw
+ * `repos/proposals/` alone now, which is the case this sheet's own rule sends to that
+ * sub-module's sheet. Both are in `repos/proposals/proposals.css`.
  *
  * WHAT LEFT, AND WHERE IT WENT. Both panes used to be read inside a frame this sheet
  * drew (`.meridian-repos-pane*`): a section, a header, a heading, a subject line, a
@@ -65,33 +73,6 @@
 
 .meridian-root-card :focus-visible,
 .meridian-artifacts :focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-/*
- * A path is a link into the diff pane and nothing more, so it carries no button
- * chrome: the affordance is the underline on hover and the focus ring, and a row of
- * bordered buttons would turn a file list into a control panel.
- */
-.meridian-proposal__path-link,
-.meridian-restore-disclosure__path-link {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--meridian-text);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.meridian-proposal__path-link:hover,
-.meridian-restore-disclosure__path-link:hover {
-  text-decoration: underline;
-}
-
-.meridian-proposal-gate :focus-visible,
-.meridian-restore-disclosure :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

@@ -31,11 +31,23 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { consoleClockFor, type ConsoleBridge, type GrowthOutcome } from "../../bridge/index.js";
+import {
+  clearSessionGoal,
+  consoleClockFor,
+  updateSessionGoal,
+  type ConsoleBridge,
+  type GrowthOutcome,
+} from "../../bridge/index.js";
 import { useSessionScopedState } from "../../seats/index.js";
-import { useGenerationLatch, useReadTriggers, type SessionStore } from "../../store/index.js";
+import {
+  bannerClassRefusalAmong,
+  useGenerationLatch,
+  useReadTriggers,
+  useRefusalBannerEscalation,
+  type FrameStore,
+  type SessionStore,
+} from "../../store/index.js";
 import { ApprovalsReader, type ApprovalsSnapshot } from "./approvals-reader.js";
-import { clearSessionGoal, updateSessionGoal } from "./goal/session-goal.js";
 
 /** The subsystem name every goal-mutation refusal this module raises carries. */
 export const SESSION_GOAL_REFUSAL_ORIGIN = "session-goal";
@@ -67,6 +79,7 @@ export const SESSION_GOAL_REFUSAL_ORIGIN = "session-goal";
 export function useApprovalsReader(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
+  frameStore: FrameStore,
 ): { readonly reader: ApprovalsReader; readonly snapshot: ApprovalsSnapshot } {
   const { sessionId } = sessionStore;
   const reader = useMemo(
@@ -91,6 +104,26 @@ export function useApprovalsReader(
     () => reader.snapshot,
     () => reader.snapshot,
   );
+
+  // WHAT A MUTATION LEARNED IS NOT ONLY THIS PANE'S. A resolve or a revoke that came
+  // back `session.not_found` is a fact about the whole window — every other pane is
+  // still drawing a session that is gone — and the remedy table calls that code a
+  // banner. The card keeps its own copy, because the person pressed a control here
+  // and the answer belongs beside it; what this adds is the handover the card cannot
+  // perform, since a banner spans the frame and a pure card component holds no store.
+  //
+  // HERE RATHER THAN AT THE SURFACE, because this is where the refusal is HELD: the
+  // reader owns both mutation maps, so a pane that rendered them without escalating
+  // would be the defect one composition away from returning.
+  const mutationRefusal = useMemo(
+    () =>
+      bannerClassRefusalAmong([
+        ...snapshot.resolveRefusalByApprovalId.values(),
+        ...snapshot.revokeRefusalByRuleId.values(),
+      ]),
+    [snapshot],
+  );
+  useRefusalBannerEscalation(frameStore, mutationRefusal);
 
   return { reader, snapshot };
 }
@@ -123,6 +156,7 @@ export function useApprovalsReader(
 export function useSessionGoalMutation(
   bridge: ConsoleBridge,
   sessionId: string,
+  frameStore: FrameStore,
 ): {
   readonly isMutating: boolean;
   readonly refusal: ConsoleRefusal | undefined;
@@ -183,6 +217,12 @@ export function useSessionGoalMutation(
   const clear = useCallback(() => {
     perform(() => clearSessionGoal(bridge, sessionId));
   }, [bridge, perform, sessionId]);
+
+  // The reader's rule, applied to the other mutation this pane performs: a goal
+  // change refused with a whole-workspace code reaches the frame, and the card below
+  // still renders the daemon's words beside the control that was pressed. The hook
+  // decides which codes qualify, so nothing here reads the remedy table.
+  useRefusalBannerEscalation(frameStore, refusal);
 
   return { isMutating, refusal, update, clear };
 }

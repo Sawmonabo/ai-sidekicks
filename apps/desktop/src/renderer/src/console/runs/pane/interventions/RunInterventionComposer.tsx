@@ -96,6 +96,7 @@ import type { ComposerSettlement } from "./composer-settlement.js";
 import { parseRewindPosition } from "../controls/rewind-position.js";
 import {
   RUN_CONTROL_REFUSAL_ORIGIN,
+  type RollbackRequest,
   type RunControlDispatcher,
   type RunControlOutcome,
 } from "../controls/run-control-dispatch.js";
@@ -263,9 +264,9 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
           );
           return;
         }
-        dispatch((dispatcher) =>
-          dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, { content: body }),
-        );
+        const steer = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
+          dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, { content: body });
+        dispatch(steer);
         return;
       }
       const reading = parseRewindPosition(targetPosition);
@@ -300,14 +301,14 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         );
         return;
       }
-      dispatch((dispatcher) =>
-        dispatcher.rollback(
-          { runId: run.runId, expectedRunVersion: comparand },
-          isReplacementBlank
-            ? { targetPosition: reading.position }
-            : { targetPosition: reading.position, replacementSend: { content: body } },
-        ),
-      );
+      // Composed once rather than branched twice, so what is sent is decided by a
+      // single reading of the field.
+      const rollbackRequest: RollbackRequest = isReplacementBlank
+        ? { targetPosition: reading.position }
+        : { targetPosition: reading.position, replacementSend: { content: body } };
+      const rollback = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
+        dispatcher.rollback({ runId: run.runId, expectedRunVersion: comparand }, rollbackRequest);
+      dispatch(rollback);
     },
     [
       control,

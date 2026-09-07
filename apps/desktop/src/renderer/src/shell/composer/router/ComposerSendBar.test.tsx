@@ -163,3 +163,58 @@ describe("ComposerSendBar — a rejected steer keeps the message in the line", (
     expect(bar.result.container.querySelector(".meridian-refusal--inline")).toBeNull();
   });
 });
+
+describe("ComposerSendBar — a refusal about the whole session leaves the bar", () => {
+  /** A bridge whose every call rejects with one daemon envelope. */
+  function bridgeRefusing(code: string, message: string) {
+    return bridgeAnswering(async () => {
+      throw Object.assign(new Error(message), { code });
+    }).bridge;
+  }
+
+  /** Type one line and send it, against a bar mounted over `bridge`. */
+  function sendAgainst(bridge: ReturnType<typeof bridgeRefusing>): ReturnType<typeof mountBar> {
+    const bar = mountBar({
+      bridge,
+      draftStore: new DraftStore({
+        maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+        restartNoticePending: false,
+      }),
+      sessionStore: openSessionStore(),
+    });
+    fireEvent.change(bar.line, { target: { value: "worth keeping" } });
+    return bar;
+  }
+
+  it("raises the frame's banner while the composer keeps the daemon's words", async () => {
+    // `Spec-023 §Console Design (Meridian)` rule 9 puts a banner across the frame,
+    // and a session that has left the node is the whole window's fact — every other
+    // pane is drawing it. The composer is a pure surface with no store of its own, so
+    // the handover is this bar's explicit act; the line and the card stay exactly as
+    // they were, because the person is standing here and their words are unsent.
+    const bar = sendAgainst(bridgeRefusing("session.not_found", "That session is gone."));
+
+    await act(async () => {
+      fireEvent.keyDown(bar.line, { key: "Enter" });
+    });
+
+    expect(bar.frameStore.getState().banners.map((banner) => banner.code)).toStrictEqual([
+      "session.not_found",
+    ]);
+    expect(bar.line.value).toBe("worth keeping");
+    expect(bar.result.container.textContent).toContain("That session is gone.");
+  });
+
+  it("negative control: a refusal about this send alone raises no banner", async () => {
+    // Without this the case above would pass over a bar that escalated every refused
+    // send, which puts one person's rate limit across the whole window.
+    const bar = sendAgainst(bridgeRefusing("ratelimit.exceeded", "queue is full"));
+
+    await act(async () => {
+      fireEvent.keyDown(bar.line, { key: "Enter" });
+    });
+
+    expect(bar.frameStore.getState().banners).toStrictEqual([]);
+    expect(bar.result.container.textContent).toContain("queue is full");
+  });
+});

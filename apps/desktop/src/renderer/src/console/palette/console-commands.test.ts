@@ -23,6 +23,7 @@ import {
   registerConsoleCommand,
   registerConsoleCommands,
   subscribeToConsoleFamilyContributions,
+  type ConsoleContributionRelease,
   type ConsoleWhenClauseContext,
 } from "./console-commands.js";
 import type { ConsoleCommand, KeyBinding } from "./contributions.js";
@@ -148,34 +149,33 @@ function inertCommand(id: string): ConsoleCommand {
 }
 
 /**
- * Withdraw every owner a case composed as.
+ * Withdraw every contribution a case made.
  *
- * An empty contribution is the withdrawal: the door replaces an owner's rows rather
- * than forgetting the owner, so this unregisters the commands and empties the chords
- * while leaving the slot. Called from a `finally`, which is this file's own idiom for
- * leaving the module-scoped registry as it was found.
+ * The release the door handed back, and never a second empty contribution: an empty
+ * one supersedes rather than withdraws, so the register would keep the case's entry
+ * and the next case would compose on top of it. Called from a `finally`, which is
+ * this file's own idiom for leaving the module-scoped registry as it was found.
  */
-function withdraw(...owners: readonly string[]): void {
-  for (const owner of owners) {
-    consoleCommandSurface.contribute({ owner, commands: [], keyBindings: [] });
+function releaseAll(...releases: readonly ConsoleContributionRelease[]): void {
+  for (const release of releases) {
+    release();
   }
 }
 
 describe("console commands — the seat a family contributes its whole set through", () => {
   it("registers the commands and publishes the chords together", () => {
+    const release = consoleCommandSurface.contribute({
+      owner: "contribution-test-alone",
+      commands: [inertCommand("contribution-test.act")],
+      keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
+    });
     try {
-      consoleCommandSurface.contribute({
-        owner: "contribution-test-alone",
-        commands: [inertCommand("contribution-test.act")],
-        keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
-      });
-
       expect(consoleCommands.has("contribution-test.act")).toBe(true);
       expect(consoleFamilyKeyBindings()).toStrictEqual([
         { chord: "$mod+Shift+7", commandId: "contribution-test.act" },
       ]);
     } finally {
-      withdraw("contribution-test-alone");
+      releaseAll(release);
     }
   });
 
@@ -183,23 +183,26 @@ describe("console commands — the seat a family contributes its whole set throu
     // Composition is idempotent everywhere else in the console, and this door is
     // run again by a hot reload and by every test that composes the families. An
     // additive door would raise on the second pass instead.
+    const releaseNeighbour = consoleCommandSurface.contribute({
+      owner: "contribution-test-neighbour",
+      commands: [inertCommand("contribution-test.kept")],
+      keyBindings: [{ chord: "$mod+Shift+8", commandId: "contribution-test.kept" }],
+    });
+    const releaseFirst = consoleCommandSurface.contribute({
+      owner: "contribution-test-replaced",
+      commands: [inertCommand("contribution-test.first")],
+      keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.first" }],
+    });
+    // The re-contribution the seat performs, in the order React performs it: the
+    // previous effect's cleanup runs before the new one contributes, so the owner
+    // holds one live entry and this is a replace rather than a supersede.
+    releaseFirst();
+    const releaseSecond = consoleCommandSurface.contribute({
+      owner: "contribution-test-replaced",
+      commands: [inertCommand("contribution-test.second")],
+      keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.second" }],
+    });
     try {
-      consoleCommandSurface.contribute({
-        owner: "contribution-test-neighbour",
-        commands: [inertCommand("contribution-test.kept")],
-        keyBindings: [{ chord: "$mod+Shift+8", commandId: "contribution-test.kept" }],
-      });
-      consoleCommandSurface.contribute({
-        owner: "contribution-test-replaced",
-        commands: [inertCommand("contribution-test.first")],
-        keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.first" }],
-      });
-      consoleCommandSurface.contribute({
-        owner: "contribution-test-replaced",
-        commands: [inertCommand("contribution-test.second")],
-        keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.second" }],
-      });
-
       expect(consoleCommands.has("contribution-test.first")).toBe(false);
       expect(consoleCommands.has("contribution-test.second")).toBe(true);
       expect(consoleCommands.has("contribution-test.kept")).toBe(true);
@@ -210,7 +213,7 @@ describe("console commands — the seat a family contributes its whole set throu
         "contribution-test.second",
       ]);
     } finally {
-      withdraw("contribution-test-neighbour", "contribution-test-replaced");
+      releaseAll(releaseNeighbour, releaseSecond);
     }
   });
 
@@ -223,21 +226,21 @@ describe("console commands — the seat a family contributes its whole set throu
       signalCount += 1;
     });
 
+    const release = consoleCommandSurface.contribute({
+      owner: "contribution-test-signal",
+      commands: [inertCommand("contribution-test.act")],
+      keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
+    });
     try {
-      consoleCommandSurface.contribute({
-        owner: "contribution-test-signal",
-        commands: [inertCommand("contribution-test.act")],
-        keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
-      });
       const afterContribution = signalCount;
       stopWatching();
-      withdraw("contribution-test-signal");
+      release();
 
       expect(afterContribution).toBe(1);
       expect(signalCount).toBe(1);
     } finally {
       stopWatching();
-      withdraw("contribution-test-signal");
+      releaseAll(release);
     }
   });
 
@@ -250,19 +253,18 @@ describe("console commands — the seat a family contributes its whole set throu
       chordsSeenByListener = consoleFamilyKeyBindings();
     });
 
+    const release = consoleCommandSurface.contribute({
+      owner: "contribution-test-late-read",
+      commands: [inertCommand("contribution-test.act")],
+      keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
+    });
     try {
-      consoleCommandSurface.contribute({
-        owner: "contribution-test-late-read",
-        commands: [inertCommand("contribution-test.act")],
-        keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
-      });
-
       expect(chordsSeenByListener.map((binding) => binding.commandId)).toStrictEqual([
         "contribution-test.act",
       ]);
     } finally {
       stopWatching();
-      withdraw("contribution-test-late-read");
+      releaseAll(release);
     }
   });
 
