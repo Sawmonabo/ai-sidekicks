@@ -28,15 +28,22 @@
 //
 // AND EVERY READ IS BOUNDED, BECAUSE AN UNBOUNDED ONE IS A LEAK
 //
-// Both commands are `spawnSync`, which blocks this thread until the child it
-// started exits — and `ps` under a hung filesystem, or PowerShell on a runner
-// whose CIM service is not answering, does not exit. That call is performed at
-// the spawn of every managed Electron and again inside every disposal, so an
-// unbounded one hangs the worker at exactly the moment a detached browser needs
-// killing: vitest's own timeout is a timer on this same blocked thread, and a
-// worker killed while blocked runs no teardown at all. So both reads carry a
-// `timeout`, and a read that spends it comes back as an `error` — which both
-// readers below already treat as an unreadable host rather than as evidence.
+// Every host query here is a `spawnSync`, which blocks this thread until the
+// child it started exits — and `ps` under a hung filesystem, or PowerShell on a
+// runner whose CIM service is not answering, does not exit. Those calls are
+// performed at the spawn of every managed Electron, again inside every disposal,
+// and once more by the liveness state read next door, so an unbounded one hangs
+// the worker at exactly the moment a detached browser needs killing: vitest's own
+// timeout is a timer on this same blocked thread, and a worker killed while
+// blocked runs no teardown at all.
+//
+// So there is ONE way to ask this host anything — `runBoundedHostQuery` — and the
+// bound is a property of that function rather than of each call site. Three
+// call sites carried their own options object and the fourth, the macOS state
+// code in `liveness.ts`, carried one WITHOUT the timeout: a bound restated at
+// each site is a bound one site will be written without, and it was. A query
+// that spends its bound comes back as an `error`, which the one runner reads as
+// an unreadable host rather than as evidence.
 //
 // AND A PARSE THAT WOULD RATHER SKIP A ROW THAN INVENT ONE. Neither command's
 // output is only rows: `ps` prints a header under some option sets and a warning
@@ -62,11 +69,23 @@ export interface ProcessTableRow {
   readonly startStamp: string | undefined;
 }
 
-/** This host's process table, as one injectable reading. */
-export type ProcessTableReader = () => ReadonlyMap<number, ProcessTableRow>;
+/**
+ * This host's process table, as one injectable reading.
+ *
+ * The optional budget is what is LEFT of the caller's own deadline, and it is
+ * optional because most callers hold none: the capture taken at a spawn is not
+ * inside anybody's disposal. A caller that does hold one passes it, and the
+ * reading is bounded by the smaller of it and `HOST_QUERY_TIMEOUT_MS`.
+ */
+export type ProcessTableReader = (
+  remainingBudgetMilliseconds?: number,
+) => ReadonlyMap<number, ProcessTableRow>;
 
 /** How one root's per-instance start stamp is read, as one injectable reading. */
-export type ProcessStartStampReader = (processId: number) => string | undefined;
+export type ProcessStartStampReader = (
+  processId: number,
+  remainingBudgetMilliseconds?: number,
+) => string | undefined;
 
 /**
  * How long either host query gets before it is abandoned as unreadable.
@@ -88,6 +107,111 @@ export type ProcessStartStampReader = (processId: number) => string | undefined;
  * and `process-tree-readers.test.ts` holds the relation rather than this comment.
  */
 export const HOST_QUERY_TIMEOUT_MS = 5_000;
+
+/**
+ * What running one host query needs from the platform, narrowed to three fields.
+ *
+ * `spawnSync`'s own shape rather than an abstraction over it, and narrowed
+ * rather than aliased for one reason: the options object is what CARRIES the
+ * bound, so a seam that hides it can only claim the bound in a comment. Handed
+ * a recording runner, a test reads the `timeout` that was actually passed.
+ */
+export interface HostQueryOptions {
+  /** Both readings are text, and every parser here is written against text. */
+  readonly encoding: "utf8";
+  /** How long the platform gives the command before it kills it. */
+  readonly timeout: number;
+}
+
+/** The fields of a finished host query this module reads, and no others. */
+export interface HostQueryResult {
+  /** Set when the command could not be run at all, or when it spent its bound. */
+  readonly error?: Error | undefined;
+  /** Its exit code, or `null` when a signal ended it — a spent bound is both. */
+  readonly status: number | null;
+  /** Everything it wrote to standard output. */
+  readonly stdout: string;
+}
+
+/** How a bounded host query is actually run, as one injectable act. */
+export type HostQueryRunner = (
+  command: string,
+  args: readonly string[],
+  options: HostQueryOptions,
+) => HostQueryResult;
+
+/** The real runner, which every production reading takes. */
+const runHostCommand: HostQueryRunner = (command, args, options) =>
+  spawnSync(command, [...args], options);
+
+/**
+ * Run one host command under the smaller of its own bound and what is left of
+ * the caller's, or nothing at all when nothing is left.
+ *
+ * THE ONE DOOR, and the bound lives on it rather than at the call sites. Every
+ * reading in this directory that runs a command runs it through here — both
+ * process-table listings, both per-pid stamp reads, the macOS process state code
+ * in `liveness.ts`, and the Windows tree kill in `arms.ts` — because a bound
+ * spelled out at each site is a bound the next site is written without, and one
+ * site already was.
+ *
+ * `HOST_QUERY_TIMEOUT_MS` IS A CEILING AND NOT THE FIGURE. It is derived against
+ * the whole cleanup budget, so it is right for a query taken at the START of a
+ * disposal and far too generous for one taken after that disposal has already
+ * spent itself: three attempts each running a five-second query is half a minute
+ * of a budget that was over before the first one. A caller holding a deadline
+ * passes what remains of it and gets the smaller of the two.
+ *
+ * A REMAINING BUDGET AT OR BELOW ZERO SPAWNS NOTHING. There is no such thing as
+ * a query that takes no time, so the honest answer to "you have no time left" is
+ * the unreadable one, arrived at without starting a process this thread would
+ * then block on.
+ *
+ * `undefined` is that single unreadable answer everywhere and it deliberately
+ * does not say which of the five things happened: the bound was already spent,
+ * the command would not start, it spent the bound it was given, it exited
+ * non-zero, or it printed nothing. None of those is evidence about a process,
+ * and every caller here treats them alike.
+ */
+export function runBoundedHostCommand(
+  command: string,
+  args: readonly string[],
+  remainingBudgetMilliseconds?: number,
+  runCommand: HostQueryRunner = runHostCommand,
+): HostQueryResult | undefined {
+  const timeout =
+    remainingBudgetMilliseconds === undefined
+      ? HOST_QUERY_TIMEOUT_MS
+      : Math.min(HOST_QUERY_TIMEOUT_MS, remainingBudgetMilliseconds);
+  if (timeout <= 0) {
+    return undefined;
+  }
+  return runCommand(command, args, { encoding: "utf8", timeout });
+}
+
+/**
+ * Ask this host one question through `runBoundedHostCommand`, as text.
+ *
+ * The reading half of the door: a command that did not run, would not start,
+ * exited non-zero, or printed nothing is `undefined`, and everything else is its
+ * output with the surrounding whitespace taken off. The stamp and state readers
+ * all want exactly this, and the tree kill wants the status instead, which is
+ * why the two halves are separate functions over one bound rather than one
+ * function with a flag.
+ */
+export function runBoundedHostQuery(
+  command: string,
+  args: readonly string[],
+  remainingBudgetMilliseconds?: number,
+  runCommand: HostQueryRunner = runHostCommand,
+): string | undefined {
+  const reported = runBoundedHostCommand(command, args, remainingBudgetMilliseconds, runCommand);
+  if (reported === undefined || reported.error !== undefined || reported.status !== 0) {
+    return undefined;
+  }
+  const output = reported.stdout.trim();
+  return output === "" ? undefined : output;
+}
 
 /**
  * A process table out of whitespace-separated `pid ppid [start stamp]` lines.
@@ -140,10 +264,12 @@ export function parseProcessTable(tableText: string): Map<number, ProcessTableRo
  * `identity.ts` refuses a captured pid only on a stamp that disagrees, never on
  * a row that is missing, so an unreadable listing disarms nothing.
  */
-export function readProcessTable(): Map<number, ProcessTableRow> {
+export function readProcessTable(
+  remainingBudgetMilliseconds?: number,
+): Map<number, ProcessTableRow> {
   const listing =
     process.platform === "win32"
-      ? spawnSync(
+      ? runBoundedHostQuery(
           "powershell",
           [
             "-NoProfile",
@@ -151,16 +277,10 @@ export function readProcessTable(): Map<number, ProcessTableRow> {
             "-Command",
             'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.Ticks)" }',
           ],
-          { encoding: "utf8", timeout: HOST_QUERY_TIMEOUT_MS },
+          remainingBudgetMilliseconds,
         )
-      : spawnSync("ps", ["-Ao", "pid=,ppid=,lstart="], {
-          encoding: "utf8",
-          timeout: HOST_QUERY_TIMEOUT_MS,
-        });
-  if (listing.error !== undefined || listing.status !== 0) {
-    return new Map<number, ProcessTableRow>();
-  }
-  return parseProcessTable(listing.stdout);
+      : runBoundedHostQuery("ps", ["-Ao", "pid=,ppid=,lstart="], remainingBudgetMilliseconds);
+  return listing === undefined ? new Map<number, ProcessTableRow>() : parseProcessTable(listing);
 }
 
 /**
@@ -189,31 +309,29 @@ export function readProcessTable(): Map<number, ProcessTableRow> {
  * `undefined` means the stamp could not be read, which is not evidence of
  * anything — `SpawnedTreeIdentity` settles what to do about it.
  */
-export function readProcessStartStamp(processId: number): string | undefined {
+export function readProcessStartStamp(
+  processId: number,
+  remainingBudgetMilliseconds?: number,
+): string | undefined {
   if (processId <= 0) {
     return undefined;
   }
-  const reported =
-    process.platform === "win32"
-      ? spawnSync(
-          "powershell",
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(processId)}").CreationDate.Ticks`,
-          ],
-          { encoding: "utf8", timeout: HOST_QUERY_TIMEOUT_MS },
-        )
-      : spawnSync("ps", ["-o", "lstart=", "-p", String(processId)], {
-          encoding: "utf8",
-          timeout: HOST_QUERY_TIMEOUT_MS,
-        });
-  if (reported.error !== undefined || reported.status !== 0) {
-    return undefined;
-  }
-  const stamp = reported.stdout.trim();
-  return stamp === "" ? undefined : stamp;
+  return process.platform === "win32"
+    ? runBoundedHostQuery(
+        "powershell",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(processId)}").CreationDate.Ticks`,
+        ],
+        remainingBudgetMilliseconds,
+      )
+    : runBoundedHostQuery(
+        "ps",
+        ["-o", "lstart=", "-p", String(processId)],
+        remainingBudgetMilliseconds,
+      );
 }
 
 /**

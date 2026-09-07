@@ -31,18 +31,18 @@ import {
   type CapturedTreeMember,
 } from "../../helpers/process-tree/identity.js";
 import { type ProcessTableRow } from "../../helpers/process-tree/readers.js";
+import {
+  CAPTURED_CHILD_PID,
+  CAPTURED_ROOT_PID,
+  CAPTURED_TREE_TABLE,
+  CHILD_STAMP,
+  ScriptedStartStamps,
+} from "./process-tree-identity.test-support.js";
 import { processTableOf } from "./process-table-fixture.test-support.js";
 
-/** The tree whose root is captured, and the one descendant it is known to hold. */
-const CAPTURED_ROOT_PID = 4242;
-const CAPTURED_CHILD_PID = 4243;
 /** A child of whoever holds the root's number after the reissue. */
 const IMPOSTOR_CHILD_PID = 4244;
 
-/** The stamp the descendant is listed under while it is still itself. */
-const CHILD_STAMP = "child-at-spawn";
-
-const CAPTURED_TREE_TABLE = processTableOf([[CAPTURED_CHILD_PID, CAPTURED_ROOT_PID, CHILD_STAMP]]);
 const REISSUED_ROOT_TABLE = processTableOf([[IMPOSTOR_CHILD_PID, CAPTURED_ROOT_PID, "impostor"]]);
 
 describe("process termination — a pid is a NAME, and the operating system reissues it", () => {
@@ -52,44 +52,6 @@ describe("process termination — a pid is a NAME, and the operating system reis
   // around the pid space is not a test. So the stamp reading is injected and the
   // real platform arm is checked separately, against the two pids whose answers
   // are already known — this process, and one that has certainly exited.
-
-  /**
-   * A start-stamp reader whose answers are scripted in order.
-   *
-   * A queue rather than a value for `ScriptedLivenessProbes`' reason: the whole
-   * subject is a SEQUENCE — the stamp taken at the spawn against the stamp taken
-   * before the kill — and only what the later answer says separates the cases. A
-   * read past the script throws rather than repeating, because a reading that
-   * asks more often than the case described is a different reading; `undefined`
-   * is a legitimate scripted answer, so the bound is checked before the take
-   * rather than inferred from one.
-   */
-  class ScriptedStartStamps {
-    readonly #answers: readonly (string | undefined)[];
-    readonly #reads: number[] = [];
-    #taken = 0;
-
-    constructor(answers: readonly (string | undefined)[]) {
-      this.#answers = [...answers];
-    }
-
-    /** The pids the reading asked about, in order. */
-    get reads(): readonly number[] {
-      return this.#reads;
-    }
-
-    readonly read = (processId: number): string | undefined => {
-      if (this.#taken >= this.#answers.length) {
-        throw new Error(
-          `the identity asked for a start stamp ${String(this.#taken + 1)} times, past the ${String(this.#answers.length)} this case scripted`,
-        );
-      }
-      this.#reads.push(processId);
-      const answer = this.#answers[this.#taken];
-      this.#taken += 1;
-      return answer;
-    };
-  }
 
   it("captures the root's stamp at construction rather than at the kill", () => {
     // THE PROPERTY THE WHOLE FIX RESTS ON. A capture taken when the kill is

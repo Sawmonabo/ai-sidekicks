@@ -30,6 +30,24 @@
 // failure than the one this module closes, and detection there is impossible by
 // construction rather than by choice. A pid is convicted only by a stamp that
 // DISAGREES, never by a stamp that is missing.
+//
+// AND A THIRD THING A STAMP SAYS: WHETHER A CLAIMANT COULD BE A CHILD AT ALL
+//
+// Windows does not reparent, so a process whose parent has exited keeps naming
+// that parent's number for as long as it lives — including when the number was
+// handed to this tree's root long afterwards. The parent-table walk cannot tell
+// such a claimant from a real descendant: both rows record the same pid, and the
+// equality check above passes both, because the claimant's stamp has not changed
+// since it was captured. It was never this tree's to capture.
+//
+// The proof that separates them is an ORDER rather than an equality, and it is
+// the one fact about parenthood no operating system violates: a child cannot
+// have started before its parent. The root's own start stamp is taken at the
+// spawn, and a claimant whose stamp is DEMONSTRABLY earlier than that is not a
+// descendant of this root and is pruned from the table before the walk — with
+// its own subtree, since a child of a stranger is a stranger. `startStampPrecedes`
+// is where "demonstrably" is spent, and it keeps the failure direction the rest
+// of this module has: a pair it cannot order convicts nobody.
 
 import { processExists } from "./liveness.js";
 import {
@@ -98,6 +116,76 @@ export function verifyCapturedMembers(
       );
     })
     .map((member) => member.processId);
+}
+
+/**
+ * One start stamp read as a value with a known total order, or nothing.
+ *
+ * TWO ORDERS AND NEVER A THIRD, because a stamp this cannot place is a stamp it
+ * must refuse to reason about rather than one to guess at. Windows emits
+ * `CreationDate.Ticks`, an integer counted in hundred-nanosecond units — read as
+ * a `bigint` rather than a `number` because it is eighteen digits and a double
+ * cannot hold them exactly, so adjacent ticks would compare equal. POSIX emits
+ * `ps -o lstart=`, a `Sun Sep  7 02:25:10 2026` calendar stamp read as an
+ * instant, whose one-second resolution is the reason the comparison below is
+ * STRICT: a child started within its parent's second reads equal, and equal is
+ * not evidence of anything.
+ *
+ * The `kind` travels with the value so two orders can never be mixed. A tick
+ * count and a millisecond instant are both integers and comparing one against
+ * the other would answer confidently and mean nothing.
+ */
+function orderedStartStamp(
+  stamp: string,
+): { readonly kind: "ticks" | "instant"; readonly value: bigint } | undefined {
+  const trimmed = stamp.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return { kind: "ticks", value: BigInt(trimmed) };
+  }
+  const instant = Date.parse(trimmed);
+  return Number.isNaN(instant) ? undefined : { kind: "instant", value: BigInt(instant) };
+}
+
+/**
+ * Whether `candidate` was demonstrably started BEFORE `baseline`.
+ *
+ * THE ANCESTRY PROOF, as the one claim about parenthood that is always true: a
+ * child cannot predate its parent. A row the process table hangs off this tree's
+ * root pid whose stamp is earlier than the root's own is therefore not this
+ * tree's descendant — it is a survivor of whoever held that number before, and
+ * on Windows it keeps naming the number for as long as it runs.
+ *
+ * FALSE IS THE ANSWER TO EVERY DOUBT, which is this module's failure direction
+ * and not a shortcut: a missing stamp on either side, two stamps in orders that
+ * cannot be compared, and a stamp in no order this recognises all answer `false`
+ * and admit the claimant. Refusing a member on an unreadable stamp would drop
+ * real descendants out of the only kill list a rootless tree has, which is a
+ * worse failure than the one this prevents.
+ *
+ * IT COMPARES ACROSS THE TWO READERS ON PURPOSE, AND THAT IS SAFE HERE FOR THE
+ * REASON EQUALITY IS NOT. `readers.ts` keeps the per-pid stamp and the table's
+ * column apart because the two commands SPELL one instant differently — a
+ * single-digit day padded in one and not the other — and two spellings compare
+ * unequal as text. This does not compare text: both sides are parsed into a
+ * value first, and the padding that defeats an equality is gone by then.
+ */
+export function startStampPrecedes(
+  candidate: string | undefined,
+  baseline: string | undefined,
+): boolean {
+  if (candidate === undefined || baseline === undefined) {
+    return false;
+  }
+  const candidateOrder = orderedStartStamp(candidate);
+  const baselineOrder = orderedStartStamp(baseline);
+  if (
+    candidateOrder === undefined ||
+    baselineOrder === undefined ||
+    candidateOrder.kind !== baselineOrder.kind
+  ) {
+    return false;
+  }
+  return candidateOrder.value < baselineOrder.value;
 }
 
 /**
@@ -191,18 +279,18 @@ export class SpawnedTreeIdentity {
    * An unverifiable pair — no capture, or no current reading — answers `same`,
    * for the reason the module header gives once for every stamp comparison here.
    */
-  readIdentity(): TreeRootIdentity {
+  readIdentity(remainingBudgetMilliseconds?: number): TreeRootIdentity {
     if (this.#processId <= 0 || !this.#rootExists(this.#processId)) {
       return "gone";
     }
-    const currentStamp = this.#readStamp(this.#processId);
+    const currentStamp = this.#readStamp(this.#processId, remainingBudgetMilliseconds);
     if (this.#capturedStamp === undefined || currentStamp === undefined) {
       return "same";
     }
     if (currentStamp !== this.#capturedStamp) {
       return "recycled";
     }
-    this.captureLiveDescendants();
+    this.captureLiveDescendants(remainingBudgetMilliseconds);
     return "same";
   }
 
@@ -232,14 +320,64 @@ export class SpawnedTreeIdentity {
    * makes a late child reachable: the set is what the tree looked like at the
    * last live reading, and a member that has since exited is filtered by the
    * caller's own liveness pass before anything is signalled.
+   *
+   * ONLY A READABLE LISTING MAY REPLACE IT. `readProcessTable` answers an
+   * unreadable host with an EMPTY map — a query that would not start, or spent
+   * its bound — and a host always lists at least the process doing the reading,
+   * so empty is unreadability and never an emptied tree. Replacing the capture
+   * there would exchange a verified set for nothing at exactly the moment it
+   * becomes the only handle this tree has: the root has just exited, the browser
+   * under it is alive, and the arm would be handed no member to address and
+   * would refuse every attempt. So an unreadable refresh KEEPS the last verified
+   * set — stale by then, and stale-and-addressable beats verified-and-erased —
+   * and a member of it that has since exited is filtered by the caller's own
+   * liveness pass, exactly as a member of a fresh capture is.
+   *
+   * AND WHAT IS CAPTURED IS THE TREE THIS ROOT COULD HAVE FATHERED. Rows the
+   * listing hangs off this pid that PREDATE the root are pruned before the walk,
+   * so neither they nor anything beneath them enters the set — the header has why
+   * a table cannot tell such a claimant from a descendant, and `startStampPrecedes`
+   * has what "predate" is allowed to mean.
    */
-  captureLiveDescendants(): void {
-    const processTable = this.#readProcessTable();
-    this.#capturedDescendants = descendantsOf(this.#processId, processTable).map(
+  captureLiveDescendants(remainingBudgetMilliseconds?: number): void {
+    const processTable = this.#readProcessTable(remainingBudgetMilliseconds);
+    if (processTable.size === 0) {
+      return;
+    }
+    const fatherable = this.#rowsThisRootCouldHaveFathered(processTable);
+    this.#capturedDescendants = descendantsOf(this.#processId, fatherable).map(
       (descendantProcessId) => ({
         processId: descendantProcessId,
         startStamp: processTable.get(descendantProcessId)?.startStamp,
       }),
     );
+  }
+
+  /**
+   * `processTable` without the rows that started before this root did.
+   *
+   * Pruned from the TABLE rather than filtered out of the walk's result, and
+   * that is the difference between removing a stranger and removing a stranger's
+   * family: a claimant's own children postdate the root perfectly happily, and a
+   * post-filter would keep every one of them while dropping the one row that
+   * explains where they came from.
+   *
+   * The whole table is returned unchanged when this root carries no stamp of its
+   * own — there is nothing to compare against, and this module never convicts on
+   * an absence.
+   */
+  #rowsThisRootCouldHaveFathered(
+    processTable: ReadonlyMap<number, ProcessTableRow>,
+  ): ReadonlyMap<number, ProcessTableRow> {
+    if (this.#capturedStamp === undefined) {
+      return processTable;
+    }
+    const fatherable = new Map<number, ProcessTableRow>();
+    for (const [claimantProcessId, row] of processTable) {
+      if (!startStampPrecedes(row.startStamp, this.#capturedStamp)) {
+        fatherable.set(claimantProcessId, row);
+      }
+    }
+    return fatherable;
   }
 }

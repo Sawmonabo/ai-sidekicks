@@ -97,24 +97,40 @@ export const PROCESS_TREE_TERMINATION_MODE: ProcessTreeTerminationMode =
  * default is the UNVERIFIED one rather than a fresh capture: capturing here would
  * compare the pid against itself an instant later and answer `same` for every
  * pid on the host, which is a check that cannot fail dressed as one that can.
+ *
+ * AND EVERY HOST COMMAND THIS RUNS IS CHARGED TO THE CALLER'S DEADLINE WHEN IT
+ * HAS ONE. This whole call is synchronous — the stamp read, the process-table
+ * listing, `taskkill`, and the state code behind each survival reading are all
+ * `spawnSync`, each bounded at `HOST_QUERY_TIMEOUT_MS` on its own — so a caller
+ * that escalates three times can spend several multiples of a cleanup budget
+ * that was already over, with vitest's timeout firing on this blocked thread
+ * before the verdict it was waiting for exists. `remainingBudgetMilliseconds` is
+ * what is LEFT of that deadline: every command below takes the smaller of it and
+ * its own bound, and a budget at or below zero runs none of them and reports the
+ * tree as neither signalled nor terminated, which is the reading that keeps a
+ * caller escalating rather than one that claims a kill it never attempted.
  */
 export function terminateProcessTree(
   processId: number,
   signal: NodeJS.Signals = "SIGKILL",
   rootIdentity: SpawnedTreeIdentity = SpawnedTreeIdentity.unverified(processId),
+  remainingBudgetMilliseconds?: number,
 ): boolean {
+  const hasTerminated = (treeMemberProcessId: number): boolean =>
+    processHasTerminated(treeMemberProcessId, remainingBudgetMilliseconds);
   if (PROCESS_TREE_TERMINATION_MODE === "external") {
     return terminateExternalTree(processId, signal, {
-      killTreeFrom: runPlatformTreeKill,
-      processTable: readProcessTable,
-      hasTerminated: processHasTerminated,
-      rootIdentity: () => rootIdentity.readIdentity(),
+      killTreeFrom: (treeMemberProcessId, forced) =>
+        runPlatformTreeKill(treeMemberProcessId, forced, remainingBudgetMilliseconds),
+      processTable: () => readProcessTable(remainingBudgetMilliseconds),
+      hasTerminated,
+      rootIdentity: () => rootIdentity.readIdentity(remainingBudgetMilliseconds),
       capturedDescendants: () => rootIdentity.capturedDescendants,
     });
   }
   return terminateSignalledTree(processId, signal, {
     deliver: deliverSignal,
     groupHasMember: processGroupExists,
-    hasTerminated: processHasTerminated,
+    hasTerminated,
   });
 }
