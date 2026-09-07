@@ -21,6 +21,7 @@ import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../../bridge/scenarios/repos-fixture-data.js";
 import { SessionStore } from "../../../store/index.js";
 import { advanceScenarioUntil } from "../../scenario-clock.test-support.js";
+import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 import { REUSE_UNANSWERED_COPY } from "./root-act-model.js";
 
@@ -29,6 +30,12 @@ const DIRTY_CANDIDATE_BRANCH = "feat/rate-limit-wiring";
 
 /** A fixture branch with no candidate at all, which prepares without a consent. */
 const UNHELD_BRANCH = "feat/fresh-root";
+
+/** The card hands the form a live posture; the held arm is `ExecutionModePicker.test.tsx`'s. */
+const CONTROLS_LIVE: WorkspaceControlPosture = workspaceControlPosture(
+  { offered: true },
+  undefined,
+);
 
 interface FormUnderTest {
   readonly container: HTMLElement;
@@ -51,6 +58,7 @@ function renderForm(executionMode: ExecutionMode = "worktree"): FormUnderTest {
       repoMountId={GIT_MOUNT_ID}
       executionMode={mode}
       sessionStore={sessionStore}
+      posture={CONTROLS_LIVE}
       onPrepared={() => undefined}
     />
   );
