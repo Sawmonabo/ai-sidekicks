@@ -17,11 +17,23 @@
 // surface reaches for this row's wire" — and it is derived from the ledger rather than
 // from a second table anyone has to keep in step.
 //
-// THE BRIDGE FAMILY IS SUBTRACTED FROM THE SEARCH, and that subtraction is the whole
-// difficulty. Every operation id appears in `bridge/` by construction — in the id
-// union, the ledger, the refusing port, and the fixture's served set — so a scan that
-// counted those would report every row as consumed and prove nothing. What counts is a
-// reference from a module that is not part of the seam.
+// THE DECLARING MODULES ARE SUBTRACTED FROM THE SEARCH, and that subtraction is the
+// whole difficulty. Every operation id appears in the growth seam by construction — in
+// the id union, the ledger, the signatures, the refusing port, and the fixture and
+// scenario answers — so a scan that counted those would report every row as consumed
+// and prove nothing. What counts is a reference from a module that DECLARES none of
+// them.
+//
+// THE SEAM IS THOSE MODULES AND NOT THE WHOLE `bridge/` FAMILY, which is a correction
+// and not a relaxation. Subtracting the family read as the same claim while every
+// module that named an id was a declaration — and then a genuine CALLER moved in:
+// `bridge/session-goal.ts` is what `approvals/pane/approvals-hooks.ts` reaches the
+// goal wire through, so a family-wide subtraction hid the one call the goal row has
+// and reported the row as promised-and-unbuilt. A bridge module that calls the port on
+// a surface's behalf is a consumer; the modules that declare the port are the seam.
+// `subtracts every module that declares an operation id` below is what keeps that
+// distinction honest — the two heaviest declaring modules name 128 and 108 ids between
+// them, so a seam that stopped covering either would pass every row on their strength.
 //
 // A ROW WHOSE CONSUMER IS ANOTHER LANE'S IS NAMED, NEVER SKIPPED. The allow-list below
 // carries one entry per such row with the lane that owes it. An entry is a debt with a
@@ -35,12 +47,42 @@ import type { GrowthSlateRowId } from "../../../src/renderer/src/console/bridge/
 import { ConsoleSourceTree, type ConsoleModuleText } from "../console-source-modules.js";
 
 /**
- * The families that are the SEAM rather than a consumer.
+ * The directories that are the SEAM rather than a consumer.
  *
- * `bridge/` declares every operation id four times over and the fixture serves them;
- * counting either as a consumer would make this gate pass on an empty console.
+ * The growth port is declared five times over — the id union and the refusing port
+ * under `growth-port/`, the ledger, the signatures, and the values beside them — and
+ * the fixture and its scenarios answer by id; counting any of those as a consumer
+ * would make this gate pass on an empty console. Every entry is measured against the
+ * tree rather than guessed: each one holds at least one module that names an operation
+ * id, which `subtracts every module that declares an operation id` asserts.
  */
-const SEAM_PATH_FRAGMENTS: readonly string[] = ["console/bridge/"];
+const SEAM_PATH_FRAGMENTS: readonly string[] = [
+  "console/bridge/growth-port/",
+  "console/bridge/growth-operations/",
+  "console/bridge/growth-signatures/",
+  "console/bridge/growth-values/",
+  "console/bridge/fixture/",
+  "console/bridge/scenarios/",
+];
+
+/**
+ * One declaring module per seam entry, named so the subtraction is checked and not
+ * assumed.
+ *
+ * The first two are the load-bearing pair — the id union and the refusing port name
+ * every operation there is — and a seam that stopped reaching either would report the
+ * whole slate consumed. The rest are one witness apiece, so an entry above that
+ * stopped matching anything is a red case rather than a line nobody reads.
+ */
+const SEAM_DECLARING_MODULES: readonly string[] = [
+  "console/bridge/growth-port/growth-entry.ts",
+  "console/bridge/growth-port/growth-port.ts",
+  "console/bridge/growth-operations/sessions.ts",
+  "console/bridge/growth-signatures/sessions.ts",
+  "console/bridge/growth-values/artifacts.ts",
+  "console/bridge/fixture/fixture-served-operations.ts",
+  "console/bridge/scenarios/onboarding.ts",
+];
 
 /**
  * Rows whose consuming surface is owned by a lane other than the one that authored
@@ -58,8 +100,10 @@ const SEAM_PATH_FRAGMENTS: readonly string[] = ["console/bridge/"];
  * class stays a tripwire rather than a hole.
  */
 const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
-  // browser lane — the browser pane and its dev-server chip.
-  "browser-tool-relay": "browser lane — the browser pane",
+  // browser lane — the dev-server chip. The tool relay came off this list when that
+  // lane landed the pane: `browserSubscribeToolCalls` and `browserRespondToToolCall`
+  // are reached by `browser/cards/tool-call-relay.ts` now, so the derived check
+  // covers the row.
   "dev-server-probe": "browser lane — the browser pane's dev-server chip",
   // sessions lane — the all-sessions list and the workspace header. The import flow
   // came off this list when that lane landed it: `provider-session-import` is reached
@@ -85,11 +129,13 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // workflows lanes — the run pane and the builder.
   "workflow-event-registration": "workflows lane — the workflow-run pane",
   "workflow-definition-scope": "workflows lane — the workflow-builder pane",
-  // approvals lane — the remembered-rule arm, the amendment arm, and the callback
-  // registry the approvals pane reads a tool's identity from.
+  // approvals lane — the remembered-rule arm and the amendment arm. The callback
+  // registry came off this list when that lane landed the pane's posture section:
+  // `callbackToolRegistryRead` is reached by
+  // `approvals/pane/posture/callback-tool-registry.ts` now, so the derived check
+  // covers the row.
   "approval-remembered-rule": "approvals lane — the approvals pane",
   "approval-amendment-arm": "approvals lane — the approvals pane",
-  "callback-tool-registry-read": "approvals lane — the approvals pane",
   // shell lane — the window controls the workspace deck and auxiliary windows take.
   "window-control-namespace": "shell lane — the workspace deck and auxiliary windows",
 };
@@ -109,6 +155,21 @@ describe("growth slate — every row's consuming surface resolves to a module", 
     // The vacuity floor every gate in this tier asserts: a walk that found nothing
     // would report every row as consumed and every allow-list entry as needed.
     expect(consumers().length).toBeGreaterThan(200);
+  });
+
+  it("subtracts every module that declares an operation id", () => {
+    // The control the seam list is only trustworthy with, and the one this gate was
+    // found without: a fragment that stopped matching — a directory renamed, a
+    // declaring module moved out from under it, a prefix mistyped — leaves a module
+    // naming every operation there is inside the search, and every row then reports
+    // consumed on its strength. Each witness is asserted to be IN the reading first,
+    // so a scan that never reached it cannot clear the subtraction by absence.
+    const consumerPaths = new Set(consumers().map((text) => text.displayPath));
+    const scannedPaths = new Set(tree.reading.texts.map((text) => text.displayPath));
+    for (const declaringPath of SEAM_DECLARING_MODULES) {
+      expect(scannedPaths.has(declaringPath), `${declaringPath} was not scanned`).toBe(true);
+      expect(consumerPaths.has(declaringPath), `${declaringPath} was not subtracted`).toBe(false);
+    }
   });
 
   it("carries exactly the recorded set of rows that name no ledger operation", () => {

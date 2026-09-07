@@ -41,6 +41,7 @@ import { JoinSessionForm } from "./JoinSessionForm.js";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport } from "./provider-import-model.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { OverlayMenuPopup } from "../../primitives/index.js";
 import type { SessionPreferenceBinding } from "../rows/session-preferences.js";
 
 export interface SessionActsProps {
@@ -124,20 +125,24 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
           >
             More
           </Menu.Trigger>
-          <Menu.Portal>
-            <Menu.Positioner className="meridian-session-acts__menu-positioner" sideOffset={4}>
-              <Menu.Popup className="meridian-session-acts__menu">
-                <Menu.Item
-                  className="meridian-session-acts__menu-item"
-                  onClick={() => {
-                    setDisclosed("import");
-                  }}
-                >
-                  Import a provider session
-                </Menu.Item>
-              </Menu.Popup>
-            </Menu.Positioner>
-          </Menu.Portal>
+          {/* The anchored part of the menu is the primitive's, which is what puts it
+              in the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a
+              bar that mounted its own portal would be a menu a native browser-pane
+              view paints over and takes the presses of. */}
+          <OverlayMenuPopup
+            positionerClassName="meridian-session-acts__menu-positioner"
+            sideOffset={4}
+            className="meridian-session-acts__menu"
+          >
+            <Menu.Item
+              className="meridian-session-acts__menu-item"
+              onClick={() => {
+                setDisclosed("import");
+              }}
+            >
+              Import a provider session
+            </Menu.Item>
+          </OverlayMenuPopup>
         </Menu.Root>
       </div>
 

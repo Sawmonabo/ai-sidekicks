@@ -90,11 +90,6 @@ describe("browser — the auto-pin switch is operable by keyboard", () => {
           setAutoPinOnFirstSend: (isEnabled) => {
             pressed.push(isEnabled);
           },
-          // The live read the auto-pin record consults at a first send. Nothing on
-          // this screen calls it, and it answers the same switch the rendered field
-          // does, because a binding whose two readings disagreed would be a shape
-          // the real hook cannot produce.
-          readAutoPinOnFirstSend: () => true,
         }}
       />,
     );
