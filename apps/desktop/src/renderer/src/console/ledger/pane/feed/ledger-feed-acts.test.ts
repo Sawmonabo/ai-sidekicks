@@ -23,6 +23,7 @@ import {
   LEDGER_NOTHING_FILTERED_REFUSAL,
   LEDGER_NO_REPLAY_ANCHOR_REFUSAL,
   buildLedgerStructureActs,
+  buildReplayFromRowAct,
   type LedgerFeedActInputs,
 } from "./ledger-feed-acts.js";
 import { type LedgerFindState } from "../find/ledger-find.js";
@@ -334,5 +335,51 @@ describe("the ledger's acts — the one that refuses", () => {
     acts.toggleReplay();
     acts.jumpToNextSeam();
     expect(raised).toStrictEqual([]);
+  });
+});
+
+describe("the one act two surfaces share — replay from a named row", () => {
+  let withdrawSink: (() => void) | undefined;
+
+  afterEach(() => {
+    withdrawSink?.();
+    withdrawSink = undefined;
+  });
+
+  it("reveals the dock BEFORE it scrubs, so the control is on screen", () => {
+    // Engaging replay starts withholding rows, and doing that behind a hidden dock
+    // leaves a reader holding a control they cannot see to undo.
+    const trace: ActTrace = [];
+    const replay = recordingReplayState("idle", trace, [WALKED_ROW_ID]);
+    buildReplayFromRowAct(replay)(WALKED_ROW_ID);
+    expect(trace).toStrictEqual(["reveal", `replayFromRow:${WALKED_ROW_ID}`]);
+  });
+
+  it("says so out loud when the engine cannot place the row", () => {
+    const { raised, withdraw } = collectRaisedRefusals();
+    withdrawSink = withdraw;
+    const trace: ActTrace = [];
+    buildReplayFromRowAct(recordingReplayState("idle", trace, []))("row-the-window-lost");
+    expect(raised).toStrictEqual([LEDGER_NO_REPLAY_ANCHOR_REFUSAL]);
+    expect(trace).toStrictEqual(["reveal", "replayFromRow:row-the-window-lost"]);
+  });
+
+  it("negative control: a placement that lands raises nothing", () => {
+    const { raised, withdraw } = collectRaisedRefusals();
+    withdrawSink = withdraw;
+    buildReplayFromRowAct(recordingReplayState("idle", [], [WALKED_ROW_ID]))(WALKED_ROW_ID);
+    expect(raised).toStrictEqual([]);
+  });
+
+  it("is the same body the chord runs, refusal and reveal included", () => {
+    // Two copies would be two places this console decides what a failed scrub says.
+    // Driving the chord and the shared body over one engine proves they agree.
+    const chordTrace: ActTrace = [];
+    buildLedgerStructureActs(
+      actInputs(chordTrace, { replayAnchorRowId: WALKED_ROW_ID, placeableRowIds: [] }),
+    ).replayFromRowInView();
+    const rowTrace: ActTrace = [];
+    buildReplayFromRowAct(recordingReplayState("idle", rowTrace, []))(WALKED_ROW_ID);
+    expect(chordTrace).toStrictEqual(rowTrace);
   });
 });

@@ -38,6 +38,9 @@ function viewportRowFor(ledgerWindow: LedgerWindowModel, key: string): LedgerVie
   return row;
 }
 
+/** The offer binding a mount holds: one identity, for the life of the window. */
+const STABLE_ROW_OFFERS: LedgerRowRendererOptions["rowOffers"] = { offersFor: () => [] };
+
 /** The options every case starts from, over one folded window. */
 function rendererOptions(
   ledgerWindow: LedgerWindowModel,
@@ -63,6 +66,14 @@ function rendererOptions(
       toggle: () => undefined,
       openBandKey: () => undefined,
     },
+    // The per-row offers, at rest. Every case here drives a dispatch BRANCH, and the
+    // offers' own suite drives the offers — so this stands in for the binding a mount
+    // holds rather than stubbing what a press does. ONE identity for the whole suite,
+    // because that is what a mount has: `useLedgerRowOffers` mints the binding once
+    // and reads its surfaces through a ref, and a fresh stub per call would model a
+    // binding that moves on every window and fail the memo case below for the one
+    // reason that cannot happen in production.
+    rowOffers: STABLE_ROW_OFFERS,
     ...overrides,
   };
 }

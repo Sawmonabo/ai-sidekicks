@@ -61,6 +61,7 @@ import { classifyCardFamily } from "../card-family.js";
 import { FootnoteRegistry } from "../markdown/index.js";
 import { EDIT_AFFORDANCE_SLOT, MessageCard } from "../MessageCard.js";
 import { ReceiptRow } from "../ReceiptRow.js";
+import { TOOL_SUB_FAMILY_SLOT } from "../tool-families/index.js";
 import { useDriverAskAnswer, useReasoningSurfaceRead } from "./shell-row-reads.js";
 import { ToolCard } from "../ToolCard.js";
 
@@ -143,6 +144,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
           onDensityToggle={toggleDensity}
+          subFamily={{ contract: TOOL_SUB_FAMILY_SLOT, body: undefined }}
         />
       );
     case "participant-message":

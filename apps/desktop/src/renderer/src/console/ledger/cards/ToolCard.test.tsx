@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "../../core/index.js";
 import { FootnoteRegistry } from "./markdown/index.js";
 import { sampleRunRow } from "./row-samples.test-support.js";
+import { TOOL_SUB_FAMILY_SLOT } from "./tool-families/index.js";
 import { ToolCard, clampSummary } from "./ToolCard.js";
 
 function renderToolCard(
@@ -29,6 +30,7 @@ function renderToolCard(
       isSuperseded={false}
       density={overrides.density ?? "collapsed"}
       footnotes={new FootnoteRegistry()}
+      subFamily={{ contract: TOOL_SUB_FAMILY_SLOT, body: undefined }}
       {...(overrides.body === undefined
         ? {}
         : { content: { status: "available", body: overrides.body } as const })}
