@@ -67,9 +67,11 @@
   font-weight: 600;
 }
 
-/* --- Version mark ------------------------------------------------------ */
+/* --- Version banner ---------------------------------------------------- */
 
-.meridian-version-mark {
+/* Present only while the two builds disagree. There is no rule here for a healthy
+   window, because a healthy window mounts no element to carry one. */
+.meridian-version-banner {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -78,18 +80,24 @@
   background: var(--meridian-surface-sunken);
 }
 
-.meridian-version-mark__pair,
-.meridian-version-mark__support {
+.meridian-version-banner__pair,
+.meridian-version-banner__support {
   margin: 0;
   color: var(--meridian-text-muted);
 }
 
-.meridian-version-mark__summary {
+.meridian-version-banner__detail-summary {
+  font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-  cursor: default;
+  cursor: pointer;
 }
 
-.meridian-version-mark__set {
+.meridian-version-banner__detail-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-version-banner__set {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);

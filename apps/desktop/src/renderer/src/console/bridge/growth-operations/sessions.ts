@@ -85,16 +85,20 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "restart the daemon",
       "DaemonRestart",
     ),
-    // The handshake, read by a window. It names the registered method because the
-    // method IS registered and the daemon answers it — what is missing is any seam
-    // that carries the ack past the shell, which is the row this entry serves rather
-    // than a verb nobody has written.
-    daemonHello: op(
-      "daemonHello",
+    // A READ of the ack the shell already holds, and deliberately not the handshake.
+    // `daemon.hello` is registered and the daemon answers it, so naming it here would
+    // have looked like the honest transcription the rows above make — but a window
+    // that sent it would get `compatible: false` with reason
+    // `protocol.handshake_already_completed` and no supported set, because the daemon
+    // latches the first handshake per connection and refuses every later one. So this
+    // row declares NO expected wire method: the seam it needs is a bridge read of a
+    // reply the shell is holding, and no such read is registered anywhere. The fixture
+    // keys it on the operation id under the `growth:` prefix accordingly.
+    daemonNegotiationRead: op(
+      "daemonNegotiationRead",
       "daemon-version-negotiation",
       "method",
-      "read the protocol the shell negotiated with the local runtime, the versions that runtime supports, and the reason when the two do not meet",
-      "daemon.hello",
+      "read, through the bridge, the negotiated ack the shell holds — the protocol agreed with the local runtime, the versions that runtime supports, and the reason when the two do not meet",
     ),
     onboardingStateRead: op(
       "onboardingStateRead",

@@ -198,8 +198,10 @@ describe("ConsoleRoot — the window's durable store is closed with the window",
     // the store's own `close` contract exists to prevent — and nothing was
     // calling it, so every remount inside one renderer process added another.
     let uiStateStore: UiStateStore | undefined;
-    const mounted = await mountConsole((context) => {
-      uiStateStore = context.uiStateStore;
+    const mounted = await mountConsole({
+      observe: (context) => {
+        uiStateStore = context.uiStateStore;
+      },
     });
     expect(uiStateStore).toBeDefined();
     if (uiStateStore === undefined) {

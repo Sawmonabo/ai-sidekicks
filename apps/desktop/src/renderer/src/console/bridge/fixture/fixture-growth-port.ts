@@ -29,6 +29,7 @@ import {
   growthUnavailable,
   type GrowthPort,
 } from "../growth-port/index.js";
+import { DAEMON_NEGOTIATION_READ_CALL } from "../scenarios/negotiation-replies.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
@@ -76,14 +77,23 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       answerFromScriptedReply(engine, "health.statusRead", "healthStatusRead", request, () =>
         growthUnavailable("healthStatusRead"),
       ),
-    // The handshake the shell performed, from a script and from nothing else — the
+    // The negotiated ack the shell holds, from a script and from nothing else — the
     // health read's rule with a sharper edge. A negotiation outcome is an observation
     // of two builds meeting, and the reply's `compatible` admits no empty form: a
     // fabricated `true` would put the mismatch banner out of reach of every fixture
     // window, and a fabricated `false` would raise it in all of them.
-    daemonHello: async (request) =>
-      answerFromScriptedReply(engine, "daemon.hello", "daemonHello", request, () =>
-        growthUnavailable("daemonHello"),
+    //
+    // Keyed on the operation and not on `daemon.hello`: this row registers no expected
+    // wire method, because the seam it needs is a bridge READ of a reply the shell
+    // already holds and a window that re-sent the handshake would be refused by the
+    // daemon's own per-connection latch. `negotiation-replies.ts` owns the key.
+    daemonNegotiationRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        DAEMON_NEGOTIATION_READ_CALL,
+        "daemonNegotiationRead",
+        request,
+        () => growthUnavailable("daemonNegotiationRead"),
       ),
     // The one accountant's own figure, from a script and from nothing else. An empty
     // form here would be a zero, and a zero is not an absence: it says this session

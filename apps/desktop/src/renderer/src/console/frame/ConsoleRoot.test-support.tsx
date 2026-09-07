@@ -14,6 +14,26 @@ import { type ConsoleSurfaceContext } from "../seats/index.js";
 /** Where a window with no particular address lands. */
 export const SESSIONS_HASH = "#/sessions";
 
+/** What a caller may vary about the mount. Both are the composition root's own props. */
+export interface MountConsoleOptions {
+  /**
+   * Which fixture scenario the window plays.
+   *
+   * Omitted, the window opens on the default scenario exactly as a launch does. A
+   * suite names one when the composition it is asserting about is a scenario's to
+   * script — a scripted handshake refusal, say, which no window reaches by default.
+   */
+  readonly scenarioId?: string;
+  /**
+   * The whole surface context the frame built, handed back once per render.
+   *
+   * That context is what the frame builds and hands to every surface, so it is the
+   * one seam that reports what the composition root wired without replacing any of
+   * it — and a second observer beside it would be a second such seam.
+   */
+  readonly observe?: (context: ConsoleSurfaceContext) => void;
+}
+
 /**
  * Mount and let the settled promises land.
  *
@@ -22,25 +42,21 @@ export const SESSIONS_HASH = "#/sessions";
  * against a half-settled tree and leave a state update landing outside `act`. Two
  * flushes rather than one: the open resolves a promise whose continuation schedules
  * another.
- *
- * The observer is handed the whole surface context rather than the route alone.
- * That context is what the frame builds and hands to every surface, so it is the
- * one seam that reports what the composition root wired without replacing any of
- * it — and a second observer beside it would be a second such seam.
  */
-export async function mountConsole(
-  observe?: (context: ConsoleSurfaceContext) => void,
-): Promise<RenderResult> {
+export async function mountConsole(options: MountConsoleOptions = {}): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
-  const props: ConsoleRootProps =
-    observe === undefined
+  const { scenarioId, observe } = options;
+  const props: ConsoleRootProps = {
+    ...(scenarioId === undefined ? {} : { scenarioId }),
+    ...(observe === undefined
       ? {}
       : {
-          renderOverlays: (context) => {
+          renderOverlays: (context: ConsoleSurfaceContext) => {
             observe(context);
             return null;
           },
-        };
+        }),
+  };
   await act(async () => {
     mounted = render(<ConsoleRoot {...props} />);
     await Promise.resolve();

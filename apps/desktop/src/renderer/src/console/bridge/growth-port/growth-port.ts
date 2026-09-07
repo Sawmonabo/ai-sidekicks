@@ -321,7 +321,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     daemonStatusRead: async () => growthUnavailable("daemonStatusRead"),
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),
-    daemonHello: async () => growthUnavailable("daemonHello"),
+    daemonNegotiationRead: async () => growthUnavailable("daemonNegotiationRead"),
     onboardingStateRead: async () => growthUnavailable("onboardingStateRead"),
     onboardingStepAdvance: async () => growthUnavailable("onboardingStepAdvance"),
     onboardingStepSkip: async () => growthUnavailable("onboardingStepSkip"),
