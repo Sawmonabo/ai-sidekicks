@@ -4,11 +4,23 @@
 // a binding are not on the initial import graph. The pane opens from the sidebar's
 // agents section; nothing paints it before a person asks for one.
 //
-// ONLY THE DECK MOUNT IS BEHIND THIS BOUNDARY. `agent-console-mounts.ts` also claims a
-// surface slot for the auxiliary window, and that one stays static: a window opened at
-// the agent-console route has this body as its FIRST paint, so a loader there would put
-// a fallback frame in front of the only thing that window exists to show, while saving
-// bytes on an entry graph that window loads anyway.
+// BOTH MOUNTS ARE BEHIND A BOUNDARY. `agent-console-mounts.ts` also claims a surface
+// slot for the auxiliary window, and that registration is a loader too — no main window
+// routes to the slot at all, so a static one would put the whole binding surface on
+// every window's initial graph to spare one window a frame.
+//
+// THE FAMILY'S FOUR CONSOLE SHEETS ENTER HERE AND AT THE SURFACE ROOT BESIDE THIS ONE.
+// Either mount can be the first to render `AgentConsoleBody`, and neither may render it
+// undressed, so both roots name the sheets and the bundler emits one shared asset for
+// the pair. The fifth sheet — the sidekicks page's — stays at the family door, whose
+// header states why. The move is admitted by the collision census
+// (`test/console/architecture/stylesheet-selector-owners.test.ts`): no other family
+// declares a class any of these four declares, so deferring them changes no surface but
+// this family's own.
+import "./agent-console.css";
+import "../agents.css";
+import "../provider-switch/provider-switch.css";
+import "../run-console/run-console.css";
 
 import { createElement } from "react";
 

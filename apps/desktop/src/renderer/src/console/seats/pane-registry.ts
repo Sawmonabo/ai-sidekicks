@@ -159,12 +159,18 @@ export class ConsolePaneRegistry {
    */
   public register(registration: ConsolePaneRegistration): void {
     if (registration.body === undefined) {
-      this.#loadedBodiesByKind.delete(registration.kind);
+      // REGISTERED FIRST, THEN THE LOADER TABLE IS TRIMMED, which is the loader arm's
+      // ordering read from the other side. Deleting first meant a refused registration —
+      // a different owner claiming a taken kind — threw AFTER dropping the loader that
+      // belongs to the descriptor still admitted, and the surviving pane then reported
+      // nothing to `preload` or `unloadedKeys`: warmable one moment and silently not the
+      // next, with no error anywhere naming why. The refusal throws past this line.
       this.#descriptorsByKind.register(registration.kind, {
         kind: registration.kind,
         owner: registration.owner,
         render: registration.render,
       });
+      this.#loadedBodiesByKind.delete(registration.kind);
       return;
     }
     // The fallback is the pane's own empty chrome, supplied here rather than by the

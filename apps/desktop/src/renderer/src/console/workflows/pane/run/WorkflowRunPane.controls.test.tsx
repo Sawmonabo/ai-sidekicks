@@ -48,7 +48,7 @@ const PORT_REFUSAL_SENTENCE = growthUnavailable("workflowRunCancel").detail;
 
 /** The button an operator presses, found the way an operator finds it. */
 function actionNamed(section: HTMLElement, label: string): HTMLElement {
-  const pressed = [...section.querySelectorAll(".meridian-run-controls__action")].find(
+  const pressed = [...section.querySelectorAll(".meridian-workflow-run-controls__action")].find(
     (candidate) => candidate.textContent?.includes(label) === true,
   );
   if (!(pressed instanceof HTMLElement)) {
@@ -59,7 +59,7 @@ function actionNamed(section: HTMLElement, label: string): HTMLElement {
 
 /** The whole control one button belongs to — the form that holds its answer too. */
 function controlAround(section: HTMLElement, label: string): HTMLElement {
-  const control = actionNamed(section, label).closest(".meridian-run-controls__control");
+  const control = actionNamed(section, label).closest(".meridian-workflow-run-controls__control");
   if (!(control instanceof HTMLElement)) {
     throw new Error(`the ${label} button sits inside no control`);
   }
@@ -107,7 +107,7 @@ describe("the run pane's operator controls ask the port", () => {
     // refusal on mount — which is the defect, dressed as a pass.
     const section = renderPane(paneContext(PARKED, answeringBridge()));
     await waitFor(() => {
-      expect(section.querySelector(".meridian-run-controls")).not.toBeNull();
+      expect(section.querySelector(".meridian-workflow-run-controls")).not.toBeNull();
     });
     expect(controlAround(section, "Cancel this run").textContent).not.toContain(
       PORT_REFUSAL_SENTENCE,

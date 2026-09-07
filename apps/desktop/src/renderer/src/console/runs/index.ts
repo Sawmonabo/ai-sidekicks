@@ -17,15 +17,35 @@
 // refuses a second owner on one kind, and a refusal that named a whole family would
 // leave a reader hunting three directories for which body is already there.
 
-// THE STYLESHEETS ARE NOT IMPORTED HERE, and that is the one thing this door does
-// differently from the shape it was written in. The pane is loader-backed, so the
-// directory that owns its sheets is the one carrying the chunk —
-// `pane/runs-pane-body.ts` — and a sheet on this door would put an unopened pane's
-// rules on the initial document of every session. `apps/desktop/AGENTS.md` keys the
-// rule on ownership rather than on depth, which is what makes the chunk root the
-// owner here.
+// THE PANE IS LOADER-BACKED AND ITS SHEETS ARE STILL IMPORTED HERE, which is the one
+// place this family departs from the rule the other loader-backed panes follow, and
+// the departure is measured rather than cautious.
+//
+// `pane/runs.css` declares `.meridian-run-row__failure`, and so does
+// `workflows/runs/run-list.css` — two families, two different components, one class
+// name. While both sheets are on the document the later one decides how the WORKFLOWS
+// run list draws a failed run's line, and which is later is a property of the import
+// graph rather than of either sheet. Moving these sheets onto the chunk root would take
+// this one off the document for any session that never opens a runs pane, which is the
+// whole point of the boundary — and it would silently change a surface belonging to
+// another family, with nothing in the diff naming either sheet.
+//
+// The `.meridian-run-controls` half of that coupling is GONE: the workflows run pane's
+// block carries its family's prefix now, so this sheet's `flex-direction: column` styles
+// this family's controls and nothing else. What is left is the run-row pair, and it is
+// enough to hold the sheets here — the fix is the same fix, a rename with the committed
+// references regenerated on the baseline host, and it belongs to a change that does that
+// rather than to one that moves bundle boundaries.
+// `test/console/architecture/stylesheet-selector-owners.test.ts` holds the collision
+// census so a NEW one cannot land unnoticed.
 
 import { type ConsolePaneRegistry } from "../seats/index.js";
+
+import "./pane/runs.css";
+// The intervention surfaces carry their own sheet beside the pane's, split at the
+// same seam their components are; rules addressing selectors in both sheets stay
+// in `runs.css` as a single declaration, so the two travel together.
+import "./pane/interventions/run-interventions.css";
 
 /**
  * Claim the `runs` kind.

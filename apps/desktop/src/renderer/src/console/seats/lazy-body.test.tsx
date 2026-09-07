@@ -22,33 +22,12 @@ import { settle } from "../core/settle.test-support.js";
 import { DuplicateRegistrationError } from "../core/keyed-registry.js";
 import { ConsolePaneChrome } from "./ConsolePaneChrome.js";
 import { type LazyBodyModule } from "./lazy-body.js";
+import { syntheticPaneContextAt, syntheticSurfaceContext } from "./lazy-body.test-support.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 import { ConsolePaneRegistry } from "./pane-registry.js";
 import { pendingPaneKindsIn } from "./pending-pane-body.js";
 import { type ConsoleSurfaceContext } from "./surface-context.js";
 import { ConsoleSurfaceRegistry } from "./surface-registry.js";
-
-/**
- * A pane context carrying only what these cases reach.
- *
- * The synthetic bodies read `kind` and the pending fallback reads `kind`, `focusHue`,
- * `sessionStore`, and whether an `entity` is present. Building a bridge, a frame store,
- * and three persistence stores to prove a registry table would be a fixture testing the
- * fixture, and the cast is what says so out loud rather than hiding behind a builder.
- */
-function paneContextAt(kind: ConsolePaneContext["kind"]): ConsolePaneContext {
-  return { kind, sessionStore: undefined, focusHue: undefined } as unknown as ConsolePaneContext;
-}
-
-/**
- * The same, for the frame's board.
- *
- * The route is real because the surface's reserved region names the destination it is
- * waiting for, exactly as the pane's names its kind.
- */
-function surfaceContext(): ConsoleSurfaceContext {
-  return { route: { kind: "settings", page: undefined } } as unknown as ConsoleSurfaceContext;
-}
 
 /**
  * A loader whose module is written here, and a count of how often it was called.
@@ -107,7 +86,7 @@ describe("the deck's board — a loader-form registration", () => {
       owner: "repos-family",
       body: countingLoader(chromedBody("diff", "the diff body")).load,
     });
-    const context = paneContextAt("diff");
+    const context = syntheticPaneContextAt("diff");
     const { container } = render(<>{registry.descriptorFor("diff")?.render(context)}</>);
 
     // Before: the chrome is painted and the body is not, and the pane says which body it
@@ -132,7 +111,7 @@ describe("the deck's board — a loader-form registration", () => {
       body: countingLoader(chromedBody("artifact", "the artifact body")).load,
     });
     const { container } = render(
-      <>{registry.descriptorFor("artifact")?.render(paneContextAt("artifact"))}</>,
+      <>{registry.descriptorFor("artifact")?.render(syntheticPaneContextAt("artifact"))}</>,
     );
 
     const pendingSection = container.querySelector(".meridian-pane");
@@ -163,7 +142,7 @@ describe("the deck's board — a loader-form registration", () => {
       body: () => new Promise<LazyBodyModule<ConsolePaneContext>>(() => undefined),
     });
     const { container } = render(
-      <>{registry.descriptorFor("browser")?.render(paneContextAt("browser"))}</>,
+      <>{registry.descriptorFor("browser")?.render(syntheticPaneContextAt("browser"))}</>,
     );
     await settle();
     expect(pendingPaneKindsIn(container)).toStrictEqual(["browser"]);
@@ -171,6 +150,46 @@ describe("the deck's board — a loader-form registration", () => {
 });
 
 describe("the deck's board — one fetch per registration", () => {
+  it("mounts a preloaded body without ever committing the pending marker", async () => {
+    // The pane board's half of the same claim, and the one the screenshot tier depends
+    // on: a mount that begins after a completed preload must not photograph the marker.
+    const registry = new ConsolePaneRegistry();
+    registry.register({
+      kind: "diff",
+      owner: "repos-family",
+      body: countingLoader(chromedBody("diff", "the diff body")).load,
+    });
+    await registry.preload("diff");
+
+    const { container } = render(
+      <>{registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}</>,
+    );
+
+    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(container.textContent).toContain("the diff body");
+  });
+
+  it("keeps the loader when a different owner's claim is refused", async () => {
+    // The refusal path, from the side nothing was watching. `register` used to drop the
+    // loader entry BEFORE the keyed registry got a chance to refuse, so a rejected
+    // component-form claim by a second owner threw with the first owner's descriptor
+    // still admitted and its loader gone: the pane stayed mounted and stopped being
+    // warmable, with no error naming why.
+    const registry = new ConsolePaneRegistry();
+    const loader = countingLoader(chromedBody("diff", "the diff body"));
+    registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
+    expect(registry.unloadedKeys()).toStrictEqual(["diff"]);
+
+    expect(() => {
+      registry.register({ kind: "diff", owner: "a-different-family", render: () => null });
+    }).toThrow(DuplicateRegistrationError);
+
+    expect(registry.unloadedKeys()).toStrictEqual(["diff"]);
+    await registry.preload("diff");
+    expect(loader.callCount()).toBe(1);
+    expect(registry.unloadedKeys()).toStrictEqual([]);
+  });
+
   it("loads once however many callers ask", async () => {
     const registry = new ConsolePaneRegistry();
     const loader = countingLoader<ConsolePaneContext>(() => null);
@@ -194,7 +213,7 @@ describe("the deck's board — one fetch per registration", () => {
 
     await registry.preload("diff");
     const { container } = render(
-      <>{registry.descriptorFor("diff")?.render(paneContextAt("diff"))}</>,
+      <>{registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}</>,
     );
     await settle();
     expect(container.textContent).toContain("the diff body");
@@ -212,10 +231,10 @@ describe("the deck's board — one fetch per registration", () => {
       body: countingLoader<ConsolePaneContext>(() => null).load,
     });
     const descriptor = registry.descriptorFor("diff");
-    const first = descriptor?.render(paneContextAt("diff")) as React.ReactElement<{
+    const first = descriptor?.render(syntheticPaneContextAt("diff")) as React.ReactElement<{
       readonly Body: unknown;
     }>;
-    const second = descriptor?.render(paneContextAt("diff")) as React.ReactElement<{
+    const second = descriptor?.render(syntheticPaneContextAt("diff")) as React.ReactElement<{
       readonly Body: unknown;
     }>;
     expect(second.props.Body).toBe(first.props.Body);
@@ -303,6 +322,44 @@ describe("the deck's board — a loader survives the duplicate policy", () => {
     expect(beforeEdit.callCount()).toBe(0);
   });
 
+  it("mounts the re-claimed body, not the one the host was already rendering", async () => {
+    // THE HALF THE REGISTRY CLAIM ABOVE CANNOT MAKE. The board really does replace the
+    // loader — and the host went on rendering the first body anyway. `LazyBody` pins its
+    // arm in a `useState` initializer, the element type and its position do not change
+    // across a re-registration, so React keeps the instance and the initializer never
+    // runs again: the pin held a `lazy()` over a loader nothing would call. A hot reload
+    // then read as an edit that did nothing, which is exactly the failure the registry's
+    // replacement was written to prevent.
+    //
+    // Driven through ONE host re-rendered, rather than two renders, because rendering
+    // twice would mount a fresh `LazyBody` each time and pass over a stale pin.
+    const registry = new ConsolePaneRegistry();
+    registry.register({
+      kind: "diff",
+      owner: "repos-family",
+      body: countingLoader(chromedBody("diff", "the body before the edit")).load,
+    });
+
+    function Host(): React.ReactNode {
+      return <>{registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}</>;
+    }
+
+    const { container, rerender } = render(<Host />);
+    await settle();
+    expect(container.textContent).toContain("the body before the edit");
+
+    registry.register({
+      kind: "diff",
+      owner: "repos-family",
+      body: countingLoader(chromedBody("diff", "the body after the edit")).load,
+    });
+    rerender(<Host />);
+    await settle();
+
+    expect(container.textContent).toContain("the body after the edit");
+    expect(container.textContent).not.toContain("the body before the edit");
+  });
+
   it("forgets the loader once the kind is released", async () => {
     const registry = new ConsolePaneRegistry();
     const loader = countingLoader<ConsolePaneContext>(() => null);
@@ -342,11 +399,37 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     expect(registry.registeredSlots()).toStrictEqual(["settings"]);
 
     const { container } = render(
-      <>{registry.descriptorFor("settings")?.render(surfaceContext())}</>,
+      <>{registry.descriptorFor("settings")?.render(syntheticSurfaceContext())}</>,
     );
     expect(container.textContent).not.toContain("the settings surface");
     await settle();
     expect(container.textContent).toContain("the settings surface");
+  });
+
+  it("mounts a preloaded surface without ever committing its reserved frame", async () => {
+    // The other half of what a preload is FOR. Warming a destination before the route
+    // commits only helps if the mount that follows is synchronous, and it was not:
+    // `lazy` calls its initializer on the first render and learns the value a microtask
+    // later however warm the promise is, so the reserved frame committed for one frame
+    // on exactly the path that had done the work to avoid it.
+    const registry = new ConsoleSurfaceRegistry();
+    registry.register({
+      slot: "workflows",
+      owner: "workflows-family",
+      body: countingLoader<ConsoleSurfaceContext>(() =>
+        createElement("p", null, "the workflows destination"),
+      ).load,
+    });
+    await registry.preload("workflows");
+
+    const { container } = render(
+      <>{registry.descriptorFor("workflows")?.render(syntheticSurfaceContext())}</>,
+    );
+
+    // Read at the FIRST commit, with no settle in between: that is the frame a person
+    // would have seen the reserved region in.
+    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(container.textContent).toContain("the workflows destination");
   });
 
   it("loads once however many callers ask, and offers the walk only what is unloaded", async () => {
