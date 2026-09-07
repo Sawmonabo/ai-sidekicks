@@ -17,6 +17,7 @@ import { Nothing } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { RootDisposalConfirmation } from "../mounts/roots/RootDisposalConfirmation.js";
 import { ProposalGateDisclosure } from "./ProposalGateDisclosure.js";
+import { OpenDiffControl, type OpenDiffSubject } from "../mounts/OpenDiffControl.js";
 import { WorktreeCard } from "../mounts/WorktreeCard.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { WorktreeStatusRecord } from "../mounts/worktree-model.js";
@@ -39,12 +40,32 @@ export interface WorktreeGateRowProps {
   readonly nowMilliseconds: number;
   /** Read the section again, so a retired root's new state reaches this list. */
   readonly onRequestRead: () => void;
+  /**
+   * Open a change set over this root.
+   *
+   * ON THE ROW AND NOT ON `WorktreeCard`, which is the same seam decision the disposal
+   * below already records: the card draws the root's own record and nothing that
+   * reaches outside it, and opening a pane is a deck act. Widening the card would have
+   * put a deck-shaped prop on a component whose whole job is one record's columns.
+   */
+  readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
 
 export function WorktreeGateRow(props: WorktreeGateRowProps): React.JSX.Element {
   return (
     <div className="meridian-root-gate-row">
       <WorktreeCard record={props.record} nowMilliseconds={props.nowMilliseconds} />
+      {/*
+        THE CHANGE SET IS OFFERED FOR EVERY ROOT, on the disposal's own reasoning
+        directly below: what a root can be diffed against is a wire question — the run
+        that provisioned it is on the record and the daemon owns whether it can answer
+        about that run — and a control withheld here would be this row guessing an
+        answer the pane is about to ask for properly.
+      */}
+      <OpenDiffControl
+        subject={{ kind: "worktree", id: props.record.worktreeId }}
+        onOpenDiff={props.onOpenDiff}
+      />
       {/*
         THE DISPOSAL IS OFFERED UNCONDITIONALLY, unlike the gate beside it. A gate needs
         a workspace pairing to ask anything at all; a retire needs only the root's own

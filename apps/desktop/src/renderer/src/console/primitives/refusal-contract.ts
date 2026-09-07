@@ -57,6 +57,25 @@ export interface RefusalProps extends Pick<ConsoleRefusal, "code" | "detail"> {
   readonly action?: React.ReactNode;
 }
 
+/**
+ * What a refusal-copy table produces for one code, in the two parts a shell renders.
+ *
+ * DECLARED HERE BECAUSE THE SLOT IS DECLARED HERE. `action` above is what a family's
+ * recovery reaches the screen through, and the console has more than one table that
+ * fills it — `repos/mounts/mount-refusal-copy.ts` and
+ * `repos/artifacts/artifact-refusal-copy.ts` today. Each table's own entry type derives
+ * from this one rather than restating it, so the shell that renders them is checked
+ * against every producer instead of being assignable from them by coincidence.
+ *
+ * `distinctions` is a REAL EMPTY rather than an absent member on the codes that have
+ * one move: the shell maps it without asking whether it is there, and an empty list is
+ * what says "there is exactly one move" instead of "somebody forgot to write them".
+ */
+export interface RefusalRecoveryCopy {
+  readonly nextMove: string;
+  readonly distinctions: readonly string[];
+}
+
 // NO GLYPH SIZE IS DECLARED HERE. The alert every shape leads with is chrome inside
 // a frame, so the three read as one grammar by taking `GLYPH_SIZE_CHROME` from
 // `tokens/glyphs.ts` — the console's one home for that size — rather than by this

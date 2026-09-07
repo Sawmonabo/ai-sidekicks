@@ -187,6 +187,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     artifactList: async () => growthUnavailable("artifactList"),
     artifactRead: async () => growthUnavailable("artifactRead"),
     artifactDelete: async () => growthUnavailable("artifactDelete"),
+    artifactVisibilityUpdate: async () => growthUnavailable("artifactVisibilityUpdate"),
     artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
     artifactIngestAbort: async () => growthUnavailable("artifactIngestAbort"),
     sessionSearch: async () => growthUnavailable("sessionSearch"),
@@ -213,6 +214,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     workflowVersionChainRead: async () => growthUnavailable("workflowVersionChainRead"),
     // gitflow
     gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
+    gitflowDiffArtifactCreate: async () => growthUnavailable("gitflowDiffArtifactCreate"),
     gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),
     workspaceExecutionContextRead: async () => growthUnavailable("workspaceExecutionContextRead"),
     // identity, and the callback-tool registry read

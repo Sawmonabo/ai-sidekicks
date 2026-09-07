@@ -1,5 +1,5 @@
-// The gitflow plane's values: a writable run's branch context, and the closed set a
-// pull request is prepared in.
+// The gitflow plane's values: a writable run's branch context, the request that mints
+// a diff artifact, and the closed set a pull request is prepared in.
 //
 // One of the domain modules behind `growth-values/index.ts`. The barrel states the
 // rules every value here obeys — why a shape earns a name, what belongs in the
@@ -70,3 +70,55 @@ export const GROWTH_PR_PREPARATION_STATES = ["draft", "ready"] as const;
 
 /** One prepared-pull-request state. Derived, so the vocabulary has one home. */
 export type GrowthPrPreparationState = (typeof GROWTH_PR_PREPARATION_STATES)[number];
+
+/**
+ * How the registered diff-artifact create is KEYED — one of exactly two arms.
+ *
+ * `docs/architecture/contracts/api-payload-contracts.md` registers
+ * `DiffArtifactCreateRequest` as a union discriminated on `attributionMode`, and the
+ * discriminant is what decides which workspace-resolver key is present: the
+ * `run_attributed` arm carries a run and no workspace, the `workspace_fallback` arm a
+ * workspace and no run. That is the wire's own refinement of the `{runId XOR
+ * workspaceId}` invariant and it mirrors the at-rest CHECK behind it, so the union is
+ * transcribed rather than flattened into two optional members — which would admit a
+ * request carrying both keys and one carrying neither, the two shapes no producer
+ * resolves.
+ *
+ * IT IS ALSO WHAT KEEPS THE RENDERER HONEST ONE LAYER UP. `Spec-011 §Pitfalls To
+ * Avoid` names pretending a workspace diff is run-attributed; with the mode on the
+ * REQUEST there is no shape in which a caller asks for a workspace diff and receives
+ * something it may label with a run, because the arm it sent is the arm it gets back.
+ *
+ * BOTH REFS ARE REQUIRED ON BOTH ARMS. `Spec-011 §Interfaces And Contracts` requires
+ * the create call to identify the compared states, so a create with one side missing
+ * is a request the contract does not have — the caller names both or sends nothing.
+ */
+export type GrowthDiffArtifactCreateRequest =
+  | {
+      readonly attributionMode: "run_attributed";
+      readonly runId: string;
+      readonly baseRef: string;
+      readonly headRef: string;
+    }
+  | {
+      readonly attributionMode: "workspace_fallback";
+      readonly workspaceId: string;
+      readonly baseRef: string;
+      readonly headRef: string;
+    };
+
+/**
+ * What a minted diff artifact answers with: two ids and the instant it was minted.
+ *
+ * THREE MEMBERS AND NO PAYLOAD, which is the whole reason a diff costs two calls. The
+ * registered response carries `diffArtifactId`, `artifactManifestId` and `createdAt`;
+ * the computed diff is the payload of the manifest this call MINTS, so the bytes are
+ * reached through the artifact plane's own read and never on this reply. A signature
+ * that carried patch text here would be a shape no daemon can send.
+ */
+export interface GrowthDiffArtifactCreated {
+  readonly diffArtifactId: string;
+  /** The manifest the minted payload hangs off. The key the payload read takes. */
+  readonly artifactManifestId: string;
+  readonly createdAt: string;
+}

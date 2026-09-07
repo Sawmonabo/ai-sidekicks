@@ -9,6 +9,7 @@ import { AttachRepositoryDialog } from "./attach/AttachRepositoryDialog.js";
 import { useRepoMounts } from "./repo-mounts-binding.js";
 import { repoCallRefusal } from "../repo-reads.js";
 import { EphemeralCloneList } from "./EphemeralCloneList.js";
+import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { MountList } from "./MountList.js";
 import { RepoMountsSummary } from "./RepoMountsSummary.js";
 
@@ -17,7 +18,7 @@ export interface RepoSectionProps {
 }
 
 export function RepoSection(props: RepoSectionProps): React.JSX.Element {
-  const { bridge, sessionStore, isOpen } = props.context;
+  const { bridge, sessionStore, isOpen, openPane } = props.context;
   const { reading, requestModeSelection, requestRead } = useRepoMounts(bridge, sessionStore);
   const [copyRefusal, setCopyRefusal] = useState<ConsoleRefusal | undefined>(undefined);
 
@@ -32,6 +33,17 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
       });
     },
     [bridge],
+  );
+
+  // THE SECTION IS WHERE THE OPENER LIVES, because the deck is handed to a section
+  // rather than imported by one — a sidebar rendered in an auxiliary window opens its
+  // panes in THAT window's deck. The rows below take a callback and never the opener,
+  // so no card knows a pane address exists.
+  const openDiff = useCallback(
+    (subject: OpenDiffSubject) => {
+      openPane({ kind: "diff", entity: subject });
+    },
+    [openPane],
   );
 
   if (!isOpen) {
@@ -69,6 +81,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           onCopy={copyCanonicalRoot}
           onRequestRead={requestRead}
           onSelect={requestModeSelection}
+          onOpenDiff={openDiff}
         />
         {/*
           DRAWN WHATEVER THE MOUNT READ DID. The clone list comes off

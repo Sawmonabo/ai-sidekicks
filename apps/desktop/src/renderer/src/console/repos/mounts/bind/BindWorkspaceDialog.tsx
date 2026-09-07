@@ -25,11 +25,11 @@ import {
   InlineRefusal,
   Nothing,
   OverlayDialogPopup,
+  RefusalRecovery,
   WireFigure,
 } from "../../../primitives/index.js";
 import type { SessionStore } from "../../../store/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
-import { RefusalRecovery } from "../RefusalRecovery.js";
 import { executionModeRows } from "../mode-row.js";
 import { BindModePicker } from "./BindModePicker.js";
 import { useBindController, type BindReading } from "./bind-controller.js";

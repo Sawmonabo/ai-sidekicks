@@ -144,3 +144,171 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
+
+/* ---------------------------------------------------- the always-visible count */
+
+/*
+ * The count against its bound, above the disclosure rather than inside it.
+ *
+ * The bound a participant is walking toward has to be readable without opening
+ * anything; what HAPPENS at it is the disclosure's own per-carrier row. Inside the
+ * open section, so no gutter of its own — `__summary` carries the sidebar's inset
+ * because the collapsed line sits outside the section's padding.
+ */
+.meridian-attachment-section__fill {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* --------------------------------------------------------- the ingest bounds */
+
+/*
+ * What can be attached, and how much.
+ *
+ * These rules moved here from `repos/artifact-pane/artifact.css` with the component
+ * they dress. That sheet enters through the artifact pane's own barrel, which is a
+ * lazily-loaded chunk root, so the attach affordance — reached through this family's
+ * door on first paint — would have drawn the disclosure unstyled until somebody opened
+ * the pane. Nothing about the pane's own rendering changes: every selector below is
+ * unique to this block, so no cascade turns on which sheet lands first.
+ */
+
+/* Progressive disclosure: the rules are one click away and never in the way. */
+.meridian-ingest-bounds {
+  margin-block-start: var(--meridian-space-3);
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-2);
+}
+
+.meridian-ingest-bounds__summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-ingest-bounds__source,
+.meridian-ingest-bounds__refusal {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-ingest-bounds__types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  margin: var(--meridian-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-ingest-bounds__caps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-3) 0 0;
+}
+
+.meridian-ingest-bounds__cap dt {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-ingest-bounds__cap dd {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+/* What happens at the count bound, under the figure it is about. */
+.meridian-ingest-bounds__consequence {
+  display: block;
+  margin-block-start: var(--meridian-space-1);
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------------------------ the carrier list */
+
+/*
+ * The carrier in declared order.
+ *
+ * An ordered list because the order is a fact about the carrier rather than the shape
+ * this renderer happened to emit — the marker itself is off, because the grip and the
+ * card already say which attachment this is and a second numbering would be a count
+ * the ledger does not keep.
+ */
+.meridian-carrier-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-carrier-row {
+  display: flex;
+  align-items: start;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+/* The row under the pointer during a drag, marked on its leading edge rather than by
+   moving anything: a row that shifted to open a gap would move the drop target out
+   from under the pointer that is aiming at it. */
+.meridian-carrier-row[data-drop-target="true"] {
+  box-shadow: inset 2px 0 0 0 var(--meridian-accent);
+}
+
+/* The row being dragged stays in place and reads as lifted. */
+.meridian-carrier-row[data-dragging="true"] {
+  opacity: 0.5;
+}
+
+/*
+ * The grip: the drag handle and the arrow-key target, one control.
+ *
+ * `touch-action: none` keeps a touch drag from scrolling the sidebar instead, and the
+ * cursor says the row can be moved before anything is pressed.
+ */
+.meridian-carrier-row__grip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  margin-block-start: var(--meridian-space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text-faint);
+  cursor: grab;
+  touch-action: none;
+}
+
+.meridian-carrier-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  flex: 1;
+  min-inline-size: 0;
+}
+
+/* This attachment's own size against the bound it will be measured by. */
+.meridian-carrier-row__allowance {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The bound stated ahead of the refusal, never as a gate on sending. */
+.meridian-carrier-row__over-allowance {
+  margin: 0;
+  border-inline-start: 2px solid var(--meridian-amber-mark);
+  padding-inline-start: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

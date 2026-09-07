@@ -5,9 +5,9 @@
 // cuts twice in this repo. The class next door owns the READS: which pair of calls, on
 // which of the four reasons, coalesced through the console's one scheduler, and what
 // it publishes when one does not answer. This one owns the ACTS: a manifest re-read, a
-// payload fetch, and a delete — three calls with three different concurrency rules,
-// none of them the scheduler's. Kept together the file was doing both jobs at once,
-// which `apps/desktop/AGENTS.md` rejects.
+// payload fetch, a delete, and a visibility change — four calls with four different
+// concurrency rules, none of them the scheduler's. Kept together the file was doing
+// both jobs at once, which `apps/desktop/AGENTS.md` rejects.
 //
 // THEY MEET AT ONE OBJECT, WHICH IS THE WHOLE SEAM. `ArtifactActionHost` is the five
 // things an act needs from the half that reads: the standing reading, the publish, the
@@ -16,7 +16,7 @@
 // scheduler and no triggers, so a read cannot be started from here and an act cannot
 // re-arm one.
 //
-// THE THREE ACTS DO NOT SHARE A CONCURRENCY RULE, AND THAT IS THE POINT OF SPLITTING
+// THE FOUR ACTS DO NOT SHARE A CONCURRENCY RULE, AND THAT IS THE POINT OF SPLITTING
 // THEM OUT.
 //
 //   • `readManifest` is SINGLE-FLIGHT PER ROW and superseded by a refresh: the refresh
@@ -32,7 +32,14 @@
 //     one artifact's bytes under another's name. That register and that rule are
 //     `artifact-payload-fetch.ts`: a class of its own because it is the one act here
 //     whose concurrency is decided by neither the row nor the refresh, and this class
-//     publishes its `fetchPayload` so a row still presses one object for all three.
+//     publishes its `fetchPayload` so a row still presses one object for all four.
+//   • `updateVisibility` is SINGLE-FLIGHT PER ROW like the re-read and RECONCILING like
+//     the delete, which is a fourth rule rather than either of theirs: the toggle's
+//     label is composed from the row's current class, so a second press asks for the
+//     class the row is already being moved to, and a mutation superseded by a refresh
+//     still has to be applied because the racing list read may have observed the row
+//     before the daemon re-classified it. That register and that rule are
+//     `artifact-visibility-update.ts`, delegated here for the same reason the fetch is.
 //
 // THE FETCH'S OWN REASONING TRAVELLED WITH IT, and only the part the delete depends
 // on is restated here. Why the fetch has an identity of its own and no longer reads
@@ -87,15 +94,18 @@ import { artifactManifestRowFromSummary } from "../artifacts/artifact-model.js";
 import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-host.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
+import { ArtifactVisibilityUpdates } from "./artifact-visibility-update.js";
+import type { ArtifactVisibility } from "../artifacts/artifact-model.js";
 import { readGrowthAnswer } from "../growth-call.js";
 import {
-  withManifestReadInFlight,
+  withArtifactActInFlight,
   withReplacedRow,
-  withoutManifestReadInFlight,
+  withoutArtifactActInFlight,
   withoutRow,
   withoutRowRefusal,
   type ArtifactDeleteOutcome,
   type ArtifactRowActOutcome,
+  type ArtifactVisibilityUpdateOutcome,
 } from "./artifact-pane-reading.js";
 import { manifestReadInFlightRefusal } from "./artifact-pane-refusals.js";
 import { type ArtifactPayloadOutcome } from "./artifact-payload.js";
@@ -105,12 +115,14 @@ export interface ArtifactPaneActionsOptions {
   readonly host: ArtifactActionHost;
 }
 
-/** The three acts a row offers, and what each answer writes onto the reading. */
+/** The four acts a row offers, and what each answer writes onto the reading. */
 export class ArtifactPaneActions {
   readonly #bridge: ConsoleBridge;
   readonly #host: ArtifactActionHost;
   /** The pane's payload fetch, single flight and register both. */
   readonly #payloadFetches: ArtifactPayloadFetches;
+  /** The pane's per-row visibility change, single flight and register both. */
+  readonly #visibilityUpdates: ArtifactVisibilityUpdates;
   /**
    * The manifest re-read awaiting the bridge on each row. One per row, and the reading
    * says which rows those are.
@@ -126,6 +138,7 @@ export class ArtifactPaneActions {
     this.#bridge = options.bridge;
     this.#host = options.host;
     this.#payloadFetches = new ArtifactPayloadFetches(options);
+    this.#visibilityUpdates = new ArtifactVisibilityUpdates(options);
   }
 
   /**
@@ -138,6 +151,21 @@ export class ArtifactPaneActions {
    */
   public async fetchPayload(artifactId: string): Promise<ArtifactPayloadOutcome> {
     return this.#payloadFetches.fetch(artifactId);
+  }
+
+  /**
+   * Re-classify one artifact as local-only or shared.
+   *
+   * Delegated whole to `artifact-visibility-update.ts`, which owns the register and the
+   * rule: single flight per row, and reconciling rather than dropping under a refresh,
+   * because a mutation is a fact no racing list read can discover. It is published here
+   * so a row presses one object for all four acts.
+   */
+  public async updateVisibility(
+    artifactId: string,
+    visibility: ArtifactVisibility,
+  ): Promise<ArtifactVisibilityUpdateOutcome> {
+    return this.#visibilityUpdates.update(artifactId, visibility);
   }
 
   /**
@@ -295,6 +323,7 @@ export class ArtifactPaneActions {
   /** Terminal. A call still on the wire settles into nothing rather than onto a pane that unmounted. */
   public dispose(): void {
     this.#payloadFetches.dispose();
+    this.#visibilityUpdates.dispose();
     this.#manifestReads.supersedeAll();
   }
 
@@ -303,7 +332,7 @@ export class ArtifactPaneActions {
     const reading = this.#host.currentReading();
     this.#host.publish({
       ...reading,
-      manifestReadInFlightArtifactIds: withManifestReadInFlight(
+      manifestReadInFlightArtifactIds: withArtifactActInFlight(
         reading.manifestReadInFlightArtifactIds,
         artifactId,
       ),
@@ -328,7 +357,7 @@ export class ArtifactPaneActions {
     const reading = this.#host.currentReading();
     this.#host.publish({
       ...reading,
-      manifestReadInFlightArtifactIds: withoutManifestReadInFlight(
+      manifestReadInFlightArtifactIds: withoutArtifactActInFlight(
         reading.manifestReadInFlightArtifactIds,
         artifactId,
       ),

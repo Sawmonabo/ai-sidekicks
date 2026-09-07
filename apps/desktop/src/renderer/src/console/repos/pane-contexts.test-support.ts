@@ -16,6 +16,7 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import type {
   ConsolePaneAddress,
   ConsolePaneContext,
+  ConsolePaneOpener,
   SidebarSectionContext,
 } from "../seats/index.js";
 import { FrameStore, type SessionStore } from "../store/index.js";
@@ -25,8 +26,12 @@ import { FrameStore, type SessionStore } from "../store/index.js";
  *
  * Both are reached rather than stubbed: a section body resolves its clock off the
  * bridge and subscribes to the store on its first hook, so a context missing either
- * throws before any assertion runs. `openPane` is a no-op because opening a pane is
- * the deck's act and no section case observes it.
+ * throws before any assertion runs.
+ *
+ * `openPane` DEFAULTS TO A NO-OP AND IS TAKEN WHERE A CASE OBSERVES IT. Opening a pane
+ * is the deck's act, so most section cases have nothing to say about it; a case that is
+ * about the section reaching the deck — a card's own way into a pane — hands one in
+ * rather than rebuilding the context around it.
  */
 export function sectionContext(reached: {
   readonly isOpen: boolean;
@@ -34,13 +39,14 @@ export function sectionContext(reached: {
   readonly sessionStore: SessionStore;
   /** The window's store, or a fresh one — born unreported, so nothing is blocked. */
   readonly frameStore?: FrameStore;
+  readonly openPane?: ConsolePaneOpener;
 }): SidebarSectionContext {
   return {
     isOpen: reached.isOpen,
     bridge: reached.bridge,
     sessionStore: reached.sessionStore,
     frameStore: reached.frameStore ?? new FrameStore(),
-    openPane: () => undefined,
+    openPane: reached.openPane ?? (() => undefined),
   };
 }
 
