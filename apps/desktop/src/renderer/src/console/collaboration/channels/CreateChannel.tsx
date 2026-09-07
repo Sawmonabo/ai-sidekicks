@@ -149,6 +149,11 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
     if (ready.status !== "ready") {
       return;
     }
+    // Captured at the PRESS, and the reason the fields below stay live while the call
+    // is out: the round trip is the daemon's to take, so a person may keep typing
+    // through it, and the reset a served create earns applies only to the draft that
+    // create was sent from. The rule and its reasoning are the draft's own.
+    const submitted = draft.snapshot();
     void createCoordinator.run(CREATE_SUBJECT_KEY, ready.request).then((settlement) => {
       // `undefined` is the refused arm — and the superseded one. Either way the reason
       // is on the coordinator's snapshot beside the control that asked, or there is no
@@ -157,7 +162,7 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
         return;
       }
       publishReceipt(settlement);
-      draft.reset();
+      draft.resetIfUnchangedSince(submitted);
     });
   }, [createCoordinator, draft, publishReceipt, sessionId, props.viewerParticipantId]);
 

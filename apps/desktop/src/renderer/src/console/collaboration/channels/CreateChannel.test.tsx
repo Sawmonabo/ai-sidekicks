@@ -9,14 +9,14 @@ import {
   GROWTH_CHANNEL_KINDS,
   GROWTH_CHANNEL_TURN_POLICIES,
 } from "../../bridge/index.js";
+import { PARTICIPANT_OTHER } from "./channels.test-support.js";
 import {
-  PARTICIPANT_OTHER,
   chooseKind,
   fieldNotes,
   policyFields,
   renderCreateChannel,
   typeName,
-} from "./channels.test-support.js";
+} from "./create-channel.test-support.js";
 
 describe("creating a channel — the standing statement", () => {
   it("says the settings cannot be edited afterwards, above the control that commits", () => {

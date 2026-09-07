@@ -32,6 +32,7 @@ import { FixturePendingInvites } from "./fixture-pending-invites.js";
 import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
 import { answerFromScriptedReply, answerScriptedWrite } from "./fixture-scripted-answer.js";
 import { fixtureCollaborationReads } from "./fixture-collaboration-reads.js";
+import type { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import { fixtureOnboardingAnswers } from "./fixture-onboarding-answers.js";
 import { fixtureShellAnswers } from "./fixture-shell-answers.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
@@ -65,8 +66,14 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  * against `GROWTH_OPERATIONS` by `failure-modes.test.ts`, and a spread that dropped
  * a method would fail that check rather than silently render `undefined is not a
  * function` in a surface.
+ *
+ * The CHANNEL LIFECYCLE arrives from the caller because two doors read it — these acts
+ * and the `channel.list` fold — and `fixture-bridge.ts` states why one serves both.
  */
-export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
+export function createFixtureGrowthPort(
+  engine: ScenarioEngine,
+  channelLifecycle: FixtureChannelLifecycle,
+): GrowthPort {
   // The deep link's whole lifecycle, held for this engine's life. An instance rather
   // than five helpers, because the five operations share one table of references and
   // one open outcome feed — the reasoning is that module's own.
@@ -81,7 +88,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     ...fixtureWorkflowReads(engine),
     // Every channel and membership answer is script-only: the reasoning for each
     // refusal lives in that module.
-    ...fixtureCollaborationReads(engine),
+    ...fixtureCollaborationReads(engine, channelLifecycle),
     ...fixtureOnboardingAnswers(engine),
     ...fixtureShellAnswers(engine),
     sessionRead: async (request) => ({

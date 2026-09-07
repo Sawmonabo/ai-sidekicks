@@ -8,7 +8,10 @@
 
 import { daemonMethodBindingFor } from "../daemon/index.js";
 import { FixtureBridgeError } from "./fixture-refusal.js";
-import { projectScriptedReplyOverLog } from "./fixture-log-projected-reads.js";
+import {
+  projectScriptedReplyOverLog,
+  type LogProjectedReads,
+} from "./fixture-log-projected-reads.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
 import { settleScriptedReply } from "../scenario-runtime/index.js";
 
@@ -41,11 +44,17 @@ import { settleScriptedReply } from "../scenario-runtime/index.js";
  * frames delivered since are what moved it — `fixture-log-projected-reads.ts` names
  * that class and owns which calls are in it. Every other call is handed back exactly
  * what the scenario scripts, which is what that table answering `undefined` means.
+ *
+ * The table is HANDED IN rather than reached for, which is what keeps this door generic
+ * over every plane: a fold may close over plane state its own namespace holds, and a
+ * door that imported one plane's holder to build it would be the first of a list that
+ * grows one plane at a time in the module that is supposed to know about none of them.
  */
 export async function resolveScriptedReply(
   engine: ScenarioEngine,
   call: string,
   request: unknown,
+  logProjectedReads: LogProjectedReads,
 ): Promise<unknown> {
   const settlement = await settleScriptedReply(engine, call, request);
   switch (settlement.status) {
@@ -60,7 +69,7 @@ export async function resolveScriptedReply(
     case "refused":
       throw settlement.refusal;
     case "resolved":
-      return projectScriptedReplyOverLog(engine, call, settlement.value);
+      return projectScriptedReplyOverLog(logProjectedReads, engine, call, settlement.value);
   }
 }
 

@@ -68,7 +68,8 @@ import {
 } from "../../primitives/index.js";
 import type { PushDrivenReadState, SidebarSectionContext } from "../../seats/index.js";
 import { type ActivityIndicatorRegistry, type ChannelActivityLabels } from "../activity-model.js";
-import { rosterEntriesById, rosterRefusal, useChannelRoster } from "./channel-roster.js";
+import { rosterEntriesById, rosterRefusal } from "./channel-roster.js";
+import { useChannelRoster } from "./channel-roster-read.js";
 import { useChannelLifecycle } from "./use-channel-lifecycle.js";
 import { CreateChannel } from "./CreateChannel.js";
 import { ChannelListRow } from "./ChannelListRow.js";
@@ -133,7 +134,12 @@ export function ChannelList(props: ChannelListProps): React.JSX.Element {
     sessionId,
     readChannels,
   );
-  const roster = useChannelRoster(bridge, sessionId);
+  // The directory travels INTO the roster read, because it is what tells that read its
+  // answer has moved: a channel created while this list stayed mounted arrives here from
+  // the directory's own re-read, and the three facts a row wears come from a call that
+  // has no wire signal of its own. See `channel-roster-read.ts` for why the trigger is
+  // the channel set changing rather than the gap between the two reads.
+  const roster = useChannelRoster(bridge, sessionId, readChannels);
   const rosterByChannelId = useMemo(() => rosterEntriesById(roster), [roster]);
 
   const openChannel = useCallback(

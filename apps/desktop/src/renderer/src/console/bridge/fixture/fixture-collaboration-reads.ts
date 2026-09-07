@@ -163,13 +163,18 @@ async function answerSessionScopedRead<TOperationId extends FixtureServedCollabo
   );
 }
 
-/** The channel and membership answers for one running scenario. */
+/**
+ * The channel and membership answers for one running scenario.
+ *
+ * The lifecycle is HANDED IN rather than built here, because the same instance answers
+ * two doors: these four acts, and the `channel.list` fold that reads the membership each
+ * create recorded. A second instance would be a second fixture answering for one
+ * session's channels, and the fold's rows would name counts no act had produced.
+ */
 export function fixtureCollaborationReads(
   engine: ScenarioEngine,
+  channelLifecycle: FixtureChannelLifecycle,
 ): Pick<GrowthPort, FixtureServedCollaborationOperationId> {
-  // One instance for the four acts it answers, because they share one identifier line
-  // and one rule about when a frame is published. Its reasoning is that module's.
-  const channelLifecycle = new FixtureChannelLifecycle(engine);
   return {
     // The three facts `channel.list` has never carried, per channel the caller may
     // see. The REQUEST travels with the call as it does for every entity-scoped read

@@ -7,17 +7,19 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { GrowthChannelRosterEntry } from "../../bridge/index.js";
+import {
+  WIRE_UNREGISTERED_REFUSAL_CODE,
+  type GrowthChannelRosterEntry,
+} from "../../bridge/index.js";
 import { refuse } from "../../core/index.js";
 import {
-  CHANNEL_ROSTER_ORIGIN,
   channelAudienceOf,
   channelKindOf,
   directChannelLabel,
   rosterEntriesById,
   rosterRefusal,
-  type ChannelRosterOutcome,
 } from "./channel-roster.js";
+import { CHANNEL_ROSTER_ORIGIN, type ChannelRosterState } from "./channel-roster-read.js";
 import {
   CHANNEL_DIRECT,
   CHANNEL_REVIEW,
@@ -30,25 +32,46 @@ import {
   rosterEntry,
 } from "./channels.test-support.js";
 
-/** The port's own answer for a roster it serves. Read through the real bridge. */
+/**
+ * The state the read holds once it has served these entries. Read through the real port.
+ *
+ * The entries travel through the shipped growth port rather than into a literal, so a
+ * case is projecting what the wire seam actually answers with — and they arrive here in
+ * the `loaded` arm the read settles into, which is the value every projection below
+ * takes.
+ */
 async function servedRoster(
   entries: readonly GrowthChannelRosterEntry[],
-): Promise<ChannelRosterOutcome> {
-  return await channelsBridge({ roster: entries }).growth.channelRosterRead({
+): Promise<ChannelRosterState> {
+  const outcome = await channelsBridge({ roster: entries }).growth.channelRosterRead({
     sessionId: SESSION_ID,
   });
+  if (outcome.status !== "served") {
+    throw new Error("the roster override serves, so this helper has an answer to project");
+  }
+  return { kind: "loaded", value: outcome.value };
 }
 
-/** The port's own refusal, built by the shipped builder rather than written down. */
-async function refusedRoster(): Promise<ChannelRosterOutcome> {
-  return await channelsBridge({ roster: "refused" }).growth.channelRosterRead({
+/**
+ * The state the read holds once the port refused. Built by the shipped builder.
+ *
+ * `servedGrowthValueOrRaise` raises the port's refusal WHOLE and the read hands it to
+ * its `failed` arm untouched, so composing that arm from the port's own outcome is what
+ * the surface really holds rather than a refusal written down here.
+ */
+async function refusedRoster(): Promise<ChannelRosterState> {
+  const outcome = await channelsBridge({ roster: "refused" }).growth.channelRosterRead({
     sessionId: SESSION_ID,
   });
+  if (outcome.status !== "unavailable") {
+    throw new Error("the roster override refuses, so this helper has a refusal to carry");
+  }
+  return { kind: "failed", refusal: outcome };
 }
 
 describe("channel roster — the entries", () => {
   it("keys every entry the read carried by the id the directory holds", async () => {
-    const outcome = await servedRoster([
+    const state = await servedRoster([
       rosterEntry(CHANNEL_REVIEW, { name: "review", audience: "participants" }),
       rosterEntry(CHANNEL_DIRECT, {
         kind: "direct",
@@ -56,25 +79,24 @@ describe("channel roster — the entries", () => {
       }),
     ]);
 
-    const byId = rosterEntriesById({ kind: "answered", outcome });
+    const byId = rosterEntriesById(state);
 
     expect([...byId.keys()]).toStrictEqual([CHANNEL_REVIEW, CHANNEL_DIRECT]);
     expect(byId.get(CHANNEL_REVIEW)?.name).toBe("review");
   });
 
   it("names nothing on a read that refused", async () => {
-    const outcome = await refusedRoster();
-    expect(rosterEntriesById({ kind: "answered", outcome }).size).toBe(0);
+    expect(rosterEntriesById(await refusedRoster()).size).toBe(0);
   });
 
   it("names nothing on a read that never answered", () => {
     // The two absences a surface really has: no call has settled yet, and the call
     // rejected. Neither may put a row in the map, because every consumer of it reads
     // an absent entry as "the wire did not say" and draws no badge at all.
-    expect(rosterEntriesById(undefined).size).toBe(0);
+    expect(rosterEntriesById({ kind: "not-loaded" }).size).toBe(0);
     expect(
       rosterEntriesById({
-        kind: "unreadable",
+        kind: "failed",
         refusal: refuse(CHANNEL_ROSTER_ORIGIN, "boom", "The call went nowhere."),
       }).size,
     ).toBe(0);
@@ -83,20 +105,23 @@ describe("channel roster — the entries", () => {
 
 describe("channel roster — why it is not here", () => {
   it("carries the port's own refusal verbatim", async () => {
-    const outcome = await refusedRoster();
+    const outcome = await channelsBridge({ roster: "refused" }).growth.channelRosterRead({
+      sessionId: SESSION_ID,
+    });
     if (outcome.status !== "unavailable") {
       throw new Error("the roster override answered, so this case has no refusal to relay");
     }
 
-    // The refusal a surface renders IS the port's, by identity: nothing here rebuilds
-    // it, so the code and the sentence a person reads are the ones the port composed
-    // from that operation's own slate row.
-    expect(rosterRefusal({ kind: "answered", outcome })).toBe(outcome);
+    // The refusal a surface renders IS the port's, by identity: the read raises it whole
+    // and nothing on the way rebuilds it, so the code and the sentence a person reads
+    // are the ones the port composed from that operation's own slate row.
+    expect(rosterRefusal({ kind: "failed", refusal: outcome })).toBe(outcome);
+    expect(outcome.code).toBe(WIRE_UNREGISTERED_REFUSAL_CODE);
   });
 
   it("carries a rejection's refusal verbatim", () => {
     const refusal = rosterRefusal({
-      kind: "unreadable",
+      kind: "failed",
       refusal: refuse(CHANNEL_ROSTER_ORIGIN, "growth-read-call-failed", "The call rejected."),
     });
     expect(refusal?.code).toBe("growth-read-call-failed");
@@ -105,9 +130,8 @@ describe("channel roster — why it is not here", () => {
   it("says nothing while the read is still in flight, and nothing when it answered", async () => {
     // The rows are already on screen in both cases, so a line under them would be
     // reporting a state rather than a problem.
-    expect(rosterRefusal(undefined)).toBeUndefined();
-    const outcome = await servedRoster([rosterEntry(CHANNEL_REVIEW)]);
-    expect(rosterRefusal({ kind: "answered", outcome })).toBeUndefined();
+    expect(rosterRefusal({ kind: "not-loaded" })).toBeUndefined();
+    expect(rosterRefusal(await servedRoster([rosterEntry(CHANNEL_REVIEW)]))).toBeUndefined();
   });
 });
 

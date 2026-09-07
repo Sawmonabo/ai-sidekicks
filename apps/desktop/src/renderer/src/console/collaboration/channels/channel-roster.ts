@@ -28,80 +28,36 @@
 // blanked — so there is no shape here for a hidden row and therefore no way to count
 // one. That is also how every "never offer a write on a direct row to somebody
 // outside the pair" rule is met: the row is not there to offer anything on.
+//
+// AND WHAT KEEPS IT CURRENT IS NEXT DOOR. `channel-roster-read.ts` owns the call and
+// the one thing that makes it ask again — the directory's own channel set moving — so
+// what is left here is the projection: what the answer becomes on a row, and what it
+// refuses to invent when there is no answer for that row at all.
 
 import type {
-  ConsoleBridge,
   GrowthChannelAudience,
   GrowthChannelKind,
   GrowthChannelRosterEntry,
-  GrowthOutcome,
-  GrowthReading,
 } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { useGrowthReadOnMount } from "../../seats/index.js";
 import { type ChannelActivityLabels } from "../activity-model.js";
-
-/** Names this read in a refusal the call itself did not name. */
-export const CHANNEL_ROSTER_ORIGIN = "channel-roster";
-
-/** What one `channelRosterRead` call answers: the served roster, or the port's refusal. */
-export type ChannelRosterOutcome = GrowthOutcome<readonly GrowthChannelRosterEntry[]>;
-
-/**
- * What this surface holds for one roster call.
- *
- * An instantiation of the console's one reading union rather than a second spelling
- * of its two arms — the shape is `bridge/`'s, beside the outcome its answered arm
- * carries, and this name is what the channels surface calls it.
- */
-export type ChannelRosterReading = GrowthReading<ChannelRosterOutcome>;
-
-/**
- * Read the roster once, for one session, and hold it against that session.
- *
- * ONE READ ON MOUNT, through the seat every growth read of this shape now takes:
- * four surfaces in two view families hold exactly one growth answer each, and view
- * families are siblings, so the pattern lives at `seats/` where both can reach it.
- * What this module supplies is the three facts that differ — which session is being
- * asked about, which operation answers, and the origin a refusal the call did not
- * name is stamped with.
- *
- * A REPEAT WOULD RE-ASK A QUESTION WITH A STANDING ANSWER. The wire behind this seam
- * refuses on a live build, so there is nothing a second call could learn;
- * `store/scheduling.ts` is where a real re-read goes the day `channel.rosterRead`
- * lands.
- */
-export function useChannelRoster(
-  bridge: ConsoleBridge,
-  sessionId: string | undefined,
-): ChannelRosterReading | undefined {
-  return useGrowthReadOnMount<{ readonly sessionId: string }, readonly GrowthChannelRosterEntry[]>({
-    bridge,
-    // The session is both what is asked about and the key the answer is held under,
-    // which is what makes it sound to re-ask exactly when it moves — and what stops
-    // one session's roster badging another's rows after a move.
-    subject: sessionId,
-    request: sessionId === undefined ? undefined : { sessionId },
-    origin: CHANNEL_ROSTER_ORIGIN,
-    ask: async (readBridge, request) => await readBridge.growth.channelRosterRead(request),
-  });
-}
+import type { ChannelRosterState } from "./channel-roster-read.js";
 
 /**
  * The roster, keyed by the channel id the directory holds.
  *
- * Empty on every arm that is not a served answer — a read in flight, a refused one,
- * a call that produced no outcome at all. That is the whole of the "renders no badge"
- * rule, expressed as an absent entry rather than as a branch at each render site:
- * there is no arm on which this map invents a row the read did not carry.
+ * Empty on every arm that is not a served answer — a read in flight, a refused one, and
+ * a served one for a list addressed at no session at all. That is the whole of the
+ * "renders no badge" rule, expressed as an absent entry rather than as a branch at each
+ * render site: there is no arm on which this map invents a row the read did not carry.
  */
 export function rosterEntriesById(
-  reading: ChannelRosterReading | undefined,
+  state: ChannelRosterState,
 ): ReadonlyMap<string, GrowthChannelRosterEntry> {
-  if (reading?.kind !== "answered" || reading.outcome.status !== "served") {
+  if (state.kind !== "loaded" || state.value === undefined) {
     return new Map();
   }
-  return new Map(reading.outcome.value.map((entry) => [entry.id, entry]));
+  return new Map(state.value.map((entry) => [entry.id, entry]));
 }
 
 /**
@@ -109,19 +65,14 @@ export function rosterEntriesById(
  *
  * A call that produced NO outcome and one that produced a refusing outcome answer the
  * same way, deliberately: both are the port declining to answer, and the only fact a
- * person needs from either is the code and the sentence. A read still in flight is
- * neither, and says nothing — the rows are already on screen.
+ * person needs from either is the code and the sentence. The read's own `failed` arm is
+ * where both land, carrying the port's refusal by identity — `servedGrowthValueOrRaise`
+ * raises it whole and nothing on the way here rebuilds it — so the code and the sentence
+ * a person reads are still the ones the port composed. A read still in flight is neither
+ * of those, and says nothing: the rows are already on screen.
  */
-export function rosterRefusal(
-  reading: ChannelRosterReading | undefined,
-): ConsoleRefusal | undefined {
-  if (reading === undefined) {
-    return undefined;
-  }
-  if (reading.kind === "unreadable") {
-    return reading.refusal;
-  }
-  return reading.outcome.status === "unavailable" ? reading.outcome : undefined;
+export function rosterRefusal(state: ChannelRosterState): ConsoleRefusal | undefined {
+  return state.kind === "failed" ? state.refusal : undefined;
 }
 
 /** Who reads this channel, as the wire said. `undefined` where the roster did not say. */

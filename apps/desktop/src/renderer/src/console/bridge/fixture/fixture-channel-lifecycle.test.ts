@@ -15,20 +15,18 @@
 // whole script turns every later beat into a duplicate the store drops, and one that
 // reused a scripted number collides outright. Both are invisible in a green suite that
 // only counts frames, so these cases read the POSITIONS.
+//
+// WHAT THE SESSION THEN READS is `fixture-channel-directory.test.ts`, beside the module
+// that folds it. These cases are the ACT's half and stop at the frame.
 
 import { describe, expect, it } from "vitest";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts";
 
-import {
-  CHANNEL_HANDOFF,
-  CHANNEL_MAIN,
-  CHANNEL_REVIEW,
-} from "../scenarios/collaboration/identifiers.js";
+import { CHANNEL_HANDOFF, CHANNEL_REVIEW } from "../scenarios/collaboration/identifiers.js";
 import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import {
-  callBridge,
   createFixture,
   subscribeThroughBridge,
   unscriptedScenario,
@@ -214,171 +212,5 @@ describe("the fixture's channel lifecycle — where the frame lands in the log",
     const late = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
 
     expect(late.map((frame) => frame.type)).toStrictEqual(["channel.muted"]);
-  });
-});
-
-describe("the fixture's channel directory — what the read answers once frames have landed", () => {
-  /** One row of the directory `channel.list` answers with, right now. */
-  async function directoryRowOf(
-    fixture: FixtureUnderTest,
-    channelId: string,
-  ): Promise<Record<string, unknown> | undefined> {
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-    });
-    const channels = (reply as { readonly channels: readonly Record<string, unknown>[] }).channels;
-    return channels.find((channel) => channel["id"] === channelId);
-  }
-
-  /** The state `channel.list` reports for one channel, right now. */
-  async function directoryStateOf(fixture: FixtureUnderTest, channelId: string): Promise<unknown> {
-    return (await directoryRowOf(fixture, channelId))?.["state"];
-  }
-
-  /** Create one channel in this room and answer with the id the receipt minted. */
-  async function createdChannelId(fixture: FixtureUnderTest, name?: string): Promise<string> {
-    const outcome = await fixture.bridge.growth.channelCreate({
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-      ...(name === undefined ? {} : { name }),
-    });
-    if (outcome.status !== "served") {
-      throw new Error("this room scripts a create receipt, so the create should have been served");
-    }
-    return outcome.value.channelId;
-  }
-
-  it("reports a channel live until its archival beat is due, and archived after", async () => {
-    // The reading a fixed reply cannot give and the one the scenario is built to show.
-    // Before the beat the room has not archived anything, so a read that answered
-    // `archived` would be exposing state the script has not reached; after it, the
-    // re-read the beat triggers is the transition every directory surface renders.
-    const { fixture } = room();
-
-    fixture.engine.advance(INTO_THE_OPENING_MS);
-    const beforeTheBeat = await directoryStateOf(fixture, CHANNEL_HANDOFF);
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-    const afterTheBeat = await directoryStateOf(fixture, CHANNEL_HANDOFF);
-
-    expect(beforeTheBeat).toBe("active");
-    expect(afterTheBeat).toBe("archived");
-  });
-
-  it("moves a channel a served act archived, which no beat in the script mentions", async () => {
-    // The same fold from the other side: an act publishes a frame, and the directory
-    // read is what every other reader of that session would then see. A fixture that
-    // served the scripted reply back would answer the presser with the row's old state.
-    const { fixture } = room();
-
-    await fixture.bridge.growth.channelArchive({ channelId: CHANNEL_REVIEW });
-
-    expect(await directoryStateOf(fixture, CHANNEL_REVIEW)).toBe("archived");
-  });
-
-  it("adds the row a served create minted, which the scripted directory holds none of", async () => {
-    // The other half of the create defect. The receipt settled and the form reset, and
-    // the channel appeared nowhere: the scripted `channel.list` reply has no row for a
-    // channel nobody had created when the script was written, so the only way it can
-    // arrive is the fold. A live channel is what a create leaves behind.
-    const { fixture } = room();
-
-    const channelId = await createdChannelId(fixture, "handover");
-
-    expect(await directoryRowOf(fixture, channelId)).toStrictEqual({
-      id: channelId,
-      name: "handover",
-      state: "active",
-      participantCount: 1,
-    });
-  });
-
-  it("omits the name on a created row whose creation carried none", async () => {
-    // `name?` is absent on this wire rather than empty, so a row folded from a
-    // creation that named nothing carries no member at all — the shape the directory
-    // labels by the other human in the pair.
-    const { fixture } = room();
-
-    const channelId = await createdChannelId(fixture);
-
-    expect(Object.hasOwn((await directoryRowOf(fixture, channelId)) ?? {}, "name")).toBe(false);
-  });
-
-  it("moves a created row on, exactly as it moves a row the script opened", async () => {
-    // The fold walks the log in order and the last transition wins, so a channel
-    // created and then archived in one window reads archived — the created row is an
-    // opening state like any other rather than a fixed answer appended past the fold.
-    const { fixture } = room();
-
-    const channelId = await createdChannelId(fixture, "handover");
-    await fixture.bridge.growth.channelArchive({ channelId });
-
-    expect(await directoryStateOf(fixture, channelId)).toBe("archived");
-  });
-
-  it("negative control: a create no scenario answers adds no row", async () => {
-    // Without this the cases above would pass over a fold that appended a row for the
-    // ASKING rather than for what the session was told — a directory listing a channel
-    // the daemon refused to create. The room scripts an empty directory and no create,
-    // so the only thing that could put a row there is the act.
-    const scenario: ConsoleScenario = {
-      ...unscriptedScenario("channel-create-directory-unscripted"),
-      replies: [{ call: "channel.list", result: { channels: [] } }],
-    };
-    const { fixture } = room(scenario);
-
-    const outcome = await fixture.bridge.growth.channelCreate({
-      sessionId: scenario.sessionId,
-      name: "handover",
-    });
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: scenario.sessionId,
-    });
-
-    expect(outcome.status).toBe("unavailable");
-    expect((reply as { readonly channels: readonly unknown[] }).channels).toStrictEqual([]);
-  });
-
-  it("lists one row for a channel two presses created, because the receipt names one", async () => {
-    // A scenario answers one call one way, so a second Create is answered with the same
-    // identity — and two rows for one channel is a shape no `channel.list` can send.
-    const { fixture } = room();
-
-    const first = await createdChannelId(fixture, "handover");
-    const second = await createdChannelId(fixture, "handover again");
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-    });
-    const rows = (reply as { readonly channels: readonly { readonly id: string }[] }).channels;
-
-    expect(second).toBe(first);
-    expect(rows.filter((channel) => channel.id === first)).toHaveLength(1);
-  });
-
-  it("negative control: a room that announces its own channels lists each of them once", async () => {
-    // The filter that keeps the appended rows from doubling the directory. This room
-    // plays a `channel.created` beat for every channel its scripted reply already
-    // carries — every shipped scenario does — so a fold that appended for the creation
-    // rather than for the absence would list all four twice.
-    const { fixture } = room();
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-    });
-    const identifiers = (
-      reply as { readonly channels: readonly { readonly id: string }[] }
-    ).channels.map((channel) => channel.id);
-
-    expect(new Set(identifiers).size).toBe(identifiers.length);
-  });
-
-  it("negative control: a channel no frame has moved keeps the state the script opens it in", async () => {
-    // Without this, a fold that answered `archived` for every row — or one that
-    // replaced the whole reply — would pass both cases above. The bootstrap channel is
-    // in no lifecycle frame this room plays and reads live from first tick to last.
-    const { fixture } = room();
-
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    expect(await directoryStateOf(fixture, CHANNEL_MAIN)).toBe("active");
   });
 });
