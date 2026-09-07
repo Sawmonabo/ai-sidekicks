@@ -30,9 +30,11 @@
 //
 // ONE SHAPE OF SURFACE STOPS THE GROWING RATHER THAN SATISFYING IT. A destination
 // sized from the window is one window tall plus its own padding at every window, so
-// the loop below recognises that on the pass after the first, puts the window back,
-// and photographs it at the tier's own size — the reason and its consequence are
-// `capture-viewport.ts`'s to state, and `tall-capture.test.ts` drives both.
+// the loop below recognises that — on the SECOND pass after the first, having grown
+// once more to tell it apart from a surface that reflowed while the first window was
+// opening — puts the window back, and photographs it at the tier's own size. The
+// reason and its consequence are `capture-viewport.ts`'s to state, and
+// `tall-capture.test.ts` drives both.
 //
 // EVERY CAPTURE, AND NOT MOST. The capture files call this instead of
 // `toMatchScreenshot`, so a reference cannot be minted around either check by an author
@@ -54,11 +56,40 @@ import { captureWindowStep, type CaptureViewport } from "./capture-viewport.js";
  * Opening a window is a layout change, so a surface can answer the first grow with a
  * taller box than the one that was measured — a deferred image lands, a container
  * reflows — and settle on the second. A surface sized BY its window is recognised on
- * the pass after the first and needs none of this budget; what the budget bounds is
+ * the second pass after the first and spends two of these on being confirmed, for the
+ * reason `CONFIRMING_NON_CLOSING_PASSES` states; what the rest of the budget bounds is
  * the surface that keeps closing the gap by a little each pass, which would otherwise
  * resize the console hundreds of times before reaching the ceiling.
  */
 const CAPTURE_SIZING_PASSES = 4;
+
+/**
+ * The two acts a sizing pass performs on the tester window.
+ *
+ * A PORT, because the ordering in `CaptureWindow` below is a claim about a FAILURE:
+ * the window has to go back even when the settle after a resize rejects, and a settle
+ * rejects on a state no capture can produce on demand — an effect throwing while React
+ * flushes the layout the resize caused. Injected, that case is a few lines in a suite
+ * and the real class is what runs; left implicit, it is a defect nothing can drive,
+ * which is how it shipped.
+ */
+export interface CaptureWindowDriver {
+  /** Move the tester window, and resolve once Vitest has applied the size. */
+  resize(viewport: CaptureViewport): Promise<void>;
+  /** Let the surface answer the move, inside `act`. */
+  settle(): Promise<void>;
+}
+
+/** The real window: Vitest's own viewport command and the shared act-wrapped settle. */
+class TesterWindowDriver implements CaptureWindowDriver {
+  public async resize(viewport: CaptureViewport): Promise<void> {
+    await page.viewport(viewport.width, viewport.height);
+  }
+
+  public async settle(): Promise<void> {
+    await settle();
+  }
+}
 
 /**
  * Refuse a capture whose tree still holds an unloaded pane body.
@@ -114,14 +145,19 @@ function requiredViewportFor(element: Element): CaptureViewport {
  * previous caller left, and a capture that grew the window and did not put it back
  * hands the next spec a console laid out at 2 050 px.
  */
-class CaptureWindow {
+export class CaptureWindow {
   readonly #restoreTo: CaptureViewport;
+  readonly #driver: CaptureWindowDriver;
   #applied: CaptureViewport;
-  #grown = false;
+  #movedTheWindow = false;
 
-  public constructor(startedAt: CaptureViewport) {
+  public constructor(
+    startedAt: CaptureViewport,
+    driver: CaptureWindowDriver = new TesterWindowDriver(),
+  ) {
     this.#restoreTo = startedAt;
     this.#applied = startedAt;
+    this.#driver = driver;
   }
 
   /**
@@ -137,10 +173,10 @@ class CaptureWindow {
    * no other capture in the tier uses.
    */
   public async holdWhole(element: Element, referenceName: string): Promise<void> {
-    let previousOverhangPx: number | undefined;
+    const overhangsPx: number[] = [];
     for (let pass = 0; pass <= CAPTURE_SIZING_PASSES; pass += 1) {
       const required = requiredViewportFor(element);
-      const step = captureWindowStep(this.#applied, required, previousOverhangPx, referenceName);
+      const step = captureWindowStep(this.#applied, required, overhangsPx, referenceName);
       if (step.kind === "fits") {
         return;
       }
@@ -157,23 +193,46 @@ class CaptureWindow {
             `cannot decide which size a surface like that is meant to be photographed at.`,
         );
       }
-      previousOverhangPx = required.height - this.#applied.height;
-      await page.viewport(step.viewport.width, step.viewport.height);
-      await settle();
-      this.#applied = step.viewport;
-      this.#grown = true;
+      overhangsPx.push(step.overhangPx);
+      await this.#moveTo(step.viewport);
     }
   }
 
-  /** Put the window back, and only when this capture is what moved it. */
+  /**
+   * Put the window back, and only when this capture is what moved it.
+   *
+   * Called twice on the `grows-with-its-window` path — once by `holdWhole` before it
+   * returns and once by `captureSettled`'s `finally` — and the second call is a no-op
+   * only because the first one finished. A restore whose settle rejects leaves the
+   * flag standing, so the outer call retries the move rather than trusting a window
+   * nothing confirmed.
+   */
   public async restore(): Promise<void> {
-    if (!this.#grown) {
+    if (!this.#movedTheWindow) {
       return;
     }
-    await page.viewport(this.#restoreTo.width, this.#restoreTo.height);
-    await settle();
-    this.#applied = this.#restoreTo;
-    this.#grown = false;
+    await this.#moveTo(this.#restoreTo);
+    this.#movedTheWindow = false;
+  }
+
+  /**
+   * Move the window, recorded as moved BEFORE anything that can fail.
+   *
+   * `#movedTheWindow` is what `restore` is gated on, and it is raised ahead of the
+   * resize rather than after the settle that follows it. Written afterwards — which is
+   * how this shipped — a settle that rejects leaves the window open, the flag false,
+   * and `restore` returning early, so every later capture in the run is taken in a
+   * console the previous one enlarged and every reference after it pins a surface laid
+   * out at a size no reference was minted under. A flag raised too early costs one
+   * redundant resize of a window that may never have moved; a flag raised too late
+   * costs the rest of the run, and a resize that throws part-way has no defined size
+   * either, so the early write covers that arm as well.
+   */
+  async #moveTo(viewport: CaptureViewport): Promise<void> {
+    this.#movedTheWindow = true;
+    this.#applied = viewport;
+    await this.#driver.resize(viewport);
+    await this.#driver.settle();
   }
 }
 

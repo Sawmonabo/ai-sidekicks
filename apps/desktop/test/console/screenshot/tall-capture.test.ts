@@ -71,23 +71,55 @@ const PAGE_BACKGROUND_COLOUR = "#ffffff";
  */
 const PROBE_OVERHANG_PX = 64;
 
+/** The label the matcher writes the reference's path under, on the line below it. */
+const CAPTURE_PATH_LABEL = "Reference screenshot:";
+
+/**
+ * The colouring a reporter may have wrapped the path in.
+ *
+ * Matched through the escape's Unicode CATEGORY rather than through the character
+ * itself, which is what `no-control-regex` refuses in a pattern and what an exemption
+ * here would have to be censused for. The claim is the same one either way: an SGR
+ * sequence is a control character, `[`, digits and semicolons, and a terminating `m`.
+ */
+const REPORTER_COLOURING = /\p{Cc}\[[0-9;]*m/gu;
+
 /**
  * The image the matcher wrote, taken from the failure that named it.
  *
  * From the matcher's own message rather than rebuilt out of configuration: the
  * attachments directory is not on the serialized config a page can read, and a path
  * this file GUESSED could match a file some earlier run left behind — which is a probe
- * that passes against the wrong image. The label is matched, then the first absolute
- * path after it, skipping whatever colouring the reporter wrapped it in (an escape
- * sequence carries no `/`).
+ * that passes against the wrong image.
+ *
+ * THE WHOLE LINE, NOT A CHARACTER CLASS. What the matcher prints is an absolute path
+ * off the runner's own filesystem, and a character class is a claim about which
+ * characters a path may hold that neither platform makes: a POSIX directory may carry
+ * a space, and a Windows one is `C:\…\name.png` with not one forward slash in it. A
+ * class that admits neither does not fail on the path — it fails to find one, and this
+ * probe then reports a message shape rather than the image it could not read. So the
+ * label is found, the first non-empty line after it is taken whole and trimmed, and
+ * `.png` is asserted on what comes back.
+ *
+ * AND THE SCAN STOPS AT THAT LINE. The same message names the ACTUAL capture a few
+ * lines further down, so a reader that kept looking would answer a reference it could
+ * not read with a different image and assert this probe's colours against it.
  */
 function writtenCapturePath(failureMessage: string): string {
-  const found = /Reference screenshot:[^/]*(\/[\w./+@-]*\.png)/u.exec(failureMessage);
-  const path = found?.[1];
-  if (path === undefined) {
-    throw new Error(`the capture failure named no written image:\n${failureMessage}`);
+  const labelAt = failureMessage.indexOf(CAPTURE_PATH_LABEL);
+  const afterLabel =
+    labelAt === -1 ? "" : failureMessage.slice(labelAt + CAPTURE_PATH_LABEL.length);
+  for (const line of afterLabel.split("\n")) {
+    const candidate = line.replaceAll(REPORTER_COLOURING, "").trim();
+    if (candidate.length === 0) {
+      continue;
+    }
+    if (candidate.endsWith(".png")) {
+      return candidate;
+    }
+    break;
   }
-  return path;
+  throw new Error(`the capture failure named no written image:\n${failureMessage}`);
 }
 
 /** A surface taller than any window this tier opens, with its last rows in one colour. */
@@ -253,11 +285,50 @@ describe("the reader that finds the written capture", () => {
     ).toBe("/repo/apps/desktop/.vitest-attachments/a/b.test.ts/name-reference-chromium-darwin.png");
   });
 
+  it("takes a path whose directories hold spaces", () => {
+    // A runner's home directory is not this repository's to choose, and a character
+    // class that admitted no space read nothing at all on a host that had one.
+    expect(
+      writtenCapturePath(
+        "Reference screenshot:\n  /Users/ci runner/apps/desktop/.vitest-attachments/a b.test.ts/name-reference-chromium-darwin.png\n",
+      ),
+    ).toBe(
+      "/Users/ci runner/apps/desktop/.vitest-attachments/a b.test.ts/name-reference-chromium-darwin.png",
+    );
+  });
+
+  it("takes a Windows path, which carries no forward slash to anchor on", () => {
+    expect(
+      writtenCapturePath(
+        "Reference screenshot:\n  C:\\Users\\runneradmin\\desktop\\.vitest-attachments\\a.test.ts\\name-reference-chromium-win32.png\n",
+      ),
+    ).toBe(
+      "C:\\Users\\runneradmin\\desktop\\.vitest-attachments\\a.test.ts\\name-reference-chromium-win32.png",
+    );
+  });
+
+  it("reads through the colouring the reporter wraps the path in", () => {
+    expect(
+      writtenCapturePath("Reference screenshot:\n  \u001b[32m/repo/a-reference.png\u001b[39m\n"),
+    ).toBe("/repo/a-reference.png");
+  });
+
   it("refuses a failure that names none rather than reading some other file", () => {
     // The planted failure. Without it the probe above would pass on a message shape
     // change by reading whichever `.png` path happened to be in the text.
     expect(() => {
       writtenCapturePath("Screenshot does not match the stored reference.");
+    }).toThrowError(/named no written image/u);
+  });
+
+  it("refuses a reference line that is not a path rather than reading the actual one", () => {
+    // The second planted failure, and the reason the scan stops at the first non-empty
+    // line: the actual capture is named in the same message, and a reader that walked
+    // on would assert this probe's colours against a different image.
+    expect(() => {
+      writtenCapturePath(
+        "Reference screenshot:\n  (none written)\n\nActual screenshot:\n  /repo/an-actual.png\n",
+      );
     }).toThrowError(/named no written image/u);
   });
 });

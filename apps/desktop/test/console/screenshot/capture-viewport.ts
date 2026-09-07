@@ -33,6 +33,16 @@
 // draws. Stated here because it is a property of THE SURFACE and not of the capture:
 // a destination that stops overflowing its scroll container stops taking this arm.
 //
+// AND THAT SHAPE IS CONFIRMED RATHER THAN GUESSED. One non-closing overhang is also
+// what a surface that reflowed ONCE looks like: the grow is itself a layout change,
+// so a deferred image landing or a container re-measuring can add back as much as the
+// window just gained, during the very settle that made room for it. Reading that as
+// coupling puts the window back and photographs the surface with an unpainted tail
+// below it — the defect this module exists to refuse, arriving through the fix for
+// it. So the third arm is taken on TWO consecutive non-closing overhangs, measured at
+// three window heights: it costs the genuinely coupled destinations one more resize,
+// and it is what makes the one-time reflow report `fits` on the pass after.
+//
 // AND THE PAGE HAS TO BE ABLE TO HOLD IT. Vitest sizes the tester iframe by writing
 // a width, a height, and a `transform: scale()` onto the orchestrator's container,
 // where the scale is `min(1, pageWidth / width, pageHeight / height)`
@@ -81,11 +91,60 @@ export const CAPTURE_WINDOW_HEIGHT_CEILING = 3600;
  * moves both numbers by the same amount and photographs the same picture in a taller
  * frame, so the honest answer is to stop and take it at the window the tier
  * configures, which is the size every other reference is minted at.
+ *
+ * `grow` CARRIES THE OVERHANG IT MEASURED rather than leaving the caller to subtract
+ * the same two numbers over again. That figure is the input the next pass is judged
+ * against, and two subtractions of one quantity is the drift `apps/desktop/AGENTS.md`
+ * §Shared code forbids on the two sides of a seam.
  */
 export type CaptureWindowStep =
   | { readonly kind: "fits" }
-  | { readonly kind: "grow"; readonly viewport: CaptureViewport }
+  | { readonly kind: "grow"; readonly viewport: CaptureViewport; readonly overhangPx: number }
   | { readonly kind: "grows-with-its-window"; readonly overhangPx: number };
+
+/**
+ * How many consecutive non-closing overhangs the third arm is taken on.
+ *
+ * TWO, which is three measurements at three window heights, and the distance between
+ * a surface sized BY its window and a surface that reflowed once while the first
+ * window was being opened. Opening a window is a layout change, so a deferred image
+ * or a re-measuring container can add back as much as the window just gained during
+ * the settle that follows it. One observation cannot tell those apart — both leave an
+ * overhang no smaller than the one before — and reading the reflow as coupling
+ * restores the tier's window and photographs the surface with an unpainted tail,
+ * which is the false green this module exists to refuse.
+ *
+ * A SECOND OBSERVATION SEPARATES THEM because it is taken at a window the first one
+ * paid for. A surface sized by its window hangs over by the same constant at every
+ * height, so its overhang survives the grow. A surface that reflowed once has since
+ * been given the height it grew to, so its overhang closes and the pass reports
+ * `fits` — which is the capture the defect was replacing with a restored window.
+ */
+const CONFIRMING_NON_CLOSING_PASSES = 2;
+
+/**
+ * How many of the trailing overhangs failed to close on the one before them.
+ *
+ * Read from the END, because only the run reaching the present pass says anything
+ * about the surface now: a surface that reflowed, was grown for, and then settled
+ * carries a closing pass in its history, and that pass is what ends the run.
+ */
+function nonClosingRunLength(overhangsPx: readonly number[]): number {
+  let run = 0;
+  for (let index = overhangsPx.length - 1; index > 0; index -= 1) {
+    const overhangPx = overhangsPx[index];
+    const overhangBeforePx = overhangsPx[index - 1];
+    if (
+      overhangPx === undefined ||
+      overhangBeforePx === undefined ||
+      overhangPx < overhangBeforePx
+    ) {
+      break;
+    }
+    run += 1;
+  }
+  return run;
+}
 
 /**
  * Decide one sizing pass: fit, grow, or stop because the surface grows with its window.
@@ -95,23 +154,29 @@ export type CaptureWindowStep =
  * decision is here, so every arm and both refusals can be driven by a node-shaped
  * case instead of by minting a capture that is too large on purpose.
  *
- * `previousOverhangPx` is how far the surface hung past the window on the pass
- * before this one, and `undefined` on the first pass. It is the whole basis of the
- * third arm: a surface that hangs over by no less after a grow than before it is
- * being sized BY the window, and no window will hold it. Comparing overhangs rather
- * than heights is what distinguishes that from a surface that simply needed a bigger
- * window and got one.
+ * `previousOverhangsPx` is how far the surface hung past the window on each earlier
+ * pass, oldest first, and empty on the first. It is the whole basis of the third arm:
+ * an overhang no smaller after a grow than before it is a surface being sized BY the
+ * window rather than one that simply needed a bigger one — and the arm waits for that
+ * to hold twice, for `CONFIRMING_NON_CLOSING_PASSES`' reason. The history is passed
+ * rather than a verdict the caller reached, so the whole judgement is owned here and
+ * the loop that drives it owns none of it.
  *
  * It throws rather than returning a wider window in the two cases where no window
  * would help. A surface wider than the page cannot be held at all — the page is
  * built at one width and a capture never changes it, because widening the window
  * would relayout the console at a width no reference was minted under. A surface
- * taller than the ceiling is refused for the reason the ceiling records.
+ * taller than the ceiling is refused for the reason the ceiling records, and the
+ * ORDER against the third arm is the one choice here worth naming: a CONFIRMED
+ * coupling is answered before the ceiling is consulted, because that surface is
+ * photographed at the tier's own window and never needs a tall one, while a merely
+ * SUSPECTED one is refused rather than assumed — assuming it is what mints an image
+ * with an unpainted tail, and the ceiling's message is the honest thing to fail with.
  */
 export function captureWindowStep(
   applied: CaptureViewport,
   required: CaptureViewport,
-  previousOverhangPx: number | undefined,
+  previousOverhangsPx: readonly number[],
   referenceName: string,
 ): CaptureWindowStep {
   if (required.width > applied.width) {
@@ -125,7 +190,7 @@ export function captureWindowStep(
   if (overhangPx <= 0) {
     return { kind: "fits" };
   }
-  if (previousOverhangPx !== undefined && overhangPx >= previousOverhangPx) {
+  if (nonClosingRunLength([...previousOverhangsPx, overhangPx]) >= CONFIRMING_NON_CLOSING_PASSES) {
     return { kind: "grows-with-its-window", overhangPx };
   }
   if (required.height > CAPTURE_WINDOW_HEIGHT_CEILING) {
@@ -136,5 +201,9 @@ export function captureWindowStep(
         `part a person actually looks at.`,
     );
   }
-  return { kind: "grow", viewport: { width: applied.width, height: required.height } };
+  return {
+    kind: "grow",
+    viewport: { width: applied.width, height: required.height },
+    overhangPx,
+  };
 }

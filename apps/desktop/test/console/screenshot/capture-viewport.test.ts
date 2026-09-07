@@ -6,6 +6,13 @@
 // read that produces its `required` argument is `settled-capture.ts`'s and has the
 // probe in `tall-capture.test.ts` behind it, which reads the captured pixels rather
 // than the arithmetic.
+//
+// THE THIRD ARM IS DRIVEN ON BOTH SIDES OF ITS CONFIRMATION. A surface sized by its
+// window and a surface that reflowed once while the first window was opening show the
+// SAME non-closing overhang on one observation, and the pair of cases below is what
+// keeps them apart: the reflow is grown for and then fits, the coupled surface hangs
+// over by the same constant again and takes the arm. A rule that armed on the first
+// observation passes every other case in this file.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,12 +24,7 @@ const CONSOLE_WINDOW = { width: 1440, height: 900 };
 describe("the window a capture opens", () => {
   it("leaves a surface that already fits alone", () => {
     expect(
-      captureWindowStep(
-        CONSOLE_WINDOW,
-        { width: 1440, height: 900 },
-        undefined,
-        "frame-first-run-light",
-      ),
+      captureWindowStep(CONSOLE_WINDOW, { width: 1440, height: 900 }, [], "frame-first-run-light"),
     ).toStrictEqual({ kind: "fits" });
   });
 
@@ -34,10 +36,14 @@ describe("the window a capture opens", () => {
       captureWindowStep(
         CONSOLE_WINDOW,
         { width: 1200, height: 2050 },
-        undefined,
+        [],
         "repos-section-mounted-gate-light",
       ),
-    ).toStrictEqual({ kind: "grow", viewport: { width: 1440, height: 2050 } });
+    ).toStrictEqual({
+      kind: "grow",
+      viewport: { width: 1440, height: 2050 },
+      overhangPx: 1150,
+    });
   });
 
   it("grows again while the overhang is still closing", () => {
@@ -48,22 +54,56 @@ describe("the window a capture opens", () => {
       captureWindowStep(
         { width: 1440, height: 2050 },
         { width: 1440, height: 2090 },
-        1150,
+        [1150],
         "repos-section-mounted-gate-light",
       ),
-    ).toStrictEqual({ kind: "grow", viewport: { width: 1440, height: 2090 } });
+    ).toStrictEqual({ kind: "grow", viewport: { width: 1440, height: 2090 }, overhangPx: 40 });
   });
 
-  it("stops on a surface whose overhang did not close, and says how far it hangs", () => {
-    // The console's two full-height destinations: `min-height: 100%` around 32px of
-    // their own padding, so each measures 64px past whatever window it is in. The
-    // arm carries the overhang because that figure is the whole claim — it is the
-    // band no window paints, and it is the surface's padding rather than its content.
+  it("grows for an overhang that failed to close on its first showing", () => {
+    // THE MISREAD THIS COSTS, and the reason the arm below is confirmed rather than
+    // taken. A grow is itself a layout change, so a deferred image can land during the
+    // settle and add back as much as the window just gained: the box was 2 050 in a
+    // 900 px window, the window opened to 2 050, and the image took it to 3 250. One
+    // non-closing overhang is all a surface sized BY its window shows either, and
+    // reading this one as that put the window back and photographed the surface with
+    // 1 200 px of unpainted tail — the defect the whole module exists to refuse.
     expect(
       captureWindowStep(
-        { width: 1440, height: 964 },
+        { width: 1440, height: 2050 },
+        { width: 1440, height: 3250 },
+        [1150],
+        "repos-section-mounted-gate-light",
+      ),
+    ).toStrictEqual({ kind: "grow", viewport: { width: 1440, height: 3250 }, overhangPx: 1200 });
+  });
+
+  it("reports that surface as fitting on the pass the second grow buys", () => {
+    // The other half of the same claim: the surface that was misread is now in a
+    // window that holds it, which is the capture the arm was replacing with a restored
+    // window and a blank band.
+    expect(
+      captureWindowStep(
+        { width: 1440, height: 3250 },
+        { width: 1440, height: 3250 },
+        [1150, 1200],
+        "repos-section-mounted-gate-light",
+      ),
+    ).toStrictEqual({ kind: "fits" });
+  });
+
+  it("stops on a surface whose overhang did not close twice over, and says how far it hangs", () => {
+    // The console's two full-height destinations: `min-height: 100%` around 32px of
+    // their own padding, so each measures 64px past whatever window it is in — at 900,
+    // at 964, and again at 1 028. That third measurement is what separates them from
+    // the reflow above. The arm carries the overhang because that figure is the whole
+    // claim — it is the band no window paints, and it is the surface's padding rather
+    // than its content.
+    expect(
+      captureWindowStep(
         { width: 1440, height: 1028 },
-        64,
+        { width: 1440, height: 1092 },
+        [64, 64],
         "collaboration-sessions-light",
       ),
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 64 });
@@ -76,9 +116,9 @@ describe("the window a capture opens", () => {
     // was ever going to hold.
     expect(
       captureWindowStep(
-        { width: 1440, height: 964 },
         { width: 1440, height: 1100 },
-        64,
+        { width: 1440, height: 1236 },
+        [64, 100],
         "collaboration-settings-dark",
       ),
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 136 });
@@ -89,7 +129,7 @@ describe("the window a capture opens", () => {
       captureWindowStep(
         CONSOLE_WINDOW,
         { width: 1440, height: CAPTURE_WINDOW_HEIGHT_CEILING + 1 },
-        undefined,
+        [],
         "workflows-run-pane-light",
       );
     }).toThrowError(new RegExp(`${String(CAPTURE_WINDOW_HEIGHT_CEILING + 1)}px tall`, "u"));
@@ -102,13 +142,44 @@ describe("the window a capture opens", () => {
       captureWindowStep(
         CONSOLE_WINDOW,
         { width: 1440, height: CAPTURE_WINDOW_HEIGHT_CEILING },
-        undefined,
+        [],
         "tall-light",
       ),
     ).toStrictEqual({
       kind: "grow",
       viewport: { width: 1440, height: CAPTURE_WINDOW_HEIGHT_CEILING },
+      overhangPx: CAPTURE_WINDOW_HEIGHT_CEILING - CONSOLE_WINDOW.height,
     });
+  });
+
+  it("refuses a suspected coupling whose confirming grow would pass the ceiling", () => {
+    // The order the rule states, on the side that is still a guess: a surface that has
+    // hung over ONCE is not yet known to track its window, and exempting it from the
+    // ceiling to spare it the second grow is the misread above wearing the arm's name.
+    // So a confirming grow is bounded like any other, and the refusal names the height.
+    expect(() => {
+      captureWindowStep(
+        { width: 1440, height: 2900 },
+        { width: 1440, height: 4900 },
+        [2000],
+        "workflows-run-pane-light",
+      );
+    }).toThrowError(/4900px tall/u);
+  });
+
+  it("takes the third arm on a confirmed coupling the ceiling would have refused", () => {
+    // And the side that is not a guess. Two non-closing overhangs prove no window
+    // holds this surface, so it is photographed at the tier's own window — where it is
+    // nowhere near the ceiling — rather than refused for a height it only ever has in
+    // the window the loop climbed to.
+    expect(
+      captureWindowStep(
+        { width: 1440, height: 2900 },
+        { width: 1440, height: 4900 },
+        [2000, 2000],
+        "collaboration-sessions-dark",
+      ),
+    ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 2000 });
   });
 
   it("refuses a surface wider than the window rather than widening it", () => {
@@ -116,7 +187,7 @@ describe("the window a capture opens", () => {
       captureWindowStep(
         CONSOLE_WINDOW,
         { width: 1441, height: 400 },
-        undefined,
+        [],
         "composer-channel-default-light",
       );
     }).toThrowError(/1441px across a 1440px window/u);
@@ -129,7 +200,7 @@ describe("the window a capture opens", () => {
       captureWindowStep(
         CONSOLE_WINDOW,
         { width: 1440, height: 99_999 },
-        undefined,
+        [],
         "approvals-pane-live-dark",
       );
     }).toThrowError(/approvals-pane-live-dark/u);
