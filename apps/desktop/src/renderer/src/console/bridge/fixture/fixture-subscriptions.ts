@@ -32,6 +32,7 @@
 import type { RelayEventHandler, Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { FixtureBridgeError } from "./fixture-refusal.js";
+import { subscribeToScenarioPresence } from "./fixture-presence-signal.js";
 import { RUN_QUEUE_ROW_READ } from "../run-streams/index.js";
 import { projectRunStreamDelivery } from "../run-streams/index.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
@@ -75,6 +76,14 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "../daemon/
  * shape, and it refuses by throwing: `core/emitter.ts` runs every sink and re-raises
  * afterwards, so one scenario's authoring error surfaces to whoever advanced the
  * clock without silencing the other subscribers on that beat.
+ *
+ * AND ONE REGISTERED NAME IS NOT AN EVENT FEED AT ALL. The Awareness subscription
+ * delivers a payload-free change SIGNAL, and half of what moves that room — what a
+ * person is doing — rides on no event the census carries, so a walk over beats could
+ * not serve it however the kinds were routed. It leaves through its own seam beside
+ * this file, which is what the stream row's scope discriminates: routing it here as a
+ * bare event type matched the kind `presence.subscribe`, which nothing emits, so the
+ * roster and the activity feed were subscribed to silence.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
@@ -87,6 +96,9 @@ export function subscribeToScenario(
   // represents the whole log is the one a subscriber can join late and expect the log
   // from, while the two narrowed run streams and every bare event type are live.
   const stream = sessionEventStreamFor(subscriptionName);
+  if (stream?.scope === "awareness-signal") {
+    return subscribeToScenarioPresence(engine, stream, deliver);
+  }
   return engine.subscribe(
     (events) => {
       for (const event of events) {

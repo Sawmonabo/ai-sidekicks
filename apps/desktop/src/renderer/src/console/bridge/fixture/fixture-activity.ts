@@ -53,6 +53,11 @@ export function readActivityFromScenario(
 /**
  * The activity reading current at `elapsedMs`, or `undefined` before the first.
  *
+ * EXPORTED for the seam that serves the Awareness subscription. A frame falling due
+ * IS the room changing, so the signal has to ask which frame is current on exactly
+ * this rule — and a second walk beside it would be free to answer that the room moved
+ * at a tick where the read still serves the old frame, or the reverse.
+ *
  * Selected by the LATEST `atMs` that has fallen due rather than by array position,
  * and `>=` on the tie so two frames claiming one instant resolve to the later
  * DECLARATION. Both halves are the runtime-node roster's rule, and both are here for
@@ -60,7 +65,7 @@ export function readActivityFromScenario(
  * sorted, so a family appending a late frame above an earlier one would otherwise get
  * a silently stale reading for every tick past both.
  */
-function activityFrameDueAt(
+export function activityFrameDueAt(
   frames: readonly ScenarioActivityFrame[],
   elapsedMs: number,
 ): ScenarioActivityFrame | undefined {

@@ -17,10 +17,15 @@ import { describe, expect, it } from "vitest";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts";
 
-import { CHANNEL_HANDOFF, CHANNEL_REVIEW } from "../scenarios/collaboration.identifiers.js";
+import {
+  CHANNEL_HANDOFF,
+  CHANNEL_MAIN,
+  CHANNEL_REVIEW,
+} from "../scenarios/collaboration.identifiers.js";
 import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import {
+  callBridge,
   createFixture,
   subscribeThroughBridge,
   unscriptedScenario,
@@ -168,5 +173,55 @@ describe("the fixture's channel lifecycle — where the frame lands in the log",
     const late = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
 
     expect(late.map((frame) => frame.type)).toStrictEqual(["channel.muted"]);
+  });
+});
+
+describe("the fixture's channel directory — what the read answers once frames have landed", () => {
+  /** The state `channel.list` reports for one channel, right now. */
+  async function directoryStateOf(fixture: FixtureUnderTest, channelId: string): Promise<unknown> {
+    const reply = await callBridge(fixture.bridge, "channel.list", {
+      sessionId: COLLABORATION_SCENARIO.sessionId,
+    });
+    const channels = (reply as { readonly channels: readonly { id: string; state: unknown }[] })
+      .channels;
+    return channels.find((channel) => channel.id === channelId)?.state;
+  }
+
+  it("reports a channel live until its archival beat is due, and archived after", async () => {
+    // The reading a fixed reply cannot give and the one the scenario is built to show.
+    // Before the beat the room has not archived anything, so a read that answered
+    // `archived` would be exposing state the script has not reached; after it, the
+    // re-read the beat triggers is the transition every directory surface renders.
+    const { fixture } = room();
+
+    fixture.engine.advance(INTO_THE_OPENING_MS);
+    const beforeTheBeat = await directoryStateOf(fixture, CHANNEL_HANDOFF);
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+    const afterTheBeat = await directoryStateOf(fixture, CHANNEL_HANDOFF);
+
+    expect(beforeTheBeat).toBe("active");
+    expect(afterTheBeat).toBe("archived");
+  });
+
+  it("moves a channel a served act archived, which no beat in the script mentions", async () => {
+    // The same fold from the other side: an act publishes a frame, and the directory
+    // read is what every other reader of that session would then see. A fixture that
+    // served the scripted reply back would answer the presser with the row's old state.
+    const { fixture } = room();
+
+    await fixture.bridge.growth.channelArchive({ channelId: CHANNEL_REVIEW });
+
+    expect(await directoryStateOf(fixture, CHANNEL_REVIEW)).toBe("archived");
+  });
+
+  it("negative control: a channel no frame has moved keeps the state the script opens it in", async () => {
+    // Without this, a fold that answered `archived` for every row — or one that
+    // replaced the whole reply — would pass both cases above. The bootstrap channel is
+    // in no lifecycle frame this room plays and reads live from first tick to last.
+    const { fixture } = room();
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(await directoryStateOf(fixture, CHANNEL_MAIN)).toBe("active");
   });
 });
