@@ -7,9 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { SETTINGS_SECTION_IDS, SETTINGS_SECTION_LABELS } from "./settings-sections.js";
 import {
-  SETTINGS_SECTION_IDS,
-  SETTINGS_SECTION_LABELS,
   SettingsPageRegistry,
   matchSettingsEntries,
   renderOwnerSlotPage,

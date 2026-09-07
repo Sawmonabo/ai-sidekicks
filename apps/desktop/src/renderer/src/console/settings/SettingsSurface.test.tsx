@@ -21,7 +21,8 @@ import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 import { registerSettingsSurface } from "./index.js";
-import { SETTINGS_SECTION_IDS, SettingsPageRegistry } from "./settings-page-registry.js";
+import { SettingsPageRegistry } from "./settings-page-registry.js";
+import { SETTINGS_SECTION_IDS } from "./settings-sections.js";
 import {
   ConsoleSurfaceRegistry,
   type ConsoleSurfaceContext,
