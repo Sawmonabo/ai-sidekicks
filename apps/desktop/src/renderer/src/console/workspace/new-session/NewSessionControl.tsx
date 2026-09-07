@@ -13,12 +13,19 @@
 // behind it would leave the composed path unreachable, which is the defect.
 //
 // WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The posture axis, because it is a
-// closed set the console already holds and the draft already takes. Agents and repo
-// mounts are not offered: both need reads this surface would have to invent, and
-// `Spec-023 §Console Design (Meridian)` rule 8 puts an unasked question in the
-// _not checked_ absence rather than in a picker with nothing behind it. The draft's
-// own send says the same thing about the wire — one of its three calls is
-// registered, so a send lands `session.create` and refuses the other two by name.
+// closed set the console already holds and the draft already takes, and the first
+// message, because the draft cannot compose `run.queueCreate` without the turn's own
+// body and a session opened with nothing said is a session waiting on a person who
+// thinks they already sent something. Agents and repo mounts are not offered: both
+// need reads this surface would have to invent, and `Spec-023 §Console Design
+// (Meridian)` rule 8 puts an unasked question in the _not checked_ absence rather
+// than in a picker with nothing behind it.
+//
+// AND A PARTIAL SEND NAMES WHAT LANDED, not only what did not. All three of the
+// draft's calls are reachable, so a send that stops part way leaves a real session
+// with some of what was asked for on it — and the person deciding whether to press
+// again is reading for exactly that. The refusal says what could not be done; the
+// line beneath it says what exists.
 //
 // SEND IS DISABLED WHILE A SEND IS RUNNING, AND THAT IS THE SECOND GUARD. The draft
 // coalesces repeated sends itself, so pressing twice cannot mint two sessions
@@ -57,11 +64,10 @@ import {
 } from "../../store/index.js";
 import {
   NewSessionDraft,
-  refuseSendThatRejected,
   type DraftPostureMode,
   type NewSessionDraftState,
-  type NewSessionSendResult,
 } from "./new-session-draft.js";
+import { refuseSendThatRejected, type NewSessionSendResult } from "./new-session-send.js";
 
 /** How each posture reads on a control, in the vocabulary's own order. */
 const POSTURE_LABELS: Readonly<Record<DraftPostureMode, string>> = {
@@ -92,6 +98,8 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
     );
   }
 
+  const completedCalls = composition.sendResult?.completedCalls ?? [];
+
   return (
     <section className="meridian-new-session" aria-label="New session draft">
       <fieldset className="meridian-new-session__postures">
@@ -111,11 +119,30 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
           </label>
         ))}
       </fieldset>
+      <label className="meridian-new-session__first-turn">
+        Its first message
+        <textarea
+          className="meridian-new-session__first-turn-input"
+          value={composition.draftState.firstTurn}
+          rows={3}
+          onChange={(event) => {
+            composition.setFirstTurn(event.target.value);
+          }}
+        />
+      </label>
       {composition.sendResult?.refusal === undefined ? null : (
         <InlineRefusal
           code={composition.sendResult.refusal.code}
           detail={composition.sendResult.refusal.detail}
         />
+      )}
+      {completedCalls.length === 0 ? null : (
+        // A status region rather than a paragraph: what already exists is the half of
+        // a partial send a person acts on, and it arrives after the press rather than
+        // with the rest of the form.
+        <p className="meridian-new-session__completed" role="status">
+          {`Already sent: ${completedCalls.join(", ")}`}
+        </p>
       )}
       <div className="meridian-new-session__actions">
         <button type="button" className="meridian-new-session__discard" onClick={composition.close}>
@@ -150,6 +177,7 @@ interface NewSessionComposition {
   readonly open: () => void;
   readonly close: () => void;
   readonly setPosture: (posture: DraftPostureMode) => void;
+  readonly setFirstTurn: (firstTurn: string) => void;
   readonly send: () => void;
 }
 
@@ -249,6 +277,16 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     [openDraft],
   );
 
+  // Straight through to the draft, with nothing kept here: the field renders off the
+  // draft's own `firstTurn`, so a discard clears the words on screen because it
+  // cleared the only copy of them.
+  const setFirstTurn = useCallback(
+    (firstTurn: string) => {
+      openDraft?.setFirstTurn(firstTurn);
+    },
+    [openDraft],
+  );
+
   const send = useCallback(() => {
     if (openDraft === undefined) {
       return;
@@ -296,5 +334,14 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     }
   }, [announce, result]);
 
-  return { draftState, sendResult: result, isSending, open, close, setPosture, send };
+  return {
+    draftState,
+    sendResult: result,
+    isSending,
+    open,
+    close,
+    setPosture,
+    setFirstTurn,
+    send,
+  };
 }

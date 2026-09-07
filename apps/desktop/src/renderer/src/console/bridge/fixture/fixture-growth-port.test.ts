@@ -134,10 +134,14 @@ describe("the fixture growth port — what it serves, and what it still refuses"
   });
 
   it("answers, or names the scenario's own gap, for every operation it serves", async () => {
-    // The other side of the same claim. Over the flagship, eight of the seventeen
-    // served operations answer; the four approvals ones, the branch-context read, and
-    // the four script-only writes do not, because that scenario scripts none of them —
-    // and what makes each of those a served arm rather than an absent one is that it
+    // The other side of the same claim. Over the flagship, some served operations
+    // answer and others do not — the approvals ones, the branch-context read, and the
+    // script-only writes are refused because that scenario scripts none of them, and
+    // the two window operations addressed by a handle are refused because the sweep's
+    // one request shape names none. The claim is deliberately count-free: it is about
+    // the CODE every served arm refuses under, and a tally beside it goes stale on the
+    // next operation the fixture learns to answer while reading as though it were
+    // checked. What makes each of those a served arm rather than an absent one is that it
     // refuses with the fixture's `reply-unscripted` and never with `wire-unregistered`,
     // which would send a reader to a document that owes a wire this bridge already
     // stands in for.

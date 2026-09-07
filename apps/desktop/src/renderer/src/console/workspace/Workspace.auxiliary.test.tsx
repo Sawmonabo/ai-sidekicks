@@ -9,7 +9,12 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge, type GrowthPort } from "../bridge/index.js";
+import {
+  createFixtureBridge,
+  growthUnavailable,
+  type ConsoleBridge,
+  type GrowthPort,
+} from "../bridge/index.js";
 import {
   SCENARIO,
   SESSION_ID,
@@ -98,10 +103,24 @@ describe("Workspace — a pane moved into a window of its own", () => {
   it("renders the refusal where the crashed-window signal is not served", async () => {
     // A subscription this build cannot open is not the same fact as a window that has
     // not crashed. The placeholder says which of the two it is.
+    //
+    // The refusal is STATED here rather than obtained by leaving the operation off the
+    // override: the fixture serves the shell's window plane, so an omission now reaches
+    // a served signal and this case would assert the opposite of its own sentence. What
+    // it is about is the live bridge's answer, which `growthUnavailable` builds — the
+    // same value that port returns for a wire the corpus has not registered.
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container } = render(
-      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+      workspaceFor(
+        session,
+        store,
+        true,
+        bridgeServingWindowWire({
+          ...detachingPort,
+          windowSubscribePaneErrors: async () => growthUnavailable("windowSubscribePaneErrors"),
+        }),
+      ),
     );
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);

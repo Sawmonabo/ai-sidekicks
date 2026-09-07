@@ -7,6 +7,11 @@
 // agent. The first send coalesces `session.create`, one `agent.attach` per agent, and
 // `run.queueCreate`; a draft that is closed empty reverts to nothing and leaves no row.
 //
+// WHAT IS HERE AND WHAT IS NEXT DOOR. This file owns what a person has CHOSEN and the
+// coalescing that keeps one draft to one session. What those choices become on the
+// wire, and what the result of sending them says, is `new-session-send.ts` — it holds
+// no state, so its rules can be checked without constructing a draft.
+//
 // THREE PROPERTIES, AND EACH IS THE REASON THIS IS A CLASS RATHER THAN A FORM:
 //
 //   • **No daemon row until the first send.** Every selection lives in this
@@ -23,37 +28,37 @@
 //     cannot undo a `session.create` the daemon accepted, and pretending otherwise
 //     would leave a real session the person believes was never made.
 //
-// ONE DRAFT OBJECT, AT MOST ONE SESSION. The three properties above make the draft
-// editable after a send that only partly landed, which is what a person needs — and
-// which means Send stays pressable with the same choices behind it. Without a
-// memory of what a previous press already did, the next press would reach
-// `session.create` again: a double-click would mint two daemon sessions, and a
-// retry after the partial would mint a third, none of them the
-// one the person is looking at. So this class coalesces rather than refuses, on the
-// deck writer's idiom: a send while one is in flight yields THAT send, and a send
-// after a session has been created re-reports the same session instead of making
-// another. The invariant is scoped to the object, so closing the draft — which
-// drops it — is what makes the next "+ New" a genuinely new session.
+// ONE DRAFT OBJECT, AT MOST ONE SESSION — AND EACH CALL AT MOST ONCE. The three
+// properties above make the draft editable after a send that only partly landed, which
+// is what a person needs, and which means Send stays pressable with the same choices
+// behind it. Without a memory of what a previous press already did, the next press
+// would reach `session.create` again: a double-click would mint two daemon sessions,
+// and a retry after the partial would mint a third, none of them the one the person is
+// looking at. The same argument applies one leg down, which is why the memory is
+// per-leg rather than one flag — a retry that re-attached a sidekick already on the
+// session would put two agents there for one the person chose once, and one that
+// re-queued the turn would send their words twice. So this class coalesces rather than
+// refuses, on the deck writer's idiom: a send while one is in flight yields THAT send,
+// and a later send resumes at the first call that has not been made. The invariant is
+// scoped to the object, so closing the draft — which drops it — is what makes the next
+// "+ New" a genuinely new session.
 //
-// WIRE TRUTH. Of the three calls the coalesced send names, exactly one is issued
-// from here: `session.create`, over the bridge's own call door, which parses the
-// request before sending and the reply after. The other two are not sent, for
-// different reasons — and the refusal CODE is which of the two it was, not a single
-// word covering both. `agent.attach` is registered nowhere in
-// `@ai-sidekicks/contracts` and has no entry on the growth port, so there is no shape
-// to send: that is `wire-unregistered`, and it is a fact about this build.
-// `run.queueCreate` IS registered and callable — what is missing is the first turn's
-// own body, which lives in the composer and not in a draft that holds agents, a mount
-// and a posture; inventing a payload for it here would be this console sending words
-// nobody typed. That is `first-turn-missing`, and it is a fact about this draft.
-// Which one a send reports follows from the draft itself, because the send is ordered
-// and a draft that named no sidekicks has no attach to make. Auto-pin is deliberately
-// absent for the same reason it always was: it fires on a first SUCCESSFUL send, and
-// no send is complete while either call is unmade.
+// THE FIRST TURN IS THE DRAFT'S, because the draft is what sends it. `run.queueCreate`
+// is registered and callable and takes the turn's own body, so a draft holding agents,
+// a mount and a posture and no words could not compose one — which is why this used to
+// refuse the leg by name. A person composing a session says what it is for in the same
+// act, and a first turn that is still blank is the one refusal here that is a CHOICE
+// rather than a fact about the build: the session and its sidekicks exist, and nothing
+// has been said yet.
+//
+// AUTO-PIN IS STILL ABSENT, and now for a reason that can be discharged rather than a
+// wire that cannot: it fires on a first SUCCESSFUL send, whose five conjuncts include
+// facts about how the session was opened that no reply here carries.
 
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
-import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, refuse, type NarrowedRefusal, type Unsubscribe } from "../../core/index.js";
+import { type ConsoleBridge } from "../../bridge/index.js";
+import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { refuseDraft, sendNewSessionDraft, type NewSessionSendResult } from "./new-session-send.js";
 
 /**
  * The posture axis a person picks, taken off the wire type rather than restated.
@@ -85,102 +90,28 @@ export interface NewSessionDraftState {
   readonly agents: readonly DraftAgentSelection[];
   readonly repoMount: DraftRepoMount | undefined;
   readonly posture: DraftPostureMode | undefined;
+  /** The session's first message, verbatim. Never trimmed; only tested for blankness. */
+  readonly firstTurn: string;
   /** True while nothing has been chosen — the arm that reverts to nothing. */
   readonly isEmpty: boolean;
   readonly revision: number;
 }
 
-/** Why a send could not complete. Closed, so a further cause is a decision. */
-export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
-  "draft-empty",
-  "session-create-failed",
-  // The two remaining calls are unreachable for DIFFERENT reasons, and a person who
-  // pastes a code into an issue is telling somebody which of the two it was.
-  // `agent.attach` has no registered shape at all; `run.queueCreate` has one and no
-  // first turn to put in it, which is a fact about this draft rather than about the
-  // build it is running in.
-  "wire-unregistered",
-  "first-turn-missing",
-  // Not a refusal the wire raised: `send` answers with a result on every path and
-  // `callDaemon` never throws, so this names a fault INSIDE the draft — and the
-  // alternative shipped once: a rejection that cleared the result and said nothing.
-  "send-failed",
-] as const;
-
-/** One draft refusal code. Derived, so the vocabulary is declared once. */
-export type NewSessionDraftRefusalCode = (typeof NEW_SESSION_DRAFT_REFUSAL_CODES)[number];
-
-/** The subsystem name every refusal this module raises carries. */
-export const NEW_SESSION_DRAFT_REFUSAL_ORIGIN = "new-session-draft";
-
-/** A typed draft refusal — `core`'s one refusal shape, narrowed on `code`. */
-export type NewSessionDraftRefusal = NarrowedRefusal<NewSessionDraftRefusalCode>;
-
-function refuseDraft(code: NewSessionDraftRefusalCode, detail: string): NewSessionDraftRefusal {
-  return refuse(NEW_SESSION_DRAFT_REFUSAL_ORIGIN, code, detail);
+/** What one draft has already put on the wire, so a repeat press resumes rather than repeats. */
+interface LandedCalls {
+  /**
+   * The session this draft created, once it has.
+   *
+   * Keyed on the CALL having returned rather than on an id having been read: a create
+   * the daemon accepted made a session whether or not its response carried a readable
+   * `sessionId`, so a memory that only remembered ids would let an unreadable response
+   * mint a second session on the next press.
+   */
+  hasCreatedSession: boolean;
+  sessionId: string | undefined;
+  readonly attachedDefinitionIds: Set<string>;
+  hasQueuedFirstTurn: boolean;
 }
-
-/**
- * What a send that REJECTED reports, rather than reporting nothing.
- *
- * {@link NewSessionDraft.send} returns a typed result on every path and `callDaemon`
- * never throws, so a rejection out of it is a fault inside this module — the case a
- * caller cannot invent a sentence for and must not swallow. Built HERE so a control
- * composing its own refusal cannot become a second source of the codes a person
- * pastes into an issue, the way `reveal-engine.ts` records its own impossible throw.
- */
-export function refuseSendThatRejected(): NewSessionSendResult {
-  return {
-    outcome: "refused",
-    sessionId: undefined,
-    completedCalls: [],
-    refusal: refuseDraft(
-      "send-failed",
-      "The draft could not be sent, and nothing was created. It is still here, and Send can be pressed again.",
-    ),
-  };
-}
-
-/**
- * What the coalesced send did.
- *
- * `completedCalls` carries the wire names verbatim and in order, because this module's
- * requirement is that the error slot NAMES the calls that succeeded — a person who
- * has to decide whether to retry needs to know a session already exists.
- */
-export interface NewSessionSendResult {
-  readonly outcome: "sent" | "partial" | "refused";
-  /** Present once `session.create` answered, whatever happened after it. */
-  readonly sessionId: string | undefined;
-  readonly completedCalls: readonly string[];
-  readonly refusal: NewSessionDraftRefusal | undefined;
-}
-
-/** The one wire name this module sends, spelled once. */
-const SESSION_CREATE_METHOD = "session.create";
-
-/**
- * What a send says when the draft named sidekicks it cannot attach.
- *
- * `agent.attach` has no request or response pair in the contracts package and no
- * growth-port operation, so there is no shape to send. The send is ordered, so the
- * turn behind it is not attempted either — said here rather than left for the reader
- * to infer from a call that is not mentioned.
- */
-const ATTACH_UNAVAILABLE_WORDS =
-  "agent.attach is not available in this build, so run.queueCreate was not attempted either";
-
-/**
- * What a send says when the only call left is the first turn.
- *
- * `run.queueCreate` IS registered and callable, so "unregistered" would be the wrong
- * word for it: what is missing is the turn's own body, which lives in the composer
- * and not in a draft that holds agents, a mount and a posture. A draft that named no
- * sidekicks reaches this and nothing else, because zero agents is zero attaches.
- */
-const FIRST_TURN_MISSING_WORDS =
-  "run.queueCreate is registered and callable, and a draft holds agents, a repository and a " +
-  "posture: the turn's own words are the composer's";
 
 export class NewSessionDraft {
   readonly #bridge: ConsoleBridge;
@@ -199,24 +130,24 @@ export class NewSessionDraft {
    */
   #sendInFlight: Promise<NewSessionSendResult> | undefined;
   /**
-   * The create this draft already landed, once it has.
-   *
-   * Keyed on the CALL having returned rather than on an id having been read: a
-   * create the daemon accepted made a session whether or not its response carried
-   * a readable `sessionId`, so a memory that only remembered ids would let an
-   * unreadable response mint a second session on the next press. One field, so
-   * "the create landed" and "this is what we know of it" cannot disagree.
+   * What this draft has already landed.
    *
    * Deliberately not cleared by {@link discard}: the invariant is one session per
    * draft OBJECT, and a draft that could be emptied and re-composed into a second
-   * `session.create` would be the same defect reached by a longer route. The
-   * control drops the object on close, which is where a new session comes from.
+   * `session.create` would be the same defect reached by a longer route. The control
+   * drops the object on close, which is where a new session comes from.
    */
-  #landedCreate: { readonly sessionId: string | undefined } | undefined;
+  readonly #landed: LandedCalls = {
+    hasCreatedSession: false,
+    sessionId: undefined,
+    attachedDefinitionIds: new Set<string>(),
+    hasQueuedFirstTurn: false,
+  };
   #state: NewSessionDraftState = {
     agents: [],
     repoMount: undefined,
     posture: undefined,
+    firstTurn: "",
     isEmpty: true,
     revision: 0,
   };
@@ -271,6 +202,18 @@ export class NewSessionDraft {
   }
 
   /**
+   * What this session's first message says.
+   *
+   * Kept verbatim: the wire receives the participant's own bytes, so pasted code keeps
+   * its indentation and a deliberately separated block keeps its separation. Blankness
+   * is decided by trimming where the send asks the question, which is a test of the
+   * text rather than an edit of it.
+   */
+  public setFirstTurn(firstTurn: string): void {
+    this.#commit({ firstTurn });
+  }
+
+  /**
    * Throw the draft away.
    *
    * No wire call, on this module's own terms: a draft has no daemon row, so discarding
@@ -278,20 +221,20 @@ export class NewSessionDraft {
    * something it was never told.
    */
   public discard(): void {
-    this.#commit({ agents: [], repoMount: undefined, posture: undefined });
+    this.#commit({ agents: [], repoMount: undefined, posture: undefined, firstTurn: "" });
   }
 
   /**
    * The coalesced first send.
    *
-   * Coalesced in TWO senses, and both are load-bearing. Across the three calls the rule
-   * above names, it is ordered rather than parallel: the two after `session.create` need
-   * the session it returns, so issuing them together would mean inventing the
-   * id before the daemon minted it. Across repeated presses, it is idempotent in
-   * the only way a renderer can make a create idempotent — by remembering. A
-   * concurrent call joins the running send; a later call re-reports the session the
-   * first one made. Neither refuses, because a refusal here would put a code in
-   * front of a person whose press did exactly what they meant it to.
+   * Coalesced in TWO senses, and both are load-bearing. Across the three calls, it is
+   * ordered rather than parallel: the two after `session.create` need the session it
+   * returns, so issuing them together would mean inventing the id before the daemon
+   * minted it. Across repeated presses, it is idempotent in the only way a renderer can
+   * make a create idempotent — by remembering. A concurrent call joins the running
+   * send; a later call resumes at the first call that has not been made. Neither
+   * refuses, because a refusal here would put a code in front of a person whose press
+   * did exactly what they meant it to.
    */
   public send(): Promise<NewSessionSendResult> {
     // `??=` short-circuits, so the send is started only when none is running, and
@@ -311,78 +254,34 @@ export class NewSessionDraft {
         completedCalls: [],
         refusal: refuseDraft(
           "draft-empty",
-          "Pick at least one sidekick, a repository, or a posture before sending.",
+          "Pick at least one sidekick, a repository, or a posture, or type the first message, before sending.",
         ),
       };
     }
 
-    // A session this draft already created is the session this draft sends to. The
-    // create is skipped rather than repeated, and the SAME partial is re-reported,
-    // because nothing about the outcome has changed: the session still exists, and
-    // whichever call the send stopped at is still the one it cannot make. That is
-    // not one condition but two, and only one of them is a missing registration —
-    // `#remainderAfterCreate` is where they are told apart, and it is the single
-    // place both the first press and every later one read it from.
-    if (this.#landedCreate !== undefined) {
-      return this.#remainderAfterCreate(this.#landedCreate.sessionId);
+    const progress = await sendNewSessionDraft({
+      bridge: this.#bridge,
+      // The session this draft already created is the session this draft sends to, so
+      // the create leg is skipped rather than repeated.
+      sessionId: this.#landed.hasCreatedSession ? this.#landed.sessionId : undefined,
+      agents: this.#state.agents,
+      alreadyAttachedDefinitionIds: this.#landed.attachedDefinitionIds,
+      firstTurnAlreadyQueued: this.#landed.hasQueuedFirstTurn,
+      firstTurn: this.#state.firstTurn,
+      executionPostureMode: this.#state.posture,
+    });
+
+    // Recorded whatever the outcome was: the legs that landed are landed, and a
+    // partial that forgot them would repeat them on the next press.
+    if (progress.result.outcome !== "refused") {
+      this.#landed.hasCreatedSession = true;
+      this.#landed.sessionId = progress.sessionId;
     }
-
-    // Through the bridge's one call door, which parses the request before sending
-    // and the reply after and never throws: the reply's `sessionId` is read off the
-    // method's own registered response shape rather than sniffed out of `unknown`.
-    const reply = await callDaemon(this.#bridge, SESSION_CREATE_METHOD, {});
-    if (reply.status === "refused") {
-      // The daemon's own message is not console copy — it crosses an IPC boundary,
-      // may be a stack, and describes a subsystem the person cannot act on. The
-      // code names which call failed, which is what a person pastes into an issue.
-      return {
-        outcome: "refused",
-        sessionId: undefined,
-        completedCalls: [],
-        refusal: refuseDraft(
-          "session-create-failed",
-          "The session could not be created. Nothing was sent, and the draft is still here.",
-        ),
-      };
+    for (const definitionId of progress.attachedDefinitionIds) {
+      this.#landed.attachedDefinitionIds.add(definitionId);
     }
-
-    const sessionId = reply.value.sessionId;
-    this.#landedCreate = { sessionId };
-    return this.#remainderAfterCreate(sessionId);
-  }
-
-  /**
-   * What a send reports once the session exists and the rest cannot be issued.
-   *
-   * One function, reached by both the first send and every later one, because the
-   * two must report the same thing: a retry that described the session differently
-   * from the press that made it would read as a second session.
-   *
-   * WHICH CODE IT CARRIES IS DECIDED BY THE DRAFT, not by the build. The send is
-   * ordered — create, then one attach per agent, then the turn — so it stops at the
-   * first call it cannot make, and which one that is depends on whether this draft
-   * named any sidekicks at all. A draft that named none has no attach to make, and
-   * reporting one as unavailable would name a call its send was never going to
-   * issue. The session exists either way, so the outcome is PARTIAL and says which
-   * call landed, which is this module's "with the calls that succeeded named".
-   */
-  #remainderAfterCreate(sessionId: string | undefined): NewSessionSendResult {
-    const refusal =
-      this.#state.agents.length > 0
-        ? refuseDraft(
-            "wire-unregistered",
-            `The session was created, but its sidekicks could not be attached — ${ATTACH_UNAVAILABLE_WORDS}.`,
-          )
-        : refuseDraft(
-            "first-turn-missing",
-            `The session was created, but no first turn was queued — ${FIRST_TURN_MISSING_WORDS}.`,
-          );
-    return {
-      outcome: "partial",
-      sessionId,
-      completedCalls: [SESSION_CREATE_METHOD],
-      refusal,
-    };
+    this.#landed.hasQueuedFirstTurn ||= progress.firstTurnQueued;
+    return progress.result;
   }
 
   #commit(change: Partial<Omit<NewSessionDraftState, "isEmpty" | "revision">>): void {
@@ -390,7 +289,10 @@ export class NewSessionDraft {
     this.#state = {
       ...next,
       isEmpty:
-        next.agents.length === 0 && next.repoMount === undefined && next.posture === undefined,
+        next.agents.length === 0 &&
+        next.repoMount === undefined &&
+        next.posture === undefined &&
+        next.firstTurn.trim().length === 0,
       revision: this.#state.revision + 1,
     };
     this.#changes.emit(this.#state);

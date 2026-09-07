@@ -107,6 +107,38 @@
   color: var(--meridian-text);
 }
 
+.meridian-new-session__first-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text);
+}
+
+/* `font: inherit` because a textarea's UA default is a monospace family at a size
+   the card never sets — the words a person types here are prose, and the field is
+   the only place in this card that would have rendered them as something else. */
+.meridian-new-session__first-turn-input {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.meridian-new-session__first-turn-input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* What already exists after a partial send. Muted rather than coloured: it is a
+   statement of fact beside the refusal above it, not a second fault. */
+.meridian-new-session__completed {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
 .meridian-new-session__actions {
   display: flex;
   gap: var(--meridian-space-2);
