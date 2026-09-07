@@ -10,12 +10,16 @@
 // of the four ways this window is not the whole session applies.
 //
 // WHAT LEAVES. The two windows and their hooks, the chapter key the fold groups by,
-// the retention a second derivation holds its own instance of, and the absences
-// component. `deriveLedgerWindow` stops here: it is the pure derivation under
+// the retention a second derivation holds its own instance of, the absences component,
+// and the read-state component that says whether this window has been read at all and
+// whether it is behind. `deriveLedgerWindow` stops here: it is the pure derivation under
 // `useLedgerProjection`, and every reader of it outside this directory is a suite or a
 // suite's scaffolding, which reaches it deeply.
 
+import "./window.css";
+
 export { LedgerWindowAbsences } from "./LedgerWindowAbsences.js";
+export { LedgerWindowReadState } from "./LedgerWindowReadState.js";
 export {
   useRailGeometry,
   useVisibleLedgerWindow,
