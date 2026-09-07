@@ -2,7 +2,9 @@
 // its own, and what an act's answer settles to.
 //
 // THE DISPATCH IS THE MODULE BESIDE THIS ONE. `definition-authoring-dispatch.ts` holds
-// the latch, the three act bodies and the create they ride, on the split
+// the latch and the held record and hands each press to the act that carries it out —
+// `definition-authoring-export.ts` for the one that reaches the host,
+// `definition-authoring-port-acts.ts` for the two that ride the create — on the split
 // `run-control-commands.ts` and `run-control-dispatch.ts` already make one family over:
 // what a surface offers is read by the component that draws the controls, and how a
 // press is carried out is read by nothing but itself.

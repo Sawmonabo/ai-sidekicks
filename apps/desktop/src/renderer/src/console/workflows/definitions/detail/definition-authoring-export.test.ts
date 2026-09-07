@@ -20,7 +20,7 @@
 // a press. A codec that never arrived at all is `definition-authoring-dispatch.codec-absence.test.ts`,
 // which needs a registry of its own to reproduce.
 //
-// The two acts that reach the growth port are `definition-authoring-dispatch.port-acts.test.ts`,
+// The two acts that reach the growth port are `definition-authoring-port-acts.test.ts`,
 // and the scaffolding both suites press through is the `.test-support.ts` beside them.
 
 import { cleanup, waitFor } from "@testing-library/react";

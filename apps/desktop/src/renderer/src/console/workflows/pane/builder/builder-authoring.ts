@@ -33,7 +33,7 @@
 // and a pane that said "the operation is not on the bridge" would now be asserting
 // something false about a port that carries it. The two acts whose subject is the
 // definition already on screen — importing and promoting — do reach the port, from
-// `definitions/detail/definition-authoring-dispatch.ts`, which is where an act with
+// `definitions/detail/definition-authoring-port-acts.ts`, which is where an act with
 // something to submit belongs.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";

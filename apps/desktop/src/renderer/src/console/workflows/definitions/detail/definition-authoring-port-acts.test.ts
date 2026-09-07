@@ -10,7 +10,7 @@
 // second press differently and for a reason. A create is outstanding against the daemon
 // and cannot be recalled, so the second press is REFUSED; a clipboard write is neither
 // durable nor recallable, so the second press supersedes the first instead — that arm is
-// `definition-authoring-dispatch.test.ts` beside this, with the scaffolding both suites
+// `definition-authoring-export.test.ts` beside this, with the scaffolding both suites
 // press through in the `.test-support.ts` beside them.
 
 import { cleanup, waitFor } from "@testing-library/react";
