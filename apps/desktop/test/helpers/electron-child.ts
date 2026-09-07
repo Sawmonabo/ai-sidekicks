@@ -35,7 +35,7 @@
 //
 // WHAT THIS MODULE IS NOT
 //
-// It is not a second terminator. `process-tree.ts` owns the platform facts
+// It is not a second terminator. `process-tree/` owns the platform facts
 // about delivering a signal to a tree and stays their home; `ManagedElectronChild`
 // in `managed-electron-child.ts` owns WHEN that call is made and how many times,
 // and what a child's terminal events mean. This file is the DOOR: the one place

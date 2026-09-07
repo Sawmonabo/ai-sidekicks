@@ -19,7 +19,8 @@
 import { expect } from "vitest";
 
 import type { ManagedElectronChild } from "../../helpers/managed-electron-child.js";
-import { processHasTerminated, terminateProcessTree } from "../../helpers/process-tree.js";
+import { terminateProcessTree } from "../../helpers/process-tree/dispatch.js";
+import { processHasTerminated } from "../../helpers/process-tree/liveness.js";
 
 /**
  * How long a settled kill is given to leave nothing running.

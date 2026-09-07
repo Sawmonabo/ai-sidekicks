@@ -37,7 +37,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PROCESS_TREE_TERMINATION_MODE, readProcessLiveness } from "../../helpers/process-tree.js";
+import { PROCESS_TREE_TERMINATION_MODE } from "../../helpers/process-tree/dispatch.js";
+import { readProcessLiveness } from "../../helpers/process-tree/liveness.js";
 import {
   AbandonedPair,
   ABANDONED_SETUP_MESSAGE,

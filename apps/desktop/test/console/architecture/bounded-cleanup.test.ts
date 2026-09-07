@@ -43,7 +43,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import { processHasTerminated } from "../../helpers/process-tree.js";
+import { processHasTerminated } from "../../helpers/process-tree/liveness.js";
 import { BoundedCleanup, ELECTRON_PROCESS_TERMINATOR } from "../bounded-cleanup.js";
 import { withCleanupOutcome } from "../cleanup-disposition.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";

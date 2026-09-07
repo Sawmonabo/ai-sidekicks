@@ -38,7 +38,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { cleanUpAfterChildAtSettleTime } from "../../helpers/electron-child-cleanup.js";
-import { readProcessLiveness } from "../../helpers/process-tree.js";
+import { readProcessLiveness } from "../../helpers/process-tree/liveness.js";
 import {
   LIFETIME_TEST_TIMEOUT_MS,
   ObservedTreeTerminator,

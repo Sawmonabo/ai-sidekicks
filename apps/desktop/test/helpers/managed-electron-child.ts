@@ -31,7 +31,8 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 
-import { SpawnedTreeIdentity, terminateProcessTree } from "./process-tree.js";
+import { terminateProcessTree } from "./process-tree/dispatch.js";
+import { SpawnedTreeIdentity } from "./process-tree/identity.js";
 
 /**
  * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it.

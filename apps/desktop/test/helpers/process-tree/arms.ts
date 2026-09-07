@@ -1,15 +1,15 @@
 // The two platform arms of a tree kill, each as a decision over injected
 // collaborators.
 //
-// `process-tree.ts` beside this owns the READINGS — whether a pid names
-// anything, whether it can still run, which mechanism this platform terminates a
-// tree with — and dispatches to the arm this platform takes. The arms live here
-// because neither of them can be executed on the platform the suite runs on: a
-// macOS runner never enters the `taskkill` arm, and a case that entered the
-// POSIX arm for real would deliver a signal to a whole process group from inside
-// the runner. Both are therefore written as decisions over an injected tool set,
+// `readers.ts`, `liveness.ts` and `identity.ts` own the READINGS — what this host
+// says, whether a pid can still run, whether it still names what it named — and
+// `dispatch.ts` picks the arm this platform takes. The arms live here because
+// neither of them can be executed on the platform the suite runs on: a macOS
+// runner never enters the `taskkill` arm, and a case that entered the POSIX arm
+// for real would deliver a signal to a whole process group from inside the
+// runner. Both are therefore written as decisions over an injected tool set,
 // which is what makes them checkable at all — the same split `readProcessLiveness`
-// already makes for its probe pair, one module over.
+// already makes for its probe pair.
 //
 // A TREE IS NOT ITS ROOT, AND THAT IS THE WHOLE SUBJECT HERE
 //
@@ -34,11 +34,8 @@
 //     survival probe says "gone", and the refusal is reported as a delivered
 //     kill. `ManagedElectronChild` latches on that report, every later disposal
 //     returns early on the latch, and the descendant outlives the run. So the
-//     rootless tree is addressed EXPLICITLY here, from the parent table, and the
-//     verdict is over every member the walk found rather than over the root.
-//
-// The Windows parent table is readable after the root is gone because Windows
-// does not reparent: a descendant keeps recording the dead root's id.
+//     rootless tree is addressed EXPLICITLY here and the verdict is over every
+//     member the arm can name rather than over the root.
 //
 // AND THE ROOT PID IS NOT THE ROOT
 //
@@ -49,27 +46,62 @@
 // then walks a STRANGER's tree, exits zero, and that zero latches
 // `ManagedElectronChild` as killed — an unrelated process terminated, the
 // descendant this package spawned still running, and the whole thing reported as
-// a delivered kill. The parent table is no help either: its rows under that pid
-// are the stranger's children.
+// a delivered kill.
 //
-// So identity is a READING like every other one in this module, taken BEFORE
-// anything is signalled, and it has three answers because "not ours" is two
-// facts and not one:
+// So identity is a READING like every other one here, taken BEFORE anything is
+// signalled, and it has three answers because "not ours" is two facts and not
+// one:
 //
 //   • `same` — the pid still names the instance this tree was captured from. It
 //     is the only answer under which the root is walked at all.
-//   • `gone` — the pid names nothing. The root exited and was reaped, and the
-//     parent-table walk above is still this tree's, because Windows does not
-//     reparent.
+//   • `gone` — the pid names nothing. The root exited and was reaped.
 //   • `recycled` — the pid names a DIFFERENT process. Nothing reachable through
-//     that number is this tree's, so nothing is signalled through it and the
-//     table beneath it is not walked. Only the members captured while the root
-//     last read `same` may be addressed, and with no such capture the verdict is
-//     a refusal: an empty capture is absence of evidence, and absence of
-//     evidence must never read as a clean tree.
+//     that number is this tree's, so nothing is signalled through it. Only the
+//     members captured while the root last read `same` may be addressed, and
+//     with no such capture the verdict is a refusal: an empty capture is absence
+//     of evidence, and absence of evidence must never read as a clean tree.
+//
+// THE PARENT TABLE IS SOUND EVIDENCE IN EXACTLY ONE DIRECTION
+//
+// Windows does not reparent, so a live descendant keeps recording its tree's
+// root pid after that root has exited — and it also RETAINS that column when the
+// pid's former holder died long before this tree was ever spawned. Both rows look
+// identical. A table that lists nothing beneath the root pid is therefore proof
+// that nothing claims it; a table that lists something is no proof at all that
+// what it lists is ours.
+//
+// That asymmetry is spent here and nowhere else:
+//
+//   • Under `gone` the rows beneath the root pid are a SURVIVAL reading and never
+//     a kill list. The members addressed are the captured ones this tree verified
+//     for itself; a row nothing verified is a reason to refuse the verdict, never
+//     a pid to hand `taskkill`. Reading it as a kill list is what took a
+//     long-lived child of an OLDER process that once held the number and passed
+//     it to `taskkill` as though it were this tree's.
+//   • Under `same` the walk stays a kill list, because it reaches nothing the
+//     platform's own walk did not: `taskkill /pid <live root> /t` discovers its
+//     descendants from that same table, so narrowing the second pass would narrow
+//     nothing the first pass had not already reached.
+//   • Under `recycled` the table is not consulted in either direction. Rows
+//     beneath a reissued number are as likely the new holder's children as this
+//     tree's, and a live stranger with a child would hold the verdict at `false`
+//     for as long as it lived — a refusal that can never clear.
+//
+// The residual is named rather than hidden: under `gone`, a stale row whose
+// process outlives the run holds the verdict at `false` for the caller's bounded
+// attempts and ends as a reported `unterminable`. That is the failure direction
+// this module takes everywhere — a refusal a reader can see, rather than a clean
+// tree nobody can check.
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";
+
+import {
+  verifyCapturedMembers,
+  type CapturedTreeMember,
+  type TreeRootIdentity,
+} from "./identity.js";
+import { descendantsOf, type ProcessTableReader, type ProcessTableRow } from "./readers.js";
 
 /**
  * Whether a termination attempt left nothing to worry about.
@@ -102,22 +134,12 @@ export interface SignalTreeTools {
   readonly hasTerminated: (processId: number) => boolean;
 }
 
-/**
- * Whether the pid a tree is addressed THROUGH still names that tree's root.
- *
- * Three answers rather than two, because "not ours" splits into two facts that
- * owe different behaviour — the module header has the mechanism. `gone` keeps
- * the parent-table walk, which Windows' no-reparenting rule leaves readable
- * after the root exits; `recycled` forfeits both the root and the table.
- */
-export type TreeRootIdentity = "same" | "gone" | "recycled";
-
 /** What the Windows arm needs from the platform, as one injectable set. */
 export interface ExternalTreeTools {
   /** Run the platform's tree kill downwards from `processId`; `true` if it exited clean. */
   readonly killTreeFrom: (processId: number, forced: boolean) => boolean;
-  /** Every process on this host, as child pid to parent pid. */
-  readonly parentByChild: () => ReadonlyMap<number, number>;
+  /** Every process on this host, as pid to its recorded parent and start stamp. */
+  readonly processTable: ProcessTableReader;
   /** Whether `processId` will never run another instruction. */
   readonly hasTerminated: (processId: number) => boolean;
   /**
@@ -129,13 +151,14 @@ export interface ExternalTreeTools {
    */
   readonly rootIdentity: () => TreeRootIdentity;
   /**
-   * The members captured while the root last read `same`.
+   * The members captured while the root last read `same`, each with its stamp.
    *
-   * The only handle on this tree that survives its root's pid being reissued.
-   * Empty is a legitimate answer and is read as "nothing of this tree is
-   * nameable" rather than as "this tree is gone".
+   * The only handle on this tree that survives its root's pid being reissued,
+   * and the only source a rootless kill list is built from. Empty is a
+   * legitimate answer and is read as "nothing of this tree is nameable" rather
+   * than as "this tree is gone".
    */
-  readonly capturedDescendants: () => readonly number[];
+  readonly capturedDescendants: () => readonly CapturedTreeMember[];
 }
 
 /**
@@ -175,16 +198,17 @@ export function terminateSignalledTree(
  * IDENTITY FIRST, AND ONLY THEN A SIGNAL. The pid is read before it is used, and
  * it is walked only under `same` — the module header has why a reissued pid
  * walked here terminates a stranger and reports the surviving descendant as
- * killed. `gone` and `recycled` both skip the root outright; what separates them
- * is whether the parent table beneath that number is still this tree's.
+ * killed.
  *
  * The second pass is not a retry of the first. `taskkill /t` finds descendants by
  * walking DOWN from the root, so a root that names nothing gives it nothing to
  * find — and the tree it could not find is exactly the tree that outlives the
- * run. Those members are taken from the parent table, from what was captured
- * while the root was verifiably this tree's, or from both, and killed by name.
- * The verdict is over every one of them: a rootless termination is never
- * accepted as delivered on the strength of the root being gone.
+ * run. Those members come from what this tree captured while the root was
+ * verifiably its own, verified pid by pid, and they are killed by name. The
+ * verdict is over every one of them AND over every row this host still hangs off
+ * the root pid: a rootless termination is never accepted as delivered on the
+ * strength of the root being gone, and a row this tree cannot vouch for is a
+ * reason to refuse rather than a pid to signal.
  */
 export function terminateExternalTree(
   processId: number,
@@ -196,19 +220,28 @@ export function terminateExternalTree(
   if (identity === "same" && tools.killTreeFrom(processId, forced)) {
     return true;
   }
-  const members = addressableTreeMembers(processId, identity, tools);
+  // ONE READ, then every decision below is taken over the same snapshot. Two
+  // reads would let the kill list and the survival reading disagree about which
+  // host they describe, which is the class of race this whole module is about.
+  const processTable = tools.processTable();
+  const captured = tools.capturedDescendants();
+  const members = addressableTreeMembers(processId, identity, processTable, captured);
   const unreachedMembers = members.filter((member) => !tools.hasTerminated(member));
   for (const member of unreachedMembers) {
     tools.killTreeFrom(member, forced);
   }
-  if (identity === "recycled" && members.length === 0) {
+  if (identity === "recycled" && captured.length === 0) {
     // Nothing of this tree can be named: the pid belongs to somebody else and
     // nothing was captured while it was ours, so there is no reading to take.
     // Reporting a kill here is the false success this whole module exists to
     // prevent, one step further out — the caller's retry and its eventual
-    // `unterminable` are the honest answers to "we cannot see it".
+    // `unterminable` are the honest answers to "we cannot see it". Asked of the
+    // CAPTURE rather than of what survived verification: a captured pid the
+    // stamps convict of being somebody else is evidence that the member it
+    // named has exited, which is the opposite of having nothing to go on.
     return false;
   }
+  const claimants = unverifiedRootClaimants(processId, identity, processTable, members);
   return terminationSucceeded(
     false,
     () =>
@@ -218,130 +251,64 @@ export function terminateExternalTree(
       // terminated, and asking anyway is what catches an identity read that
       // raced a root which had not in fact exited.
       (identity !== "recycled" && !tools.hasTerminated(processId)) ||
-      unreachedMembers.some((member) => !tools.hasTerminated(member)),
+      unreachedMembers.some((member) => !tools.hasTerminated(member)) ||
+      claimants.some((claimant) => !tools.hasTerminated(claimant)),
   );
 }
 
 /**
- * The members this arm may address, given what the root pid turned out to name.
+ * The members this arm may SIGNAL, given what the root pid turned out to name.
  *
  * A set rather than a list because the two sources overlap on every ordinary
  * reading, and addressing a member twice would spawn a second `taskkill` at a
  * process the first one already took.
  *
- * The parent table is admitted for `same` and `gone` and refused for `recycled`,
- * which is the whole discrimination: under the first two the rows beneath the
- * root pid are this tree's — Windows does not reparent, so they survive the
- * root — and under the third they are a stranger's children, which this arm must
- * never kill however plainly they are "descendants of that pid".
+ * The table walk is admitted for `same` alone. Under `gone` and `recycled` the
+ * kill list is the CAPTURE, verified pid by pid against the stamps in this same
+ * table — the header states the asymmetry that makes those three different, and
+ * `verifyCapturedMembers` states what a stamp has to say before a member is
+ * dropped.
  */
 function addressableTreeMembers(
   processId: number,
   identity: TreeRootIdentity,
-  tools: ExternalTreeTools,
+  processTable: ReadonlyMap<number, ProcessTableRow>,
+  captured: readonly CapturedTreeMember[],
 ): number[] {
-  const captured = tools.capturedDescendants();
-  if (identity === "recycled") {
-    return [...new Set(captured)];
+  const verified = verifyCapturedMembers(captured, processTable);
+  if (identity !== "same") {
+    return [...new Set(verified)];
   }
-  return [...new Set([...descendantsOf(processId, tools.parentByChild()), ...captured])];
+  return [...new Set([...descendantsOf(processId, processTable), ...verified])];
 }
 
 /**
- * Every process below `rootProcessId` in `parentByChild`, transitively.
+ * The rows this host still hangs off the root pid that this tree cannot vouch for.
  *
- * A breadth walk with a visited set rather than recursion, and the set is
- * load-bearing rather than tidy: a parent table is a snapshot of a host whose
- * pids are reused, so a row pair naming each other as parents is representable
- * and a walk without the set would never return. The root is not in the result —
- * the caller already holds it, and the two are terminated for different reasons.
+ * READ AND NEVER SIGNALLED. Each one is either a descendant this tree never
+ * captured or a leftover child of whoever held the number before it, and nothing
+ * in the table can tell those apart — so killing one risks an unrelated process
+ * and ignoring one risks reporting a live tree as gone. Refusing the verdict is
+ * the only answer that does neither.
+ *
+ * Empty for every identity but `gone`, and the header says why: under `same` the
+ * walk is already the kill list, and under `recycled` the rows belong at least as
+ * much to the pid's new holder as to this tree, so reading them would hold the
+ * verdict at `false` for as long as that stranger lived.
  */
-export function descendantsOf(
-  rootProcessId: number,
-  parentByChild: ReadonlyMap<number, number>,
+function unverifiedRootClaimants(
+  processId: number,
+  identity: TreeRootIdentity,
+  processTable: ReadonlyMap<number, ProcessTableRow>,
+  addressed: readonly number[],
 ): number[] {
-  const childrenByParent = new Map<number, number[]>();
-  for (const [childProcessId, parentProcessId] of parentByChild) {
-    const siblings = childrenByParent.get(parentProcessId);
-    if (siblings === undefined) {
-      childrenByParent.set(parentProcessId, [childProcessId]);
-    } else {
-      siblings.push(childProcessId);
-    }
+  if (identity !== "gone") {
+    return [];
   }
-  const discovered = new Set<number>([rootProcessId]);
-  const pending = [rootProcessId];
-  const descendants: number[] = [];
-  while (pending.length > 0) {
-    const parentProcessId = pending.shift() as number;
-    for (const childProcessId of childrenByParent.get(parentProcessId) ?? []) {
-      if (discovered.has(childProcessId)) {
-        continue;
-      }
-      discovered.add(childProcessId);
-      descendants.push(childProcessId);
-      pending.push(childProcessId);
-    }
-  }
-  return descendants;
-}
-
-/**
- * A child-to-parent table out of whitespace-separated `pid ppid` lines.
- *
- * One parser for both platforms, which is why both readers below are asked to
- * emit that shape rather than their native one: two parsers over two output
- * formats are two things that drift, and the format is the caller's to choose.
- * A line that is not two integers is a header or a warning and contributes
- * nothing — reporting it would put a `ps` banner in a kill list.
- */
-export function parseProcessParentTable(tableText: string): Map<number, number> {
-  const parentByChild = new Map<number, number>();
-  for (const line of tableText.split("\n")) {
-    const [childField, parentField, ...rest] = line.trim().split(/\s+/);
-    if (rest.length > 0 || childField === undefined || parentField === undefined) {
-      continue;
-    }
-    const childProcessId = Number(childField);
-    const parentProcessId = Number(parentField);
-    if (!Number.isInteger(childProcessId) || !Number.isInteger(parentProcessId)) {
-      continue;
-    }
-    parentByChild.set(childProcessId, parentProcessId);
-  }
-  return parentByChild;
-}
-
-/**
- * This host's child-to-parent table, or an empty one if it could not be read.
- *
- * Platform-dispatched rather than Windows-only, even though the arm that
- * consumes it is Windows'. A reader nothing on this runner ever executes is a
- * reader nothing checks, and the parsing above is only half the claim — that the
- * command emits the shape it is parsed as is the other half, and the POSIX
- * branch is what makes it checkable here.
- *
- * An empty table is the honest answer to an unreadable one: it names no
- * descendant, so the arm above reports a refusal rather than inventing pids.
- */
-export function readProcessParentTable(): Map<number, number> {
-  const listing =
-    process.platform === "win32"
-      ? spawnSync(
-          "powershell",
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }',
-          ],
-          { encoding: "utf8" },
-        )
-      : spawnSync("ps", ["-Ao", "pid=,ppid="], { encoding: "utf8" });
-  if (listing.error !== undefined || listing.status !== 0) {
-    return new Map<number, number>();
-  }
-  return parseProcessParentTable(listing.stdout);
+  const addressedMembers = new Set(addressed);
+  return descendantsOf(processId, processTable).filter(
+    (claimant) => !addressedMembers.has(claimant),
+  );
 }
 
 /**

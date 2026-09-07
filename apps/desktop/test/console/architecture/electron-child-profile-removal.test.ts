@@ -48,7 +48,7 @@ import type {
   ManagedElectronChild,
   ProcessTreeTerminator,
 } from "../../helpers/managed-electron-child.js";
-import { readProcessLiveness } from "../../helpers/process-tree.js";
+import { readProcessLiveness } from "../../helpers/process-tree/liveness.js";
 import {
   heldProfile,
   LIFETIME_TEST_TIMEOUT_MS,

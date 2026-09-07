@@ -33,7 +33,7 @@ import type {
   ManagedElectronChild,
   ProcessTreeTerminator,
 } from "../../helpers/managed-electron-child.js";
-import { terminateProcessTree } from "../../helpers/process-tree.js";
+import { terminateProcessTree } from "../../helpers/process-tree/dispatch.js";
 import { TERMINATION_OBSERVATION_MS } from "./electron-child-liveness.test-support.js";
 
 /** What the spawn and its grandchild announcement are given. */
