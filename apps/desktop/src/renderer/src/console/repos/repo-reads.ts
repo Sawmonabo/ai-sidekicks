@@ -34,8 +34,8 @@
 // is not this file's subject: every function below is one `callDaemon` line over one
 // registered pair, and the READ-versus-ACT seam this family does draw is the one
 // between the classes that CALL them — `repo-mounts-reader.ts` against
-// `execution-mode-selection.ts`, `attach/attach-acts.ts`, `roots/execution-root-acts.ts`
-// — each of which owns a register, a settle rule, and a teardown. Splitting the
+// `execution-mode-selection.ts` and the attach, bind, and prepare controllers under
+// `mounts/` — each of which owns a register, a settle rule, and a teardown. Splitting the
 // one-liners by verb would put that seam in the wrong place and make a surface import
 // two modules to send one act's read and its write.
 
