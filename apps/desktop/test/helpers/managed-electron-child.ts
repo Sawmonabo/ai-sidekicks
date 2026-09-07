@@ -31,7 +31,7 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 
-import { terminateProcessTree } from "./process-tree.js";
+import { SpawnedTreeIdentity, terminateProcessTree } from "./process-tree.js";
 
 /**
  * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it.
@@ -81,6 +81,16 @@ export type ManagedChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) => boolean;
 
 /**
+ * How a tree's root identity is captured, as one injectable act.
+ *
+ * A seam for one reason and it is the whole property: the capture has to happen
+ * at the SPAWN and not at the kill, and "it happened at construction" is a claim
+ * about WHEN rather than about what came back. Handed a recording factory, a test
+ * can read the moment; handed the real one, every production caller captures.
+ */
+export type SpawnedTreeIdentityCapture = (processId: number) => SpawnedTreeIdentity;
+
+/**
  * A spawned Electron process whose lifetime is bounded by the test that
  * spawned it.
  *
@@ -98,6 +108,13 @@ export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) 
  * A second kill is a no-op. Once SIGKILL has been delivered there is nothing
  * left to ask, and re-signalling a reaped pid on POSIX addresses whatever has
  * since been given that number.
+ *
+ * AND THE PID IS CAPTURED, NOT MERELY HELD. The same reissue that makes a second
+ * kill wrong makes the FIRST one wrong once the shim has exited — the ordinary
+ * shape here, since the shim is reaped while the browser it started holds the
+ * inherited stdout. So the constructor takes the tree's identity at the moment
+ * the pid is unambiguously this tree's, and the platform arm re-verifies it
+ * before it signals anything; `SpawnedTreeIdentity` has the mechanism.
  */
 export class ManagedElectronChild {
   readonly #child: ManagedChildProcess;
@@ -110,11 +127,32 @@ export class ManagedElectronChild {
   constructor(
     child: ManagedChildProcess,
     abortController: AbortController,
-    terminateTree: ProcessTreeTerminator = terminateProcessTree,
+    terminateTree?: ProcessTreeTerminator,
+    captureRootIdentity: SpawnedTreeIdentityCapture = (processId) =>
+      new SpawnedTreeIdentity(processId),
   ) {
     this.#child = child;
     this.#abortController = abortController;
-    this.#terminateTree = terminateTree;
+    // CAPTURED HERE, WHICH IS THE ONLY MOMENT IT MEANS ANYTHING. A pid is
+    // reissued, and this handle's whole later life addresses the tree through
+    // that number: by the first disposal the launcher shim may already have
+    // exited, been reaped, and had its pid handed to somebody else, and a tree
+    // kill walked from it terminates a stranger while reporting the browser this
+    // spawn started as gone. Now — before anything can have exited — is the one
+    // instant at which "this pid is this tree" is true by construction.
+    //
+    // An injected terminator bypasses the capture entirely, and correctly so:
+    // such a caller is standing in for the platform, and the identity is the
+    // platform's reading rather than this class's decision.
+    const rootIdentity = child.pid === undefined ? undefined : captureRootIdentity(child.pid);
+    this.#terminateTree =
+      terminateTree ??
+      ((treeProcessId, treeSignal) =>
+        terminateProcessTree(
+          treeProcessId,
+          treeSignal,
+          rootIdentity ?? SpawnedTreeIdentity.unverified(treeProcessId),
+        ));
     // Registered HERE and not by a caller, for two reasons that are one reason.
     // It has to be attached before anything can be delivered, and the moment
     // after the spawn is the only point where that is guaranteed; and it has to

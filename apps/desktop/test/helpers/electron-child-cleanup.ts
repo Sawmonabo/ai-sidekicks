@@ -152,13 +152,21 @@ export function cleanUpAfterChildAtSettleTime(
  * with. Every LATER one is the retry, and it is asked only of a child that has
  * not closed, which is the only state in which a disposal still signals anything.
  *
- * TWO BOUNDS OVER TWO SUBJECTS, AND THIS LOOP OWNS ONLY THE SECOND.
- * `disposeUntilKillDelivered` owns the kill retry — a platform that REFUSED the
- * signal, which is answered by asking it again straight away — and this loop
- * owns the close wait, a child that took the kill and has not yet released the
- * stdio a descendant inherited, which is answered only by time. Writing the kill
- * retry here as well would put the same bound in two places, and the spawn
- * door's misuse recovery could reach neither of them.
+ * ONE DISPOSAL PER WAIT, AND THE DECLARED BOUND IS THE TOTAL. This called
+ * `disposeUntilKillDelivered`, which spends `DISPOSAL_ATTEMPTS` of its own, so
+ * the two loops MULTIPLIED: nine synchronous tree kills against a bound that
+ * says three, and on Windows nine `taskkill` processes spawned back to back at a
+ * tree that had already refused the first. A bound stated in one place and spent
+ * in two is not a bound. So exactly one layer owns the count — this one, for the
+ * settle-time path — and each attempt is a single `dispose`.
+ *
+ * The retry that layer performs is the SAME retry, only paced: a refused kill is
+ * asked again after the close wait rather than in the same instant, which is
+ * strictly more time for a tree to answer and the same number of asks. The
+ * shared bound still lives beside the class that declares it, and
+ * `disposeUntilKillDelivered` stays the spawn door's own home for the case that
+ * has nothing to wait ON — a registration refusal rethrown out of a synchronous
+ * function, where a pause cannot be awaited at all.
  *
  * Returning early on `hasClosed` rather than on the attempt count is what keeps
  * the ordinary run one call long: the bound is what a refusal costs, not what
@@ -169,7 +177,7 @@ async function disposeUntilChildHasClosed(
   exitWaitMs: number,
 ): Promise<void> {
   for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
-    managed.disposeUntilKillDelivered();
+    managed.dispose();
     await whenChildIsGone(managed, exitWaitMs);
     if (managed.hasClosed) {
       return;

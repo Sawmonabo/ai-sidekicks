@@ -38,10 +38,35 @@
 //     verdict is over every member the walk found rather than over the root.
 //
 // The Windows parent table is readable after the root is gone because Windows
-// does not reparent: a descendant keeps recording the dead root's id. The read
-// is only ever taken for a root that names NOTHING, which is also what bounds
-// the pid-reuse hazard — a reissued root pid names a live process, and a live
-// root is walked by taskkill rather than by this.
+// does not reparent: a descendant keeps recording the dead root's id.
+//
+// AND THE ROOT PID IS NOT THE ROOT
+//
+// A pid is a name the operating system takes back and hands out again, and the
+// window in which it does is the ordinary shape here rather than a corner of
+// one: the launcher shim exits early, it is reaped, and every later disposal is
+// addressed through the number it left behind. `taskkill /pid <reissued> /t`
+// then walks a STRANGER's tree, exits zero, and that zero latches
+// `ManagedElectronChild` as killed — an unrelated process terminated, the
+// descendant this package spawned still running, and the whole thing reported as
+// a delivered kill. The parent table is no help either: its rows under that pid
+// are the stranger's children.
+//
+// So identity is a READING like every other one in this module, taken BEFORE
+// anything is signalled, and it has three answers because "not ours" is two
+// facts and not one:
+//
+//   • `same` — the pid still names the instance this tree was captured from. It
+//     is the only answer under which the root is walked at all.
+//   • `gone` — the pid names nothing. The root exited and was reaped, and the
+//     parent-table walk above is still this tree's, because Windows does not
+//     reparent.
+//   • `recycled` — the pid names a DIFFERENT process. Nothing reachable through
+//     that number is this tree's, so nothing is signalled through it and the
+//     table beneath it is not walked. Only the members captured while the root
+//     last read `same` may be addressed, and with no such capture the verdict is
+//     a refusal: an empty capture is absence of evidence, and absence of
+//     evidence must never read as a clean tree.
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";
@@ -77,6 +102,16 @@ export interface SignalTreeTools {
   readonly hasTerminated: (processId: number) => boolean;
 }
 
+/**
+ * Whether the pid a tree is addressed THROUGH still names that tree's root.
+ *
+ * Three answers rather than two, because "not ours" splits into two facts that
+ * owe different behaviour — the module header has the mechanism. `gone` keeps
+ * the parent-table walk, which Windows' no-reparenting rule leaves readable
+ * after the root exits; `recycled` forfeits both the root and the table.
+ */
+export type TreeRootIdentity = "same" | "gone" | "recycled";
+
 /** What the Windows arm needs from the platform, as one injectable set. */
 export interface ExternalTreeTools {
   /** Run the platform's tree kill downwards from `processId`; `true` if it exited clean. */
@@ -85,6 +120,22 @@ export interface ExternalTreeTools {
   readonly parentByChild: () => ReadonlyMap<number, number>;
   /** Whether `processId` will never run another instruction. */
   readonly hasTerminated: (processId: number) => boolean;
+  /**
+   * What the root pid names right now, relative to what this tree captured.
+   *
+   * Asked before anything is signalled, because a signal is the one act that
+   * cannot be taken back: a `taskkill` issued at a reissued pid has already
+   * terminated a stranger by the time any verdict is computed.
+   */
+  readonly rootIdentity: () => TreeRootIdentity;
+  /**
+   * The members captured while the root last read `same`.
+   *
+   * The only handle on this tree that survives its root's pid being reissued.
+   * Empty is a legitimate answer and is read as "nothing of this tree is
+   * nameable" rather than as "this tree is gone".
+   */
+  readonly capturedDescendants: () => readonly number[];
 }
 
 /**
@@ -121,11 +172,18 @@ export function terminateSignalledTree(
 /**
  * Walk `processId`'s tree with the platform's own tree kill, then address what it could not reach.
  *
+ * IDENTITY FIRST, AND ONLY THEN A SIGNAL. The pid is read before it is used, and
+ * it is walked only under `same` — the module header has why a reissued pid
+ * walked here terminates a stranger and reports the surviving descendant as
+ * killed. `gone` and `recycled` both skip the root outright; what separates them
+ * is whether the parent table beneath that number is still this tree's.
+ *
  * The second pass is not a retry of the first. `taskkill /t` finds descendants by
  * walking DOWN from the root, so a root that names nothing gives it nothing to
  * find — and the tree it could not find is exactly the tree that outlives the
- * run. Those descendants are taken from the parent table and killed by name, and
- * the verdict is over every one of them: a rootless termination is never
+ * run. Those members are taken from the parent table, from what was captured
+ * while the root was verifiably this tree's, or from both, and killed by name.
+ * The verdict is over every one of them: a rootless termination is never
  * accepted as delivered on the strength of the root being gone.
  */
 export function terminateExternalTree(
@@ -134,21 +192,59 @@ export function terminateExternalTree(
   tools: ExternalTreeTools,
 ): boolean {
   const forced = signal === "SIGKILL";
-  if (tools.killTreeFrom(processId, forced)) {
+  const identity = tools.rootIdentity();
+  if (identity === "same" && tools.killTreeFrom(processId, forced)) {
     return true;
   }
-  const unreachedMembers = descendantsOf(processId, tools.parentByChild()).filter(
-    (member) => !tools.hasTerminated(member),
-  );
+  const members = addressableTreeMembers(processId, identity, tools);
+  const unreachedMembers = members.filter((member) => !tools.hasTerminated(member));
   for (const member of unreachedMembers) {
     tools.killTreeFrom(member, forced);
+  }
+  if (identity === "recycled" && members.length === 0) {
+    // Nothing of this tree can be named: the pid belongs to somebody else and
+    // nothing was captured while it was ours, so there is no reading to take.
+    // Reporting a kill here is the false success this whole module exists to
+    // prevent, one step further out — the caller's retry and its eventual
+    // `unterminable` are the honest answers to "we cannot see it".
+    return false;
   }
   return terminationSucceeded(
     false,
     () =>
-      !tools.hasTerminated(processId) ||
+      // The root is part of the survival question only while it is still this
+      // tree's. Under `recycled` it is a stranger, and a live stranger would
+      // report this tree as unkillable forever; under `gone` it answers
+      // terminated, and asking anyway is what catches an identity read that
+      // raced a root which had not in fact exited.
+      (identity !== "recycled" && !tools.hasTerminated(processId)) ||
       unreachedMembers.some((member) => !tools.hasTerminated(member)),
   );
+}
+
+/**
+ * The members this arm may address, given what the root pid turned out to name.
+ *
+ * A set rather than a list because the two sources overlap on every ordinary
+ * reading, and addressing a member twice would spawn a second `taskkill` at a
+ * process the first one already took.
+ *
+ * The parent table is admitted for `same` and `gone` and refused for `recycled`,
+ * which is the whole discrimination: under the first two the rows beneath the
+ * root pid are this tree's — Windows does not reparent, so they survive the
+ * root — and under the third they are a stranger's children, which this arm must
+ * never kill however plainly they are "descendants of that pid".
+ */
+function addressableTreeMembers(
+  processId: number,
+  identity: TreeRootIdentity,
+  tools: ExternalTreeTools,
+): number[] {
+  const captured = tools.capturedDescendants();
+  if (identity === "recycled") {
+    return [...new Set(captured)];
+  }
+  return [...new Set([...descendantsOf(processId, tools.parentByChild()), ...captured])];
 }
 
 /**

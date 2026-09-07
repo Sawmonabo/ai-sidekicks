@@ -105,3 +105,45 @@ describe("test:changed refuses an invocation with no base ref", () => {
     expect(helped.stderr).toBe("");
   });
 });
+
+describe("test:changed refuses a base ref that resolves to no commit", () => {
+  /**
+   * A ref no repository holds, and deliberately not a plausible one.
+   *
+   * A branch name a clone MIGHT have would make this case pass or fail on the
+   * checkout it happens to run in, which is the opposite of what a guard against
+   * a stale ref should be measured by.
+   */
+  const UNRESOLVABLE_REF = "no-such-ref/test-changed-guard";
+
+  it("exits with the misuse code and names the ref it could not resolve", () => {
+    // THE SECOND SILENT-GREEN DOOR. The empty-ref guard above passes a NONEMPTY
+    // ref straight through, and `--changed=<unknown>` is not an error to vitest:
+    // it resolves no revision, selects no file, reports "No test files found" and
+    // exits 0. A lane holding a typo or a deleted remote branch therefore read a
+    // green result as "my changes are covered" — byte for byte the false success
+    // the argument-position fix removed, arriving through the other door.
+    const refused = runScript(UNRESOLVABLE_REF);
+
+    expect(refused.status).toBe(MISUSE_EXIT_CODE);
+    expect(refused.stderr).toContain(UNRESOLVABLE_REF);
+    expect(refused.stderr).toContain("resolves to no commit");
+    // Nothing was run, and git said nothing of its own. The resolution captures
+    // both of git's streams, so a reader's whole picture of this failure is the
+    // sentence this script wrote — and a refusal that had already started vitest
+    // would leave partial run output above a message saying it never ran.
+    expect(refused.stdout).toBe("");
+  });
+
+  it("refuses a ref that names an object which is not a commit", () => {
+    // The `^{commit}` peel, driven rather than described. `HEAD^{tree}` resolves
+    // to a real object in every repository this can run in, and `--changed` can
+    // diff none of them — so a guard that only asked "does this name resolve"
+    // would admit it and hand vitest a revision it silently selects nothing for.
+    const refused = runScript("HEAD^{tree}");
+
+    expect(refused.status).toBe(MISUSE_EXIT_CODE);
+    expect(refused.stderr).toContain("resolves to no commit");
+    expect(refused.stdout).toBe("");
+  });
+});

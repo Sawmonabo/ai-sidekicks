@@ -1,21 +1,26 @@
 // Every state the termination path can be asked in, enumerated, with the verdict
 // each one owes.
 //
-// WHY AN ENUMERATION RATHER THAN A CASE PER DEFECT. Four separate findings
-// against this path were each one CELL of the same table — a refused `taskkill`
-// read as a kill, an unreaped zombie read as a live process, a root that exited
-// while a descendant held its stdio, a settle-time registration that threw over a
-// child already running — each fixed where it was found. A fix that closes one
-// cell and reopens another is invisible to a suite organised by finding.
+// WHY AN ENUMERATION RATHER THAN A CASE PER DEFECT. Separate findings against
+// this path — a refused `taskkill` read as a kill, an unreaped zombie read as a
+// live process, a root that exited while a descendant held its stdio, a
+// settle-time registration that threw over a child already running, a root pid
+// the operating system had already handed to somebody else — were each one CELL
+// of the same table, and each was fixed where it was found. A fix that closes one
+// cell and reopens another is invisible to a suite organised by finding. The
+// findings are deliberately not counted here: the count moved once per round, and
+// the table below is the record that cannot go stale silently.
 //
 // THE FIVE AXES, AND WHY THESE FIVE. They are the independent variables the
-// termination decision actually reads: what the ROOT is doing (the pid a tree is
-// addressed through), what the PLATFORM said about the kill, which MECHANISM this
-// platform's tree kill is (a delivered group signal, or `taskkill` walking a
-// descendant tree), what is left RUNNING (nothing, a descendant, or a pid whose
-// process has exited and not been reaped), and whether the settle-time
-// REGISTRATION that owns the retry was accepted. Each finding sits at a distinct
-// point in that space.
+// termination decision actually reads: what the root PID names (it is the handle
+// a tree is addressed through, and it names this tree's root, nothing, or an
+// unrelated process that inherited the number), what the PLATFORM said about the
+// kill, which MECHANISM this platform's tree kill is (a delivered group signal,
+// or `taskkill` walking a descendant tree), what is left RUNNING, and whether the
+// settle-time REGISTRATION that owns the retry was accepted. Each axis declares
+// its own values below, where the coverage control can read them; restating them
+// here would be a second roster that drifts from the first. Each finding sits at
+// a distinct point in that space.
 //
 // WHAT IS DRIVEN, AND WHAT CANNOT BE. No platform can be asked to refuse a kill
 // on demand, no runner can be made Windows, and a zombie is the reaping behaviour
@@ -32,6 +37,7 @@ import {
   terminateSignalledTree,
   type ExternalTreeTools,
   type SignalTreeTools,
+  type TreeRootIdentity,
 } from "../../helpers/process-tree-arms.js";
 import { PROCESS_TREE_TERMINATION_MODE, readProcessLiveness } from "../../helpers/process-tree.js";
 import {
@@ -40,17 +46,40 @@ import {
 } from "./electron-child-lifetime.test-support.js";
 import { expectTerminatedWithin, reap } from "./electron-child-liveness.test-support.js";
 
-/** What the root pid names when termination is asked for. */
-type RootState = "alive" | "exited-holding-stdio" | "reaped-with-nothing-behind-it";
+/**
+ * What the root pid names when termination is asked for.
+ *
+ * `recycled` is the state that is not about this tree at all: the root exited,
+ * was reaped, and the operating system handed its number to an unrelated
+ * process. It is a state of the PID rather than of the root, which is why it
+ * belongs on this axis — every reading a termination takes is taken through that
+ * number.
+ */
+type RootState = "alive" | "exited-holding-stdio" | "reaped-with-nothing-behind-it" | "recycled";
 
-/** What the platform said about the kill this path issued. */
-type PlatformAnswer = "delivered" | "refused-then-delivered" | "refused-throughout";
+/**
+ * What the platform said about the kill this path issued.
+ *
+ * `never-asked` is a fourth answer rather than a shade of refusal: a path that
+ * declines to signal at all and one that signalled and was refused are different
+ * facts, and conflating them would let a cell asserting "the stranger was never
+ * touched" be satisfied by one that touched it and lost.
+ */
+type PlatformAnswer = "delivered" | "refused-then-delivered" | "refused-throughout" | "never-asked";
 
 /** Which mechanism this platform's tree kill is. */
 type TreeMode = "signal" | "external";
 
-/** What is still able to run once the kill has been issued. */
-type SurvivingMember = "nothing" | "descendant" | "unreaped-zombie";
+/**
+ * What is still able to run once the kill has been issued.
+ *
+ * `unobservable` is not "nothing": it is a tree whose root pid belongs to
+ * somebody else and of which nothing was captured while it did not, so there is
+ * no reading to take in either direction. It owes a refusal for that reason —
+ * absence of evidence is the one thing this path must never report as a clean
+ * tree.
+ */
+type SurvivingMember = "nothing" | "descendant" | "unreaped-zombie" | "unobservable";
 
 /** Whether the settle-time registration that owns the retry was accepted. */
 type SettleRegistration = "accepted" | "refused";
@@ -81,16 +110,30 @@ interface TerminationCell {
 const ROOT_PID = 4242;
 /** The descendant a rootless tree leaves behind, addressable only explicitly. */
 const DESCENDANT_PID = 4243;
+/**
+ * A child of whoever holds `ROOT_PID` once it has been reissued.
+ *
+ * The pid that makes the recycled cells non-vacuous: it is what a parent-table
+ * walk from `ROOT_PID` hands back after the reissue, so a cell asserting "the
+ * stranger's tree was not walked" has something concrete to be false about.
+ */
+const IMPOSTOR_CHILD_PID = 4244;
 
 /**
  * The external arm's collaborators, scripted. `hasTerminated` is handed the pids
  * the arm ran a tree kill from, so "it addressed the descendant" is separable
  * from "it reported success without looking": a scripted tree dies only if named.
+ *
+ * `rootIdentity` and `capturedDescendants` default to the ordinary reading — the
+ * pid is still this tree's, and nothing has been captured beyond what the table
+ * says — so a cell that is not about a reissued pid says nothing about one.
  */
 function scriptedExternalTools(script: {
   readonly killTreeFrom: (processId: number) => boolean;
   readonly parentByChild: ReadonlyMap<number, number>;
   readonly hasTerminated: (processId: number, killAttempts: readonly number[]) => boolean;
+  readonly rootIdentity?: TreeRootIdentity;
+  readonly capturedDescendants?: readonly number[];
 }): ExternalTreeTools & { readonly killedFrom: readonly number[] } {
   const killedFrom: number[] = [];
   return {
@@ -101,11 +144,19 @@ function scriptedExternalTools(script: {
     },
     parentByChild: () => script.parentByChild,
     hasTerminated: (processId: number): boolean => script.hasTerminated(processId, killedFrom),
+    rootIdentity: () => script.rootIdentity ?? "same",
+    capturedDescendants: () => script.capturedDescendants ?? [],
   };
 }
 
 /** A parent table in which `DESCENDANT_PID` still records `ROOT_PID` as its parent. */
 const ROOTLESS_TREE_TABLE: ReadonlyMap<number, number> = new Map([[DESCENDANT_PID, ROOT_PID]]);
+
+/**
+ * A parent table taken AFTER the reissue: the rows under `ROOT_PID` are the
+ * stranger's children, and this tree's descendant is not in it at all.
+ */
+const REISSUED_ROOT_TABLE: ReadonlyMap<number, number> = new Map([[IMPOSTOR_CHILD_PID, ROOT_PID]]);
 
 /**
  * The tools for a rootless tree whose descendant takes, or refuses, an explicit
@@ -124,6 +175,30 @@ function rootlessTreeTools(
     hasTerminated: (processId: number, killAttempts: readonly number[]) =>
       processId === ROOT_PID ||
       (descendantYieldsToExplicitKill && killAttempts.includes(processId)),
+    rootIdentity: "gone",
+  });
+}
+
+/**
+ * The tools for a tree whose root pid has been handed to somebody else.
+ *
+ * The STRANGER is scripted to take the kill and to stay alive — both halves
+ * matter. Taking it is the clean `taskkill` exit that used to latch the child as
+ * killed; staying alive is what makes "the root was signalled" observable in
+ * `hasTerminated` as well as in `killedFrom`, so a rewrite cannot satisfy the
+ * cell by signalling and then reading the wrong pid.
+ */
+function reissuedRootTools(
+  capturedDescendants: readonly number[],
+  capturedDescendantIsGone = false,
+): ExternalTreeTools & { readonly killedFrom: readonly number[] } {
+  return scriptedExternalTools({
+    killTreeFrom: () => true,
+    parentByChild: REISSUED_ROOT_TABLE,
+    hasTerminated: (processId: number) =>
+      processId === DESCENDANT_PID ? capturedDescendantIsGone : false,
+    rootIdentity: "recycled",
+    capturedDescendants,
   });
 }
 
@@ -250,6 +325,93 @@ const TERMINATION_MATRIX: readonly TerminationCell[] = [
           }),
         ),
       ),
+  },
+  {
+    // THE PID IS A NAME AND THE NAME WAS REISSUED. The root exited, was reaped,
+    // and its number now belongs to an unrelated process — the ordinary shape
+    // here, since the launcher shim exits under a live browser. `taskkill /pid
+    // <that number> /t` walks the STRANGER's tree, exits zero, and that zero
+    // used to latch `ManagedElectronChild` as killed while this package's own
+    // descendant kept running. Two claims, and the second is the one the verdict
+    // alone cannot make: nothing reachable through the reissued number was
+    // signalled, and the member captured while the pid was still this tree's was.
+    name: "a reissued root pid is signalled by nothing, and the tree it no longer names is not reported killed",
+    axes: {
+      root: "recycled",
+      platformAnswer: "refused-throughout",
+      treeMode: "external",
+      surviving: "descendant",
+      settleRegistration: "accepted",
+    },
+    owedTermination: false,
+    answer: () => {
+      const tools = reissuedRootTools([DESCENDANT_PID]);
+      const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
+      expect(
+        tools.killedFrom,
+        "the reissued root pid was signalled — an unrelated process was terminated by this cleanup",
+      ).not.toContain(ROOT_PID);
+      expect(
+        tools.killedFrom,
+        "the parent table was walked from a reissued pid — the stranger's own child was signalled",
+      ).not.toContain(IMPOSTOR_CHILD_PID);
+      expect(
+        tools.killedFrom,
+        "the member captured while the pid was still this tree's was never addressed",
+      ).toContain(DESCENDANT_PID);
+      return Promise.resolve(terminated);
+    },
+  },
+  {
+    name: "a reissued root pid over a captured tree that is already gone is the honest success",
+    axes: {
+      root: "recycled",
+      platformAnswer: "never-asked",
+      treeMode: "external",
+      surviving: "nothing",
+      settleRegistration: "accepted",
+    },
+    // The foil for the cell above, and the reason the refusal there is about
+    // EVIDENCE rather than about the word `recycled`. Everything this tree was
+    // ever known to hold has terminated, so there is nothing to kill and nothing
+    // to report — a path that answered `false` for every reissued pid would hold
+    // teardown open on every ordinary Windows run whose shim was reaped early.
+    owedTermination: true,
+    answer: () => {
+      const tools = reissuedRootTools([DESCENDANT_PID], true);
+      const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
+      expect(
+        tools.killedFrom,
+        "something was signalled over a tree already gone — the reissued pid is being asked about rather than read",
+      ).toStrictEqual([]);
+      return Promise.resolve(terminated);
+    },
+  },
+  {
+    name: "a reissued root pid with nothing captured is a refusal, because there is no reading to take",
+    axes: {
+      root: "recycled",
+      platformAnswer: "never-asked",
+      treeMode: "external",
+      surviving: "unobservable",
+      settleRegistration: "accepted",
+    },
+    // The third arm, and the one a fix that stopped at "do not signal a reissued
+    // pid" would get wrong: with nothing captured there is no member to address
+    // and no member to read, and reporting the tree gone on that basis is the
+    // same false success as walking the stranger — quieter, and with the same
+    // Electron left running. The caller's bounded retry and its eventual
+    // `unterminable` are what a reader is owed here.
+    owedTermination: false,
+    answer: () => {
+      const tools = reissuedRootTools([]);
+      const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
+      expect(
+        tools.killedFrom,
+        "a pid was signalled although this tree is unobservable — something was guessed at",
+      ).toStrictEqual([]);
+      return Promise.resolve(terminated);
+    },
   },
   {
     name: "a group signal that could not be delivered while the GROUP still holds a member",
@@ -382,9 +544,11 @@ describe("the termination path, enumerated over every state it is asked in", () 
       "alive",
       "exited-holding-stdio",
       "reaped-with-nothing-behind-it",
+      "recycled",
     ]);
     expect(covered((axes) => axes.platformAnswer)).toStrictEqual([
       "delivered",
+      "never-asked",
       "refused-then-delivered",
       "refused-throughout",
     ]);
@@ -393,6 +557,7 @@ describe("the termination path, enumerated over every state it is asked in", () 
     expect(covered((axes) => axes.surviving)).toStrictEqual([
       "descendant",
       "nothing",
+      "unobservable",
       "unreaped-zombie",
     ]);
     expect(covered((axes) => axes.settleRegistration)).toStrictEqual(["accepted", "refused"]);

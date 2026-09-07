@@ -7,7 +7,9 @@
 // had not performed. A rule with two homes is a rule that will disagree with
 // itself; this is the home.
 //
-// The four facts, each measured rather than assumed:
+// The facts this module holds, each measured rather than assumed — deliberately
+// stated without a count, because the list has grown once per finding and a
+// number written here is a number that goes stale silently:
 //
 //   • POSIX group delivery is safe HERE and catastrophic in general.
 //     `playwright-core` spawns with `detached: process.platform !== "win32"`
@@ -57,6 +59,14 @@
 //     and Windows is asked nothing at all, because it keeps no such entry and
 //     its tree kill is external, so disappearance is the only evidence there is.
 //
+//   • And a pid is a NAME rather than a process. The operating system takes it
+//     back and hands it out again, so every reading above can be taken of a pid
+//     that no longer belongs to the tree it was recorded for — the shim exits
+//     early and is reaped, which makes that window ordinary here rather than
+//     exotic. `SpawnedTreeIdentity` below is what closes it: a start stamp
+//     captured at spawn, re-read before any signal, so the Windows arm walks a
+//     root it has verified and never a stranger who inherited the number.
+//
 //   • And the two readings are taken at two moments, which is a race and not a
 //     detail. A process that exits BETWEEN them leaves the existence probe
 //     saying `true` and the state lookup saying nothing — the entry is gone, so
@@ -74,10 +84,12 @@ import process from "node:process";
 
 import {
   deliverSignal,
+  descendantsOf,
   readProcessParentTable,
   runPlatformTreeKill,
   terminateExternalTree,
   terminateSignalledTree,
+  type TreeRootIdentity,
 } from "./process-tree-arms.js";
 
 /** How this platform's tree kill reaches a tree. */
@@ -154,6 +166,152 @@ export function processGroupExists(processId: number): boolean {
     return true;
   } catch (error: unknown) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * The platform's per-instance start stamp for `processId`, or `undefined`.
+ *
+ * THE READING THAT SEPARATES A PID FROM THE PROCESS HOLDING IT. Every other
+ * reading in this module answers a question about a NUMBER, and a number is
+ * reissued: the launcher shim exits, it is reaped, and the pid every later
+ * disposal is addressed through can by then belong to somebody else. A start
+ * stamp is the one thing the operating system does not reissue with it, so
+ * comparing the stamp read now against the stamp read at spawn is what makes
+ * "this is still the tree I spawned" answerable at all.
+ *
+ * Platform-dispatched for `readProcessParentTable`'s reason and with its
+ * posture: the arm that consumes this is Windows', and a reader nothing on this
+ * runner executes is a reader nothing checks — so the POSIX branch exists, is
+ * exercised against this very process, and keeps the shape honest. Windows is
+ * asked through the same `Win32_Process` view the parent table already reads, as
+ * `CreationDate.Ticks`, which is an integer rather than a locale-formatted date;
+ * POSIX is asked through `ps -o lstart=`, whose one-second resolution is enough
+ * for a comparison and is deliberately not claimed to be more.
+ *
+ * `undefined` means the stamp could not be read, which is not evidence of
+ * anything — `SpawnedTreeIdentity` below settles what to do about it.
+ */
+export function readProcessStartStamp(processId: number): string | undefined {
+  if (processId <= 0) {
+    return undefined;
+  }
+  const reported =
+    process.platform === "win32"
+      ? spawnSync(
+          "powershell",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(processId)}").CreationDate.Ticks`,
+          ],
+          { encoding: "utf8" },
+        )
+      : spawnSync("ps", ["-o", "lstart=", "-p", String(processId)], { encoding: "utf8" });
+  if (reported.error !== undefined || reported.status !== 0) {
+    return undefined;
+  }
+  const stamp = reported.stdout.trim();
+  return stamp === "" ? undefined : stamp;
+}
+
+/** How a root's per-instance start stamp is read, as one injectable reading. */
+export type ProcessStartStampReader = (processId: number) => string | undefined;
+
+/**
+ * A spawned tree's root, captured while it is certainly still that root.
+ *
+ * THE HANDLE A PID IS NOT. `terminateExternalTree` walks a tree DOWN from its
+ * root pid, and by the time a disposal runs that pid may name an unrelated
+ * process — the shim exits early and is reaped, which is the ordinary shape here
+ * and not a corner of one. Signalling it terminates a stranger, the platform
+ * exits zero, and `ManagedElectronChild` latches on the zero while the browser
+ * this package spawned keeps running. So the tree carries an identity from the
+ * moment it is spawned, and every later signal re-reads it first.
+ *
+ * The descendant capture is the second half and cannot be taken at spawn: an
+ * Electron has no children in the instant it starts. It is refreshed on every
+ * VERIFIED reading instead, so the last set taken while the root was demonstrably
+ * this tree's is the set still nameable once the pid stops being. Refreshed only
+ * on the verified arm, because a capture taken under an unverifiable identity is
+ * a capture nothing can ever consume — the recycled reading it exists for is
+ * exactly the reading that arm cannot reach.
+ *
+ * Every collaborator is injected for this package's usual reason and one
+ * stronger: a pid whose holder changes between two reads is not a state a test
+ * can arrange against a live process, and it is the only state this class is
+ * about.
+ */
+export class SpawnedTreeIdentity {
+  readonly #processId: number;
+  readonly #readStamp: ProcessStartStampReader;
+  readonly #readParentTable: () => ReadonlyMap<number, number>;
+  readonly #rootExists: (processId: number) => boolean;
+  readonly #capturedStamp: string | undefined;
+  #capturedDescendants: readonly number[] = [];
+
+  constructor(
+    processId: number,
+    readStamp: ProcessStartStampReader = readProcessStartStamp,
+    readParentTable: () => ReadonlyMap<number, number> = readProcessParentTable,
+    rootExists: (processId: number) => boolean = processExists,
+  ) {
+    this.#processId = processId;
+    this.#readStamp = readStamp;
+    this.#readParentTable = readParentTable;
+    this.#rootExists = rootExists;
+    this.#capturedStamp = readStamp(processId);
+  }
+
+  /**
+   * A tree whose root was never captured, for a caller that holds no spawn moment.
+   *
+   * Named rather than defaulted silently, because what it gives up is exactly
+   * what this class exists for: with nothing to compare against, a reissued pid
+   * is undetectable and the reading degrades to the one this module took before
+   * identity existed — `same` while the pid names anything. The one caller is
+   * `terminateProcessTree`'s default, reached from `BoundedCleanup`, which is
+   * handed a pid by Playwright rather than by a spawn of its own and so has no
+   * moment at which the capture would mean anything.
+   */
+  static unverified(processId: number): SpawnedTreeIdentity {
+    return new SpawnedTreeIdentity(processId, () => undefined);
+  }
+
+  /** The members captured while the root last read `same`. */
+  get capturedDescendants(): readonly number[] {
+    return this.#capturedDescendants;
+  }
+
+  /**
+   * What the root pid names right now, and a refreshed capture when it is ours.
+   *
+   * Existence decides `gone` rather than the stamp, and the order is the claim:
+   * a stamp that could not be read on a LIVE process is an unreadable probe, and
+   * reading that as `gone` would skip the one walk that reaches the tree. So the
+   * pid is asked whether it names anything first, and the stamp is asked only to
+   * separate ours from somebody else's.
+   *
+   * An unverifiable pair — no capture, or no current reading — answers `same`.
+   * That is a deliberate degradation and not an oversight: refusing every kill on
+   * a host whose stamp probe does not work would leak every tree on that host,
+   * which is a larger failure than the one this class closes, and detection is
+   * impossible there by construction rather than by choice.
+   */
+  readIdentity(): TreeRootIdentity {
+    if (this.#processId <= 0 || !this.#rootExists(this.#processId)) {
+      return "gone";
+    }
+    const currentStamp = this.#readStamp(this.#processId);
+    if (this.#capturedStamp === undefined || currentStamp === undefined) {
+      return "same";
+    }
+    if (currentStamp !== this.#capturedStamp) {
+      return "recycled";
+    }
+    this.#capturedDescendants = descendantsOf(this.#processId, this.#readParentTable());
+    return "same";
   }
 }
 
@@ -322,16 +480,25 @@ export function processHasTerminated(processId: number): boolean {
  * platform dispatch and the readings each arm is handed. Answering from the root
  * is what let a rootless Windows tree — a reaped launcher shim with a live
  * browser under it — be reported as a delivered kill.
+ *
+ * `rootIdentity` is the tree's own, captured at the spawn that created it, and
+ * the Windows arm refuses to signal `processId` at all unless it re-verifies. The
+ * default is the UNVERIFIED one rather than a fresh capture: capturing here would
+ * compare the pid against itself an instant later and answer `same` for every
+ * pid on the host, which is a check that cannot fail dressed as one that can.
  */
 export function terminateProcessTree(
   processId: number,
   signal: NodeJS.Signals = "SIGKILL",
+  rootIdentity: SpawnedTreeIdentity = SpawnedTreeIdentity.unverified(processId),
 ): boolean {
   if (PROCESS_TREE_TERMINATION_MODE === "external") {
     return terminateExternalTree(processId, signal, {
       killTreeFrom: runPlatformTreeKill,
       parentByChild: readProcessParentTable,
       hasTerminated: processHasTerminated,
+      rootIdentity: () => rootIdentity.readIdentity(),
+      capturedDescendants: () => rootIdentity.capturedDescendants,
     });
   }
   return terminateSignalledTree(processId, signal, {

@@ -27,6 +27,20 @@
 // distinct from the `1` vitest itself exits with on a failing test, so a caller
 // can tell "you invoked me wrongly" from "your tests failed".
 //
+// AND A REF THAT DOES NOT RESOLVE REFUSES FOR THE SAME REASON
+// -----------------------------------------------------------
+// A NONEMPTY ref passes the check above and can still name nothing — a typo, a
+// remote branch that was deleted, a `origin/develop` on a clone that has never
+// fetched. `--changed=<unknown>` is not an error to vitest: it resolves no
+// revision, selects no file, prints "No test files found" and EXITS 0. That is
+// byte for byte the false green the argument-position bug produced, arriving
+// through the other door — and it is the likelier of the two now that the
+// position is fixed, because a stale ref is an ordinary thing for a lane to
+// hold. So the ref is resolved here, before vitest is spawned, and a ref that
+// names no commit is a misuse rather than a passing run. It is resolved to a
+// COMMIT (`<ref>^{commit}`) rather than merely dereferenced, because a name that
+// resolves to a tree or a blob is a name `--changed` cannot diff either.
+//
 // NO `import.meta` ANYWHERE, DELIBERATELY
 // ---------------------------------------
 // `tools/__tests__/entry-guard.test.mjs` derives its subject set as the scripts
@@ -87,6 +101,43 @@ function resolveVitestEntryPoint(packageRoot: string): string {
   return path.resolve(path.dirname(manifestPath), entryPoint);
 }
 
+/**
+ * Refuse unless `baseRef` names a commit this repository can actually diff.
+ *
+ * `git rev-parse --verify --quiet <ref>^{commit}` is the whole check: `--verify`
+ * demands exactly one object, the `^{commit}` peel demands that object be a
+ * commit, and `--quiet` keeps git's own diagnostic off a stream this script's
+ * caller reads as this script's voice. Both of git's streams are captured for
+ * the same reason — a refusal must be THIS script speaking, and a run that
+ * succeeds must leave stderr empty.
+ *
+ * A git that could not run at all is reported separately from a ref that did not
+ * resolve. They are different repairs — install or fix the toolchain, versus
+ * pass a ref that exists — and collapsing them would send a reader looking for a
+ * branch that was never the problem.
+ */
+function refuseUnlessBaseRefResolves(baseRef: string, packageRoot: string): void {
+  const resolved = spawnSync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`], {
+    cwd: packageRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (resolved.error !== undefined) {
+    process.stderr.write(
+      `${LOG_PREFIX} could not resolve \`${baseRef}\`: git did not run (${resolved.error.message}).\n`,
+    );
+    process.exit(MISUSE_EXIT_CODE);
+  }
+  if (resolved.status !== 0) {
+    process.stderr.write(
+      `${LOG_PREFIX} base ref \`${baseRef}\` resolves to no commit in this repository. ` +
+        `\`--changed\` would select no file and vitest would exit 0, reporting a run that ` +
+        `never happened as a passing one.\n${USAGE}\n`,
+    );
+    process.exit(MISUSE_EXIT_CODE);
+  }
+}
+
 function runChangedTier(): void {
   const [baseRef, ...forwarded] = process.argv.slice(2);
   if (baseRef === undefined || baseRef === "") {
@@ -98,6 +149,10 @@ function runChangedTier(): void {
   }
 
   const packageRoot = process.cwd();
+  // Before the vitest entry point is even resolved: this refusal is about the
+  // caller's argument, and a run that reports "vitest publishes no bin" over a
+  // ref that never existed has named the wrong repair.
+  refuseUnlessBaseRefResolves(baseRef, packageRoot);
   const result = spawnSync(
     process.execPath,
     [
