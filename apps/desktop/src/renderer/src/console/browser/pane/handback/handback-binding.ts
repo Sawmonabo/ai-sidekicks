@@ -10,7 +10,12 @@
 // rebinds a key, so the console's own keybinding surface is the trigger: the effect
 // re-publishes when the projected chord list changes and at no other time. There is no
 // interval here and there is nothing for one to do — a mirror that has not changed is
-// a mirror the host already has.
+// a mirror the host already has. Which mirror the host HAS is a state and not a
+// truthiness test, and `chord-mirror.ts` beside this file holds it: unbinding the last
+// claimable chord takes the projection to empty, and a publish skipped because the new
+// projection is empty leaves the previous mirror installed in the page host — which
+// then goes on claiming those chords from the page while this renderer's own
+// projection no longer holds them to replay, so the keystroke reaches neither surface.
 //
 // AND THE CHORD LIST IS THE REGISTRY'S OWN. `useKeybindingSurface` publishes the
 // effective table — the shipped chords with this window's overrides applied — so the
@@ -31,6 +36,11 @@ import { consoleKeybindingOverrides, useKeybindingSurface } from "../../../palet
 import { HOST_CHORD_PLATFORM } from "../../../primitives/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
 import type { ChordDescriptor } from "./chord-claim.js";
+import {
+  ChordMirrorPublication,
+  composeChordMirrorKey,
+  readChordMirrorKey,
+} from "./chord-mirror.js";
 import { KeyboardHandback, type ChordReplayOutcome } from "./keyboard-handback.js";
 import type { BrowserPaneRejectionFallback } from "../pane-refusals.js";
 
@@ -95,7 +105,15 @@ export function useKeyboardHandbackBinding(
   const mirrorChords = useMemo(() => handback.mirrorChords(), [handback]);
   // The mirror travels as one string, so an effect keyed on it re-publishes exactly
   // when the projected set changes rather than on every render that rebuilt the array.
-  const mirrorKey = mirrorChords === undefined ? "" : mirrorChords.join(" ");
+  const mirrorKey = composeChordMirrorKey(mirrorChords);
+  // What this pane's host is currently holding, minted per subject: a pane rebound to
+  // another window addresses a host that has been told nothing, and the mirror it
+  // published to the retired one says nothing about that.
+  const { value: publication } = useSubjectScopedState(
+    bridge,
+    paneId,
+    () => new ChordMirrorPublication(),
+  );
   const { value: refusal, publish: publishRefusal } = useSubjectScopedState<
     ConsoleRefusal | undefined
   >(bridge, paneId, () => undefined);
@@ -106,12 +124,16 @@ export function useKeyboardHandbackBinding(
   );
 
   useEffect(() => {
-    if (mirrorKey.length === 0) {
-      // 12.4's degraded arm: unreadable defaults to the page. Nothing is published,
-      // so the host claims nothing and every keystroke reaches the page. An empty
-      // projection takes the same path, because a mirror holding no chord claims none.
+    if (!publication.needsPublication(mirrorKey)) {
+      // 12.4's degraded arm, in the one reading of it that is safe. A host this pane
+      // has told nothing already claims nothing, so an empty projection owes it no
+      // publication — that arm covers both an unreadable registry and a window whose
+      // chords are all unclaimable. An empty projection over a mirror this pane HAS
+      // published is the opposite fact and is published below, because the host goes
+      // on claiming whatever it was last told until it is told otherwise.
       return;
     }
+    publication.recordPublication(mirrorKey);
     // The count belongs to the mirror that is being replaced, and it is reset WITH it.
     // `handback` is re-minted whenever the chord table changes, and the new object
     // starts its own tally at zero — so a count left standing here would show the old
@@ -119,28 +141,30 @@ export function useKeyboardHandbackBinding(
     // which is a number about a mirror that is gone.
     publishReplayCount(0);
     let cancelled = false;
-    void bridge.growth.browserPublishChordMirror({ paneId, chords: mirrorKey.split(" ") }).then(
-      (outcome) => {
-        if (!cancelled && outcome.status === "unavailable") {
-          publishRefusal(outcome);
-        }
-      },
-      (failure: unknown) => {
-        if (!cancelled) {
-          publishRefusal(
-            normalizeWireRejection(
-              HANDBACK_BINDING_REFUSAL_ORIGIN,
-              failure,
-              MIRROR_PUBLISH_FALLBACK,
-            ),
-          );
-        }
-      },
-    );
+    void bridge.growth
+      .browserPublishChordMirror({ paneId, chords: readChordMirrorKey(mirrorKey) })
+      .then(
+        (outcome) => {
+          if (!cancelled && outcome.status === "unavailable") {
+            publishRefusal(outcome);
+          }
+        },
+        (failure: unknown) => {
+          if (!cancelled) {
+            publishRefusal(
+              normalizeWireRejection(
+                HANDBACK_BINDING_REFUSAL_ORIGIN,
+                failure,
+                MIRROR_PUBLISH_FALLBACK,
+              ),
+            );
+          }
+        },
+      );
     return () => {
       cancelled = true;
     };
-  }, [bridge, mirrorKey, paneId, publishRefusal, publishReplayCount]);
+  }, [bridge, mirrorKey, paneId, publication, publishRefusal, publishReplayCount]);
 
   useEffect(() => {
     let stream: AcceleratorStream | undefined;
