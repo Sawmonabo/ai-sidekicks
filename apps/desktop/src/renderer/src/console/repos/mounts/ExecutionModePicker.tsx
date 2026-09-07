@@ -3,12 +3,11 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
+import { InlineRefusal, Nothing, RefusalRecovery, WireFigure } from "../../primitives/index.js";
 import { ModeRowView } from "./ModeRowView.js";
 import { executionModeRows } from "./mode-row.js";
 import type { WorkspaceControlPosture } from "./mount-health.js";
 import { modeRestrictionReason, mountRefusalRecovery } from "./mount-refusal-copy.js";
-import { RefusalRecovery } from "./RefusalRecovery.js";
 
 export interface ExecutionModePickerProps {
   /** Wire-verbatim workspace id; the group's inputs are named by it so two pickers never collide. */

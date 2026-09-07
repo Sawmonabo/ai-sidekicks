@@ -381,6 +381,12 @@ export {
   GROWTH_PR_PREPARATION_STATES,
   type GrowthPrPreparationState,
 } from "./growth-values/gitflow.js";
+// The mint's own request union, through the same door and for the same reason: the
+// diff pane composes one from the subject its address resolved to, and a second copy
+// of the two arms written in that family would go on offering an attribution the wire
+// had stopped admitting. The response shape stays off this door — nothing outside the
+// bridge names it, the pane reading the manifest id straight off the served value.
+export type { GrowthDiffArtifactCreateRequest } from "./growth-values/gitflow.js";
 // The read's own reply union and the encoding a reader switches on, for the same
 // reason and through the same module: the artifact pane consumes both arms of a
 // served payload read, and the arm it lands on is what it draws.

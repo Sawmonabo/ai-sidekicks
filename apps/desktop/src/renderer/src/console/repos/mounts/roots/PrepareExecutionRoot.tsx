@@ -43,11 +43,10 @@ import { useCallback } from "react";
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { InlineRefusal, Nothing, RefusalRecovery, WireFigure } from "../../../primitives/index.js";
 import { useSubjectScopedState, type SessionStore } from "../../../store/index.js";
 import type { WorkspaceControlPosture } from "../mount-health.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
-import { RefusalRecovery } from "../RefusalRecovery.js";
 import { usePrepareController } from "./prepare-binding.js";
 import type { PrepareReading } from "./prepare-controller.js";
 import {

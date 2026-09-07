@@ -28,10 +28,14 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { InlineRefusal, Nothing, OverlayAlertDialogPopup } from "../../../primitives/index.js";
+import {
+  InlineRefusal,
+  Nothing,
+  OverlayAlertDialogPopup,
+  RefusalRecovery,
+} from "../../../primitives/index.js";
 import { useConfirmationLifecycle } from "../confirmation/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
-import { RefusalRecovery } from "../RefusalRecovery.js";
 import { useRootDisposal, type DisposalReading } from "./disposal-controller.js";
 import { disposalSubjectFor, type DisposalSubject } from "./root-act-model.js";
 

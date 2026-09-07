@@ -4,7 +4,7 @@
 // hardest claims: the resolved root is never shortened in the STRING, the two status
 // axes are never one chip, and no detach control exists anywhere on the surface.
 
-import { render, within } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -65,6 +65,7 @@ function renderCard(
         onCopyCanonicalRoot={() => undefined}
         onSelectExecutionMode={() => undefined}
         onRequestRead={() => undefined}
+        onOpenDiff={() => undefined}
         {...overrides}
       />
     </LiveAnnouncerProvider>,
@@ -146,6 +147,25 @@ describe("MountCard — the plain-directory mount", () => {
   it("negative control: a git mount carries no reduced-capability badge", () => {
     const { queryByText } = renderCard();
     expect(queryByText("reduced capability")).toBeNull();
+  });
+});
+
+describe("MountCard — the way into a change set", () => {
+  it("offers the workspace row's own subject, so the pane opens over what the row is", () => {
+    const onOpenDiff = vi.fn();
+    const { getByLabelText } = renderCard({ onOpenDiff });
+    fireEvent.click(getByLabelText(`Open the changes of workspace ${WORKSPACE.id}`));
+    expect(onOpenDiff).toHaveBeenCalledWith({ kind: "workspace", id: WORKSPACE.id });
+  });
+
+  it("offers it on the root row too, keyed by the root and never by the workspace", () => {
+    // The two are different id spaces, and a root's diff is attributed through the run
+    // that provisioned it rather than through any workspace.
+    const root = worktreeRecord({ worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2021" });
+    const onOpenDiff = vi.fn();
+    const { getByLabelText } = renderCard({ worktrees: [root], onOpenDiff });
+    fireEvent.click(getByLabelText(`Open the changes of worktree ${root.worktreeId}`));
+    expect(onOpenDiff).toHaveBeenCalledWith({ kind: "worktree", id: root.worktreeId });
   });
 });
 

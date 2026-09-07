@@ -30,13 +30,13 @@
 //   • IT NEVER DECIDES WHO MAY ACT. `artifact.delete_forbidden` is a 403 the daemon
 //     returns against the session roles. Every control is offered and the daemon's
 //     typed refusal renders beside the one that was pressed.
-//   • IT OFFERS NO VISIBILITY TOGGLE. The wire carries an `artifact.visibility_updated`
-//     event and `bridge/growth-port/growth-port.ts`
-//     registers no operation that could produce one — the port has `artifactRead`
-//     and `artifactDelete`
-//     and nothing that re-classifies. A control that could only fail is worse than a
-//     control that is not there, and a port entry is not this family's to add, so the
-//     act stays unoffered and the gap is the `artifact-ingest-and-crud` slate row.
+//   • ITS VISIBILITY TOGGLE REPORTS THE DAEMON'S CLASS AND NEVER THE REQUEST'S. The
+//     port now carries `artifactVisibilityUpdate` under the same
+//     `artifact-ingest-and-crud` slate row the read and the delete take, and its reply
+//     answers with the class the daemon SETTLED on. A policy-blocked share retains the
+//     original, so a row written from what was asked for would say `shared` under an
+//     artifact the daemon had just declined to share — and the toggle beside it would
+//     then offer to undo a change that never happened.
 //
 // AND ONE ACT THE SHAPE NOW ADMITS. The pane used to offer a manifest re-read and say
 // that payload members were unavailable, which was true of the port it was written
@@ -59,27 +59,19 @@
 
 import { useCallback } from "react";
 
-import {
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
-  ATTACHMENT_CHUNK_BYTE_CAP,
-} from "../../core/index.js";
-import {
-  Chip,
-  DerivedFigure,
-  WireFigure,
-  formatByteQuantity,
-  useAnnounce,
-} from "../../primitives/index.js";
-import type { ArtifactManifestRow } from "../artifacts/artifact-model.js";
+import { WireFigure, useAnnounce } from "../../primitives/index.js";
+import { AttachmentBoundsDisclosure } from "../attachments/AttachmentBoundsDisclosure.js";
+import type { ArtifactManifestRow, ArtifactVisibility } from "../artifacts/artifact-model.js";
 import { ArtifactsPanel } from "../artifacts/ArtifactsPanel.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import {
   MANIFEST_RE_READ_ANNOUNCEMENT,
   PAYLOAD_ANNOUNCEMENT_BY_STATUS,
   artifactDeletedAnnouncement,
+  artifactVisibilityAnnouncement,
 } from "./artifact-announcements.js";
 import { ArtifactPayloadSection } from "./ArtifactPayloadSection.js";
-import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
+import type { ArtifactRowActOutcome } from "./artifact-pane-reading.js";
 import { useArtifactPaneReading } from "./use-artifact-reading.js";
 
 /**
@@ -101,17 +93,18 @@ export interface ArtifactPaneProps {
 export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   const { context } = props;
   const announce = useAnnounce();
-  const { reading, refresh, readManifest, fetchPayload, deleteArtifact } = useArtifactPaneReading(
-    context.bridge,
-    // The STORE, not its id: the reader observes this session's artifact frames and
-    // its repair edge for three of its four refresh reasons, and an id carries
-    // neither.
-    context.sessionStore,
-    // The subject, because the reader's payload arm and fetch register are about this
-    // artifact and nothing else. A deck that reuses this pane for another one gets a
-    // reader of its own rather than the previous subject's bytes under this header.
-    context.entity.id,
-  );
+  const { reading, refresh, readManifest, fetchPayload, deleteArtifact, updateVisibility } =
+    useArtifactPaneReading(
+      context.bridge,
+      // The STORE, not its id: the reader observes this session's artifact frames and
+      // its repair edge for three of its four refresh reasons, and an id carries
+      // neither.
+      context.sessionStore,
+      // The subject, because the reader's payload arm and fetch register are about this
+      // artifact and nothing else. A deck that reuses this pane for another one gets a
+      // reader of its own rather than the previous subject's bytes under this header.
+      context.entity.id,
+    );
 
   // Announced from the act's own settlement and from nowhere else. A re-render
   // announces nothing, because nothing settled.
@@ -161,6 +154,27 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
       });
     },
     [announceOutcome, deleteArtifact],
+  );
+
+  const changeRowVisibility = useCallback(
+    (row: ArtifactManifestRow) => {
+      // The class the press asks for is the OTHER one, composed from the row the
+      // toggle's own label was composed from — the surface knows both, so the act is
+      // never asked to derive a direction from a reading it would have to take again.
+      const requested: ArtifactVisibility = row.visibility === "shared" ? "local-only" : "shared";
+      void updateVisibility(row.id, requested).then((outcome) => {
+        // The sentence names the class the DAEMON settled on, which the served arms
+        // carry: announcing the requested one would report a share the daemon may
+        // have declined.
+        announceOutcome(
+          outcome,
+          outcome.status === "settled" || outcome.status === "reconciling"
+            ? artifactVisibilityAnnouncement(outcome.visibility)
+            : undefined,
+        );
+      });
+    },
+    [announceOutcome, updateVisibility],
   );
 
   // The pane's subject is one artifact, so the fetch is for that one. A control per
@@ -241,80 +255,19 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
           nowMilliseconds={reading.readAtMilliseconds}
           rowRefusals={reading.refusalByArtifactId}
           manifestReadInFlightArtifactIds={reading.manifestReadInFlightArtifactIds}
+          visibilityUpdateInFlightArtifactIds={reading.visibilityUpdateInFlightArtifactIds}
           lastDeleteReceipt={reading.lastDeleteReceipt}
           onReadManifest={readRowManifest}
+          onChangeVisibility={changeRowVisibility}
           onDelete={deleteRow}
         />
-        {renderIngestBounds(reading.allowlist)}
+        {/* THE SAME DISCLOSURE THE ATTACH AFFORDANCE RENDERS, from the module the
+            attachment family owns. It was a private helper here, which is why the
+            picker a person actually chooses a file with said nothing about what it
+            would accept; a second copy of the list would be two answers to one
+            question the first time either changed. */}
+        <AttachmentBoundsDisclosure allowlist={reading.allowlist} />
       </div>
     </ConsolePaneChrome>
-  );
-}
-/**
- * The ingest rules, one disclosure away.
- *
- * A render helper rather than a component, on `ArtifactsPanel.tsx`'s rule: it holds no
- * state and takes no hooks, so mounting it as an element type would buy a
- * reconciliation boundary nothing needs.
- *
- * THE SOURCE IS NAMED, ALWAYS. `Spec-014 §Bounds (normative defaults; operator-tunable)`
- * makes an operator override replace the list WHOLESALE with no merge semantics, so a
- * hint that showed a list without saying whether it is the deployment's or the shipped
- * default would be a hint about a deployment the console cannot see. The
- * `shipped-default` arm additionally carries the refusal that kept the effective read
- * from answering.
- */
-function renderIngestBounds(allowlist: ArtifactAllowlistReading): React.JSX.Element {
-  const maximumFigure = formatByteQuantity(allowlist.maximumByteLength);
-  const chunkFigure = formatByteQuantity(ATTACHMENT_CHUNK_BYTE_CAP);
-  return (
-    <details className="meridian-ingest-bounds">
-      <summary className="meridian-ingest-bounds__summary">
-        What can be attached, and how much
-      </summary>
-      <p className="meridian-ingest-bounds__source">
-        {allowlist.source === "effective"
-          ? "This deployment's effective allow-list, as the daemon reports it."
-          : "The shipped default. This deployment's effective list could not be read, and an operator override replaces the default wholesale rather than adding to it — so what is admitted here may differ."}
-      </p>
-      {allowlist.refusal === undefined ? null : (
-        <p className="meridian-ingest-bounds__refusal">
-          <WireFigure value={allowlist.refusal.code} /> {allowlist.refusal.detail}
-        </p>
-      )}
-      <ul className="meridian-ingest-bounds__types">
-        {allowlist.mediaTypes.map((mediaType) => (
-          <li key={mediaType}>
-            <Chip label={mediaType} mono />
-          </li>
-        ))}
-      </ul>
-      <dl className="meridian-ingest-bounds__caps">
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per attachment</dt>
-          <dd>
-            <WireFigure value={maximumFigure.text} title={String(allowlist.maximumByteLength)} />
-          </dd>
-        </div>
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per carrier</dt>
-          <dd>
-            <DerivedFigure text={`${String(ATTACHMENTS_PER_CARRIER_CAP_DEFAULT)} attachments`} />
-          </dd>
-        </div>
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per chunk</dt>
-          <dd>
-            <WireFigure value={chunkFigure.text} title={String(ATTACHMENT_CHUNK_BYTE_CAP)} />
-          </dd>
-        </div>
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per upload</dt>
-          <dd>
-            <DerivedFigure text="six hours from the moment the stream opens" />
-          </dd>
-        </div>
-      </dl>
-    </details>
   );
 }
