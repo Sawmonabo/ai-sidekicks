@@ -59,9 +59,8 @@ import {
   ManagedElectronChild,
   TERMINATION_GRACE_MS,
   type ProcessTreeTerminator,
-  type SpawnedTreeIdentityCapture,
 } from "./managed-electron-child.js";
-import { HOST_QUERY_TIMEOUT_MS } from "./process-tree/readers.js";
+import { type SpawnedTreeIdentityCapture } from "./spawned-tree-record.js";
 
 export type { ChildRelease } from "./electron-child-teardown.js";
 
@@ -80,28 +79,6 @@ export type { ChildRelease } from "./electron-child-teardown.js";
  * the promise settles.
  */
 export const TEST_TIMEOUT_SLACK_MS = 3_000;
-
-/**
- * The ceiling the spawn's own identity capture can spend, per enclosing budget.
- *
- * A PHASE OF THE TEST THAT NO SPAWN DEADLINE CONTAINS. `captureTreeIdentity`
- * runs inside `spawnManagedElectronChild`, which is to say before the probe
- * harness that called it has armed the timer bounding its spawn — so a host
- * whose `ps` or PowerShell answers slowly spends this here and the harness's own
- * spawn budget still starts at zero afterwards. Reserving only
- * `TEST_TIMEOUT_SLACK_MS` past the later phases therefore left the worst legal
- * run outside its enclosure: on the GC probe's figures, 5 s of query plus a 30 s
- * spawn budget plus the termination grace plus the reserve is 40 s against a
- * 35 s enclosure, and vitest's generic timeout wins before the harness's own
- * diagnostic path settles.
- *
- * It is `HOST_QUERY_TIMEOUT_MS` rather than a second figure beside it, because
- * the capture's cost IS that bound — the query is `spawnSync`'s and the timeout
- * is what abandons it. Named here rather than imported into each harness so the
- * two derived budgets add a term that says WHICH phase it pays for, and so a
- * change to the query bound moves both of them in one edit.
- */
-export const IDENTITY_CAPTURE_CEILING_MS: number = HOST_QUERY_TIMEOUT_MS;
 
 /** What a harness hands over to be run when the test ends. */
 export type SettleTimeDisposer = () => void | Promise<void>;

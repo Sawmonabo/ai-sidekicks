@@ -25,7 +25,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { consoleSourceModules, isTypeScriptModuleFileName } from "../console-source-modules.js";
+import { isTypeScriptModuleFileName } from "../console-source-classification.js";
+import { consoleSourceModules } from "../console-source-modules.js";
 import { reachesAsynchronousSpawn } from "./child-process-reach.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

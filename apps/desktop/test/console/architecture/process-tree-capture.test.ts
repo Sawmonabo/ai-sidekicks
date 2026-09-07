@@ -4,18 +4,19 @@
 // question with a different failure. That file asks whether the root pid still
 // names the same PROCESS; this one takes that answer as given and asks about the
 // set the answer produces — the only handle a rootless tree has once its root is
-// gone. Both of its subjects are ways that set can be wrong while every stamp
+// gone. Each of its subjects is a way that set can be wrong while every stamp
 // comparison over there passes: a row that was never this tree's admitted into
-// it, and a verified set erased by a reading that failed.
+// it, a verified set erased by a reading that failed, and a set GROWN by the one
+// reading taken after the number stopped being this tree's to read.
 
 import { describe, expect, it } from "vitest";
 
+import { SpawnedTreeIdentity } from "../../helpers/process-tree/identity.js";
+import { type ProcessTableRow } from "../../helpers/process-tree/readers.js";
 import {
-  SpawnedTreeIdentity,
   startStampPrecedes,
   verifyCapturedMembers,
-} from "../../helpers/process-tree/identity.js";
-import { type ProcessTableRow } from "../../helpers/process-tree/readers.js";
+} from "../../helpers/process-tree/start-stamps.js";
 import {
   CAPTURED_CHILD_PID,
   CAPTURED_ROOT_PID,
@@ -224,5 +225,113 @@ describe("process termination — an unreadable refresh must not erase the captu
 
       expect(identity.capturedDescendants).toStrictEqual([]);
     }
+  });
+});
+
+describe("process termination — the reading after the root's exit may only remove", () => {
+  // THE FINDING, AND IT IS A WINDOW RATHER THAN A COMPARISON. The refresh that
+  // ran at the root's `exit` RECORDED what the listing said, and by that event
+  // the process has been reaped: Node has closed the handle it held, so from
+  // that instant the operating system may hand the number to something else. A
+  // listing taken from there can carry rows a NEW holder of the number fathered
+  // inside the window the listing itself takes, and nothing in such a row tells
+  // them apart from this tree's — same parent pid, and a start stamp AFTER the
+  // original root's, so the ancestry proof next door admits them. Handed to
+  // `taskkill /t`, that is an unrelated tree this package never spawned.
+  //
+  // No filter over the rows closes it, which is why the fix is a rule about
+  // WHEN: the set is recorded while the root is verifiably still held, and the
+  // exit-time reading is narrowed to an INTERSECTION that can only remove.
+
+  /** The reused number's new holder, and the two children it has started since. */
+  const NEW_HOLDER_CHILD_PID = 5551;
+  const NEW_HOLDER_GRANDCHILD_PID = 5552;
+  const AFTER_THE_EXIT_TICKS = "638700000000000000";
+
+  /** An identity whose live capture has already recorded one genuine descendant. */
+  function identityCapturedThenSeeing(
+    laterTable: ReadonlyMap<number, ProcessTableRow> | undefined,
+  ): SpawnedTreeIdentity {
+    let table: ReadonlyMap<number, ProcessTableRow> | undefined = processTableOf([
+      [CAPTURED_CHILD_PID, CAPTURED_ROOT_PID, GENUINE_CHILD_TICKS],
+    ]);
+    const identity = new SpawnedTreeIdentity(
+      CAPTURED_ROOT_PID,
+      new ScriptedStartStamps([ROOT_TICKS, ROOT_TICKS]).read,
+      () => table,
+      () => true,
+    );
+    identity.captureLiveDescendants();
+    expect(identity.capturedDescendants.map((member) => member.processId)).toStrictEqual([
+      CAPTURED_CHILD_PID,
+    ]);
+    table = laterTable;
+    return identity;
+  }
+
+  it("admits nothing the live capture did not already name", () => {
+    // The whole defect in one table: the root's number has been reissued, and
+    // its new holder has children of its own whose stamps postdate the original
+    // root. A capture taken here records them; an intersection cannot.
+    const identity = identityCapturedThenSeeing(
+      processTableOf([
+        [CAPTURED_CHILD_PID, CAPTURED_ROOT_PID, GENUINE_CHILD_TICKS],
+        [NEW_HOLDER_CHILD_PID, CAPTURED_ROOT_PID, AFTER_THE_EXIT_TICKS],
+        [NEW_HOLDER_GRANDCHILD_PID, NEW_HOLDER_CHILD_PID, AFTER_THE_EXIT_TICKS],
+      ]),
+    );
+
+    identity.narrowCapturedDescendants();
+
+    expect(
+      identity.capturedDescendants.map((member) => member.processId),
+      "the exit-time reading admitted a process the reused pid's new holder started — the rootless kill list now addresses a tree this package never spawned",
+    ).toStrictEqual([CAPTURED_CHILD_PID]);
+  });
+
+  it("drops a captured member whose number has since been handed to a stranger", () => {
+    // The one thing an intersection IS for. The member is still listed, so a
+    // liveness pass would keep addressing it, and the pid is now a stranger's.
+    const identity = identityCapturedThenSeeing(
+      processTableOf([[CAPTURED_CHILD_PID, 1, AFTER_THE_EXIT_TICKS]]),
+    );
+
+    identity.narrowCapturedDescendants();
+
+    expect(identity.capturedDescendants).toStrictEqual([]);
+  });
+
+  it("keeps the set when the exit-time listing cannot be read at all", () => {
+    // The sentinel again, and the same trade the live capture takes: a reading
+    // that did not happen removes nobody, because stale-and-addressable beats
+    // verified-and-erased on exactly the host whose readings do not work.
+    const identity = identityCapturedThenSeeing(undefined);
+
+    identity.narrowCapturedDescendants();
+
+    expect(identity.capturedDescendants.map((member) => member.processId)).toStrictEqual([
+      CAPTURED_CHILD_PID,
+    ]);
+  });
+
+  it("spends no host query when nothing was captured", () => {
+    // The POSIX teardown is this case on every run: nothing is ever captured
+    // there, and an intersection over no members can remove nobody — so the
+    // blocking listing is not taken, rather than taken and discarded.
+    let listings = 0;
+    const identity = new SpawnedTreeIdentity(
+      CAPTURED_ROOT_PID,
+      new ScriptedStartStamps([ROOT_TICKS]).read,
+      () => {
+        listings += 1;
+        return processTableOf([[NEW_HOLDER_CHILD_PID, CAPTURED_ROOT_PID, AFTER_THE_EXIT_TICKS]]);
+      },
+      () => true,
+    );
+
+    identity.narrowCapturedDescendants();
+
+    expect(identity.capturedDescendants).toStrictEqual([]);
+    expect(listings, "an empty capture still paid for a host listing it could not consult").toBe(0);
   });
 });

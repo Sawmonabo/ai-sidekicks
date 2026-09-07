@@ -7,15 +7,17 @@
 // three slightly different ideas of what counts as source is how one tripwire comes
 // to scan `.d.ts` files and another does not, with nothing reporting the difference.
 //
-// WHAT COUNTS AS SOURCE, decided once. A FILE — asked of the directory entry, not
-// inferred from the name, because Vitest names a screenshot tier's committed
-// reference directory after its spec (`__screenshots__/frame.test.tsx` is a
-// directory) and a walk deciding by extension handed that back as a module and
-// threw on the read — in TypeScript or TSX, excluding declaration files (nothing
-// runs) and co-located tests. Tests are excluded for the reason the
-// byte-scaling chokepoint states for its own scan: a test asserting that a rule bites
-// has to write the thing the rule forbids, and a tripwire that forbade that would
-// forbid testing itself.
+// WHAT COUNTS AS SOURCE, decided once and in TWO PLACES that answer different
+// halves. A FILE — asked of the directory entry, not inferred from the name,
+// because Vitest names a screenshot tier's committed reference directory after
+// its spec (`__screenshots__/frame.test.tsx` is a directory) and a walk deciding
+// by extension handed that back as a module and threw on the read — is this
+// module's half, because only the walk holds the entry. What the NAME says is
+// `console-source-classification.ts`'s: which extensions are TypeScript modules,
+// which of them declare rather than implement, and which are co-located tests.
+// Tests are excluded for the reason the byte-scaling chokepoint states for its
+// own scan: a test asserting that a rule bites has to write the thing the rule
+// forbids, and a tripwire that forbade that would forbid testing itself.
 //
 // STYLESHEETS ARE A SIBLING, not a flag. `consoleStylesheets` answers the same roots
 // with the same sorting in the same shape, because the tier asks two questions about
@@ -49,6 +51,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isSourceModulePath } from "./console-source-classification.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DESKTOP_PACKAGE_ROOT = resolve(HERE, "..", "..");
 const RENDERER_SOURCE_ROOT = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
@@ -80,33 +84,6 @@ export const DESKTOP_PROSE_ROOTS: readonly string[] = [
   join(DESKTOP_PACKAGE_ROOT, "src"),
   join(DESKTOP_PACKAGE_ROOT, "test"),
 ];
-
-/**
- * What a TypeScript module file name ends in — the ONE declared set.
- *
- * Four extensions and not two, because `.mts` and `.cts` are TypeScript modules
- * this package actually writes: `AGENTS.md §Executables` makes every file under
- * `scripts/**` and `build/**` a `.ts` or a `.mts`, and seven `.mts` executables
- * live under `scripts/budget/` today. A walk keyed on `/\.tsx?$/` therefore
- * quantifies over less than its own sentence claims, and the failure is silent by
- * construction: the module it skipped is absent from the set, so no claim about
- * that set can report it. `electron-spawn-chokepoint.test.ts` is where that bit —
- * a `.mts` helper reaching `spawn` and never appearing among the spawners — and
- * this is the one home both walks now take it from.
- *
- * `.d.ts` is subtracted by `isSourceModulePath` below rather than here: it IS a
- * TypeScript module file name, and what disqualifies it is that it declares
- * rather than implements.
- */
-export const TYPESCRIPT_MODULE_EXTENSIONS: readonly string[] = [".ts", ".tsx", ".mts", ".cts"];
-
-/** A declaration file of any of the four, which declares rather than implements. */
-const DECLARATION_MODULE_NAME = /\.d\.[cm]?ts$/;
-
-/** Whether `fileName` names a TypeScript module, by extension alone. */
-export function isTypeScriptModuleFileName(fileName: string): boolean {
-  return TYPESCRIPT_MODULE_EXTENSIONS.some((extension) => fileName.endsWith(extension));
-}
 
 /** One source module, named by the root it was found under. */
 export interface ConsoleSourceModule {
@@ -337,29 +314,6 @@ export class ConsoleSourceTree {
       })),
     };
   }
-}
-
-function isSourceModulePath(entry: string, tests: boolean): boolean {
-  // Every declaration flavour of the set above, and not `.d.ts` alone: a
-  // declaration is a claim rather than an implementation whichever module system
-  // it declares for, and matching one spelling would admit the other two.
-  if (DECLARATION_MODULE_NAME.test(entry)) {
-    return false;
-  }
-  if (!tests && isTestModulePath(entry)) {
-    return false;
-  }
-  return isTypeScriptModuleFileName(entry);
-}
-
-/** A co-located test or the support module one imports. One answer, for both walks. */
-function isTestModulePath(entry: string): boolean {
-  return (
-    entry.endsWith(".test.ts") ||
-    entry.endsWith(".test.tsx") ||
-    entry.endsWith(".test-support.ts") ||
-    entry.endsWith(".test-support.tsx")
-  );
 }
 
 /**

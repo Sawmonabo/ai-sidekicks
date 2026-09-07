@@ -15,12 +15,22 @@
 // restated), in the same shape: attempt, wait for the tree's own evidence, return
 // the moment it is gone.
 //
-// AND THE WAITS ARE INSIDE THE CLOSE BUDGET RATHER THAN AFTER IT, which is the
-// second claim here and the one a reader would not guess from the first. Three
-// grace intervals added once `application.close()` had spent its whole registered
+// AND THE WAITS ARE INSIDE A BUDGET RATHER THAN BESIDE ONE, which is the second
+// claim here and the one a reader would not guess from the first. Three grace
+// intervals added once `application.close()` had spent its whole registered
 // ceiling put the all-refused path past what `tierTimeoutFor` reserves for
 // cleanup — so vitest's own timeout fired first and took the `unterminable`
 // verdict with it, which is the one settlement a later launch can feel.
+//
+// WHICH BUDGET IS THE THIRD CLAIM, AND CHARGING IT TO THE WRONG ONE DELETED THE
+// PAUSE. The waits were charged to the CLOSE's origin, and on the path this file
+// is about that origin is already spent — so every retry timer was zero-length
+// and the three attempts ran back to back inside a few milliseconds. A platform
+// whose refusal is transient was therefore asked three times before it could
+// answer differently, reported `unterminable`, and had its profile removed under
+// a live Electron. The waits belong to the TERMINATION phase's own deadline,
+// which `#terminateUntilGone` restarts at its first attempt, and the case below
+// separates the two by making a refusal that clears on its own.
 //
 // The stand-ins are `bounded-cleanup.test-support.ts`'s, for that module's reason:
 // no platform can be asked to refuse a kill on demand, and these cases run inside
@@ -37,10 +47,23 @@ import {
   profileSpy,
   TEST_BUDGET_MS,
   TEST_OVERLONG_TERMINATION_WAIT_MS,
+  TEST_SPACED_TERMINATION_WAIT_MS,
   TEST_TERMINATION_WAIT_MS,
   terminatorRefusingThenDelivering,
+  terminatorRefusingUntil,
   terminatorSpy,
 } from "./bounded-cleanup.test-support.js";
+
+/**
+ * How long the self-clearing refusal below lasts, in real milliseconds.
+ *
+ * Sized against the two shapes it has to separate rather than against a runner:
+ * a loop that does not pause reaches its attempt bound inside one millisecond,
+ * and a loop that does waits `TEST_SPACED_TERMINATION_WAIT_MS` before its second
+ * ask. This sits between them with room on both sides, and it is derived from
+ * that figure so the two cannot drift into each other.
+ */
+const TRANSIENT_REFUSAL_MS = TEST_SPACED_TERMINATION_WAIT_MS / 3;
 
 describe("bounded cleanup — a tree that refuses the kill", () => {
   it("asks again while the platform refuses, and settles once the kill lands", async () => {
@@ -87,7 +110,41 @@ describe("bounded cleanup — a tree that refuses the kill", () => {
     ).toBe(DISPOSAL_ATTEMPTS);
   });
 
-  it("charges the retry's waits to the close budget instead of adding them after it", async () => {
+  it("spaces the retries out inside the termination phase when the close budget is spent", async () => {
+    // THE THIRD FINDING, and the one only a self-clearing refusal can state. The
+    // close spends its whole ceiling here, so the CLOSE's deadline is at zero by
+    // the time the loop starts — and charging the pause to that origin made
+    // `min(grace, 0)` the wait for every attempt. The three asks then ran inside
+    // one millisecond, so this terminator's refusal had not yet cleared when the
+    // bound was reached: `unterminable`, the profile removed, and an Electron
+    // still running that would have died inside the grace it was never given.
+    //
+    // Charged to the termination phase's own origin the first pause is the whole
+    // of that phase's budget, which is longer than the refusal lasts, so the
+    // second ask lands after it has cleared. The window opens at the first ask,
+    // which is what keeps this a statement about the SPACING of the retries.
+    const terminator = terminatorRefusingUntil(TRANSIENT_REFUSAL_MS);
+    const outcome = await new BoundedCleanup(
+      applicationThatNeverCloses(4242),
+      terminator,
+      profileSpy(),
+      TEST_BUDGET_MS,
+      TEST_SPACED_TERMINATION_WAIT_MS,
+    ).close();
+
+    expect(
+      outcome.settlement,
+      "every retry timer was zero-length, so three asks ran inside one instant and a refusal that clears was reported unterminable",
+    ).toBe("terminated");
+    // The reading that makes it about the pause rather than about luck: the
+    // second ask is the one that landed, so a pause really did separate them.
+    expect(terminator.killed).toStrictEqual([4242, 4242]);
+    // Non-vacuity: the close really did spend its ceiling, so the loop began
+    // with the close's own budget at zero — the state the charge was wrong for.
+    expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_BUDGET_MS);
+  });
+
+  it("bounds the whole cleanup by the two phases rather than by a grace per attempt", async () => {
     // THE SECOND FINDING. The close spends its whole ceiling here — the
     // application never settles — and the terminator then refuses every ask, so
     // this is the exact path that used to cost the ceiling PLUS three grace
@@ -95,6 +152,11 @@ describe("bounded cleanup — a tree that refuses the kill", () => {
     // settlement residual, so on the registered figures that overrun put the
     // cleanup past its enclosing tier timeout and vitest killed the test before
     // the `unterminable` verdict below could be returned at all.
+    //
+    // The pause is bounded by what the TERMINATION phase has left, so a grace
+    // longer than that phase's whole budget is truncated to it — one pause here
+    // rather than three, and the total is the two phases and never the sum of a
+    // grace per attempt.
     const outcome = await new BoundedCleanup(
       applicationThatNeverCloses(4242),
       terminatorSpy(false),
@@ -108,17 +170,17 @@ describe("bounded cleanup — a tree that refuses the kill", () => {
     expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_BUDGET_MS);
     expect(
       outcome.waitedMs,
-      "a grace interval was added after the close ceiling — the cleanup outruns the tier timeout that reserves it",
+      "a grace interval was added beside the phase budgets — the cleanup outruns the tier timeout that reserves them",
     ).toBeLessThan(TEST_BUDGET_MS + TEST_OVERLONG_TERMINATION_WAIT_MS);
   });
 
   it("still pauses between asks while the budget has room, rather than never pausing", async () => {
-    // The foil for the case above, and the reason the pause is DERIVED rather
+    // The foil for the cases above, and the reason the pause is DERIVED rather
     // than deleted. This close rejects at once, so almost the whole budget is
     // unspent and every ask is entitled to its full grace — a fix that answered
-    // the overrun by dropping the pause would pass the case above and turn the
-    // retry into three kills issued in one instant, which asks the platform the
-    // same question three times and gives the tree no time to answer.
+    // the overrun by dropping the pause would pass the truncation case and turn
+    // the retry into three kills issued in one instant, which asks the platform
+    // the same question three times and gives the tree no time to answer.
     const outcome = await new BoundedCleanup(
       applicationWhoseCloseRejects(new Error("close refused")),
       terminatorSpy(false),

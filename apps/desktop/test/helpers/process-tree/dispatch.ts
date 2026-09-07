@@ -49,8 +49,6 @@
 //     because that message is localised and this must not depend on the runner's
 //     display language.
 
-import process from "node:process";
-
 import {
   deliverSignal,
   runPlatformTreeKill,
@@ -58,7 +56,7 @@ import {
   terminateSignalledTree,
   type ExternalTreeTools,
 } from "./arms.js";
-import { HostCommandBudget } from "./budget.js";
+import { HostCommandBudget, TERMINATION_CONSUMES_CAPTURED_DESCENDANTS } from "./budget.js";
 import { SpawnedTreeIdentity } from "./identity.js";
 import { processGroupExists, processHasTerminated } from "./liveness.js";
 import { readProcessTable, type ProcessTableReader } from "./readers.js";
@@ -75,9 +73,14 @@ export type ProcessTreeTerminationMode = "signal" | "external";
  * `taskkill /f`, an external termination the child reports as an exit code with
  * `signal === null`. A test branching on `process.platform` to say the same
  * thing would be restating this module's own fact somewhere it can drift.
+ *
+ * Derived from `budget.ts`'s predicate rather than from `process.platform` here,
+ * for that same reason one step further out: the arm that consumes a captured
+ * descendant set and the reservation an enclosing budget keeps for capturing one
+ * are the same fact, and two spellings of it are two things that drift.
  */
 export const PROCESS_TREE_TERMINATION_MODE: ProcessTreeTerminationMode =
-  process.platform === "win32" ? "external" : "signal";
+  TERMINATION_CONSUMES_CAPTURED_DESCENDANTS ? "external" : "signal";
 
 /**
  * The three host acts the Windows arm performs, as one injectable set.

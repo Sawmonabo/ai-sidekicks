@@ -25,12 +25,12 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
+import { SpawnedTreeIdentity } from "../../helpers/process-tree/identity.js";
+import { type ProcessTableRow } from "../../helpers/process-tree/readers.js";
 import {
-  SpawnedTreeIdentity,
   verifyCapturedMembers,
   type CapturedTreeMember,
-} from "../../helpers/process-tree/identity.js";
-import { type ProcessTableRow } from "../../helpers/process-tree/readers.js";
+} from "../../helpers/process-tree/start-stamps.js";
 import {
   CAPTURED_CHILD_PID,
   CAPTURED_ROOT_PID,
