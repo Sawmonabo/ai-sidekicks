@@ -108,9 +108,10 @@ describe("browser — the diagnostics recovery confirmation holds the focus ring
     const dialog = openConfirmation();
 
     // The ring is inside the popup — the modal took it — and it is NOT on the button
-    // that performs the act. `SettingsConfirmation` states this as the property two
-    // pages must not drift on: the cancel is the dialog's default, so a person who
-    // answers by reflex declines rather than interrupts a run.
+    // that performs the act. `primitives/ConfirmationDialog.tsx` states this as the
+    // property every surface that confirms must not drift on: the cancel is the
+    // dialog's default, so a person who answers by reflex declines rather than
+    // interrupts a run.
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).not.toBe(dialog.querySelector(CONFIRM_SELECTOR));
   });

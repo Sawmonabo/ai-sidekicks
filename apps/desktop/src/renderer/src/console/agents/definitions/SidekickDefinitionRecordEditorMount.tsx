@@ -63,12 +63,17 @@ export type SidekickDefinitionRecordEditorBody = (
 export const SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionRecordEditorBody> =
   {
     contract: {
-      // Plan-030 owns the sidekick-definition registry and its editor; CP-023-6 is
-      // the obligation under which this console mounts it.
-      owningTask: "Plan-030 (mounted through CP-023-6)",
+      // The owning plan is named by its SUBJECT rather than by its number, on the
+      // `workflows/owner-slots.ts` precedent: every member here is a runtime string in
+      // a shipped module, and this repository keeps governance identifiers in comments
+      // — which is where the numbers belong and where they are. Plan-030 owns the
+      // sidekick-definition registry and its editor; CP-023-6 is the obligation under
+      // which this console mounts it.
+      owningTask:
+        "the sidekick-definitions and peer-invocation plan's own editor body, mounted through this console's editor obligation",
       mountObligation:
         "a bounded region beside the stored list, the subject the page has selected, and nothing else; the body owns the record read, every axis and its three-way state, the null-versus-absent patch, the save and delete verbs, and every refusal",
-      deleteShellIn: "the Plan-030 editor task that fills this slot",
+      deleteShellIn: "the editor task that fills this slot",
     },
     body: undefined,
   };

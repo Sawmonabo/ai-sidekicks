@@ -14,12 +14,23 @@
 // sweep moves here, where it can be exhaustive, and the rendering claim stays beside
 // the render, which is the only place it can be made.
 //
-// A PARSER, NOT A PATTERN. "Which declarations are annotated `OwnerSlotContract`" is a
-// question about the tree. A pattern over the text answers it wrongly at the first
-// nested literal, and — worse for this claim — would read the doc comment above a
-// declaration as part of it, so a comment correctly naming the owning plan would fail
-// the gate while the string beneath it passed. `typescript-source.ts` holds the parse
-// the two sibling gates already use.
+// A PARSER, NOT A PATTERN. "Which declarations are a seat contract" is a question about
+// the tree. A pattern over the text answers it wrongly at the first nested literal, and
+// — worse for this claim — would read the doc comment above a declaration as part of it,
+// so a comment correctly naming the owning plan would fail the gate while the string
+// beneath it passed. `typescript-source.ts` holds the parse the two sibling gates
+// already use.
+//
+// BOTH ANNOTATIONS, BECAUSE ONE OF THEM SWEEPS ALMOST NOTHING. A seat is written two
+// ways: a bare `OwnerSlotContract` where the mounting component takes the body as its
+// own prop, and an `OwnerSlotProps<Body>` where the contract and the body travel
+// together as one constant — which is what every seat that carries a fixture body is.
+// A gate reading only the first annotation resolved the five workflow declarations and
+// the input-ask card and swept none of the four seats that pair a contract with a body,
+// which is where a plan id had actually reached a runtime string. So the resolver reads
+// the nested `contract` member too, and an `OwnerSlotProps` whose contract it cannot
+// resolve is reported with no members rather than skipped — the completeness case then
+// fails on it, which is the opposite of the false green a skip would produce.
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -27,8 +38,14 @@ import { describe, expect, it } from "vitest";
 import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
-/** The annotation that makes a declaration one of these contracts. */
+/** The annotation whose initializer IS a contract. */
 const CONTRACT_TYPE_NAME = "OwnerSlotContract";
+
+/** The annotation that carries one inside its `contract` member, beside a body. */
+const SLOT_PROPS_TYPE_NAME = "OwnerSlotProps";
+
+/** The member of an `OwnerSlotProps` literal that holds the contract. */
+const CONTRACT_MEMBER_NAME = "contract";
 
 /** The three facts the type requires, so a partial literal is a red check. */
 const CONTRACT_MEMBERS: readonly string[] = ["owningTask", "mountObligation", "deleteShellIn"];
@@ -45,12 +62,16 @@ const GOVERNANCE_ID = /\b(?:Spec|Plan|ADR|BL|CP|I|T)-\d/;
 /**
  * The floor this gate holds itself to.
  *
- * Six contracts are declared today. Asserting the count is at least that many is what
- * keeps a broken resolver from reporting a clean sweep over nothing — the same false
- * green every source-text gate in this directory guards against, and the reason the
- * number is a floor rather than a pin: a seventh seat is ordinary growth.
+ * Ten contracts are declared today, re-derived by counting both annotations: six named
+ * `OwnerSlotContract` outright — the five workflow bodies and the input-ask card — and
+ * four reached through an `OwnerSlotProps` literal's `contract` member: the two settings
+ * owner-slot pages and the two sidekick-definition editors. Asserting the count is at
+ * least that many is what keeps a broken resolver from reporting a clean sweep over
+ * nothing — the same false green every source-text gate in this directory guards
+ * against, and the reason the number is a floor rather than a pin: an eleventh seat is
+ * ordinary growth.
  */
-const MINIMUM_DECLARED_CONTRACTS = 6;
+const MINIMUM_DECLARED_CONTRACTS = 10;
 
 /** One contract literal, resolved to the strings it actually declares. */
 interface DeclaredContract {
@@ -135,6 +156,37 @@ function stringMembersOf(
   return members;
 }
 
+/**
+ * The `contract` member of an `OwnerSlotProps` literal, as a literal of its own.
+ *
+ * The member is written inline on every seat in the tree today, and an identifier
+ * naming a same-module literal is resolved too so the shared-constant shape the
+ * workflow family uses stays available to a paired seat. Anything else is unresolved,
+ * and the caller reports the declaration with no members rather than dropping it.
+ */
+function contractLiteralOf(
+  slotLiteral: ts.ObjectLiteralExpression,
+  parsed: ts.SourceFile,
+  literalsByName: ReadonlyMap<string, ts.ObjectLiteralExpression>,
+): ts.ObjectLiteralExpression | undefined {
+  for (const property of slotLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) {
+      continue;
+    }
+    if (property.name.getText(parsed) !== CONTRACT_MEMBER_NAME) {
+      continue;
+    }
+    if (ts.isObjectLiteralExpression(property.initializer)) {
+      return property.initializer;
+    }
+    if (ts.isIdentifier(property.initializer)) {
+      return literalsByName.get(property.initializer.text);
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
 function declaredContractsIn(module: string, sourceText: string): readonly DeclaredContract[] {
   const parsed = parseSourceText(module, sourceText);
   const literalsByName = objectLiteralsIn(parsed);
@@ -144,20 +196,27 @@ function declaredContractsIn(module: string, sourceText: string): readonly Decla
       return;
     }
     const annotation = node.type;
-    if (
-      annotation === undefined ||
-      !ts.isTypeReferenceNode(annotation) ||
-      annotation.typeName.getText(parsed) !== CONTRACT_TYPE_NAME
-    ) {
+    if (annotation === undefined || !ts.isTypeReferenceNode(annotation)) {
+      return;
+    }
+    const annotationName = annotation.typeName.getText(parsed);
+    if (annotationName !== CONTRACT_TYPE_NAME && annotationName !== SLOT_PROPS_TYPE_NAME) {
       return;
     }
     if (!ts.isObjectLiteralExpression(node.initializer)) {
       return;
     }
+    const literal =
+      annotationName === CONTRACT_TYPE_NAME
+        ? node.initializer
+        : contractLiteralOf(node.initializer, parsed, literalsByName);
     found.push({
       module,
       name: node.name.getText(parsed),
-      members: stringMembersOf(node.initializer, parsed, literalsByName),
+      members:
+        literal === undefined
+          ? new Map<string, string>()
+          : stringMembersOf(literal, parsed, literalsByName),
     });
   });
   return found;
@@ -213,6 +272,51 @@ describe("owner-slot contracts — developer prose, and no governance id in any 
       expect(members?.get(member) ?? "", `${member} was not resolved`).not.toBe("");
     }
     expect(GOVERNANCE_ID.test(members?.get("owningTask") ?? "")).toBe(true);
+  });
+
+  it("planted control: a paired seat's nested contract is swept, not skipped", () => {
+    // The other half the tree cannot prove once every declaration is clean, and the one
+    // that was actually broken: a seat whose contract travels beside a body was invisible
+    // to a resolver reading only the outer annotation, so both cases above passed over
+    // four real declarations. Driven through the real resolver with a paired source whose
+    // verdict is known.
+    const paired = [
+      "export const PAIRED_SLOT: OwnerSlotProps<PageBody> = {",
+      "  contract: {",
+      "    owningTask: 'Plan-030 (mounted through CP-023-6)',",
+      "    mountObligation: 'a bounded region and the subject, and nothing else',",
+      "    deleteShellIn: 'the editor task that fills this slot',",
+      "  },",
+      "  body: undefined,",
+      "};",
+    ].join("\n");
+
+    const resolved = declaredContractsIn("paired.ts", paired);
+
+    expect(resolved).toHaveLength(1);
+    const members = resolved[0]?.members;
+    for (const member of CONTRACT_MEMBERS) {
+      expect(members?.get(member) ?? "", `${member} was not resolved`).not.toBe("");
+    }
+    expect(GOVERNANCE_ID.test(members?.get("owningTask") ?? "")).toBe(true);
+  });
+
+  it("planted control: a paired seat whose contract cannot be read fails rather than passes", () => {
+    // The disposition that decides whether an unreadable literal is a false green. A
+    // contract composed at runtime resolves to no members, which is what the
+    // completeness case fails on — so the gate reports what it could not read instead of
+    // reporting it clean.
+    const opaque = [
+      "export const OPAQUE_SLOT: OwnerSlotProps<PageBody> = {",
+      "  contract: contractFor('accounts'),",
+      "  body: undefined,",
+      "};",
+    ].join("\n");
+
+    const resolved = declaredContractsIn("opaque.ts", opaque);
+
+    expect(resolved).toHaveLength(1);
+    expect([...(resolved[0]?.members ?? [])]).toStrictEqual([]);
   });
 
   it("negative control: the needle matches the shape it is looking for", () => {

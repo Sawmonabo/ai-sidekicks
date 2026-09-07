@@ -39,10 +39,17 @@ export type SidekickDefinitionEditorBody = (
  */
 export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionEditorBody> = {
   contract: {
-    owningTask: "Plan-030 (mounted through CP-023-6)",
+    // The owning plan is named by its SUBJECT rather than by its number, on the
+    // `workflows/owner-slots.ts` precedent: every member here is a runtime string in a
+    // shipped module, and this repository keeps governance identifiers in comments —
+    // which is where the numbers belong and where they are. Plan-030 owns the
+    // sidekick-definition registry and its editor body; CP-023-6 is the obligation
+    // under which this console mounts it.
+    owningTask:
+      "the sidekick-definitions and peer-invocation plan's own editor body, mounted through this console's editor obligation",
     mountObligation:
       "a bounded region inside the agent console, the agent id the pane is scoped to, and nothing else; the body owns the definition read, every field, and every refusal",
-    deleteShellIn: "the Plan-030 editor task that fills this slot",
+    deleteShellIn: "the editor task that fills this slot",
   },
   body: undefined,
 };

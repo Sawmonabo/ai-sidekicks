@@ -2,9 +2,10 @@
 // shape — the two shells are the same arrangement, and the reasoning is written once
 // there rather than paraphrased here.
 //
-// One sibling reader (`provider-accounts-slot.ts`), so one published name; the sheet
-// enters through the door because the door is what makes this directory an owner; and
-// the whole directory, this file included, is deleted by the task that fills the slot.
+// The door is here to give the stylesheet a module the fixture-corpus declaration can
+// drop, not because a sibling reads the directory; one published name, because that is
+// what the slot takes; and the whole directory, this file included, is deleted by the
+// task that fills the slot.
 
 import "./provider-accounts-shell.css";
 

@@ -228,16 +228,6 @@ describe("the accounts page — the seat it mounts", () => {
     expect(contract.deleteShellIn).toContain("provider-accounts/shell/");
   });
 
-  it("carries no governance identifier in any of the three runtime strings", () => {
-    // The rule the phrasing above exists for, asserted over the contract itself rather
-    // than over what a page renders: the render case above covers the screen, and a
-    // string that never reaches one is still a shipped runtime string.
-    const { contract } = PROVIDER_ACCOUNTS_PAGE_SLOT;
-    for (const member of [contract.owningTask, contract.mountObligation, contract.deleteShellIn]) {
-      expect(member).not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP|I|T)-\d/u);
-    }
-  });
-
   it("carries the stand-in body under the fixture define and nothing without it", () => {
     // This tier compiles `__SIDEKICKS_CONSOLE_FIXTURES__` as `true`, so the seat here
     // holds the shell; a release renderer folds the same expression to `undefined` and
